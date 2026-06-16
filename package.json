@@ -1,0 +1,49 @@
+{
+  "name": "@av-pi-studio/root",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pi-Studio — self-hosted local-first system for running and controlling the Pi AI coding agent",
+  "license": "AGPL-3.0",
+  "workspaces": [
+    "packages/protocol",
+    "packages/client",
+    "packages/server",
+    "packages/app",
+    "packages/cli",
+    "packages/desktop",
+    "packages/relay",
+    "packages/highlight"
+  ],
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "build:protocol": "tsc -b packages/protocol",
+    "build:highlight": "tsc -b packages/highlight",
+    "build:relay": "tsc -b packages/relay",
+    "build:client": "tsc -b packages/client",
+    "build:server": "tsc -b packages/server",
+    "build:cli": "tsc -b packages/cli",
+    "build": "npm run build:protocol && npm run build:highlight && npm run build:relay && npm run build:client && npm run build:server && npm run build:cli",
+    "start": "npm run build:server && node packages/server/dist/daemon/main.js",
+    "start:server": "node packages/server/dist/daemon/main.js",
+    "dev:daemon": "npm run build:server && node packages/server/dist/daemon/dev-main.js",
+    "poc": "node poc/serve.mjs",
+    "clean": "tsc -b --clean && rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

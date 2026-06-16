@@ -1,0 +1,14 @@
+{
+  "name": "@av-pi-studio/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@av-pi-studio/client": "*",
+    "@av-pi-studio/protocol": "*"
+  }
+}

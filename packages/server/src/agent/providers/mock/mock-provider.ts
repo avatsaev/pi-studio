@@ -1,0 +1,222 @@
+import { randomUUID } from "node:crypto";
+
+import type {
+  AgentCapabilityFlags,
+  AgentSessionConfig,
+  AgentStreamEvent,
+} from "@av-pi-studio/protocol";
+
+import type {
+  AgentClient,
+  AgentModeDefinition,
+  AgentModelDefinition,
+  AgentSession,
+  CreateSessionOptions,
+  LaunchContext,
+  PendingPermission,
+  PersistenceHandle,
+  ProviderRuntimeInfo,
+  Unsubscribe,
+} from "../../provider-contract.js";
+
+/**
+ * In-process `mock` provider (features/agent-providers.md § Provider entry — dev/test only). It
+ * implements the `AgentClient`/`AgentSession` contracts in memory and emits a scripted turn. Never
+ * user-selectable in production paths.
+ */
+
+export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
+  supportsStreaming: true,
+  supportsSessionPersistence: true,
+  supportsDynamicModes: true,
+  supportsMcpServers: false,
+  supportsReasoningStream: true,
+  supportsToolInvocations: true,
+};
+
+const MOCK_MODES: AgentModeDefinition[] = [
+  { id: "default", label: "Default" },
+  { id: "plan", label: "Plan" },
+];
+
+export interface MockSessionOptions {
+  /** Delay before a started turn completes (ms). Small but non-zero so `interrupt` can win. */
+  turnDelayMs?: number;
+}
+
+class MockAgentSession implements AgentSession {
+  readonly provider = "mock";
+  readonly id = randomUUID();
+  readonly capabilities = MOCK_CAPABILITIES;
+
+  private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
+  private readonly history: AgentStreamEvent[] = [];
+  private readonly turnDelayMs: number;
+  private activeTurn: string | null = null;
+  private completionTimer: ReturnType<typeof setTimeout> | null = null;
+  private mode = "default";
+  private closed = false;
+
+  constructor(
+    private readonly config: AgentSessionConfig,
+    options: MockSessionOptions = {},
+  ) {
+    this.turnDelayMs = options.turnDelayMs ?? 5;
+  }
+
+  private emit(event: AgentStreamEvent): void {
+    this.history.push(event);
+    for (const cb of this.subscribers) cb(event);
+  }
+
+  subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe {
+    this.subscribers.add(cb);
+    return () => this.subscribers.delete(cb);
+  }
+
+  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
+    for (const event of this.history) yield event;
+  }
+
+  startTurn(prompt: string): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    this.activeTurn = turnId;
+    this.emit({ kind: "turn_started", turnId });
+
+    this.completionTimer = setTimeout(() => {
+      if (this.activeTurn !== turnId) return;
+      this.emit({ kind: "assistant_message", messageId: randomUUID(), text: `echo: ${prompt}` });
+      this.emit({ kind: "turn_completed", turnId });
+      this.activeTurn = null;
+      this.completionTimer = null;
+    }, this.turnDelayMs);
+
+    return Promise.resolve({ turnId });
+  }
+
+  /** Convenience: start a turn and resolve when it reaches a terminal event. */
+  run(prompt: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const unsub = this.subscribe((event) => {
+        if (
+          event.kind === "turn_completed" ||
+          event.kind === "turn_failed" ||
+          event.kind === "turn_canceled"
+        ) {
+          unsub();
+          resolve();
+        }
+      });
+      void this.startTurn(prompt);
+    });
+  }
+
+  interrupt(): Promise<void> {
+    if (this.activeTurn) {
+      if (this.completionTimer) clearTimeout(this.completionTimer);
+      const turnId = this.activeTurn;
+      this.activeTurn = null;
+      this.completionTimer = null;
+      this.emit({ kind: "turn_canceled", turnId });
+    }
+    return Promise.resolve();
+  }
+
+  getRuntimeInfo(): ProviderRuntimeInfo {
+    return {
+      provider: this.provider,
+      sessionId: this.id,
+      model: this.config.model ?? "mock-model",
+      modeId: this.mode,
+    };
+  }
+
+  getAvailableModes(): AgentModeDefinition[] {
+    return MOCK_MODES;
+  }
+
+  getCurrentMode(): string | null {
+    return this.mode;
+  }
+
+  setMode(id: string): Promise<void> {
+    this.mode = id;
+    return Promise.resolve();
+  }
+
+  getPendingPermissions(): PendingPermission[] {
+    return [];
+  }
+
+  respondToPermission(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  describePersistence(): PersistenceHandle | null {
+    return { provider: this.provider, sessionId: this.id, nativeHandle: `mock:${this.id}` };
+  }
+
+  close(): Promise<void> {
+    this.closed = true;
+    if (this.completionTimer) clearTimeout(this.completionTimer);
+    this.completionTimer = null;
+    this.activeTurn = null;
+    this.subscribers.clear();
+    return Promise.resolve();
+  }
+
+  isClosed(): boolean {
+    return this.closed;
+  }
+}
+
+export class MockAgentClient implements AgentClient {
+  readonly provider = "mock";
+  readonly capabilities = MOCK_CAPABILITIES;
+
+  constructor(private readonly options: MockSessionOptions = {}) {}
+
+  createSession(
+    config: AgentSessionConfig,
+    _launchContext?: LaunchContext,
+    _options?: CreateSessionOptions,
+  ): Promise<AgentSession> {
+    return Promise.resolve(new MockAgentSession(config, this.options));
+  }
+
+  resumeSession(_handle: PersistenceHandle): Promise<AgentSession> {
+    return Promise.resolve(
+      new MockAgentSession({ provider: "mock", cwd: ".", model: "mock-model" }, this.options),
+    );
+  }
+
+  listModels(): Promise<AgentModelDefinition[]> {
+    return Promise.resolve([{ id: "mock-model", label: "Mock Model" }]);
+  }
+
+  listModes(): Promise<AgentModeDefinition[]> {
+    return Promise.resolve(MOCK_MODES);
+  }
+
+  isAvailable(): boolean {
+    return true;
+  }
+
+  async importSession(args: { providerHandleId: string; cwd: string }): Promise<{
+    session: import("../../provider-contract.js").AgentSession;
+    persistence: import("../../provider-contract.js").PersistenceHandle;
+    timeline: import("@av-pi-studio/protocol").AgentStreamEvent[];
+  }> {
+    const session = new MockAgentSession({ provider: "mock", cwd: args.cwd }, this.options);
+    return {
+      session,
+      persistence: { provider: "mock", sessionId: session.id, nativeHandle: `mock:${session.id}` },
+      timeline: [],
+    };
+  }
+}
+
+/** Factory matching the provider-registry signature `(logger, runtimeSettings, options)`. */
+export function createMockClient(): MockAgentClient {
+  return new MockAgentClient();
+}

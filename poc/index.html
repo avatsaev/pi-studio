@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pi-Studio — UI POC</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #14161a;
+        color: #d6dae0;
+      }
+      header {
+        padding: 8px 12px;
+        background: #1c1f26;
+        border-bottom: 1px solid #2c313b;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      header b { color: #8ab4f8; }
+      .layout { display: flex; height: calc(100vh - 47px); }
+      .panels { width: 56%; overflow-y: auto; padding: 10px; }
+      .log { flex: 1; overflow-y: auto; padding: 10px; background: #0f1115; border-left: 1px solid #2c313b; }
+      fieldset { border: 1px solid #2c313b; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+      legend { color: #9aa4b2; padding: 0 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+      .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+      input, select, textarea, button {
+        font: inherit;
+        background: #1c1f26;
+        color: #d6dae0;
+        border: 1px solid #353b46;
+        border-radius: 4px;
+        padding: 4px 6px;
+      }
+      input, select { min-width: 90px; }
+      textarea { width: 100%; min-height: 42px; resize: vertical; }
+      button { cursor: pointer; background: #25303f; border-color: #38506e; }
+      button:hover { background: #2d3d52; }
+      button.primary { background: #2d5fa6; border-color: #3f7bd0; color: #fff; }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
+      label { color: #9aa4b2; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #c0392b; }
+      .dot.on { background: #27ae60; }
+      .entry { border-bottom: 1px solid #1c1f26; padding: 3px 0; white-space: pre-wrap; word-break: break-word; }
+      .entry .t { color: #5b6470; }
+      .tag { display: inline-block; border-radius: 3px; padding: 0 5px; margin-right: 5px; font-size: 11px; }
+      .tag.out { background: #1e3a5f; color: #8ab4f8; }
+      .tag.in { background: #2a3b22; color: #a3d977; }
+      .tag.err { background: #4a1f1f; color: #ff8a80; }
+      .tag.evt { background: #3a2f12; color: #f0c674; }
+      .muted { color: #6b7280; }
+      .clearbtn { margin-left: auto; }
+      h4 { margin: 2px 0 6px; color: #cbd2dc; }
+      .pill { font-size: 11px; color: #9aa4b2; }
+      /* chat */
+      #chat-log { height: 280px; overflow-y: auto; background: #0f1115; border: 1px solid #2c313b; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
+      .msg { margin: 6px 0; padding: 6px 9px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; max-width: 92%; }
+      .msg.user { background: #1e3a5f; color: #dbe9ff; margin-left: auto; }
+      .msg.assistant { background: #20262f; color: #e6eaf0; }
+      .msg.assistant.streaming { border-left: 2px solid #3f7bd0; }
+      .msg.tool { background: #2a2410; color: #f0c674; font-size: 12px; }
+      .msg.reasoning { background: #181b21; color: #8a93a3; font-style: italic; font-size: 12px; }
+      .msg.err { background: #4a1f1f; color: #ff8a80; }
+      .msg .who { font-size: 10px; opacity: 0.6; display: block; margin-bottom: 2px; text-transform: uppercase; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Pi-Studio POC</b>
+      <span class="dot" id="dot"></span>
+      <span id="status" class="muted">disconnected</span>
+      <input id="host" value="ws://127.0.0.1:6767" size="22" />
+      <input id="password" placeholder="password (optional)" size="16" />
+      <button class="primary" id="connect">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <span id="serverinfo" class="pill"></span>
+    </header>
+
+    <div class="layout">
+      <div class="panels" id="panels"></div>
+      <div class="log">
+        <div class="row">
+          <h4 style="margin:0">Event log</h4>
+          <label><input type="checkbox" id="autoscroll" checked /> autoscroll</label>
+          <button class="clearbtn" id="clear">clear</button>
+        </div>
+        <div id="entries"></div>
+      </div>
+    </div>
+
+    <script>
+      // ─── WebSocket protocol client ────────────────────────────────────────────
+      let ws = null;
+      let reqId = 0;
+      const pending = new Map();
+
+      const $ = (id) => document.getElementById(id);
+      const entries = $("entries");
+
+      function log(kind, label, data) {
+        const div = document.createElement("div");
+        div.className = "entry";
+        const tag = `<span class="tag ${kind}">${kind.toUpperCase()}</span>`;
+        const time = new Date().toLocaleTimeString();
+        const body =
+          data === undefined
+            ? ""
+            : typeof data === "string"
+              ? data
+              : JSON.stringify(data, null, 2);
+        div.innerHTML = `${tag}<span class="muted">${time}</span> <b>${label}</b>\n${escapeHtml(body)}`;
+        entries.appendChild(div);
+        if ($("autoscroll").checked) $("entries").parentElement.scrollTop = 1e9;
+      }
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      }
+
+      function setConnected(on, info) {
+        $("dot").className = "dot" + (on ? " on" : "");
+        $("status").textContent = on ? "connected" : "disconnected";
+        $("connect").disabled = on;
+        $("disconnect").disabled = !on;
+        if (info) $("serverinfo").textContent = `server ${info.serverId ?? "?"} v${info.version ?? "?"}`;
+        else $("serverinfo").textContent = "";
+      }
+
+      function connect() {
+        const host = $("host").value.trim();
+        const password = $("password").value.trim();
+        const protocols = password ? ["pi-studio.bearer." + password] : undefined;
+        ws = protocols ? new WebSocket(host, protocols) : new WebSocket(host);
+        ws.onopen = () => {
+          log("out", "hello", { clientType: "browser" });
+          ws.send(
+            JSON.stringify({
+              type: "hello",
+              clientId: "poc-" + Math.random().toString(36).slice(2, 8),
+              clientType: "browser",
+              protocolVersion: 1,
+              capabilities: {},
+            }),
+          );
+        };
+        ws.onmessage = (ev) => {
+          let env;
+          try {
+            env = JSON.parse(ev.data);
+          } catch {
+            log("evt", "binary/non-json frame", String(ev.data).slice(0, 80));
+            return;
+          }
+          if (env.type === "status" && env.payload?.status === "server_info") {
+            setConnected(true, env.payload);
+            log("in", "server_info", env.payload);
+            return;
+          }
+          if (env.type === "pong") return;
+          if (env.type === "session") {
+            const m = env.message;
+            const rid = m?.requestId;
+            if (rid && pending.has(rid)) {
+              const { resolve, reject, label } = pending.get(rid);
+              pending.delete(rid);
+              if (m.type === "rpc_error") {
+                log("err", label + " ✗", m.message || m.error);
+                reject(new Error(m.message || "rpc_error"));
+              } else {
+                log("in", label + " ✓", m.payload ?? m);
+                resolve(m.payload ?? m);
+              }
+              return;
+            }
+            // Uncorrelated broadcast (streams, updates).
+            renderBroadcast(m);
+          }
+        };
+        ws.onclose = (e) => {
+          setConnected(false);
+          log("err", "socket closed", `${e.code} ${e.reason}`);
+        };
+        ws.onerror = () => log("err", "socket error", "");
+      }
+
+      function renderBroadcast(m) {
+        if (!m || typeof m !== "object") return;
+        if (m.type === "agent_stream" && m.event) {
+          chatOnStream(m);
+          const e = m.event;
+          let text = e.kind;
+          if (e.text) text += ": " + e.text;
+          else if (e.tool) text += ": [" + e.tool.kind + "] " + (e.tool.command || e.tool.path || e.tool.query || e.tool.url || "");
+          else if (e.error) text += ": " + e.error;
+          log("evt", `agent_stream ${m.agentId?.slice(0, 8) ?? ""}`, text);
+          return;
+        }
+        log("evt", m.type ?? "broadcast", m);
+      }
+
+      // Agent turns (create_agent_request / send_agent_prompt) only resolve once the *entire* turn
+      // finishes, which can take minutes. Quick RPCs use the short default; turn-running RPCs pass a
+      // long timeout so a normal multi-minute turn isn't reported as a failure.
+      const DEFAULT_RPC_TIMEOUT = 30000;
+      const TURN_RPC_TIMEOUT = 30 * 60 * 1000;
+
+      function rpc(type, params = {}, label, timeoutMs = DEFAULT_RPC_TIMEOUT) {
+        return new Promise((resolve, reject) => {
+          if (!ws || ws.readyState !== 1) return reject(new Error("not connected"));
+          const requestId = "rq" + ++reqId;
+          pending.set(requestId, { resolve, reject, label: label || type });
+          log("out", label || type, params);
+          ws.send(JSON.stringify({ type: "session", message: { type, requestId, ...params } }));
+          setTimeout(() => {
+            if (pending.has(requestId)) {
+              pending.delete(requestId);
+              reject(new Error("timeout"));
+              log("err", (label || type) + " timeout", "");
+            }
+          }, timeoutMs);
+        });
+      }
+
+      $("connect").onclick = connect;
+      $("disconnect").onclick = () => ws && ws.close();
+      $("clear").onclick = () => (entries.innerHTML = "");
+
+      // ─── Panels ─────────────────────────────────────────────────────────────────
+      const cwdDefault = "";
+      const panels = $("panels");
+
+      function panel(title, html) {
+        const fs = document.createElement("fieldset");
+        fs.innerHTML = `<legend>${title}</legend>${html}`;
+        panels.appendChild(fs);
+        return fs;
+      }
+      // Wire helper: bind a button id to an async fn.
+      function on(id, fn) {
+        const el = $(id);
+        if (el) el.onclick = () => fn().catch((e) => log("err", id + " failed", e.message));
+      }
+      const val = (id) => $(id).value.trim();
+
+      // ─── Chat (streaming) ─────────────────────────────────────────────────────────
+      panel(
+        "Chat (streaming)",
+        `<div id="chat-log"></div>
+        <div class="row">
+          <label>provider</label>
+          <select id="chat-provider"><option>pi</option><option>mock</option></select>
+          <label>cwd</label><input id="chat-cwd" placeholder="(server cwd)" value="~" size="14" />
+          <span id="chat-agent" class="pill"></span>
+          <button id="chat-new" class="clearbtn">new conversation</button>
+        </div>
+        <textarea id="chat-input" placeholder="Type a message and press Enter (Shift+Enter for newline)"></textarea>
+        <div class="row"><button class="primary" id="chat-send">Send</button>
+          <button id="chat-stop">stop</button></div>`,
+      );
+
+      const chatLog = $("chat-log");
+      let chatAgentId = null;
+      let expectingAgent = false;
+      // Open streaming bubbles for the current turn. Bubbles are created lazily, in true arrival
+      // order, so tool calls and assistant text interleave chronologically. A tool call's
+      // started/running/completed events collapse into one bubble (keyed by callId).
+      let currentAssistant = null;
+      let currentReasoning = null;
+      let toolEls = new Map();
+
+      function chatBubble(kind, who) {
+        const div = document.createElement("div");
+        div.className = "msg " + kind;
+        if (who) div.innerHTML = `<span class="who">${who}</span>`;
+        chatLog.appendChild(div);
+        chatLog.scrollTop = 1e9;
+        return div;
+      }
+      function chatAppendText(el, text) {
+        el.appendChild(document.createTextNode(text));
+        chatLog.scrollTop = 1e9;
+      }
+
+      function renderChatEvent(e) {
+        switch (e.kind) {
+          case "turn_started":
+            // Don't pre-create the assistant bubble; let it appear when text actually streams so it
+            // lands in the right place relative to tool calls.
+            currentAssistant = null;
+            currentReasoning = null;
+            toolEls = new Map();
+            break;
+          case "assistant_message":
+            currentReasoning = null;
+            if (!currentAssistant) currentAssistant = chatBubble("assistant streaming", "assistant");
+            chatAppendText(currentAssistant, e.text || "");
+            break;
+          case "reasoning":
+            currentAssistant = null;
+            if (!currentReasoning) currentReasoning = chatBubble("reasoning", "thinking");
+            chatAppendText(currentReasoning, e.text || "");
+            break;
+          case "tool_call": {
+            // A tool call closes any open text/reasoning bubble so following text starts below it.
+            currentAssistant = null;
+            currentReasoning = null;
+            const t = e.tool || {};
+            const detail = t.command || t.path || t.query || t.url || t.description || "";
+            const key = e.callId || t.kind + ":" + detail;
+            let el = toolEls.get(key);
+            if (!el) {
+              el = chatBubble("tool", `tool ${t.kind || ""}`);
+              if (detail) el.append(detail);
+              toolEls.set(key, el);
+            }
+            const who = el.querySelector(".who");
+            if (who) who.textContent = `tool ${t.kind || ""}${e.status ? " · " + e.status : ""}`;
+            if (e.status === "error") el.classList.add("err");
+            break;
+          }
+          case "turn_completed":
+            if (currentAssistant) currentAssistant.classList.remove("streaming");
+            currentAssistant = null;
+            currentReasoning = null;
+            break;
+          case "turn_failed":
+            chatBubble("err", "turn failed").append(e.error || "");
+            currentAssistant = null;
+            currentReasoning = null;
+            break;
+          case "turn_canceled":
+            if (currentAssistant) currentAssistant.classList.remove("streaming");
+            chatBubble("reasoning", "").append("(canceled)");
+            currentAssistant = null;
+            currentReasoning = null;
+            break;
+          case "error":
+            chatBubble("err", "error").append(e.message || "error");
+            break;
+        }
+      }
+
+      function chatOnStream(m) {
+        if (!m.agentId || !m.event) return;
+        if (chatAgentId && m.agentId !== chatAgentId) return;
+        if (!chatAgentId) {
+          if (!expectingAgent) return; // a stream from the Agents panel, not our chat
+          chatAgentId = m.agentId;
+          expectingAgent = false;
+          $("chat-agent").textContent = "agent " + chatAgentId.slice(0, 8);
+        }
+        renderChatEvent(m.event);
+      }
+
+      function sendChat() {
+        const text = $("chat-input").value.trim();
+        if (!text) return;
+        if (!ws || ws.readyState !== 1) {
+          chatBubble("err", "").append("not connected");
+          return;
+        }
+        $("chat-input").value = "";
+        chatBubble("user", "you").append(text);
+        if (!chatAgentId) {
+          expectingAgent = true;
+          // create_agent_request resolves only when the first turn ends; streaming drives the UI,
+          // so we don't block on it and we ignore a client-side timeout.
+          rpc(
+            "create_agent_request",
+            { config: { provider: $("chat-provider").value, cwd: val("chat-cwd") || undefined }, initialPrompt: text },
+            "chat:create",
+            TURN_RPC_TIMEOUT,
+          )
+            .then((r) => {
+              if (r && r.agentId) {
+                chatAgentId = r.agentId;
+                $("chat-agent").textContent = "agent " + chatAgentId.slice(0, 8);
+              }
+            })
+            .catch(() => {});
+        } else {
+          rpc("send_agent_prompt", { agentId: chatAgentId, prompt: text }, "chat:send", TURN_RPC_TIMEOUT).catch(
+            () => {},
+          );
+        }
+      }
+
+      $("chat-send").onclick = sendChat;
+      $("chat-stop").onclick = () => {
+        if (chatAgentId) rpc("interrupt_agent", { agentId: chatAgentId }, "chat:stop").catch(() => {});
+      };
+      $("chat-new").onclick = () => {
+        chatAgentId = null;
+        expectingAgent = false;
+        currentAssistant = null;
+        currentReasoning = null;
+        toolEls = new Map();
+        chatLog.innerHTML = "";
+        $("chat-agent").textContent = "";
+      };
+      $("chat-input").addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" && !ev.shiftKey) {
+          ev.preventDefault();
+          sendChat();
+        }
+      });
+
+      // Providers
+      panel(
+        "Providers",
+        `<div class="row">
+          <button id="p-list">list_providers</button>
+          <input id="p-provider" value="pi" size="6" />
+          <button id="p-models">list_models</button>
+        </div>`,
+      );
+      on("p-list", () => rpc("list_providers"));
+      on("p-models", () => rpc("list_models", { providerId: val("p-provider") }));
+
+      // Agents
+      panel(
+        "Agents",
+        `<div class="row">
+          <label>provider</label>
+          <select id="a-provider"><option>pi</option><option>mock</option></select>
+          <label>model</label><input id="a-model" placeholder="(optional)" size="10" />
+          <label>cwd</label><input id="a-cwd" placeholder="(server cwd)" size="16" />
+        </div>
+        <textarea id="a-prompt" placeholder="initial prompt">say hello and stop</textarea>
+        <div class="row">
+          <button class="primary" id="a-run">run (create_agent)</button>
+          <button id="a-list">ls</button>
+          <button id="a-listall">ls -a</button>
+        </div>
+        <div class="row">
+          <label>agentId</label><input id="a-id" size="30" />
+          <button id="a-inspect">inspect</button>
+          <button id="a-archive">archive</button>
+          <button id="a-stop">stop</button>
+          <button id="a-wait">wait</button>
+        </div>
+        <textarea id="a-follow" placeholder="follow-up prompt"></textarea>
+        <div class="row"><button id="a-send">send prompt</button>
+          <button id="a-logs">timeline (fetch)</button></div>`,
+      );
+      on("a-run", async () => {
+        const config = { provider: val("a-provider"), cwd: val("a-cwd") || undefined };
+        if (val("a-model")) config.model = val("a-model");
+        const r = await rpc("create_agent_request", { config, initialPrompt: val("a-prompt") }, "create_agent_request", TURN_RPC_TIMEOUT);
+        if (r.agentId) $("a-id").value = r.agentId;
+      });
+      on("a-list", () => rpc("list_agents_request", { all: false }));
+      on("a-listall", () => rpc("list_agents_request", { all: true }));
+      on("a-inspect", () => rpc("inspect_agent_request", { agentId: val("a-id") }));
+      on("a-archive", () => rpc("archive_agent", { agentId: val("a-id") }));
+      on("a-stop", () => rpc("interrupt_agent", { agentId: val("a-id") }));
+      on("a-wait", () => rpc("wait_for_agent", { agentId: val("a-id") }));
+      on("a-send", () => rpc("send_agent_prompt", { agentId: val("a-id"), prompt: val("a-follow") }, "send_agent_prompt", TURN_RPC_TIMEOUT));
+      on("a-logs", () =>
+        rpc("fetch_agent_timeline_request", { agentId: val("a-id"), direction: "backward", limit: 50 }),
+      );
+
+      // Terminals
+      panel(
+        "Terminals",
+        `<div class="row">
+          <label>cwd</label><input id="t-cwd" placeholder="(server cwd)" size="16" />
+          <button class="primary" id="t-create">create</button>
+          <button id="t-list">ls</button>
+        </div>
+        <div class="row">
+          <label>slot</label><input id="t-slot" size="4" />
+          <button id="t-cap">capture</button>
+          <button id="t-kill">kill</button>
+        </div>
+        <div class="row"><input id="t-keys" placeholder="keys to send (e.g. ls -la\\n)" size="24" />
+          <button id="t-send">send-keys</button></div>`,
+      );
+      on("t-create", async () => {
+        const r = await rpc("create_terminal_request", { cwd: val("t-cwd") || undefined });
+        const slot = r.terminal?.slot ?? r.slot ?? r.entry?.slot;
+        if (slot !== undefined) $("t-slot").value = slot;
+      });
+      on("t-list", () => rpc("list_terminals_request"));
+      on("t-cap", () => rpc("capture_terminal_request", { slot: Number(val("t-slot")) }));
+      on("t-kill", () => rpc("kill_terminal_request", { slot: Number(val("t-slot")) }));
+      on("t-send", () =>
+        rpc("terminal_input", { slot: Number(val("t-slot")), data: val("t-keys").replace(/\\n/g, "\n") }),
+      );
+
+      // Chat
+      panel(
+        "Chat rooms",
+        `<div class="row"><input id="c-name" placeholder="room name" size="12" />
+          <input id="c-purpose" placeholder="purpose" size="12" />
+          <button class="primary" id="c-create">create</button>
+          <button id="c-list">ls</button></div>
+        <div class="row"><label>roomId</label><input id="c-room" size="30" /></div>
+        <div class="row"><input id="c-msg" placeholder="message" size="24" />
+          <button id="c-post">post</button>
+          <button id="c-read">read</button></div>`,
+      );
+      on("c-create", async () => {
+        const r = await rpc("chat_create_request", { name: val("c-name"), purpose: val("c-purpose") });
+        if (r.room?.id) $("c-room").value = r.room.id;
+      });
+      on("c-list", () => rpc("chat_list_request"));
+      on("c-post", () => rpc("chat_post_request", { roomId: val("c-room"), message: val("c-msg"), from: "human" }));
+      on("c-read", () => rpc("chat_read_request", { roomId: val("c-room") }));
+
+      // Schedules
+      panel(
+        "Schedules",
+        `<div class="row"><input id="s-cron" value="*/5 * * * *" size="12" />
+          <input id="s-prompt" placeholder="prompt" size="18" />
+          <button class="primary" id="s-create">create</button>
+          <button id="s-list">ls</button></div>
+        <div class="row"><label>id</label><input id="s-id" size="14" />
+          <button id="s-pause">pause</button><button id="s-resume">resume</button>
+          <button id="s-once">run-once</button><button id="s-del">delete</button></div>`,
+      );
+      on("s-create", async () => {
+        const r = await rpc("schedule_create_request", { cron: val("s-cron"), prompt: val("s-prompt"), provider: val("a-provider") });
+        if (r.schedule?.id) $("s-id").value = r.schedule.id;
+      });
+      on("s-list", () => rpc("schedule_list_request"));
+      on("s-pause", () => rpc("schedule_pause_request", { scheduleId: val("s-id") }));
+      on("s-resume", () => rpc("schedule_resume_request", { scheduleId: val("s-id") }));
+      on("s-once", () => rpc("schedule_run_once_request", { scheduleId: val("s-id") }));
+      on("s-del", () => rpc("schedule_delete_request", { scheduleId: val("s-id") }));
+
+      // Loops
+      panel(
+        "Loops",
+        `<div class="row"><input id="l-prompt" placeholder="prompt" size="18" />
+          <input id="l-cwd" placeholder="cwd" size="12" />
+          <input id="l-max" value="2" size="3" />
+          <button class="primary" id="l-run">run</button>
+          <button id="l-list">ls</button></div>
+        <div class="row"><label>id</label><input id="l-id" size="14" />
+          <button id="l-inspect">inspect</button><button id="l-logs">logs</button>
+          <button id="l-stop">stop</button></div>`,
+      );
+      on("l-run", async () => {
+        const r = await rpc("loop_run_request", {
+          prompt: val("l-prompt"),
+          cwd: val("l-cwd") || undefined,
+          provider: val("a-provider"),
+          maxIterations: Number(val("l-max")) || 2,
+        });
+        if (r.loop?.id) $("l-id").value = r.loop.id;
+      });
+      on("l-list", () => rpc("loop_list_request"));
+      on("l-inspect", () => rpc("loop_inspect_request", { loopId: val("l-id") }));
+      on("l-logs", () => rpc("loop_logs_request", { loopId: val("l-id") }));
+      on("l-stop", () => rpc("loop_stop_request", { loopId: val("l-id") }));
+
+      // Projects / git / worktrees
+      panel(
+        "Projects · Git · Worktrees",
+        `<div class="row"><input id="pr-path" placeholder="/path/to/project" size="22" />
+          <button class="primary" id="pr-open">open_project</button></div>
+        <div class="row"><label>cwd</label><input id="g-cwd" placeholder="repo path" size="18" />
+          <button id="g-refresh">checkout_refresh</button></div>
+        <div class="row"><input id="w-name" placeholder="worktree name" size="12" />
+          <button id="w-create">worktree create</button>
+          <button id="w-list">worktree ls</button></div>`,
+      );
+      on("pr-open", () => rpc("open_project_request", { path: val("pr-path") }));
+      on("g-refresh", () => rpc("checkout_refresh_request", { cwd: val("g-cwd") }));
+      on("w-create", () => rpc("create_pistudio_worktree_request", { name: val("w-name") }));
+      on("w-list", () => rpc("pistudio_worktree_list_request"));
+
+      // Files
+      panel(
+        "Files",
+        `<div class="row"><input id="f-path" placeholder="/path" size="22" />
+          <button id="f-list">file_explorer</button>
+          <button id="f-token">download_token</button></div>`,
+      );
+      on("f-list", () => rpc("file_explorer_request", { path: val("f-path") }));
+      on("f-token", () => rpc("file_download_token_request", { path: val("f-path") }));
+
+      // Raw RPC
+      panel(
+        "Raw RPC",
+        `<div class="row"><input id="raw-type" placeholder="message type" size="22" /></div>
+        <textarea id="raw-params" placeholder='{"key":"value"}'></textarea>
+        <div class="row"><button class="primary" id="raw-send">send</button>
+          <button id="ping">ping</button></div>`,
+      );
+      on("raw-send", () => {
+        let params = {};
+        const raw = val("raw-params");
+        if (raw) params = JSON.parse(raw);
+        return rpc(val("raw-type"), params);
+      });
+      on("ping", () => {
+        ws.send(JSON.stringify({ type: "ping", requestId: "ping" + ++reqId, clientSentAt: Date.now() }));
+        log("out", "ping", "");
+      });
+
+      log("evt", "ready", "Set the host, click Connect. Default provider for agents is pi (switch to mock if Pi CLI isn't set up).");
+
+      // Optional ?host=ws://...&connect=1 to prefill + auto-connect (used by the screenshot harness).
+      (() => {
+        const qs = new URLSearchParams(location.search);
+        if (qs.get("host")) $("host").value = qs.get("host");
+        if (qs.get("password")) $("password").value = qs.get("password");
+        if (qs.get("provider")) $("chat-provider").value = qs.get("provider");
+        if (qs.get("connect") === "1") setTimeout(connect, 100);
+        // ?say=... auto-sends a chat message once connected (testing / screenshots).
+        const say = qs.get("say");
+        if (say) {
+          const tryStart = () => {
+            if (ws && ws.readyState === 1) {
+              $("chat-input").value = say;
+              sendChat();
+            } else {
+              setTimeout(tryStart, 200);
+            }
+          };
+          setTimeout(tryStart, 400);
+        }
+      })();
+    </script>
+  </body>
+</html>

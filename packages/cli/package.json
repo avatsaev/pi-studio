@@ -1,0 +1,32 @@
+{
+  "name": "@av-pi-studio/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "pi-studio": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@av-pi-studio/client": "*",
+    "@av-pi-studio/protocol": "*",
+    "bcryptjs": "^3.0.3",
+    "commander": "^14.0.3",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/qrcode": "^1.5.6"
+  }
+}
