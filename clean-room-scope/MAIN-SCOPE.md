@@ -1,4 +1,4 @@
-# Pi-Studio — Clean Room Technical Scope
+use # Pi-Studio — Clean Room Technical Scope
 
 > Clean-room specification. Describes behavior and contracts for independent reimplementation.
 > No source code is reproduced from the original project. Public names (routes, env vars, message
@@ -24,39 +24,40 @@ capability flags.
 
 ## 2. Tech Stack & Runtime
 
-| Concern | Choice | Notes |
-|---------|--------|-------|
-| Language(s) | TypeScript (ESM) | Strict typing; Zod runtime validation at all boundaries |
-| Daemon runtime | Node.js | Long-lived server process; spawns agent subprocesses |
-| Client framework | React 19 + React Native via Expo (Expo Router) | iOS, Android, web (browser), web (Electron) from one codebase |
-| Desktop wrapper | Electron | Bundles + manages its own daemon subprocess |
-| CLI | Commander.js | Docker-style commands; same WS protocol |
-| Transport | WebSocket (JSON text frames + small binary framing) | Direct or via relay |
-| Relay crypto | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), libsodium | Zero-knowledge relay |
-| Persistence | File-based JSON under `$PI_STUDIO_HOME` | Zod-validated, atomic temp-file rename; no DB, no migrations |
-| Package manager | npm workspaces (monorepo) | Cross-package generated `.d.ts` declarations |
-| Lint/format | oxlint / oxfmt | |
-| Styling (app) | Unistyles theme tokens | `useUnistyles()` forbidden; see original `docs/unistyles.md` |
-| Build (web/desktop) | Metro (platform file extensions `.web` / `.native` / `.electron`) | |
-| Website | TanStack Router + Cloudflare Workers | Marketing/docs (`pi-studio.sh`), out of scope here |
+| Concern             | Choice                                                            | Notes                                                         |
+| ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| Language(s)         | TypeScript (ESM)                                                  | Strict typing; Zod runtime validation at all boundaries       |
+| Daemon runtime      | Node.js                                                           | Long-lived server process; spawns agent subprocesses          |
+| Client framework    | React 19 + React Native via Expo (Expo Router)                    | iOS, Android, web (browser), web (Electron) from one codebase |
+| Desktop wrapper     | Electron                                                          | Bundles + manages its own daemon subprocess                   |
+| CLI                 | Commander.js                                                      | Docker-style commands; same WS protocol                       |
+| Transport           | WebSocket (JSON text frames + small binary framing)               | Direct or via relay                                           |
+| Relay crypto        | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), libsodium       | Zero-knowledge relay                                          |
+| Persistence         | File-based JSON under `$PI_STUDIO_HOME`                           | Zod-validated, atomic temp-file rename; no DB, no migrations  |
+| Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
+| Lint/format         | oxlint / oxfmt                                                    |                                                               |
+| Styling (app)       | Unistyles theme tokens                                            | `useUnistyles()` forbidden; see original `docs/unistyles.md`  |
+| Build (web/desktop) | Metro (platform file extensions `.web` / `.native` / `.electron`) |                                                               |
+| Website             | TanStack Router + Cloudflare Workers                              | Marketing/docs (`pi-studio.sh`), out of scope here            |
 
 Runtime requirement: the Pi agent CLI installed and authenticated by the user. The daemon
 defaults to listening on `127.0.0.1:6767`; `$PI_STUDIO_HOME` defaults to `~/.pi-studio`.
 
 ### Backend dependency policy
+
 The daemon prefers small, well-scoped third-party libraries over hand-rolled equivalents where they
 improve correctness or operability, and is **not** restricted to pure-JS dependencies. Adopted
 backend libraries (mirroring the reference daemon's stack):
 
-| Concern | Library | Why |
-|---------|---------|-----|
-| PTY terminals | **`node-pty`** (native) | Real TTY: `isatty`, SIGWINCH on resize, full-screen apps (vim/htop) work. Falls back to a piped `child_process` backend when the native module is unavailable. |
-| Terminal screen model | **`@xterm/headless`** | Server-side grid for screen-accurate `capture` (cursor moves / clears / redraws). |
-| Process teardown | **`tree-kill`** | Kill the whole PTY / agent process tree so dev servers and helpers don't orphan. |
-| Binary resolution | **`which`** | Cross-platform `$PATH` lookup (honors Windows PATHEXT) for shells/providers. |
-| Output sanitization | **`strip-ansi`** | Clean captured terminal text. |
-| Logging | **`pino`** + **`pino-pretty`** + **`rotating-file-stream`** | Structured leveled logs; pretty in dev, rotating NDJSON to `$PI_STUDIO_HOME/logs/` for the daemon. |
-| Bounded growth / fan-out | **`lru-cache`**, **`p-limit`** | Bounded caches (download tokens) + capped concurrency for multi-workspace I/O. |
+| Concern                  | Library                                                     | Why                                                                                                                                                            |
+| ------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PTY terminals            | **`node-pty`** (native)                                     | Real TTY: `isatty`, SIGWINCH on resize, full-screen apps (vim/htop) work. Falls back to a piped `child_process` backend when the native module is unavailable. |
+| Terminal screen model    | **`@xterm/headless`**                                       | Server-side grid for screen-accurate `capture` (cursor moves / clears / redraws).                                                                              |
+| Process teardown         | **`tree-kill`**                                             | Kill the whole PTY / agent process tree so dev servers and helpers don't orphan.                                                                               |
+| Binary resolution        | **`which`**                                                 | Cross-platform `$PATH` lookup (honors Windows PATHEXT) for shells/providers.                                                                                   |
+| Output sanitization      | **`strip-ansi`**                                            | Clean captured terminal text.                                                                                                                                  |
+| Logging                  | **`pino`** + **`pino-pretty`** + **`rotating-file-stream`** | Structured leveled logs; pretty in dev, rotating NDJSON to `$PI_STUDIO_HOME/logs/` for the daemon.                                                             |
+| Bounded growth / fan-out | **`lru-cache`**, **`p-limit`**                              | Bounded caches (download tokens) + capped concurrency for multi-workspace I/O.                                                                                 |
 
 Crypto stays pure-JS (`tweetnacl`); `bcryptjs` and `ws` are unchanged. `node-pty` is the one native
 module and ships prebuilt binaries for common platforms.
@@ -109,38 +110,38 @@ module and ships prebuilt binaries for common platforms.
 
 ## 4. Directory / Module Map
 
-| Path | Responsibility |
-|------|----------------|
-| `packages/server/src/server/bootstrap.ts` | Daemon init: HTTP server, WS server, agent manager, storage, relay |
-| `packages/server/src/server/websocket-server.ts` | WS connection mgmt, hello handshake, binary frame routing |
-| `packages/server/src/server/session.ts` | Per-client session state, subscriptions, terminal ops |
-| `packages/server/src/server/agent/agent-manager.ts` | Agent lifecycle state machine, timeline tracking, subscribers |
-| `packages/server/src/server/agent/agent-storage.ts` | File-backed agent JSON persistence |
-| `packages/server/src/server/agent/agent-timeline-store.ts` | Append-only timeline rows + sequence numbers + paging |
-| `packages/server/src/server/agent/mcp-server.ts` | MCP server tools for agent orchestration |
-| `packages/server/src/server/agent/providers/` | Pi provider adapter (+ in-process mock for tests) |
-| `packages/server/src/server/agent/provider-manifest.ts` | Provider/mode UI metadata + definitions |
-| `packages/server/src/server/agent/provider-registry.ts` | Provider client factories |
-| `packages/server/src/server/relay-transport.ts` | Outbound relay connection with E2EE |
-| `packages/server/src/server/schedule/` | Cron-based scheduled agents |
-| `packages/server/src/server/loop-service.ts` | Looping agent runs with verifiers |
-| `packages/server/src/server/chat/` | Chat rooms for agent↔agent / human↔agent messaging |
-| `packages/server/src/server/checkout/`, `workspace-git-service.ts` | Git status/diff/branch/PR operations |
-| `packages/server/src/server/worktree/`, `pi-studio-worktree-service.ts` | Pi-Studio-managed git worktrees |
-| `packages/server/src/server/workspace-registry.ts`, `*-reconciliation-service.ts` | Project/workspace registries |
-| `packages/server/src/server/service-proxy.ts`, `script-proxy.ts` | HTTP proxy to workspace services |
-| `packages/server/src/server/file-explorer/`, `file-download/`, `file-upload/` | File browsing + transfer |
-| `packages/server/src/terminal/` | PTY terminal manager (worker process), capture, restore |
-| `packages/protocol/src/messages.ts` | All WebSocket message Zod schemas |
-| `packages/protocol/src/binary-frames/`, `terminal-stream-protocol.ts` | Binary frame codecs |
-| `packages/protocol/src/client-capabilities.ts` | Client capability flag constants |
-| `packages/client/src/daemon-client.ts` | Low-level WS driver |
-| `packages/client/src/index.ts` | `Pi-StudioClient` SDK facade |
-| `packages/app/src/` | Expo client (screens, composer, timeline, runtime) |
-| `packages/app/src/runtime/`, `contexts/` | Host runtime controller, session context |
-| `packages/cli/src/commands/` | CLI command tree |
-| `packages/desktop/src/` | Electron main/preload, daemon supervision, features |
-| `packages/relay/src/` | E2EE channels, crypto, Cloudflare adapter |
+| Path                                                                              | Responsibility                                                     |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `packages/server/src/server/bootstrap.ts`                                         | Daemon init: HTTP server, WS server, agent manager, storage, relay |
+| `packages/server/src/server/websocket-server.ts`                                  | WS connection mgmt, hello handshake, binary frame routing          |
+| `packages/server/src/server/session.ts`                                           | Per-client session state, subscriptions, terminal ops              |
+| `packages/server/src/server/agent/agent-manager.ts`                               | Agent lifecycle state machine, timeline tracking, subscribers      |
+| `packages/server/src/server/agent/agent-storage.ts`                               | File-backed agent JSON persistence                                 |
+| `packages/server/src/server/agent/agent-timeline-store.ts`                        | Append-only timeline rows + sequence numbers + paging              |
+| `packages/server/src/server/agent/mcp-server.ts`                                  | MCP server tools for agent orchestration                           |
+| `packages/server/src/server/agent/providers/`                                     | Pi provider adapter (+ in-process mock for tests)                  |
+| `packages/server/src/server/agent/provider-manifest.ts`                           | Provider/mode UI metadata + definitions                            |
+| `packages/server/src/server/agent/provider-registry.ts`                           | Provider client factories                                          |
+| `packages/server/src/server/relay-transport.ts`                                   | Outbound relay connection with E2EE                                |
+| `packages/server/src/server/schedule/`                                            | Cron-based scheduled agents                                        |
+| `packages/server/src/server/loop-service.ts`                                      | Looping agent runs with verifiers                                  |
+| `packages/server/src/server/chat/`                                                | Chat rooms for agent↔agent / human↔agent messaging                 |
+| `packages/server/src/server/checkout/`, `workspace-git-service.ts`                | Git status/diff/branch/PR operations                               |
+| `packages/server/src/server/worktree/`, `pi-studio-worktree-service.ts`           | Pi-Studio-managed git worktrees                                    |
+| `packages/server/src/server/workspace-registry.ts`, `*-reconciliation-service.ts` | Project/workspace registries                                       |
+| `packages/server/src/server/service-proxy.ts`, `script-proxy.ts`                  | HTTP proxy to workspace services                                   |
+| `packages/server/src/server/file-explorer/`, `file-download/`, `file-upload/`     | File browsing + transfer                                           |
+| `packages/server/src/terminal/`                                                   | PTY terminal manager (worker process), capture, restore            |
+| `packages/protocol/src/messages.ts`                                               | All WebSocket message Zod schemas                                  |
+| `packages/protocol/src/binary-frames/`, `terminal-stream-protocol.ts`             | Binary frame codecs                                                |
+| `packages/protocol/src/client-capabilities.ts`                                    | Client capability flag constants                                   |
+| `packages/client/src/daemon-client.ts`                                            | Low-level WS driver                                                |
+| `packages/client/src/index.ts`                                                    | `Pi-StudioClient` SDK facade                                       |
+| `packages/app/src/`                                                               | Expo client (screens, composer, timeline, runtime)                 |
+| `packages/app/src/runtime/`, `contexts/`                                          | Host runtime controller, session context                           |
+| `packages/cli/src/commands/`                                                      | CLI command tree                                                   |
+| `packages/desktop/src/`                                                           | Electron main/preload, daemon supervision, features                |
+| `packages/relay/src/`                                                             | E2EE channels, crypto, Cloudflare adapter                          |
 
 ## 5. Data Model Overview
 
@@ -164,6 +165,7 @@ Terminal (PTY) ── workspace-scoped, binary stream
 ```
 
 Key files on disk:
+
 ```
 $PI_STUDIO_HOME/
 ├── config.json                        # Daemon config (mutable, Zod-validated)
@@ -184,27 +186,27 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 
 ## 6. External Integrations & Configuration
 
-| Integration | Purpose | Protocol/SDK | Notes |
-|-------------|---------|--------------|-------|
-| Pi | Provider (the only agent provider in scope) | `pi --mode rpc` | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
-| GitHub | PR/issue attach, PR create/merge | `gh` CLI / GitHub API | `services/github-service.ts` |
-| Relay | Remote access | WebSocket + NaCl box | Hosted or self-hosted (Go impl available) |
-| MCP clients | Agent-to-agent control | Model Context Protocol | Daemon hosts MCP server at `/mcp/agents` |
+| Integration | Purpose                                     | Protocol/SDK           | Notes                                                                                        |
+| ----------- | ------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
+| GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
+| Relay       | Remote access                               | WebSocket + NaCl box   | Hosted or self-hosted (Go impl available)                                                    |
+| MCP clients | Agent-to-agent control                      | Model Context Protocol | Daemon hosts MCP server at `/mcp/agents`                                                     |
 
 ### Configuration surface (selected env vars)
 
-| Env var / key | Required | Purpose | Default |
-|---------------|----------|---------|---------|
-| `PI_STUDIO_HOME` | No | State directory | `~/.pi-studio` |
-| `PI_STUDIO_LISTEN` | No | Daemon listen address | `127.0.0.1:6767` |
-| `PI_STUDIO_SERVER_ID` | No | Override stable daemon id | generated |
-| `PI_STUDIO_PASSWORD` | No | Shared-secret daemon password (bcrypt-hashed) | none |
-| `PI_STUDIO_HOSTNAMES` | No | Host header allowlist (comma-sep; `true` disables) | `localhost`, `*.localhost`, literal IPs |
-| `PI_STUDIO_RELAY_ENDPOINT` | No | Relay internal endpoint | — |
-| `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | No | Relay client-facing endpoint | — |
-| `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | No | Relay TLS | `false` |
-| `PI_STUDIO_SERVICE_PROXY_LISTEN` | No | Service proxy listener | — |
-| `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | No | Public service aliases | — |
+| Env var / key                                                | Required | Purpose                                            | Default                                 |
+| ------------------------------------------------------------ | -------- | -------------------------------------------------- | --------------------------------------- |
+| `PI_STUDIO_HOME`                                             | No       | State directory                                    | `~/.pi-studio`                          |
+| `PI_STUDIO_LISTEN`                                           | No       | Daemon listen address                              | `127.0.0.1:6767`                        |
+| `PI_STUDIO_SERVER_ID`                                        | No       | Override stable daemon id                          | generated                               |
+| `PI_STUDIO_PASSWORD`                                         | No       | Shared-secret daemon password (bcrypt-hashed)      | none                                    |
+| `PI_STUDIO_HOSTNAMES`                                        | No       | Host header allowlist (comma-sep; `true` disables) | `localhost`, `*.localhost`, literal IPs |
+| `PI_STUDIO_RELAY_ENDPOINT`                                   | No       | Relay internal endpoint                            | —                                       |
+| `PI_STUDIO_RELAY_PUBLIC_ENDPOINT`                            | No       | Relay client-facing endpoint                       | —                                       |
+| `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | No       | Relay TLS                                          | `false`                                 |
+| `PI_STUDIO_SERVICE_PROXY_LISTEN`                             | No       | Service proxy listener                             | —                                       |
+| `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL`                    | No       | Public service aliases                             | —                                       |
 
 Config file `config.json` (`PersistedConfigSchema`) holds daemon listen/auth/relay/cors/mcp,
 provider overrides (`agents.providers`), logging, worktree root, and `app.baseUrl`. Per-project `pi-studio.json` holds worktree `setup`/`teardown` commands and named
@@ -228,45 +230,47 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 ## 8. Sub-Scope Index
 
 ### Features
-| Scope file | Kind | Description |
-|------------|------|-------------|
-| [features/agent-sessions.md](features/agent-sessions.md) | feature | Create/run/stop/resume agents; prompts, modes, models, thinking, attachments |
-| [features/agent-providers.md](features/agent-providers.md) | feature | Pi provider adapter, modes/models/features, configuration |
-| [features/timeline-streaming.md](features/timeline-streaming.md) | feature | Append-only timeline, live stream, authoritative paged catch-up sync |
-| [features/tool-permissions.md](features/tool-permissions.md) | feature | Tool-call permission request/approve/deny flow |
-| [features/projects-workspaces.md](features/projects-workspaces.md) | feature | Project/workspace registries, reconciliation, open-project |
-| [features/worktrees.md](features/worktrees.md) | feature | Pi-Studio-managed git worktrees, setup/teardown, auto-archive |
-| [features/git-checkout.md](features/git-checkout.md) | feature | Git status/diff/branch/commit/push/pull/stash + GitHub PRs |
-| [features/terminals.md](features/terminals.md) | feature | Workspace PTY terminals over binary stream protocol |
-| [features/chat-rooms.md](features/chat-rooms.md) | feature | Agent↔agent / human↔agent chat with @mentions |
-| [features/schedules-heartbeats.md](features/schedules-heartbeats.md) | feature | Cron/interval scheduled agents and heartbeats |
-| [features/loops.md](features/loops.md) | feature | Iterative agent loops with shell + LLM verifiers |
-| [features/mcp-server.md](features/mcp-server.md) | feature | MCP tools exposing the daemon to agents |
-| [features/service-proxy.md](features/service-proxy.md) | feature | HTTP proxy to workspace dev services with generated hostnames |
-| [features/file-explorer-transfer.md](features/file-explorer-transfer.md) | feature | File browser + download/upload binary streams |
-| [features/subagents.md](features/subagents.md) | feature | Parent/child agents, subagents track, cascade archive |
-| [features/cli.md](features/cli.md) | feature | Commander.js CLI command surface |
-| [features/desktop-app.md](features/desktop-app.md) | feature | Electron shell: daemon supervision, windows, browser panes, updates |
-| [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA |
-| [features/workspace-ui.md](features/workspace-ui.md) | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding |
-| [features/timeline-rendering.md](features/timeline-rendering.md) | feature (UI) | Per-row rendering, tool-call cards, diffs, markdown, autoscroll, footers |
-| [features/composer-ui.md](features/composer-ui.md) | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice |
-| [features/feature-panels-ui.md](features/feature-panels-ui.md) | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
-| [features/ui-components.md](features/ui-components.md) | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback |
+
+| Scope file                                                               | Kind         | Description                                                                   |
+| ------------------------------------------------------------------------ | ------------ | ----------------------------------------------------------------------------- |
+| [features/agent-sessions.md](features/agent-sessions.md)                 | feature      | Create/run/stop/resume agents; prompts, modes, models, thinking, attachments  |
+| [features/agent-providers.md](features/agent-providers.md)               | feature      | Pi provider adapter, modes/models/features, configuration                     |
+| [features/timeline-streaming.md](features/timeline-streaming.md)         | feature      | Append-only timeline, live stream, authoritative paged catch-up sync          |
+| [features/tool-permissions.md](features/tool-permissions.md)             | feature      | Tool-call permission request/approve/deny flow                                |
+| [features/projects-workspaces.md](features/projects-workspaces.md)       | feature      | Project/workspace registries, reconciliation, open-project                    |
+| [features/worktrees.md](features/worktrees.md)                           | feature      | Pi-Studio-managed git worktrees, setup/teardown, auto-archive                 |
+| [features/git-checkout.md](features/git-checkout.md)                     | feature      | Git status/diff/branch/commit/push/pull/stash + GitHub PRs                    |
+| [features/terminals.md](features/terminals.md)                           | feature      | Workspace PTY terminals over binary stream protocol                           |
+| [features/chat-rooms.md](features/chat-rooms.md)                         | feature      | Agent↔agent / human↔agent chat with @mentions                                 |
+| [features/schedules-heartbeats.md](features/schedules-heartbeats.md)     | feature      | Cron/interval scheduled agents and heartbeats                                 |
+| [features/loops.md](features/loops.md)                                   | feature      | Iterative agent loops with shell + LLM verifiers                              |
+| [features/mcp-server.md](features/mcp-server.md)                         | feature      | MCP tools exposing the daemon to agents                                       |
+| [features/service-proxy.md](features/service-proxy.md)                   | feature      | HTTP proxy to workspace dev services with generated hostnames                 |
+| [features/file-explorer-transfer.md](features/file-explorer-transfer.md) | feature      | File browser + download/upload binary streams                                 |
+| [features/subagents.md](features/subagents.md)                           | feature      | Parent/child agents, subagents track, cascade archive                         |
+| [features/cli.md](features/cli.md)                                       | feature      | Commander.js CLI command surface                                              |
+| [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
+| [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
+| [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
+| [features/timeline-rendering.md](features/timeline-rendering.md)         | feature (UI) | Per-row rendering, tool-call cards, diffs, markdown, autoscroll, footers      |
+| [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
+| [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
+| [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 
 ### Architecture
-| Scope file | Kind | Description |
-|------------|------|-------------|
-| [architecture/daemon-bootstrap.md](architecture/daemon-bootstrap.md) | architecture | Daemon startup, PID lock, server id, shutdown |
-| [architecture/websocket-protocol.md](architecture/websocket-protocol.md) | architecture | Wire envelopes, handshake, RPC namespacing, capability gating, compat rules |
-| [architecture/relay-e2ee.md](architecture/relay-e2ee.md) | architecture | Relay transport, ECDH/NaCl box encryption, pairing |
-| [architecture/persistence.md](architecture/persistence.md) | architecture | File-based JSON stores, Zod schemas, atomic writes, all entity shapes |
-| [architecture/auth-security.md](architecture/auth-security.md) | architecture | Password auth, host allowlist, CORS, DNS rebinding, trust boundaries |
-| [architecture/agent-lifecycle.md](architecture/agent-lifecycle.md) | architecture | Lifecycle state machine, archive (soft delete), cascade |
-| [architecture/config.md](architecture/config.md) | architecture | `config.json`, `pi-studio.json`, env-var precedence, provider overrides |
-| [architecture/client-app-runtime.md](architecture/client-app-runtime.md) | architecture | Host runtime controller, session context, reconnection, platform gating |
-| [architecture/design-system.md](architecture/design-system.md) | architecture | Theme tokens, six theme variants, breakpoints, styling-engine rules, overlays |
-| [architecture/structured-generation.md](architecture/structured-generation.md) | architecture | Daemon-side metadata generation (titles, commit messages, branch names) |
+
+| Scope file                                                                     | Kind         | Description                                                                   |
+| ------------------------------------------------------------------------------ | ------------ | ----------------------------------------------------------------------------- |
+| [architecture/daemon-bootstrap.md](architecture/daemon-bootstrap.md)           | architecture | Daemon startup, PID lock, server id, shutdown                                 |
+| [architecture/websocket-protocol.md](architecture/websocket-protocol.md)       | architecture | Wire envelopes, handshake, RPC namespacing, capability gating, compat rules   |
+| [architecture/relay-e2ee.md](architecture/relay-e2ee.md)                       | architecture | Relay transport, ECDH/NaCl box encryption, pairing                            |
+| [architecture/persistence.md](architecture/persistence.md)                     | architecture | File-based JSON stores, Zod schemas, atomic writes, all entity shapes         |
+| [architecture/auth-security.md](architecture/auth-security.md)                 | architecture | Password auth, host allowlist, CORS, DNS rebinding, trust boundaries          |
+| [architecture/agent-lifecycle.md](architecture/agent-lifecycle.md)             | architecture | Lifecycle state machine, archive (soft delete), cascade                       |
+| [architecture/config.md](architecture/config.md)                               | architecture | `config.json`, `pi-studio.json`, env-var precedence, provider overrides       |
+| [architecture/client-app-runtime.md](architecture/client-app-runtime.md)       | architecture | Host runtime controller, session context, reconnection, platform gating       |
+| [architecture/design-system.md](architecture/design-system.md)                 | architecture | Theme tokens, six theme variants, breakpoints, styling-engine rules, overlays |
+| [architecture/structured-generation.md](architecture/structured-generation.md) | architecture | Daemon-side metadata generation (titles, commit messages, branch names)       |
 
 ## 9. Cross-Cutting Conventions
 

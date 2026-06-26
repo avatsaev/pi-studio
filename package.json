@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/root",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Pi-Studio — self-hosted local-first system for running and controlling the Pi AI coding agent",
   "license": "AGPL-3.0",

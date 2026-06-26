@@ -17,6 +17,7 @@ import type { AgentClient } from "../agent/provider-contract.js";
 import { TerminalManager } from "../terminal/terminal-manager.js";
 import { registerTerminalHandlers } from "../terminal/terminal-rpc.js";
 
+import { projectStatus } from "../projects/status-projection.js";
 import { WorkspaceRegistryService } from "../projects/workspace-registry.js";
 import { OpenProjectService } from "../projects/open-project.js";
 import { WorkspaceGitService } from "../projects/workspace-git-service.js";
@@ -192,6 +193,13 @@ export async function devBootstrap(options: BootstrapOptions = {}): Promise<DevD
   });
   new GitOperationsService({ gitService }).registerHandlers(registry);
   new GitHubService({ setAutoMergeEnabled: true }).registerHandlers(registry);
+
+  // Lightweight git-status RPC for the POC file-changes panel.
+  registry.register("git_status_request", async (ctx) => {
+    const cwd = String((ctx.message as Record<string, unknown>).cwd ?? ".");
+    const status = await projectStatus(cwd);
+    return { type: "git_status_response", ...status };
+  });
   new WorktreeService({
     home,
     registry: workspaceRegistry,
