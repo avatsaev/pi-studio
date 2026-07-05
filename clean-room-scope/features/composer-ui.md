@@ -103,6 +103,30 @@ Feature icons map known ids to icons; active toggles tint by color. The mode chi
 the provider manifest) + label + chevron, opens a searchable combobox, and hides when no modes exist. See
 [agent-providers.md](agent-providers.md).
 
+### Create-agent preferences
+Per-project, remembered defaults for **creating** a new agent (new-workspace screen and any fresh draft),
+so a returning user doesn't have to re-pick provider/model/mode every time:
+```ts
+interface FormPreferences {
+  provider?: string;
+  providerPreferences?: Record<string, {
+    model?: string;
+    mode?: string;
+    thinkingByModel?: Record<string, string>;   // remembers thinking level per model
+    featureValues?: Record<string, unknown>;
+  }>;
+  favoriteModels?: { provider: string; modelId: string }[];  // pinned to the top of the model selector
+  isolation?: "local" | "worktree";              // default workspace isolation for new agents
+}
+```
+- Scoped per project (keyed by project key), stored client-side, and merged with (never overriding) an
+  explicit per-request override (e.g. a pinned quick-launch profile — see
+  [workspace-ui.md](workspace-ui.md) § Pinned quick-launch targets).
+- `favoriteModels` surface as starred/pinned rows at the top of the combined model selector (see
+  § Provider / model / mode / feature controls) regardless of provider grouping.
+- Selecting a different provider/model/mode/thinking/feature value while creating an agent updates the
+  matching `providerPreferences[provider]` entry so the next new agent for that project remembers it.
+
 ### Attachments
 - **Types:** `image`, `github_issue`, `github_pr`, `browser_element`, `review`. Image metadata storage is
   platform-specific (web IndexedDB object-store key / desktop or native file path); bytes live in platform
@@ -181,7 +205,8 @@ among panes). No message-history (up/down recall) shortcut. `TODO(verify)`.
 ## Dependencies
 - Pinned library versions: see [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack.
 - Internal: session store, provider snapshot, draft store, attachment stores, autocomplete + directory
-  suggestions, GitHub search, dictation/voice runtimes, keyboard system, design system.
+  suggestions, GitHub search, dictation/voice runtimes, keyboard system, design system, per-project
+  create-agent preferences store, pinned quick-launch targets.
 - External: a multiline text input, audio capture (web Audio / native), clipboard (web paste).
 
 ## Acceptance Criteria
@@ -198,8 +223,13 @@ among panes). No message-history (up/down recall) shortcut. `TODO(verify)`.
       with barge-in.
 - [ ] Composer keyboard shortcuts behave per platform (Enter submits on desktop web; newline on compact/
       native).
+- [ ] Creating a new agent for a project prefills provider/model/mode/thinking/features from that
+      project's remembered create-agent preferences, and updates them when the user picks differently.
+- [ ] Favorite models render pinned at the top of the model selector regardless of provider grouping.
 
 ## TODO(verify)
 - [ ] Whether message-history recall exists anywhere.
 - [ ] Exact outer drop-zone implementation (the composer only exposes add-images).
 - [ ] Use of the `submitting` voice phase.
+- [ ] Exact merge precedence between create-agent preferences and a pinned quick-launch profile when both
+      apply.

@@ -92,9 +92,20 @@ hides it). Structure (top→bottom):
   (behind, clean) → direct PR merge → enable PR auto-merge → "pr" → push → merge-branch → merge-from-base →
   view PR. Each unavailable action carries a human-readable reason. Per-action run-state (idle/pending/
   success) drives disabled + spinner.
-- **PR pane** (Changes sidebar's PR tab when a PR exists): read-only summary — state icon/label
-  (open/draft/closed/merged), open-in-browser, collapsible Checks (success/failure/pending) and Reviews/
-  Activity (approvals, changes-requested, comments).
+- **PR pane** (Changes sidebar's PR tab when a PR exists): a header (PR number/title, state icon/label
+  open/draft/closed/merged, open-in-browser) over a scrollable **activity timeline** merging, in
+  chronological order: review comments (inline + top-level), review-state changes (approved / changes
+  requested / commented), and CI check runs (success/failure/pending, grouped per check with a
+  status icon). Each activity/thread entry shows its location (file + line for inline comments, or a
+  general PR-level location label) and author/timestamp. A loading skeleton and an error state (with
+  retry) cover the fetch.
+  - **Attach to chat:** a comment, review (when it carries a body or is `changes_requested`), or a
+    **failed** check's logs can be attached to the composer as a workspace attachment so the agent can
+    act on the reviewer's feedback or the CI failure directly (`canAddPullRequestActivityToChat` /
+    `canAddPullRequestCheckLogsToChat` gate which rows offer the affordance). The attachment carries
+    the PR number/title/url, the activity's location, and its body/log text.
+  - **Tab presentation:** the explorer sidebar's PR tab icon reflects overall PR/check state; its label
+    is the PR number (e.g. `#42`).
 
 #### Inline code review (inside the diff)
 Draft review comments anchored to diff lines, stored locally (persisted), surfaced as inline threads:
@@ -206,9 +217,11 @@ composer. (Membership/policy semantics are in [subagents.md](subagents.md); this
       placeholder elsewhere.
 - [ ] The subagents track lists children, opens them, and archives them (confirm) with the archive button
       hover-gated on web and always shown on touch.
+- [ ] The PR pane's activity timeline merges comments/reviews/checks chronologically, and a failed check's
+      logs or a review comment can be attached to the composer as context for the agent.
 
 ## TODO(verify)
 - [ ] Byte-transfer/save path for file downloads (download store internals).
 - [ ] Terminal snapshot serialization format.
-- [ ] PR pane data shape details.
+- [ ] Full PR activity/check data shape and the exact daemon RPC for fetching a failed check's logs.
 - [ ] Explorer-sidebar open/pin/overlay mechanics (mobile overlay vs desktop pinned).

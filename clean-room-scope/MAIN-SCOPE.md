@@ -14,8 +14,9 @@ results — from any device.
 
 The core is a **daemon** (a long-lived Node.js process) that runs on the user's machine, spawns and
 supervises the Pi agent process (`pi --mode rpc`), and exposes a single WebSocket API. Multiple **clients** (an Expo mobile/web app, an Electron desktop wrapper, and a
-Commander.js CLI) connect to the daemon — directly on localhost/LAN or remotely through an
-end-to-end encrypted **relay**. Code never leaves the user's machine; Pi-Studio manages no API keys and
+Commander.js CLI) connect to the daemon — directly on localhost/LAN, remotely through an
+end-to-end encrypted **relay**, or from Electron desktop through an **SSH gateway tunnel** to a
+remote daemon's localhost listener. Code never leaves the user's machine; Pi-Studio manages no API keys and
 adds no inference cost (bring-your-own-keys). It has no telemetry and no forced login.
 
 Guiding principles: cross-device, self-hosted, privacy-first, open source (AGPL-3.0). The protocol
@@ -31,7 +32,7 @@ capability flags.
 | Client framework    | React 19 + React Native via Expo (Expo Router)                    | iOS, Android, web (browser), web (Electron) from one codebase |
 | Desktop wrapper     | Electron                                                          | Bundles + manages its own daemon subprocess                   |
 | CLI                 | Commander.js                                                      | Docker-style commands; same WS protocol                       |
-| Transport           | WebSocket (JSON text frames + small binary framing)               | Direct or via relay                                           |
+| Transport           | WebSocket (JSON text frames + small binary framing)               | Direct, via relay, or tunneled through SSH in Electron        |
 | Relay crypto        | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), libsodium       | Zero-knowledge relay                                          |
 | Persistence         | File-based JSON under `$PI_STUDIO_HOME`                           | Zod-validated, atomic temp-file rename; no DB, no migrations  |
 | Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
@@ -70,8 +71,8 @@ module and ships prebuilt binaries for common platforms.
    │   (Expo RN)  │   │  (browser)   │   │  (Electron)  │   │ (Commander)  │
    └──────┬───────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
           │                  │                  │ (also spawns      │
-          │   WebSocket (direct on LAN, or via E2EE relay)          │
-          └──────────────────┴───────┬──────────┴──────────────────┘
+          │   WebSocket (direct on LAN, via E2EE relay, or Electron SSH tunnel) │
+          └──────────────────┴───────┬──────────┴──────────────────────────────┘
                                       │
                               ┌───────▼────────┐        outbound, E2EE
                               │     Daemon     │◄──────────────────────┐
@@ -106,6 +107,8 @@ module and ships prebuilt binaries for common platforms.
   native file dialogs, menus, auto-update, in-app browser webviews. (`packages/desktop`)
 - **Relay** — E2EE bridge for remote access. Client and daemon channels with identical API.
   (`packages/relay`)
+- **SSH gateway** — Electron-only SSH local-port tunnel to a remote daemon's localhost WebSocket
+  listener; keeps the daemon protocol unchanged. (`packages/desktop`, app runtime integration)
 - **Highlight** — Syntax highlighting support package (server-side). (`packages/highlight`)
 
 ## 4. Directory / Module Map
@@ -191,6 +194,7 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
 | GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
 | Relay       | Remote access                               | WebSocket + NaCl box   | Hosted or self-hosted (Go impl available)                                                    |
+| SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | Electron-only; daemon remains bound to remote `127.0.0.1:6767`; see `architecture/ssh-gateway-connections.md` |
 | MCP clients | Agent-to-agent control                      | Model Context Protocol | Daemon hosts MCP server at `/mcp/agents`                                                     |
 
 ### Configuration surface (selected env vars)
@@ -256,6 +260,10 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
+| [features/rewind.md](features/rewind.md)                                 | feature (UI) | Rewind conversation/files/both to a prior message (+ small protocol amendment) |
+| [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
+| [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
+| [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |
 
 ### Architecture
 

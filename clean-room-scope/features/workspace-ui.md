@@ -172,6 +172,27 @@ terminals loaded) and the workspace is genuinely empty (0 active agents, 0 termi
 draft tab (a "New Agent" composer) so an empty workspace always lands on something usable. The draft setup
 maps to an agent-session config; the draft composer auto-focuses when its pane is focused and not submitting.
 
+### Pinned quick-launch targets
+A small client-local set of "pinned" tab kinds drives one-tap quick-launch buttons shown alongside the
+empty-workspace draft seed and in the mobile new-tab picker:
+```ts
+type PinnedTabTarget =
+  | { kind: "draft" }                        // a new agent draft, using default create-agent preferences
+  | { kind: "terminal" }                      // a new terminal
+  | { kind: "browser" }                       // a new browser tab (Electron)
+  | { kind: "profile"; profileId: string };   // a saved create-agent-preferences profile (see composer-ui.md)
+```
+- **Defaults:** `terminal` and `browser` are pinned out of the box; `draft`/named profiles are opt-in.
+- **Persistence:** a small versioned client store (`pinned-tab-targets`, migrated across versions so a
+  v0 shape without defaults is backfilled with the default set on first load).
+- **Toggle:** `togglePinnedTarget` adds a target if absent, removes it if already pinned, keyed by
+  `pinnedTargetKey` (`draft` / `terminal` / `browser` / `profile:<id>`).
+- **Launch:** tapping a pinned quick-launch button opens the corresponding tab kind directly (a
+  `profile` target opens a draft pre-filled from that saved create-agent-preferences profile) via the
+  same open-tab path as the tab strip's "New agent/terminal/browser" actions.
+- **Menu:** each pinnable surface (tab-strip "new" menu, empty-workspace quick actions) exposes a
+  "Pin"/"Unpin" toggle item per target kind.
+
 ### Route gating
 Resolve a route state from host/connection/workspace/hydration: `ready` (workspace present + online),
 `reconnecting` (present, not online), `unreachable` (no workspace, not online), `loading` (online, not
@@ -189,6 +210,8 @@ for archived agents. Compact composer layout is chosen per-container (below the 
 - Per-workspace: layout (split tree) + split sizes, explorer expanded paths, diff expanded paths, review
   drafts, sort options — client-local stores. Tabs are NOT global. See
   [persistence.md](../architecture/persistence.md).
+- Pinned quick-launch targets: a small versioned client store (`pinned-tab-targets`), global (not
+  per-workspace), migrated forward across versions.
 
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |
@@ -199,11 +222,13 @@ for archived agents. Compact composer layout is chosen per-container (below the 
 | Agent archived elsewhere | Its tab is pruned on all clients after hydration |
 | Closing the last tab | Empty pane collapses; empty workspace re-seeds a draft |
 | Split depth would exceed 4 | Split refused |
+| Pinned profile target's saved profile is deleted | TODO(verify) — likely falls back to a plain draft |
 
 ## Dependencies
 - Pinned library versions: see [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack.
 - Internal: panel registry + per-panel features, layout/tabs stores, workspace execution authority, git
-  checkout status, subagents policy, composer, design system.
+  checkout status, subagents policy, composer, design system, create-agent preferences (pinned profile
+  targets — see [composer-ui.md](composer-ui.md) § Create-agent preferences).
 - External: drag-and-drop (web pane splits), local persistence.
 
 ## Acceptance Criteria
@@ -216,9 +241,12 @@ for archived agents. Compact composer layout is chosen per-container (below the 
 - [ ] Bulk close archives agents and closes terminals server-side with the correct confirmation wording.
 - [ ] An empty, fully-hydrated workspace auto-seeds a draft composer tab.
 - [ ] Non-`ready` route states render the gate shell with retry/manage/dismiss instead of the workspace.
+- [ ] Pinned quick-launch targets (terminal + browser by default) open the right tab kind in one tap, and
+      can be toggled from the relevant "new" menus.
 
 ## TODO(verify)
 - [ ] Runtime division of labor between the layout store and the flat tabs store.
 - [ ] Exact focus-mode pane rendering in the split container.
 - [ ] Scripts-start RPC and service-URL resolution details.
 - [ ] `setup` panel behavior beyond its descriptor.
+- [ ] Behavior when a pinned `profile` target's saved create-agent-preferences profile no longer exists.

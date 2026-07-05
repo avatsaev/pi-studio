@@ -3,7 +3,9 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [client-app-runtime.md](client-app-runtime.md),
 > [../features/ui-components.md](../features/ui-components.md),
-> [../features/timeline-rendering.md](../features/timeline-rendering.md)
+> [../features/timeline-rendering.md](../features/timeline-rendering.md),
+> [../features/localization.md](../features/localization.md),
+> [../features/keyboard-shortcuts.md](../features/keyboard-shortcuts.md)
 
 ## Purpose
 
@@ -212,6 +214,7 @@ deliberate substitution). Pi-Studio's own workspace packages use the `@av-pi-stu
 | Text / layout chrome | `react-native-uitextview` (^2.2), `react-native-keyboard-controller` (^1.19), `react-native-edge-to-edge` (^1.7), `react-native-safe-area-context` (~5.6), `react-native-screens` (~4.16), `react-native-masked-view` (^0.3) |
 | Persisted client storage | `@react-native-async-storage/async-storage` (2.2) |
 | Images / attachments | `expo-image` (~3), `expo-image-picker` (^17), `expo-image-manipulator` (~14), `expo-clipboard`, `expo-sharing`, `expo-file-system` |
+| Localization | `i18next` (^26), `react-i18next` (^17) |
 | Misc utilities | `fast-deep-equal` (^3), `tiny-invariant` (^1.3), `mnemonic-id` (^3), `buffer` (^6), `zod` (^3.23) |
 
 The Metro platform-extension policy (`.web` / `.native` / `.electron`) selects between the web DnD

@@ -2,7 +2,7 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [timeline-streaming.md](timeline-streaming.md),
-> [tool-permissions.md](tool-permissions.md), [composer-ui.md](composer-ui.md),
+> [tool-permissions.md](tool-permissions.md), [composer-ui.md](composer-ui.md), [rewind.md](rewind.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),
 > [../architecture/design-system.md](../architecture/design-system.md)
 
@@ -59,7 +59,8 @@ suppress their own outer margins via a context flag.
 - **User message:** right-aligned bubble (`surface3`, large radius with a notched top-right corner, padding
   16). Inside: image thumbnails (48×48 pills, wrap) → structured attachment pills (review/PR/issue/text,
   max-width ~220) → selectable text. Below (right-aligned), revealed on hover (always on native/compact):
-  timestamp, optional rewind menu, copy button.
+  timestamp, an optional **rewind menu** (see [rewind.md](rewind.md) — hidden entirely when the agent's
+  provider supports no rewind mode), copy button.
 - **Assistant message / markdown:** vertical padding 12, collapsible top/bottom when adjacent blocks share a
   block group. Text split into memoized markdown blocks (12px between blocks). Markdown engine with
   typographer + linkify; `file://` links allowed. See § Markdown support.

@@ -3,7 +3,8 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [websocket-protocol.md](websocket-protocol.md),
 > [features/timeline-streaming.md](../features/timeline-streaming.md),
-> [features/agent-sessions.md](../features/agent-sessions.md), [relay-e2ee.md](relay-e2ee.md)
+> [features/agent-sessions.md](../features/agent-sessions.md), [relay-e2ee.md](relay-e2ee.md),
+> [ssh-gateway-connections.md](ssh-gateway-connections.md)
 
 ## Purpose
 
@@ -18,7 +19,7 @@ iOS, Android, browser web, and Electron desktop.
 | Layer | Export | Responsibility |
 |-------|--------|----------------|
 | Driver | `DaemonClient` (`internal/daemon-client`) | Low-level WS connect, framing, RPC correlation, transports |
-| Transports | websocket transport, relay E2EE transport | Direct vs. relay data paths (symmetric API) |
+| Transports | websocket transport, relay E2EE transport, Electron SSH tunnel URL handoff | Direct vs. relay data paths; SSH obtains a local `ws://127.0.0.1:<port>` URL before using the direct WebSocket path |
 | Facade | `Pi-StudioClient` (`@av-pi-studio/client`) | High-level workspace/agent/provider actions, handles |
 | Router | terminal-stream-router | Demux binary terminal frames to subscribers |
 
@@ -30,7 +31,7 @@ models the connection lifecycle.
 ### App runtime concepts
 | Concept | Code anchor | Responsibility |
 |---------|-------------|----------------|
-| Host | `HostProfile` | Saved client-side connection profile pointing at a daemon |
+| Host | `HostProfile` | Saved client-side connection profile pointing at a daemon (direct / relay / SSH gateway / desktop-managed local embedded daemon — see [../features/desktop-app.md](../features/desktop-app.md) § Local vs. remote daemon mode) |
 | Host runtime | `HostRuntimeController` | Manages saved hosts, reconnection, per-host runtime state |
 | Session context | `SessionContext` | Wraps the daemon client for the active session |
 | Routing | Expo Router | `/h/[serverId]/workspace/[workspaceId]`, `/h/[serverId]/agent/[agentId]`, etc. |
@@ -51,10 +52,11 @@ models the connection lifecycle.
 ```
 HostRuntimeController:
     for each saved HostProfile:
-        choose transport (direct ws OR relay E2EE based on profile)
+        choose transport (direct ws OR relay E2EE OR Electron SSH tunnel based on profile)
         DaemonClient.connect():
             open socket
             (relay) complete e2ee handshake
+            (ssh/electron) open local tunnel, then connect direct WS to returned localhost URL
             send hello { clientId, clientType, protocolVersion, capabilities }
             await status/server_info → record serverId, features
         expose ConnectionState; on drop → backoff reconnect; rehydrate capabilities
