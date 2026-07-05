@@ -18,6 +18,7 @@ export {
   isNative,
   getIsElectron,
   supportsDesktopPaneSplits,
+  assertElectronContext,
   _resetElectronCache,
   STYLING_ENGINE_RULES,
 } from "./gating.js";

@@ -11,10 +11,20 @@
 
 Defines the visual language and styling infrastructure shared by every Pi-Studio client screen and
 component: the theme-token vocabulary (colors, spacing, type, radii), the six theme variants, the
-responsive breakpoint system, the cross-platform styling engine and its rules, and the overlay/portal
+responsive breakpoint system, the styling approach and its rules, and the overlay/portal
 infrastructure. A from-scratch UI reimplementation should treat this document as the contract every
-component "speaks". It does not prescribe a specific styling library, but the reference behavior is
-built on **Unistyles v3** (React Native) and the constraints below reflect that engine.
+component "speaks".
+
+> **Render-stack decision (Pi-Studio).** The reference app (Paseo) is a cross-platform
+> Expo / React-Native-Web codebase. Pi-Studio ships **web + Electron only (no iOS/Android)** and
+> therefore targets a **pure DOM stack: React 19 + Vite + CSS variables + CSS Modules**. The visual
+> language, tokens, six theme variants, breakpoints, and overlay behavior below are preserved verbatim —
+> only the *implementation medium* changes from React-Native primitives (`View`/`Text`, Unistyles
+> `StyleSheet`) to DOM elements (`div`/`span`, CSS custom properties + CSS Modules). Where the original
+> used Metro `.web`/`.native`/`.electron` platform-extension files, Pi-Studio uses runtime
+> `getIsElectron()` gating plus build-time `import.meta.env` flags and dynamic `import()` so Electron-only
+> modules are tree-shaken out of the pure-web bundle. See the pinned stack table below and
+> [client-app-runtime.md](client-app-runtime.md) for the module-selection policy.
 
 ## Public Contract
 
@@ -197,37 +207,46 @@ break touch). Never use pointer-enter/leave as a layout signal.
 | Code/monospace surfaces on web | Tag them so a custom UI-font override does not replace the mono font |
 
 ## UI technology stack (pinned)
-The clean-room app mirrors the original's stack (use these exact libraries unless a task documents a
-deliberate substitution). Pi-Studio's own workspace packages use the `@av-pi-studio/*` scope.
+Pi-Studio ships **web + Electron only** and uses a **pure DOM React stack** (see the render-stack
+decision in Purpose). Use these exact libraries unless a task documents a deliberate substitution.
+Pi-Studio's own workspace packages use the `@av-pi-studio/*` scope. The right-hand "reference (Paseo)"
+column records the original RN library each choice replaces, so the ported behavior stays recognizable.
 
-| Concern | Library (version floor) |
-|---------|--------------------------|
-| App framework | `expo` (~54), `react-native` (0.81), `react-native-web` (~0.21), `react` / `react-dom` (19.1) |
-| Navigation/routing | `expo-router` (~6), `@react-navigation/native` (^7) |
-| Theming / styling engine | `react-native-unistyles` (^3.2) |
-| Client state | `zustand` (^5), `@tanstack/react-query` (^5), `use-sync-external-store` (^1.6) |
-| Overlay positioning | `@floating-ui/react-native` (^0.10) |
-| Bottom sheets / portals | `@gorhom/bottom-sheet` (^5.2), `@gorhom/portal` (^1) |
-| Drag & drop (web) | `@dnd-kit/core` (^6.3), `@dnd-kit/sortable` (^10), `@dnd-kit/utilities` (^3.2) |
-| Drag / gestures (native) | `react-native-draggable-flatlist` (^4), `react-native-gesture-handler` (~2.28) |
-| Animation | `react-native-reanimated` (~4.3), `react-native-worklets` (~0.8) |
-| Icons | `lucide-react-native` (^0.546), `react-native-svg` (^15) |
-| List virtualization | `@tanstack/react-virtual` (^3.13) |
-| Markdown | `react-native-markdown-display` (^7), `markdown-it` (^10) |
-| Syntax highlighting | `@av-pi-studio/highlight` (workspace) + the syntax tokens here |
-| Terminal emulator | `@xterm/xterm` (^6 beta) + addons (`addon-fit`, `addon-search`, `addon-webgl`, `addon-web-links`, `addon-clipboard`, `addon-image`, `addon-ligatures`, `addon-unicode11`); `@xterm/headless` for tests |
-| Embedded browser pane | `react-native-webview` (^13) |
-| Voice / audio | `expo-audio` (~1), `@av-pi-studio/expo-two-way-audio` (workspace) |
-| Camera / QR pairing | `expo-camera` (~17), `qrcode` (^1.5) |
-| Text / layout chrome | `react-native-uitextview` (^2.2), `react-native-keyboard-controller` (^1.19), `react-native-edge-to-edge` (^1.7), `react-native-safe-area-context` (~5.6), `react-native-screens` (~4.16), `react-native-masked-view` (^0.3) |
-| Persisted client storage | `@react-native-async-storage/async-storage` (2.2) |
-| Images / attachments | `expo-image` (~3), `expo-image-picker` (^17), `expo-image-manipulator` (~14), `expo-clipboard`, `expo-sharing`, `expo-file-system` |
-| Localization | `i18next` (^26), `react-i18next` (^17) |
-| Misc utilities | `fast-deep-equal` (^3), `tiny-invariant` (^1.3), `mnemonic-id` (^3), `buffer` (^6), `zod` (^3.23) |
+| Concern | Library (version floor) | Replaces (Paseo RN) |
+|---------|--------------------------|---------------------|
+| App framework | `react` / `react-dom` (19.1) | expo / react-native / react-native-web |
+| Build / dev server | `vite` (^6) + `@vitejs/plugin-react` | Metro / expo bundler |
+| Routing | `react-router` (^7, data router) | expo-router / @react-navigation |
+| Theming / styling | **CSS custom properties (design tokens) + CSS Modules**; `clsx` for class composition | react-native-unistyles |
+| Client state | `zustand` (^5), `@tanstack/react-query` (^5), `use-sync-external-store` (^1.6) | (same) |
+| Overlay positioning | `@floating-ui/react` (^0.27) | @floating-ui/react-native |
+| Dialogs / menus / tooltips / popovers | `@radix-ui/react-dialog`, `-dropdown-menu`, `-tooltip`, `-popover` (^1) + `react-dom` portals | @gorhom/bottom-sheet, @gorhom/portal |
+| Drag & drop | `@dnd-kit/core` (^6.3), `@dnd-kit/sortable` (^10), `@dnd-kit/utilities` (^3.2) | (same on web; RN draggable-flatlist dropped) |
+| Animation | CSS transitions/animations; `framer-motion` (^11) where JS-driven motion is needed | react-native-reanimated / worklets |
+| Icons | `lucide-react` (^0.5) | lucide-react-native / react-native-svg |
+| List virtualization | `@tanstack/react-virtual` (^3.13) | (same) |
+| Markdown | `react-markdown` (^9) + `remark-gfm` (^4) | react-native-markdown-display / markdown-it |
+| Syntax highlighting | `@av-pi-studio/highlight` (workspace) + the syntax tokens here | (same) |
+| Terminal emulator | `@xterm/xterm` (^6 beta) + addons (`addon-fit`, `addon-search`, `addon-webgl`, `addon-web-links`, `addon-clipboard`, `addon-image`, `addon-ligatures`, `addon-unicode11`); `@xterm/headless` for tests | (same) |
+| Embedded browser pane | Electron `<webview>` (electron target only); web target renders a "desktop-only" placeholder | react-native-webview |
+| Voice / audio | Web Audio API + `MediaRecorder`; `@av-pi-studio/audio` workspace helper | expo-audio / expo-two-way-audio |
+| Camera / QR pairing | `getUserMedia` + a QR decode lib (`qr-scanner` ^1.4); `qrcode` (^1.5) for generation | expo-camera / qrcode |
+| Persisted client storage | `localStorage` (web) / Electron settings bridge (electron) behind a `KeyValueStore` interface | @react-native-async-storage/async-storage |
+| Images / attachments | `<input type=file>`, `File`/`Blob`, `URL.createObjectURL`, `navigator.clipboard` | expo-image(-picker/-manipulator), expo-clipboard/-sharing/-file-system |
+| Localization | `i18next` (^26), `react-i18next` (^17) | (same) |
+| Misc utilities | `fast-deep-equal` (^3), `tiny-invariant` (^1.3), `mnemonic-id` (^3), `clsx` (^2), `zod` (^3.23) | (same; buffer no longer needed) |
 
-The Metro platform-extension policy (`.web` / `.native` / `.electron`) selects between the web DnD
-(`@dnd-kit`) vs native (`react-native-draggable-flatlist`), the xterm web build vs the WebView terminal
-leaf, and similar splits. See [client-app-runtime.md](client-app-runtime.md) for the policy.
+### Module-selection policy (Vite, replaces Metro platform extensions)
+Metro's `.web` / `.native` / `.electron` file-extension resolution does not exist in Vite. Pi-Studio
+achieves the same web-vs-Electron split three ways:
+1. **Runtime gating** — `getIsElectron()` chooses behavior inside a shared module (e.g. browser pane
+   placeholder vs `<webview>`, clipboard API vs Electron bridge).
+2. **Build-time flags** — `import.meta.env.VITE_TARGET` (`web` | `electron`) lets Vite dead-code-eliminate
+   the unused branch for each build.
+3. **Dynamic `import()`** — Electron-only modules (SSH bridge, `<webview>` wrapper, native menu glue) are
+   loaded via `await import(...)` guarded by `getIsElectron()`, so they never enter the pure-web chunk.
+
+See [client-app-runtime.md](client-app-runtime.md) for the full policy and the `getIsElectron()` contract.
 
 ## Dependencies
 - Internal: the highlight package (syntax token colors), client app runtime (applies appearance updates).

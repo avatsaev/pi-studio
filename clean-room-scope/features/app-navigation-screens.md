@@ -7,6 +7,12 @@
 > [schedules-heartbeats.md](schedules-heartbeats.md), [keyboard-shortcuts.md](keyboard-shortcuts.md),
 > [localization.md](localization.md), [provider-usage.md](provider-usage.md)
 
+> **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
+> only), not React Native. Routing uses `react-router` (data router) rather than expo-router; route
+> paths/grammar below are preserved. For concrete libraries see
+> [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack and
+> [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform rules.
+
 ## Purpose
 
 Defines the Pi-Studio app's navigation shell and every non-workspace screen: the route grammar, the

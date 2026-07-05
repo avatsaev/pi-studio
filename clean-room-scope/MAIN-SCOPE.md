@@ -29,17 +29,27 @@ capability flags.
 | ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
 | Language(s)         | TypeScript (ESM)                                                  | Strict typing; Zod runtime validation at all boundaries       |
 | Daemon runtime      | Node.js                                                           | Long-lived server process; spawns agent subprocesses          |
-| Client framework    | React 19 + React Native via Expo (Expo Router)                    | iOS, Android, web (browser), web (Electron) from one codebase |
-| Desktop wrapper     | Electron                                                          | Bundles + manages its own daemon subprocess                   |
+| Client framework    | **Pi-Studio: React 19 + Vite (DOM)** — web + Electron only (reference app uses Expo/React-Native-Web for iOS/Android/web) | Mobile dropped; see the render-stack note below |
+| Desktop wrapper     | Electron                                                          | Bundles + manages its own daemon subprocess; wraps the Vite web build |
 | CLI                 | Commander.js                                                      | Docker-style commands; same WS protocol                       |
 | Transport           | WebSocket (JSON text frames + small binary framing)               | Direct, via relay, or tunneled through SSH in Electron        |
 | Relay crypto        | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), libsodium       | Zero-knowledge relay                                          |
 | Persistence         | File-based JSON under `$PI_STUDIO_HOME`                           | Zod-validated, atomic temp-file rename; no DB, no migrations  |
 | Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
 | Lint/format         | oxlint / oxfmt                                                    |                                                               |
-| Styling (app)       | Unistyles theme tokens                                            | `useUnistyles()` forbidden; see original `docs/unistyles.md`  |
-| Build (web/desktop) | Metro (platform file extensions `.web` / `.native` / `.electron`) |                                                               |
+| Styling (app)       | **Pi-Studio: CSS custom properties (theme tokens) + CSS Modules** (reference app uses Unistyles) | Same token vocabulary; DOM medium |
+| Build (web/desktop) | **Pi-Studio: Vite** (`VITE_TARGET=web`/`electron`); runtime `getIsElectron()` + guarded dynamic `import()` replace Metro `.web`/`.native`/`.electron` extensions |                                                               |
 | Website             | TanStack Router + Cloudflare Workers                              | Marketing/docs (`pi-studio.sh`), out of scope here            |
+
+> **Render-stack decision (Pi-Studio).** The reference app is a cross-platform Expo / React-Native-Web
+> codebase. Pi-Studio ships **web + Electron only (no iOS/Android)** and therefore renders its UI on a
+> **React 19 + Vite DOM** stack: `View`/`Text` → `div`/`span`, Unistyles → CSS custom properties + CSS
+> Modules, expo-router → `react-router`, Metro platform extensions → `getIsElectron()` + build-time
+> `VITE_TARGET` + guarded dynamic `import()`. The visual language, theme tokens, six variants, screens,
+> and interactions are preserved (UI/UX mirrors the reference). The sprint 012–016 UI **logic** is
+> framework-agnostic view models; sprints 017–022 are the DOM **render layer**. See
+> [architecture/design-system.md](architecture/design-system.md) § UI technology stack and
+> [architecture/client-app-runtime.md](architecture/client-app-runtime.md) § Platform rules.
 
 Runtime requirement: the Pi agent CLI installed and authenticated by the user. The daemon
 defaults to listening on `127.0.0.1:6767`; `$PI_STUDIO_HOME` defaults to `~/.pi-studio`.

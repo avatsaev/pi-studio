@@ -49,3 +49,16 @@ export {
   type Theme,
   type AppearanceSettings,
 } from "./theme.js";
+export {
+  flattenThemeToVars,
+  applyVarsToRoot,
+  applyThemeToDOM,
+} from "./css-bridge.js";
+export {
+  createAppearanceController,
+  type AppearanceController,
+  type AppearanceState,
+  type AppearanceMode,
+  type KeyValueStore,
+} from "./appearance-store.js";
+export { ThemeBoundary, type ThemeBoundaryProps } from "./ThemeBoundary.js";

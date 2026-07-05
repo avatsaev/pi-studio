@@ -6,6 +6,12 @@
 > [feature-panels-ui.md](feature-panels-ui.md), [subagents.md](subagents.md),
 > [../architecture/agent-lifecycle.md](../architecture/agent-lifecycle.md)
 
+> **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
+> only), not React Native. The behavior and contracts below are medium-independent; for concrete
+> libraries and the web-vs-Electron module policy see
+> [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack and
+> [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform rules.
+
 ## Purpose
 
 Defines the main workspace screen: how the primary header, tab strip, tiled pane content, explorer

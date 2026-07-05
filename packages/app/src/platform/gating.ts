@@ -25,19 +25,51 @@ let _isElectronCache: boolean | null = null;
 /**
  * True when running inside the Electron renderer.
  * Cached after the first call.
- * In Electron, the preload bridge exposes a `window.__piStudioElectron` marker.
+ * Checks:
+ *   1. Build-time flag VITE_TARGET === "electron" (set in vite.config.ts define).
+ *   2. Runtime marker set by Electron preload script (`window.__piStudioElectron`).
+ *   3. Legacy marker (`window.__PI_STUDIO_ELECTRON__`).
  */
 export function getIsElectron(): boolean {
   if (_isElectronCache !== null) return _isElectronCache;
+
+  // Build-time flag (dead-code-eliminated by Vite in the web build)
+  if (
+    typeof import.meta !== "undefined" &&
+    (import.meta as unknown as Record<string, Record<string, unknown>>).env?.VITE_TARGET === "electron"
+  ) {
+    _isElectronCache = true;
+    return true;
+  }
+
+  // Runtime markers from preload
   _isElectronCache =
     isWeb &&
-    typeof (globalThis as Record<string, unknown>)["__piStudioElectron"] !== "undefined";
+    (typeof (globalThis as Record<string, unknown>)["__piStudioElectron"] !== "undefined" ||
+     (globalThis as Record<string, unknown>)["__PI_STUDIO_ELECTRON__"] === true);
   return _isElectronCache;
 }
 
 /** Reset the cached Electron flag — used in tests only. */
 export function _resetElectronCache(): void {
   _isElectronCache = null;
+}
+
+/**
+ * Guard helper for Electron-only dynamic imports. Throws on web.
+ * Usage pattern (callers provide their own dynamic import for Vite analysis):
+ *   if (getIsElectron()) {
+ *     const mod = await import("./browser-pane.electron");
+ *   }
+ * This function is an alternative that throws for non-Electron contexts:
+ *   await assertElectronContext("browser-pane");
+ */
+export function assertElectronContext(moduleName: string): void {
+  if (!getIsElectron()) {
+    throw new Error(
+      `Cannot load Electron module "${moduleName}" — not running in Electron.`,
+    );
+  }
 }
 
 /**

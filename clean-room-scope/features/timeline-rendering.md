@@ -6,6 +6,12 @@
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),
 > [../architecture/design-system.md](../architecture/design-system.md)
 
+> **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
+> only), not React Native. Timeline virtualization uses `@tanstack/react-virtual`; markdown uses
+> `react-markdown` + `remark-gfm`. Behavior/contracts below are medium-independent; for concrete
+> libraries see [../architecture/design-system.md](../architecture/design-system.md) § UI technology
+> stack and [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform rules.
+
 ## Purpose
 
 Defines how the client **renders** an agent conversation timeline: the catalog of row kinds and the visual

@@ -5,6 +5,12 @@
 > [app-navigation-screens.md](app-navigation-screens.md), [workspace-ui.md](workspace-ui.md),
 > [composer-ui.md](composer-ui.md)
 
+> **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
+> only), not React Native. The behavior and contracts below are medium-independent; for concrete
+> libraries and the web-vs-Electron module policy see
+> [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack and
+> [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform rules.
+
 ## Purpose
 
 Defines the reusable UI primitive library the rest of the app composes from: pressables, inputs, icons,

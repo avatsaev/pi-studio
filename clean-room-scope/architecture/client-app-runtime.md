@@ -69,17 +69,31 @@ HostRuntimeController:
 - Resume without a cursor → fetch latest tail page; older history is scroll-driven.
 - See [features/timeline-streaming.md](../features/timeline-streaming.md).
 
-### Platform rules
-- Cross-platform by default; gate only when required.
-- Prefer Metro file extensions (`.web.ts`/`.native.ts`/`.electron.tsx`) over large `if (isWeb)`
-  blocks — unused platform code is never bundled.
-- Never use raw DOM without `isWeb`; never use `onPointerEnter`/`onPointerLeave` (don't fire on
-  native iOS); hover only works on web — use `isHovered || isNative || isCompact` for hover-to-show.
-- Don't use `Platform.OS` as a layout proxy; use breakpoints.
+### Platform rules (Pi-Studio: web + Electron, DOM/React/Vite)
+> Pi-Studio ships web + Electron only. The original's Metro `.web`/`.native`/`.electron` extension
+> policy is replaced by the Vite module-selection policy below (see also
+> [design-system.md](design-system.md) § Module-selection policy).
+- **Web is the baseline.** All shared components render to the DOM; there is no React Native runtime.
+- **`getIsElectron()`** (cached) is the single source of truth for desktop-only behavior. Two build
+  targets exist, distinguished by `import.meta.env.VITE_TARGET` (`"web"` | `"electron"`).
+- **Selecting Electron-only code** (in precedence order):
+  1. Runtime branch inside a shared module: `if (getIsElectron()) { … }` for small differences
+     (clipboard, open-external, titlebar affordance).
+  2. Build-time flag `import.meta.env.VITE_TARGET` for whole branches Vite can dead-code-eliminate.
+  3. Dynamic `await import("./thing.electron.ts")` guarded by `getIsElectron()` for heavy Electron-only
+     modules (SSH bridge, `<webview>` browser pane, native menu glue) so they never enter the web chunk.
+  Name Electron-only files `*.electron.ts(x)` by convention and import them only through the guarded
+  dynamic-import helper; name web fallbacks `*.web.ts(x)` when a shared file would be confusing.
+- **Hover** only exists on web/desktop (pointer devices). Use CSS `:hover` for pure-visual hover and a
+  `useHover()` hook (pointerenter/leave) when hover must drive React state; treat compact layout as
+  "always reveal" so touch/compact users are not stranded.
+- **Never use OS/user-agent as a layout proxy** — use the breakpoint system
+  ([design-system.md](design-system.md) § breakpoints); `isCompact` is the only phone-class signal.
 
 ## Data & Persistence
-- Client stores: draft store (AsyncStorage `pi-studio-drafts` v2), attachment bytes (web IndexedDB).
-  See [persistence.md](persistence.md).
+- Client stores go through a `KeyValueStore` interface: `localStorage` on web, an Electron settings
+  bridge on desktop. Draft store key `pi-studio-drafts` (v2); attachment bytes in web IndexedDB
+  (`indexedDB`) / Electron temp files. See [persistence.md](persistence.md).
 
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |

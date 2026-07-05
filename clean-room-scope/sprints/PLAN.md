@@ -15,10 +15,16 @@ Build bottom-up so a later task never depends on something unbuilt:
    client.
 4. **Workspace & orchestration features** (sprint 008–010): projects/worktrees/git, then
    terminals/proxy/files, then MCP/chat/schedules/loops.
-5. **Clients** (sprint 011–016, 018): CLI, the visual UI (design system + screens + workspace shell
-   + timeline/composer + panels), and the Electron desktop shell.
-6. **Remote access** (sprint 017, 019): relay E2EE, then Electron-only SSH gateway connections after
-   the desktop shell exists.
+5. **Client logic** (sprint 011–016): CLI, then the visual UI *logic layer* — design system, screens,
+   workspace shell, timeline/composer, and feature panels built as **framework-agnostic view models**
+   (pure TypeScript, Vitest-tested).
+6. **UI render layer** (sprint 017–022): a **React 19 + Vite DOM** app (web + Electron only, no mobile)
+   that renders the sprint 012–016 view models — runtime foundation, primitives + nav chrome, navigation
+   screens, the workspace shell, timeline/composer, and feature panels. The UI/UX mirrors the reference
+   app (Paseo); the DOM stack replaces its Expo/React-Native-Web stack (see
+   `architecture/design-system.md` § UI technology stack).
+7. **Remote access & desktop** (sprint 023–025): relay E2EE, the Electron desktop shell (which wraps the
+   Vite web build), then Electron-only SSH gateway connections after the desktop shell exists.
 
 Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 (`npx vitest run <file>`); the daemon is exercised in tests via the in-process `mock` provider.
@@ -42,11 +48,18 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 014 | `sprint-014-workspace-shell` | Tab model/registry, pane/split + DnD, screen composition/headers, seeding/pinned-targets/gating/mobile switcher | 4 |
 | 015 | `sprint-015-timeline-and-composer-ui` | Timeline reducers/render model + rows + tool-cards + diffs/permissions + markdown, composer surface/stores, rewind | 7 |
 | 016 | `sprint-016-feature-panels-ui` | Panel contract, file explorer/preview, git panel (+ PR activity/context-attach), terminal pane, browser pane + subagents track | 5 |
-| 017 | `sprint-017-relay-e2ee` | Relay crypto/channels, daemon+client transports, Cloudflare server | 4 |
-| 018 | `sprint-018-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
-| 019 | `sprint-019-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
+| 017 | `sprint-017-app-runtime-foundation` | Vite+React DOM app scaffold + build targets, theme→CSS bridge, providers/stores, router shell + boot gating | 4 |
+| 018 | `sprint-018-ui-primitives-nav-chrome` | Core DOM primitives, overlay/portal/feedback infra, left sidebar + command center | 3 |
+| 019 | `sprint-019-navigation-screens` | Onboarding/pairing, home/sessions, open-project/new-workspace, settings/projects/hosts, schedules + command-center wiring | 5 |
+| 020 | `sprint-020-workspace-shell-screens` | Workspace scaffold + route gating, tab strip + pins, pane/split tree + web DnD, header/switcher/bulk-close | 4 |
+| 021 | `sprint-021-timeline-composer-screens` | Virtualized timeline + rows/markdown + tool/diff/permission cards, composer surface, rewind UI | 5 |
+| 022 | `sprint-022-feature-panel-screens` | Explorer + file preview, git panel (+PR activity/attach), terminal pane (xterm), browser pane + subagents track | 4 |
+| 023 | `sprint-023-relay-e2ee` | Relay crypto/channels, daemon+client transports, Cloudflare server | 4 |
+| 024 | `sprint-024-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
+| 025 | `sprint-025-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
 
-Total: **19 sprints, 91 tasks.**
+Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
+25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,
@@ -201,7 +214,56 @@ Total: **19 sprints, 91 tasks.**
 | task-004 | Terminal pane | task-001; s007/task-003 | features/feature-panels-ui, terminals |
 | task-005 | Browser pane & subagents track | task-001; s014/task-001 | features/feature-panels-ui, subagents, service-proxy |
 
-### sprint-017-relay-e2ee
+### sprint-017-app-runtime-foundation
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Vite + React app scaffold & build targets | s012; s016 | architecture/design-system, client-app-runtime; features/desktop-app |
+| task-002 | Theme → CSS variables bridge & appearance | task-001; s012/task-001 | architecture/design-system; features/white-label-branding |
+| task-003 | App providers, client wiring & global stores | task-001; s007; s013/task-001 | architecture/client-app-runtime; features/app-navigation-screens |
+| task-004 | Router shell, boot resolver & route gating | task-002,003; s013/task-001 | features/app-navigation-screens; architecture/client-app-runtime |
+
+### sprint-018-ui-primitives-nav-chrome
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Core DOM primitives | s017/task-002; s012/task-003 | features/ui-components; architecture/design-system |
+| task-002 | Overlay, portal & feedback infrastructure | task-001; s012/task-002,004 | features/ui-components; architecture/design-system |
+| task-003 | Left sidebar, nav chrome & command center | task-002; s013/task-004,005; s012/task-005 | features/app-navigation-screens, keyboard-shortcuts |
+
+### sprint-019-navigation-screens
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Onboarding & device-pairing screens | s018; s013/task-002 | features/app-navigation-screens; architecture/relay-e2ee |
+| task-002 | Home & Sessions screens | s018; s013/task-003,005 | features/app-navigation-screens |
+| task-003 | Open-project & new-workspace screens | s018; s013/task-003; s015/task-006 | features/app-navigation-screens, projects-workspaces, worktrees, composer-ui |
+| task-004 | Settings, projects & hosts screens | s018; s013/task-004 | features/app-navigation-screens, localization, keyboard-shortcuts, provider-usage, desktop-app |
+| task-005 | Schedules screen & command-center wiring | task-002; s013/task-005 | features/app-navigation-screens, schedules-heartbeats |
+
+### sprint-020-workspace-shell-screens
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Workspace scaffold & route gating | s019; s014/task-003,004 | features/workspace-ui |
+| task-002 | Tab strip & pinned quick-launch | task-001; s014/task-001,004 | features/workspace-ui |
+| task-003 | Pane/split tree renderer & web DnD | task-002; s014/task-002 | features/workspace-ui |
+| task-004 | Header, compact switcher & bulk-close | task-003; s014/task-003,004 | features/workspace-ui |
+
+### sprint-021-timeline-composer-screens
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Virtualized timeline, dispatch & autoscroll | s020; s015/task-001 | features/timeline-rendering; architecture/client-app-runtime |
+| task-002 | Message rows, grouping/footers & markdown | task-001; s015/task-002,005 | features/timeline-rendering |
+| task-003 | Tool-call cards, diff rows & permission prompts | task-002; s015/task-003,004 | features/timeline-rendering, tool-permissions |
+| task-004 | Composer surface | task-001; s015/task-006; s013/task-004 | features/composer-ui, provider-usage |
+| task-005 | Rewind UI | task-002,004; s015/task-007 | features/rewind, agent-providers |
+
+### sprint-022-feature-panel-screens
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Explorer sidebar & file preview pane | s020,s021; s016/task-001,002 | features/feature-panels-ui, file-explorer-transfer |
+| task-002 | Git panel (changes, diff, inline review, PR) | task-001; s016/task-003 | features/feature-panels-ui, git-checkout |
+| task-003 | Terminal pane (xterm) | s020; s016/task-004; s007/task-003 | features/feature-panels-ui, terminals |
+| task-004 | Browser pane & subagents track | s020; s016/task-005 | features/feature-panels-ui, subagents, service-proxy |
+
+### sprint-023-relay-e2ee
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
 | task-001 | Relay crypto + symmetric channels | s004/task-001 | architecture/relay-e2ee; MAIN-SCOPE §2 |
@@ -209,20 +271,20 @@ Total: **19 sprints, 91 tasks.**
 | task-003 | Client relay transport + pairing (QR fragment) | task-001; s007/task-001 | architecture/relay-e2ee, client-app-runtime |
 | task-004 | Cloudflare relay server adapter | task-002, task-003 | architecture/relay-e2ee; MAIN-SCOPE §6 |
 
-### sprint-018-desktop
+### sprint-024-desktop
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
-| task-001 | Electron shell + managed daemon supervisor | s013/task-001; s004/task-005 | features/desktop-app; architecture/daemon-bootstrap, client-app-runtime |
+| task-001 | Electron shell + managed daemon supervisor | s013/task-001; s004/task-005; s017 (Vite build) | features/desktop-app; architecture/daemon-bootstrap, client-app-runtime |
 | task-002 | Multi-window model + land-on-project | task-001; s008/task-002; s014 | features/desktop-app |
 | task-003 | Native integrations (dialogs/menus/titlebar/notifications/auto-update) | task-001 | features/desktop-app |
 | task-004 | In-app browser panes (webview) | task-003; s016/task-005 | features/desktop-app |
 
-### sprint-019-ssh-gateway-connections
+### sprint-025-ssh-gateway-connections
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
-| task-001 | SSH gateway profile and security model | s013/task-001; s018/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
-| task-002 | Electron SSH tunnel manager | task-001; s018/task-001 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
-| task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s018/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
+| task-001 | SSH gateway profile and security model | s013/task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
+| task-002 | Electron SSH tunnel manager | task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
+| task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
 | task-004 | SSH connection UI and diagnostics | task-003; s013/task-002; s013/task-004 | architecture/ssh-gateway-connections; features/app-navigation-screens; features/desktop-app |
 | task-005 | Secret storage hardening, cleanup, and docs | task-004 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
 
@@ -248,29 +310,29 @@ Every feature and architecture scope is covered by at least one task.
 | features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002 |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
-| features/desktop-app.md | s018/t001-004, s019/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
-| features/app-navigation-screens.md | s013/t001-005 |
-| features/workspace-ui.md | s014/t001-004 |
-| features/timeline-rendering.md | s015/t001-005 |
-| features/composer-ui.md | s015/t006 |
-| features/feature-panels-ui.md | s016/t001-005, s015/t005 |
-| features/ui-components.md | s012/t002-004,t006 |
-| features/rewind.md | s015/t007 |
-| features/provider-usage.md | s013/t004-005, s015/t006 |
-| features/keyboard-shortcuts.md | s012/t005, s013/t004-005, s015/t006 |
-| features/localization.md | s012/t005,t006, s013/t004 |
-| features/white-label-branding.md | s012/t006; s018/t001,t003 (desktop app name/icon/About) |
-| architecture/daemon-bootstrap.md | s004/t001,t005, s017/t002, s018/t001 |
+| features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
+| features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
+| features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render) |
+| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render) |
+| features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
+| features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render) |
+| features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
+| features/rewind.md | s015/t007 (logic); s021/t005 (render) |
+| features/provider-usage.md | s013/t004-005, s015/t006; s019/t004, s021/t004 (render) |
+| features/keyboard-shortcuts.md | s012/t005, s013/t004-005, s015/t006; s018/t003 (render) |
+| features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
+| features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
+| architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
 | architecture/websocket-protocol.md | s002/t001-005, s004/t004-005 |
-| architecture/relay-e2ee.md | s004/t001, s017/t001-004, s013/t002 |
+| architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004 |
-| architecture/auth-security.md | s004/t002-003, s009/t003-004, s019/t002,t005 |
+| architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001 |
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
-| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s018/t001, s019/t001,t003 |
+| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003 |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
-| architecture/design-system.md | s012/t001-004,t006 |
-| architecture/ssh-gateway-connections.md | s019/t001-005 |
+| architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays) |
+| architecture/ssh-gateway-connections.md | s025/t001-005 |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -285,10 +347,10 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Service-proxy branch/project slugging + public TLS handling — s009/t003.
 - [ ] Schedule missed-run/catch-up across downtime; `create_heartbeat` vs `create_schedule` params — s010/t003.
 - [ ] Loop worker-vs-verify ordering and whether `sleepMs` applies after success — s010/t004.
-- [ ] Relay `offer` fragment encoding, in-session replay protection status, relay session-id routing — s017/t001,t003,t004.
+- [ ] Relay `offer` fragment encoding, in-session replay protection status, relay session-id routing — s023/t001,t003,t004.
 - [ ] Whether any server-side staged/percentage rollout exists behind the desktop `stable`/`beta` update
       channels (client-side is channel-select only) + full preload bridge surface + multi-window state
-      lifting — s018/t002-004.
+      lifting — s024/t002-004.
 - [ ] Rewind's exact daemon-side file-revert mechanism (non-git workspaces) and `agent.rewind.request/
       response` field names — s015/t007. **This entire feature is new protocol/server scope**, not just a
       client task; coordinate with the daemon owner before implementing.
@@ -300,8 +362,12 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Exact empty-state copy per Schedules filter combination (host × active/ended) — s013/t005.
 - [ ] `DesktopDaemonMode` (embedded/remote-only) is a Pi-Studio product decision layered on top of the
       reference app's always-on local daemon — there is no upstream behavior to verify against; exact
-      Settings → Daemon copy/placement is open — s013/t002,t004; s018/t001.
-- [ ] SSH gateway host-profile storage keys, OS secret-storage adapter, shared-vs-per-window tunnel policy, and possible future CLI `--ssh` support — s019/t001-005.
+      Settings → Daemon copy/placement is open — s013/t002,t004; s024/t001.
+- [ ] SSH gateway host-profile storage keys, OS secret-storage adapter, shared-vs-per-window tunnel policy, and possible future CLI `--ssh` support — s025/t001-005.
+- [ ] Vite web/Electron build integration (loadFile vs dev-server URL), the `getIsElectron()` marker on
+      each target, and the guarded dynamic-import helper for `*.electron.*` modules — s017/t001, s024/t001.
+- [ ] Concrete DOM library confirmations where the design-system table lists alternatives (radix vs
+      hand-rolled overlays; `react-markdown` remark plugin set; QR-decode lib) — s018/t002, s019/t001, s021/t002.
 - [ ] Highlight package: highlighter library/grammar set (no dedicated scope file) — s009/t006.
 - [ ] `Pi-StudioClient` exact method/signature surface per handle; reconnection backoff parameters — s007/t002, s013/t001.
 - [ ] UI gaps carried from the new UI scope docs (own task in parens): theme appearance storage key (s012/t001); `?open=` workspace intent vocabulary (s014/t004); turn-footer metadata fields + full tool-type catalog (s015/t002-003); list-virtualization pin threshold + highlighter grammar set (s015/t001,t005); proxy-URL resolution for the browser pane (s016/t005). UI library choices are pinned in design-system § UI technology stack (mirror of the original's stack).

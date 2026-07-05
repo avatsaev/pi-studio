@@ -12,3 +12,4 @@ export * from "./screens/index.js";
 export * from "./workspace/index.js";
 export * from "./timeline/index.js";
 export * from "./composer/index.js";
+export * from "./panels/index.js";

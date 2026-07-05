@@ -6,6 +6,13 @@
 > [terminals.md](terminals.md), [subagents.md](subagents.md),
 > [../features/desktop-app.md](desktop-app.md)
 
+> **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
+> only), not React Native. The terminal uses `@xterm/xterm`; the browser pane uses an Electron
+> `<webview>` (electron target) with a "desktop-only" placeholder on web. Behavior/contracts below are
+> medium-independent; for concrete libraries see
+> [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack and
+> [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform rules.
+
 ## Purpose
 
 Defines the **client-side UI** of the workspace feature panels: the file explorer + file preview, the

@@ -28,8 +28,11 @@ menus, titlebar, dock badges, auto-update, in-app browser webviews), and support
 | Pending open-project | Per-`webContents` pending project path for "land on a project" |
 | SSH gateway | Electron-main SSH tunnel creation, host-key storage, secret storage, tunnel lifecycle |
 
-Renderer detects Electron via `getIsElectron()`; Electron-only modules use `.electron.ts(x)` Metro
-extensions (Electron is still the Metro `web` platform, selected via `PI_STUDIO_WEB_PLATFORM=electron`).
+Renderer detects Electron via `getIsElectron()`. Pi-Studio's renderer is a **Vite-built React DOM app**
+(no Expo/Metro); the Electron shell loads the same bundle built with `VITE_TARGET=electron`. Electron-only
+modules (`*.electron.ts(x)`) are pulled in via guarded dynamic `import()` so they stay out of the pure-web
+bundle — see [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md) § Platform
+rules and [../architecture/design-system.md](../architecture/design-system.md) § Module-selection policy.
 
 ### Branding (white-label)
 The desktop shell reads the build-time brand config (see
