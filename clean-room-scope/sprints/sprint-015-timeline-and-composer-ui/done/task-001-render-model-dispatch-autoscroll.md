@@ -1,7 +1,7 @@
 # Task 001 — Timeline reducers, sync planner, render model, virtualized list, row dispatch, autoscroll
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001 (sprint-013, host runtime/session context); sprint-012 (primitives)
 

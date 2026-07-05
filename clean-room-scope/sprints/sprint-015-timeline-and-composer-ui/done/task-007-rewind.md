@@ -1,7 +1,7 @@
 # Task 007 — Rewind (conversation & file time-travel)
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-002 (message rows); task-006 (composer, for the restore-text behavior)
 

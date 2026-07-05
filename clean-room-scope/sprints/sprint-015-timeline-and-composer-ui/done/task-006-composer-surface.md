@@ -1,7 +1,7 @@
 # Task 006 — Composer surface, logic, stores, submit/queue, autocomplete, controls, attachments, voice
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** L
 - **Depends on:** task-001
 

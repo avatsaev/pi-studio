@@ -1,7 +1,7 @@
 # Task 002 — Message rows, row treatments, turn grouping & footers
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001
 

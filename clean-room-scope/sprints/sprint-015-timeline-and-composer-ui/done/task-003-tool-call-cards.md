@@ -1,7 +1,7 @@
 # Task 003 — Tool-call cards
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** L
 - **Depends on:** task-002
 

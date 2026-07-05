@@ -345,6 +345,35 @@ export const legacyRespondToPermissionSchema = z.object({
 });
 
 // ===========================================================================
+// ===========================================================================
+// Rewind RPC (features/rewind.md) — additive, new in sprint-015
+// ===========================================================================
+
+export const rewindModeSchema = z.enum(["conversation", "files", "both"]);
+export type RewindMode = z.infer<typeof rewindModeSchema>;
+
+export const agentRewindRequestSchema = z.object({
+  type: z.literal("agent.rewind.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+  messageId: z.string(),
+  mode: rewindModeSchema,
+}).passthrough();
+export type AgentRewindRequest = z.infer<typeof agentRewindRequestSchema>;
+
+export const agentRewindResponseSchema = z.object({
+  type: z.literal("agent.rewind.response"),
+  requestId: z.string(),
+  payload: z.object({
+    agentId: z.string(),
+    messageId: z.string(),
+    mode: rewindModeSchema,
+    truncatedAt: z.string().optional(),
+  }).passthrough(),
+}).passthrough();
+export type AgentRewindResponse = z.infer<typeof agentRewindResponseSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -381,6 +410,8 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   respondToPermissionRequestSchema,
   respondToPermissionResponseSchema,
   legacyRespondToPermissionSchema,
+  agentRewindRequestSchema,
+  agentRewindResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

@@ -202,6 +202,27 @@ export class AgentTimelineStore {
   }
 
   /**
+   * Truncate the timeline back to just before the user message identified by messageId.
+   * The messageId corresponds to the `messageId` field in user_message stream events.
+   * Returns the ISO timestamp of the last retained row, or undefined if nothing was retained.
+   * (features/rewind.md § Wire contract)
+   */
+  truncateBeforeMessage(messageId: string): string | undefined {
+    const idx = this.rows.findIndex((row) => {
+      const event = row.event as Record<string, unknown>;
+      return event.kind === "user_message" && event.messageId === messageId;
+    });
+    if (idx <= 0) {
+      // Nothing to truncate or messageId not found — truncate all rows as safe fallback
+      if (idx === 0) this.rows = [];
+      return undefined;
+    }
+    this.rows = this.rows.slice(0, idx);
+    const last = this.rows[this.rows.length - 1];
+    return last?.timestamp;
+  }
+
+  /**
    * Return a bounded page of projected items.
    *
    * `direction:"after"` from cursor returns rows AFTER that seq (newer); `"before"` returns rows

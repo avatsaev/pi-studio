@@ -1,7 +1,7 @@
 # Task 005 — Markdown rendering & syntax highlighting
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-002
 

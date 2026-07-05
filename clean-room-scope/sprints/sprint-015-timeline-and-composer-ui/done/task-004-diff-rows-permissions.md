@@ -1,7 +1,7 @@
 # Task 004 — Diff rows, permission prompts
 
 - **Sprint:** sprint-015-timeline-and-composer-ui
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-003
 

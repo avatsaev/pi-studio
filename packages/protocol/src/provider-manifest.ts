@@ -23,7 +23,11 @@ export const agentCapabilityFlagsSchema = z.object({
   supportsMcpServers: z.boolean(),
   supportsReasoningStream: z.boolean(),
   supportsToolInvocations: z.boolean(),
-});
+  // Rewind capability flags (features/rewind.md) — additive, optional, old clients ignore.
+  supportsRewindConversation: z.boolean().optional(),
+  supportsRewindFiles: z.boolean().optional(),
+  supportsRewindBoth: z.boolean().optional(),
+}).passthrough();
 export type AgentCapabilityFlags = z.infer<typeof agentCapabilityFlagsSchema>;
 
 /** UI metadata for a provider mode (plan/default/full-access/...). */
