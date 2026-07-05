@@ -31,6 +31,15 @@ menus, titlebar, dock badges, auto-update, in-app browser webviews), and support
 Renderer detects Electron via `getIsElectron()`; Electron-only modules use `.electron.ts(x)` Metro
 extensions (Electron is still the Metro `web` platform, selected via `PI_STUDIO_WEB_PLATFORM=electron`).
 
+### Branding (white-label)
+The desktop shell reads the build-time brand config (see
+[../features/white-label-branding.md](../features/white-label-branding.md)) for all product identity:
+`productName` drives `app.setName`, the window title, the About panel, and the auto-updater feed
+naming; `shortName`+`icon` drive the dock/taskbar label and badge base; `assets.icon`/`assets.splash`
+provide the packaged app icon (via `electron-builder`) and splash artwork. With no brand override the
+desktop app is the default Pi-Studio brand. Menus/About/notification app-name all resolve from the same
+config — no desktop-specific hardcoded product strings.
+
 ### Local vs. remote daemon mode
 The desktop app is a full daemon **client** first; running its own daemon locally is one mode among
 several a saved host can be, not a hidden implementation detail. This keeps "work entirely on this
@@ -157,7 +166,8 @@ type DesktopAppUpdateCheckIntent = "automatic" | "manual";
 
 ## Dependencies
 - Internal: desktop main/preload, daemon supervisor, `desktopDaemonMode` setting, web app build,
-  open-project routing, pending-open-project store, i18n (callout/permission copy).
+  open-project routing, pending-open-project store, i18n (callout/permission copy), build-time brand
+  config (app name/icon/About/updater naming).
 - External: Electron, `electron-updater` (auto-update), `electron-log` (logging), `electron-builder`
   (packaging), OS notification/dock/permission APIs.
 

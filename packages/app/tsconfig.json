@@ -7,6 +7,6 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.test.ts"],
   "exclude": ["dist"]
 }

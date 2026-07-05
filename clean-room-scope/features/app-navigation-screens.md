@@ -269,7 +269,9 @@ web, bottom sheet on native/compact.
 - Pinned library versions: see [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack.
 - Internal: host-runtime store, session context, route grammar module, design system, projects/worktrees
   config, relay pairing, schedules service (cross-host aggregation), localization, keyboard-shortcut
-  system, provider-usage.
+  system, provider-usage, build-time brand config (logo/product name on splash/welcome/open-project;
+  see [white-label-branding.md](white-label-branding.md)) — all logo surfaces use `<BrandLogo>` and all
+  "Pi-Studio" strings resolve via the `{{productName}}` interpolation.
 - External: file-based router + native stack, camera (native pairing), deep-linking.
 
 ## Acceptance Criteria

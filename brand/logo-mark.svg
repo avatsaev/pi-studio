@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Pi-Studio square mark / monogram -->
+  <rect width="48" height="48" rx="10" fill="#20744A"/>
+  <text x="10" y="34" font-family="system-ui,-apple-system,sans-serif" font-size="26"
+        font-weight="700" fill="#ffffff">Pi</text>
+</svg>

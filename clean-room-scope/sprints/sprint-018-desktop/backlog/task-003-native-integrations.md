@@ -38,3 +38,6 @@ Implement the desktop native integrations exposed through the preload bridge.
   not here — see `clean-room-scope/features/desktop-app.md` § Local vs. remote daemon mode. This task
   only surfaces existing native OS integrations (dialogs/menus/notifications/dock/auto-update); it does
   not change how a daemon is selected/started.
+- Product-identity strings (About panel, notification app name, dock/taskbar label, updater feed naming)
+  resolve from the build-time brand config (sprint-012/task-006); default = Pi-Studio. See
+  `clean-room-scope/features/desktop-app.md` § Branding.

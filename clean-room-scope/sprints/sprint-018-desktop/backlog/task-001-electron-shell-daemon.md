@@ -50,3 +50,7 @@ web build of the app.
 
 ## Notes
 - Keep daemon supervision idempotent against the PID lock.
+- Consume the build-time brand config (sprint-012/task-006) for `app.setName`, window title, and the
+  packaged app icon (`electron-builder`); default = Pi-Studio when unset. See
+  `clean-room-scope/features/desktop-app.md` § Branding and
+  `clean-room-scope/features/white-label-branding.md`.

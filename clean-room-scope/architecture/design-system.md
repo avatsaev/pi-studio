@@ -82,6 +82,11 @@ destructive) and produces the full semantic color set + a tinted terminal ANSI m
 | `ghostty` | dark | slate-blue (Ghostty bg) | `#89b4fa` | `#8caaee` |
 
 - A theme-name→engine-key map and a theme-name→swatch-color map are exported for the Appearance picker.
+- **Brand injection (white-label):** the accent family (`accent`, `accentBright`, `accentForeground`)
+  and the picker swatch are not hardcoded to the default green — they come from the build-time brand
+  config's `colors` (with bright/foreground auto-derived when omitted) and are applied uniformly across
+  **all six** variants. Non-accent tokens are not brand-overridable in this version. See
+  [../features/white-label-branding.md](../features/white-label-branding.md).
 - Adaptive (system) light/dark following is enabled at the engine level; an explicit user theme
   overrides it. Appearance changes (theme, fonts, font size) are applied via a runtime theme update
   that repaints without a full reload (see [client-app-runtime.md](client-app-runtime.md) and the
@@ -176,6 +181,9 @@ break touch). Never use pointer-enter/leave as a layout signal.
   menus, control sheets) render as **bottom sheets** instead of anchored popovers.
 
 ## Data & Persistence
+- The build-time brand config supplies the accent family + swatch (see
+  [../features/white-label-branding.md](../features/white-label-branding.md)); it is immutable at
+  runtime and independent of user Appearance settings.
 - The active theme name, custom UI/mono fonts, and font size are user appearance settings; applying them
   patches the live theme tokens at runtime. Persistence of appearance settings follows the client store
   conventions in [persistence.md](persistence.md). `TODO(verify)`: exact appearance-settings storage key.

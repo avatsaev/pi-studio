@@ -37,7 +37,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 009 | `sprint-009-terminals-proxy-files` | PTY terminals, service proxy, file explorer/transfer, highlight | 6 |
 | 010 | `sprint-010-orchestration` | MCP server, chat rooms, schedules/heartbeats, loops | 4 |
 | 011 | `sprint-011-cli` | Commander CLI: core, agent, daemon, feature command groups | 4 |
-| 012 | `sprint-012-ui-foundation` | Design-system tokens/themes, styling-engine conventions, shared primitives, localization + keyboard-shortcut infra | 5 |
+| 012 | `sprint-012-ui-foundation` | Design-system tokens/themes, styling-engine conventions, shared primitives, localization + keyboard-shortcut infra, white-label branding | 6 |
 | 013 | `sprint-013-app-navigation-screens` | Host runtime/app shell, routing, onboarding/pairing, open-project/new-workspace, settings/projects/sidebar, cross-host sessions/schedules + command center | 5 |
 | 014 | `sprint-014-workspace-shell` | Tab model/registry, pane/split + DnD, screen composition/headers, seeding/pinned-targets/gating/mobile switcher | 4 |
 | 015 | `sprint-015-timeline-and-composer-ui` | Timeline reducers/render model + rows + tool-cards + diffs/permissions + markdown, composer surface/stores, rewind | 7 |
@@ -46,7 +46,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 018 | `sprint-018-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
 | 019 | `sprint-019-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
 
-Total: **19 sprints, 90 tasks.**
+Total: **19 sprints, 91 tasks.**
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,
@@ -162,6 +162,7 @@ Total: **19 sprints, 90 tasks.**
 | task-003 | Core primitives: pressables, inputs, icons, surfaces | task-002 | features/ui-components |
 | task-004 | Overlays, navigation chrome, feedback primitives | task-003 | features/ui-components |
 | task-005 | Localization + keyboard-shortcut system infra | task-001 | features/localization, features/keyboard-shortcuts |
+| task-006 | White-label branding (build-time brand config) | task-001,003,005 | features/white-label-branding; architecture/design-system; features/ui-components, localization |
 
 ### sprint-013-app-navigation-screens
 | Task | Title | Depends on | Covers (scope files) |
@@ -247,17 +248,18 @@ Every feature and architecture scope is covered by at least one task.
 | features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002 |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
-| features/desktop-app.md | s018/t001-004, s019/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI) |
+| features/desktop-app.md | s018/t001-004, s019/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 |
 | features/workspace-ui.md | s014/t001-004 |
 | features/timeline-rendering.md | s015/t001-005 |
 | features/composer-ui.md | s015/t006 |
 | features/feature-panels-ui.md | s016/t001-005, s015/t005 |
-| features/ui-components.md | s012/t002-004 |
+| features/ui-components.md | s012/t002-004,t006 |
 | features/rewind.md | s015/t007 |
 | features/provider-usage.md | s013/t004-005, s015/t006 |
 | features/keyboard-shortcuts.md | s012/t005, s013/t004-005, s015/t006 |
-| features/localization.md | s012/t005, s013/t004 |
+| features/localization.md | s012/t005,t006, s013/t004 |
+| features/white-label-branding.md | s012/t006; s018/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s017/t002, s018/t001 |
 | architecture/websocket-protocol.md | s002/t001-005, s004/t004-005 |
 | architecture/relay-e2ee.md | s004/t001, s017/t001-004, s013/t002 |
@@ -267,7 +269,7 @@ Every feature and architecture scope is covered by at least one task.
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
 | architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s018/t001, s019/t001,t003 |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
-| architecture/design-system.md | s012/t001-004 |
+| architecture/design-system.md | s012/t001-004,t006 |
 | architecture/ssh-gateway-connections.md | s019/t001-005 |
 
 ## Open questions — TODO(verify)

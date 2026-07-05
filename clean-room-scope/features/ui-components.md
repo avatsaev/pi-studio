@@ -55,8 +55,12 @@ per feature from views + tokens. The shared primitives are:
   color via theme tokens passed as the `color` prop. Theme-reactive icons are wrapped with the theme-prop
   binder rather than read through the all-subscribing theme hook.
 - **Brand/provider icons:** SVG components per provider (claude/codex/copilot/opencode/pi/…) and brands
-  (github/discord/the Pi-Studio logo/editor app icons/source-control panel icon). A provider-id→icon map
+  (github/discord/editor app icons/source-control panel icon). A provider-id→icon map
   resolves provider visuals. A Material file-icon set drives the file explorer.
+- **`<BrandLogo>`** — the single product-logo component (`variant="auto|light|dark|mark"`), reading the
+  build-time brand config's logo assets and picking light/dark by active `colorScheme`. Every product
+  logo surface (splash, welcome, open-project, empty states, sidebar header) goes through it; no screen
+  embeds a hardcoded logo. See [white-label-branding.md](white-label-branding.md).
 
 ### Surfaces / badges / chips / avatars
 - **Alert** — inline callout: `title`, `description` (string/node), variant `default|info|success|warning|
