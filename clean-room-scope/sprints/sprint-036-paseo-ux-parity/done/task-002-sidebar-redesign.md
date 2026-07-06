@@ -1,7 +1,7 @@
 # Task 002 — Left sidebar redesign (Paseo parity)
 
 - **Sprint:** sprint-036-paseo-ux-parity
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001 (tokens)
 

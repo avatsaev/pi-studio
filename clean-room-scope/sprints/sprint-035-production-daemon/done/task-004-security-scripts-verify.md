@@ -1,7 +1,7 @@
 # Task 004 — Security, run scripts, and end-to-end verification (real Pi LLM)
 
 - **Sprint:** sprint-035-production-daemon
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001, task-002, task-003
 

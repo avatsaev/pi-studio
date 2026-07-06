@@ -1,7 +1,7 @@
 # Task 003 — Navigation screens parity (Home, Sessions, Schedules, Settings)
 
 - **Sprint:** sprint-036-paseo-ux-parity
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** L
 - **Depends on:** task-001 (tokens)
 
