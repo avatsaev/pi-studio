@@ -1,35 +1,75 @@
-/* Composer — message input surface. */
+/* Composer — Paseo parity: the input IS the surface. A top border separates it
+   from the timeline; content is centered to a readable max width; the textarea
+   is borderless on the composer background. Ref: ~/DEV/paseo/packages/app/src/composer/index.tsx */
 
 .container {
+  position: relative;
   border-top: 1px solid var(--pi-color-border, #3f3f46);
-  padding: 8px 12px;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, var(--pi-color-surface0, #121214));
+}
+
+/* Centered readable column (Paseo MAX_CONTENT_WIDTH = 820). */
+.content {
+  position: relative;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .inputRow {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-end;
 }
 
+/* Borderless textarea — the composer background is the input surface. */
 .textArea {
   flex: 1;
   resize: none;
-  min-height: 36px;
+  min-height: 28px;
   max-height: 200px;
-  padding: 8px 12px;
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  border-radius: var(--pi-radius-base, 4px);
-  background: var(--pi-color-surface1, #18181b);
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
   color: var(--pi-color-foreground, #fafafa);
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.55;
   outline: none;
 }
 
-.textArea:focus {
-  border-color: var(--pi-color-accent, #20744a);
+.textArea::placeholder {
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+}
+
+/* Icon buttons (attach) — muted, subtle hover surface */
+.iconBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+  border-radius: var(--pi-radius-full, 9999px);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--pi-color-surface2, #272a29);
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .sendBtn {
@@ -40,27 +80,91 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 6px;
+  gap: 8px;
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 11px;
-  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+  padding: 0 2px;
 }
 
+.footerLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Model / mode selector chip — subtle, muted (Combobox-like) */
+.modeSelect {
+  background: transparent;
+  border: none;
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+  cursor: pointer;
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: var(--pi-radius-base, 4px);
+}
+
+.modeSelect:hover {
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.usageBtn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.usagePopover {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 6px;
+  min-width: 180px;
+  padding: 8px;
+  border-radius: var(--pi-radius-lg, 8px);
+  z-index: 20;
+  background: var(--pi-color-surface2, #272a29);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  box-shadow: var(--pi-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.3));
+}
+
+.usageRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.usageRowLabel {
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+}
+
+.queueIndicator {
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a5a4);
+}
+
+/* Attachments tray */
 .attachments {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  padding-bottom: 6px;
 }
 
 .attachPill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: var(--pi-color-surface2, #27272a);
-  font-size: 11px;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--pi-radius-full, 9999px);
+  background: var(--pi-color-surface2, #272a29);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  font-size: 12px;
   color: var(--pi-color-foreground, #fafafa);
 }
 
@@ -73,35 +177,31 @@
   opacity: 1;
 }
 
-.queueIndicator {
-  font-size: 11px;
-  color: var(--pi-color-accent, #20744a);
-}
-
-/* Autocomplete popover */
+/* Autocomplete popover — aligned to the centered content column */
 .autocomplete {
   position: absolute;
   bottom: 100%;
-  left: 12px;
-  right: 12px;
-  max-height: 200px;
+  left: 0;
+  right: 0;
+  max-height: 220px;
   overflow-y: auto;
-  background: var(--pi-color-surface1, #18181b);
+  background: var(--pi-color-surface1, #1e2120);
   border: 1px solid var(--pi-color-border, #3f3f46);
-  border-radius: var(--pi-radius-base, 4px);
-  margin-bottom: 4px;
-  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0,0,0,0.4));
+  border-radius: var(--pi-radius-md, 6px);
+  margin-bottom: 6px;
+  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.4));
   z-index: 50;
 }
 
 .acOption {
-  padding: 6px 10px;
+  padding: 7px 12px;
   font-family: var(--pi-font-ui, system-ui);
   font-size: 13px;
   color: var(--pi-color-foreground, #fafafa);
   cursor: pointer;
 }
 
-.acOption:hover, .acOptionHighlighted {
-  background: var(--pi-color-surface2, #27272a);
+.acOption:hover,
+.acOptionHighlighted {
+  background: var(--pi-color-surface2, #272a29);
 }

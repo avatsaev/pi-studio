@@ -1,11 +1,14 @@
 /**
  * HomeScreen — /h/:serverId/open-project and /open-project (global).
- * Tile-based landing page with quick actions.
- * app-navigation-screens.md § Open-project (host home)
+ * Calm tile-based landing page. app-navigation-screens.md § Open-project.
+ *
+ * Paseo parity: quiet centered layout, generous whitespace, a single accent
+ * CTA (the primary tile), muted secondary tiles. docs/design.md §1,§3,§7.
  */
 
 import { useMemo } from "react";
 import styles from "./HomeScreen.module.css";
+import { ScreenTitle } from "../primitives/ScreenTitle.js";
 import {
   visibleOpenProjectTiles,
   openProjectTileLayout,
@@ -27,11 +30,15 @@ export function HomeScreen({ context, width = 800, onTilePress }: HomeScreenProp
 
   return (
     <div className={styles.container}>
-      <div className={styles.logo} aria-hidden>
-        <svg viewBox="0 0 48 48" width="48" height="48">
-          <circle cx="24" cy="24" r="20" fill="var(--pi-color-accent, #20744a)" opacity="0.15" />
-          <circle cx="24" cy="24" r="9" fill="var(--pi-color-accent, #20744a)" />
-        </svg>
+      <div className={styles.hero}>
+        <div className={styles.logo} aria-hidden>
+          <svg viewBox="0 0 48 48" width="44" height="44">
+            <circle cx="24" cy="24" r="20" fill="var(--pi-color-accent)" opacity="0.15" />
+            <circle cx="24" cy="24" r="9" fill="var(--pi-color-accent)" />
+          </svg>
+        </div>
+        <ScreenTitle className={styles.title}>Pi Studio</ScreenTitle>
+        <p className={styles.subtitle}>A local-first AI coding agent you control.</p>
       </div>
 
       <div className={styles.tiles} data-layout={layout}>
@@ -46,9 +53,9 @@ export function HomeScreen({ context, width = 800, onTilePress }: HomeScreenProp
         ))}
       </div>
 
-      <div className={styles.communityLinks}>
-        <span>Docs</span>
-        <span>Community</span>
+      <div className={styles.footer}>
+        <span className={styles.footerLink}>Docs</span>
+        <span className={styles.footerLink}>Community</span>
       </div>
     </div>
   );

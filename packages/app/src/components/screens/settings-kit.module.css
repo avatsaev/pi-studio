@@ -1,0 +1,100 @@
+/* settings-kit — shared card/row/section primitives (Paseo parity).
+   Mirrors ~/DEV/paseo styles/settings.ts + settings/settings-section.tsx.
+   Rhythm: page → spacious, section → spacious, card → tight (rows touch,
+   divider separates). See docs/design.md §5 (borders), §7 (density). */
+
+/* Centered reading column for settings / list+detail content. */
+.column {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--pi-spacing-6, 24px) var(--pi-spacing-4, 16px) var(--pi-spacing-8, 32px);
+}
+
+/* Section: muted xs label + content stack; owns its own bottom margin. */
+.section {
+  margin-bottom: var(--pi-spacing-6, 24px);
+}
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-2, 8px);
+  margin-bottom: var(--pi-spacing-3, 12px);
+  margin-left: var(--pi-spacing-1, 4px);
+}
+
+.sectionTitle {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  font-weight: var(--pi-font-weight-normal, 400);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.sectionContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-3, 12px);
+}
+
+/* Card: a logical block of rows, one border around the whole group. */
+.card {
+  background: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-lg, 8px);
+  overflow: hidden;
+}
+
+/* Row: generous vertical padding; a single top border after the first row. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-3, 12px);
+  padding: var(--pi-spacing-4, 16px);
+}
+.row:not(:first-child) {
+  border-top: 1px solid var(--pi-color-border);
+}
+.rowInteractive {
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+.rowInteractive:hover {
+  background: var(--pi-color-surface2);
+}
+
+.rowContent {
+  flex: 1;
+  min-width: 0;
+  margin-right: var(--pi-spacing-3, 12px);
+}
+.rowTitle {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-base, 16px);
+  color: var(--pi-color-foreground);
+}
+.rowHint {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted);
+  margin-top: var(--pi-spacing-1, 4px);
+}
+.rowError {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-statusDanger);
+  margin-top: var(--pi-spacing-1, 4px);
+}
+.rowTrailing {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-2, 8px);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foregroundMuted);
+}

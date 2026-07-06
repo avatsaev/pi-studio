@@ -20,6 +20,7 @@ import { ShortcutDispatcher } from "../components/nav/ShortcutDispatcher.js";
 import { ShortcutsDialog } from "../components/nav/ShortcutsDialog.js";
 import { useConnectionStatus } from "../providers/ConnectionProvider.js";
 import { useAgentDirectory } from "../hooks/use-session-hooks.js";
+import { deriveWorkspaceLabel } from "../screens/sidebar.js";
 import { Spinner } from "../components/primitives/Spinner.js";
 import { routes } from "../runtime/route-grammar.js";
 import { activeHostSnapshot, connectionToHostSnapshots, toCommandCenterAgents } from "./shell-adapters.js";
@@ -60,11 +61,16 @@ export function AppShell() {
   const activeHost = activeHostSnapshot(connection);
   const commandCenterAgents = toCommandCenterAgents(agents, connection.serverId);
 
-  // Sidebar workspace rows from the live agent directory (dev: workspaceId === agentId).
+  // Sidebar workspace rows from the live agent directory. Labels are friendly
+  // names (title / repo / basename) — the absolute cwd is only a tooltip.
   const workspaceRows = agents.map((a) => ({
     workspaceId: a.workspaceId ?? a.agentId,
-    label: a.title ?? a.cwd ?? a.agentId,
+    label: deriveWorkspaceLabel({ title: a.title, cwd: a.cwd, agentId: a.agentId }),
+    fullPath: a.cwd,
     projectKey: a.cwd,
+    status: a.status,
+    provider: a.provider,
+    model: a.model,
     lastActivityMs: a.lastActivity,
   }));
 

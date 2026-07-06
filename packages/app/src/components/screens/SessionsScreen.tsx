@@ -1,22 +1,45 @@
 /**
  * SessionsScreen — /sessions (cross-host) and /h/:serverId/sessions.
- * Lists agents/workspaces grouped by host/project with status + attention.
+ * Lists agents/workspaces grouped by host with status + last-activity.
  * app-navigation-screens.md § Sessions (cross-host)
+ *
+ * Paseo parity: ScreenTitle header, shared ListRow (lead dot + title +
+ * muted secondary + trailing time), grouped sections, centered column,
+ * quiet empty/error states. docs/design.md §3,§5,§7.
  */
 
 import { useMemo, useState } from "react";
+import { clsx } from "clsx";
 import styles from "./SessionsScreen.module.css";
 import { Spinner } from "../primitives/index.js";
+import { ScreenTitle } from "../primitives/ScreenTitle.js";
+import { PageColumn } from "./settings-kit.js";
+import { ListRow } from "./ListRow.js";
 import {
   aggregateSessions,
   type HostSessions,
   type CrossHostFilter,
   type SessionRow,
 } from "../../screens/cross-host.js";
-import { routes } from "../../runtime/route-grammar.js";
+
+function relativeTime(ms: number): string {
+  const delta = Date.now() - ms;
+  if (delta < 60_000) return "just now";
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
+  return `${Math.floor(delta / 86_400_000)}d ago`;
+}
+
+/** Basename of a cwd, for the muted secondary line. */
+function shortPath(cwd: string | undefined): string | undefined {
+  if (!cwd) return undefined;
+  const trimmed = cwd.replace(/\/+$/, "");
+  const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return base || trimmed;
+}
 
 // ---------------------------------------------------------------------------
-// AgentListItem — reusable row (also used in subagents track, sprint-022)
+// AgentListItem — reusable row (also used in the subagents track).
 // ---------------------------------------------------------------------------
 
 export interface AgentListItemProps {
@@ -27,21 +50,15 @@ export interface AgentListItemProps {
   onClick?: () => void;
 }
 
-function relativeTime(ms: number): string {
-  const delta = Date.now() - ms;
-  if (delta < 60_000) return "just now";
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
-  return `${Math.floor(delta / 86_400_000)}d ago`;
-}
-
 export function AgentListItem({ title, hostLabel, showOriginHost, lastActivityMs, onClick }: AgentListItemProps) {
   return (
-    <div className={styles.row} onClick={onClick} role="button" tabIndex={0}>
-      <span className={styles.rowTitle}>{title}</span>
-      {showOriginHost && hostLabel && <span className={styles.rowHost}>{hostLabel}</span>}
-      <span className={styles.rowTime}>{relativeTime(lastActivityMs)}</span>
-    </div>
+    <ListRow
+      lead={<span className={styles.dot} />}
+      title={title}
+      secondary={showOriginHost ? hostLabel : undefined}
+      trailing={relativeTime(lastActivityMs)}
+      onClick={onClick}
+    />
   );
 }
 
@@ -57,60 +74,80 @@ export interface SessionsScreenProps {
   onBack?: () => void;
 }
 
-export function SessionsScreen({ hosts, initialFilter = "all", onSelectSession, onBack }: SessionsScreenProps) {
+export function SessionsScreen({ hosts, initialFilter = "all", onSelectSession }: SessionsScreenProps) {
   const [filter, setFilter] = useState<CrossHostFilter>(initialFilter);
   const state = useMemo(() => aggregateSessions(hosts, filter), [hosts, filter]);
 
+  const showHostFilter = state.kind !== "loading" && state.showHostFilter;
+
+  // Group rows by host when cross-host, else a single flat group.
+  const groups = useMemo(() => {
+    if (state.kind !== "list") return [];
+    if (!state.showOriginHost) return [{ label: undefined as string | undefined, rows: state.rows }];
+    const map = new Map<string, SessionRow[]>();
+    for (const row of state.rows) {
+      const key = row.hostLabel || "Unknown host";
+      map.set(key, [...(map.get(key) ?? []), row]);
+    }
+    return [...map.entries()].map(([label, rows]) => ({ label, rows }));
+  }, [state]);
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>Sessions</div>
-
-      {/* Host filter */}
-      {(state.kind !== "loading") && (state.kind === "empty" ? state.showHostFilter : state.showHostFilter) && (
-        <div className={styles.filter}>
+      <header className={styles.header}>
+        <ScreenTitle>Sessions</ScreenTitle>
+        {showHostFilter && (
           <select
+            className={styles.select}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            style={{ fontSize: 12, background: "var(--pi-color-surface1)", color: "var(--pi-color-foreground)", border: "1px solid var(--pi-color-border)", borderRadius: 4, padding: "4px 8px" }}
+            aria-label="Filter by host"
           >
             <option value="all">All hosts</option>
             {hosts.map((h) => (
               <option key={h.serverId} value={h.serverId}>{h.hostLabel}</option>
             ))}
           </select>
-        </div>
-      )}
+        )}
+      </header>
 
-      {/* Error banner */}
-      {state.kind !== "loading" && state.errors.length > 0 && (
-        <div className={styles.errorBanner}>{state.errors.join("; ")}</div>
-      )}
+      <div className={styles.body}>
+        <PageColumn>
+          {state.kind !== "loading" && state.errors.length > 0 && (
+            <div className={styles.errorBanner}>{state.errors.join("; ")}</div>
+          )}
 
-      {/* States */}
-      {state.kind === "loading" && (
-        <div className={styles.loading}><Spinner /></div>
-      )}
+          {state.kind === "loading" && (
+            <div className={styles.loading}><Spinner /></div>
+          )}
 
-      {state.kind === "empty" && (
-        <div className={styles.empty}>
-          <p className={styles.emptyText}>No sessions yet</p>
-        </div>
-      )}
+          {state.kind === "empty" && (
+            <div className={styles.empty}>
+              <p className={styles.emptyText}>No sessions yet</p>
+              <p className={styles.emptyHint}>Start a new workspace to begin.</p>
+            </div>
+          )}
 
-      {state.kind === "list" && (
-        <div className={styles.list}>
-          {state.rows.map((row) => (
-            <AgentListItem
-              key={`${row.serverId}:${row.agentId}`}
-              title={row.title}
-              hostLabel={row.hostLabel}
-              showOriginHost={state.showOriginHost}
-              lastActivityMs={row.lastActivityMs}
-              onClick={() => onSelectSession(row)}
-            />
-          ))}
-        </div>
-      )}
+          {state.kind === "list" &&
+            groups.map((group, i) => (
+              <section key={group.label ?? `group-${i}`} className={styles.group}>
+                {group.label && <div className={styles.groupLabel}>{group.label}</div>}
+                <div className={clsx(styles.list, group.label && styles.listGrouped)}>
+                  {group.rows.map((row) => (
+                    <ListRow
+                      key={`${row.serverId}:${row.agentId}`}
+                      lead={<span className={styles.dot} />}
+                      title={row.title}
+                      secondary={shortPath(row.cwd)}
+                      trailing={relativeTime(row.lastActivityMs)}
+                      onClick={() => onSelectSession(row)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+        </PageColumn>
+      </div>
     </div>
   );
 }

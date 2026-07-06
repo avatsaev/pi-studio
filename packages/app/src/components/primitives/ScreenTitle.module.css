@@ -1,0 +1,22 @@
+/* ScreenTitle — canonical top-of-screen title (Paseo parity).
+   One typography, one color, responsive weight: 400 compact, 300 desktop.
+   Hierarchy via weight+color, never size. */
+
+.title {
+  flex-shrink: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-base, 16px);
+  font-weight: 400;
+  color: var(--pi-color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .title {
+    font-weight: 300;
+  }
+}

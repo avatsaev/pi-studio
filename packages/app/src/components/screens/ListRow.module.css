@@ -1,0 +1,56 @@
+/* ListRow — shared list-as-page row (Sessions, Schedules).
+   Lists-as-pages use spacing + surface (not borders) to separate items.
+   docs/design.md §5, §7. 8–12px vertical padding for dense list items. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-3, 12px);
+  padding: var(--pi-spacing-2, 8px) var(--pi-spacing-3, 12px);
+  border-radius: var(--pi-radius-md, 6px);
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+.row:hover {
+  background: var(--pi-color-surface1);
+}
+
+.lead {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trailing {
+  flex-shrink: 0;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted);
+  white-space: nowrap;
+}

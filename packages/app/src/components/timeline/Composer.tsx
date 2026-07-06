@@ -339,7 +339,8 @@ export function Composer({
   }, [lightbox.open, dismissLightbox]);
 
   return (
-    <div className={styles.container} style={{ position: "relative" }} onPaste={handlePaste} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
+    <div className={styles.container} onPaste={handlePaste} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
+      <div className={styles.content}>
       {/* Autocomplete */}
       {acMode === "command" && commandOptions.length > 0 && (
         <div className={styles.autocomplete}>
@@ -395,7 +396,7 @@ export function Composer({
 
       {/* Input row */}
       <div className={styles.inputRow}>
-        <button className={styles.sendBtn} onClick={handleAttach} aria-label="Attach file" disabled={locked} style={{ background: "none", border: "none", color: "var(--pi-color-foregroundMuted)", cursor: "pointer" }}>
+        <button type="button" className={styles.iconBtn} onClick={handleAttach} aria-label="Attach file" disabled={locked}>
           <Paperclip size={16} />
         </button>
         <textarea
@@ -421,13 +422,13 @@ export function Composer({
 
       {/* Footer */}
       <div className={styles.footer}>
-        <span>
+        <span className={styles.footerLeft}>
           {modes.length > 0 && (
             <select
               aria-label="Agent mode"
+              className={styles.modeSelect}
               value={currentModeId ?? modes[0]?.id}
               onChange={(e) => onModeChange?.(e.target.value)}
-              style={{ background: "none", border: "none", color: "var(--pi-color-foregroundMuted)", cursor: "pointer", font: "inherit" }}
             >
               {modes.map((m) => (
                 <option key={m.id} value={m.id}>{m.label}</option>
@@ -441,26 +442,17 @@ export function Composer({
             <button
               type="button"
               aria-label="Usage breakdown"
+              className={styles.usageBtn}
+              style={{ cursor: usageBreakdown.length > 0 ? "pointer" : "default" }}
               onClick={() => setUsageOpen((v) => !v)}
-              style={{ background: "none", border: "none", color: "inherit", font: "inherit", cursor: usageBreakdown.length > 0 ? "pointer" : "default", padding: 0 }}
             >
               {providerUsageLabel}
             </button>
             {usageOpen && usageBreakdown.length > 0 && (
-              <div
-                role="dialog"
-                aria-label="Usage breakdown"
-                style={{
-                  position: "absolute", bottom: "100%", right: 0, marginBottom: 6,
-                  minWidth: 180, padding: 8, borderRadius: 8, zIndex: 20,
-                  background: "var(--pi-color-surface, #1e1e1e)",
-                  border: "1px solid var(--pi-color-border, #333)",
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-                }}
-              >
+              <div role="dialog" aria-label="Usage breakdown" className={styles.usagePopover}>
                 {usageBreakdown.map((row) => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, padding: "2px 0" }}>
-                    <span style={{ opacity: 0.7 }}>{row.label}</span>
+                  <div key={row.label} className={styles.usageRow}>
+                    <span className={styles.usageRowLabel}>{row.label}</span>
                     <span>{row.value}</span>
                   </div>
                 ))}
@@ -468,6 +460,7 @@ export function Composer({
             )}
           </span>
         )}
+      </div>
       </div>
 
       {/* Hidden file input */}

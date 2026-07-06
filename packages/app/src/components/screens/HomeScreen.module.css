@@ -1,68 +1,96 @@
-/* HomeScreen — per-host open-project landing. */
+/* HomeScreen — open-project landing (Paseo parity: calm, spacious, quiet). */
 
 .container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 32px 24px;
-  gap: 24px;
+  justify-content: center;
+  gap: var(--pi-spacing-8, 32px);
   height: 100%;
-  background: var(--pi-color-surface0, #09090b);
+  padding: var(--pi-spacing-8, 32px) var(--pi-spacing-6, 24px);
+  background: var(--pi-color-surface0);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-spacing-2, 8px);
 }
 
 .logo {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--pi-spacing-2, 8px);
+}
+
+.title {
+  text-align: center;
+}
+
+.subtitle {
+  margin: 0;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foregroundMuted);
+  text-align: center;
 }
 
 .tiles {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--pi-spacing-3, 12px);
   justify-content: center;
   max-width: 520px;
   width: 100%;
 }
-
 .tiles[data-layout="stacked"] {
   flex-direction: column;
+  max-width: 320px;
 }
 
+/* Secondary tiles: quiet surface, no accent. */
 .tile {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px 20px;
-  border-radius: var(--pi-radius-lg, 12px);
-  background: var(--pi-color-surface1, #18181b);
-  border: 1px solid var(--pi-color-border, #3f3f46);
+  min-width: 150px;
+  padding: var(--pi-spacing-3, 12px) var(--pi-spacing-4, 16px);
+  border-radius: var(--pi-radius-lg, 8px);
+  background: var(--pi-color-surface2);
+  border: 1px solid var(--pi-color-border);
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--pi-color-foreground, #fafafa);
+  font-size: var(--pi-font-size-sm, 14px);
+  font-weight: var(--pi-font-weight-normal, 400);
+  color: var(--pi-color-foreground);
   cursor: pointer;
-  transition: background-color 100ms;
-  min-width: 140px;
+  transition: background-color 100ms ease;
 }
-
 .tile:hover {
-  background: var(--pi-color-surface2, #27272a);
+  background: var(--pi-color-surface3);
 }
 
+/* The single accent CTA per surface. */
 .tileAccent {
-  background: var(--pi-color-accent, #20744a);
-  border-color: var(--pi-color-accent, #20744a);
-  color: var(--pi-color-accentForeground, #ffffff);
+  background: var(--pi-color-accent);
+  border-color: var(--pi-color-accent);
+  color: var(--pi-color-accentForeground);
 }
-
 .tileAccent:hover {
+  background: var(--pi-color-accent);
   opacity: 0.9;
 }
 
-.communityLinks {
-  margin-top: auto;
+.footer {
   display: flex;
-  gap: 16px;
-  font-size: 12px;
-  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  gap: var(--pi-spacing-4, 16px);
+}
+.footerLink {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.footerLink:hover {
+  color: var(--pi-color-foreground);
 }

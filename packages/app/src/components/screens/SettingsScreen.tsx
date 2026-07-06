@@ -2,128 +2,115 @@
  * SettingsScreen — /settings root + /settings/:section + host settings.
  * View-model-driven with discriminated view (root / section / host / projects / project).
  * app-navigation-screens.md § Settings information architecture
+ *
+ * Paseo parity: centered 720 column, ScreenTitle, SettingsSection rhythm,
+ * rows-in-a-card with a single top border between rows. docs/design.md §3,§5,§7.
  */
 
 import { useMemo } from "react";
 import { clsx } from "clsx";
 import styles from "./SettingsScreen.module.css";
-import { Button, Switch } from "../primitives/index.js";
+import { Switch } from "../primitives/index.js";
+import { ScreenTitle } from "../primitives/ScreenTitle.js";
+import { PageColumn, SettingsSection, Card, SettingsRow } from "./settings-kit.js";
 import {
   resolveSettingsLayout,
-  resolveSettingsView,
   appSettingsItems,
-  hostPickerRows,
-  hostSettingsItems,
   daemonModeToggle,
   shortcutHelpRows,
   type SettingsView,
-  type SettingsSidebarItem,
 } from "../../screens/settings.js";
 import type { HostRuntimeSnapshot } from "../../runtime/host-runtime.js";
 import type { OsFamily } from "../../ui/shortcut.js";
 
 // ---------------------------------------------------------------------------
-// Sub-sections
+// Sub-sections — each is a SettingsSection + Card of rows.
 // ---------------------------------------------------------------------------
 
+const THEME_OPTIONS: { id: string; label: string }[] = [
+  { id: "dark", label: "Dark" },
+  { id: "light", label: "Light" },
+  { id: "dim", label: "Dim" },
+];
+
 function AppearanceSection({ onThemeChange, activeTheme }: { onThemeChange: (variant: string) => void; activeTheme: string }) {
-  const themes = ["dark", "light", "dim"];
   return (
-    <div>
-      <h2 className={styles.sectionTitle}>Appearance</h2>
-      <div className={styles.field}>
-        <span className={styles.fieldLabel}>Theme</span>
-        <div className={styles.fieldRow}>
-          {themes.map((t) => (
-            <div
-              key={t}
-              className={clsx(styles.swatch, activeTheme === t && styles.swatchActive)}
-              style={{ backgroundColor: t === "dark" ? "#09090b" : t === "light" ? "#ffffff" : "#18181b" }}
-              onClick={() => onThemeChange(t)}
-              role="button"
-              tabIndex={0}
-              aria-label={t}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
+    <SettingsSection title="Appearance">
+      <Card>
+        <SettingsRow
+          title="Theme"
+          hint="Match your system or pick a fixed appearance."
+          trailing={
+            <div className={styles.segment} role="radiogroup" aria-label="Theme">
+              {THEME_OPTIONS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={activeTheme === t.id}
+                  className={clsx(styles.segmentBtn, activeTheme === t.id && styles.segmentBtnActive)}
+                  onClick={() => onThemeChange(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+      </Card>
+    </SettingsSection>
   );
 }
 
 function GeneralSection() {
   return (
-    <div>
-      <h2 className={styles.sectionTitle}>General</h2>
-      <div className={styles.field}>
-        <span className={styles.fieldLabel}>Language</span>
-        <span style={{ fontSize: 13, color: "var(--pi-color-foreground)" }}>English</span>
-      </div>
-    </div>
+    <SettingsSection title="General">
+      <Card>
+        <SettingsRow title="Language" trailing="English" />
+      </Card>
+    </SettingsSection>
   );
 }
 
 function DaemonSection({ currentMode, onToggle }: { currentMode: "embedded" | "remote-only"; onToggle: (next: "embedded" | "remote-only") => void }) {
   const result = daemonModeToggle({ currentMode, embeddedIsOnlyHost: false });
   return (
-    <div>
-      <h2 className={styles.sectionTitle}>Daemon</h2>
-      <div className={styles.field}>
-        <span className={styles.fieldLabel}>Mode</span>
-        <div className={styles.fieldRow}>
-          <Switch
-            checked={currentMode === "embedded"}
-            onCheckedChange={() => onToggle(result.nextMode)}
-          />
-          <span style={{ fontSize: 13, color: "var(--pi-color-foreground)" }}>
-            {currentMode === "embedded" ? "Embedded (local)" : "Remote only"}
-          </span>
-        </div>
-      </div>
-    </div>
+    <SettingsSection title="Daemon">
+      <Card>
+        <SettingsRow
+          title="Embedded daemon"
+          hint={currentMode === "embedded" ? "Running a local daemon on this device." : "Connecting to remote hosts only."}
+          trailing={<Switch checked={currentMode === "embedded"} onCheckedChange={() => onToggle(result.nextMode)} />}
+        />
+      </Card>
+    </SettingsSection>
   );
 }
 
 function ShortcutsSection({ os }: { os: OsFamily }) {
   const rows = shortcutHelpRows(os);
   return (
-    <div>
-      <h2 className={styles.sectionTitle}>Keyboard Shortcuts</h2>
-      <table className={styles.table}>
-        <thead>
-          <tr><th>Action</th><th>Shortcut</th></tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 20).map((r) => (
-            <tr key={r.id}><td>{r.id}</td><td>{r.combo}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <SettingsSection title="Keyboard shortcuts">
+      <Card>
+        {rows.slice(0, 20).map((r) => (
+          <SettingsRow key={r.id} title={r.id} trailing={<kbd className={styles.kbd}>{r.combo}</kbd>} />
+        ))}
+      </Card>
+    </SettingsSection>
   );
 }
 
 function ProviderUsageSection({ available }: { available: boolean }) {
-  if (!available) {
-    return (
-      <div>
-        <h2 className={styles.sectionTitle}>Provider Usage</h2>
-        <p style={{ fontSize: 13, color: "var(--pi-color-foregroundMuted)" }}>
-          Provider usage data is not available from this host.
-        </p>
-      </div>
-    );
-  }
   return (
-    <div>
-      <h2 className={styles.sectionTitle}>Provider Usage</h2>
-      <table className={styles.table}>
-        <thead><tr><th>Provider</th><th>Tokens</th><th>Requests</th></tr></thead>
-        <tbody>
-          <tr><td colSpan={3} style={{ color: "var(--pi-color-foregroundMuted)" }}>Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <SettingsSection title="Provider usage">
+      <Card>
+        {available ? (
+          <SettingsRow title="Usage" hint="Loading usage data…" />
+        ) : (
+          <SettingsRow title="Usage" hint="Provider usage data is not available from this host." />
+        )}
+      </Card>
+    </SettingsSection>
   );
 }
 
@@ -145,12 +132,19 @@ export interface SettingsScreenProps {
   onDaemonModeToggle?: (mode: "embedded" | "remote-only") => void;
 }
 
+function sectionTitle(view: SettingsView): string {
+  if (view.kind === "section") return view.section.charAt(0).toUpperCase() + view.section.slice(1).replace(/-/g, " ");
+  if (view.kind === "projects") return "Projects";
+  if (view.kind === "project") return "Project";
+  if (view.kind === "host") return "Host";
+  return "Settings";
+}
+
 export function SettingsScreen({
   path,
   width,
   isDesktop,
   isElectron,
-  hosts,
   activeTheme,
   os,
   daemonMode = "embedded",
@@ -162,33 +156,48 @@ export function SettingsScreen({
   const appItems = useMemo(() => appSettingsItems(isDesktop), [isDesktop]);
 
   const renderSection = (view: SettingsView) => {
-    if (view.kind === "root") return null;
+    if (view.kind === "root") {
+      return (
+        <SettingsSection title="App">
+          <Card>
+            {appItems.map((item) => (
+              <SettingsRow key={item.id} title={item.label} onClick={() => onNavigate(item.route)} trailing={<span className={styles.chevron}>›</span>} />
+            ))}
+          </Card>
+        </SettingsSection>
+      );
+    }
     if (view.kind === "section") {
       switch (view.section) {
         case "appearance": return <AppearanceSection activeTheme={activeTheme} onThemeChange={onThemeChange} />;
         case "general": return <GeneralSection />;
         case "daemon": return isElectron ? <DaemonSection currentMode={daemonMode} onToggle={(m) => onDaemonModeToggle?.(m)} /> : null;
         case "shortcuts": return <ShortcutsSection os={os} />;
-        default: return <div><h2 className={styles.sectionTitle}>{view.section}</h2></div>;
+        case "integrations": return <ProviderUsageSection available={false} />;
+        default:
+          return (
+            <SettingsSection title={view.section}>
+              <Card><SettingsRow title="Coming soon" hint="This section is not yet available." /></Card>
+            </SettingsSection>
+          );
       }
     }
-    if (view.kind === "projects") return <div><h2 className={styles.sectionTitle}>Projects</h2></div>;
-    if (view.kind === "project") return <div><h2 className={styles.sectionTitle}>Project: {view.projectKey}</h2></div>;
-    if (view.kind === "host") return <div><h2 className={styles.sectionTitle}>Host: {view.serverId} / {view.section}</h2></div>;
+    if (view.kind === "projects") return <SettingsSection title="Projects"><Card><SettingsRow title="No projects" hint="Registered projects will appear here." /></Card></SettingsSection>;
+    if (view.kind === "project") return <SettingsSection title="Project"><Card><SettingsRow title={view.projectKey} /></Card></SettingsSection>;
+    if (view.kind === "host") return <SettingsSection title="Host"><Card><SettingsRow title={view.serverId} hint={view.section} /></Card></SettingsSection>;
     return null;
   };
 
-  // Compact: show sidebar OR content, not both
+  // Compact root: show the section list only.
   if (layout.mode === "compact" && layout.view.kind === "root") {
     return (
       <div className={styles.container}>
-        <div className={styles.sidebarCompact}>
-          <span className={styles.groupLabel}>App</span>
-          {appItems.map((item) => (
-            <button key={item.id} className={styles.navItem} onClick={() => onNavigate(item.route)}>
-              {item.label}
-            </button>
-          ))}
+        <div className={styles.body}>
+          <PageColumn>
+            <ScreenTitle>Settings</ScreenTitle>
+            <div className={styles.titleGap} />
+            {renderSection(layout.view)}
+          </PageColumn>
         </div>
       </div>
     );
@@ -196,10 +205,9 @@ export function SettingsScreen({
 
   return (
     <div className={styles.container}>
-      {/* Sidebar (wide only) */}
       {layout.mode === "wide" && (
         <nav className={styles.sidebar}>
-          <span className={styles.groupLabel}>App</span>
+          <span className={styles.navGroupLabel}>App</span>
           {appItems.map((item) => (
             <button
               key={item.id}
@@ -212,9 +220,12 @@ export function SettingsScreen({
         </nav>
       )}
 
-      {/* Content */}
-      <div className={styles.content}>
-        {renderSection(layout.view)}
+      <div className={styles.body}>
+        <PageColumn>
+          <ScreenTitle>{sectionTitle(layout.view)}</ScreenTitle>
+          <div className={styles.titleGap} />
+          {renderSection(layout.view)}
+        </PageColumn>
       </div>
     </div>
   );

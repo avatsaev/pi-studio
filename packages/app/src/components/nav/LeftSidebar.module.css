@@ -60,28 +60,42 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15)) transparent;
-  padding: 4px 6px;
+  padding: var(--pi-spacing-2, 8px) var(--pi-spacing-2, 8px);
 }
 
+/* A project group. Sections sit apart (spacious rhythm, design.md §7). */
+.group {
+  margin-bottom: var(--pi-spacing-4, 16px);
+}
+.group:last-child { margin-bottom: 0; }
+
+/* Section label: medium weight, muted, NOT uppercase (Paseo §3). */
 .groupLabel {
-  font-size: var(--pi-font-size-xs, 11px);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: var(--pi-font-size-sm, 14px);
   color: var(--pi-color-foregroundMuted, #a1a1aa);
-  font-weight: 600;
+  font-weight: var(--pi-font-weight-medium, 500);
   font-family: var(--pi-font-ui, system-ui);
-  padding: 8px 6px 2px;
+  padding: var(--pi-spacing-1, 4px) var(--pi-spacing-3, 12px) var(--pi-spacing-1, 4px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.emptyState {
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-family: var(--pi-font-ui, system-ui);
+  padding: var(--pi-spacing-3, 12px);
+}
+
+/* List-as-page rows: spacing + surface, not borders (design.md §5). */
 .workspaceRow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: var(--pi-radius-base, 4px);
-  min-height: 32px;
+  gap: var(--pi-spacing-2, 8px);
+  padding: var(--pi-spacing-2, 8px) var(--pi-spacing-3, 12px);
+  border-radius: var(--pi-radius-md, 6px);
   cursor: pointer;
-  font-size: var(--pi-font-size-sm, 14px);
   font-family: var(--pi-font-ui, system-ui);
   color: var(--pi-color-foreground, #fafafa);
   background: none;
@@ -89,7 +103,7 @@
   width: 100%;
   text-align: left;
   box-sizing: border-box;
-  transition: background-color 80ms;
+  transition: background-color 80ms ease;
   overflow: hidden;
 }
 
@@ -97,11 +111,44 @@
   background-color: var(--pi-color-surfaceSidebarHover, var(--pi-color-surface1, #18181b));
 }
 
-.workspaceRowLabel {
+/* Active row: subtle surface + full-strength foreground title. */
+.workspaceRowActive {
+  background-color: var(--pi-color-surfaceSidebarHover, var(--pi-color-surface2, #27272a));
+}
+
+.rowStatus {
+  flex-shrink: 0;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.rowTitle {
+  font-size: var(--pi-font-size-sm, 14px);
+  font-weight: var(--pi-font-weight-normal, 400);
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+}
+
+/* Selected / hovered rows promote the title to full foreground. */
+.workspaceRow:hover .rowTitle,
+.workspaceRowActive .rowTitle {
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.rowSubtitle {
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Footer */

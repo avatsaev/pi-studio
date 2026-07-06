@@ -6,12 +6,34 @@
 
 import { useLocation, useNavigate } from "react-router";
 import { clsx } from "clsx";
-import { Home, Calendar, Settings, Plus, FolderOpen, X } from "lucide-react";
+import { Home, Calendar, Settings, Plus, X } from "lucide-react";
 import styles from "./LeftSidebar.module.css";
-import { groupWorkspaces, type WorkspaceRow } from "../../screens/sidebar.js";
+import {
+  groupWorkspaces,
+  workspaceRowSubtitle,
+  type WorkspaceRow,
+} from "../../screens/sidebar.js";
 import { StatusDot } from "../primitives/StatusDot.js";
+import type { StatusDotInput } from "../../ui/status-dot.js";
 import { type HostRuntimeSnapshot } from "../../runtime/host-runtime.js";
 import { routes } from "../../runtime/route-grammar.js";
+
+/** Map the daemon agent status to the status-dot's status vocabulary. */
+function toDotStatus(status: string | undefined): StatusDotInput["status"] {
+  switch (status) {
+    case "running":
+      return "running";
+    case "initializing":
+      return "queued";
+    case "error":
+      return "error";
+    case "closed":
+      return "archived";
+    case "idle":
+    default:
+      return "idle";
+  }
+}
 
 export interface LeftSidebarProps {
   /** All known hosts (for the host switcher). */
@@ -64,26 +86,46 @@ export function LeftSidebar({
 
       {/* Grouped workspace list */}
       <div className={styles.workspaceList} role="navigation" aria-label="Workspaces">
+        {groups.length === 0 && (
+          <div className={styles.emptyState}>No sessions yet</div>
+        )}
         {groups.map((g) => (
-          <div key={g.key}>
+          <div key={g.key} className={styles.group}>
             {g.label !== "Recent" && (
-              <div className={styles.groupLabel}>{g.label}</div>
+              <div className={styles.groupLabel} title={g.key !== "ungrouped" ? g.key : undefined}>
+                {g.label}
+              </div>
             )}
-            {g.rows.map((row) => (
-              <button
-                key={row.workspaceId}
-                className={styles.workspaceRow}
-                onClick={() => {
-                  if (activeHost?.serverId) {
-                    navigate(routes.workspace(activeHost.serverId, row.workspaceId));
-                    if (mode === "overlay") onClose?.();
-                  }
-                }}
-                title={row.label}
-              >
-                <span className={styles.workspaceRowLabel}>{row.label}</span>
-              </button>
-            ))}
+            {g.rows.map((row) => {
+              const subtitle = workspaceRowSubtitle(row);
+              const active =
+                !!activeHost?.serverId &&
+                location.pathname.includes(`/workspace/${row.workspaceId}`);
+              return (
+                <button
+                  key={row.workspaceId}
+                  className={clsx(styles.workspaceRow, active && styles.workspaceRowActive)}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    if (activeHost?.serverId) {
+                      navigate(routes.workspace(activeHost.serverId, row.workspaceId));
+                      if (mode === "overlay") onClose?.();
+                    }
+                  }}
+                  title={row.fullPath ?? row.label}
+                >
+                  <StatusDot
+                    className={styles.rowStatus}
+                    status={toDotStatus(row.status)}
+                    showInactive
+                  />
+                  <span className={styles.rowText}>
+                    <span className={styles.rowTitle}>{row.label}</span>
+                    {subtitle && <span className={styles.rowSubtitle}>{subtitle}</span>}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
