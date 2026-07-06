@@ -192,20 +192,43 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     const s = managed?.record.lastStatus;
     return s === "running" ? "running" : s === "error" ? "error" : "idle";
   };
-  registry.register("list_workspaces_request", async (ctx) => ({
-    type: "list_workspaces_response",
-    requestId: ctx.requestId ?? "",
-    workspaces: (await workspaceRegistry.listActiveWorkspaces()).map((w) => ({
+  registry.register("list_workspaces_request", async (ctx) => {
+    const registered = (await workspaceRegistry.listActiveWorkspaces()).map((w) => ({
       workspaceId: w.workspaceId,
       projectId: w.projectId,
       cwd: w.cwd,
-      kind: w.kind,
+      kind: w.kind as "directory" | "git" | "non_git",
       displayName: w.displayName,
       agentStatus: statusOf(w.cwd),
       createdAt: new Date(w.createdAt).getTime(),
       updatedAt: new Date(w.updatedAt ?? w.createdAt).getTime(),
-    })),
-  }));
+    }));
+    // Synthesize a 1:1 workspace for any agent that has no registered workspace
+    // (agents created directly via create_agent rather than open_project). This
+    // keeps the client's "one workspace per agent" model reachable — without it,
+    // clicking an agent in the sidebar hits "Workspace Not Found". workspaceId
+    // === agentId for these synthesized entries.
+    const knownCwds = new Set(registered.map((w) => w.cwd));
+    const knownIds = new Set(registered.map((w) => w.workspaceId));
+    const synthesized = manager
+      .list()
+      .filter((m) => !knownIds.has(m.record.id) && !knownCwds.has(m.record.cwd))
+      .map((m) => ({
+        workspaceId: m.record.id,
+        projectId: "agents",
+        cwd: m.record.cwd,
+        kind: "directory" as const,
+        displayName: m.record.labels?.["title"] ?? m.record.cwd,
+        agentStatus: statusOf(m.record.cwd),
+        createdAt: new Date(m.record.createdAt).getTime(),
+        updatedAt: new Date(m.record.updatedAt).getTime(),
+      }));
+    return {
+      type: "list_workspaces_response",
+      requestId: ctx.requestId ?? "",
+      workspaces: [...registered, ...synthesized],
+    };
+  });
   registry.register("list_projects_request", async (ctx) => ({
     type: "list_projects_response",
     requestId: ctx.requestId ?? "",
