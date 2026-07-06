@@ -5,18 +5,31 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
 }
 
+/* Pane header — single bottom border, no shadow (Paseo pane chrome). */
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  min-height: 34px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--pi-color-border, #3f3f46);
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 11px;
+  font-size: var(--pi-font-size-xs, 11px);
   color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.toolbarTitle {
+  font-weight: var(--pi-font-weight-medium, 500);
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.toolbarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .toolbarBtn {

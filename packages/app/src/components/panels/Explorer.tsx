@@ -3,8 +3,19 @@
  * feature-panels-ui.md § file explorer
  */
 
-import { useCallback, useMemo } from "react";
-import { ChevronRight, File, Folder, RefreshCw, ArrowUpDown } from "lucide-react";
+import { useCallback, useMemo, type ComponentType } from "react";
+import {
+  ChevronRight,
+  File,
+  FileCode,
+  FileJson,
+  FileText,
+  FileImage,
+  FileCog,
+  Folder,
+  RefreshCw,
+  ArrowUpDown,
+} from "lucide-react";
 import { clsx } from "clsx";
 import styles from "./Explorer.module.css";
 import {
@@ -38,12 +49,12 @@ export function Explorer({
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
-        <span>Files ({state.sortMode})</span>
-        <span>
-          <button className={styles.toolbarBtn} onClick={onCycleSortMode} aria-label="Cycle sort">
+        <span className={styles.toolbarTitle}>Files</span>
+        <span className={styles.toolbarActions}>
+          <button className={styles.toolbarBtn} onClick={onCycleSortMode} aria-label={`Sort: ${state.sortMode} (click to cycle)`} title={`Sort: ${state.sortMode}`}>
             <ArrowUpDown size={12} />
           </button>
-          <button className={styles.toolbarBtn} onClick={onRefresh} aria-label="Refresh">
+          <button className={styles.toolbarBtn} onClick={onRefresh} aria-label="Refresh" title="Refresh">
             <RefreshCw size={12} />
           </button>
         </span>
@@ -97,9 +108,40 @@ function ExplorerRow({
       {isDir ? (
         <Folder size={14} className={clsx(styles.entryIcon, styles.dirIcon)} />
       ) : (
-        <File size={14} className={styles.entryIcon} />
+        (() => {
+          const Icon = fileIconFor(node.entry.name);
+          return <Icon size={14} className={styles.entryIcon} />;
+        })()
       )}
       <span className={styles.entryName}>{node.entry.name}</span>
     </div>
   );
+}
+
+// ─── File-type icons ──────────────────────────────────────────────────────────
+
+type IconComponent = ComponentType<{ size?: number; className?: string }>;
+
+const CODE_EXT = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "rs", "go", "java", "rb", "php",
+  "c", "h", "cpp", "hpp", "cs", "swift", "kt", "sh", "bash", "zsh", "css", "scss",
+  "html", "vue", "svelte", "sql",
+]);
+const DATA_EXT = new Set(["json", "yaml", "yml", "toml", "xml", "lock", "env"]);
+const DOC_EXT = new Set(["md", "mdx", "txt", "rst", "log"]);
+const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
+const CONFIG_NAMES = new Set([
+  ".gitignore", ".npmrc", ".editorconfig", "dockerfile", "makefile", ".env",
+]);
+
+/** Pick a lucide icon for a file by extension / well-known name (Paseo-style). */
+export function fileIconFor(name: string): IconComponent {
+  const lower = name.toLowerCase();
+  if (CONFIG_NAMES.has(lower)) return FileCog;
+  const ext = lower.includes(".") ? lower.split(".").pop()! : "";
+  if (IMAGE_EXT.has(ext)) return FileImage;
+  if (DATA_EXT.has(ext)) return FileJson;
+  if (CODE_EXT.has(ext)) return FileCode;
+  if (DOC_EXT.has(ext)) return FileText;
+  return File;
 }

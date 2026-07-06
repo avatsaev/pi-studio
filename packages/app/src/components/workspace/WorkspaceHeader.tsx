@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { Menu, FolderOpen, Maximize, Code } from "lucide-react";
 import styles from "./WorkspaceHeader.module.css";
 import { Tooltip } from "../overlays/Tooltip.js";
+import { Combobox } from "../primitives/Select.js";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -19,11 +20,19 @@ import {
   type HeaderAction,
 } from "../../workspace/composition.js";
 
+export interface WorkspaceBranchOption {
+  name: string;
+  isCurrent?: boolean;
+}
+
 export interface WorkspaceHeaderProps {
   input: HeaderInput;
   onMenuAction: (actionId: string) => void;
   onRightAction: (actionId: string) => void;
   onSidebarToggle?: () => void;
+  /** Live git branches for the branch switcher Combobox. */
+  branches?: readonly WorkspaceBranchOption[];
+  onBranchSelect?: (branch: string) => void;
 }
 
 export function WorkspaceHeader({
@@ -31,6 +40,8 @@ export function WorkspaceHeader({
   onMenuAction,
   onRightAction,
   onSidebarToggle,
+  branches,
+  onBranchSelect,
 }: WorkspaceHeaderProps) {
   const model = useMemo(() => workspaceHeaderModel(input), [input]);
 
@@ -44,8 +55,19 @@ export function WorkspaceHeader({
           </button>
         )}
         <span className={styles.title}>{model.left.title || "Workspace"}</span>
-        {model.left.branch && <span className={styles.branch}>{model.left.branch}</span>}
         {model.left.subtitle && <span className={styles.subtitle}>{model.left.subtitle}</span>}
+        {model.left.branch && branches && branches.length > 0 ? (
+          <span className={styles.branchSwitcher}>
+            <Combobox
+              options={branches.map((b) => ({ value: b.name, label: b.name }))}
+              value={model.left.branch}
+              onSelect={(v) => onBranchSelect?.(v)}
+              placeholder="Switch branch…"
+            />
+          </span>
+        ) : (
+          model.left.branch && <span className={styles.branch}>{model.left.branch}</span>
+        )}
 
         {/* Menu (overflow actions) */}
         {model.menuItems.length > 0 && (

@@ -1,6 +1,8 @@
 // Workspace tab model and operations.
 // clean-room-scope/features/workspace-ui.md § Tab model, § Tab operations
 
+import type { WorkspaceOpenIntent } from "../runtime/route-grammar.js";
+
 export type DraftSetup = {
   provider: string;
   cwd: string;
@@ -33,6 +35,28 @@ export type WorkspaceTabDescriptor = {
   kind: WorkspaceTabKind;
   target: WorkspaceTabTarget;
 };
+
+/**
+ * Map a `?open=` workspace intent to the tab target that should be opened.
+ * Used by LiveWorkspacePage to honour deep-link / navigation intents
+ * (`agent:<id>`, `terminal:<id>`, `browser:<id>`, `file:<base64path>`, `draft:<id>`, `setup:`).
+ */
+export function openIntentToTabTarget(intent: WorkspaceOpenIntent): WorkspaceTabTarget {
+  switch (intent.kind) {
+    case "agent":
+      return { kind: "agent", agentId: intent.id };
+    case "terminal":
+      return { kind: "terminal", terminalId: intent.id };
+    case "browser":
+      return { kind: "browser", browserId: intent.id };
+    case "file":
+      return { kind: "file", path: intent.path };
+    case "draft":
+      return { kind: "draft", draftId: intent.id };
+    case "setup":
+      return { kind: "setup", workspaceId: intent.workspaceId };
+  }
+}
 
 export function tabIdForTarget(target: WorkspaceTabTarget): string {
   switch (target.kind) {

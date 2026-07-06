@@ -23,6 +23,7 @@ import {
   type ReviewCommentStore,
   type ReviewCommentDraft,
   INITIAL_DIFF_STATE,
+  fileChangeBadge,
   diffViewEmptyReason,
   diffEmptyMessage,
   sortActivitiesChronologically,
@@ -93,7 +94,13 @@ export function GitChangesPanel({
           <div className={styles.emptyMsg}>{diffEmptyMessage(emptyReason)}</div>
         ) : (
           files.map((file) => (
-            <DiffFileHeader key={file.path} file={file} layout={state.diffLayout} onClick={onFileClick} />
+            <DiffFileHeader
+              key={file.path}
+              file={file}
+              layout={state.diffLayout}
+              active={file.path === state.selectedFilePath}
+              onClick={onFileClick}
+            />
           ))
         )}
       </div>
@@ -116,18 +123,22 @@ export function GitChangesPanel({
   );
 }
 
-function DiffFileHeader({ file, layout, onClick }: { file: DiffFileEntry; layout: DiffLayout; onClick?: (p: string) => void }) {
+function DiffFileHeader({ file, layout, active, onClick }: { file: DiffFileEntry; layout: DiffLayout; active?: boolean; onClick?: (p: string) => void }) {
+  const cs = file.changeStatus ?? (file.isNew ? "untracked" : file.isDeleted ? "deleted" : "modified");
   const statusClass = {
     modified: styles.statusModified,
     added: styles.statusAdded,
+    untracked: styles.statusAdded,
     deleted: styles.statusDeleted,
     renamed: styles.statusRenamed,
-  }[file.status as string] ?? styles.statusModified;
+    conflict: styles.statusDeleted,
+  }[cs as string] ?? styles.statusModified;
 
   return (
-    <div className={styles.fileHeader} onClick={() => onClick?.(file.path)}>
-      <span className={clsx(styles.statusBadge, statusClass)}>{file.status[0]?.toUpperCase()}</span>
-      <span>{file.path}</span>
+    <div className={clsx(styles.fileHeader, active && styles.fileHeaderActive)} onClick={() => onClick?.(file.path)}>
+      <span className={clsx(styles.statusBadge, statusClass)}>{fileChangeBadge(cs)}</span>
+      <span className={styles.fileHeaderName}>{file.baseName}</span>
+      {file.dirName && <span className={styles.fileHeaderDir}>{file.dirName}</span>}
     </div>
   );
 }

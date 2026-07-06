@@ -1,7 +1,7 @@
 # Task 004 — Workspace shell & header parity (Paseo)
 
 - **Sprint:** sprint-036-paseo-ux-parity
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001 (tokens)
 

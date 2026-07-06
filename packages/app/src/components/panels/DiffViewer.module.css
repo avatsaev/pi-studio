@@ -143,11 +143,11 @@
 }
 
 .line_added {
-  background: var(--pi-color-diffAddBg, rgba(46, 160, 67, 0.15));
+  background: color-mix(in srgb, var(--pi-color-diffAddition) 15%, transparent);
 }
 
 .line_removed {
-  background: var(--pi-color-diffRemoveBg, rgba(248, 81, 73, 0.15));
+  background: color-mix(in srgb, var(--pi-color-diffDeletion) 15%, transparent);
 }
 
 .line_context {
@@ -161,12 +161,12 @@
 
 /* ── Word-level ── */
 .wordAdd {
-  background: var(--pi-color-diffAddWord, rgba(46, 160, 67, 0.4));
+  background: color-mix(in srgb, var(--pi-color-diffAddition) 38%, transparent);
   border-radius: 2px;
 }
 
 .wordRemove {
-  background: var(--pi-color-diffRemoveWord, rgba(248, 81, 73, 0.4));
+  background: color-mix(in srgb, var(--pi-color-diffDeletion) 38%, transparent);
   border-radius: 2px;
 }
 

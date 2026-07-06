@@ -1,7 +1,7 @@
 # Task 006 — Feature panels parity + close wiring gaps
 
 - **Sprint:** sprint-036-paseo-ux-parity
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** L
 - **Depends on:** task-001 (tokens); benefits from sprint-035 (real daemon) for live data
 

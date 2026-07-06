@@ -3,11 +3,11 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   height: 44px;
   padding: 0 12px;
   border-bottom: 1px solid var(--pi-color-border, #3f3f46);
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
   flex-shrink: 0;
 }
 
@@ -21,12 +21,20 @@
 
 .title {
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--pi-font-size-base, 13px);
+  font-weight: 300;
   color: var(--pi-color-foreground, #fafafa);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.branchSwitcher {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+  font-size: var(--pi-font-size-xs, 11px);
 }
 
 .branch {

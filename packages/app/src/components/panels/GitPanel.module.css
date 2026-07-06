@@ -5,7 +5,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
 }
 
 .toolbar {
@@ -34,21 +34,40 @@
   overflow-y: auto;
 }
 
-/* File header */
+/* File row (changed-files list) */
 .fileHeader {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 12px;
-  position: sticky;
-  top: 0;
-  background: var(--pi-color-surface1, #18181b);
-  border-bottom: 1px solid var(--pi-color-border, #3f3f46);
-  font-family: var(--pi-font-mono, monospace);
-  font-size: 12px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-base, 13px);
   color: var(--pi-color-foreground, #fafafa);
   cursor: pointer;
-  z-index: 2;
+}
+
+.fileHeader:hover {
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.fileHeaderActive {
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.fileHeaderName {
+  color: var(--pi-color-foreground, #fafafa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileHeaderDir {
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: var(--pi-font-size-xs, 11px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .statusBadge {
@@ -59,10 +78,10 @@
   text-transform: uppercase;
 }
 
-.statusAdded { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
-.statusDeleted { background: rgba(239, 68, 68, 0.15); color: #f87171; }
-.statusModified { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-.statusRenamed { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.statusAdded { background: color-mix(in srgb, var(--pi-color-statusSuccess) 16%, transparent); color: var(--pi-color-statusSuccess, #16a34a); }
+.statusDeleted { background: color-mix(in srgb, var(--pi-color-statusDanger) 16%, transparent); color: var(--pi-color-statusDanger, #dc2626); }
+.statusModified { background: color-mix(in srgb, var(--pi-color-accent) 18%, transparent); color: var(--pi-color-accent, #20744a); }
+.statusRenamed { background: color-mix(in srgb, var(--pi-color-statusMerged) 16%, transparent); color: var(--pi-color-statusMerged, #9333ea); }
 
 /* Diff */
 .diffBody {
@@ -91,8 +110,8 @@
   padding-left: 8px;
 }
 
-.diffAdd { background: rgba(34, 197, 94, 0.08); }
-.diffRemove { background: rgba(239, 68, 68, 0.08); }
+.diffAdd { background: color-mix(in srgb, var(--pi-color-diffAddition) 12%, transparent); }
+.diffRemove { background: color-mix(in srgb, var(--pi-color-diffDeletion) 12%, transparent); }
 
 /* Split layout */
 .splitView {

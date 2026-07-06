@@ -42,6 +42,7 @@ export const HOST_SETTINGS_SECTIONS: readonly HostSettingsSection[] = [
 export type WorkspaceOpenIntent =
   | { kind: "agent"; id: string }
   | { kind: "terminal"; id: string }
+  | { kind: "browser"; id: string }
   | { kind: "file"; path: string }
   | { kind: "draft"; id: string }
   | { kind: "setup"; workspaceId: string };
@@ -87,6 +88,8 @@ export function buildOpenIntent(intent: WorkspaceOpenIntent): string {
       return `agent:${intent.id}`;
     case "terminal":
       return `terminal:${intent.id}`;
+    case "browser":
+      return `browser:${intent.id}`;
     case "file":
       return `file:${base64UrlEncodeUtf8(intent.path)}`;
     case "draft":
@@ -108,6 +111,8 @@ export function parseOpenIntent(value: string | undefined): WorkspaceOpenIntent 
       return { kind: "agent", id: payload };
     case "terminal":
       return { kind: "terminal", id: payload };
+    case "browser":
+      return { kind: "browser", id: payload };
     case "file":
       return { kind: "file", path: base64UrlDecodeUtf8(payload) };
     case "draft":

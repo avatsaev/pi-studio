@@ -5,7 +5,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
 }
 
 .header {
@@ -55,7 +55,7 @@
 }
 
 .lineHighlight {
-  background: rgba(32, 116, 74, 0.15);
+  background: color-mix(in srgb, var(--pi-color-accent) 18%, transparent);
 }
 
 /* Image view */

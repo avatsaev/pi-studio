@@ -2,7 +2,7 @@
 // clean-room-scope/features/workspace-ui.md § Empty-workspace draft seeding
 
 import type { WorkspaceOpenIntent } from "../runtime/route-grammar.js";
-import { createWorkspaceTab, type WorkspaceTab, type WorkspaceTabTarget } from "./tabs.js";
+import { createWorkspaceTab, openIntentToTabTarget, type WorkspaceTab, type WorkspaceTabTarget } from "./tabs.js";
 
 export type WorkspaceHydrationState = {
   routeFocused: boolean;
@@ -35,14 +35,7 @@ export function seedDraftTab(state: WorkspaceHydrationState, draftId: string, cr
 }
 
 export function targetFromOpenIntent(intent: WorkspaceOpenIntent | null): WorkspaceTabTarget | null {
-  if (!intent) return null;
-  switch (intent.kind) {
-    case "agent": return { kind: "agent", agentId: intent.id };
-    case "terminal": return { kind: "terminal", terminalId: intent.id };
-    case "file": return { kind: "file", path: intent.path };
-    case "draft": return { kind: "draft", draftId: intent.id };
-    case "setup": return { kind: "setup", workspaceId: intent.workspaceId };
-  }
+  return intent ? openIntentToTabTarget(intent) : null;
 }
 
 export type EntryResolution =

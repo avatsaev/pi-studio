@@ -25,15 +25,13 @@ import { useWorkspaceLayoutStore } from "../../store/workspace-layout-store.js";
 // Heavy panes are code-split so they only load when a workspace actually opens
 // that pane kind. Each is already rendered under a <Suspense> fallback in
 // KeepalivePaneWrapper. (sprint-030 task-005)
-const TerminalPane = lazy(() => import("../panels/TerminalPane.js").then((m) => ({ default: m.TerminalPane })));
+const LiveTerminalPane = lazy(() => import("../panels/LiveTerminalPane.js").then((m) => ({ default: m.LiveTerminalPane })));
 const LiveFilePreviewPane = lazy(() => import("../panels/LiveFilePreviewPane.js").then((m) => ({ default: m.LiveFilePreviewPane })));
-const GitChangesPanel = lazy(() => import("../panels/GitPanel.js").then((m) => ({ default: m.GitChangesPanel })));
+const LiveGitPane = lazy(() => import("../panels/LiveGitPane.js").then((m) => ({ default: m.LiveGitPane })));
 const BrowserPane = lazy(() => import("../panels/BrowserPane.js").then((m) => ({ default: m.BrowserPane })));
-import { mountedTabState, mountedHiddenStyle } from "../../workspace/keepalive.js";
+import { mountedTabState } from "../../workspace/keepalive.js";
 import type { WorkspaceTab } from "../../workspace/tabs.js";
 
-import { INITIAL_DIFF_STATE } from "../../panels/git-panel.js";
-import { INITIAL_TERMINAL_PANE } from "../../panels/terminal-pane.js";
 import type { TimelineRow } from "../../timeline/reducer.js";
 import { useDraft } from "../../hooks/use-composer.js";
 
@@ -58,7 +56,7 @@ export class PaneErrorBoundary extends Component<
   override render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: "24px", color: "var(--pi-color-fg-danger, #f87171)" }}>
+        <div style={{ padding: "24px", color: "var(--pi-color-statusDanger)" }}>
           <strong>Something went wrong in this pane.</strong>
           <pre style={{ marginTop: 8, fontSize: 12, opacity: 0.7, whiteSpace: "pre-wrap" }}>
             {this.state.error.message}
@@ -123,10 +121,15 @@ function DraftPane({ ctx }: { ctx: PaneContext }) {
 }
 
 function TerminalPaneWrapper({ terminalId, ctx }: { terminalId: string; ctx: PaneContext }) {
+  const cwd = useWorkspaceCwd(ctx.workspaceId);
+  // Live terminal wired to the daemon PTY stream (create/subscribe + binary I/O).
   return (
-    <TerminalPane
-      state={{ ...INITIAL_TERMINAL_PANE, terminalId, isActive: ctx.isActive }}
-      isClaiming={ctx.isActive}
+    <LiveTerminalPane
+      serverId={ctx.serverId}
+      workspaceId={ctx.workspaceId}
+      terminalId={terminalId}
+      cwd={cwd}
+      isActive={ctx.isActive}
     />
   );
 }
@@ -149,15 +152,8 @@ function FilePaneWrapper({ path, ctx }: { path: string; ctx: PaneContext }) {
 }
 
 function GitPaneWrapper({ ctx }: { ctx: PaneContext }) {
-  return (
-    <GitChangesPanel
-      state={INITIAL_DIFF_STATE}
-      files={[]}
-      onModeChange={() => {}}
-      onLayoutChange={() => {}}
-      onRefresh={() => {}}
-    />
-  );
+  const cwd = useWorkspaceCwd(ctx.workspaceId);
+  return <LiveGitPane serverId={ctx.serverId} cwd={cwd} />;
 }
 
 function BrowserPaneWrapper({ ctx }: { ctx: PaneContext }) {
@@ -263,7 +259,7 @@ export function PaneContentRouter({
   workspaceId,
 }: PaneContentRouterProps) {
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
+    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", background: "var(--pi-color-surfaceWorkspace)" }}>
       {tabs.map((tab) => (
         <KeepalivePaneWrapper
           key={tab.tabId}

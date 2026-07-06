@@ -4,7 +4,7 @@
   display: flex;
   align-items: stretch;
   height: 36px;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
   border-bottom: 1px solid var(--pi-color-border, #3f3f46);
   overflow-x: auto;
   overflow-y: hidden;
@@ -41,12 +41,16 @@
 
 .tabLabel {
   font-family: var(--pi-font-ui, system-ui);
-  font-size: 12px;
-  color: var(--pi-color-foreground, #fafafa);
+  font-size: var(--pi-font-size-xs, 12px);
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+.tabActive .tabLabel {
+  color: var(--pi-color-foreground, #fafafa);
 }
 
 .tabClose {

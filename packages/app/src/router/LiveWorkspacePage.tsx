@@ -6,8 +6,8 @@
  * clean-room-scope/features/workspace-ui.md
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { WorkspaceScreen } from "../components/screens/WorkspaceScreen.js";
 import { TabStrip, type TabStripTab } from "../components/workspace/TabStrip.js";
 import { WorkspaceHeader } from "../components/workspace/WorkspaceHeader.js";
@@ -16,7 +16,7 @@ import { Spinner } from "../components/primitives/Spinner.js";
 import { useWorkspaceRouteState } from "../hooks/use-workspace-route.js";
 import { useWorkspaceHeaderData, useWorkspaceShortcuts } from "../hooks/use-workspace-shell.js";
 import { useConnectionStatus } from "../providers/ConnectionProvider.js";
-import { useGitStatus } from "../hooks/use-explorer-hooks.js";
+import { useGitStatus, useGitBranches } from "../hooks/use-explorer-hooks.js";
 import { useClient } from "../hooks/client-context.js";
 import {
   useWorkspaceLayoutStore,
@@ -27,7 +27,8 @@ import { isCompactFormFactor } from "../platform/breakpoints.js";
 import { getIsElectron } from "../platform/gating.js";
 import { listPanes } from "../workspace/layout.js";
 import { randomUUID } from "../util/uuid.js";
-import { routes } from "../runtime/route-grammar.js";
+import { routes, parseOpenIntent } from "../runtime/route-grammar.js";
+import { openIntentToTabTarget } from "../workspace/tabs.js";
 import { LAST_WORKSPACE_KEY } from "./BootGate.js";
 import { createWebKVStore } from "../providers/kv-store.js";
 import { kvToLayoutStorage } from "../hooks/use-composer.js";
@@ -61,6 +62,7 @@ export function LiveWorkspacePage() {
   const client = useClient();
   const toast = useToast();
 
+  const [searchParams] = useSearchParams();
   const serverId = params.serverId ?? connection.serverId ?? undefined;
   const workspaceId = params.workspaceId;
 
@@ -87,7 +89,26 @@ export function LiveWorkspacePage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [shortcuts]);
   const activeTabId = useActiveTabId(serverId, workspaceId) ?? null;
-  const { data: gitStatus } = useGitStatus(serverId, headerData.subtitle, client);
+  const gitClient = client as unknown as Parameters<typeof useGitStatus>[2];
+  const gitStatusQuery = useGitStatus(serverId, headerData.subtitle, gitClient);
+  const gitStatus = gitStatusQuery.data;
+  const { data: gitBranches } = useGitBranches(serverId, headerData.subtitle, gitClient);
+  const branchOptions = useMemo(
+    () => (gitBranches ?? []).filter((b) => !b.isRemote).map((b) => ({ name: b.name, isCurrent: b.isCurrent })),
+    [gitBranches],
+  );
+
+  function handleBranchSelect(branch: string) {
+    const cwd = headerData.subtitle;
+    if (!serverId || !cwd || !gitClient) return;
+    void gitClient.connection
+      .request("checkout_switch_branch_request", { serverId, cwd, branch })
+      .then(() => {
+        toast.show(`Switched to ${branch}`);
+        void gitStatusQuery.refetch();
+      })
+      .catch(() => toast.error("Branch switch failed"));
+  }
 
   const initWorkspace = useWorkspaceLayoutStore((s) => s.initWorkspace);
   const openTab = useWorkspaceLayoutStore((s) => s.openTab);
@@ -114,6 +135,19 @@ export function LiveWorkspacePage() {
     if (routeState.gate.state !== "ready" && routeState.gate.state !== "splash") return;
     kvStore.set(LAST_WORKSPACE_KEY, JSON.stringify({ serverId, workspaceId }));
   }, [serverId, workspaceId, routeState.gate.state]);
+
+  // Honour the `?open=` workspace intent (agent:/terminal:/browser:/file:<b64>/draft:)
+  // once the tab layout is hydrated. Applied once per distinct intent value.
+  const appliedOpenIntentRef = useRef<string | null>(null);
+  const openParam = searchParams.get("open");
+  useEffect(() => {
+    if (!serverId || !workspaceId || !openParam || !tabState?.hydrated) return;
+    if (appliedOpenIntentRef.current === openParam) return;
+    const intent = parseOpenIntent(openParam);
+    if (!intent) return;
+    appliedOpenIntentRef.current = openParam;
+    openTab(serverId, workspaceId, openIntentToTabTarget(intent));
+  }, [openParam, serverId, workspaceId, tabState?.hydrated, openTab]);
 
   const width = useViewportWidth();
   const formFactor: WorkspaceFormFactor = isCompactFormFactor(width) ? "mobile" : width < 992 ? "narrow" : "wide";
@@ -259,6 +293,8 @@ export function LiveWorkspacePage() {
           input={headerInput}
           onMenuAction={handleHeaderMenuAction}
           onRightAction={handleHeaderRightAction}
+          branches={branchOptions}
+          onBranchSelect={handleBranchSelect}
         />
       }
       tabStripSlot={

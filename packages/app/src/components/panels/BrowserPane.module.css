@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--pi-color-surface0, #09090b);
+  background: var(--pi-color-surfaceWorkspace, #09090b);
 }
 
 .chrome {

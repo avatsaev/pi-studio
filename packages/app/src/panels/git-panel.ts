@@ -84,7 +84,65 @@ export type DiffFileEntry = {
   status: "ok" | "binary" | "too_large";
   added: number;
   deleted: number;
+  /** Git change status for the sidebar badge (A/M/D/U/C). Optional; derived from live status. */
+  changeStatus?: FileChangeStatus;
 };
+
+/** Live git status shape (subset of the daemon `checkout_status` response). */
+export type GitStatusFiles = {
+  staged?: readonly string[];
+  unstaged?: readonly string[];
+  untracked?: readonly string[];
+  conflicts?: readonly string[];
+};
+
+/**
+ * Map a live git status into the changed-file list rendered by the Git pane.
+ * Precedence per path: conflict > deleted(unstaged) > untracked(new) > modified.
+ * Pure + unit-tested.
+ */
+export function gitStatusToDiffFiles(status: GitStatusFiles): DiffFileEntry[] {
+  const byPath = new Map<string, FileChangeStatus>();
+  const set = (path: string, s: FileChangeStatus) => {
+    if (!byPath.has(path)) byPath.set(path, s);
+  };
+  for (const p of status.conflicts ?? []) set(p, "conflict");
+  for (const p of status.untracked ?? []) set(p, "untracked");
+  for (const p of status.staged ?? []) set(p, "modified");
+  for (const p of status.unstaged ?? []) set(p, "modified");
+
+  return [...byPath.entries()]
+    .map(([path, changeStatus]) => {
+      const segs = path.split("/").filter(Boolean);
+      const baseName = segs.at(-1) ?? path;
+      const dirName = segs.slice(0, -1).join("/");
+      return {
+        path,
+        baseName,
+        dirName,
+        isNew: changeStatus === "untracked" || changeStatus === "added",
+        isDeleted: changeStatus === "deleted",
+        status: "ok" as const,
+        added: 0,
+        deleted: 0,
+        changeStatus,
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Single-letter badge for a file change status (A/M/D/U/C). */
+export function fileChangeBadge(status: FileChangeStatus | undefined): string {
+  switch (status) {
+    case "added": return "A";
+    case "modified": return "M";
+    case "deleted": return "D";
+    case "renamed": return "R";
+    case "untracked": return "U";
+    case "conflict": return "C";
+    default: return "•";
+  }
+}
 
 export type DiffViewEmptyReason =
   | "whitespace-hidden"
