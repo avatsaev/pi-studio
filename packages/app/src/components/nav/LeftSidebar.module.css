@@ -1,0 +1,151 @@
+/* Left sidebar — persistent nav chrome. app-navigation-screens.md § Left sidebar */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 260px;
+  background-color: var(--pi-color-surfaceSidebar, var(--pi-color-surface0, #09090b));
+  border-right: 1px solid var(--pi-color-border, #3f3f46);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 200ms ease, transform 200ms ease;
+}
+
+.sidebarCollapsed {
+  width: 0;
+  border-right: none;
+}
+
+/* Compact overlay — absolute on top of content */
+.sidebarOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  box-shadow: var(--pi-shadow-lg, 0 10px 24px rgba(0,0,0,0.6));
+}
+
+.sidebarOverlayBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  background: rgba(0,0,0,0.3);
+}
+
+/* Header */
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px;
+  flex-shrink: 0;
+}
+
+.hostLabel {
+  font-size: var(--pi-font-size-sm, 14px);
+  font-weight: 600;
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui, system-ui);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Workspace list */
+.workspaceList {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15)) transparent;
+  padding: 4px 6px;
+}
+
+.groupLabel {
+  font-size: var(--pi-font-size-xs, 11px);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-weight: 600;
+  font-family: var(--pi-font-ui, system-ui);
+  padding: 8px 6px 2px;
+}
+
+.workspaceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--pi-radius-base, 4px);
+  min-height: 32px;
+  cursor: pointer;
+  font-size: var(--pi-font-size-sm, 14px);
+  font-family: var(--pi-font-ui, system-ui);
+  color: var(--pi-color-foreground, #fafafa);
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+  transition: background-color 80ms;
+  overflow: hidden;
+}
+
+.workspaceRow:hover {
+  background-color: var(--pi-color-surfaceSidebarHover, var(--pi-color-surface1, #18181b));
+}
+
+.workspaceRowLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  flex-shrink: 0;
+}
+
+.footerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--pi-radius-base, 4px);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  transition: color 100ms, background-color 100ms;
+}
+.footerBtn:hover {
+  color: var(--pi-color-foreground, #fafafa);
+  background-color: var(--pi-color-surface1, #18181b);
+}
+
+.newWorkspaceBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--pi-radius-base, 4px);
+  background-color: var(--pi-color-accent, #20744a);
+  color: var(--pi-color-accentForeground, #ffffff);
+  border: none;
+  cursor: pointer;
+  font-size: var(--pi-font-size-sm, 14px);
+  font-weight: 500;
+  font-family: var(--pi-font-ui, system-ui);
+}
+.newWorkspaceBtn:hover { filter: brightness(1.1); }

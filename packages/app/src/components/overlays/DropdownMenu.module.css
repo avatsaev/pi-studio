@@ -1,0 +1,70 @@
+/* DropdownMenu / ContextMenu. ui-components.md § Overlays */
+
+.content {
+  background-color: var(--pi-color-surface2, #27272a);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-lg, 8px);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 150;
+  box-shadow: var(--pi-shadow-md, 0 3px 8px rgba(0,0,0,0.5));
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  animation: piMenuIn 120ms ease;
+}
+
+@keyframes piMenuIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--pi-radius-base, 4px);
+  min-height: 36px;
+  cursor: pointer;
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foreground, #fafafa);
+  outline: none;
+  user-select: none;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.item:hover,
+.item[data-highlighted] {
+  background-color: var(--pi-color-surface3, #3f3f46);
+}
+
+.item[data-disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.itemDestructive {
+  color: var(--pi-color-destructive, #ef4444);
+}
+
+.itemSelected {
+  color: var(--pi-color-accent, #20744a);
+}
+
+.label {
+  padding: 4px 10px 2px;
+  font-size: var(--pi-font-size-xs, 11px);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-weight: 600;
+}
+
+.separator {
+  height: 1px;
+  background-color: var(--pi-color-border, #3f3f46);
+  margin: 4px 0;
+}

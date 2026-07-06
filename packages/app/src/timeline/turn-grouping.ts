@@ -84,6 +84,25 @@ export function formatTurnFooterLabel(footer: TurnFooter): string {
   return "Done";
 }
 
+/**
+ * Turn footer label with an optional token count from usage data, e.g.
+ * "Worked for 3s · 1.2k tokens". Token count omitted when not provided.
+ */
+export function formatTurnFooterWithUsage(
+  footer: TurnFooter,
+  totalTokens?: number,
+): string {
+  const base = formatTurnFooterLabel(footer);
+  if (footer.status === "running" || totalTokens == null || totalTokens <= 0) return base;
+  return `${base} · ${formatTokenCount(totalTokens)} tokens`;
+}
+
+function formatTokenCount(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${Math.round(n / 100) / 10}k`;
+  return `${Math.round(n / 100_000) / 10}M`;
+}
+
 // Detect whether consecutive rows share a block group and should suppress repeated author chrome.
 export function shouldSuppressChrome(prevRow: TimelineRow | undefined, row: TimelineRow): boolean {
   if (!prevRow) return false;

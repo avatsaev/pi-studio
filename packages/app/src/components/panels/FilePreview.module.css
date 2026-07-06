@@ -1,0 +1,95 @@
+/* FilePreview — file content rendering pane. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--pi-color-border, #3f3f46);
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+/* Code view */
+.codeView {
+  display: flex;
+  min-height: 100%;
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gutter {
+  position: sticky;
+  left: 0;
+  padding: 8px 8px 8px 12px;
+  text-align: right;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  background: var(--pi-color-surface0, #09090b);
+  border-right: 1px solid var(--pi-color-border, #3f3f46);
+  user-select: none;
+  min-width: 40px;
+}
+
+.codeContent {
+  flex: 1;
+  padding: 8px 12px;
+  white-space: pre;
+  color: var(--pi-color-foreground, #fafafa);
+  overflow-x: auto;
+}
+
+.lineHighlight {
+  background: rgba(32, 116, 74, 0.15);
+}
+
+/* Image view */
+.imageView {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 16px;
+}
+
+.imageView img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Markdown view */
+.markdownView {
+  padding: 16px 24px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+/* Binary/error/loading */
+.stateView {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 8px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: 13px;
+}

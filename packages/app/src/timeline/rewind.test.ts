@@ -8,7 +8,38 @@ import {
   rewindSuccess,
   shouldShowRewindMenu,
   startRewind,
+  buildRewindRequest,
+  buildRewindConfirmation,
+  REWIND_RPC,
 } from "./index.js";
+
+describe("rewind RPC + confirmation", () => {
+  it("builds the rewind request payload", () => {
+    expect(buildRewindRequest("a1", "m3", "both")).toEqual({ agentId: "a1", messageId: "m3", mode: "both" });
+    expect(REWIND_RPC).toBe("agent.rewind.request");
+  });
+
+  it("conversation mode needs no destructive confirmation", () => {
+    const c = buildRewindConfirmation("conversation");
+    expect(c.required).toBe(false);
+    expect(c.destructive).toBe(false);
+    expect(c.affectedFiles).toEqual([]);
+  });
+
+  it("files/both mode requires a destructive confirmation listing files", () => {
+    const c = buildRewindConfirmation("files", ["a.ts", "b.ts"]);
+    expect(c.required).toBe(true);
+    expect(c.destructive).toBe(true);
+    expect(c.affectedFiles).toEqual(["a.ts", "b.ts"]);
+    expect(c.message).toContain("2 files will be reverted");
+    expect(buildRewindConfirmation("both").title).toBe("Rewind conversation & files");
+  });
+
+  it("falls back to a generic file clause when no files are listed", () => {
+    const c = buildRewindConfirmation("both", []);
+    expect(c.message).toContain("Workspace file changes");
+  });
+});
 
 describe("rewind menu", () => {
   it("returns empty for provider with no rewind capability", () => {

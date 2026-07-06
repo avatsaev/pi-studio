@@ -1,0 +1,78 @@
+/* PaneTree — recursive split container + leaf panes. */
+
+.group {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.groupRow {
+  flex-direction: row;
+}
+
+.groupColumn {
+  flex-direction: column;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 80px;
+  min-height: 60px;
+  overflow: hidden;
+}
+
+.paneFocused {
+  outline: 1px solid var(--pi-color-accent, #20744a);
+  outline-offset: -1px;
+}
+
+.paneBody {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Resize divider */
+.divider {
+  flex-shrink: 0;
+  background: var(--pi-color-border, #3f3f46);
+  z-index: 5;
+  transition: background-color 80ms;
+}
+
+.divider:hover, .dividerActive {
+  background: var(--pi-color-accent, #20744a);
+}
+
+.dividerRow {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.dividerColumn {
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* Drop zone overlay */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.dropZone {
+  position: absolute;
+  background: var(--pi-color-accent, #20744a);
+  opacity: 0.15;
+  border-radius: var(--pi-radius-sm, 3px);
+}
+
+.dropLeft { left: 0; top: 0; bottom: 0; width: 22%; }
+.dropRight { right: 0; top: 0; bottom: 0; width: 22%; }
+.dropTop { left: 0; right: 0; top: 0; height: 22%; }
+.dropBottom { left: 0; right: 0; bottom: 0; height: 22%; }
+.dropCenter { left: 22%; right: 22%; top: 22%; bottom: 22%; }

@@ -1,0 +1,68 @@
+/* HomeScreen — per-host open-project landing. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px;
+  gap: 24px;
+  height: 100%;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.logo {
+  width: 48px;
+  height: 48px;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  max-width: 520px;
+  width: 100%;
+}
+
+.tiles[data-layout="stacked"] {
+  flex-direction: column;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px;
+  border-radius: var(--pi-radius-lg, 12px);
+  background: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--pi-color-foreground, #fafafa);
+  cursor: pointer;
+  transition: background-color 100ms;
+  min-width: 140px;
+}
+
+.tile:hover {
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.tileAccent {
+  background: var(--pi-color-accent, #20744a);
+  border-color: var(--pi-color-accent, #20744a);
+  color: var(--pi-color-accentForeground, #ffffff);
+}
+
+.tileAccent:hover {
+  opacity: 0.9;
+}
+
+.communityLinks {
+  margin-top: auto;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}

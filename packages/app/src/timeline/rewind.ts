@@ -75,3 +75,62 @@ export function postRewindActions(input: {
   }
   return actions.length > 0 ? actions : [{ kind: "noop" }];
 }
+
+// ─── Rewind RPC ─────────────────────────────────────────────────────────────
+
+export const REWIND_RPC = "agent.rewind.request" as const;
+
+export interface RewindRequestPayload {
+  agentId: string;
+  messageId: string;
+  mode: RewindMode;
+}
+
+export function buildRewindRequest(agentId: string, messageId: string, mode: RewindMode): RewindRequestPayload {
+  return { agentId, messageId, mode };
+}
+
+// ─── Destructive confirmation (files / both) ─────────────────────────────────
+
+export interface RewindConfirmation {
+  /** Whether a confirmation dialog is required before proceeding. */
+  required: boolean;
+  destructive: boolean;
+  title: string;
+  message: string;
+  /** Affected file paths, if the daemon/provider can enumerate them. */
+  affectedFiles: string[];
+  confirmLabel: string;
+}
+
+/**
+ * Build the confirmation for a rewind. `conversation` mode needs no destructive
+ * confirmation (nothing on disk changes); `files`/`both` require an explicit
+ * destructive confirmation that lists the files to be reverted.
+ */
+export function buildRewindConfirmation(mode: RewindMode, affectedFiles: string[] = []): RewindConfirmation {
+  if (mode === "conversation") {
+    return {
+      required: false,
+      destructive: false,
+      title: "Rewind conversation",
+      message: "Undo this message and all following turns?",
+      affectedFiles: [],
+      confirmLabel: "Rewind",
+    };
+  }
+  const noun = mode === "both" ? "conversation & files" : "files";
+  const count = affectedFiles.length;
+  const fileClause =
+    count > 0
+      ? `${count} file${count === 1 ? "" : "s"} will be reverted to their state before this message.`
+      : "Workspace file changes made after this message will be reverted.";
+  return {
+    required: true,
+    destructive: true,
+    title: `Rewind ${noun}`,
+    message: `This cannot be undone. ${fileClause}`,
+    affectedFiles,
+    confirmLabel: "Revert",
+  };
+}

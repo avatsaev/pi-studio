@@ -106,12 +106,20 @@ export type ThemeColors = {
   terminal: TerminalTheme;
 };
 
-// Signal status colors — "a step darker than raw palette" per the doc.
-const STATUS = {
-  success: palette.green["700"],
-  danger: palette.red["700"],
-  warning: palette.amber["700"],
-  merged: palette.purple["600"],
+// Signal status colors — semantic success/danger/warning/merged. Kept a step
+// darker than the raw palette so they read as signals, not neon. Per Paseo
+// (`~/DEV/paseo/packages/app/src/styles/theme.ts`) light and dark differ.
+const DARK_STATUS = {
+  statusSuccess: "#16a34a", // green-600
+  statusDanger: "#dc2626", // red-600
+  statusWarning: "#f59e0b", // amber-500
+  statusMerged: "#9333ea", // purple-600
+} as const;
+const LIGHT_STATUS = {
+  statusSuccess: "#15803d", // green-700
+  statusDanger: "#b91c1c", // red-700
+  statusWarning: "#d97706", // amber-600
+  statusMerged: "#7c3aed", // purple-600
 } as const;
 
 function darkSyntax(): SyntaxColors {
@@ -173,6 +181,7 @@ export type DarkTintConfig = {
   surface2: string;
   surface3: string;
   surface4: string;
+  surfaceDiffEmpty: string;
   surfaceSidebar: string;
   surfaceSidebarHover: string;
   mutedForeground: string;
@@ -212,7 +221,8 @@ function terminalFrom(surface0: string, foreground: string, accent: string): Ter
 
 // Build a full dark theme color set from a tint config.
 export function buildDarkColors(tint: DarkTintConfig): ThemeColors {
-  const foreground = palette.zinc["100"];
+  // Paseo dark foreground is zinc-50 (#fafafa), not zinc-100.
+  const foreground = palette.zinc["50"];
   const accentForeground = contrastForeground(tint.accent);
   return {
     surface0: tint.surface0,
@@ -220,10 +230,11 @@ export function buildDarkColors(tint: DarkTintConfig): ThemeColors {
     surface2: tint.surface2,
     surface3: tint.surface3,
     surface4: tint.surface4,
-    surfaceDiffEmpty: tint.surface1,
+    surfaceDiffEmpty: tint.surfaceDiffEmpty,
     surfaceSidebar: tint.surfaceSidebar,
     surfaceSidebarHover: tint.surfaceSidebarHover,
-    surfaceWorkspace: tint.surface0,
+    // Paseo dark: the workspace surface is surface1 (not the app background surface0).
+    surfaceWorkspace: tint.surface1,
     foreground,
     foregroundMuted: tint.mutedForeground,
     accent: tint.accent,
@@ -231,16 +242,14 @@ export function buildDarkColors(tint: DarkTintConfig): ThemeColors {
     accentForeground,
     destructive: tint.destructive,
     destructiveForeground: palette.white,
-    success: palette.green["500"],
+    // Paseo: success uses the theme accent in dark.
+    success: tint.accent,
     successForeground: palette.white,
     border: tint.border,
     borderAccent: tint.borderAccent,
-    statusSuccess: STATUS.success,
-    statusDanger: STATUS.danger,
-    statusWarning: STATUS.warning,
-    statusMerged: STATUS.merged,
-    diffAddition: palette.green["400"],
-    diffDeletion: palette.red["400"],
+    ...DARK_STATUS,
+    diffAddition: palette.green["400"], // #4ade80
+    diffDeletion: palette.red["500"], // #ef4444
     scrollbarHandle: tint.scrollbarHandle,
     // Legacy aliases → nearest semantic token
     background: tint.surface0,
@@ -259,53 +268,51 @@ export function buildDarkColors(tint: DarkTintConfig): ThemeColors {
 }
 
 // The single light theme (built directly, not via the dark builder).
+// Values mirror Paseo's `lightSemanticColors` (`~/DEV/paseo/.../styles/theme.ts`).
 export function buildLightColors(): ThemeColors {
-  const foreground = palette.zinc["900"];
+  const foreground = "#1a1a1e";
   const accent = "#20744A";
   return {
-    surface0: palette.white,
-    surface1: palette.zinc["50"],
-    surface2: palette.zinc["100"],
-    surface3: palette.zinc["200"],
-    surface4: palette.zinc["300"],
-    surfaceDiffEmpty: palette.zinc["50"],
-    surfaceSidebar: palette.zinc["100"],
-    surfaceSidebarHover: palette.zinc["200"],
-    surfaceWorkspace: palette.white,
+    surface0: "#ffffff",
+    surface1: "#fafafa",
+    surface2: "#f4f4f5",
+    surface3: "#e4e4e7",
+    surface4: "#d4d4d8",
+    surfaceDiffEmpty: "#f6f6f6",
+    surfaceSidebar: "#f4f4f5",
+    surfaceSidebarHover: "#e9e9ec",
+    surfaceWorkspace: "#ffffff",
     foreground,
-    foregroundMuted: palette.zinc["600"],
+    foregroundMuted: "#71717a",
     accent,
-    accentBright: "#2D8B62",
-    accentForeground: palette.white,
-    destructive: palette.red["600"],
-    destructiveForeground: palette.white,
-    success: palette.green["600"],
-    successForeground: palette.white,
-    border: palette.zinc["200"],
-    borderAccent: palette.zinc["100"],
-    statusSuccess: STATUS.success,
-    statusDanger: STATUS.danger,
-    statusWarning: STATUS.warning,
-    statusMerged: STATUS.merged,
-    diffAddition: palette.green["700"],
-    diffDeletion: palette.red["700"],
-    scrollbarHandle: palette.zinc["300"],
-    background: palette.white,
-    popover: palette.white,
+    accentBright: "#239956",
+    accentForeground: contrastForeground(accent),
+    destructive: "#b04138",
+    destructiveForeground: "#ffffff",
+    success: accent,
+    successForeground: "#ffffff",
+    border: "#e4e4e7",
+    borderAccent: "#ececf1",
+    ...LIGHT_STATUS,
+    diffAddition: "#15803d", // green-700
+    diffDeletion: "#b91c1c", // red-700
+    scrollbarHandle: "#3f3f46", // zinc-700
+    background: "#ffffff",
+    popover: "#ffffff",
     popoverForeground: foreground,
     primary: accent,
-    secondary: palette.zinc["100"],
-    muted: palette.zinc["100"],
-    mutedForeground: palette.zinc["600"],
-    input: palette.zinc["100"],
+    secondary: "#f4f4f5",
+    muted: "#f4f4f5",
+    mutedForeground: "#71717a",
+    input: "#f4f4f5",
     ring: accent,
     palette,
     syntax: lightSyntax(),
     terminal: {
-      ...terminalFrom(palette.white, foreground, accent),
-      selectionBackground: "rgba(24,24,27,0.15)",
-      white: palette.zinc["700"],
-      brightWhite: palette.zinc["900"],
+      ...terminalFrom("#ffffff", foreground, accent),
+      selectionBackground: "rgba(0,0,0,0.15)",
+      white: "#ffffff",
+      brightWhite: "#fafafa",
     },
   };
 }

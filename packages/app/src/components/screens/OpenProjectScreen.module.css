@@ -1,0 +1,78 @@
+/* OpenProjectScreen — project/directory picker. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 24px;
+  gap: 16px;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.header {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionLabel {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.projectList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.projectRow {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--pi-radius-base, 4px);
+  cursor: pointer;
+  transition: background-color 80ms;
+  gap: 10px;
+}
+
+.projectRow:hover {
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.projectName {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  color: var(--pi-color-foreground, #fafafa);
+  flex: 1;
+}
+
+.projectPath {
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.empty {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 13px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  padding: 12px;
+}
+
+.browseRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

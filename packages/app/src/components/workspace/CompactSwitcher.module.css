@@ -1,0 +1,57 @@
+/* CompactSwitcher — mobile/compact single-pane tab switcher. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--pi-radius-base, 4px);
+  cursor: pointer;
+  transition: background-color 80ms;
+}
+
+.entry:hover {
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.entryActive {
+  background: var(--pi-color-surface1, #18181b);
+  border-left: 3px solid var(--pi-color-accent, #20744a);
+}
+
+.entryLabel {
+  flex: 1;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.entryClose {
+  opacity: 0;
+  transition: opacity 80ms;
+}
+
+.entry:hover .entryClose {
+  opacity: 1;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  flex-wrap: wrap;
+}

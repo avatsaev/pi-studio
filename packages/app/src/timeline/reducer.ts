@@ -30,6 +30,57 @@ export type TimelineGap = {
   beforeSeq: number;
 };
 
+// Maps a daemon stream/timeline event `kind` to the render-model row kind.
+// Lifecycle events (turn_started/turn_completed/…) intentionally have no entry —
+// they are not rendered as timeline rows.
+export const STREAM_EVENT_ROW_KINDS: Record<string, TimelineRowKind> = {
+  user_message: "user_message",
+  assistant_message: "assistant_message",
+  reasoning: "thought",
+  thought: "thought",
+  tool_call: "tool_call",
+  todo_list: "todo_list",
+  activity_log: "activity_log",
+  compaction: "compaction",
+};
+
+/**
+ * Convert a single daemon event (the inner `event` from an `agent_stream`
+ * envelope, or an item's nested event from a timeline fetch) into a TimelineRow.
+ * Returns null for non-renderable events (turn lifecycle, unknown kinds).
+ *
+ * The daemon discriminates events on `kind`; `type` is accepted as a legacy
+ * fallback. `rowId` is derived from a stable identity field so streaming deltas
+ * for the same message merge onto one row.
+ */
+export function streamEventToTimelineRow(
+  event: unknown,
+  opts: { seq: number; source: TimelineRowSource },
+): TimelineRow | null {
+  const e = (event ?? {}) as Record<string, unknown>;
+  const kind = (e["kind"] ?? e["type"]) as string | undefined;
+  if (!kind) return null;
+  const rowKind = STREAM_EVENT_ROW_KINDS[kind];
+  if (!rowKind) return null;
+  const seq = opts.seq;
+  const rowId =
+    (e["rowId"] as string | undefined) ??
+    (e["messageId"] as string | undefined) ??
+    (e["toolCallId"] as string | undefined) ??
+    (e["id"] as string | undefined) ??
+    `${kind}:${seq}`;
+  return {
+    rowId,
+    kind: rowKind,
+    seqStart: seq,
+    seqEnd: seq,
+    source: opts.source,
+    epochId: (e["epochId"] as string | undefined) ?? opts.source,
+    timestamp: (e["timestamp"] as number | undefined) ?? Date.now(),
+    payload: e,
+  };
+}
+
 export type TimelineState = {
   rows: readonly TimelineRow[];
   gaps: readonly TimelineGap[];

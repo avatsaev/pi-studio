@@ -1,0 +1,112 @@
+/* Dialog / Modal. ui-components.md § Overlays — AdaptiveModalSheet (desktop side) */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 100; /* Z_ORDER.modal */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: piBackdropIn 160ms ease forwards;
+}
+
+@keyframes piBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.panel {
+  background-color: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-2xl, 16px);
+  box-shadow: var(--pi-shadow-lg, 0 10px 24px rgba(0,0,0,0.6));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(100vh - 80px);
+  width: 100%;
+  max-width: 480px;
+  animation: piPanelIn 160ms ease forwards;
+}
+
+@keyframes piPanelIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 0;
+  gap: 12px;
+}
+
+.title {
+  font-size: var(--pi-font-size-base, 16px);
+  font-weight: 600;
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui, system-ui);
+  margin: 0;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  padding: 4px;
+  border-radius: var(--pi-radius-base, 4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.closeBtn:hover { color: var(--pi-color-foreground, #fafafa); }
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15)) transparent;
+}
+
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Bottom sheet variant (compact). */
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--pi-color-surface1, #18181b);
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-2xl, 16px) var(--pi-radius-2xl, 16px) 0 0;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+  animation: piSheetIn 240ms ease forwards;
+}
+
+@keyframes piSheetIn {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 9999px;
+  background-color: var(--pi-color-border, #52525b);
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}

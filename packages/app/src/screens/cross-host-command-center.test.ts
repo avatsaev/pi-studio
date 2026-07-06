@@ -162,7 +162,8 @@ describe("command center", () => {
 
   it("static actions are appended and searchable", () => {
     const items = commandCenterItems({ agents: [], query: "settings" });
-    expect(items).toEqual([{ kind: "action", action: STATIC_COMMAND_ACTIONS[2], label: "Settings", route: "/settings", rank: 10000 }]);
+    const settingsAction = STATIC_COMMAND_ACTIONS.find((a) => a.id === "settings")!;
+    expect(items).toEqual([{ kind: "action", action: settingsAction, label: "Settings", route: "/settings", rank: 10000 }]);
   });
 
   it("keyboard reducer opens, moves highlight, wraps, and closes", () => {

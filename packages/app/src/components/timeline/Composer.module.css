@@ -1,0 +1,107 @@
+/* Composer — message input surface. */
+
+.container {
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  padding: 8px 12px;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.inputRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.textArea {
+  flex: 1;
+  resize: none;
+  min-height: 36px;
+  max-height: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  background: var(--pi-color-surface1, #18181b);
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.textArea:focus {
+  border-color: var(--pi-color-accent, #20744a);
+}
+
+.sendBtn {
+  flex-shrink: 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.attachments {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+}
+
+.attachPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--pi-color-surface2, #27272a);
+  font-size: 11px;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.attachRemove {
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.attachRemove:hover {
+  opacity: 1;
+}
+
+.queueIndicator {
+  font-size: 11px;
+  color: var(--pi-color-accent, #20744a);
+}
+
+/* Autocomplete popover */
+.autocomplete {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  right: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  margin-bottom: 4px;
+  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0,0,0,0.4));
+  z-index: 50;
+}
+
+.acOption {
+  padding: 6px 10px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 13px;
+  color: var(--pi-color-foreground, #fafafa);
+  cursor: pointer;
+}
+
+.acOption:hover, .acOptionHighlighted {
+  background: var(--pi-color-surface2, #27272a);
+}

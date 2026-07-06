@@ -1,0 +1,11 @@
+/* AgentStatusDot — 8×8 round dot. ui-components.md § Status dots */
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+/* Color variants map to semantic token values (applied via inline style). */

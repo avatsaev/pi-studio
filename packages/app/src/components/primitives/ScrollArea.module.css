@@ -1,0 +1,25 @@
+/* ScrollArea — themed scrollbar wrapper. ui-components.md § Scroll & dividers */
+
+.scrollArea {
+  overflow: auto;
+  /* Themed custom scrollbar (web only). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15)) transparent;
+}
+
+.scrollArea::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollArea::-webkit-scrollbar-thumb {
+  background-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15));
+  border-radius: 9999px;
+}
+
+.x { overflow-x: auto; overflow-y: hidden; }
+.y { overflow-y: auto; overflow-x: hidden; }

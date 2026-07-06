@@ -1,0 +1,98 @@
+/* Explorer sidebar — file tree */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--pi-color-surface0, #09090b);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--pi-color-border, #3f3f46);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.toolbarBtn {
+  background: none;
+  border: none;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.toolbarBtn:hover {
+  color: var(--pi-color-foreground, #fafafa);
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 13px;
+  color: var(--pi-color-foreground, #fafafa);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.row:hover {
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.rowActive {
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.chevron {
+  width: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 80ms;
+}
+
+.chevronExpanded {
+  transform: rotate(90deg);
+}
+
+.entryIcon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.dirIcon {
+  color: var(--pi-color-accent, #20744a);
+}
+
+.entryName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: 12px;
+}

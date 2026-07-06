@@ -1,0 +1,207 @@
+/* Message rows — user/assistant bubbles, activity pills. */
+
+.userMessage {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0;
+}
+
+.userBubble {
+  background: var(--pi-color-accent, #20744a);
+  color: var(--pi-color-accentForeground, #fff);
+  border-radius: var(--pi-radius-lg, 12px);
+  padding: 10px 14px;
+  max-width: 80%;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.userBubbleOptimistic {
+  opacity: 0.7;
+}
+
+.assistantMessage {
+  padding: 4px 0;
+}
+
+.assistantContent {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+/* Markdown elements */
+.assistantContent h1, .assistantContent h2, .assistantContent h3 {
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+.assistantContent h1 { font-size: 18px; }
+.assistantContent h2 { font-size: 16px; }
+.assistantContent h3 { font-size: 14px; }
+
+.assistantContent p { margin: 4px 0; }
+
+.assistantContent ul, .assistantContent ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.assistantContent code {
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  background: var(--pi-color-surface1, #18181b);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.codeBlock {
+  background: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.codeBlockHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--pi-color-border, #3f3f46);
+}
+
+.streaming {
+  border-color: var(--pi-color-accent, #20744a);
+}
+
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--pi-radius-base, 4px);
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.codeBlock:hover .copyBtn {
+  opacity: 1;
+}
+
+.copyBtn:hover {
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.codeLine {
+  white-space: pre;
+  min-height: 1.5em;
+}
+
+.streamCursor {
+  display: inline-block;
+  color: var(--pi-color-accent, #20744a);
+  animation: pi-cursor-blink 1s step-end infinite;
+  margin-left: 1px;
+}
+
+.activityError {
+  color: var(--pi-color-statusDanger, #dc2626);
+}
+
+.activitySuccess {
+  color: var(--pi-color-statusSuccess, #16a34a);
+}
+
+.thinkingLabel {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-style: italic;
+}
+
+.thinkingShimmer {
+  animation: pi-thinking-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes pi-thinking-shimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.thinkingBody {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--pi-color-border, #3f3f46);
+  opacity: 0.75;
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+}
+
+@keyframes pi-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Activity pill */
+.activityPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--pi-color-surface1, #18181b);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  margin: 4px 0;
+}
+
+/* Compaction marker */
+.compaction {
+  text-align: center;
+  padding: 8px 0;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  border-top: 1px dashed var(--pi-color-border, #3f3f46);
+}
+
+/* Turn footer */
+.turnFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+/* File link */
+.fileLink {
+  color: var(--pi-color-accent, #20744a);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.fileLink:hover {
+  text-decoration-thickness: 2px;
+}

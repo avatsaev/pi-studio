@@ -1,0 +1,25 @@
+/* ProjectAvatar — image or deterministic colored letter fallback.
+   ui-components.md § Surfaces / badges / chips / avatars */
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 6px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarFallback {
+  font-weight: 600;
+  color: #ffffff;
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  line-height: 1;
+}

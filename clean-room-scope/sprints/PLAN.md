@@ -54,9 +54,20 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 020 | `sprint-020-workspace-shell-screens` | Workspace scaffold + route gating, tab strip + pins, pane/split tree + web DnD, header/switcher/bulk-close | 4 |
 | 021 | `sprint-021-timeline-composer-screens` | Virtualized timeline + rows/markdown + tool/diff/permission cards, composer surface, rewind UI | 5 |
 | 022 | `sprint-022-feature-panel-screens` | Explorer + file preview, git panel (+PR activity/attach), terminal pane (xterm), browser pane + subagents track | 4 |
-| 023 | `sprint-023-relay-e2ee` | Relay crypto/channels, daemon+client transports, Cloudflare server | 4 |
-| 024 | `sprint-024-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
-| 025 | `sprint-025-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
+| 023 | `sprint-023-data-hooks-integration` | Session store (Zustand), React Query hooks for all entities, terminal stream controller, connection provider wiring | 5 |
+| 024 | `sprint-024-workspace-wiring` | Workspace route state, tab layout store, pane content router with keepalive, timeline subscription, header/sidebar live wiring | 4 |
+| 025 | `sprint-025-composer-full` | Draft persistence (IndexedDB), full submission pipeline, attachments (image/GitHub/browser), autocomplete with real data, voice dictation, provider usage | 4 |
+| 026 | `sprint-026-timeline-full` | Streaming message render, syntax highlighting, tool call detail sheets + permission RPC, thinking/activity/compaction, rewind/fork integration | 4 |
+| 027 | `sprint-027-git-full` | Production diff viewer (unified/split + word-level), commit box, branch switcher, PR panel with real data, checkout status, worktree UI | 4 |
+| 028 | `sprint-028-polish-a11y` | Loading skeletons, empty states, error boundaries, animations (framer-motion), responsive breakpoints, keyboard a11y, theme variants, custom scrollbar | 5 |
+| 029 | `sprint-029-final-app-shell` | Assemble the real root shell (theme boundary, left sidebar, command center, shortcuts) replacing the ad hoc placeholder; wire real screens (Home/Sessions/Schedules/Settings) to live data via adapters; assemble the real Workspace screen (tab strip/pane tree/header); wire boot gating + route grammar + onboarding | 4 |
+| 030 | `sprint-030-integration-gap-closure` | Close integration gaps in the shipped web app: agent-detail route, new-agent provider picker, tab context actions + pinned quick-launch, schedule detail view, live header fields + bundle code-splitting | 5 |
+| 031 | `sprint-031-provider-usage-setup-backend` | New daemon/protocol scope: provider-usage RPC + UI wiring, workspace setup-panel/scripts surface (feeds s030 header fields) | 3 |
+| 032 | `sprint-032-relay-e2ee` | Relay crypto/channels, daemon+client transports, Cloudflare server | 4 |
+| 033 | `sprint-033-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
+| 034 | `sprint-034-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
+| 035 | `sprint-035-production-daemon` | Real production daemon: bootstrap + real Pi provider + disk persistence, register ALL handlers, terminals/binary frames, security + E2E (no mocks) | 4 |
+| 036 | `sprint-036-paseo-ux-parity` | Full Paseo UX/UI parity for the whole app: design tokens, sidebar redesign, navigation screens, workspace shell, timeline/composer, feature panels + wiring gaps | 6 |
 
 Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -287,6 +298,28 @@ Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
 | task-004 | SSH connection UI and diagnostics | task-003; s013/task-002; s013/task-004 | architecture/ssh-gateway-connections; features/app-navigation-screens; features/desktop-app |
 | task-005 | Secret storage hardening, cleanup, and docs | task-004 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
+
+### sprint-030-integration-gap-closure
+> Added after a post-implementation audit of the shipped web app (sprints 017–029 done). Closes
+> concrete integration gaps so the built app truly "uses all the features". Do before shipping.
+
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Agent detail route & screen assembly | s024, s026, s029 | features/app-navigation-screens, agent-sessions, timeline-rendering, composer-ui |
+| task-002 | New-agent provider/profile picker (replace hardcoded mock) | task-001; s005, s013/s019 | features/agent-providers, app-navigation-screens, composer-ui |
+| task-003 | Workspace tab context actions & pinned quick-launch | s014/s020, s024 | features/workspace-ui, agent-sessions |
+| task-004 | Schedule detail view | s019, s010 | features/schedules-heartbeats, app-navigation-screens |
+| task-005 | Workspace header live fields & bundle code-splitting | task-001..004; s031/task-003, s009 | features/workspace-ui, service-proxy; architecture/client-app-runtime |
+
+### sprint-031-provider-usage-setup-backend
+> New protocol/server scope flagged in the Open-questions list: provider-usage RPC and the setup/
+> scripts surface. Needed before the provider-usage UI and workspace-header fields can show live data.
+
+| Task | Title | Depends on | Covers (scope files) |
+|------|-------|------------|----------------------|
+| task-001 | Provider-usage daemon RPC + protocol schema | s005, s006, s002 | features/provider-usage; architecture/websocket-protocol, structured-generation |
+| task-002 | Wire provider-usage UI to live data | task-001; s025, s019 | features/provider-usage, composer-ui, app-navigation-screens |
+| task-003 | Setup panel & workspace scripts surface | s009, s003, s016 | features/service-proxy, feature-panels-ui; architecture/config |
 
 ## Coverage check
 

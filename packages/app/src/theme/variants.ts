@@ -2,7 +2,6 @@
 // One light + five dark tints sharing the buildDarkColors builder.
 
 import { buildDarkColors, buildLightColors, type ThemeColors } from "./colors.js";
-import { palette } from "./palette.js";
 
 // theme-name → swatch color map (for Appearance picker).
 export const THEME_SWATCHES: Readonly<Record<ThemeName, string>> = {
@@ -28,94 +27,104 @@ function buildVariantColors(name: ThemeName): ThemeColors {
   if (name === "light") return buildLightColors();
 
   switch (name) {
+    // Paseo — subtle teal-green tint (default). Exact values from Paseo `paseoDarkColors`.
     case "dark":
       return buildDarkColors({
-        surface0: "#1a1f1c",
-        surface1: "#1f2622",
-        surface2: "#252e28",
-        surface3: "#2d3830",
-        surface4: "#36453c",
-        surfaceSidebar: "#181d1a",
-        surfaceSidebarHover: "#1f2622",
-        mutedForeground: "#7a9484",
-        scrollbarHandle: "#3a4a40",
-        border: "#2a3830",
-        borderAccent: "#253028",
+        surface0: "#181B1A",
+        surface1: "#1E2120",
+        surface2: "#272A29",
+        surface3: "#434645",
+        surface4: "#595B5B",
+        surfaceDiffEmpty: "#252827",
+        surfaceSidebar: "#141716",
+        surfaceSidebarHover: "#1c1f1e",
+        mutedForeground: "#A1A5A4",
+        scrollbarHandle: "#717574",
+        border: "#252B2A",
+        borderAccent: "#2F3534",
         accent: "#20744A",
         accentBright: "#7ccba0",
-        destructive: palette.red["700"],
+        destructive: "#c64f43",
       });
 
+    // Zinc — neutral gray, no tint. Exact values from Paseo `zincDarkColors`.
     case "zinc":
       return buildDarkColors({
         surface0: "#18181b",
-        surface1: "#1c1c1f",
-        surface2: "#222226",
-        surface3: "#2a2a2e",
-        surface4: "#333338",
-        surfaceSidebar: "#141417",
-        surfaceSidebarHover: "#1c1c1f",
-        mutedForeground: "#71717a",
-        scrollbarHandle: "#3f3f46",
+        surface1: "#1f1f22",
+        surface2: "#27272a",
+        surface3: "#3f3f46",
+        surface4: "#52525b",
+        surfaceDiffEmpty: "#242427",
+        surfaceSidebar: "#131316",
+        surfaceSidebarHover: "#1b1b1e",
+        mutedForeground: "#a1a1aa",
+        scrollbarHandle: "#71717a",
         border: "#27272a",
-        borderAccent: "#222225",
+        borderAccent: "#303036",
         accent: "#e4e4e7",
-        accentBright: "#f4f4f5",
-        destructive: palette.red["600"],
+        accentBright: "#fafafa",
+        destructive: "#c44a4a",
       });
 
+    // Midnight — subtle blue tint. Exact values from Paseo `midnightDarkColors`.
     case "midnight":
       return buildDarkColors({
-        surface0: "#181c2a",
-        surface1: "#1c2130",
-        surface2: "#222840",
-        surface3: "#2a3350",
-        surface4: "#334060",
-        surfaceSidebar: "#151928",
-        surfaceSidebarHover: "#1c2130",
-        mutedForeground: "#6a7fa8",
-        scrollbarHandle: "#2e3f60",
-        border: "#253050",
-        borderAccent: "#1e2a48",
+        surface0: "#161820",
+        surface1: "#1c1e27",
+        surface2: "#252731",
+        surface3: "#3c3e4c",
+        surface4: "#535564",
+        surfaceDiffEmpty: "#222430",
+        surfaceSidebar: "#121420",
+        surfaceSidebarHover: "#1a1c28",
+        mutedForeground: "#9a9db0",
+        scrollbarHandle: "#6b6e82",
+        border: "#242636",
+        borderAccent: "#2e3040",
         accent: "#3b6fcf",
-        accentBright: "#628de8",
-        destructive: palette.red["700"],
+        accentBright: "#7eaaeb",
+        destructive: "#c44a52",
       });
 
+    // Claude — warm neutral with subtle orange undertone. From Paseo `claudeDarkColors`.
     case "claude":
       return buildDarkColors({
-        surface0: "#1c1814",
-        surface1: "#221e18",
-        surface2: "#2a231c",
-        surface3: "#342c24",
-        surface4: "#3e342a",
-        surfaceSidebar: "#181510",
-        surfaceSidebarHover: "#221e18",
-        mutedForeground: "#9b7560",
-        scrollbarHandle: "#4a3a2e",
-        border: "#3a2e24",
-        borderAccent: "#2e241c",
+        surface0: "#1f1f1e",
+        surface1: "#262523",
+        surface2: "#2f2d2b",
+        surface3: "#4a4745",
+        surface4: "#605d5b",
+        surfaceDiffEmpty: "#2a2826",
+        surfaceSidebar: "#1a1918",
+        surfaceSidebarHover: "#222120",
+        mutedForeground: "#ada9a5",
+        scrollbarHandle: "#78746f",
+        border: "#2c2a27",
+        borderAccent: "#36332f",
         accent: "#d97757",
-        accentBright: "#e89878",
-        destructive: palette.red["700"],
+        accentBright: "#e89a7f",
+        destructive: "#cf513e",
       });
 
+    // Ghostty — blue-tinted dark. Exact values from Paseo `ghosttyDarkColors`.
     case "ghostty":
       return buildDarkColors({
-        surface0: "#1e2030",
-        surface1: "#232538",
-        surface2: "#292c42",
-        surface3: "#30334c",
-        surface4: "#393d58",
-        surfaceSidebar: "#1a1c2c",
-        surfaceSidebarHover: "#232538",
-        mutedForeground: "#6878a8",
-        scrollbarHandle: "#383c5a",
-        border: "#2c3054",
-        borderAccent: "#252848",
+        surface0: "#282c34",
+        surface1: "#2f333d",
+        surface2: "#383c48",
+        surface3: "#4a4f5e",
+        surface4: "#5b6175",
+        surfaceDiffEmpty: "#323643",
+        surfaceSidebar: "#21252d",
+        surfaceSidebarHover: "#292d36",
+        mutedForeground: "#c8ccd8",
+        scrollbarHandle: "#a0a4b2",
+        border: "#353a47",
+        borderAccent: "#3f4454",
         accent: "#89b4fa",
-        accentBright: "#a0c8fc",
-        destructive: palette.red["600"],
+        accentBright: "#b4d0fc",
+        destructive: "#c44a55",
       });
   }
 }

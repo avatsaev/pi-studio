@@ -15,7 +15,7 @@ export type CommandCenterAgent = {
 };
 
 export type StaticCommandAction = {
-  id: "new-agent" | "home" | "settings";
+  id: "new-agent" | "home" | "sessions" | "schedules" | "settings";
   label: string;
   keywords: string[];
   route: string;
@@ -24,6 +24,8 @@ export type StaticCommandAction = {
 export const STATIC_COMMAND_ACTIONS: readonly StaticCommandAction[] = [
   { id: "new-agent", label: "New agent", keywords: ["new", "agent", "project"], route: routes.newWorkspace() },
   { id: "home", label: "Home", keywords: ["home", "open", "project"], route: routes.openProject() },
+  { id: "sessions", label: "Sessions", keywords: ["sessions", "history", "agents"], route: routes.sessions() },
+  { id: "schedules", label: "Schedules", keywords: ["schedules", "cron", "heartbeat"], route: routes.schedules() },
   { id: "settings", label: "Settings", keywords: ["settings", "preferences"], route: routes.settings() },
 ];
 

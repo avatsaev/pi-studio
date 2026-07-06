@@ -1,0 +1,49 @@
+/* KeyboardShortcutsDialog. keyboard-shortcuts.md */
+
+.section {
+  margin-bottom: 16px;
+}
+
+.sectionLabel {
+  font-size: var(--pi-font-size-xs, 11px);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-weight: 600;
+  font-family: var(--pi-font-ui, system-ui);
+  margin-bottom: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--pi-color-border, #3f3f46);
+}
+
+.rowLabel {
+  font-size: var(--pi-font-size-sm, 14px);
+  font-family: var(--pi-font-ui, system-ui);
+  color: var(--pi-color-foreground, #fafafa);
+  flex: 1;
+}
+
+.chips {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--pi-radius-base, 4px);
+  background-color: var(--pi-color-surface2, #27272a);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: var(--pi-font-size-xs, 12px);
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+}

@@ -1,0 +1,257 @@
+.commitBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  background: var(--pi-color-surface1, #18181b);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 12px;
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.filePath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--pi-font-mono, monospace);
+}
+
+.messageRow {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.messageInput {
+  flex: 1 1 auto;
+  resize: vertical;
+  padding: 6px 8px;
+  background: var(--pi-color-surface2, #27272a);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 6px;
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.suggestBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 6px;
+  background: var(--pi-color-surface2, #27272a);
+  color: var(--pi-color-accent, #20744a);
+  cursor: pointer;
+}
+
+.suggestBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.commitActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Branch switcher ── */
+.branchSwitcher {
+  position: relative;
+  display: inline-block;
+}
+
+.branchTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 6px;
+  background: var(--pi-color-surface1, #18181b);
+  color: var(--pi-color-foreground, #fafafa);
+  cursor: pointer;
+  font-size: 12px;
+  max-width: 220px;
+}
+
+.branchName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 8px;
+  background: var(--pi-color-surface2, #27272a);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.branchSearch {
+  padding: 5px 8px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 6px;
+  background: var(--pi-color-surface1, #18181b);
+  color: var(--pi-color-foreground, #fafafa);
+  font-size: 12px;
+}
+
+.branchList {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.branchGroup {
+  padding: 4px 6px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pi-color-foregroundSubtle, #71717a);
+}
+
+.branchRow {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.branchRow:hover {
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.branchCurrent {
+  color: var(--pi-color-accent, #20744a);
+}
+
+.branchSelect {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.branchDelete {
+  border: none;
+  background: transparent;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.branchDelete:hover {
+  color: var(--pi-color-statusDanger, #dc2626);
+}
+
+.createBranchBtn,
+.createRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+}
+
+.createBranchBtn {
+  border: none;
+  background: transparent;
+  color: var(--pi-color-accent, #20744a);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.createRow {
+  flex-wrap: wrap;
+}
+
+.error {
+  color: var(--pi-color-statusDanger, #dc2626);
+  font-size: 11px;
+}
+
+/* ── Conflicts ── */
+.conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--pi-color-statusDanger, #dc2626);
+  border-radius: 8px;
+  background: var(--pi-color-surface1, #18181b);
+  font-size: 12px;
+}
+
+.conflictHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--pi-color-statusDanger, #dc2626);
+}
+
+.resolvedBadge {
+  color: var(--pi-color-statusSuccess, #16a34a);
+  font-weight: 400;
+}
+
+.conflictRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conflictActions {
+  display: flex;
+  gap: 4px;
+}
+
+.conflictActions button {
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: 4px;
+  background: var(--pi-color-surface2, #27272a);
+  color: var(--pi-color-foreground, #fafafa);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.chosen {
+  border-color: var(--pi-color-accent, #20744a) !important;
+  color: var(--pi-color-accent, #20744a) !important;
+}

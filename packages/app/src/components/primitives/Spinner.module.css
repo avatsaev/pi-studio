@@ -1,0 +1,15 @@
+/* Spinner — thin activity indicator. ui-components.md § Feedback */
+
+.spinner {
+  display: inline-block;
+  border-radius: 9999px;
+  border-style: solid;
+  border-color: currentColor transparent transparent transparent;
+  animation: piSpinnerRotate 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes piSpinnerRotate {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

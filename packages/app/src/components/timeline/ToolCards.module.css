@@ -1,0 +1,195 @@
+/* Tool cards, diffs, permissions. */
+
+.card {
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.cardError {
+  border-color: var(--pi-color-statusDanger, #dc2626);
+}
+
+.cardNameDimmed {
+  opacity: 0.6;
+}
+
+.cluster {
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.clusterHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--pi-color-surface1, #18181b);
+  border: none;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 12px;
+  text-align: left;
+}
+
+.clusterHeader:hover {
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.clusterBody {
+  padding: 4px 8px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.cardHeader:hover {
+  background: var(--pi-color-surface2, #27272a);
+}
+
+.cardIcon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cardName {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pi-color-foreground, #fafafa);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardSummary {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.cardStatus {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.statusRunning { color: var(--pi-color-accent, #20744a); }
+.statusCompleted { color: var(--pi-color-statusSuccess, #22c55e); }
+.statusFailed { color: var(--pi-color-statusDanger, #ef4444); }
+
+.shimmer {
+  animation: shimmer 1.5s infinite;
+  background: linear-gradient(90deg, transparent, var(--pi-color-surface2, #27272a), transparent);
+  background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.cardBody {
+  padding: 8px 12px;
+  border-top: 1px solid var(--pi-color-border, #3f3f46);
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  color: var(--pi-color-foreground, #fafafa);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Diff */
+.diffHunk {
+  margin: 4px 0;
+}
+
+.diffLine {
+  display: flex;
+  font-family: var(--pi-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diffGutter {
+  width: 40px;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.diffContent {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diffAdd { background: rgba(34,197,94,0.1); color: var(--pi-color-statusSuccess, #22c55e); }
+.diffRemove { background: rgba(239,68,68,0.1); color: var(--pi-color-statusDanger, #ef4444); }
+.diffHeader { color: var(--pi-color-foregroundMuted, #a1a1aa); font-weight: 500; }
+
+.diffStat {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  padding: 4px 12px;
+}
+
+/* Permission prompt */
+.permission {
+  border: 1px solid var(--pi-color-statusWarning, #eab308);
+  border-radius: var(--pi-radius-base, 4px);
+  padding: 12px;
+  margin: 4px 0;
+  background: var(--pi-color-surface1, #18181b);
+}
+
+.permissionQuestion {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 13px;
+  color: var(--pi-color-foreground, #fafafa);
+  margin: 0 0 10px;
+}
+
+.permissionDescription {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  margin: 0 0 10px;
+}
+
+.permissionOptions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.permissionResolved {
+  opacity: 0.6;
+  border-color: var(--pi-color-border, #3f3f46);
+}
+
+.resolvedLabel {
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  margin-top: 8px;
+}

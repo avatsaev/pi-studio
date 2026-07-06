@@ -1,0 +1,97 @@
+/* Button — variant styles consuming --pi-* CSS custom properties.
+   design-system.md § Styling-engine rules, ui-components.md § Pressables */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--pi-radius-lg, 8px);
+  border: 1px solid transparent;
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  text-decoration: none;
+  outline: none;
+  transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  box-sizing: border-box;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--pi-color-accent, #20744a);
+  outline-offset: 2px;
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ---- Variants ---- */
+
+.default {
+  background-color: var(--pi-color-accent, #20744a);
+  color: var(--pi-color-accentForeground, #ffffff);
+  border-color: var(--pi-color-accent, #20744a);
+}
+.default:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.secondary {
+  background-color: var(--pi-color-surface3, #3f3f46);
+  color: var(--pi-color-foreground, #fafafa);
+  border-color: var(--pi-color-border, #3f3f46);
+}
+.secondary:hover:not(:disabled) {
+  background-color: var(--pi-color-surface2, #27272a);
+}
+
+.outline {
+  background-color: transparent;
+  color: var(--pi-color-accent, #20744a);
+  border-color: var(--pi-color-accent, #20744a);
+}
+.outline:hover:not(:disabled) {
+  background-color: var(--pi-color-surface1, #18181b);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  border-color: transparent;
+}
+.ghost:hover:not(:disabled) {
+  color: var(--pi-color-foreground, #fafafa);
+  background-color: var(--pi-color-surface1, #18181b);
+}
+
+.destructive {
+  background-color: var(--pi-color-destructive, #991b1b);
+  color: var(--pi-color-destructiveForeground, #fef2f2);
+  border-color: var(--pi-color-destructive, #991b1b);
+}
+.destructive:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* ---- Icon-only ---- */
+.iconOnly {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  aspect-ratio: 1;
+}
+
+/* ---- Loading spinner inside button ---- */
+.loadingSpinner {
+  animation: piSpin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes piSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

@@ -1,0 +1,50 @@
+/* AppShell — root layout chrome. app-navigation-screens.md § Left sidebar */
+
+.splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  gap: var(--pi-spacing-md, 16px);
+  background-color: var(--pi-color-background, #09090b);
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+}
+
+.splashLabel {
+  margin: 0;
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  font-size: var(--pi-font-size-sm, 13px);
+}
+
+.shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  color: var(--pi-color-foreground, #fafafa);
+  background-color: var(--pi-color-background, #09090b);
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+}
+
+.portalRoot {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
