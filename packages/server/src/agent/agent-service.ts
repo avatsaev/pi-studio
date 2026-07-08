@@ -67,7 +67,9 @@ export class AgentService {
     const provider = (config.provider as string | undefined) ?? "mock";
     const cwd = (config.cwd as string | undefined) ?? ".";
     const initialPrompt = msg.initialPrompt as string | undefined;
+    const title = (config.title as string | undefined) ?? (msg.title as string | undefined);
     const labels = (msg.labels as Record<string, string> | undefined) ?? {};
+    if (title && !labels["title"]) labels["title"] = title;
     const clientMessageId = msg.clientMessageId as string | undefined;
     const autoArchive = Boolean(msg.autoArchive);
 

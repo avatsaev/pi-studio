@@ -218,7 +218,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         projectId: "agents",
         cwd: m.record.cwd,
         kind: "directory" as const,
-        displayName: m.record.labels?.["title"] ?? m.record.cwd,
+        displayName: m.record.labels?.["title"] ?? m.record.cwd.split("/").filter(Boolean).pop() ?? m.record.cwd,
         agentStatus: statusOf(m.record.cwd),
         createdAt: new Date(m.record.createdAt).getTime(),
         updatedAt: new Date(m.record.updatedAt).getTime(),
