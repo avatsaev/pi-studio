@@ -122,3 +122,76 @@ describe("archive cascade", () => {
     expect(archivedCount2).toBe(archivedCount1);
   });
 });
+
+describe("deleteAgent", () => {
+  it("removes the agent from disk and memory, and returns true", async () => {
+    const deleted: string[] = [];
+    const { mgr } = makeManager({
+      deleteAgent: (_cwd, id) => {
+        deleted.push(id);
+        return Promise.resolve(true);
+      },
+    });
+    const agent = (await mgr.add(record())).record;
+
+    const result = await mgr.deleteAgent(agent.id);
+
+    expect(result).toBe(true);
+    expect(deleted).toEqual([agent.id]);
+    expect(mgr.get(agent.id)).toBeUndefined();
+    expect(mgr.list()).toHaveLength(0);
+    expect(mgr.listAll()).toHaveLength(0);
+  });
+
+  it("returns false and is a no-op for an unknown agent id", async () => {
+    const { mgr } = makeManager();
+    const result = await mgr.deleteAgent("nonexistent");
+    expect(result).toBe(false);
+  });
+
+  it("closes a live runtime before deleting", async () => {
+    const { mgr } = makeManager();
+    const agent = (await mgr.add(record())).record;
+    const session = fakeSession();
+    mgr.attachSession(agent.id, session);
+
+    await mgr.deleteAgent(agent.id);
+
+    expect(session.closeSpy).toHaveBeenCalledOnce();
+  });
+
+  it("cascades to all parent-linked non-detached children recursively; detached survives", async () => {
+    const { mgr, events } = makeManager();
+    const parent = (await mgr.add(record())).record;
+    const child1 = (await mgr.add(record({ labels: { [PARENT_AGENT_ID_LABEL]: parent.id } })))
+      .record;
+    const child2 = (await mgr.add(record({ labels: { [PARENT_AGENT_ID_LABEL]: parent.id } })))
+      .record;
+    const grandchild = (await mgr.add(record({ labels: { [PARENT_AGENT_ID_LABEL]: child1.id } })))
+      .record;
+    const detached = (await mgr.add(record())).record; // no parent label
+
+    await mgr.deleteAgent(parent.id);
+
+    for (const id of [parent.id, child1.id, child2.id, grandchild.id]) {
+      expect(mgr.get(id)).toBeUndefined();
+    }
+    expect(mgr.get(detached.id)).toBeDefined();
+
+    const deletedIds = events
+      .filter((e) => e.type === "agent_deleted")
+      .map((e) => (e.type === "agent_deleted" ? e.agentId : ""));
+    expect(new Set(deletedIds)).toEqual(new Set([parent.id, child1.id, child2.id, grandchild.id]));
+  });
+
+  it("is idempotent (deleting an already-deleted agent is a no-op, no extra broadcast)", async () => {
+    const { mgr, events } = makeManager();
+    const agent = (await mgr.add(record())).record;
+    await mgr.deleteAgent(agent.id);
+    const deletedCount1 = events.filter((e) => e.type === "agent_deleted").length;
+    const secondResult = await mgr.deleteAgent(agent.id);
+    const deletedCount2 = events.filter((e) => e.type === "agent_deleted").length;
+    expect(secondResult).toBe(false);
+    expect(deletedCount2).toBe(deletedCount1);
+  });
+});

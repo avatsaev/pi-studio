@@ -76,8 +76,10 @@ export interface PiStudioAgentActions {
   }): Promise<unknown>;
   /** Resume a closed session via its persistence handle. */
   resume(): Promise<unknown>;
-  /** Archive (soft-delete) the agent. */
+  /** Archive (soft-delete) the agent — closes the runtime, keeps the record for resume. */
   archive(): Promise<unknown>;
+  /** Permanently delete the agent's persisted record (hard delete — no trace, cannot resume). */
+  delete(): Promise<unknown>;
   /** Subscribe to `agent_update` events scoped to this agent. */
   onUpdate(handler: PiStudioAgentUpdateHandler): () => void;
 }
@@ -231,6 +233,10 @@ class AgentHandle implements PiStudioAgentActions {
 
   archive(): Promise<unknown> {
     return this.daemon.request("archive_agent", { agentId: this.agentId });
+  }
+
+  delete(): Promise<unknown> {
+    return this.daemon.request("delete_agent", { agentId: this.agentId });
   }
 
   onUpdate(handler: PiStudioAgentUpdateHandler): () => void {

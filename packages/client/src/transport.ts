@@ -83,6 +83,11 @@ export function createWebSocketTransport(factory?: WsFactory): Transport {
             self.onMessage?.(data as ArrayBuffer);
           } else if (typeof data === "string") {
             self.onMessage?.(data);
+          } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+            // Browser default `binaryType` is "blob" — DaemonClient.handleIncoming already
+            // reads Blob payloads asynchronously via `.arrayBuffer()`, so forward it as-is
+            // instead of silently dropping every binary (terminal/file-transfer) frame.
+            self.onMessage?.(data);
           } else if (Buffer.isBuffer(data)) {
             // Node `ws` may deliver Buffer
             self.onMessage?.(

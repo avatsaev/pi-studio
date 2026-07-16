@@ -1,0 +1,38 @@
+.diffView {
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  overflow-x: auto;
+}
+.hunkHeader {
+  background: var(--pi-color-surfaceSunken, #111);
+  color: var(--pi-color-accentBright, #a2b4d7);
+  padding: 4px 14px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+}
+.line {
+  padding: 0 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.add {
+  background: color-mix(in srgb, var(--pi-color-diffAddition, #4ade80) 15%, transparent);
+  color: var(--pi-color-diffAddition, #4ade80);
+}
+.del {
+  background: color-mix(in srgb, var(--pi-color-diffDeletion, #ff8a80) 15%, transparent);
+  color: var(--pi-color-diffDeletion, #ff8a80);
+}
+.ctx {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.ln {
+  display: inline-block;
+  width: 50px;
+  text-align: right;
+  padding-right: 10px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  user-select: none;
+  font-size: 11px;
+}

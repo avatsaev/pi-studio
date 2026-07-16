@@ -252,7 +252,7 @@ Single binary, subcommands:
 | `pi-studio-gateway config show` | Prints the effective config (file + env overlay applied), secrets masked. |
 | `pi-studio-gateway config set <key> <value>` | Dotted-path set into `config.json` (e.g. `daemon.listen`, `daemon.hostnames`) with Zod validation before write; offers to restart the service to apply. |
 | `pi-studio-gateway config edit` | Opens `$EDITOR` on `config.json`, validates on save, refuses to save an invalid file (keeps a `.bak`). |
-| `pi-studio-gateway pair [--direct]` | Prints how to connect a client to this gateway. Default output shows a **direct-connect** block (LAN/VPN: `ws://<host>:<port>` + bearer password — what today's reference client, the `poc` debug UI, understands) and, once a relay-capable client (`packages/app`) exists, a **relay pairing** URL + QR code (E2EE, reuses `packages/cli`'s existing `pairing.ts`/`qr.ts` logic) for reaching the gateway from anywhere without opening an inbound port. `--direct` prints only the direct-connect block (host + password, no QR) for scripting/copy-paste into the `poc` UI. See §9.3. |
+| `pi-studio-gateway pair [--direct]` | Prints how to connect a client to this gateway. Default output shows a **direct-connect** block (LAN/VPN: `ws://<host>:<port>` + bearer password — what today's reference client, `packages/web-client`, understands) and, once a relay-capable client exists, a **relay pairing** URL + QR code (E2EE, reuses `packages/cli`'s existing `pairing.ts`/`qr.ts` logic) for reaching the gateway from anywhere without opening an inbound port. `--direct` prints only the direct-connect block (host + password, no QR) for scripting/copy-paste into the web client. See §9.3. |
 | `pi-studio-gateway update [--version X.Y.Z]` | Downloads the new release tarball, extracts alongside the current version, flips the `current` symlink, restarts the service. Old versions are pruned (keep last 2 by default) so `update` doubles as easy rollback (`--rollback` re-points `current` to the previous version without a download). |
 | `pi-studio-gateway run` | **Internal** — the actual `ExecStart` target; not intended for interactive use (no wizard, just boots the daemon with resolved config). Exists as a stable, documented entry point independent of internal file layout changes. |
 
@@ -291,7 +291,7 @@ Pi-Studio Gateway is running.
   Network: ws://192.168.1.20:6767
 
 Connect a client:
-  Direct (LAN/VPN, e.g. the poc debug UI):
+  Direct (LAN/VPN, e.g. the web client):
     Host:     ws://192.168.1.20:6767
     Password: 8f2a1c9e4b7d3f60
   Relay pairing (E2EE, once a relay-capable client exists):
@@ -309,7 +309,7 @@ Manage it with:
   `--no-password` [only allowed with `127.0.0.1`], `--home`, `--no-linger`) for scripted/Ansible
   installs; `--yes` alone applies every default without prompting.
 - The `Network:` address and the *direct-connect* Host/Password pair are the same thing printed
-  twice for convenience — see §9.3 for exactly how a client (in particular the `poc` UI) uses them.
+  twice for convenience — see §9.3 for exactly how a client (in particular the web client) uses them.
 
 ### 9.2 Ongoing configuration
 

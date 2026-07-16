@@ -13,7 +13,7 @@ Electron shell that bundles and supervises a Pi-Studio daemon alongside the app 
 
 1. **Bundles the daemon** (`@av-pi-studio/server`) and starts it in-process (or as a supervised
    child process) on launch — no separate terminal needed.
-2. **Hosts the app** (`@av-pi-studio/app`) in a BrowserWindow — the Expo web build or a
+2. **Hosts the app** (`@av-pi-studio/web-client`) in a BrowserWindow — the Vite web build or a
    dedicated Electron renderer.
 3. **Manages the daemon lifecycle**: start on app open, graceful shutdown on app quit, restart on
    crash.
@@ -25,12 +25,12 @@ Electron shell that bundles and supervises a Pi-Studio daemon alongside the app 
 ## Dependency graph
 
 ```
-desktop  →  @av-pi-studio/app     (renderer / UI)
-desktop  →  @av-pi-studio/server  (daemon, spawned/embedded in main process)
+desktop  →  @av-pi-studio/web-client  (renderer / UI)
+desktop  →  @av-pi-studio/server      (daemon, spawned/embedded in main process)
 ```
 
-`desktop` is the **only package** that depends on both `app` and `server` simultaneously. This
-is intentional — it is the integration point. No other package should import `desktop`.
+`desktop` is the **only package** that depends on both `web-client` and `server` simultaneously.
+This is intentional — it is the integration point. No other package should import `desktop`.
 
 ---
 
@@ -46,7 +46,7 @@ is intentional — it is the integration point. No other package should import `
 
 ### Renderer process
 
-- Loads `@av-pi-studio/app` (web build).
+- Loads `@av-pi-studio/web-client` (web build).
 - Connects to the local daemon at `ws://127.0.0.1:<port>` using `DaemonClient`.
 - No relay needed for the local connection; the relay transport is still available for remote
   daemon connections initiated from within the app.
@@ -84,4 +84,4 @@ src/
   the process exits.
 - **Renderer isolation.** The renderer only talks to the daemon over WebSocket; it never calls
   server functions directly.
-- **`desktop` is the only `server` + `app` consumer.** No other package depends on both.
+- **`desktop` is the only `server` + `web-client` consumer.** No other package depends on both.

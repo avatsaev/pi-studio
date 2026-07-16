@@ -1,0 +1,33 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  background: var(--pi-color-surface, #16181a);
+  flex-shrink: 0;
+}
+.brand {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.sep {
+  width: 1px;
+  height: 18px;
+  background: var(--pi-color-border, #353b46);
+  flex-shrink: 0;
+}
+.host {
+  width: 190px;
+}
+.password {
+  width: 100px;
+}
+.sidebarToggles {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}

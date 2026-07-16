@@ -1,0 +1,84 @@
+/* Select / Combobox — ui-components.md § Inputs & form controls */
+
+.select {
+  appearance: none;
+  background-color: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  padding: 8px 32px 8px 10px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foreground, #fafafa);
+  width: 100%;
+  outline: none;
+  transition: border-color 100ms;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23a1a1aa' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.select:focus {
+  border-color: var(--pi-color-accent, #2e5cb8);
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Combobox wrapper */
+.comboboxWrapper {
+  position: relative;
+  width: 100%;
+}
+
+.comboboxInput {
+  width: 100%;
+  background-color: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  padding: 8px 10px;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foreground, #fafafa);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.comboboxInput:focus {
+  border-color: var(--pi-color-accent, #2e5cb8);
+}
+
+.comboboxList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--pi-color-surface1, #18181b);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-base, 4px);
+  margin-top: 4px;
+  padding: 4px;
+  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0,0,0,0.4));
+}
+
+.comboboxOption {
+  padding: 6px 8px;
+  border-radius: var(--pi-radius-sm, 3px);
+  font-size: var(--pi-font-size-sm, 14px);
+  font-family: var(--pi-font-ui, system-ui);
+  color: var(--pi-color-foreground, #fafafa);
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+
+.comboboxOption:hover, .comboboxOptionHighlighted {
+  background-color: var(--pi-color-surface2, #27272a);
+}

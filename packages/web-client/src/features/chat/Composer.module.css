@@ -1,0 +1,41 @@
+/* Composer — textarea + attach/send/stop actions (POC `.composer`, POC_TO_APP_PLAN_UI.md §4.4). */
+
+.composer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--pi-color-border, #2c313b);
+  background: var(--pi-color-surface, #14161a);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.inputArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.textarea {
+  resize: none;
+  min-height: 38px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.attachBtn {
+  flex-shrink: 0;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}

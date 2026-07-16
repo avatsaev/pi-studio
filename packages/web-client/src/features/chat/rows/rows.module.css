@@ -1,0 +1,203 @@
+/* Shared timeline row styles (POC `.msg` family, POC_TO_APP_PLAN_UI.md §4.3). */
+
+.row {
+  padding: 8px 12px;
+  border-radius: var(--pi-borderRadius-md, 6px);
+  max-width: 85%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.who {
+  display: block;
+  font-size: 10px;
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ─── User ─────────────────────────────────────────────────────────────── */
+
+.user {
+  background: var(--pi-color-accentMuted, #1e3a5f);
+  color: var(--pi-color-foreground, #dbe9ff);
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+
+.userImages {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.userImage {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 4px;
+  display: block;
+  object-fit: cover;
+}
+
+/* ─── Assistant ────────────────────────────────────────────────────────── */
+
+.assistant {
+  background: var(--pi-color-surface, #1c1f26);
+  color: var(--pi-color-foreground, #d6dae0);
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+
+.assistant.streaming {
+  border-left: 2px solid var(--pi-color-accent, #2e5cb8);
+}
+
+.streamingText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cursor {
+  display: inline-block;
+  margin-left: 1px;
+  animation: blink 1s step-start infinite;
+  color: var(--pi-color-accentBright, #a2b4d7);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ─── Reasoning ────────────────────────────────────────────────────────── */
+
+.reasoning {
+  background: var(--pi-color-background, #0f1115);
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  font-style: italic;
+  font-size: 12px;
+  align-self: flex-start;
+}
+
+/* ─── Tool ─────────────────────────────────────────────────────────────── */
+
+.tool {
+  background: var(--pi-color-surface, #1c1f26);
+  border: 1px solid var(--pi-color-border, #2c313b);
+  align-self: flex-start;
+  font-size: 12px;
+  max-width: 90%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.toolHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toolHeader:disabled {
+  cursor: default;
+}
+
+.toolChevron {
+  flex-shrink: 0;
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  transition: transform 120ms ease;
+}
+
+.toolChevronOpen {
+  transform: rotate(90deg);
+}
+
+.toolInlineDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  min-width: 0;
+  flex: 1;
+}
+
+.toolBody {
+  border-top: 1px solid var(--pi-color-border, #2c313b);
+  max-height: 420px;
+  overflow: auto;
+}
+
+.toolCode {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--pi-color-foreground, #dbe3f0);
+}
+
+.toolIcon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.toolIcon.running {
+  color: var(--pi-color-accentBright, #a2b4d7);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.toolIcon.completed {
+  color: var(--pi-color-statusSuccess, #27ae60);
+}
+
+.toolIcon.error {
+  color: var(--pi-color-statusDanger, #c0392b);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.toolLabel {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.toolBadge {
+  margin-left: auto;
+}
+
+
+/* ─── Error / System ───────────────────────────────────────────────────── */
+
+.error {
+  background: var(--pi-color-destructive, #3a1515);
+  color: var(--pi-color-destructiveForeground, #ff8a80);
+  align-self: flex-start;
+}
+
+.system {
+  background: transparent;
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  font-style: italic;
+  align-self: flex-start;
+  padding: 4px 12px;
+}

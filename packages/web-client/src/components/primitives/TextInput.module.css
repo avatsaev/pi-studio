@@ -1,0 +1,35 @@
+/* TextInput / TextArea form inputs. ui-components.md § Inputs */
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--pi-radius-md, 6px);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  background-color: var(--pi-color-surface2, #27272a);
+  color: var(--pi-color-foreground, #fafafa);
+  font-size: var(--pi-font-size-base, 16px);
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  outline: none;
+  transition: border-color 120ms ease;
+  box-sizing: border-box;
+}
+
+.input::placeholder {
+  color: var(--pi-color-foregroundMuted, #a1a1aa);
+}
+
+.input:focus {
+  border-color: var(--pi-color-accent, #2e5cb8);
+  outline: 2px solid var(--pi-color-accent, #2e5cb8);
+  outline-offset: -1px;
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}

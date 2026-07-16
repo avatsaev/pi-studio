@@ -109,9 +109,9 @@ module and ships prebuilt binaries for common platforms.
 - **Protocol** — Shared wire schemas, binary frame codecs, endpoint parsing, provider manifest,
   capability flags. Depended on by everyone; depends on no one. (`packages/protocol`)
 - **Client** — Low-level daemon WebSocket driver + higher-level `Pi-StudioClient` SDK facade used by
-  app and CLI. (`packages/client`)
-- **App** — Cross-platform Expo UI; manages saved host connections, sessions, timeline reducers,
-  composer. (`packages/app`)
+  the web client and CLI. (`packages/client`)
+- **Web Client** — Production React/Vite browser UI; manages saved host connections, sessions,
+  timeline reducers, composer, file explorer, git changes, terminal. (`packages/web-client`)
 - **CLI** — Terminal client; can also start/manage a local daemon. (`packages/cli`)
 - **Desktop** — Electron shell that bundles + supervises a daemon and embeds the web app, with
   native file dialogs, menus, auto-update, in-app browser webviews. (`packages/desktop`)
@@ -150,8 +150,7 @@ module and ships prebuilt binaries for common platforms.
 | `packages/protocol/src/client-capabilities.ts`                                    | Client capability flag constants                                   |
 | `packages/client/src/daemon-client.ts`                                            | Low-level WS driver                                                |
 | `packages/client/src/index.ts`                                                    | `Pi-StudioClient` SDK facade                                       |
-| `packages/app/src/`                                                               | Expo client (screens, composer, timeline, runtime)                 |
-| `packages/app/src/runtime/`, `contexts/`                                          | Host runtime controller, session context                           |
+| `packages/web-client/src/`                                                        | React/Vite browser client (features, stores, timeline, workspace) |
 | `packages/cli/src/commands/`                                                      | CLI command tree                                                   |
 | `packages/desktop/src/`                                                           | Electron main/preload, daemon supervision, features                |
 | `packages/relay/src/`                                                             | E2EE channels, crypto, Cloudflare adapter                          |

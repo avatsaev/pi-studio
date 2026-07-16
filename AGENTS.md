@@ -10,8 +10,8 @@
 Pi-Studio is a **self-hosted, local-first system** for running and controlling the **Pi** AI coding
 agent. A long-lived **daemon** process runs on a developer's machine, manages agent processes,
 PTY terminals, git worktrees, projects, chat rooms, schedules, and loops, and exposes a
-**WebSocket JSON+binary API**. Clients — a CLI today, mobile/web/desktop apps in later sprints —
-connect to the daemon to observe and drive agents.
+**WebSocket JSON+binary API**. Clients — a CLI and web browser UI today, native mobile/desktop
+apps in later sprints — connect to the daemon to observe and drive agents.
 
 Your code never leaves your machine.
 
@@ -21,16 +21,15 @@ Your code never leaves your machine.
 
 ```
 packages/
-  protocol/   Wire schemas (Zod), binary frame codecs, capability flags — zero runtime deps except zod.
-  client/     Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
-  server/     The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
-  cli/        pi-studio terminal client + local daemon lifecycle control (commander).
-  highlight/  Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
-  relay/      Encrypted relay bridge for remote access (placeholder, later sprint).
-  app/        Cross-platform Expo client (placeholder, later sprint).
-  desktop/    Electron shell wrapping a bundled daemon (placeholder, later sprint).
+  protocol/    Wire schemas (Zod), binary frame codecs, capability flags — zero runtime deps except zod.
+  client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
+  server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
+  cli/         pi-studio terminal client + local daemon lifecycle control (commander).
+  highlight/   Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
+  relay/       Encrypted relay bridge for remote access (placeholder, later sprint).
+  web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal.
+  desktop/     Electron shell wrapping a bundled daemon (placeholder, later sprint).
 
-poc/                Throwaway vanilla-JS browser UI for visual feature testing.
 clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Project docs.
@@ -39,14 +38,14 @@ docs/               Project docs.
 ### Dependency graph (compile-time)
 
 ```
-protocol  ─────────────────────────────────────────► (no workspace deps)
-highlight ─────────────────────────────────────────► (no workspace deps)
-relay     ─────────────────────────────────────────► (no workspace deps)
-client    ──────► protocol
-server    ──────► protocol, highlight
-cli       ──────► protocol, client
-app       ──────► protocol, client
-desktop   ──────► app, server
+protocol    ─────────────────────────────────────────► (no workspace deps)
+highlight   ─────────────────────────────────────────► (no workspace deps)
+relay       ─────────────────────────────────────────► (no workspace deps)
+client      ──────► protocol
+server      ──────► protocol, highlight
+cli         ──────► protocol, client
+web-client  ──────► protocol, client
+desktop     ──────► web-client, server
 ```
 
 `protocol` is the single shared contract; nothing below it imports from above.
@@ -94,8 +93,6 @@ npm run start:server          # node packages/server/dist/daemon/main.js
 
 # Dev daemon (all features wired, binds 0.0.0.0)
 npm run dev:daemon
-# Serve the POC browser UI
-npm run poc
 ```
 
 ---
@@ -209,5 +206,5 @@ tolerated without a migration framework.
 | cli | `packages/cli/AGENTS.md` |
 | highlight | `packages/highlight/AGENTS.md` |
 | relay | `packages/relay/AGENTS.md` |
-| app | `packages/app/AGENTS.md` |
+| web-client | `packages/web-client/AGENTS.md` |
 | desktop | `packages/desktop/AGENTS.md` |

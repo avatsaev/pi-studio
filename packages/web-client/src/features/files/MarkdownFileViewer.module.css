@@ -1,0 +1,20 @@
+.wrap {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--pi-color-surface, #16181a);
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+}
+.rendered {
+  padding: 16px 20px;
+  max-width: 860px;
+}

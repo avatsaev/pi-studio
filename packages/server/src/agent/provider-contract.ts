@@ -5,6 +5,7 @@ import type {
 } from "@av-pi-studio/protocol";
 
 import type { AgentFeature } from "../persistence/entity-schemas.js";
+import type { TimelineRow } from "./timeline-store.js";
 
 /**
  * Provider-neutral agent contracts (features/agent-providers.md § AgentClient / § AgentSession /
@@ -155,4 +156,12 @@ export interface AgentClient {
   listImportableSessions?(opts?: { cwd?: string }): Promise<ImportableSessionRow[]>;
   importSession?(args: ImportSessionArgs): Promise<ImportSessionResult>;
   getDiagnostic?(): Promise<unknown>;
+  /**
+   * Rebuild a full timeline from a provider-native resume handle, without spawning a live
+   * session. Used when the daemon's in-memory `AgentTimelineStore` is empty (e.g. after a
+   * restart) but the agent record still carries a `persistence` handle — the `pi` provider
+   * implements this by reading its own on-disk JSONL session file
+   * (`session-hydration.ts`). Providers without durable native history omit this.
+   */
+  hydrateTimeline?(handle: PersistenceHandle): TimelineRow[];
 }

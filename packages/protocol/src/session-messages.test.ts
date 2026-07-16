@@ -138,6 +138,12 @@ describe("AgentStreamEvent + ToolCallDetail discrimination", () => {
     }
     expect(toolCallDetailSchema.safeParse({ kind: "telepathy" }).success).toBe(false);
   });
+
+  it("accepts an optional output field on every tool-call kind", () => {
+    for (const kind of ["shell", "read", "edit", "write", "search", "fetch", "task"]) {
+      expect(toolCallDetailSchema.safeParse({ kind, output: "some result text" }).success).toBe(true);
+    }
+  });
 });
 
 describe("dotted RPC naming + legacy flat names", () => {

@@ -24,7 +24,9 @@ import type {
   RunOptions,
   Unsubscribe,
 } from "../../provider-contract.js";
+import type { TimelineRow } from "../../timeline-store.js";
 import { mapPiEvent } from "./event-mapper.js";
+import { hydrateTimelineFromSessionFile } from "./session-hydration.js";
 import {
   createProcessTransport,
   defaultPiCommand,
@@ -92,7 +94,7 @@ class PiAgentSession implements AgentSession {
   private readonly history: AgentStreamEvent[] = [];
   private modes: AgentModeDefinition[] = [];
   private mode: string | null;
-  private readonly sessionFile?: string;
+  private sessionFile?: string;
 
   constructor(
     private readonly transport: PiRpcTransport,
@@ -129,6 +131,23 @@ class PiAgentSession implements AgentSession {
 
   setDiscoveredModes(modes: AgentModeDefinition[]): void {
     this.modes = modes;
+  }
+
+  /**
+   * Learn the JSONL session file Pi picked for THIS process via `get_state` (docs/rpc.md
+   * `get_state.sessionFile`). A freshly spawned `createSession` never sets `sessionFile` at
+   * construction (only resume/import do, since they choose the file up front) — without this,
+   * `describePersistence()` would return no `nativeHandle` and a plain restart could never find
+   * the conversation Pi already wrote to disk. Best-effort: `--no-session` or a request failure
+   * leaves `sessionFile` unset, which is a legitimate ephemeral-session state, not an error.
+   */
+  async discoverSessionFile(): Promise<void> {
+    try {
+      const state = (await this.transport.request("get_state")) as Record<string, unknown>;
+      if (typeof state.sessionFile === "string") this.sessionFile = state.sessionFile;
+    } catch {
+      /* best-effort */
+    }
   }
 
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe {
@@ -249,7 +268,7 @@ export class PiAgentClient implements AgentClient {
     return { ...this.deps.env, ...launchContext?.env, ...options?.env };
   }
 
-  createSession(
+  async createSession(
     config: AgentSessionConfig,
     launchContext?: LaunchContext,
     options?: CreateSessionOptions,
@@ -263,7 +282,11 @@ export class PiAgentClient implements AgentClient {
       cwd: launchContext?.cwd ?? config.cwd,
       env: this.buildEnv(launchContext, options),
     });
-    return Promise.resolve(new PiAgentSession(transport, { provider: this.provider, config }));
+    const session = new PiAgentSession(transport, { provider: this.provider, config });
+    // Learn the JSONL file Pi picked for this fresh process, so `describePersistence()` can hand
+    // back a `nativeHandle` a restarted daemon can later rehydrate the timeline from.
+    await session.discoverSessionFile();
+    return session;
   }
 
   resumeSession(
@@ -366,11 +389,19 @@ export class PiAgentClient implements AgentClient {
       { cwd: args.cwd },
       { cwd: args.cwd },
     );
+    const persistence = session.describePersistence() as PersistenceHandle;
     return {
       session,
-      persistence: session.describePersistence() as PersistenceHandle,
-      timeline: [],
+      persistence,
+      timeline: this.hydrateTimeline(persistence).map((row) => row.event),
     };
+  }
+
+  /** Rebuild a timeline by reading Pi's own on-disk JSONL session file (no live process needed). */
+  hydrateTimeline(handle: PersistenceHandle): TimelineRow[] {
+    const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
+    if (!sessionFile) return [];
+    return hydrateTimelineFromSessionFile(sessionFile);
   }
 }
 

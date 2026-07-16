@@ -1,0 +1,41 @@
+/* Global reset — zero the browser default body margin and make the app fill the viewport.
+   Color/type tokens are injected as `--pi-*` CSS variables at runtime by the theme
+   system (see src/theme/css-bridge.ts, applied via ThemeBoundary). */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--pi-color-background, #0a0a0a);
+  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Scrollbar theming */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--pi-color-border, #353b46);
+  border-radius: 3px;
+}

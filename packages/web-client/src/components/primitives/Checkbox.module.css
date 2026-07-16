@@ -1,0 +1,50 @@
+/* Checkbox — ui-components.md § Inputs & form controls */
+
+.wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--pi-font-ui, system-ui);
+  font-size: var(--pi-font-size-sm, 14px);
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.wrapper[data-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.box {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--pi-radius-sm, 3px);
+  border: 1.5px solid var(--pi-color-border, #3f3f46);
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 100ms, border-color 100ms;
+  flex-shrink: 0;
+}
+
+.box[data-checked="true"] {
+  background-color: var(--pi-color-accent, #2e5cb8);
+  border-color: var(--pi-color-accent, #2e5cb8);
+}
+
+.checkmark {
+  color: var(--pi-color-accentForeground, #ffffff);
+}
+
+/* Hidden native input for accessibility */
+.nativeInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}

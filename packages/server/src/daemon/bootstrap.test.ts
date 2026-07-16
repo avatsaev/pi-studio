@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
@@ -120,6 +121,86 @@ describe("production daemon bootstrap", () => {
     // It persisted to disk under the temp home.
     const onDisk = await loadAllAgents(booted.home);
     expect(onDisk.some((a) => a.id === agentId)).toBe(true);
+
+    client.close();
+  }, 15000);
+
+  it("delete_agent hard-deletes: removes from the directory listing and from disk", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const cwd = booted.home;
+    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const agentId = (created.payload as { agentId?: string })?.agentId as string;
+    expect(agentId).toBeTruthy();
+
+    const deleted = await client.rpc({ type: "delete_agent", agentId });
+    expect(deleted.type).toBe("delete_agent_response");
+    expect(deleted.ok).toBe(true);
+
+    const list = await client.rpc({ type: "list_agents_request" });
+    const agents = list.agents as Array<{ agentId: string }>;
+    expect(agents.some((a) => a.agentId === agentId)).toBe(false);
+
+    const onDisk = await loadAllAgents(booted.home);
+    expect(onDisk.some((a) => a.id === agentId)).toBe(false);
+
+    client.close();
+  }, 15000);
+
+  it("archive_agent soft-deletes: agent is closed but its record survives on disk", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const cwd = booted.home;
+    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const agentId = (created.payload as { agentId?: string })?.agentId as string;
+    expect(agentId).toBeTruthy();
+
+    const archived = await client.rpc({ type: "archive_agent", agentId });
+    expect(archived.type).toBe("archive_agent_response");
+    expect(archived.ok).toBe(true);
+
+    const list = await client.rpc({ type: "list_agents_request" });
+    const agents = list.agents as Array<{ agentId: string }>;
+    expect(agents.some((a) => a.agentId === agentId)).toBe(false); // excluded from the active list
+
+    const onDisk = await loadAllAgents(booted.home);
+    const record = onDisk.find((a) => a.id === agentId);
+    expect(record).toBeDefined(); // the record itself is still on disk
+    expect(record?.archivedAt).toBeTruthy();
+
+    client.close();
+  }, 15000);
+
+  it("file_diff_request returns a full added-lines diff for an untracked (new, unstaged) file", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    // Real git repo with a committed baseline, then a brand-new untracked file — the exact
+    // "created a new file" case reported as showing no diff content in the Changes tab.
+    const repo = mkdtempSync(join(tmpdir(), "pi-studio-git-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repo });
+    git("init", "-q");
+    git("config", "user.email", "t@t.com");
+    git("config", "user.name", "t");
+    writeFileSync(join(repo, "existing.txt"), "hello\n");
+    git("add", "existing.txt");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(repo, "new-file.txt"), "brand new content\n");
+
+    const res = await client.rpc({
+      type: "file_diff_request",
+      path: "new-file.txt",
+      cwd: repo,
+      staged: false,
+    });
+    expect(res.type).toBe("file_diff_response");
+    expect(res.ok).toBe(true);
+    expect(res.patch).toContain("+brand new content");
 
     client.close();
   }, 15000);

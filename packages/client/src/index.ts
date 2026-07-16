@@ -18,5 +18,8 @@ export * from "./pistudio-client.js";
 // Terminal-stream router (binary frame demux per slot).
 export * from "./terminal-stream-router.js";
 
+// File-transfer client (binary download frame demux + assembly).
+export * from "./file-transfer-client.js";
+
 // Reconnection + capability-rehydrate driver.
 export * from "./reconnect.js";

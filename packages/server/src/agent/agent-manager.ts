@@ -1,6 +1,7 @@
 import type { AgentStatus } from "@av-pi-studio/protocol";
 
 import {
+  deleteAgent as deleteAgentFromDisk,
   loadAllAgents as loadAllAgentsFromDisk,
   saveAgent as saveAgentToDisk,
 } from "../persistence/entity-stores.js";
@@ -40,7 +41,13 @@ export interface AgentArchivedBroadcast {
   archivedAt: string;
 }
 
-export type AgentManagerEvent = AgentUpdateBroadcast | AgentArchivedBroadcast;
+/** Broadcast shape for an `agent_deleted` lifecycle event (hard delete — no persisted trace). */
+export interface AgentDeletedBroadcast {
+  type: "agent_deleted";
+  agentId: string;
+}
+
+export type AgentManagerEvent = AgentUpdateBroadcast | AgentArchivedBroadcast | AgentDeletedBroadcast;
 export type AgentManagerSubscriber = (event: AgentManagerEvent) => void;
 
 export class InvalidAgentTransitionError extends Error {
@@ -68,6 +75,8 @@ export interface AgentManagerDeps {
   home: string;
   saveAgent?: (record: AgentRecord) => Promise<void>;
   loadAllAgents?: () => Promise<AgentRecord[]>;
+  /** Delete a persisted agent record file by (cwd, id). Injectable for tests. */
+  deleteAgent?: (cwd: string, id: string) => Promise<boolean>;
   /** Loop service hook: recover `running` loops as `stopped` with an interruption log entry. */
   onRecoverLoops?: () => Promise<void> | void;
   now?: () => string;
@@ -78,11 +87,13 @@ export class AgentManager {
   private readonly subscribers = new Set<AgentManagerSubscriber>();
   private readonly save: (record: AgentRecord) => Promise<void>;
   private readonly loadAll: () => Promise<AgentRecord[]>;
+  private readonly delete: (cwd: string, id: string) => Promise<boolean>;
   private readonly now: () => string;
 
   constructor(private readonly deps: AgentManagerDeps) {
     this.save = deps.saveAgent ?? ((record) => saveAgentToDisk(deps.home, record));
     this.loadAll = deps.loadAllAgents ?? (() => loadAllAgentsFromDisk(deps.home));
+    this.delete = deps.deleteAgent ?? ((cwd, id) => deleteAgentFromDisk(deps.home, cwd, id));
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -122,6 +133,26 @@ export class AgentManager {
   attachSession(id: string, session: AgentSession): void {
     const managed = this.agents.get(id);
     if (managed) managed.session = session;
+  }
+
+  /**
+   * Snapshot and persist the live session's resume handle (e.g. Pi's on-disk JSONL session file)
+   * onto the record. Called right after session creation/attach so a plain daemon restart — not
+   * just an archive — leaves a handle behind: without one, `fetch_agent_timeline_request` has no
+   * way to rebuild an agent's conversation once its in-memory timeline is gone
+   * (architecture/persistence.md § Agent record `persistence` field).
+   */
+  async persistSessionHandle(id: string): Promise<void> {
+    const managed = this.agents.get(id);
+    if (!managed?.session) return;
+    const handle = managed.session.describePersistence();
+    if (!handle) return;
+    managed.record = {
+      ...managed.record,
+      persistence: handle as AgentRecord["persistence"],
+      updatedAt: this.now(),
+    };
+    await this.save(managed.record);
   }
 
   /** Transition an agent's `lastStatus`, persisting and broadcasting the change. */
@@ -208,6 +239,42 @@ export class AgentManager {
         await this.archiveAgent(child.record.id);
       }
     }
+  }
+
+  private broadcastDeleted(agentId: string): void {
+    const event: AgentDeletedBroadcast = { type: "agent_deleted", agentId };
+    for (const cb of this.subscribers) cb(event);
+  }
+
+  /**
+   * Hard-delete an agent: closes/kills any live runtime, removes its persisted record file from
+   * disk, drops it from memory, and recursively cascades to its non-detached children — same
+   * cascade rule as `archiveAgent`. Unlike archive, there is no trace left to resume from. Returns
+   * true if the agent existed (false = already gone, still idempotent/no-op).
+   */
+  async deleteAgent(id: string): Promise<boolean> {
+    const managed = this.agents.get(id);
+    if (!managed) return false;
+
+    if (managed.session) {
+      await managed.session.close();
+      managed.session = null;
+    }
+
+    await this.delete(managed.record.cwd, id);
+    this.agents.delete(id);
+    this.broadcastDeleted(id);
+
+    // Cascade to non-detached children (those whose parent label == this id) — snapshot first,
+    // since deleting mutates `this.agents` out from under a live iteration.
+    const children = this.listAll().filter(
+      (child) => child.record.id !== id && child.parentAgentId === id,
+    );
+    for (const child of children) {
+      await this.deleteAgent(child.record.id);
+    }
+
+    return true;
   }
 
   /**

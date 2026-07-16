@@ -1,0 +1,96 @@
+/**
+ * UI store — ephemeral, session-independent UI state that doesn't belong to any single agent
+ * session: the toolbar's connection fields, overlay visibility (workspace-open dialog, session
+ * context menu), and `cwd` — the default cwd for a brand-new bare session (SessionList's
+ * "+ New conversation", session restore's zero-sessions fallback). NOT the "current browsing
+ * scope" — that's `tab-store.ts`'s `activeWorkspaceCwd`, driven by whichever tab is in view
+ * (§4.7 follow-up: workspace-scoped tabs). Sidebar visibility/width (collapsed flags, resizable
+ * widths dragged via `ResizeHandle`) also live here. Mirrors POC globals `$("host")`,
+ * `$("password")`, `$("chat-cwd")`, `cwdPickerPath`, `menuTargetSessionId`.
+ */
+
+import { create } from "zustand";
+
+export const MIN_SIDEBAR_WIDTH = 100;
+export const MAX_SIDEBAR_WIDTH = 480;
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 220;
+const DEFAULT_RIGHT_SIDEBAR_WIDTH = 280;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
+}
+
+export interface UiStoreState {
+  host: string;
+  password: string;
+  cwd: string;
+
+  cwdPickerOpen: boolean;
+  sessionMenu: { sessionId: string; x: number; y: number } | null;
+  rightSidebarTab: "files" | "changes" | "terminals";
+  /** Workspace cwds collapsed in the sidebar tree (§4.3 workspace grouping); expanded by default. */
+  collapsedWorkspaces: Set<string>;
+  /** Left (sessions tree) / right (Files·Changes) sidebar visibility; both expanded by default. */
+  leftSidebarCollapsed: boolean;
+  rightSidebarCollapsed: boolean;
+  /** User-resizable sidebar widths in px, draggable via `ResizeHandle` — clamped to [MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH]. */
+  leftSidebarWidth: number;
+  rightSidebarWidth: number;
+
+  setHost(host: string): void;
+  setPassword(password: string): void;
+  setCwd(cwd: string): void;
+  openCwdPicker(): void;
+  closeCwdPicker(): void;
+  openSessionMenu(sessionId: string, x: number, y: number): void;
+  closeSessionMenu(): void;
+  setRightSidebarTab(tab: "files" | "changes" | "terminals"): void;
+  toggleWorkspaceCollapsed(cwd: string): void;
+  toggleLeftSidebar(): void;
+  toggleRightSidebar(): void;
+  setLeftSidebarWidth(width: number): void;
+  setRightSidebarWidth(width: number): void;
+  /** Delta-based resize, reading current width from store state — avoids stale-closure drift
+   * across the rapid-fire `pointermove` deltas `ResizeHandle` reports. */
+  resizeLeftSidebar(deltaX: number): void;
+  resizeRightSidebar(deltaX: number): void;
+}
+
+export const useUiStore = create<UiStoreState>()((set) => ({
+  host: "ws://127.0.0.1:6767",
+  password: "",
+  cwd: "~",
+
+  cwdPickerOpen: false,
+  sessionMenu: null,
+  rightSidebarTab: "files",
+  collapsedWorkspaces: new Set(),
+  leftSidebarCollapsed: false,
+  rightSidebarCollapsed: false,
+  leftSidebarWidth: DEFAULT_LEFT_SIDEBAR_WIDTH,
+  rightSidebarWidth: DEFAULT_RIGHT_SIDEBAR_WIDTH,
+
+  setHost: (host) => set({ host }),
+  setPassword: (password) => set({ password }),
+  setCwd: (cwd) => set({ cwd }),
+  openCwdPicker: () => set({ cwdPickerOpen: true }),
+  closeCwdPicker: () => set({ cwdPickerOpen: false }),
+  openSessionMenu: (sessionId, x, y) => set({ sessionMenu: { sessionId, x, y } }),
+  closeSessionMenu: () => set({ sessionMenu: null }),
+  setRightSidebarTab: (tab) => set({ rightSidebarTab: tab }),
+  toggleWorkspaceCollapsed: (cwd) =>
+    set((s) => {
+      const next = new Set(s.collapsedWorkspaces);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      return { collapsedWorkspaces: next };
+    }),
+  toggleLeftSidebar: () => set((s) => ({ leftSidebarCollapsed: !s.leftSidebarCollapsed })),
+  toggleRightSidebar: () => set((s) => ({ rightSidebarCollapsed: !s.rightSidebarCollapsed })),
+  setLeftSidebarWidth: (width) => set({ leftSidebarWidth: clampSidebarWidth(width) }),
+  setRightSidebarWidth: (width) => set({ rightSidebarWidth: clampSidebarWidth(width) }),
+  resizeLeftSidebar: (deltaX) =>
+    set((s) => ({ leftSidebarWidth: clampSidebarWidth(s.leftSidebarWidth + deltaX) })),
+  resizeRightSidebar: (deltaX) =>
+    set((s) => ({ rightSidebarWidth: clampSidebarWidth(s.rightSidebarWidth + deltaX) })),
+}));

@@ -1,0 +1,52 @@
+.list {
+  padding: 4px 0;
+}
+.summary {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  margin-bottom: 4px;
+}
+.item {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.item:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+.badge {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.added {
+  background: color-mix(in srgb, var(--pi-color-statusSuccess, #4ade80) 20%, transparent);
+  color: var(--pi-color-statusSuccess, #4ade80);
+}
+.modified {
+  background: color-mix(in srgb, var(--pi-color-statusWarning, #facc15) 20%, transparent);
+  color: var(--pi-color-statusWarning, #facc15);
+}
+.deleted {
+  background: color-mix(in srgb, var(--pi-color-statusDanger, #ff8a80) 20%, transparent);
+  color: var(--pi-color-statusDanger, #ff8a80);
+}
+.name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.emptyState {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
+}

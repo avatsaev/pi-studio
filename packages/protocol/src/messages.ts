@@ -217,13 +217,22 @@ export const agentArchivedSchema = z.object({
 
 /** `ToolCallDetail` — normalized across providers, discriminated on `kind`. */
 export const toolCallDetailSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("shell"), command: z.string().optional() }),
-  z.object({ kind: z.literal("read"), path: z.string().optional() }),
-  z.object({ kind: z.literal("edit"), path: z.string().optional(), diff: z.string().optional() }),
-  z.object({ kind: z.literal("write"), path: z.string().optional() }),
-  z.object({ kind: z.literal("search"), query: z.string().optional() }),
-  z.object({ kind: z.literal("fetch"), url: z.string().optional() }),
-  z.object({ kind: z.literal("task"), description: z.string().optional() }),
+  z.object({ kind: z.literal("shell"), command: z.string().optional(), output: z.string().optional() }),
+  z.object({ kind: z.literal("read"), path: z.string().optional(), output: z.string().optional() }),
+  z.object({
+    kind: z.literal("edit"),
+    path: z.string().optional(),
+    diff: z.string().optional(),
+    output: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("write"), path: z.string().optional(), output: z.string().optional() }),
+  z.object({ kind: z.literal("search"), query: z.string().optional(), output: z.string().optional() }),
+  z.object({ kind: z.literal("fetch"), url: z.string().optional(), output: z.string().optional() }),
+  z.object({
+    kind: z.literal("task"),
+    description: z.string().optional(),
+    output: z.string().optional(),
+  }),
 ]);
 export type ToolCallDetail = z.infer<typeof toolCallDetailSchema>;
 

@@ -1,0 +1,41 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+.main {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebarLeft {
+  position: relative;
+  flex-shrink: 0;
+  border-right: 1px solid var(--pi-color-border, #353b46);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.leftHandle {
+  right: -3px;
+}
+.center {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.sidebarRight {
+  position: relative;
+  flex-shrink: 0;
+  border-left: 1px solid var(--pi-color-border, #353b46);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rightHandle {
+  left: -3px;
+}

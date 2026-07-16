@@ -79,6 +79,14 @@ export async function loadAgent(
   return loadEntityOrNull(agentFilePath(home, cwd, id), agentRecordSchema);
 }
 
+/** Delete an agent's persisted record file. Returns true if it existed. */
+export async function deleteAgent(home: string, cwd: string, id: string): Promise<boolean> {
+  const path = agentFilePath(home, cwd, id);
+  if (!existsSync(path)) return false;
+  await rm(path, { force: true });
+  return true;
+}
+
 /** Load every persisted agent record across all `agents/{sanitized-cwd}/` directories. */
 export async function loadAllAgents(home: string): Promise<AgentRecord[]> {
   const base = join(home, "agents");

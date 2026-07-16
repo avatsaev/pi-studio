@@ -1,0 +1,14 @@
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.handle:hover,
+.handle:active {
+  background: var(--pi-color-accent, #2e5cb8);
+}

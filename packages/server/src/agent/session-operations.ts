@@ -133,6 +133,7 @@ export class SessionOperationsService {
       handle as import("./provider-contract.js").PersistenceHandle,
     );
     this.deps.manager.attachSession(agentId, session);
+    await this.deps.manager.persistSessionHandle(agentId);
     await this.deps.manager.setStatus(agentId, "idle");
     this.broadcastAll(getSessions(), {
       type: "agent_update",

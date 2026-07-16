@@ -37,6 +37,16 @@ export function getTimeline(agentId: string): AgentTimelineStore | undefined {
   return timelinesByAgentId.get(agentId);
 }
 
+/**
+ * Seed the in-memory timeline for an agent that has none yet (e.g. right after a daemon restart)
+ * from externally rehydrated rows — see `timeline-rpc.ts`'s fallback to a provider's
+ * `hydrateTimeline()`. No-op if a timeline already exists (never overwrites live/streamed rows).
+ */
+export function seedTimeline(agentId: string, rows: import("./timeline-store.js").TimelineRow[]): void {
+  if (timelinesByAgentId.has(agentId)) return;
+  timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows }));
+}
+
 export class AgentService {
   private readonly now: () => string;
 
@@ -101,6 +111,7 @@ export class AgentService {
       { cwd },
     );
     this.deps.manager.attachSession(agentId, session);
+    await this.deps.manager.persistSessionHandle(agentId);
     await this.deps.manager.setStatus(agentId, "idle");
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
 
@@ -109,6 +120,7 @@ export class AgentService {
       await this.runTurn(agentId, session, initialPrompt, getSessions, {
         clientMessageId,
         autoArchive,
+        images: msg.images as unknown[] | undefined,
       });
     }
 
@@ -129,6 +141,7 @@ export class AgentService {
     if (!managed?.session) throw new Error(`no live session for agent ${agentId}`);
     await this.runTurn(agentId, managed.session, prompt, getSessions, {
       clientMessageId: msg.clientMessageId as string | undefined,
+      images: msg.images as unknown[] | undefined,
     });
     return { type: "agent_prompt_response", agentId, status: "idle" };
   }

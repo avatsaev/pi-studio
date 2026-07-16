@@ -14,44 +14,69 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/** Map a Pi tool-call payload to a normalized `ToolCallDetail`. */
+/** Join `result.content` text blocks (Pi RPC `tool_execution_end` shape) into one string. */
+function outputOf(tool: Record<string, unknown>): string | undefined {
+  const content = asRecord(tool.result).content;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .filter((block): block is { type: string; text?: string } => asRecord(block).type === "text")
+    .map((block) => block.text ?? "")
+    .join("");
+  return text || undefined;
+}
+
+/**
+ * Map a Pi tool-call payload to a normalized `ToolCallDetail`. Accepts either a
+ * `tool_execution_start`-shaped record (`toolName` + `args`) or a `tool_execution_end`-shaped one
+ * (`toolName` + `result`, no `args`). For `edit`, the human-readable unified `patch` is only
+ * present on the *end* event under `result.details.patch`, so it is pulled from there when args
+ * carry no diff. `output` (tool stdout/result text) is only present on *end* events — `start`
+ * events have no `result` yet, so `outputOf` yields `undefined` for them, which is correct.
+ */
 export function mapToolCall(raw: unknown): ToolCallDetail {
   const tool = asRecord(raw);
-  const name = (str(tool.name) ?? str(tool.tool) ?? "").toLowerCase();
+  const name = (str(tool.name) ?? str(tool.tool) ?? str(tool.toolName) ?? "").toLowerCase();
   const input = asRecord(tool.input ?? tool.arguments ?? tool.args);
+  const resultDetails = asRecord(asRecord(tool.result).details);
+  const output = outputOf(tool);
   switch (name) {
     case "shell":
     case "bash":
     case "exec":
     case "run":
-      return { kind: "shell", command: str(input.command) ?? str(input.cmd) };
+      return { kind: "shell", command: str(input.command) ?? str(input.cmd), output };
     case "read":
     case "read_file":
     case "cat":
-      return { kind: "read", path: str(input.path) ?? str(input.file) };
+      return { kind: "read", path: str(input.path) ?? str(input.file), output };
     case "edit":
     case "apply_patch":
     case "patch":
-      return { kind: "edit", path: str(input.path), diff: str(input.diff) ?? str(input.patch) };
+      return {
+        kind: "edit",
+        path: str(input.path),
+        diff: str(input.diff) ?? str(input.patch) ?? str(resultDetails.patch) ?? str(resultDetails.diff),
+        output,
+      };
     case "write":
     case "write_file":
     case "create":
-      return { kind: "write", path: str(input.path) ?? str(input.file) };
+      return { kind: "write", path: str(input.path) ?? str(input.file), output };
     case "search":
     case "grep":
     case "glob":
-      return { kind: "search", query: str(input.query) ?? str(input.pattern) };
+      return { kind: "search", query: str(input.query) ?? str(input.pattern), output };
     case "fetch":
     case "web_fetch":
     case "http":
-      return { kind: "fetch", url: str(input.url) };
+      return { kind: "fetch", url: str(input.url), output };
     case "task":
     case "agent":
     case "subagent":
-      return { kind: "task", description: str(input.description) ?? str(input.prompt) };
+      return { kind: "task", description: str(input.description) ?? str(input.prompt), output };
     default:
       // Unknown provider tool → surface as a task with the raw name as description.
-      return { kind: "task", description: name || undefined };
+      return { kind: "task", description: name || undefined, output };
   }
 }
 
@@ -96,14 +121,14 @@ export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
       return {
         kind: "tool_call",
         callId: str(event.toolCallId),
-        tool: mapToolCall({ name: str(event.toolName), arguments: event.args }),
+        tool: mapToolCall(event),
         status: "running",
       };
     case "tool_execution_end":
       return {
         kind: "tool_call",
         callId: str(event.toolCallId),
-        tool: mapToolCall({ name: str(event.toolName), arguments: event.args }),
+        tool: mapToolCall(event),
         status: event.isError ? "error" : "completed",
       };
 

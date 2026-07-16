@@ -7,6 +7,10 @@
  * bootstrap module.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
@@ -47,6 +51,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       agentsById.set(record.id, record);
     },
     loadAllAgents: async () => [...agentsById.values()],
+    deleteAgent: async (_cwd, id) => agentsById.delete(id),
   });
 
   // ── Provider resolution: mock only in dev ───────────────────────────────────
@@ -69,6 +74,14 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = () => sessionsHolder.sessions;
 
+  // Forward archive/delete lifecycle events to every connected client (see bootstrap.ts's
+  // production twin for the full rationale).
+  manager.subscribe((event) => {
+    if (event.type === "agent_archived" || event.type === "agent_deleted") {
+      broadcast(getActiveSessions(), { type: "session", message: event });
+    }
+  });
+
   // ── Handler registry ────────────────────────────────────────────────────────
   const registry = new HandlerRegistry();
 
@@ -83,7 +96,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
 
-  registerTimelineHandler(registry);
+  registerTimelineHandler(registry, { manager, resolveClient });
 
   const permissionService = new PermissionService({ manager, broadcast });
   permissionService.registerHandlers(registry, getActiveSessions);
@@ -102,6 +115,23 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       type: "list_agents_response",
       requestId: ctx.requestId ?? "",
       agents,
+    };
+  });
+
+  // ── Archive (soft delete) / delete (hard delete) ────────────────────────────
+  registry.register("archive_agent", async (ctx) => {
+    const agentId = String(ctx.message.agentId ?? "");
+    await manager.archiveAgent(agentId);
+    return { type: "archive_agent_response", requestId: ctx.requestId ?? "", agentId, ok: true };
+  });
+  registry.register("delete_agent", async (ctx) => {
+    const agentId = String(ctx.message.agentId ?? "");
+    const deleted = await manager.deleteAgent(agentId);
+    return {
+      type: "delete_agent_response",
+      requestId: ctx.requestId ?? "",
+      agentId,
+      ok: deleted,
     };
   });
 
@@ -151,6 +181,48 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // (features/file-explorer-transfer.md). Lets the workspace Explorer + file
   // preview panes show actual files.
   new FileExplorerService().registerHandlers(registry);
+
+  // Simple file diff RPC for the POC UI. Untracked (brand-new) files have no git-tracked "before"
+  // state, so a plain `git diff` against them is always empty — git only diffs a path once it's
+  // in the index or committed. Fall back to `git diff --no-index /dev/null <path>` (exit code 1
+  // is expected/non-fatal there) so new files render as a full "all lines added" diff instead of
+  // a blank tab.
+  registry.register("file_diff_request", async (ctx) => {
+    const filePath = String(ctx.message.path ?? "");
+    const cwd = String(ctx.message.cwd ?? "");
+    const staged = Boolean(ctx.message.staged);
+    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : (cwd || undefined);
+    const runGitDiff = (args: string[]) =>
+      new Promise<string>((resolve) => {
+        execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
+          resolve(stdout || "");
+        });
+      });
+    const args = ["diff"];
+    if (staged) args.push("--staged");
+    args.push("--", filePath);
+    let patch = await runGitDiff(args);
+    if (!patch && !staged) {
+      patch = await runGitDiff(["diff", "--no-index", "--", "/dev/null", filePath]);
+    }
+    return { type: "file_diff_response", ok: true, path: filePath, patch };
+  });
+
+  // Simple text file read RPC for the POC UI.
+  registry.register("file_read_request", (ctx) => {
+    const filePath = String(ctx.message.path ?? "");
+    const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
+    try {
+      const stat = statSync(resolved);
+      if (stat.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (stat.size > 512 * 1024) return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
+      const content = readFileSync(resolved, "utf8");
+      return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
+    } catch (e: unknown) {
+      return { type: "file_read_response", ok: false, error: (e as Error).message ?? "read_failed" };
+    }
+  });
+
   registry.register("schedule_list_request", (ctx) => ({
     type: "schedule_list_response",
     requestId: ctx.requestId ?? "",

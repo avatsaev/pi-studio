@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
@@ -140,6 +140,15 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = () => sessionsHolder.sessions;
 
+  // Forward archive/delete lifecycle events to every connected client (multi-tab/multi-client
+  // sync) — `agent_update` for status changes is already broadcast per-call-site; these two are
+  // manager-internal and only reach clients via this subscription.
+  manager.subscribe((event) => {
+    if (event.type === "agent_archived" || event.type === "agent_deleted") {
+      broadcast(getActiveSessions(), { type: "session", message: event });
+    }
+  });
+
   const registry = new HandlerRegistry();
 
   // ── Core agent/session/timeline/permission handlers ──────────────────────────
@@ -154,7 +163,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
 
-  registerTimelineHandler(registry);
+  registerTimelineHandler(registry, { manager, resolveClient });
 
   const permissionService = new PermissionService({ manager, broadcast });
   permissionService.registerHandlers(registry, getActiveSessions);
@@ -172,6 +181,23 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       lastActivity: new Date(m.record.updatedAt).getTime(),
     })),
   }));
+
+  // ── Archive (soft delete) / delete (hard delete) — real remote deletion for clients ──────────
+  registry.register("archive_agent", async (ctx) => {
+    const agentId = String(ctx.message.agentId ?? "");
+    await manager.archiveAgent(agentId);
+    return { type: "archive_agent_response", requestId: ctx.requestId ?? "", agentId, ok: true };
+  });
+  registry.register("delete_agent", async (ctx) => {
+    const agentId = String(ctx.message.agentId ?? "");
+    const deleted = await manager.deleteAgent(agentId);
+    return {
+      type: "delete_agent_response",
+      requestId: ctx.requestId ?? "",
+      agentId,
+      ok: deleted,
+    };
+  });
 
   // ── Providers (metadata for the new-agent picker) ────────────────────────────
   const providerRegistry = new ProviderRegistry();
@@ -269,6 +295,50 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   );
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();
+
+  // Simple file diff RPC for the POC UI (returns unified diff for a single file). Untracked
+  // (brand-new) files have no git-tracked "before" state, so a plain `git diff` against them is
+  // always empty — git only diffs a path once it's in the index or committed. Fall back to
+  // `git diff --no-index /dev/null <path>` (which git-diff-untracked-files-as-added, exit code 1
+  // is expected/non-fatal there) so new files render as a full "all lines added" diff instead of
+  // a blank tab.
+  registry.register("file_diff_request", async (ctx) => {
+    const filePath = String(ctx.message.path ?? "");
+    const cwd = String(ctx.message.cwd ?? "");
+    const staged = Boolean(ctx.message.staged);
+    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : (cwd || undefined);
+    const runGitDiff = (args: string[]) =>
+      new Promise<string>((resolve) => {
+        execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
+          resolve(stdout || "");
+        });
+      });
+    const args = ["diff"];
+    if (staged) args.push("--staged");
+    args.push("--", filePath);
+    let patch = await runGitDiff(args);
+    if (!patch && !staged) {
+      patch = await runGitDiff(["diff", "--no-index", "--", "/dev/null", filePath]);
+    }
+    return { type: "file_diff_response", ok: true, path: filePath, patch };
+  });
+
+  // Simple text file read RPC for the POC UI (returns up to 512KB of UTF-8 text).
+  registry.register("file_read_request", (ctx) => {
+    const filePath = String(ctx.message.path ?? "");
+    const resolved = filePath.startsWith("~")
+      ? join(homedir(), filePath.slice(1))
+      : filePath;
+    try {
+      const stat = statSync(resolved);
+      if (stat.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (stat.size > 512 * 1024) return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
+      const content = readFileSync(resolved, "utf8");
+      return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
+    } catch (e: unknown) {
+      return { type: "file_read_response", ok: false, error: (e as Error).message ?? "read_failed" };
+    }
+  });
 
   // ── Service proxy (workspace scripts) ─────────────────────────────────────────
   const serviceProxy = new ServiceProxy(resolveServiceProxyConfig(config.daemon.serviceProxy));

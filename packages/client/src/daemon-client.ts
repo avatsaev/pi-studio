@@ -1,9 +1,12 @@
 import {
   decodeTerminalFrame,
+  tryDecodeFileTransferFrame,
+  FileTransferOpcode,
   type ClientType,
   type ServerInfoPayload,
   type SessionMessage,
   type TerminalFrame,
+  type FileTransferFrame,
 } from "@av-pi-studio/protocol";
 
 import type { Transport } from "./transport.js";
@@ -79,6 +82,7 @@ export class RpcTimeoutError extends Error {
 
 export type SessionMessageHandler = (message: SessionMessage) => void;
 export type TerminalFrameHandler = (frame: TerminalFrame) => void;
+export type FileTransferFrameHandler = (frame: FileTransferFrame) => void;
 export type StateChangeHandler = (state: ConnectionState) => void;
 
 export class DaemonClient {
@@ -94,6 +98,7 @@ export class DaemonClient {
   private readonly pending = new Map<string, PendingRpc>();
   private readonly sessionHandlers = new Set<SessionMessageHandler>();
   private readonly terminalHandlers = new Set<TerminalFrameHandler>();
+  private readonly fileTransferHandlers = new Set<FileTransferFrameHandler>();
   private readonly stateHandlers = new Set<StateChangeHandler>();
 
   private helloResolve: ((info: ServerInfoPayload) => void) | null = null;
@@ -250,6 +255,12 @@ export class DaemonClient {
     return () => this.terminalHandlers.delete(handler);
   }
 
+  /** Subscribe to decoded inbound file-transfer binary frames (download/upload chunks). */
+  onFileTransferFrame(handler: FileTransferFrameHandler): () => void {
+    this.fileTransferHandlers.add(handler);
+    return () => this.fileTransferHandlers.delete(handler);
+  }
+
   /** Subscribe to connection-state transitions. */
   onStateChange(handler: StateChangeHandler): () => void {
     this.stateHandlers.add(handler);
@@ -295,7 +306,24 @@ export class DaemonClient {
     }
   }
 
+  /**
+   * Route an inbound binary frame by its opcode byte: file-transfer opcodes (`0x10`–`0x13`) go to
+   * `fileTransferHandlers`, everything else decodes as a terminal frame. Two independent binary
+   * protocols share one opcode byte's numeric range without colliding — see
+   * `@av-pi-studio/protocol`'s `TerminalOpcode` (`0x01`–`0x05`) vs `FileTransferOpcode`
+   * (`0x10`–`0x13`).
+   */
   private handleBinaryFrame(bytes: Uint8Array): void {
+    const opcodeByte = bytes[0];
+    const isFileTransfer =
+      opcodeByte !== undefined &&
+      Object.values(FileTransferOpcode).includes(opcodeByte as never);
+    if (isFileTransfer) {
+      const frame = tryDecodeFileTransferFrame(bytes);
+      if (!frame) return; // malformed frame — drop rather than throw
+      for (const handler of this.fileTransferHandlers) handler(frame);
+      return;
+    }
     const frame = decodeTerminalFrame(bytes);
     for (const handler of this.terminalHandlers) handler(frame);
   }

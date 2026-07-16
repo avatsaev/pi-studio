@@ -1,0 +1,131 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  flex-shrink: 0;
+}
+.header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+.item {
+  position: relative;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.item:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+.item.active {
+  background: var(--pi-color-surfaceSunken, #111);
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menuBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.item:hover .menuBtn {
+  opacity: 1;
+}
+.menuBtn:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+.workspaceGroup {
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+}
+.workspaceHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pi-color-foreground, #e6e6e6);
+}
+.workspaceHeader:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+.workspaceChevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  flex-shrink: 0;
+}
+.workspaceIcon {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  flex-shrink: 0;
+}
+.workspaceLabel {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspaceCount {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.newSessionBtn {
+  flex-shrink: 0;
+  opacity: 0;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.workspaceHeader:hover .newSessionBtn {
+  opacity: 1;
+}
+.newSessionBtn:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+  color: var(--pi-color-foreground, #e6e6e6);
+}
+.workspaceSessions {
+  padding-left: 12px;
+}

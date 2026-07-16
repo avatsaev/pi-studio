@@ -25,7 +25,7 @@ async function setupAgentWithTurns(
     now: () => NOW,
   });
   const registry = new HandlerRegistry();
-  registerTimelineHandler(registry);
+  registerTimelineHandler(registry, { manager, resolveClient: () => client });
 
   const result = (await service.handleCreate(
     { requestId: "r", config: { provider: "mock", cwd: "/w" }, initialPrompt: "hi" },

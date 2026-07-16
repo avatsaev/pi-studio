@@ -100,6 +100,66 @@ describe("event mapper", () => {
     });
   });
 
+  it("extracts the edit diff and output from a tool_execution_end result (real Pi shape: no args, patch in result.details)", () => {
+    const endEvent = {
+      type: "tool_execution_end",
+      toolCallId: "c-edit",
+      toolName: "edit",
+      result: {
+        content: [{ type: "text", text: "Successfully replaced 1 block(s) in demo.txt." }],
+        details: { patch: "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n" },
+      },
+      isError: false,
+    };
+    expect(mapPiEvent(endEvent)).toEqual({
+      kind: "tool_call",
+      callId: "c-edit",
+      tool: {
+        kind: "edit",
+        path: undefined,
+        diff: "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n",
+        output: "Successfully replaced 1 block(s) in demo.txt.",
+      },
+      status: "completed",
+    });
+  });
+
+  it("extracts shell stdout from a tool_execution_end result", () => {
+    const endEvent = {
+      type: "tool_execution_end",
+      toolCallId: "c-sh",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "total 48\ndrwxr-xr-x" }] },
+      isError: false,
+    };
+    expect(mapPiEvent(endEvent)).toEqual({
+      kind: "tool_call",
+      callId: "c-sh",
+      tool: { kind: "shell", command: undefined, output: "total 48\ndrwxr-xr-x" },
+      status: "completed",
+    });
+  });
+
+  it("leaves output undefined on tool_execution_start (no result yet)", () => {
+    expect(mapPiEvent({ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} })).toEqual({
+      kind: "tool_call",
+      callId: "c1",
+      tool: { kind: "shell", command: undefined },
+      status: "running",
+    });
+  });
+
+  it("reads toolName + args from a tool_execution_start (real Pi shape)", () => {
+    expect(
+      mapPiEvent({ type: "tool_execution_start", toolCallId: "c-sh", toolName: "bash", args: { command: "echo hi" } }),
+    ).toEqual({
+      kind: "tool_call",
+      callId: "c-sh",
+      tool: { kind: "shell", command: "echo hi" },
+      status: "running",
+    });
+  });
+
   it("maps real Pi events and ignores unknown ones", () => {
     expect(mapPiEvent({ type: "agent_start" })).toEqual({ kind: "turn_started" });
     expect(mapPiEvent({ type: "agent_end" })).toEqual({ kind: "turn_completed" });

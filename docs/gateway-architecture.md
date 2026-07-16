@@ -19,7 +19,7 @@ happens when a new user query (a chat prompt) arrives**.
 ```mermaid
 flowchart LR
   subgraph Outside["Outside the gateway"]
-    Browser["Browser POC<br/>(poc/index.html)"]
+    Browser["Browser client<br/>(@av-pi-studio/web-client)"]
     CLI["CLI<br/>(@av-pi-studio/cli)"]
     Mobile["Mobile / MCP"]
   end
