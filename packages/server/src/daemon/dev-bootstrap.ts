@@ -26,6 +26,7 @@ import { ProviderRegistry } from "../agent/provider-registry.js";
 import { FileExplorerService } from "../files/file-explorer.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { wrapSessionEnvelope } from "./bootstrap.js";
 
 export interface DevBootstrapOptions {
   host: string;
@@ -59,10 +60,12 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const resolveClient = (_provider: string): AgentClient => mockClient;
 
   // ── Broadcast helper ─────────────────────────────────────────────────────────
+  // See `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale.
   const broadcast = (sessions: Iterable<Session>, message: unknown) => {
+    const envelope = wrapSessionEnvelope(message);
     for (const s of sessions) {
       try {
-        s.send(message);
+        s.send(envelope);
       } catch {
         /* ignore send errors on dead sockets */
       }

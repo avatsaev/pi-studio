@@ -180,3 +180,20 @@ export const tabIds = {
   diff: (path: string, staged: boolean) => `diff-${path}${staged ? "-staged" : ""}`,
   terminal: (slotOrToken: number | string) => `term-${slotOrToken}`,
 };
+
+let terminalCount = 0;
+
+/** Open a brand-new terminal tab against a workspace cwd (no slot yet — `TerminalPanel` creates
+ * one on mount). Shared by the `Ctrl/Cmd+T` shortcut (`use-shortcuts.ts`) and the TabStrip's "+"
+ * button so both paths mint tab ids/labels identically. */
+export function openNewTerminal(workspaceCwd: string): void {
+  terminalCount += 1;
+  useTabStore.getState().open({
+    id: tabIds.terminal(`new-${terminalCount}`),
+    kind: "terminal",
+    label: `Terminal ${terminalCount}`,
+    closable: true,
+    data: { slot: null, cwd: workspaceCwd },
+    workspaceCwd,
+  });
+}

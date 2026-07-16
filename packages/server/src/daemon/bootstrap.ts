@@ -105,6 +105,22 @@ function writePidLock(home: string): void {
 }
 
 /**
+ * Every WS client only routes bare top-level frames it recognizes (`status`/`ping`/`pong`/
+ * `session`) — `DaemonClient.handleTextFrame`'s `default:` case silently drops anything else,
+ * including unwrapped fan-out messages like `{ type: "terminals_update", ... }`. Call sites across
+ * the daemon send plain "session update" objects (`agent_update`, `workspace_update`,
+ * `terminals_update`, …) expecting them to reach `onSessionMessage` subscribers, so `broadcast`
+ * wraps every message in the `session` envelope through this helper. A few call sites already
+ * wrap manually (`{ type: "session", message: event }`) — passed through as-is, never
+ * double-wrapped.
+ */
+export function wrapSessionEnvelope(message: unknown): { type: "session"; message: unknown } | unknown {
+  const isRecord = typeof message === "object" && message !== null;
+  if (isRecord && (message as Record<string, unknown>).type === "session") return message;
+  return { type: "session", message };
+}
+
+/**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
  * `close()` for graceful shutdown.
  */
@@ -127,10 +143,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
 
   // ── Broadcast helper ─────────────────────────────────────────────────────────
+  // See `wrapSessionEnvelope` above for the full rationale.
   const broadcast = (sessions: Iterable<Session>, message: unknown) => {
+    const envelope = wrapSessionEnvelope(message);
     for (const s of sessions) {
       try {
-        s.send(message);
+        s.send(envelope);
       } catch {
         /* ignore dead sockets */
       }

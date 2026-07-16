@@ -4,10 +4,8 @@
  */
 
 import { useEffect } from "react";
-import { useTabStore, tabIds } from "../stores/tab-store.js";
+import { useTabStore, openNewTerminal } from "../stores/tab-store.js";
 import { useUiStore } from "../stores/ui-store.js";
-
-let terminalCount = 0;
 
 export function useShortcuts(): void {
   useEffect(() => {
@@ -23,18 +21,9 @@ export function useShortcuts(): void {
       const mod = ev.ctrlKey || ev.metaKey;
       if (mod && ev.key.toLowerCase() === "t") {
         ev.preventDefault();
-        terminalCount += 1;
         // Captured synchronously here, not inside the terminal's mount effect — a rapid
         // workspace-switch-then-Ctrl+T must never race the async `create_terminal_request`.
-        const workspaceCwd = useTabStore.getState().activeWorkspaceCwd || "~";
-        useTabStore.getState().open({
-          id: tabIds.terminal(`new-${terminalCount}`),
-          kind: "terminal",
-          label: `Terminal ${terminalCount}`,
-          closable: true,
-          data: { slot: null, cwd: workspaceCwd },
-          workspaceCwd,
-        });
+        openNewTerminal(useTabStore.getState().activeWorkspaceCwd || "~");
         return;
       }
 

@@ -205,3 +205,65 @@ describe("production daemon bootstrap", () => {
     client.close();
   }, 15000);
 });
+
+describe("broadcast() session envelope", () => {
+  it("wraps a bare fan-out message (terminals_update) in a session envelope on the wire", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const ws = new WebSocket(`ws://127.0.0.1:${booted.port}`);
+    const rawFrames: Record<string, unknown>[] = [];
+
+    const opened = Promise.withResolvers<void>();
+    ws.once("open", () => {
+      ws.send(JSON.stringify({ type: "hello", clientId: "test-2", clientType: "cli", protocolVersion: 1 }));
+    });
+    ws.on("message", (data: Buffer) => {
+      const env = JSON.parse(data.toString("utf8"));
+      rawFrames.push(env);
+      if (env.type === "status") opened.resolve();
+    });
+    ws.once("error", opened.reject);
+    await opened.promise;
+
+    // `create_terminal_request` broadcasts a `terminals_update` fan-out via the same `broadcast()`
+    // helper `terminal-rpc.ts` uses — real production wiring, not a test double. Every real
+    // `DaemonClient` only routes recognized bare top-level types (`status`/`ping`/`pong`/
+    // `session`) — anything else, including an unwrapped `{ type: "terminals_update", ... }`,
+    // is silently dropped by `handleTextFrame`'s `default:` case. Asserting the RAW wire frame
+    // (not going through a test client that might tolerate either shape) is the point here.
+    //
+    // `terminal-rpc.ts`'s handler broadcasts `terminals_update` synchronously BEFORE returning
+    // `create_terminal_response` (same WS connection, ordered delivery), so awaiting the
+    // correlated response frame is a real completion signal that the broadcast already arrived —
+    // no fixed delay needed.
+    const createReqId = "term-req-1";
+    const responded = Promise.withResolvers<void>();
+    ws.on("message", (data: Buffer) => {
+      const env = JSON.parse(data.toString("utf8"));
+      const msg = env.message as Record<string, unknown> | undefined;
+      if (msg?.requestId === createReqId) responded.resolve();
+    });
+    ws.send(
+      JSON.stringify({
+        type: "session",
+        message: { type: "create_terminal_request", requestId: createReqId, cwd: booted.home },
+      }),
+    );
+    await responded.promise;
+
+    const updateFrame = rawFrames.find(
+      (f) =>
+        f.type === "session" &&
+        (f.message as Record<string, unknown> | undefined)?.type === "terminals_update",
+    );
+    expect(updateFrame).toBeDefined();
+    const message = updateFrame?.message as { type: string; terminals: unknown[] };
+    expect(message.terminals.length).toBeGreaterThan(0);
+
+    // No bare (unwrapped) terminals_update frame ever hit the wire.
+    const bareFrame = rawFrames.find((f) => f.type === "terminals_update");
+    expect(bareFrame).toBeUndefined();
+
+    ws.close();
+  }, 15000);
+});

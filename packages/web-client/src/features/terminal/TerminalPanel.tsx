@@ -89,31 +89,67 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
 
   const [slot, setSlot] = useState<number | null>(data.slot);
   const [error, setError] = useState<string | null>(null);
+
   // ─── Slot lifecycle: create once, persist onto the tab so re-opening reuses it ─────────────
+  // React StrictMode double-invokes effects in dev: mount → cleanup → remount, synchronously,
+  // on the SAME component instance (refs/state persist across all three phases — this is not
+  // three separate mounts). Two things must hold across that: (1) the request fires exactly
+  // once, and (2) whether to APPLY the eventual response is decided by whether the component is
+  // mounted at RESPONSE time, not by a flag captured at REQUEST time.
+  //
+  // `requestStartedRef` gives (1): set the instant the request fires and never reset, so the
+  // phantom-mount's cleanup-then-remount sees it's already in flight and never fires a second
+  // `create_terminal_request` (this is what previously spawned two real PTYs from one Ctrl+T).
+  //
+  // `isMountedRef` gives (2): flipped true at the START of every effect invocation and false in
+  // every cleanup, so it always reflects the LATEST phase. StrictMode's remount happens
+  // synchronously, before the request's promise can possibly settle, so by response time
+  // `isMountedRef.current` is back to `true` for a StrictMode phantom (correctly applies the
+  // slot) — but stays `false` for a genuine fast real close (correctly kills the orphaned PTY
+  // instead of leaking it or, as the previous buggy version did, killing a terminal that was
+  // never actually torn down).
+  const isMountedRef = useRef(false);
+  const requestStartedRef = useRef(false);
   useEffect(() => {
-    if (!client || slotRef.current !== null) return;
-    let cancelled = false;
+    isMountedRef.current = true;
+    if (!client || slotRef.current !== null || requestStartedRef.current) {
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
+    requestStartedRef.current = true;
 
     const cwd = data.cwd || "~";
 
     void client.connection
       .request<CreateTerminalResponse>("create_terminal_request", { workspaceId: "", cwd })
       .then((res) => {
-        if (cancelled) return;
         const created = res.terminal.slot;
+        if (!isMountedRef.current) {
+          // A real close happened with no remount after it — kill the PTY that finished
+          // spawning after the tab was already gone, instead of leaking it.
+          void client.connection.request("kill_terminal_request", { slot: created }).catch(() => {});
+          return;
+        }
         slotRef.current = created;
         setSlot(created);
         useTabStore.getState().updateData(tab.id, { slot: created });
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (!isMountedRef.current) return;
         setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        // Reset only after the promise settles — by then StrictMode's synchronous
+        // mount→cleanup→remount window has long passed, so this can never reopen the
+        // double-fire race. It DOES allow a legitimate retry (e.g. `client` changed because of
+        // a reconnect after the first attempt failed) instead of leaving the tab stuck forever.
+        requestStartedRef.current = false;
       });
 
     return () => {
-      cancelled = true;
+      isMountedRef.current = false;
     };
-    // Runs once per mount; slot creation is idempotent via slotRef guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, tab.id]);
 
