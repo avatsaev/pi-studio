@@ -120,6 +120,7 @@ export type AgentStatus = z.infer<typeof agentStatusEnum>;
 export const imageAttachmentSchema = z
   .object({ mimeType: z.string().optional(), data: z.string().optional() })
   .passthrough();
+export type ImageAttachment = z.infer<typeof imageAttachmentSchema>;
 
 export const agentAttachmentsSchema = z
   .object({
@@ -242,6 +243,7 @@ export const agentStreamEventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("user_message"),
     messageId: z.string().optional(),
     text: z.string().optional(),
+    images: z.array(imageAttachmentSchema).optional(),
   }),
   z.object({
     kind: z.literal("assistant_message"),

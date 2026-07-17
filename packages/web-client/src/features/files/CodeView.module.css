@@ -1,52 +1,9 @@
-.lineNumbers {
-  display: flex;
+.wrap {
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
-.gutter {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 12px 8px 12px 12px;
-  text-align: right;
-  font-size: 11px;
-  line-height: 1.5;
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  user-select: none;
-  border-right: 1px solid var(--pi-color-border, #353b46);
-  background: var(--pi-color-surface, #16181a);
-}
-.codeContent {
-  flex: 1;
-  overflow-x: auto;
-  min-width: 0;
-}
-.codeContent pre {
-  margin: 0;
-  padding: 12px 14px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
-}
-.shikiHost :global(pre) {
-  margin: 0;
-  padding: 12px 14px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: transparent !important;
-}
-.loading {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-}
-.loading pre {
-  margin: 0;
-  padding: 0;
-  color: var(--pi-color-foreground, #fafafa);
+.wrap :global(.cm-theme),
+.wrap :global(.cm-editor) {
+  height: 100%;
 }

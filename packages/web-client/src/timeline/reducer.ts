@@ -142,8 +142,12 @@ function onError(state: TimelineState, message: string | undefined): TimelineSta
   return { ...state, rows: [...state.rows, row] };
 }
 
-function onUserMessage(state: TimelineState, text: string): TimelineState {
-  const row: TimelineRow = { kind: "user", id: nextRowId(), text };
+function onUserMessage(
+  state: TimelineState,
+  text: string,
+  images?: Array<{ mimeType?: string; data?: string }>,
+): TimelineState {
+  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images };
   return { ...state, rows: [...state.rows, row] };
 }
 
@@ -153,7 +157,7 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
     case "turn_started":
       return onTurnStarted(state);
     case "user_message":
-      return onUserMessage(state, event.text ?? "");
+      return onUserMessage(state, event.text ?? "", event.images);
     case "assistant_message":
       return onAssistantMessage(state, event.text ?? "");
     case "reasoning":

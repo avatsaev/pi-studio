@@ -2,6 +2,7 @@ import type {
   AgentCapabilityFlags,
   AgentSessionConfig,
   AgentStreamEvent,
+  ImageAttachment,
 } from "@av-pi-studio/protocol";
 
 import type { AgentFeature } from "../persistence/entity-schemas.js";
@@ -66,7 +67,7 @@ export interface LaunchContext {
 }
 
 export interface RunOptions {
-  images?: unknown[];
+  images?: ImageAttachment[];
   attachments?: unknown;
   clientMessageId?: string;
   outputSchema?: Record<string, unknown>;

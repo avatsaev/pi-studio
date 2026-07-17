@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentStreamEvent } from "@av-pi-studio/protocol";
+import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
@@ -120,7 +120,7 @@ export class AgentService {
       await this.runTurn(agentId, session, initialPrompt, getSessions, {
         clientMessageId,
         autoArchive,
-        images: msg.images as unknown[] | undefined,
+        images: msg.images as ImageAttachment[] | undefined,
       });
     }
 
@@ -141,7 +141,7 @@ export class AgentService {
     if (!managed?.session) throw new Error(`no live session for agent ${agentId}`);
     await this.runTurn(agentId, managed.session, prompt, getSessions, {
       clientMessageId: msg.clientMessageId as string | undefined,
-      images: msg.images as unknown[] | undefined,
+      images: msg.images as ImageAttachment[] | undefined,
     });
     return { type: "agent_prompt_response", agentId, status: "idle" };
   }
@@ -169,7 +169,12 @@ export class AgentService {
         if (userMessageId === undefined || userMessageId === msgId) {
           userMessageId = msgId;
           userMessageEmitted = true;
-          const userRow = timeline.append({ kind: "user_message", messageId: msgId, text: prompt });
+          const userRow = timeline.append({
+            kind: "user_message",
+            messageId: msgId,
+            text: prompt,
+            images: opts.images,
+          });
           this.broadcastAll(getSessions(), {
             type: "session",
             message: {
@@ -177,7 +182,7 @@ export class AgentService {
               agentId,
               seq: userRow.seq,
               timestamp: userRow.timestamp,
-              event: { kind: "user_message", messageId: msgId, text: prompt },
+              event: { kind: "user_message", messageId: msgId, text: prompt, images: opts.images },
             },
           });
           return;
@@ -202,7 +207,12 @@ export class AgentService {
     if (!userMessageEmitted) {
       const msgId = opts.clientMessageId ?? randomUUID();
       userMessageId = msgId;
-      const row = timeline.append({ kind: "user_message", messageId: msgId, text: prompt });
+      const row = timeline.append({
+        kind: "user_message",
+        messageId: msgId,
+        text: prompt,
+        images: opts.images,
+      });
       this.broadcastAll(getSessions(), {
         type: "session",
         message: {
@@ -210,7 +220,7 @@ export class AgentService {
           agentId,
           seq: row.seq,
           timestamp: row.timestamp,
-          event: { kind: "user_message", messageId: msgId, text: prompt },
+          event: { kind: "user_message", messageId: msgId, text: prompt, images: opts.images },
         },
       });
     }

@@ -161,11 +161,20 @@ class PiAgentSession implements AgentSession {
 
   startTurn(prompt: string, opts?: RunOptions): Promise<{ turnId: string }> {
     const turnId = randomUUID();
-    // Pi RPC `prompt` command (docs/rpc.md): `{type:"prompt", message, images?}`. The agent starts
-    // immediately and streams events; `agent_end` ends the run.
+    // Pi RPC `prompt` command (docs/rpc.md): `{type:"prompt", message, images?}`. Images must be
+    // Pi's `ImageContent` shape (`{type:"image", data, mimeType}`) — the client only sends
+    // `{mimeType, data}`, so convert here rather than forwarding the wire shape verbatim.
+    const images = opts?.images
+      ?.map((img) => {
+        const rec = img as Record<string, unknown>;
+        const data = typeof rec.data === "string" ? rec.data : undefined;
+        const mimeType = typeof rec.mimeType === "string" ? rec.mimeType : undefined;
+        return data && mimeType ? { type: "image" as const, data, mimeType } : undefined;
+      })
+      .filter((img): img is { type: "image"; data: string; mimeType: string } => img !== undefined);
     this.transport.notify("prompt", {
       message: prompt,
-      ...(opts?.images ? { images: opts.images } : {}),
+      ...(images && images.length > 0 ? { images } : {}),
     });
     return Promise.resolve({ turnId });
   }

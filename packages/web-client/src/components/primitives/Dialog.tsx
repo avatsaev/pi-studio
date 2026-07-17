@@ -24,32 +24,61 @@ export interface DialogProps {
   width?: number | string;
   /** Extra class applied to the content card, for callers that need to tweak body sizing. */
   className?: string;
+  /**
+   * Omit the header bar's reserved height and float the close button over the body instead.
+   * Use for content (e.g. an image lightbox) that should sit dead-center in the viewport rather
+   * than be pushed down by an asymmetric top-only header. `title` remains as an accessible
+   * (visually hidden) label for the dialog.
+   */
+  bare?: boolean;
 }
 
 /** Re-exported so callers can wrap a footer button in `<Dialog.Close asChild>` to auto-dismiss
  * without threading `onOpenChange(false)` through their own click handler. */
 export const DialogClose = RadixDialog.Close;
 
-export function Dialog({ open, onOpenChange, title, children, footer, width, className }: DialogProps) {
+export function Dialog({
+  open,
+  onOpenChange,
+  title,
+  children,
+  footer,
+  width,
+  className,
+  bare = false,
+}: DialogProps) {
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className={styles.overlay} />
-        <RadixDialog.Content
-          className={clsx(styles.dialog, className)}
-          style={width !== undefined ? { width } : undefined}
-        >
-          <div className={styles.header}>
-            <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>
-            <RadixDialog.Close asChild>
-              <button type="button" className={styles.closeBtn} aria-label="Close">
-                <X size={16} />
-              </button>
-            </RadixDialog.Close>
-          </div>
-          <div className={styles.body}>{children}</div>
-          {footer && <div className={styles.footer}>{footer}</div>}
-        </RadixDialog.Content>
+        <div className={styles.contentWrapper}>
+          <RadixDialog.Content
+            className={clsx(styles.dialog, bare && styles.bare, className)}
+            style={width !== undefined ? { width } : undefined}
+          >
+            {bare ? (
+              <RadixDialog.Title className={styles.visuallyHidden}>{title}</RadixDialog.Title>
+            ) : (
+              <div className={styles.header}>
+                <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>
+                <RadixDialog.Close asChild>
+                  <button type="button" className={styles.closeBtn} aria-label="Close">
+                    <X size={16} />
+                  </button>
+                </RadixDialog.Close>
+              </div>
+            )}
+            <div className={clsx(styles.body, bare && styles.bareBody)}>{children}</div>
+            {bare && (
+              <RadixDialog.Close asChild>
+                <button type="button" className={styles.bareCloseBtn} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </RadixDialog.Close>
+            )}
+            {footer && <div className={styles.footer}>{footer}</div>}
+          </RadixDialog.Content>
+        </div>
       </RadixDialog.Portal>
     </RadixDialog.Root>
   );

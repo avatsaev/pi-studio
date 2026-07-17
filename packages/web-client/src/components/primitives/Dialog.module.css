@@ -4,11 +4,17 @@
   background: rgba(0, 0, 0, 0.6);
   z-index: 100;
 }
-.dialog {
+.contentWrapper {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.dialog {
+  pointer-events: auto;
   width: 500px;
   max-width: 90vw;
   max-height: 70vh;
@@ -18,7 +24,6 @@
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  z-index: 101;
 }
 .header {
   padding: 12px 14px;
@@ -63,4 +68,41 @@
   gap: 8px;
   justify-content: flex-end;
   flex-shrink: 0;
+}
+.bare {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  position: relative;
+}
+.bareBody {
+  border-radius: var(--pi-radius-lg, 8px);
+  overflow: hidden;
+}
+.bareCloseBtn {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--pi-color-surface, #16181a);
+  border: 1px solid var(--pi-color-border, #353b46);
+  border-radius: 50%;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  cursor: pointer;
+}
+.bareCloseBtn:hover {
+  background: var(--pi-color-surfaceHover, #1e2124);
+  color: var(--pi-color-foreground, #fafafa);
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
