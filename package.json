@@ -24,13 +24,14 @@
     "build:protocol": "tsc -b packages/protocol",
     "build:highlight": "tsc -b packages/highlight",
     "build:client": "tsc -b packages/client",
-    "build:server": "tsc -b packages/server",
-    "build:cli": "tsc -b packages/cli",
+    "build:server": "tsc -b packages/server && chmod +x packages/server/dist/daemon/main.js",
+    "build:cli": "tsc -b packages/cli && chmod +x packages/cli/dist/cli.js",
     "build": "npm run build:protocol && npm run build:highlight && npm run build:client && npm run build:server && npm run build:cli",
     "start": "npm run build:server && node packages/server/dist/daemon/main.js",
     "start:server": "node packages/server/dist/daemon/main.js",
     "dev:daemon": "npm run build:server && node packages/server/dist/daemon/dev-main.js",
-    "clean": "tsc -b --clean && rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+    "clean": "tsc -b --clean && rm -rf packages/*/dist packages/*/*.tsbuildinfo",
+    "publish": "bash scripts/publish.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

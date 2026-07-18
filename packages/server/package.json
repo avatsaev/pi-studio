@@ -1,11 +1,14 @@
 {
   "name": "@av-pi-studio/server",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "bin": {
-    "pi-studio-daemon": "./dist/daemon/main.js"
+    "pi-studio-daemon": "dist/daemon/main.js"
   },
   "exports": {
     ".": {
@@ -14,13 +17,13 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && chmod +x dist/daemon/main.js",
     "start": "node ./dist/daemon/main.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/highlight": "*",
-    "@av-pi-studio/protocol": "*",
+    "@av-pi-studio/highlight": "^0.0.2",
+    "@av-pi-studio/protocol": "^0.0.2",
     "@earendil-works/pi-coding-agent": "^0.79.4",
     "@xterm/headless": "^6.0.0",
     "bcryptjs": "^3.0.3",
