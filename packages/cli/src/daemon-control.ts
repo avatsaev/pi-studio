@@ -97,14 +97,30 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
  * Default daemon starter: spawn a detached Node process that boots the real daemon via
  * `@av-pi-studio/server`'s `startDaemon()`. Resolves once the process is spawned (health is then
  * polled by the caller).
+ *
+ * The server module is resolved to an absolute file URL *here*, inside `@av-pi-studio/cli`'s own
+ * module graph, and that resolved URL — not the bare `"@av-pi-studio/server"` specifier — is
+ * baked into the spawned `-e` script. A detached `node -e <code>` child has no package/module
+ * context of its own, so a bare-specifier `import()` inside it can fail to resolve `server` even
+ * when it's correctly installed, if npm's install topology nested it under `cli`'s own
+ * `node_modules` rather than hoisting it to a shared root (observed in a real global install).
  */
 export const subprocessStarter: DaemonStarter = ({ home, listen }) =>
   new Promise<number>((resolve, reject) => {
     const [host, portStr] = listen.split(":");
     const port = Number(portStr);
-    const code = `import('@av-pi-studio/server').then(m=>m.startDaemon({host:${JSON.stringify(
-      host,
-    )},port:${JSON.stringify(port)},home:${JSON.stringify(home)}}))`;
+    let serverUrl: string;
+    try {
+      serverUrl = import.meta.resolve("@av-pi-studio/server");
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    const code = `import(${JSON.stringify(
+      serverUrl,
+    )}).then(m=>m.startDaemon({host:${JSON.stringify(host)},port:${JSON.stringify(
+      port,
+    )},home:${JSON.stringify(home)}}))`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",
