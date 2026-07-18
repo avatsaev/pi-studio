@@ -94,15 +94,17 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
 };
 
 /**
- * Default daemon starter: spawn a detached Node process that boots the daemon from
- * `@av-pi-studio/server`. Resolves once the process is spawned (health is then polled by the
- * caller). The server entry is resolved lazily so the CLI does not hard-depend on the server build.
+ * Default daemon starter: spawn a detached Node process that boots the real daemon via
+ * `@av-pi-studio/server`'s `startDaemon()`. Resolves once the process is spawned (health is then
+ * polled by the caller).
  */
 export const subprocessStarter: DaemonStarter = ({ home, listen }) =>
   new Promise<number>((resolve, reject) => {
-    const code = `import('@av-pi-studio/server').then(m=>m.bootstrap({env:{...process.env,PI_STUDIO_HOME:${JSON.stringify(
-      home,
-    )},PI_STUDIO_LISTEN:${JSON.stringify(listen)}}}))`;
+    const [host, portStr] = listen.split(":");
+    const port = Number(portStr);
+    const code = `import('@av-pi-studio/server').then(m=>m.startDaemon({host:${JSON.stringify(
+      host,
+    )},port:${JSON.stringify(port)},home:${JSON.stringify(home)}}))`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",

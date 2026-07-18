@@ -30,3 +30,6 @@ export function createDaemonRuntimeInfo(input: { listen?: string; mode?: "produc
     mode: input.mode ?? "production",
   };
 }
+
+// Production daemon bootstrap: startDaemon(), DaemonOptions, DaemonHandle, wrapSessionEnvelope().
+export * from "./bootstrap.js";

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "no
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
+import nacl from "tweetnacl";
 
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
@@ -94,6 +95,40 @@ function resolveServerId(home: string, override?: string): string {
   return id;
 }
 
+/**
+ * Read (or generate + persist) the daemon's stable Curve25519 keypair for pairing
+ * (architecture/relay-e2ee.md § Pairing). Stored as base64 at `<home>/daemon-keypair.json`;
+ * the CLI's `readDaemonPublicKey()` reads the same file/shape to build the pairing QR URL.
+ */
+function resolveDaemonKeypair(home: string): { publicKeyB64: string; secretKeyB64: string } {
+  const path = join(home, "daemon-keypair.json");
+  if (existsSync(path)) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+        publicKeyB64?: string;
+        secretKeyB64?: string;
+      };
+      if (parsed.publicKeyB64 && parsed.secretKeyB64) {
+        return { publicKeyB64: parsed.publicKeyB64, secretKeyB64: parsed.secretKeyB64 };
+      }
+    } catch {
+      /* fall through to regenerate */
+    }
+  }
+  const { publicKey, secretKey } = nacl.box.keyPair();
+  const keypair = {
+    publicKeyB64: Buffer.from(publicKey).toString("base64"),
+    secretKeyB64: Buffer.from(secretKey).toString("base64"),
+  };
+  try {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(path, JSON.stringify(keypair), "utf8");
+  } catch {
+    /* best-effort persistence */
+  }
+  return keypair;
+}
+
 /** Best-effort PID lock file so a stale daemon is discoverable. */
 function writePidLock(home: string): void {
   try {
@@ -130,6 +165,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const configPath = opts.configPath ?? join(home, "config.json");
   const config: PersistedConfig = loadConfig(configPath, process.env);
   const serverId = resolveServerId(home, opts.serverId);
+  resolveDaemonKeypair(home);
   writePidLock(home);
 
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
