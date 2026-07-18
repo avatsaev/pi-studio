@@ -2,6 +2,9 @@
   "name": "@av-pi-studio/web-client",
   "version": "0.0.7",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite",
     "build:web": "VITE_TARGET=web tsc -b && VITE_TARGET=web vite build",

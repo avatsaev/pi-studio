@@ -1,7 +1,7 @@
 # Task 002 — Daemon relay transport + bootstrap wiring
 
 - **Sprint:** sprint-032-relay-e2ee
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** task-001; task-005 (sprint-004, bootstrap)
 
@@ -27,10 +27,10 @@ Wire the daemon's outbound relay connection into bootstrap with E2EE gating.
 - Client transport (task-003). CF server adapter (task-004).
 
 ## Acceptance criteria
-- [ ] With `relay.enabled`, the daemon dials outbound and registers a session id.
-- [ ] App messages are refused until the per-connection handshake completes.
-- [ ] Relay drop triggers reconnect with fresh session keys.
-- [ ] `close()` tears down the relay transport.
+- [x] With `relay.enabled`, the daemon dials outbound and registers a session id.
+- [x] App messages are refused until the per-connection handshake completes.
+- [x] Relay drop triggers reconnect with fresh session keys.
+- [x] `close()` tears down the relay transport.
 
 ## Test / verification plan
 - Tests: `npx vitest run .../relay-transport.test.ts` against a fake relay endpoint — dial+register,

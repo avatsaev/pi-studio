@@ -18,7 +18,7 @@ import nacl from "tweetnacl";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
-import type { Session } from "../ws/session.js";
+import { Session } from "../ws/session.js";
 import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 
@@ -53,6 +53,9 @@ import { ScheduleService, type ScheduleExecutor } from "../orchestration/schedul
 import { ChatService } from "../orchestration/chat-service.js";
 import { LoopService, type LoopExecutor, type WorkerOutcome } from "../orchestration/loop-service.js";
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
+
+import { SERVER_FEATURES } from "@av-pi-studio/protocol";
+import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
 export interface DaemonOptions {
   host: string;
@@ -165,7 +168,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const configPath = opts.configPath ?? join(home, "config.json");
   const config: PersistedConfig = loadConfig(configPath, process.env);
   const serverId = resolveServerId(home, opts.serverId);
-  resolveDaemonKeypair(home);
+  const daemonKeypairB64 = resolveDaemonKeypair(home);
   writePidLock(home);
 
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
@@ -191,8 +194,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     }
   };
 
+  const relaySessions = new Set<Session>();
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
-  const getActiveSessions = () => sessionsHolder.sessions;
+  const getActiveSessions = (): Session[] => [...sessionsHolder.sessions, ...relaySessions];
 
   // Forward archive/delete lifecycle events to every connected client (multi-tab/multi-client
   // sync) — `agent_update` for status changes is already broadcast per-call-site; these two are
@@ -526,6 +530,48 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   sessionsHolder.sessions = wsHandle.sessions;
 
+  // ── Optional outbound relay (architecture/relay-e2ee.md, architecture/daemon-bootstrap.md
+  // § Behavior — `connectRelay`). Fully opt-in: `config.daemon.relay.enabled` defaults to false,
+  // so a daemon with no relay config behaves identically to before — only the direct WS listener
+  // above ever starts. When enabled, each decrypted relay app message is dispatched through the
+  // exact same `registry`/`routeTextFrame` RPC surface direct clients use, via a synthetic
+  // `Session` whose `send()` re-encrypts the response back onto the same E2EE channel.
+  let relayHandle: RelayTransportHandle | undefined;
+  if (config.daemon.relay.enabled) {
+    const relayCapabilities = Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true]));
+    relayHandle = connectRelay(
+      {
+        publicKey: Buffer.from(daemonKeypairB64.publicKeyB64, "base64"),
+        secretKey: Buffer.from(daemonKeypairB64.secretKeyB64, "base64"),
+      },
+      config.daemon.relay,
+      {
+        onMessage: (plaintext, reply) => {
+          const relaySession = new Session({
+            id: randomUUID(),
+            clientId: "relay",
+            clientType: "cli",
+            capabilities: relayCapabilities,
+            socket: { send: (data: string) => reply(data), close: () => {} } as unknown as ConstructorParameters<
+              typeof Session
+            >[0]["socket"],
+          });
+          relaySessions.add(relaySession);
+          void routeTextFrame(relaySession, plaintext, registry).finally(() => relaySessions.delete(relaySession));
+        },
+        onError: (err) => {
+          console.error(`[relay] channel error: ${(err as Error)?.message ?? String(err)}`);
+        },
+        onSessionStart: (sessionId) => {
+          console.log(`[relay] connected, session ${sessionId}`);
+        },
+        onReconnect: (sessionId) => {
+          console.log(`[relay] reconnecting with new session ${sessionId}`);
+        },
+      },
+    );
+  }
+
   // Recover persisted agents on boot (best-effort; provider sessions are re-attached lazily).
   void manager.recover?.();
 
@@ -548,6 +594,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     home,
     provider: "pi",
     close: async () => {
+      relayHandle?.close();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     },

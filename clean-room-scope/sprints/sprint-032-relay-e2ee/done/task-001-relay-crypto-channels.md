@@ -1,7 +1,7 @@
 # Task 001 — Relay crypto + symmetric channels
 
 - **Sprint:** sprint-032-relay-e2ee
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001 (sprint-004, keypair)
 
@@ -26,10 +26,10 @@ API.
 - Daemon outbound dial wiring (task-002). Client transport integration (task-003). CF server (task-004).
 
 ## Acceptance criteria
-- [ ] A client cannot exchange app messages until `e2ee_hello`/`e2ee_ready` completes.
-- [ ] Messages are `base64([24-byte nonce][ciphertext])` and authenticate under the ECDH shared key.
-- [ ] Tampering with ciphertext causes rejection.
-- [ ] Two separate sessions derive independent keys (cross-session replay fails).
+- [x] A client cannot exchange app messages until `e2ee_hello`/`e2ee_ready` completes.
+- [x] Messages are `base64([24-byte nonce][ciphertext])` and authenticate under the ECDH shared key.
+- [x] Tampering with ciphertext causes rejection.
+- [x] Two separate sessions derive independent keys (cross-session replay fails).
 
 ## Test / verification plan
 - Tests: `npx vitest run packages/relay/.../channel.test.ts` — handshake gating, round-trip encrypt,

@@ -1,7 +1,7 @@
 # Task 003 — Client relay transport + pairing (QR fragment)
 
 - **Sprint:** sprint-032-relay-e2ee
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** task-001; task-001 (sprint-007, DaemonClient transport abstraction)
 
@@ -25,9 +25,9 @@ daemon's public key safely.
 - CF relay server (task-004). App pairing UI polish.
 
 ## Acceptance criteria
-- [ ] A relay-profile connection completes the E2EE handshake before any app RPC.
-- [ ] The pairing key is carried in the URL fragment and never reaches the web origin.
-- [ ] The relay transport is interchangeable with the direct transport via the same API.
+- [x] A relay-profile connection completes the E2EE handshake before any app RPC.
+- [x] The pairing key is carried in the URL fragment and never reaches the web origin.
+- [x] The relay transport is interchangeable with the direct transport via the same API.
 
 ## Test / verification plan
 - Tests: `npx vitest run packages/client/.../relay-transport.test.ts` — handshake-before-RPC, fragment

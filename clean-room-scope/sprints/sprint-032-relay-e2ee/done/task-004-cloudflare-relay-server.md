@@ -1,7 +1,7 @@
 # Task 004 — Cloudflare relay server adapter
 
 - **Sprint:** sprint-032-relay-e2ee
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** task-002, task-003
 
@@ -24,9 +24,9 @@ channels without seeing plaintext.
 - Hosted deployment/ops. The Go self-hosted implementation (alternate; out of scope here).
 
 ## Acceptance criteria
-- [ ] A daemon registers a session id and a client attaches to the same session and is bridged.
-- [ ] The relay forwards frames verbatim and cannot read/forge/inject (no shared key).
-- [ ] Relay restart/drop → client and daemon reconnect into a new session with new keys.
+- [x] A daemon registers a session id and a client attaches to the same session and is bridged.
+- [x] The relay forwards frames verbatim and cannot read/forge/inject (no shared key).
+- [x] Relay restart/drop → client and daemon reconnect into a new session with new keys.
 
 ## Test / verification plan
 - Tests: `npx vitest run packages/relay/.../cf-adapter.test.ts` (or Workers test harness) — register,

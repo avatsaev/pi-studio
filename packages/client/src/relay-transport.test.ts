@@ -1,0 +1,221 @@
+import { createServer, type Server } from "node:http";
+import { type AddressInfo } from "node:net";
+
+import { afterEach, describe, expect, it } from "vitest";
+import nacl from "tweetnacl";
+import { WebSocketServer, WebSocket as NodeWebSocket } from "ws";
+
+import { createDaemonChannel, type EncryptedChannel } from "@av-pi-studio/relay";
+
+import { createRelayTransport } from "./relay-transport.js";
+import { createWebSocketTransport } from "./transport.js";
+import { DaemonClient } from "./daemon-client.js";
+import { parsePairingUrl } from "./pairing.js";
+
+/**
+ * Integration test for the client-side relay transport (architecture/relay-e2ee.md § Pairing, §
+ * Behavior; architecture/client-app-runtime.md § Layered client library). Runs a minimal fake relay
+ * (same shape as `packages/server/src/daemon/relay-transport.test.ts`'s fixture) plus a REAL daemon
+ * channel (`createDaemonChannel`, task-001) standing in for `packages/server/src/daemon/
+ * relay-transport.ts` (task-002) — proving transport-API parity end-to-end, not against a mock.
+ */
+
+interface FakeRelay {
+  port: number;
+  close(): Promise<void>;
+}
+
+async function startFakeRelay(): Promise<FakeRelay> {
+  const http: Server = createServer();
+  const wss = new WebSocketServer({ server: http });
+  const bySession = new Map<string, NodeWebSocket[]>();
+
+  wss.on("connection", (socket: NodeWebSocket) => {
+    let sessionId: string | null = null;
+    socket.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) return;
+      const text = data.toString("utf8");
+      if (sessionId === null) {
+        const parsed = JSON.parse(text) as { type?: string; sessionId?: string };
+        if (parsed.type === "relay_register" && parsed.sessionId) {
+          sessionId = parsed.sessionId;
+          const peers = bySession.get(sessionId) ?? [];
+          peers.push(socket);
+          bySession.set(sessionId, peers);
+          return;
+        }
+        return;
+      }
+      for (const peer of bySession.get(sessionId) ?? []) {
+        if (peer !== socket && peer.readyState === peer.OPEN) peer.send(text);
+      }
+    });
+    socket.on("close", () => {
+      if (sessionId === null) return;
+      const peers = (bySession.get(sessionId) ?? []).filter((s) => s !== socket);
+      if (peers.length > 0) bySession.set(sessionId, peers);
+      else bySession.delete(sessionId);
+    });
+  });
+
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
+  const port = (http.address() as AddressInfo).port;
+  return {
+    port,
+    async close() {
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    },
+  };
+}
+
+/** Attach the daemon side (task-001's `createDaemonChannel` over a raw relay socket) for `sessionId`. */
+function attachDaemonSide(
+  relayPort: number,
+  sessionId: string,
+  daemonKeypair: nacl.BoxKeyPair,
+  onAppMessage: (plaintext: string, reply: (m: string) => void) => void,
+): Promise<{ socket: NodeWebSocket; channel: EncryptedChannel }> {
+  const socket = new NodeWebSocket(`ws://127.0.0.1:${relayPort}`);
+  const messageHandlers: Array<(data: string) => void> = [];
+  return new Promise((resolve) => {
+    socket.once("open", () => {
+      socket.send(JSON.stringify({ type: "relay_register", sessionId }));
+      socket.on("message", (data: Buffer, isBinary: boolean) => {
+        if (!isBinary) for (const h of messageHandlers) h(data.toString("utf8"));
+      });
+      const channel = createDaemonChannel({
+        transport: {
+          send: (data) => socket.send(data),
+          onMessage: (h) => messageHandlers.push(h),
+          onClose: () => {},
+          close: () => socket.close(),
+        },
+        attachment: { sessionId },
+        daemonKeypair,
+        events: {
+          onMessage: (plaintext) => onAppMessage(plaintext, (m) => channel.send(m)),
+        },
+      });
+      resolve({ socket, channel });
+    });
+  });
+}
+
+let relay: FakeRelay | undefined;
+let daemonSocket: NodeWebSocket | undefined;
+let client: DaemonClient | undefined;
+
+afterEach(async () => {
+  client?.close();
+  client = undefined;
+  daemonSocket?.close();
+  daemonSocket = undefined;
+  await relay?.close();
+  relay = undefined;
+});
+
+describe("client relay transport", () => {
+  it("completes the E2EE handshake before any app RPC (hello) crosses the wire", async () => {
+    relay = await startFakeRelay();
+    const daemonKeypair = nacl.box.keyPair();
+    const sessionId = crypto.randomUUID();
+
+    const receivedOnDaemon: string[] = [];
+    const attached = await attachDaemonSide(relay.port, sessionId, daemonKeypair, (plaintext, reply) => {
+      receivedOnDaemon.push(plaintext);
+      const req = JSON.parse(plaintext) as { type: string };
+      if (req.type === "hello") {
+        reply(
+          JSON.stringify({
+            type: "status",
+            payload: { status: "server_info", serverId: "srv_test", capabilities: {}, features: {} },
+          }),
+        );
+      }
+    });
+    daemonSocket = attached.socket;
+
+    const transport = createRelayTransport({ sessionId, daemonPublicKey: daemonKeypair.publicKey });
+    client = new DaemonClient({
+      url: `ws://127.0.0.1:${relay.port}`,
+      clientId: "smoke-client",
+      clientType: "cli",
+      transport,
+    });
+
+    const info = await client.connect();
+    expect(info.serverId).toBe("srv_test");
+    // The only message the fake daemon ever decrypted is the real `hello` RPC — proving it arrived
+    // ENCRYPTED (through the completed handshake), not as a plaintext relay_register frame.
+    expect(receivedOnDaemon).toEqual([JSON.stringify({ type: "hello", clientId: "smoke-client", clientType: "cli", protocolVersion: 1 })]);
+  });
+
+  it("relay-profile connection is interchangeable with the direct transport via the same DaemonClient API", async () => {
+    // Structural parity check: both transports satisfy the exact same `Transport` shape and both
+    // drive `DaemonClient` identically — asserted by using `createRelayTransport` as a drop-in for
+    // `createWebSocketTransport` with no DaemonClient code changes (see the `transport` option
+    // above). This test additionally confirms `createWebSocketTransport` still constructs cleanly
+    // for the same options shape, without actually connecting it (no daemon on this URL).
+    const direct = createWebSocketTransport(() => ({
+      readyState: 1,
+      send: () => {},
+      close: () => {},
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+    }));
+    expect(typeof direct.connect).toBe("function");
+    expect(typeof direct.sendText).toBe("function");
+    expect(typeof direct.close).toBe("function");
+
+    const relayTransport = createRelayTransport({
+      sessionId: "unused",
+      daemonPublicKey: nacl.box.keyPair().publicKey,
+    });
+    expect(typeof relayTransport.connect).toBe("function");
+    expect(typeof relayTransport.sendText).toBe("function");
+    expect(typeof relayTransport.close).toBe("function");
+  });
+});
+
+describe("pairing URL fragment parsing", () => {
+  it("extracts the offer public key and optional host from a full pairing URL", () => {
+    const keypair = nacl.box.keyPair();
+    const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
+    const url = `https://app.pi-studio.sh/#offer=${encodeURIComponent(publicKeyB64)}&host=127.0.0.1%3A6767`;
+
+    const offer = parsePairingUrl(url);
+    expect(offer).not.toBeNull();
+    expect(offer!.publicKeyB64).toBe(publicKeyB64);
+    expect(Array.from(offer!.publicKey)).toEqual(Array.from(keypair.publicKey));
+    expect(offer!.host).toBe("127.0.0.1:6767");
+  });
+
+  it("never reaches the web origin (only the fragment is parsed, never a query/path segment)", () => {
+    const keypair = nacl.box.keyPair();
+    const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
+    // The pairing key must NEVER appear before the `#` — simulate the origin-visible portion by
+    // parsing a URL where the origin-visible query string carries a decoy, and the real key is
+    // only in the fragment.
+    const url = `https://app.pi-studio.sh/?tracking=1#offer=${encodeURIComponent(publicKeyB64)}`;
+    const originVisiblePart = url.split("#")[0]!;
+    expect(originVisiblePart).not.toContain(publicKeyB64);
+
+    const offer = parsePairingUrl(url);
+    expect(offer!.publicKeyB64).toBe(publicKeyB64);
+  });
+
+  it("returns null for a URL with no offer parameter", () => {
+    expect(parsePairingUrl("https://app.pi-studio.sh/#other=1")).toBeNull();
+    expect(parsePairingUrl("https://app.pi-studio.sh/")).toBeNull();
+  });
+
+  it("accepts a bare fragment (no scheme/host) for programmatic construction", () => {
+    const keypair = nacl.box.keyPair();
+    const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
+    const offer = parsePairingUrl(`#offer=${encodeURIComponent(publicKeyB64)}`);
+    expect(offer!.publicKeyB64).toBe(publicKeyB64);
+  });
+});

@@ -9,6 +9,12 @@ export const PROTOCOL_DEP = PROTOCOL_PACKAGE;
 // Transport abstraction (direct WS; relay rides the same API).
 export * from "./transport.js";
 
+// Client-side relay E2EE transport (same Transport API as direct WS).
+export * from "./relay-transport.js";
+
+// Pairing-URL fragment parsing (relay offer key).
+export * from "./pairing.js";
+
 // Low-level daemon WebSocket driver.
 export * from "./daemon-client.js";
 

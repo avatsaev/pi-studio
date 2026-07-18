@@ -26,7 +26,7 @@ export interface Transport {
 
 // ─── Browser / Node WebSocket transport ────────────────────────────────────────
 
-type AnyWebSocket = {
+export type AnyWebSocket = {
   readyState: number;
   send(data: string | ArrayBuffer | Uint8Array): void;
   close(code?: number, reason?: string): void;
@@ -36,10 +36,10 @@ type AnyWebSocket = {
   onmessage: ((ev: { data: unknown }) => void) | null;
 };
 
-type WsFactory = (url: string, protocols?: string[]) => AnyWebSocket;
+export type WsFactory = (url: string, protocols?: string[]) => AnyWebSocket;
 
 // Node `ws` compatibility: ws closes have reason as Buffer, not string.
-function reasonString(reason: unknown): string {
+export function reasonString(reason: unknown): string {
   if (typeof reason === "string") return reason;
   if (reason instanceof Uint8Array || Buffer.isBuffer(reason)) return reason.toString("utf8");
   return String(reason ?? "");

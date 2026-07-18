@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerAgentCommands } from "./agent-commands.js";
 import { registerDaemonCommands, ensureLocalDaemonAndPair } from "./daemon-commands.js";
 import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
+import { registerWebCommands } from "./web-commands.js";
 import { type CliContext, type GlobalOptions, defaultContext } from "./cli-core.js";
 
 /**
@@ -57,6 +58,7 @@ function registerCommands(
   registerAgentCommands(program, ctx, setExit);
   registerDaemonCommands(program, ctx, setExit);
   registerFeatureCommands(program, ctx, setExit);
+  registerWebCommands(program, ctx, setExit);
 }
 
 /**

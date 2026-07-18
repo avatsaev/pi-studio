@@ -43,6 +43,11 @@ src/
   feature-commands.ts    Feature command group (terminal/chat/schedule/loop/provider/worktree/…).
   feature-commands.test.ts
 
+  web-commands.ts        `web` command — serve the prebuilt web-client SPA as a static site.
+  web-commands.test.ts
+  web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
+  web-server.test.ts
+
   program.test.ts
   cli-core.test.ts
   index.ts               Public barrel (for library consumers).
@@ -132,6 +137,24 @@ Each subcommand maps to the corresponding daemon RPC family.
 | `worktree` | `create`, `list`, `delete` |
 | `project` | `open`, `list` |
 | `permit` | `respond` (approve/deny a pending tool-call permission) |
+
+### `web` command (`web-commands.ts`)
+
+`pi-studio web [--web-host <host>] [--web-port <port>] [--daemon-host <host>]` — serves the
+prebuilt `@av-pi-studio/web-client` SPA (`dist/web`, built by `npm run build:web -w
+packages/web-client`) as a static site via a minimal `node:http` server (`web-server.ts`;
+`resolveWebClientDist()` locates the installed package, `startWebServer()` serves it with SPA
+fallback to `index.html` for client-side routes).
+
+Intentionally decoupled from daemon lifecycle: `web` never probes or starts a daemon.
+`--daemon-host` (falls back to the global `--host`) only pre-fills the printed URL's
+`?host=<ws-url>&connect=1` query params (`buildServeUrl()`) so the browser tab auto-connects —
+mirroring the POC `chat.html` quick-launch params. The command blocks until `SIGINT`/`SIGTERM`,
+then closes the server and exits `EXIT_OK`.
+
+`@av-pi-studio/web-client` is a runtime dependency of `cli` purely for its built static assets
+(no JS from it is imported) — the CLI ships the SPA build so `pi-studio web` works from any
+install shape (npm link, global `npm i -g`) without a separate vite/dev toolchain.
 
 ---
 
