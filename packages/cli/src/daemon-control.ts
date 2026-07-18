@@ -39,8 +39,9 @@ export function readDaemonPid(home: string): number | null {
   const path = daemonPaths(home).pid;
   if (!existsSync(path)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { pid?: number };
-    return typeof parsed.pid === "number" ? parsed.pid : null;
+    const raw = readFileSync(path, "utf8").trim();
+    const pid = Number(raw);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
   }

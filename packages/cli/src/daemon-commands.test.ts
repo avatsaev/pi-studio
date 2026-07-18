@@ -104,7 +104,9 @@ describe("stopDaemon", () => {
   });
   it("signals the recorded pid", () => {
     const home = tmpHome();
-    writeFileSync(join(home, "pi-studio.pid"), JSON.stringify({ pid: 9999 }));
+    // Matches the real writer: `writeFileSync(pidPath, String(process.pid), "utf8")`
+    // (packages/server/src/daemon/bootstrap.ts writePidLock) — plain text, not JSON.
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
     let killed: number | undefined;
     const ok = stopDaemon(home, fakeRuntime({ kill: (pid) => ((killed = pid), true) }));
     expect(ok).toBe(true);
