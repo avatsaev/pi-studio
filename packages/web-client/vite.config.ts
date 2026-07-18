@@ -63,6 +63,7 @@ export default defineConfig(() => {
       alias: {
         "@av-pi-studio/protocol": resolve(__dirname, "../protocol/src/index.ts"),
         "@av-pi-studio/client": resolve(__dirname, "../client/src/index.ts"),
+        "@pi-studio-ui": resolve(__dirname, "src"),
       },
     },
     server: {

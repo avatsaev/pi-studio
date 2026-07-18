@@ -7,8 +7,8 @@ import { type ThemeName, THEME_NAMES } from "./variants.js";
 import { type AppearanceSettings, getTheme, applyAppearance, DEFAULT_THEME_NAME } from "./theme.js";
 import { type Theme } from "./theme.js";
 import { applyThemeToDOM } from "./css-bridge.js";
-import { injectBrandAccent } from "../brand/theme-injection.js";
-import { resolveAccentColors, type BrandConfig } from "../brand/config.js";
+import { injectBrandAccent } from "@pi-studio-ui/brand/theme-injection.js";
+import { resolveAccentColors, type BrandConfig } from "@pi-studio-ui/brand/config.js";
 
 // ---------------------------------------------------------------------------
 // KeyValueStore interface (localStorage on web, Electron bridge on desktop)

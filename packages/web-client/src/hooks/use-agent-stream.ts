@@ -17,8 +17,8 @@
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
-import { useSessionStore } from "../stores/session-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { applyAgentStreamEvent } from "./agent-stream-events.js";
 
 export function useAgentStream(sessionId: string): void {

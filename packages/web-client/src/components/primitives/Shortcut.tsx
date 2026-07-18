@@ -4,7 +4,7 @@
  */
 
 import styles from "./Shortcut.module.css";
-import { formatCombo, formatChord, type OsFamily } from "../../ui/shortcut.js";
+import { formatCombo, formatChord, type OsFamily } from "@pi-studio-ui/ui/shortcut.js";
 
 export interface ShortcutProps {
   /** A single combo string e.g. "cmd+k". */

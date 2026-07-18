@@ -10,8 +10,8 @@
 
 import { Suspense } from "react";
 import { clsx } from "clsx";
-import { Spinner } from "../../components/primitives/Spinner.js";
-import { useTabStore } from "../../stores/tab-store.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { PANEL_BY_KIND } from "./panel-registry.js";
 import styles from "./TabPanelHost.module.css";
 

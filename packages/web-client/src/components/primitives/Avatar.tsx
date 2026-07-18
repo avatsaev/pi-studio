@@ -4,7 +4,7 @@
  */
 
 import styles from "./Avatar.module.css";
-import { avatarColor, avatarInitial } from "../../ui/avatar.js";
+import { avatarColor, avatarInitial } from "@pi-studio-ui/ui/avatar.js";
 
 export interface AvatarProps {
   /** Project/entity key used to derive color + initial when no image. */

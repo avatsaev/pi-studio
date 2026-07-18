@@ -7,14 +7,14 @@
 import { RotateCw } from "lucide-react";
 import { clsx } from "clsx";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "../../components/primitives/Button.js";
-import { useUiStore } from "../../stores/ui-store.js";
-import { useExplorerStore } from "../../stores/explorer-store.js";
-import { useTabStore } from "../../stores/tab-store.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { FileExplorer } from "./FileExplorer.js";
-import { ChangesPanel } from "../git/ChangesPanel.js";
-import { TerminalsPanel } from "../terminal/TerminalsPanel.js";
+import { ChangesPanel } from "@pi-studio-ui/features/git/ChangesPanel.js";
+import { TerminalsPanel } from "@pi-studio-ui/features/terminal/TerminalsPanel.js";
 import styles from "./RightSidebar.module.css";
 
 export function RightSidebar() {

@@ -7,8 +7,8 @@
  */
 
 import { useEffect } from "react";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
-import { useTerminalStore, type TerminalRuntimeEntry } from "../stores/terminal-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useTerminalStore, type TerminalRuntimeEntry } from "@pi-studio-ui/stores/terminal-store.js";
 
 interface TerminalsListResponse {
   terminals?: TerminalRuntimeEntry[];

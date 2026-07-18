@@ -4,8 +4,8 @@
  * follow-up: modular file preview). A checkerboard background shows through transparent PNGs.
  */
 
-import { Spinner } from "../../components/primitives/Spinner.js";
-import { useFileDownload } from "../../hooks/use-file-download.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import panelStyles from "./FilePanel.module.css";
 import styles from "./ImageViewer.module.css";

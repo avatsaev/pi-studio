@@ -5,7 +5,7 @@
 
 import { type ReactNode } from "react";
 import styles from "./StatusBadge.module.css";
-import { statusBadgeTokens, type StatusBadgeVariant } from "../../ui/status-badge.js";
+import { statusBadgeTokens, type StatusBadgeVariant } from "@pi-studio-ui/ui/status-badge.js";
 
 export interface StatusBadgeProps {
   label: ReactNode;

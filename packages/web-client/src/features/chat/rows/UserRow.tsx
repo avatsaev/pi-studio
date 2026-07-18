@@ -5,8 +5,8 @@
  */
 
 import { useState } from "react";
-import { Dialog } from "../../../components/primitives/Dialog.js";
-import type { UserRow as UserRowModel } from "../../../timeline/row-model.js";
+import { Dialog } from "@pi-studio-ui/components/primitives/Dialog.js";
+import type { UserRow as UserRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import styles from "./rows.module.css";
 
 export interface UserRowProps {

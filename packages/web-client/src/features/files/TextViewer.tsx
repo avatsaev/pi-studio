@@ -4,8 +4,8 @@
  * in `viewer-registry.ts` as the fallback for any file not claimed by a more specific viewer.
  */
 
-import { Spinner } from "../../components/primitives/Spinner.js";
-import { useFileRead } from "../../hooks/use-file-read.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useFileRead } from "@pi-studio-ui/hooks/use-file-read.js";
 import { CodeView } from "./CodeView.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./FilePanel.module.css";

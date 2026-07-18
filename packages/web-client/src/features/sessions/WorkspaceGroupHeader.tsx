@@ -7,7 +7,7 @@
 
 import { ChevronDown, ChevronRight, FolderClosed, Plus } from "lucide-react";
 import { clsx } from "clsx";
-import { Button } from "../../components/primitives/Button.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import styles from "./SessionList.module.css";
 
 export interface WorkspaceGroupHeaderProps {

@@ -171,11 +171,15 @@ Two built-in providers: `pi` and `mock`.
 **`AgentClient` / `AgentSession`** (interfaces in `provider-contract.ts`):
 - `AgentClient.createSession(config, ctx)` → `AgentSession`
 - `AgentSession.run(prompt, opts)` — start a turn; events emitted via `onEvent(handler)`.
+- `AgentSession.startTurn(prompt, opts)` — fire-and-forget turn start, returns `{ turnId }`.
 - `AgentSession.interrupt()` — cancel the current turn.
 - `AgentSession.close()` — shut down the session.
 - `AgentSession.update(patch)` — change model/mode/features without recreating.
 - `AgentSession.importSession(args)` / `AgentClient.listImportableeSessions()` — resume a
   provider-native session by its handle.
+- **`RunOptions.images`** (`RunOptions`/`StartTurnOptions`) carries `ImageAttachment[]` (the
+  protocol wire shape `{ mimeType?, data? }`, base64 data). The provider is responsible for
+  translating this into its native prompt-image format at the boundary (see Pi provider below).
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
@@ -184,6 +188,10 @@ Two built-in providers: `pi` and `mock`.
   to `AgentStreamEvent`s.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
+- **Prompt images:** `startTurn` translates `RunOptions.images` (wire shape `{ mimeType, data }`)
+  into Pi's `ImageContent` shape `{ type: "image", data, mimeType }` before the `prompt` RPC
+  notify (`docs/rpc.md` — `{ type: "prompt", message, images? }`). The wire shape is NOT forwarded
+  verbatim; conversion happens at this boundary so the wire protocol stays provider-neutral.
 
 **Mock provider** (`providers/mock/`):
 - In-process, emits synthetic events on a small timer loop.

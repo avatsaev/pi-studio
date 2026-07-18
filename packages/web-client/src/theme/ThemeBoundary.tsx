@@ -9,7 +9,7 @@ import {
   type AppearanceController,
   type KeyValueStore,
 } from "./appearance-store.js";
-import { type BrandConfig } from "../brand/config.js";
+import { type BrandConfig } from "@pi-studio-ui/brand/config.js";
 
 export interface ThemeBoundaryProps {
   store: KeyValueStore;

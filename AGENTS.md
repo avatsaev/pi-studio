@@ -26,7 +26,6 @@ packages/
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
   highlight/   Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
-  relay/       Encrypted relay bridge for remote access (placeholder, later sprint).
   web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal.
   desktop/     Electron shell wrapping a bundled daemon (placeholder, later sprint).
 
@@ -40,7 +39,6 @@ docs/               Project docs.
 ```
 protocol    ─────────────────────────────────────────► (no workspace deps)
 highlight   ─────────────────────────────────────────► (no workspace deps)
-relay       ─────────────────────────────────────────► (no workspace deps)
 client      ──────► protocol
 server      ──────► protocol, highlight
 cli         ──────► protocol, client
@@ -205,6 +203,5 @@ tolerated without a migration framework.
 | server | `packages/server/AGENTS.md` |
 | cli | `packages/cli/AGENTS.md` |
 | highlight | `packages/highlight/AGENTS.md` |
-| relay | `packages/relay/AGENTS.md` |
 | web-client | `packages/web-client/AGENTS.md` |
 | desktop | `packages/desktop/AGENTS.md` |

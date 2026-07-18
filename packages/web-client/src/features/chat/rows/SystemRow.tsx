@@ -3,7 +3,7 @@
  * POC_TO_APP_PLAN_UI.md §4.3), used for canceled-turn markers and other system notices.
  */
 
-import type { SystemRow as SystemRowModel } from "../../../timeline/row-model.js";
+import type { SystemRow as SystemRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import styles from "./rows.module.css";
 
 export interface SystemRowProps {

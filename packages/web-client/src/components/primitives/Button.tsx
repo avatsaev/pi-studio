@@ -15,7 +15,7 @@ import {
   BUTTON_FONT_SIZE,
   BUTTON_ICON_SIZE,
   resolveButtonState,
-} from "../../ui/button.js";
+} from "@pi-studio-ui/ui/button.js";
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   variant?: ButtonVariant;

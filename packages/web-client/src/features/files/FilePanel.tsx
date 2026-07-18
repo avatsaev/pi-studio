@@ -13,10 +13,10 @@
 
 import { Suspense, useState } from "react";
 import { clsx } from "clsx";
-import { Button } from "../../components/primitives/Button.js";
-import { Spinner } from "../../components/primitives/Spinner.js";
-import { useFileDiff } from "../../hooks/use-file-diff.js";
-import type { Tab, FileTabData, DiffTabData } from "../../stores/tab-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useFileDiff } from "@pi-studio-ui/hooks/use-file-diff.js";
+import type { Tab, FileTabData, DiffTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { DiffView } from "./DiffView.js";
 import { detectViewerKind, VIEWER_BY_KIND } from "./viewer-registry.js";
 import styles from "./FilePanel.module.css";

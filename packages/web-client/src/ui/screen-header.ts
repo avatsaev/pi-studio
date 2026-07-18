@@ -5,7 +5,7 @@ import {
   HEADER_INNER_HEIGHT,
   HEADER_INNER_HEIGHT_MOBILE,
   WINDOW_CHROME,
-} from "../platform/breakpoints.js";
+} from "@pi-studio-ui/platform/breakpoints.js";
 
 export type HeaderVariant = "menu" | "back" | "title" | "icon-badge";
 export type WindowControlSide = "left" | "right"; // macOS = left, Windows/Linux = right

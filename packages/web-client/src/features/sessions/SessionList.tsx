@@ -5,12 +5,12 @@
  */
 
 import { FolderOpen } from "lucide-react";
-import { useSessionStore } from "../../stores/session-store.js";
-import { useTabStore, tabIds } from "../../stores/tab-store.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useUiStore } from "../../stores/ui-store.js";
-import { Button } from "../../components/primitives/Button.js";
-import { useHomeDir } from "../../hooks/use-home-dir.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";

@@ -6,7 +6,7 @@
  */
 
 import type { AgentStatus as ProtocolAgentStatus } from "@av-pi-studio/protocol";
-import type { AgentStatus as DotAgentStatus } from "../../ui/status-dot.js";
+import type { AgentStatus as DotAgentStatus } from "@pi-studio-ui/ui/status-dot.js";
 
 const MAP: Record<ProtocolAgentStatus, DotAgentStatus> = {
   initializing: "queued",

@@ -7,8 +7,8 @@
 
 import { create } from "zustand";
 import type { AgentStatus } from "@av-pi-studio/protocol";
-import { EMPTY_TIMELINE, applyStreamEvent as applyStreamEventToTimeline } from "../timeline/reducer.js";
-import type { TimelineState } from "../timeline/reducer.js";
+import { EMPTY_TIMELINE, applyStreamEvent as applyStreamEventToTimeline } from "@pi-studio-ui/timeline/reducer.js";
+import type { TimelineState } from "@pi-studio-ui/timeline/reducer.js";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 
 export interface SessionEntry {

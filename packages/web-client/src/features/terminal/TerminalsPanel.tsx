@@ -15,17 +15,17 @@
  */
 
 import { Terminal as TerminalIcon, X, Plus } from "lucide-react";
-import { Button } from "../../components/primitives/Button.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useTerminals } from "../../hooks/use-terminals.js";
-import { useTerminalStore } from "../../stores/terminal-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useTerminals } from "@pi-studio-ui/hooks/use-terminals.js";
+import { useTerminalStore } from "@pi-studio-ui/stores/terminal-store.js";
 import {
   useTabStore,
   tabIds,
   openNewTerminal,
   type Tab,
   type TerminalTabData,
-} from "../../stores/tab-store.js";
+} from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./TerminalsPanel.module.css";
 
 export function TerminalsPanel() {

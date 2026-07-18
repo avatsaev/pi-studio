@@ -4,8 +4,8 @@
 
 import { MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
-import { StatusDot } from "../../components/primitives/StatusDot.js";
-import type { SessionEntry } from "../../stores/session-store.js";
+import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
+import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
 import { toDotStatus } from "./status-map.js";
 import styles from "./SessionList.module.css";
 

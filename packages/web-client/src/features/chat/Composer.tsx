@@ -21,11 +21,11 @@ import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardE
 import { useQueryClient } from "@tanstack/react-query";
 import { Paperclip, Send, Square } from "lucide-react";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
-import { Button } from "../../components/primitives/Button.js";
-import { TextArea } from "../../components/primitives/TextInput.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useSessionStore } from "../../stores/session-store.js";
-import { applyAgentStreamEvent } from "../../hooks/agent-stream-events.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { applyAgentStreamEvent } from "@pi-studio-ui/hooks/agent-stream-events.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import styles from "./Composer.module.css";
 

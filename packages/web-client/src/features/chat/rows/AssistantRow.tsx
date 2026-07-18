@@ -5,8 +5,8 @@
  * false`), it renders through `<Markdown>`.
  */
 
-import type { AssistantRow as AssistantRowModel } from "../../../timeline/row-model.js";
-import { Markdown } from "../../../timeline/markdown.js";
+import type { AssistantRow as AssistantRowModel } from "@pi-studio-ui/timeline/row-model.js";
+import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
 import styles from "./rows.module.css";
 
 export interface AssistantRowProps {

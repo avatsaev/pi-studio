@@ -7,10 +7,10 @@
  */
 
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { Button } from "../../components/primitives/Button.js";
-import { TextInput } from "../../components/primitives/TextInput.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useUiStore } from "../../stores/ui-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { ConnectionStatus } from "./ConnectionStatus.js";
 import styles from "./Toolbar.module.css";
 

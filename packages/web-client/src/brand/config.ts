@@ -2,7 +2,7 @@
 // features/white-label-branding.md § Public Contract, § Resolution
 
 import { z } from "zod";
-import { contrastForeground, isHexColor, lighten } from "../theme/color-utils.js";
+import { contrastForeground, isHexColor, lighten } from "@pi-studio-ui/theme/color-utils.js";
 
 // ---------------------------------------------------------------------------
 // Schema

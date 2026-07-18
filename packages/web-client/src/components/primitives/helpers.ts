@@ -14,7 +14,7 @@ import {
   resolveButtonState,
   buttonIconColorToken,
   ghostHoverIconToken,
-} from "../../ui/button.js";
+} from "@pi-studio-ui/ui/button.js";
 
 // Re-export so tests only need one import.
 export {
@@ -127,7 +127,7 @@ export function surfaceBgVar(elevation: SurfaceElevation): string {
 // StatusDot visibility
 // ---------------------------------------------------------------------------
 
-import { statusDotColor, type StatusDotInput } from "../../ui/status-dot.js";
+import { statusDotColor, type StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
 export { statusDotColor, type StatusDotInput };
 
 export function statusDotVisible(input: StatusDotInput): boolean {

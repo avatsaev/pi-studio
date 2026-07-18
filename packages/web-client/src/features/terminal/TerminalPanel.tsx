@@ -18,10 +18,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DaemonClient } from "@av-pi-studio/client";
 import { TerminalStreamRouter } from "@av-pi-studio/client";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useTabStore } from "../../stores/tab-store.js";
-import type { Tab, TerminalTabData } from "../../stores/tab-store.js";
-import { Spinner } from "../../components/primitives/Spinner.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import type { Tab, TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import styles from "./TerminalPanel.module.css";
 
 export interface TerminalPanelProps {

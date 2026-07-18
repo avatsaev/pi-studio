@@ -3,7 +3,7 @@
  */
 
 import { clsx } from "clsx";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import styles from "./ConnectionStatus.module.css";
 
 const LABEL: Record<string, string> = {

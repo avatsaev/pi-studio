@@ -8,10 +8,10 @@
 
 import { useEffect, useRef } from "react";
 import { Folder, File as FileIcon, ArrowUp } from "lucide-react";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useExplorerStore, resolveTildePath } from "../../stores/explorer-store.js";
-import { useExplorer } from "../../hooks/use-explorer.js";
-import { useTabStore, tabIds } from "../../stores/tab-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useExplorerStore, resolveTildePath } from "@pi-studio-ui/stores/explorer-store.js";
+import { useExplorer } from "@pi-studio-ui/hooks/use-explorer.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./FileExplorer.module.css";
 
 export function FileExplorer() {

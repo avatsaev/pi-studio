@@ -8,8 +8,8 @@
 
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { SessionEntry } from "../../stores/session-store.js";
-import type { TimelineRow } from "../../timeline/row-model.js";
+import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
+import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
 import { AssistantRow } from "./rows/AssistantRow.js";
 import { ReasoningRow } from "./rows/ReasoningRow.js";
 import { ToolCard } from "./rows/ToolCard.js";

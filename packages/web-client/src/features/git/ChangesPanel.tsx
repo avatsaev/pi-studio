@@ -6,9 +6,9 @@
  */
 
 import { clsx } from "clsx";
-import { useCheckoutStatus } from "../../hooks/use-checkout-status.js";
-import { useGitStore } from "../../stores/git-store.js";
-import { useTabStore, tabIds } from "../../stores/tab-store.js";
+import { useCheckoutStatus } from "@pi-studio-ui/hooks/use-checkout-status.js";
+import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./ChangesPanel.module.css";
 
 const BADGE_LABEL: Record<"added" | "modified" | "deleted", string> = {

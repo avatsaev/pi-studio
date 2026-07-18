@@ -3,9 +3,9 @@
 // features/white-label-branding.md § Behavior & Algorithms
 
 import { type ResolvedBrandColors, resolveAccentColors, type BrandConfig } from "./config.js";
-import { type Theme } from "../theme/theme.js";
-import { type ThemeName, THEME_NAMES } from "../theme/variants.js";
-import { getTheme } from "../theme/theme.js";
+import { type Theme } from "@pi-studio-ui/theme/theme.js";
+import { type ThemeName, THEME_NAMES } from "@pi-studio-ui/theme/variants.js";
+import { getTheme } from "@pi-studio-ui/theme/theme.js";
 
 /**
  * Build a branded copy of a theme by replacing only the accent family tokens

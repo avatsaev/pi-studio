@@ -4,7 +4,7 @@
  * workspace-tree sidebar).
  */
 
-import type { SessionEntry } from "../../stores/session-store.js";
+import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
 
 export interface WorkspaceGroup {
   /** Normalized (tilde-expanded when known) cwd — the group identity and RPC-ready path. */

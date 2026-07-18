@@ -5,8 +5,8 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
-import { rpcKeys } from "../lib/connection/rpc-keys.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 
 export interface ExplorerEntry {
   name: string;

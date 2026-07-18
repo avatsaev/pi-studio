@@ -9,14 +9,14 @@
  * delta-based `resizeLeftSidebar`/`resizeRightSidebar` actions.
  */
 
-import { Toolbar } from "../features/connection/Toolbar.js";
-import { SessionList } from "../features/sessions/SessionList.js";
-import { TabStrip } from "../features/workspace/TabStrip.js";
-import { TabPanelHost } from "../features/workspace/TabPanelHost.js";
-import { RightSidebar } from "../features/files/RightSidebar.js";
-import { OpenWorkspaceDialog } from "../features/workspace-picker/OpenWorkspaceDialog.js";
-import { ResizeHandle } from "../components/primitives/ResizeHandle.js";
-import { useUiStore } from "../stores/ui-store.js";
+import { Toolbar } from "@pi-studio-ui/features/connection/Toolbar.js";
+import { SessionList } from "@pi-studio-ui/features/sessions/SessionList.js";
+import { TabStrip } from "@pi-studio-ui/features/workspace/TabStrip.js";
+import { TabPanelHost } from "@pi-studio-ui/features/workspace/TabPanelHost.js";
+import { RightSidebar } from "@pi-studio-ui/features/files/RightSidebar.js";
+import { OpenWorkspaceDialog } from "@pi-studio-ui/features/workspace-picker/OpenWorkspaceDialog.js";
+import { ResizeHandle } from "@pi-studio-ui/components/primitives/ResizeHandle.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import styles from "./WorkspacePage.module.css";
 
 export function WorkspacePage() {

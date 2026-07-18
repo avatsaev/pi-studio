@@ -3,7 +3,6 @@
   "references": [
     { "path": "./packages/protocol" },
     { "path": "./packages/highlight" },
-    { "path": "./packages/relay" },
     { "path": "./packages/client" },
     { "path": "./packages/server" },
     { "path": "./packages/cli" }

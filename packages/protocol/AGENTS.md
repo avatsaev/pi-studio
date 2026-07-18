@@ -56,7 +56,8 @@ src/
 | `agentSessionConfigSchema` / `AgentSessionConfig` | schema + type | Provider/model/mode/run options |
 | `agentUpdateSchema` | schema | Broadcast: agent status/title/labels changed |
 | `agentStreamSchema` | schema | Broadcast: live agent turn event |
-| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message, assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error |
+| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error |
+| `imageAttachmentSchema` / `ImageAttachment` | schema + type | User-message image attachment wire shape `{ mimeType?, data? }` (base64); provider adapters convert to their native prompt-image format |
 | `toolCallDetailSchema` / `ToolCallDetail` | discriminated union | Tool detail normalized across providers (shell/read/edit/write/search/fetch/task) |
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
 | `fetchAgentTimelineResponseSchema` / `FetchAgentTimelineResponse` | schema + type | Paged timeline response (items, cursors, seq ranges) |

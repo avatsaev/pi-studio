@@ -8,7 +8,9 @@
     "outDir": "dist",
     "noEmit": true,
     "composite": false,
-    "tsBuildInfoFile": "dist/.tsbuildinfo"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "baseUrl": ".",
+    "paths": { "@pi-studio-ui/*": ["src/*"] }
   },
   "include": ["src"],
   "exclude": ["dist"],

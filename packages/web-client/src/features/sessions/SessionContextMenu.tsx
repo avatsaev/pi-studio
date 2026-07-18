@@ -10,10 +10,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useSessionStore } from "../../stores/session-store.js";
-import { useTabStore, tabIds } from "../../stores/tab-store.js";
-import { useUiStore } from "../../stores/ui-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import styles from "./SessionContextMenu.module.css";
 
 export function SessionContextMenu() {

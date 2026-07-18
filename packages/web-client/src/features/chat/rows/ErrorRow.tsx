@@ -3,7 +3,7 @@
  * `turn_failed`/`error` stream events.
  */
 
-import type { ErrorRow as ErrorRowModel } from "../../../timeline/row-model.js";
+import type { ErrorRow as ErrorRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import styles from "./rows.module.css";
 
 export interface ErrorRowProps {

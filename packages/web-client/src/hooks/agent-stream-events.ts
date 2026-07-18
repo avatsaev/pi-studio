@@ -8,9 +8,9 @@
 import type { PiStudioClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { QueryClient } from "@tanstack/react-query";
-import { useSessionStore } from "../stores/session-store.js";
-import { toolMutatesFiles, toolFilePath } from "../timeline/tool-mapping.js";
-import { invalidateAfterToolCompletion } from "../lib/connection/files-changed.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { toolMutatesFiles, toolFilePath } from "@pi-studio-ui/timeline/tool-mapping.js";
+import { invalidateAfterToolCompletion } from "@pi-studio-ui/lib/connection/files-changed.js";
 
 export interface ApplyAgentStreamEventArgs {
   sessionId: string;

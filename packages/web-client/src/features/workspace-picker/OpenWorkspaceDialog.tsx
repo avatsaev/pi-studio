@@ -10,15 +10,15 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp, Folder } from "lucide-react";
-import { Button, Dialog, DialogClose } from "../../components/primitives/index.js";
-import { TextInput } from "../../components/primitives/TextInput.js";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { useUiStore } from "../../stores/ui-store.js";
-import { useTabStore } from "../../stores/tab-store.js";
-import { normalizeCwd } from "../sessions/workspace-grouping.js";
-import { useExplorer } from "../../hooks/use-explorer.js";
-import { useHomeDir } from "../../hooks/use-home-dir.js";
-import { openWorkspace } from "../sessions/open-workspace.js";
+import { Button, Dialog, DialogClose } from "@pi-studio-ui/components/primitives/index.js";
+import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import { useExplorer } from "@pi-studio-ui/hooks/use-explorer.js";
+import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { openWorkspace } from "@pi-studio-ui/features/sessions/open-workspace.js";
 import styles from "./OpenWorkspaceDialog.module.css";
 
 export function OpenWorkspaceDialog() {

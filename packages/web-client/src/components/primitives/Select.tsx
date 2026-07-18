@@ -22,7 +22,7 @@ import {
   type ComboboxState,
   type ComboboxOption,
   type ComboboxAction,
-} from "../../ui/combobox.js";
+} from "@pi-studio-ui/ui/combobox.js";
 
 // ---------------------------------------------------------------------------
 // Native Select

@@ -4,7 +4,7 @@
  */
 
 import styles from "./StatusDot.module.css";
-import { statusDotColor, STATUS_DOT_SIZE, type StatusDotInput } from "../../ui/status-dot.js";
+import { statusDotColor, STATUS_DOT_SIZE, type StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
 
 const COLOR_TOKEN_VAR: Record<string, string> = {
   accent: "var(--pi-color-accent)",

@@ -4,8 +4,8 @@
  */
 
 import { useEffect } from "react";
-import { useTabStore, openNewTerminal } from "../stores/tab-store.js";
-import { useUiStore } from "../stores/ui-store.js";
+import { useTabStore, openNewTerminal } from "@pi-studio-ui/stores/tab-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 
 export function useShortcuts(): void {
   useEffect(() => {

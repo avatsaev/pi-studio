@@ -7,10 +7,10 @@
  */
 
 import { useState } from "react";
-import { Button } from "../../components/primitives/Button.js";
-import { Spinner } from "../../components/primitives/Spinner.js";
-import { useFileRead } from "../../hooks/use-file-read.js";
-import { Markdown } from "../../timeline/markdown.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useFileRead } from "@pi-studio-ui/hooks/use-file-read.js";
+import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
 import { CodeView } from "./CodeView.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import panelStyles from "./FilePanel.module.css";

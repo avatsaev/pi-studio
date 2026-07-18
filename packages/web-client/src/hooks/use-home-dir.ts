@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
-import { resolveHome, peekCachedHomeDir, onHomeDirResolved } from "../stores/explorer-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { resolveHome, peekCachedHomeDir, onHomeDirResolved } from "@pi-studio-ui/stores/explorer-store.js";
 
 export function useHomeDir(): string | null {
   const client = useConnectionStore((s) => s.client);

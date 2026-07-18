@@ -19,7 +19,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useTabStore, type Tab, type TabKind } from "../../stores/tab-store.js";
+import { useTabStore, type Tab, type TabKind } from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./TabStrip.module.css";
 
 const ICON_BY_KIND: Record<TabKind, typeof MessageSquare> = {

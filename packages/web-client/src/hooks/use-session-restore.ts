@@ -8,14 +8,14 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
-import { useSessionStore } from "../stores/session-store.js";
-import { useTabStore, tabIds } from "../stores/tab-store.js";
-import { useUiStore } from "../stores/ui-store.js";
-import { resolveHome } from "../stores/explorer-store.js";
-import { normalizeCwd } from "../features/sessions/workspace-grouping.js";
-import { EMPTY_TIMELINE, applyStreamEvent } from "../timeline/reducer.js";
-import { flattenTimelineItems } from "../lib/protocol/events.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
+import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import { EMPTY_TIMELINE, applyStreamEvent } from "@pi-studio-ui/timeline/reducer.js";
+import { flattenTimelineItems } from "@pi-studio-ui/lib/protocol/events.js";
 import type { AgentStatus } from "@av-pi-studio/protocol";
 
 interface RestoredAgent {

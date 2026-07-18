@@ -27,7 +27,7 @@ web-client  →  @av-pi-studio/client   (DaemonClient + PiStudioClient — all n
 web-client  →  @av-pi-studio/protocol (wire types + binary codecs)
 ```
 
-Must **not** import `@av-pi-studio/server`, `@av-pi-studio/cli`, or `@av-pi-studio/relay`.
+Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.
 The Electron shell (`@av-pi-studio/desktop`) consumes this package's web build as its renderer and
 owns daemon supervision — this package stays a pure renderer.
 

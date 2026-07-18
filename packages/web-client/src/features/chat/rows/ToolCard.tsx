@@ -11,10 +11,10 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
-import { StatusBadge } from "../../../components/primitives/StatusBadge.js";
-import { DiffView } from "../../files/DiffView.js";
-import { toolIcon, toolLabel, toolInlineDetail, toolBody } from "../../../timeline/tool-mapping.js";
-import type { ToolRow } from "../../../timeline/row-model.js";
+import { StatusBadge } from "@pi-studio-ui/components/primitives/StatusBadge.js";
+import { DiffView } from "@pi-studio-ui/features/files/DiffView.js";
+import { toolIcon, toolLabel, toolInlineDetail, toolBody } from "@pi-studio-ui/timeline/tool-mapping.js";
+import type { ToolRow } from "@pi-studio-ui/timeline/row-model.js";
 import styles from "./rows.module.css";
 
 export interface ToolCardProps {

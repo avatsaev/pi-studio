@@ -7,9 +7,9 @@
  * dialog).
  */
 
-import { useSessionStore } from "../../stores/session-store.js";
-import { useTabStore, tabIds } from "../../stores/tab-store.js";
-import { useUiStore } from "../../stores/ui-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { groupSessionsByWorkspace } from "./workspace-grouping.js";
 
 /**
