@@ -19,6 +19,7 @@ import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
 import { Session } from "../ws/session.js";
+import { createInMemoryCapabilityStore } from "../ws/capability-store.js";
 import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 
@@ -54,7 +55,7 @@ import { ChatService } from "../orchestration/chat-service.js";
 import { LoopService, type LoopExecutor, type WorkerOutcome } from "../orchestration/loop-service.js";
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 
-import { SERVER_FEATURES } from "@av-pi-studio/protocol";
+import { SERVER_FEATURES, helloSchema, serverInfoPayloadSchema, statusSchema } from "@av-pi-studio/protocol";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
 export interface DaemonOptions {
@@ -195,6 +196,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   };
 
   const relaySessions = new Set<Session>();
+  const relayCapabilityStore = createInMemoryCapabilityStore();
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = (): Session[] => [...sessionsHolder.sessions, ...relaySessions];
 
@@ -534,11 +536,24 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // § Behavior — `connectRelay`). Fully opt-in: `config.daemon.relay.enabled` defaults to false,
   // so a daemon with no relay config behaves identically to before — only the direct WS listener
   // above ever starts. When enabled, each decrypted relay app message is dispatched through the
-  // exact same `registry`/`routeTextFrame` RPC surface direct clients use, via a synthetic
-  // `Session` whose `send()` re-encrypts the response back onto the same E2EE channel.
+  // exact same `registry`/`routeTextFrame` RPC surface direct clients use, via a persistent
+  // synthetic `Session` whose `send()` re-encrypts the response back onto the same E2EE channel.
+  //
+  // A relay session id pairs at most one client with this daemon at a time (`RelaySessionBridge`),
+  // so exactly one `Session` is live per relay connection — created lazily on the client's `hello`
+  // (mirroring `ws-server.ts`'s direct-WS handshake exactly: validate `hello`, rehydrate/persist
+  // capabilities by `clientId`, reply with `status`/`server_info`), then reused for every
+  // subsequent frame until the relay reconnects with a new session id.
   let relayHandle: RelayTransportHandle | undefined;
   if (config.daemon.relay.enabled) {
-    const relayCapabilities = Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true]));
+    let relaySession: Session | null = null;
+    let relayReply: ((data: string) => void) | null = null;
+
+    const resetRelaySession = (): void => {
+      if (relaySession) relaySessions.delete(relaySession);
+      relaySession = null;
+    };
+
     relayHandle = connectRelay(
       {
         publicKey: Buffer.from(daemonKeypairB64.publicKeyB64, "base64"),
@@ -547,17 +562,48 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       config.daemon.relay,
       {
         onMessage: (plaintext, reply) => {
-          const relaySession = new Session({
-            id: randomUUID(),
-            clientId: "relay",
-            clientType: "cli",
-            capabilities: relayCapabilities,
-            socket: { send: (data: string) => reply(data), close: () => {} } as unknown as ConstructorParameters<
-              typeof Session
-            >[0]["socket"],
-          });
-          relaySessions.add(relaySession);
-          void routeTextFrame(relaySession, plaintext, registry).finally(() => relaySessions.delete(relaySession));
+          relayReply = reply; // always the same underlying channel.send for this connection
+
+          if (relaySession === null) {
+            // First frame on this relay connection must be `hello`, exactly like direct WS.
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(plaintext);
+            } catch {
+              return; // not JSON — ignore, matching routeTextFrame's tolerance
+            }
+            const hello = helloSchema.safeParse(parsed);
+            if (!hello.success) return; // non-hello first frame: ignore (no socket to close)
+
+            const stored = relayCapabilityStore.get(hello.data.clientId);
+            const capabilities = hello.data.capabilities ?? stored ?? {};
+            relayCapabilityStore.set(hello.data.clientId, capabilities);
+
+            relaySession = new Session({
+              id: randomUUID(),
+              clientId: hello.data.clientId,
+              clientType: hello.data.clientType,
+              capabilities,
+              socket: { send: (data: string) => relayReply?.(data), close: () => {} } as unknown as ConstructorParameters<
+                typeof Session
+              >[0]["socket"],
+            });
+            relaySessions.add(relaySession);
+            console.log(`[relay] client connected: ${relaySession.clientId} (${relaySession.clientType})`);
+
+            const payload = serverInfoPayloadSchema.parse({
+              status: "server_info",
+              serverId,
+              hostname: opts.host,
+              version: "1.0.0",
+              capabilities: {},
+              features: Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true])),
+            });
+            relaySession.send(statusSchema.parse({ type: "status", payload }));
+            return;
+          }
+
+          void routeTextFrame(relaySession, plaintext, registry);
         },
         onError: (err) => {
           console.error(`[relay] channel error: ${(err as Error)?.message ?? String(err)}`);
@@ -567,6 +613,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         },
         onReconnect: (sessionId) => {
           console.log(`[relay] reconnecting with new session ${sessionId}`);
+          resetRelaySession();
+          relayReply = null;
         },
       },
     );

@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import { type AddressInfo } from "node:net";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
+
+import { createClientChannel, decodeBase64 } from "@av-pi-studio/relay";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
@@ -265,5 +269,173 @@ describe("broadcast() session envelope", () => {
     expect(bareFrame).toBeUndefined();
 
     ws.close();
+  }, 15000);
+});
+
+/**
+ * Minimal fake relay for the daemon's outbound relay transport (mirrors the harness in
+ * `relay-transport.test.ts`): sockets that send `{type:"relay_register",sessionId}` get paired by
+ * session id; every other frame is forwarded verbatim between the pair — exactly what a real
+ * relay (`@av-pi-studio/relay`'s `RelaySessionBridge`) does. Exposes `registeredSessionIds` so a
+ * test can learn the session id the daemon picked without reaching into daemon internals.
+ */
+interface FakeRelay {
+  port: number;
+  registeredSessionIds: string[];
+  close(): Promise<void>;
+  connectClient(sessionId: string): Promise<WebSocket>;
+}
+
+async function startFakeRelay(): Promise<FakeRelay> {
+  const http: Server = createServer();
+  const wss = new WebSocketServer({ server: http });
+  const bySession = new Map<string, WebSocket[]>();
+  const registeredSessionIds: string[] = [];
+
+  wss.on("connection", (socket: WebSocket) => {
+    let sessionId: string | null = null;
+    socket.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) return;
+      const text = data.toString("utf8");
+      if (sessionId === null) {
+        const parsed = JSON.parse(text) as { type?: string; sessionId?: string };
+        if (parsed.type === "relay_register" && parsed.sessionId) {
+          sessionId = parsed.sessionId;
+          registeredSessionIds.push(sessionId);
+          const peers = bySession.get(sessionId) ?? [];
+          peers.push(socket);
+          bySession.set(sessionId, peers);
+        }
+        return;
+      }
+      for (const peer of bySession.get(sessionId) ?? []) {
+        if (peer !== socket && peer.readyState === peer.OPEN) peer.send(text);
+      }
+    });
+    socket.on("close", () => {
+      if (sessionId === null) return;
+      const peers = (bySession.get(sessionId) ?? []).filter((s) => s !== socket);
+      if (peers.length > 0) bySession.set(sessionId, peers);
+      else bySession.delete(sessionId);
+    });
+  });
+
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
+  const port = (http.address() as AddressInfo).port;
+  return {
+    port,
+    registeredSessionIds,
+    close: () =>
+      new Promise<void>((resolve) => {
+        wss.close(() => http.close(() => resolve()));
+      }),
+    connectClient(sessionId: string): Promise<WebSocket> {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+      return new Promise((resolve, reject) => {
+        socket.once("open", () => {
+          socket.send(JSON.stringify({ type: "relay_register", sessionId }));
+          resolve(socket);
+        });
+        socket.once("error", reject);
+      });
+    },
+  };
+}
+
+async function waitForSessionId(relay: FakeRelay, timeoutMs = 3000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (relay.registeredSessionIds.length === 0) {
+    if (Date.now() > deadline) throw new Error("waitForSessionId: timed out");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return relay.registeredSessionIds[0]!;
+}
+
+describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
+  it("a real relay client completes hello/server_info and an RPC round-trip through the daemon's relay dispatch", async () => {
+    const relay = await startFakeRelay();
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-relay-e2e-"));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        daemon: { relay: { enabled: true, endpoint: `127.0.0.1:${relay.port}`, useTls: false } },
+      }),
+    );
+    const port = 6800 + Math.floor(Math.random() * 200);
+    handle = startDaemon({ host: "127.0.0.1", port, home });
+
+    // The daemon writes its persistent keypair to disk on first boot, before it dials the relay.
+    const daemonPublicKeyB64 = JSON.parse(
+      readFileSync(join(home, "daemon-keypair.json"), "utf8"),
+    ).publicKeyB64 as string;
+
+    const sessionId = await waitForSessionId(relay);
+    const clientSocket = await relay.connectClient(sessionId);
+
+    const clientMessageHandlers: Array<(data: string) => void> = [];
+    clientSocket.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary) for (const h of clientMessageHandlers) h(data.toString("utf8"));
+    });
+
+    const ready = Promise.withResolvers<void>();
+    const serverInfo = Promise.withResolvers<Record<string, unknown>>();
+    const rpcResponse = Promise.withResolvers<Record<string, unknown>>();
+
+    const channel = createClientChannel({
+      transport: {
+        send: (data) => clientSocket.send(data),
+        onMessage: (h) => clientMessageHandlers.push(h),
+        onClose: () => {},
+        close: () => clientSocket.close(),
+      },
+      attachment: { sessionId },
+      daemonPublicKey: decodeBase64(daemonPublicKeyB64),
+      events: {
+        onReady: () => ready.resolve(),
+        onMessage: (plaintext) => {
+          const envelope = JSON.parse(plaintext) as Record<string, unknown>;
+          if (envelope.type === "status") {
+            serverInfo.resolve(envelope.payload as Record<string, unknown>);
+          } else if (envelope.type === "session") {
+            rpcResponse.resolve(envelope.message as Record<string, unknown>);
+          }
+        },
+        onAuthError: (err) => ready.reject(err instanceof Error ? err : new Error(String(err))),
+      },
+    });
+
+    // The handshake completing PROVES real E2EE (Curve25519 ECDH + XSalsa20-Poly1305) worked
+    // end-to-end through an actual relay bridge — not a mock of the crypto.
+    await ready.promise;
+
+    channel.send(JSON.stringify({ type: "hello", clientId: "relay-e2e-test", clientType: "cli", protocolVersion: 1 }));
+    const info = await serverInfo.promise;
+    // This is the real regression this test guards: over the relay, `hello` must reach the SAME
+    // handshake path the direct WS listener runs (validate → session → `status`/`server_info`),
+    // not be silently dropped by `routeTextFrame`'s `default:` case for unrecognized top-level types.
+    expect(info.status).toBe("server_info");
+    expect(info.serverId).toBe(handle.serverId);
+
+    // A real RPC round-trips through the daemon's full `HandlerRegistry` surface over the same
+    // encrypted channel, proving the synthetic relay `Session` persists across messages (the
+    // second frame on this connection) rather than being discarded and recreated per message.
+    channel.send(
+      JSON.stringify({
+        type: "session",
+        message: { type: "list_agents_request", requestId: "relay-rpc-1" },
+      }),
+    );
+    const rpc = await rpcResponse.promise;
+    expect(rpc.requestId).toBe("relay-rpc-1");
+    expect(rpc.type).not.toBe("rpc_error");
+
+    channel.close();
+    clientSocket.close();
+    // Close the daemon FIRST — its outbound relay socket must drop before `relay.close()`'s
+    // `http.close()` can resolve (an httpServer with a live keep-alive connection never finishes
+    // closing).
+    await handle?.close();
+    handle = undefined;
+    await relay.close();
   }, 15000);
 });
