@@ -16,5 +16,7 @@ export * from "./pairing.js";
 export * from "./qr.js";
 export * from "./daemon-control.js";
 export * from "./daemon-commands.js";
+export * from "./relay-control.js";
+export * from "./relay-commands.js";
 export * from "./feature-commands.js";
 export * from "./program.js";

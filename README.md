@@ -214,10 +214,10 @@ packages/
   protocol/   wire schemas + shared protocol types
   client/     low-level daemon WS driver + PiStudioClient SDK facade
   server/     the daemon (agents, terminals, git, projects, orchestration)
-  cli/        pi-studio terminal client + local daemon control
+  cli/        pi-studio terminal client + local daemon/relay control
   highlight/  syntax-highlight helper
-  relay/      encrypted relay (later sprint)
-  app/        Expo client (later sprints)
+  relay/      E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
+  web-client/ production React/Vite browser UI
   desktop/    Electron wrapper (later sprint)
 poc/                temporary browser UI for visual feature testing
 clean-room-scope/   specifications + the sprint implementation plan

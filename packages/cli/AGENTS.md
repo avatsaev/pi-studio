@@ -43,6 +43,10 @@ src/
   feature-commands.ts    Feature command group (terminal/chat/schedule/loop/provider/worktree/…).
   feature-commands.test.ts
 
+  relay-commands.ts      `relay` command group (start/stop/status) — self-hosted relay-server lifecycle.
+  relay-commands.test.ts
+  relay-control.ts        RelayRuntime — probe/start/stop/waitForRelay (spawns relay process); mirrors daemon-control.ts.
+
   web-commands.ts        `web` command — serve the prebuilt web-client SPA as a static site.
   web-commands.test.ts
   web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
@@ -137,6 +141,39 @@ Each subcommand maps to the corresponding daemon RPC family.
 | `worktree` | `create`, `list`, `delete` |
 | `project` | `open`, `list` |
 | `permit` | `respond` (approve/deny a pending tool-call permission) |
+
+### `relay` group (`relay-commands.ts`)
+
+| Command | Description |
+|---------|-------------|
+| `relay start [--listen <host:port>]` | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
+| `relay stop` | Send SIGTERM to the local relay |
+| `relay status [--listen <host:port>]` | Print up/down for the relay at that address |
+
+A self-hosted deployment of `@av-pi-studio/relay`'s standalone `startRelayServer()`
+(`packages/relay/src/relay-server.ts` — a `ws` `WebSocketServer` wired to `RelaySessionBridge`, plus
+a bare `GET /health`). Runs as its OWN managed process, entirely separate from the daemon's
+lifecycle — the relay has no identity keypair, no `$PI_STUDIO_HOME` state beyond its own PID file
+(`pi-studio-relay.pid`), and no per-project data; it only bridges a daemon's outbound connection
+with a client's, keyed by session id (architecture/relay-e2ee.md § Purpose). Typically run on a
+separate publicly-reachable host from the daemon it relays for.
+
+`RelayRuntime` (`relay-control.ts`, mirrors `DaemonRuntime` exactly):
+- `probe(host, port)` — HTTP GET `/health`, returns true if 200.
+- `start(opts)` — resolve `@av-pi-studio/relay` via `import.meta.resolve` (same pattern
+  `subprocessStarter` uses for `@av-pi-studio/server`), spawn a detached `node -e` script calling
+  `startRelayServer({ host, port })`, write the child's pid to
+  `$PI_STUDIO_HOME/pi-studio-relay.pid`.
+- `kill(pid)` — send SIGTERM.
+- `waitForRelay(runtime, host, port, opts)` — poll health until up or timeout; `runRelayStart()`
+  exposes this with an injectable `sleep` for tests, exactly like `ensureLocalDaemonAndPair`'s
+  `startOpts.sleep`.
+
+The package is also directly runnable standalone (no CLI needed) via its own `bin`:
+`pi-studio-relay [--listen host:port]` (or `PI_STUDIO_RELAY_LISTEN` env), e.g.
+`npx @av-pi-studio/relay` on a bare VM.
+
+---
 
 ### `web` command (`web-commands.ts`)
 

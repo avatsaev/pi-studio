@@ -89,6 +89,32 @@ Provider spec parsing (`--provider`): `pi/claude-3-5-sonnet` → provider `pi`, 
 | `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json` |
 | `daemon pair` | Print the pairing URL/QR for an already-running daemon |
 
+### `relay`
+
+| Command | Description |
+|---|---|
+| `relay start [--listen <host:port>]` | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
+| `relay stop` | Send SIGTERM to the local relay |
+| `relay status [--listen <host:port>]` | Print up/down for the relay at that address |
+
+A self-hosted, zero-knowledge relay (`@av-pi-studio/relay`) that lets a client reach a daemon
+behind a firewall/NAT — the daemon dials out to it; see that package's README for the full
+picture. Runs as its own managed process, entirely decoupled from daemon lifecycle: point a
+daemon at it via `daemon.relay.endpoint` in `config.json` (`PI_STUDIO_RELAY_ENDPOINT` env), not
+through this command.
+
+### `web`
+
+| Command | Description |
+|---|---|
+| `web [--web-host <host>] [--web-port <port>] [--daemon-host <host>]` | Serve the prebuilt web-client SPA as a static site |
+
+Serves the built `@av-pi-studio/web-client` UI (`dist/web`) via a minimal static file server with
+SPA fallback — no vite/dev dependency at runtime, works from any install shape. `--daemon-host`
+(falls back to the global `--host`) pre-fills the printed URL's `?host=&connect=1` so the browser
+tab auto-connects; the command never itself probes or starts a daemon. Blocks until
+`SIGINT`/`SIGTERM`.
+
 ### Feature groups
 
 Each of the following maps to the corresponding daemon RPC family:

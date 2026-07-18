@@ -156,6 +156,10 @@ All optional.
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (comma-separated, or `true` to allow all) |
 | `PI_STUDIO_SERVER_ID` | _(persisted/generated)_ | Stable server identity |
+| `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay server to dial outbound to when `daemon.relay.enabled` (`host:port`) |
+| `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` for the outbound relay dial (`1`/`true`/`yes`/`on`) |
+| `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Client-facing relay address, if different from the daemon's own dial target |
+| `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | `false` | TLS setting for the client-facing relay address (independent of the outbound dial) |
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` | _(unset)_ | Service-proxy listen address |
 | `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | _(unset)_ | Public base URL advertised for proxied services |
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
@@ -188,7 +192,8 @@ defaults and `.passthrough()` tolerance for unknown/future keys. Notable section
     "mcp": { "enabled": true, "injectIntoAgents": true },
     "appendSystemPrompt": "",
     "cors": { "allowedOrigins": [] },
-    "serviceProxy": { "enabled": false }
+    "serviceProxy": { "enabled": false },
+    "relay": { "enabled": false, "endpoint": "relay-host:7000", "useTls": false }
   },
   "agents": {
     "providers": {
@@ -202,6 +207,13 @@ defaults and `.passthrough()` tolerance for unknown/future keys. Notable section
 To use a **different `pi` binary** than the bundled one, set
 `agents.providers.pi.command` to an absolute path as shown above. Custom Pi-compatible profiles can
 extend the `pi` provider via `"extends": "pi"` (a custom provider must also set a `label`).
+
+**Relay (opt-in, off by default):** with `daemon.relay.enabled: true`, the daemon dials outbound
+to the `endpoint` (a self-hosted `@av-pi-studio/relay` server or Cloudflare Workers deployment)
+after the WS server is up, so remote clients can reach it without an inbound port. See
+`@av-pi-studio/relay`'s README for running a relay (`pi-studio-relay` bin / `pi-studio relay
+start`). Direct WebSocket connections are completely unaffected either way — the relay only adds
+an additional connection path.
 
 ---
 

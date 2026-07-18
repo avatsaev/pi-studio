@@ -24,7 +24,7 @@
     "typecheck": "tsc -b",
     "build:protocol": "tsc -b packages/protocol",
     "build:highlight": "tsc -b packages/highlight",
-    "build:relay": "tsc -b packages/relay",
+    "build:relay": "tsc -b packages/relay && chmod +x packages/relay/dist/relay-main.js",
     "build:client": "tsc -b packages/client",
     "build:server": "tsc -b packages/server && chmod +x packages/server/dist/daemon/main.js",
     "build:web-client": "npm run build:web -w packages/web-client",

@@ -4,6 +4,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "pi-studio-relay": "dist/relay-main.js"
+  },
   "files": [
     "dist"
   ],
@@ -14,10 +17,14 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && chmod +x dist/relay-main.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

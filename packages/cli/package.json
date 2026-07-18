@@ -23,6 +23,7 @@
   "dependencies": {
     "@av-pi-studio/client": "^0.0.8",
     "@av-pi-studio/protocol": "^0.0.8",
+    "@av-pi-studio/relay": "^0.0.8",
     "@av-pi-studio/server": "^0.0.8",
     "@av-pi-studio/web-client": "^0.0.8",
     "bcryptjs": "^3.0.3",

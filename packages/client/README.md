@@ -151,6 +151,27 @@ interface Transport {
 implementation. Inject your own `Transport` for tests, or to run over a different underlying
 channel.
 
+### Relay transport (E2EE, via `@av-pi-studio/relay`)
+
+```ts
+import { createRelayTransport, parsePairingUrl } from "@av-pi-studio/client";
+
+const offer = parsePairingUrl(pairingUrlOrFragment); // { publicKey, publicKeyB64, host? }
+const transport = createRelayTransport({
+  sessionId: relaySessionId, // rendezvous id shared with the daemon's outbound relay connection
+  daemonPublicKey: offer!.publicKey,
+});
+
+const daemon = new DaemonClient({ url: relayWsUrl, clientId, clientType: "cli", transport });
+await daemon.connect(); // completes the E2EE handshake before the `hello` RPC ever crosses the wire
+```
+
+`createRelayTransport` implements the exact same `Transport` contract as
+`createWebSocketTransport` — swap it in via `DaemonClientOptions.transport` and every other
+`DaemonClient`/`PiStudioClient` API works unchanged, whether the daemon is direct or reached
+through a relay. See `@av-pi-studio/relay`'s README for running a relay server and
+`@av-pi-studio/server`'s README for pointing a daemon at one.
+
 ## Design rules
 
 - **`RpcTimeoutError` never closes the socket.** A slow RPC is an operation-level failure, not a
