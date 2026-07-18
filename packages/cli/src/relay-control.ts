@@ -72,16 +72,18 @@ export const relaySignalKiller: RelayProcessKiller = (pid, signal = "SIGTERM") =
 
 /**
  * Default relay starter: spawn a detached Node process running `@av-pi-studio/relay`'s
- * `startRelayServer()`, writing its pid to `$PI_STUDIO_HOME/pi-studio-relay.pid`. Mirrors
- * `subprocessStarter` in `daemon-control.ts` exactly — resolve the package's absolute module URL
- * *inside* the CLI's own module graph first, then bake that resolved URL (not the bare specifier)
- * into the spawned `-e` script, since a detached child has no module context of its own.
+ * `startRelayServer()` (via the Node-only `@av-pi-studio/relay/server` subpath — the package's
+ * main entry is deliberately browser-safe and does not export it), writing its pid to
+ * `$PI_STUDIO_HOME/pi-studio-relay.pid`. Mirrors `subprocessStarter` in `daemon-control.ts` exactly
+ * — resolve the module's absolute URL *inside* the CLI's own module graph first, then bake that
+ * resolved URL (not the bare specifier) into the spawned `-e` script, since a detached child has
+ * no module context of its own.
  */
 export const subprocessRelayStarter: RelayStarter = ({ home, listen }) =>
   new Promise<number>((resolve, reject) => {
     let relayUrl: string;
     try {
-      relayUrl = import.meta.resolve("@av-pi-studio/relay");
+      relayUrl = import.meta.resolve("@av-pi-studio/relay/server");
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;

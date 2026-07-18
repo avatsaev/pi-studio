@@ -72,26 +72,31 @@ fully opt-in and never affects direct WebSocket connections.
 ## Library API
 
 For embedding directly (custom relay deployments, tests, or building the daemon/client transports
-this package's own consumers use):
+this package's own consumers use). The main entry is deliberately **browser/RN-safe** (only pure
+crypto + logic, no platform-specific runtime imports); `startRelayServer` is Node-only (`node:http`,
+`ws`) and lives behind a separate subpath so it's never pulled into a browser bundle:
 
 ```ts
+// Browser/RN/Node — pure crypto + logic, no platform-specific imports.
 import {
   createDaemonChannel,
   createClientChannel,
   RelaySessionBridge,
   createCloudflareRelayHandler,
-  startRelayServer,
 } from "@av-pi-studio/relay";
+
+// Node-only — pulls in `node:http` + `ws`. Never import this from browser/RN code.
+import { startRelayServer } from "@av-pi-studio/relay/server";
 ```
 
-| Export | Role | Purpose |
-|---|---|---|
-| `createDaemonChannel(opts)` | daemon | E2EE channel over an abstract `Transport`; waits for the client's `e2ee_hello`, replies `e2ee_ready` |
-| `createClientChannel(opts)` | client | E2EE channel; generates a fresh ephemeral keypair, sends `e2ee_hello` |
-| `RelaySessionBridge` | relay server | Platform-agnostic verbatim frame bridge, keyed by session id — the zero-knowledge core |
-| `createCloudflareRelayHandler(opts)` | relay server | Thin Cloudflare Workers `WebSocketPair` wrapper around `RelaySessionBridge` |
-| `startRelayServer(opts)` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run) |
-| `encodeBase64` / `decodeBase64` | both | Pure-JS base64 codec (no Node `Buffer`) — runs identically in Node and browser/RN |
+| Export | Subpath | Role | Purpose |
+|---|---|---|---|
+| `createDaemonChannel(opts)` | `.` | daemon | E2EE channel over an abstract `Transport`; waits for the client's `e2ee_hello`, replies `e2ee_ready` |
+| `createClientChannel(opts)` | `.` | client | E2EE channel; generates a fresh ephemeral keypair, sends `e2ee_hello` |
+| `RelaySessionBridge` | `.` | relay server | Platform-agnostic verbatim frame bridge, keyed by session id — the zero-knowledge core |
+| `createCloudflareRelayHandler(opts)` | `.` | relay server | Thin Cloudflare Workers `WebSocketPair` wrapper around `RelaySessionBridge` |
+| `encodeBase64` / `decodeBase64` | `.` | both | Pure-JS base64 codec (no Node `Buffer`) — runs identically in Node and browser/RN |
+| `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run) |
 
 Both channel constructors expose an **identical** API — the daemon and client use symmetric code
 paths. Neither channel accepts app messages before its handshake completes; a daemon's channel
@@ -100,7 +105,7 @@ shared key from that same known public key before the handshake even starts.
 
 ```ts
 // Minimal self-hosted relay, embedded rather than run as a separate process:
-import { startRelayServer } from "@av-pi-studio/relay";
+import { startRelayServer } from "@av-pi-studio/relay/server";
 
 const handle = await startRelayServer({ host: "0.0.0.0", port: 7000 });
 console.log(`relay up on ws://${handle.host}:${handle.port}`);

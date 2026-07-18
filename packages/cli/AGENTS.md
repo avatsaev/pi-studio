@@ -160,7 +160,7 @@ separate publicly-reachable host from the daemon it relays for.
 
 `RelayRuntime` (`relay-control.ts`, mirrors `DaemonRuntime` exactly):
 - `probe(host, port)` — HTTP GET `/health`, returns true if 200.
-- `start(opts)` — resolve `@av-pi-studio/relay` via `import.meta.resolve` (same pattern
+- `start(opts)` — resolve `@av-pi-studio/relay/server` via `import.meta.resolve` (same pattern
   `subprocessStarter` uses for `@av-pi-studio/server`), spawn a detached `node -e` script calling
   `startRelayServer({ host, port })`, write the child's pid to
   `$PI_STUDIO_HOME/pi-studio-relay.pid`.
