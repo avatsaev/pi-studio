@@ -223,18 +223,20 @@ swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API
 
 ## Run with Docker
 
-Prebuilt Dockerfiles + compose for the daemon and relay live in [`docker/`](docker/). The daemon
-image ships `git` + a compiled `node-pty` + the bundled `pi` runtime; the relay image is a tiny
-pure-JS stateless bridge. Both build from local monorepo source.
+Prebuilt Dockerfiles + compose for the daemon, relay, and web UI live in [`docker/`](docker/). The
+daemon image ships `git` + a compiled `node-pty` + the bundled `pi` runtime; the relay image is a
+tiny pure-JS stateless bridge; the web-client image is the static React/Vite SPA served by nginx.
+All build from local monorepo source.
 
 ```bash
 cd docker
-docker compose up --build   # relay :7000 + daemon :6767, daemon dials the relay
+docker compose up --build   # relay :7000 + daemon :6767 + web UI :8080, daemon dials the relay
 ```
 
-Then connect from the host: `pi-studio --host http://localhost:6767 ls`. Mount your projects at
-`/workspace` (`PI_STUDIO_PROJECTS=/abs/path`), persist state in the `/data` volume, and supply pi
-credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
+Then open the UI at <http://localhost:8080> and enter the daemon URL (`http://localhost:6767`) in
+the toolbar, or drive it from the CLI: `pi-studio --host http://localhost:6767 ls`. Mount your
+projects at `/workspace` (`PI_STUDIO_PROJECTS=/abs/path`), persist state in the `/data` volume, and
+supply pi credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
 [`docker/README.md`](docker/README.md) for the full env/volume/auth/security matrix.
 
 ## The `pi` provider

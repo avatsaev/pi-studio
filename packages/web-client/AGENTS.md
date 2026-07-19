@@ -122,6 +122,11 @@ npm run build:electron -w @av-pi-studio/web-client # Electron renderer build (re
 Dev-server WS proxy env: `PI_STUDIO_DAEMON_HOST` / `PI_STUDIO_DAEMON_PORT` (default `127.0.0.1:6767`),
 dev host/port via `WEB_CLIENT_DEV_HOST` / `WEB_CLIENT_DEV_PORT` (default `0.0.0.0:5173`).
 
+Docker: `docker/web-client.Dockerfile` builds the `build:web` output into an `nginx:alpine` static
+image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_DAEMON_UPSTREAM`);
+`docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
+entered at runtime, never baked into the image.
+
 ---
 
 ## Invariants

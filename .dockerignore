@@ -1,0 +1,42 @@
+# Dependencies + build outputs (rebuilt inside the image)
+node_modules
+**/node_modules
+packages/*/dist
+packages/*/*.tsbuildinfo
+**/*.tsbuildinfo
+
+# VCS + editor
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Tests + coverage (not needed at runtime; image builds prod artifacts only)
+**/*.test.ts
+**/*.test.tsx
+coverage
+**/coverage
+
+# Docs / specs / planning (not shipped in the image)
+clean-room-scope
+specs
+docs
+**/AGENTS.md
+**/*.md
+!packages/*/package.json
+
+# Docker + local env
+docker
+!docker/web-client.nginx.conf.template
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+.env
+.env.*
+
+# Misc local state
+*.log
+.DS_Store
+/tmp
+pi-studio.pid

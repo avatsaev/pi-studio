@@ -34,7 +34,7 @@ packages/
 clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Project docs.
-docker/             Dockerfiles + compose for the daemon and relay (see docker/README.md).
+docker/             Dockerfiles + compose for the daemon, relay, and web UI (see docker/README.md).
 ```
 
 ### Dependency graph (compile-time, from each package's `package.json`)
@@ -103,7 +103,7 @@ npm run start:server          # node packages/server/dist/daemon/main.js
 # Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 0.0.0.0)
 npm run dev:daemon
 
-# Docker: build + run daemon (:6767) and relay (:7000); daemon dials the relay
+# Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
 cd docker && docker compose up --build   # see docker/README.md
 ```
 

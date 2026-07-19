@@ -1,0 +1,94 @@
+# Pi-Studio — daemon + E2EE relay + web UI.
+#
+# Run from this directory:  docker compose up --build
+# (build context is the repo root, one level up.)
+#
+# The daemon opts into the relay so the full client -> relay -> daemon topology runs locally.
+# The web UI is served at http://localhost:${PI_STUDIO_WEB_PORT:-8080}; connect it to the daemon
+# by typing the daemon URL in the toolbar (e.g. http://localhost:6767), or use the same-origin
+# /daemon-ws proxy (host field: ws://localhost:8080/daemon-ws).
+# Point projects at the host directory you want agents to work in via PI_STUDIO_PROJECTS
+# (defaults to the repo checkout above). Set PI_STUDIO_PASSWORD before exposing beyond localhost.
+
+name: pi-studio
+
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: docker/relay.Dockerfile
+    image: pi-studio-relay
+    restart: unless-stopped
+    environment:
+      PI_STUDIO_RELAY_LISTEN: 0.0.0.0:7000
+    ports:
+      - "${PI_STUDIO_RELAY_PORT:-7000}:7000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:7000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  daemon:
+    build:
+      context: ..
+      dockerfile: docker/daemon.Dockerfile
+      args:
+        # Set to "true" to bundle the GitHub CLI for GitHub checkout features.
+        INSTALL_GH: "${PI_STUDIO_INSTALL_GH:-false}"
+    image: pi-studio-daemon
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    environment:
+      PI_STUDIO_HOME: /data
+      PI_STUDIO_LISTEN: 0.0.0.0:6767
+      # Optional connection password (bcrypt-checked). Strongly recommended before exposing.
+      PI_STUDIO_PASSWORD: "${PI_STUDIO_PASSWORD:-}"
+      # Opt into dialing the relay above (client can then reach the daemon through it).
+      PI_STUDIO_RELAY_ENABLED: "true"
+      PI_STUDIO_RELAY_ENDPOINT: relay:7000
+      PI_STUDIO_RELAY_USE_TLS: "false"
+      # pi provider auth — supply an API key here, or mount ~/.pi/agent/auth.json (see volumes).
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    ports:
+      - "${PI_STUDIO_DAEMON_PORT:-6767}:6767"
+    volumes:
+      # Persistent daemon state (agents, keypair, logs, registries).
+      - pi-studio-data:/data
+      # Host projects the agents operate on. Override with PI_STUDIO_PROJECTS=/abs/path.
+      - "${PI_STUDIO_PROJECTS:-..}:/workspace"
+      # Optional: mount pi credentials read-only instead of using ANTHROPIC_API_KEY.
+      # - "${HOME}/.pi/agent/auth.json:/home/node/.pi/agent/auth.json:ro"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:6767/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  web-client:
+    build:
+      context: ..
+      dockerfile: docker/web-client.Dockerfile
+    image: pi-studio-web-client
+    restart: unless-stopped
+    depends_on:
+      daemon:
+        condition: service_healthy
+    environment:
+      # Same-origin WebSocket proxy target for /daemon-ws (points at the daemon service).
+      PI_STUDIO_DAEMON_UPSTREAM: daemon:6767
+    ports:
+      - "${PI_STUDIO_WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  pi-studio-data:
