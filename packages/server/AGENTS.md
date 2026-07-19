@@ -10,8 +10,8 @@ Exposes a WebSocket JSON+binary API and an HTTP health/download endpoint.
 
 | Bin | File | Purpose |
 |-----|------|---------|
-| `pi-studio-daemon` | `src/daemon/main.ts` | Production daemon (minimal handler registry) |
-| _(dev script)_ | `src/daemon/dev-main.ts` | Dev daemon (all features wired, binds 0.0.0.0) |
+| `pi-studio-daemon` | `src/daemon/main.ts` | Production daemon (real Pi provider, disk persistence, full RPC surface via `bootstrap.ts`) |
+| _(dev script)_ | `src/daemon/dev-main.ts` | Dev daemon (in-memory persistence, mock provider only, minimal handler set via `dev-bootstrap.ts`) |
 
 ---
 
@@ -22,9 +22,16 @@ src/
   index.ts                        Public barrel (re-exports for desktop embedding).
   daemon/
     main.ts                       Production entry: parse env/config, wire bootstrap.ts, listen.
-    dev-main.ts                   Dev entry: wires dev-bootstrap.ts (all features).
-    bootstrap.ts                  Production handler wiring (minimal, stub registry).
-    dev-bootstrap.ts              Dev handler wiring (agents, terminals, chat, schedules, …).
+    dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only).
+    bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
+                                   projects/git/worktrees/GitHub, terminals, files, service proxy,
+                                   schedules/chat/loops, rewind, optional outbound relay).
+    dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
+                                   auth; a small handler subset for local testing.
+    orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
+                                   wired onto the real disk-backed services (bootstrap.ts only).
+    relay-transport.ts            connectRelay — outbound E2EE relay dial (@av-pi-studio/relay),
+                                   opt-in via config.daemon.relay.enabled (bootstrap.ts only).
 
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
@@ -35,6 +42,8 @@ src/
     session-operations.ts         Helpers: create, send, interrupt, update, resume, archive.
     timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
     timeline-rpc.ts               fetch_agent_timeline handler.
+    rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
+                                   time-travel; bootstrap.ts only).
     permissions.ts                PendingPermissions — park and resolve tool-call auth requests.
     manifest.ts                   ProviderManifest registry.
     structured-generation.ts      Structured output / JSON schema injection.
@@ -309,15 +318,25 @@ daemon versions.
   the last snapshot; no new Output frames will arrive.
 - **Service proxy auth bypass is intentional.** The service proxy route is not gated by daemon
   password auth (per spec). Do not add auth there.
-- **`dev-bootstrap.ts` must not be imported by `bootstrap.ts`** — it pulls in all feature
-  services and is only for local testing.
+- **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
+  `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
+  more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
+  git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
+  mock provider) for fast local iteration and must not grow that same surface.
+- **Relay connections need their own persistent `Session`, not a synthetic one built per message.**
+  Every relay frame must reuse the same `Session` for the life of one relay connection so the
+  `hello`→`status`/`server_info` handshake (which `routeTextFrame` does not itself understand) can
+  complete and capabilities persist across frames — see `relay-transport.ts`'s dispatch in
+  `bootstrap.ts` and its regression test in `bootstrap.test.ts` (a real cross-VM smoke test caught
+  this as a genuine bug: a bare relay dispatch that piped every message into `routeTextFrame`
+  directly hung every relay client indefinitely past the E2EE handshake).
 
 ---
 
 ## Testing
 
 ```bash
-npm test -- --project packages/server
+npx vitest run packages/server
 ```
 
 Each subsystem has co-located `*.test.ts` files. Provider tests inject stub transports;

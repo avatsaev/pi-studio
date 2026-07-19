@@ -46,6 +46,7 @@ src/
 
 | Export | Kind | Purpose |
 |--------|------|---------|
+| `clientTypeSchema` / `ClientType` | schema + type | `"mobile" \| "browser" \| "cli" \| "mcp"` |
 | `helloSchema` / `Hello` | Zod schema + type | Client→Server first frame (clientId, clientType, protocolVersion, capabilities) |
 | `statusSchema` / `Status` | schema + type | Server→Client `server_info` wrapper after handshake |
 | `serverInfoPayloadSchema` / `ServerInfoPayload` | schema + type | Payload inside `status` (serverId, hostname, version, capabilities, features) |
@@ -55,6 +56,10 @@ src/
 | `createAgentResponseSchema` / `CreateAgentResponse` | schema + type | Response with `agentId` |
 | `agentSessionConfigSchema` / `AgentSessionConfig` | schema + type | Provider/model/mode/run options |
 | `agentUpdateSchema` | schema | Broadcast: agent status/title/labels changed |
+| `agentStatusMessageSchema` | schema | Broadcast: bare agent status transition |
+| `agentListSchema` | schema | Broadcast/response: agent listing |
+| `agentDeletedSchema` | schema | Broadcast: agent hard-deleted |
+| `agentArchivedSchema` | schema | Broadcast: agent archived (soft delete) |
 | `agentStreamSchema` | schema | Broadcast: live agent turn event |
 | `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error |
 | `imageAttachmentSchema` / `ImageAttachment` | schema + type | User-message image attachment wire shape `{ mimeType?, data? }` (base64); provider adapters convert to their native prompt-image format |
@@ -62,10 +67,16 @@ src/
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
 | `fetchAgentTimelineResponseSchema` / `FetchAgentTimelineResponse` | schema + type | Paged timeline response (items, cursors, seq ranges) |
 | `agentPermissionRequestSchema` | schema | Daemon→Client tool-call permission request |
-| `respondToPermissionRequestSchema` | schema | Client→Daemon permission response (dotted name) |
+| `agentPermissionResolvedSchema` | schema | Broadcast: a permission request was resolved (by any client) |
+| `respondToPermissionRequestSchema` | schema | Client→Daemon permission response (dotted name `agent.permission.respond.request`) |
+| `respondToPermissionResponseSchema` | schema | Response to the above |
 | `legacyRespondToPermissionSchema` | schema | Accepted legacy flat name for the above |
+| `rewindModeSchema` / `RewindMode` | schema + type | `"conversation" \| "files" \| "both"` |
+| `agentRewindRequestSchema` / `AgentRewindRequest` | schema + type | `agent.rewind.request` — conversation/file time-travel |
+| `agentRewindResponseSchema` / `AgentRewindResponse` | schema + type | Response, includes `truncatedAt` |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
+| `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
 | `sessionEnvelopeSchema` / `SessionEnvelope` | schema + type | `{ type: "session", message }` top-level envelope |
 | `topLevelEnvelopeSchema` / `TopLevelEnvelope` | discriminated union | hello \| status \| ping \| pong \| session |
 | `rpcName(domain, sub, op, dir)` | function | Build a canonical dotted RPC name |
@@ -143,7 +154,7 @@ UI-only scaffolding types:
 ## Testing
 
 ```bash
-npm test -- --project packages/protocol   # run only protocol tests
+npx vitest run packages/protocol   # run only protocol tests
 # or from root:
 npm test
 ```

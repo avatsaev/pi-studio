@@ -1,21 +1,26 @@
 # `@av-pi-studio/relay` — AGENTS.md
 
-E2EE relay channel primitives. Lets a client reach a daemon behind a firewall/NAT without opening
-inbound ports, while the relay itself stays zero-knowledge (see
-`clean-room-scope/architecture/relay-e2ee.md`).
+E2EE relay channel primitives, plus a standalone runnable relay server. Lets a client reach a
+daemon behind a firewall/NAT without opening inbound ports, while the relay itself stays
+zero-knowledge (see `clean-room-scope/architecture/relay-e2ee.md`). Published to npm as
+`@av-pi-studio/relay`; ships both as a library and as a `pi-studio-relay` CLI binary.
 
 ---
 
 ## Purpose
 
 Provides the encrypted **channel** abstraction shared by the daemon (outbound relay dial,
-`packages/server`, sprint-032/task-002) and the client (relay transport, `packages/client`,
-sprint-032/task-003). Both sides construct a channel over an abstract `Transport` (any send/receive
-text-frame link — the concrete relay WebSocket is wired in by task-002/003) and get an identical
-API: `createDaemonChannel` / `createClientChannel`.
+`packages/server`'s `relay-transport.ts`) and the client (relay transport, `packages/client`'s
+`relay-transport.ts`). Both sides construct a channel over an abstract `Transport` (any send/receive
+text-frame link) and get an identical API: `createDaemonChannel` / `createClientChannel`.
 
-The relay itself (Cloudflare Workers adapter, `cf-adapter.ts`/`session-bridge.ts`) only ever
-forwards frames produced by this package — it never has the keys to read or forge them.
+Also ships two ways to actually run a relay:
+- **Hosted**: `cf-adapter.ts`/`session-bridge.ts` — a Cloudflare Workers WebSocketPair adapter.
+- **Self-hosted**: `relay-server.ts`/`relay-main.ts` — a plain Node process, runnable directly
+  (`npx @av-pi-studio/relay`) or managed by `packages/cli`'s `pi-studio relay start|stop|status`.
+
+Either way, the relay only ever forwards frames produced by this package's channel layer — it
+never has the keys to read or forge them.
 
 ---
 
@@ -24,6 +29,8 @@ forwards frames produced by this package — it never has the keys to read or fo
 ```
 src/
   index.ts             Re-exports channel.ts, base64.ts, session-bridge.ts, cf-adapter.ts.
+                        Deliberately does NOT re-export relay-server.ts (Node-only: node:http, ws)
+                        — see "./server" subpath export below.
   channel.ts           createClientChannel(), createDaemonChannel(), Transport,
                         EncryptedChannelEvents, ConnectionRole, RelaySessionAttachment,
                         EncryptedChannel.
@@ -39,6 +46,19 @@ src/
                         the `fetch` export) are OUT of scope — this is the reusable bridging hook a
                         `fetch` handler wires an upgrade through.
   cf-adapter.test.ts
+  relay-server.ts       startRelayServer() — standalone, runnable self-hosted relay: a plain Node
+                        `http`+`ws` WebSocket server wired to the same RelaySessionBridge, plus a
+                        bare `GET /health` (200 `ok`) liveness endpoint. Node-only (imports
+                        `node:http`, `ws`) — exposed via the `"./server"` package export subpath,
+                        NOT the main barrel, so it never drags `node:http` into a browser bundle
+                        that transitively imports this package (e.g. web-client, via
+                        `@av-pi-studio/client`'s relay transport).
+  relay-server.test.ts
+  relay-main.ts          Process entry (`bin: pi-studio-relay`). Reads `--listen host:port` /
+                        `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), calls
+                        startRelayServer(), shuts down cleanly on SIGINT/SIGTERM. This is what
+                        `npx @av-pi-studio/relay` runs directly and what `pi-studio relay start`
+                        (packages/cli's relay-control.ts) spawns as a detached child process.
 ```
 
 ---
@@ -124,6 +144,28 @@ structural `CfWebSocket`/`CfWebSocketPair` types instead of depending on
 `@cloudflare/workers-types`, so this zero-runtime-dependency package stays that way; the real
 Workers globals satisfy the structural shape naturally.
 
+## Public API (`src/relay-server.ts`, `src/relay-main.ts`)
+
+```ts
+function startRelayServer(opts: {
+  host?: string;  // default "0.0.0.0" — unlike the daemon, the relay must accept remote dials
+  port: number;
+}): Promise<{
+  host: string; port: number; bridge: RelaySessionBridge;
+  close(): Promise<void>;
+}>;
+```
+A plain Node `http` server exposing `GET /health` (200 `ok`) plus a `ws.WebSocketServer` that
+`attach()`es every incoming socket to a fresh `RelaySessionBridge` — daemon and client connections
+are treated identically; the bridge only distinguishes them by session id, never by role.
+
+`relay-main.ts` is the CLI-facing process entry (`bin: pi-studio-relay`): parses `--listen host:port`
+/ `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), calls `startRelayServer`, logs the bound
+address, and closes cleanly on `SIGINT`/`SIGTERM`. `packages/cli`'s `relay-control.ts` resolves
+`startRelayServer` via `import.meta.resolve("@av-pi-studio/relay/server")` (the subpath export, not
+the main barrel) to spawn/manage it as a supervised subprocess for `pi-studio relay
+start|stop|status`.
+
 ---
 
 ## Wire format
@@ -156,6 +198,12 @@ Workers globals satisfy the structural shape naturally.
   either side.
 - **`RelaySessionBridge.attach()` never inspects post-registration frames.** Adding any parsing
   there (even for debugging) breaks the zero-knowledge property the whole package exists for.
+- **`relay-server.ts` is never re-exported from the main barrel (`index.ts`).** It imports
+  `node:http`/`ws`; re-exporting it there would drag those Node-only imports into any bundler that
+  resolves this package's main entry — including browser builds of `web-client` (which transitively
+  imports `@av-pi-studio/relay` via `@av-pi-studio/client`'s relay transport). New Node-only
+  server-side additions belong behind the `"./server"` package.json export subpath, never the main
+  one; this was a real Vite build break caught and fixed during npm publish, not theoretical.
 
 ---
 
@@ -166,4 +214,5 @@ npx vitest run packages/relay/src/channel.test.ts
 npx vitest run packages/relay/src/base64.test.ts
 npx vitest run packages/relay/src/session-bridge.test.ts
 npx vitest run packages/relay/src/cf-adapter.test.ts
+npx vitest run packages/relay/src/relay-server.test.ts
 ```

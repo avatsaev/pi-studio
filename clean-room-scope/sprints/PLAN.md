@@ -274,7 +274,7 @@ Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-003 | Terminal pane (xterm) | s020; s016/task-004; s007/task-003 | features/feature-panels-ui, terminals |
 | task-004 | Browser pane & subagents track | s020; s016/task-005 | features/feature-panels-ui, subagents, service-proxy |
 
-### sprint-023-relay-e2ee
+### sprint-032-relay-e2ee
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
 | task-001 | Relay crypto + symmetric channels | s004/task-001 | architecture/relay-e2ee; MAIN-SCOPE §2 |
@@ -282,20 +282,20 @@ Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-003 | Client relay transport + pairing (QR fragment) | task-001; s007/task-001 | architecture/relay-e2ee, client-app-runtime |
 | task-004 | Cloudflare relay server adapter | task-002, task-003 | architecture/relay-e2ee; MAIN-SCOPE §6 |
 
-### sprint-024-desktop
+### sprint-033-desktop
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
-| task-001 | Electron shell + managed daemon supervisor | s013/task-001; s004/task-005; s017 (Vite build) | features/desktop-app; architecture/daemon-bootstrap, client-app-runtime |
-| task-002 | Multi-window model + land-on-project | task-001; s008/task-002; s014 | features/desktop-app |
+| task-001 | Electron shell + managed daemon supervisor | web-client (React+Vite DOM app, `build:web`/`build:electron` already wired); s004/task-005 | features/desktop-app; architecture/daemon-bootstrap, client-app-runtime |
+| task-002 | Multi-window model + land-on-project | task-001; s008/task-002 | features/desktop-app |
 | task-003 | Native integrations (dialogs/menus/titlebar/notifications/auto-update) | task-001 | features/desktop-app |
-| task-004 | In-app browser panes (webview) | task-003; s016/task-005 | features/desktop-app |
+| task-004 | In-app browser panes (webview) | task-003 | features/desktop-app |
 
-### sprint-025-ssh-gateway-connections
+### sprint-034-ssh-gateway-connections
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
-| task-001 | SSH gateway profile and security model | s013/task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
-| task-002 | Electron SSH tunnel manager | task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
-| task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s024/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
+| task-001 | SSH gateway profile and security model | s013/task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
+| task-002 | Electron SSH tunnel manager | task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
+| task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
 | task-004 | SSH connection UI and diagnostics | task-003; s013/task-002; s013/task-004 | architecture/ssh-gateway-connections; features/app-navigation-screens; features/desktop-app |
 | task-005 | Secret storage hardening, cleanup, and docs | task-004 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
 

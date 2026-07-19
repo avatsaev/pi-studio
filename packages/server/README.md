@@ -125,16 +125,21 @@ curl http://127.0.0.1:6767/api/health
 
 ### Dev daemon
 
-`src/daemon/dev-main.ts` is a development entry that wires the full feature surface and binds
-`0.0.0.0` with developer-friendly defaults. From the root:
+`src/daemon/dev-main.ts` is a development entry that wires only a **minimal handler subset**
+(`dev-bootstrap.ts`: agent list/archive/delete, workspaces/projects listing, providers, file
+read/diff, schedule listing — no terminals, git ops, worktrees, chat, loops, or relay), the mock
+provider, and in-memory state, and binds `0.0.0.0` with developer-friendly defaults. From the root:
 
 ```bash
 npm run dev:daemon
 ```
 
-> The production `bootstrap.ts` and dev `dev-bootstrap.ts` both register the full RPC surface;
-> `bootstrap.ts` is production-grade (real provider, disk persistence, config loading) while
-> `dev-bootstrap.ts` is for local testing and **must never be imported by `bootstrap.ts`**.
+> `bootstrap.ts` (production) registers the **full** RPC surface — agents, terminals, git/worktrees/
+> GitHub, files, service proxy, schedules/chat/loops, rewind, optional outbound relay — with the
+> real provider and disk persistence. `dev-bootstrap.ts` stays intentionally minimal for fast local
+> iteration and **must never grow to duplicate that surface**; `bootstrap.ts` must never import
+> `dev-bootstrap.ts` (the reverse — `dev-bootstrap.ts` importing one shared helper,
+> `wrapSessionEnvelope`, from `bootstrap.ts` — is fine and is what happens today).
 
 ---
 
@@ -301,17 +306,19 @@ All state lives under `$PI_STUDIO_HOME/`. Every write goes through `AtomicStore`
 (write-to-temp-then-rename) for crash safety.
 
 ```
-config.json                      Daemon config (password hash, provider overrides, service proxy, …)
-server-id                        Stable server identity
+config.json                      Daemon config (password hash, provider overrides, relay, service proxy, …)
+pi-studio.pid                    PID lock (prevents a second daemon owning this home)
+server-id                        Stable server identity (plain UUID via randomUUID())
+daemon-keypair.json              Persistent Curve25519 keypair (pairing / outbound relay E2EE)
 logs/                            Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
     <agentId>.json               Agent record (status, config, timeline seq, labels, …)
 chat/rooms.json                  Chat rooms + messages
-loops/<loopId>.json              Loop records
+loops/loops.json                 ALL loop records (single queued-write file, NOT one file per loop)
 schedules/<scheduleId>.json      Schedule records
-projects.json                    Project registry
-workspaces.json                  Workspace registry
+projects/projects.json           Project registry
+projects/workspaces.json         Workspace registry
 ```
 
 All entity schemas use `.passthrough()` and optional fields — unknown/future fields from a newer
@@ -394,7 +401,7 @@ development and rotating NDJSON to `$PI_STUDIO_HOME/logs/` in production. The le
 ## Development
 
 ```bash
-npm test -- --project packages/server   # run this package's Vitest suite
+npx vitest run packages/server           # run this package's Vitest suite
 npm run typecheck                        # tsc -b across all packages
 npm run lint                             # oxlint
 npm run fmt:check                        # oxfmt --check
@@ -416,8 +423,9 @@ real wall-clock timers in tests — await real completion signals instead.
 4. **All entity + wire schemas use `.passthrough()` and optional fields** — newer data must load on
    older daemons.
 5. **The wire protocol is append-only.** Never remove or narrow a field, never change a discriminant.
-6. **`dev-bootstrap.ts` must not be imported by `bootstrap.ts`.**
+6. **`bootstrap.ts` must never import `dev-bootstrap.ts`.** (The reverse — `dev-bootstrap.ts`
+   importing the shared `wrapSessionEnvelope` helper from `bootstrap.ts` — is fine and is what
+   happens today.)
 7. **Binary frame codecs are cross-platform** (`Uint8Array`, no Node `Buffer`).
 8. **`~` in `cwd` is expanded server-side** before it reaches a provider.
-```
 

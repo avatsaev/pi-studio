@@ -132,5 +132,5 @@ To add a new language:
 ## Testing
 
 ```bash
-npm test -- --project packages/highlight
+npx vitest run packages/highlight
 ```

@@ -1,23 +1,29 @@
 # `@av-pi-studio/client` — AGENTS.md
 
-Low-level WebSocket driver (`DaemonClient`) and high-level SDK facade (`PiStudioClient`).
-This package is consumed by `cli`, `app`, and any future web/desktop client.
+Low-level WebSocket driver (`DaemonClient`) and high-level SDK facade (`PiStudioClient`), plus
+relay E2EE transport, pairing, and binary-frame demux (terminal + file-transfer). This package is
+consumed by `cli` and `web-client`.
 
 ---
 
 ## Purpose
 
-Provides two layers:
+Provides:
 
-1. **`DaemonClient`** — low-level: WebSocket transport, `hello` handshake, JSON+binary framing,
-   RPC correlation (request → response by `requestId`), ping/pong liveness, session-message
-   fan-out, and a pluggable `Transport` abstraction.
+1. **`DaemonClient`** — low-level: WebSocket (or relay) transport, `hello` handshake, JSON+binary
+   framing, RPC correlation (request → response by `requestId`), ping/pong liveness, session-message
+   and binary-frame fan-out, and a pluggable `Transport` abstraction.
 2. **`PiStudioClient`** — high-level facade: typed handles for agents, workspaces, and providers
    that wrap `DaemonClient.request()` calls with named methods matching the server RPC types.
 3. **`ReconnectionManager`** — exponential backoff reconnector that re-issues the `hello`
    handshake after a socket drop and rehydrates `serverId`/`features`.
-4. **`TerminalStreamRouter`** — demuxes incoming binary terminal frames by slot and fan-outs them
-   to per-slot subscriber sets.
+4. **`TerminalStreamRouter`** — demuxes incoming binary terminal frames by slot to per-slot
+   subscribers, and encodes outbound input/resize frames.
+5. **`FileTransferClient`** — demuxes incoming binary file-download frames, assembling
+   `Begin → Chunk* → End` into one buffer per request.
+6. **`createRelayTransport`** + **`parsePairingUrl`** — the client side of the E2EE relay: connects
+   through a relay server instead of directly to the daemon, using the same `Transport` interface
+   as a direct WebSocket, so `DaemonClient` doesn't need to know which one it's using.
 
 ---
 
@@ -26,15 +32,61 @@ Provides two layers:
 ```
 src/
   index.ts                    Public barrel (re-exports everything below).
-  daemon-client.ts            DaemonClient — WS driver, handshake, RPC, liveness.
+  transport.ts                Transport interface + AnyWebSocket/WsFactory + createWebSocketTransport().
+  relay-transport.ts          createRelayTransport() — E2EE relay Transport (same interface as direct WS).
+  relay-transport.test.ts
+  pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host).
+  daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
   daemon-client.test.ts
-  pistudio-client.ts          PiStudioClient — high-level SDK facade.
+  pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles.
   pistudio-client.test.ts
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
-  terminal-stream-router.ts   TerminalStreamRouter — binary frame demux by slot.
+  terminal-stream-router.ts   TerminalStreamRouter — binary terminal frame demux/encode by slot.
   terminal-router.test.ts
-  transport.ts                Transport interface + createWebSocketTransport().
+  file-transfer-client.ts     FileTransferClient — binary file-download frame demux + assembly.
+  file-transfer-client.test.ts
 ```
+
+---
+
+## `Transport` interface (`transport.ts`)
+
+The abstraction shared by direct WebSocket and relay transports — `DaemonClient` only ever talks
+to this interface, never to a raw socket:
+
+```ts
+interface Transport {
+  connect(url: string): Promise<void>;      // resolves once the raw connection is open (pre-handshake)
+  sendText(data: string): void;
+  sendBinary(data: Uint8Array): void;
+  close(code?: number, reason?: string): void;
+  readonly isOpen: boolean;
+
+  onMessage: ((data: string | ArrayBuffer | Blob) => void) | null;
+  onClose: ((code: number, reason: string) => void) | null;
+  onError: ((error: unknown) => void) | null;
+}
+```
+
+`createWebSocketTransport(factory?: WsFactory)` — default direct-WebSocket implementation.
+`factory` is an injectable `(url, protocols?) => AnyWebSocket` (tests, or a custom factory carrying
+a bearer-password subprotocol — see `web-client`'s `connection-store.ts` for that pattern). With no
+factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). Handles Node `ws`'s `Buffer` message
+type and the browser's default `Blob` `binaryType` in addition to `string`/`ArrayBuffer`.
+
+`createRelayTransport({ sessionId, daemonPublicKey, factory? })` (`relay-transport.ts`) — implements
+the identical `Transport` interface over an E2EE relay: dials the relay's own WebSocket address
+(NOT the daemon's), registers under `sessionId` (matching the daemon's outbound registration
+convention, `packages/server/src/daemon/relay-transport.ts`), completes the `e2ee_hello`/`e2ee_ready`
+handshake via `createClientChannel` (`@av-pi-studio/relay`) with a **fresh ephemeral** keypair, and
+only reports `isOpen` once that handshake finishes — no app RPC (including `hello`) can cross the
+wire before then. `sendBinary()` throws: binary frames (terminal/file-transfer) are not supported
+over the E2EE relay channel.
+
+`parsePairingUrl(input)` (`pairing.ts`) parses a pairing URL's fragment (`#offer=<base64>&host=...`)
+into `{ publicKeyB64, publicKey, host? }`, ready to feed `createRelayTransport`'s
+`daemonPublicKey`. Returns `null` (never throws) if no `offer` param is present — callers must treat
+that as "not a valid pairing link," never fall back to an unauthenticated connection.
 
 ---
 
@@ -48,11 +100,16 @@ src/
 
 | Method | Description |
 |--------|-------------|
-| `connect()` | Open the transport, wait for `server_info` (resolves after hello→status handshake) |
-| `disconnect()` | Graceful close |
-| `request<T>(type, payload, opts?)` | Send a session RPC, await correlated response. Rejects with `RpcError` or `RpcTimeoutError`. |
+| `connect()` | Open the transport, complete the `hello`→`server_info` handshake. Resolves with the `ServerInfoPayload`. |
+| `close(code?, reason?)` | Close the transport. There is no separate `disconnect()`. |
+| `request<T>(type, params?, timeoutMs?)` | Send a session RPC, await correlated response. Rejects with `RpcError` or `RpcTimeoutError`. |
+| `sendSession(message)` | Fire-and-forget session message (wrapped in a `session` envelope) — no response awaited. |
+| `sendBinary(data)` | Send a raw binary frame (terminal/file-transfer) via the transport. |
+| `ping(timeoutMs?)` | Send a JSON `ping`, await the correlated `pong` (NOT RFC 6455 ping). |
+| `hasFeature(flag)` | `true` iff the last `server_info.features.<flag>` was truthy. |
 | `onSessionMessage(handler)` | Subscribe to all inbound session messages. Returns unsubscribe fn. |
-| `onTerminalFrame(handler)` | Subscribe to all binary terminal frames. Returns unsubscribe fn. |
+| `onTerminalFrame(handler)` | Subscribe to decoded inbound terminal binary frames. Returns unsubscribe fn. |
+| `onFileTransferFrame(handler)` | Subscribe to decoded inbound file-transfer binary frames. Returns unsubscribe fn. |
 | `onStateChange(handler)` | Subscribe to connection state transitions. Returns unsubscribe fn. |
 | `state` | Current `ConnectionState` |
 | `serverId` | Server identity from the last `server_info` |
@@ -70,13 +127,13 @@ src/
 
 ```ts
 {
-  url: string;              // WebSocket URL (e.g. "ws://127.0.0.1:6767")
+  url: string;              // WebSocket URL (e.g. "ws://127.0.0.1:6767") — passed to transport.connect()
   clientId: string;         // Stable client identity sent in hello
   clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp"
   protocolVersion?: number; // Defaults to PROTOCOL_VERSION = 1
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise
-  transport?: Transport;    // Inject for tests or relay; defaults to native WebSocket
+  transport?: Transport;    // Inject for tests or relay; defaults to createWebSocketTransport()
   rpcTimeoutMs?: number;    // Default RPC timeout; operation-level only, no socket teardown
   now?: () => number;       // Inject clock for deterministic tests
 }
@@ -87,8 +144,9 @@ src/
 - **Text frames**: parsed as `TopLevelEnvelope`. `ping` triggers an immediate `pong`. `session`
   envelopes are broadcast to all `onSessionMessage` subscribers. `status`/`pong` are handled
   internally (handshake resolution / liveness tracking).
-- **Binary frames**: decoded by `decodeTerminalFrame()` from `@av-pi-studio/protocol`, then
-  broadcast to all `onTerminalFrame` subscribers.
+- **Binary frames**: decoded first via `decodeTerminalFrame()`, then (if that fails) via
+  `tryDecodeFileTransferFrame()` (both from `@av-pi-studio/protocol`), and broadcast to the matching
+  `onTerminalFrame`/`onFileTransferFrame` subscribers.
 
 ---
 
@@ -121,7 +179,8 @@ const client = new PiStudioClient(daemonClient);
 | `interrupt()` | `interrupt_agent` |
 | `update(patch)` | `update_agent` (model/mode/thinking/features/title/labels) |
 | `resume()` | `resume_agent` |
-| `archive()` | `archive_agent` |
+| `archive()` | `archive_agent` (soft-delete — keeps the record, can resume) |
+| `delete()` | `delete_agent` (hard delete — no trace, cannot resume) |
 | `onUpdate(handler)` | Subscribe to `agent_update` for this agent only |
 | `timeline.fetch(opts?)` | `fetch_agent_timeline_request` |
 | `timeline.subscribe(handler)` | Subscribe to `agent_stream` for this agent only |
@@ -133,7 +192,7 @@ const client = new PiStudioClient(daemonClient);
 | `listProviders()` | `list_providers` |
 | `listModels(provider)` | `list_provider_models` |
 | `listModes(provider)` | `list_provider_modes` |
-| `refreshSnapshot()` | `providers.snapshot.refresh.request` |
+| `refreshSnapshot()` | `providers.snapshot.refresh.request` (one of the rare dotted-name RPCs — see root `AGENTS.md` § Protocol overview) |
 
 ### `importAgentSession(daemon, args)` (named export)
 
@@ -145,7 +204,8 @@ Sends `import_agent_session` RPC — not agent-scoped.
 
 Drives automatic reconnect after socket drop:
 
-- Exponential backoff with configurable `initialDelayMs`, `maxDelayMs`, `factor`, `jitter`.
+- Exponential backoff with configurable `initialDelayMs`, `maxDelayMs`, `factor`, `jitter`,
+  `maxAttempts` (default `Infinity`).
 - On each attempt: calls `daemonClient.connect()` which re-issues the full `hello` handshake.
 - Fires `onReconnected(handler)` after success; `onReconnectFailed(handler)` on error.
 - All timer/RNG dependencies are injectable for deterministic tests.
@@ -161,32 +221,38 @@ mgr.stop();    // disarm
 
 ## `TerminalStreamRouter` (`terminal-stream-router.ts`)
 
-Demuxes binary terminal frames by `slot`:
+Demuxes inbound binary terminal frames by `slot` to per-slot callback sets, and encodes outbound
+input/resize:
 
 ```ts
-const router = new TerminalStreamRouter();
-const unsub = router.subscribe(slot, (frame: TerminalFrame) => { … });
-router.handleFrame(frame);   // called from DaemonClient.onTerminalFrame()
+const router = new TerminalStreamRouter(daemonClient);
+router.start();                                   // begin routing (idempotent)
+const unsub = router.subscribeSlot(slot, {
+  onOutput: (data) => { … },                      // opcode Output
+  onSnapshot: (data) => { … },                     // opcode Snapshot (sent on (re)subscribe)
+  onRestore: (data) => { … },                      // opcode Restore (reflowable/mode-gated)
+});
+router.hasSlot(slot);                             // true iff a subscriber is registered
+router.sendInput(slot, bytes);                    // opcode Input = 0x02
+router.sendResize(slot, rows, cols);              // opcode Resize = 0x03
+router.stop();                                    // stop routing; subscribers retained
 ```
+A frame for a slot with no registered subscriber is silently dropped.
 
 ---
 
-## `Transport` interface (`transport.ts`)
+## `FileTransferClient` (`file-transfer-client.ts`)
+
+Mirrors `TerminalStreamRouter`'s inbound-frame-routing shape, but a download is a one-shot
+request/response rather than a persistent per-slot subscription:
 
 ```ts
-interface Transport {
-  connect(): Promise<void>;
-  send(data: string | Uint8Array): void;
-  close(code?: number, reason?: string): void;
-  onMessage(handler: (data: string | Uint8Array) => void): () => void;
-  onClose(handler: (code: number, reason: string) => void): () => void;
-  onError(handler: (err: Error) => void): () => void;
-  readonly readyState: "connecting" | "open" | "closing" | "closed";
-}
+const files = new FileTransferClient(daemonClient);
+files.start();                                    // begin routing (idempotent)
+const { bytes, fileName, mimeType } = await files.download(path);
+// requests a single-use token, then the chunked transfer, assembling Begin → Chunk* → End
+files.stop();                                     // stop routing; pending downloads are rejected
 ```
-
-`createWebSocketTransport(url, password?)` returns the default browser/Node WebSocket-backed
-implementation. Inject a stub `Transport` in tests or wire in the relay transport (sprint-013).
 
 ---
 
@@ -196,8 +262,10 @@ implementation. Inject a stub `Transport` in tests or wire in the relay transpor
 - **`clientId` must be stable** across reconnects (same session identity).
 - **`hello` is re-sent on every `connect()` call**, including reconnects — `DaemonClient` always
   sends the same capabilities map so reconnect rehydrates them transparently.
-- **No DOM/Node-specific globals** in `daemon-client.ts` or `transport.ts` except inside
-  `createWebSocketTransport` (which is not imported by the base driver).
+- **`createRelayTransport`'s `sendBinary()` throws.** The E2EE relay channel carries text-frame app
+  traffic only — terminal/file-transfer binary frames have no relay path today.
+- **`createRelayTransport` always generates a FRESH ephemeral keypair per channel** — never reuse
+  one across connections; only the daemon's public key (from the pairing offer) is persistent.
 - **`crypto.randomUUID`** is used for request IDs with a `Date.now()`+`Math.random()` fallback for
   environments that lack it.
 
@@ -206,7 +274,7 @@ implementation. Inject a stub `Transport` in tests or wire in the relay transpor
 ## Testing
 
 ```bash
-npm test -- --project packages/client
+npx vitest run packages/client
 ```
 
 Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets.

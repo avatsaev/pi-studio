@@ -96,7 +96,7 @@ any character no matcher recognizes is emitted one-at-a-time as `text` rather th
 
 ```bash
 npm run build       # tsc -b
-npm test -- --project packages/highlight
+npx vitest run packages/highlight
 ```
 
 No `dependencies` in `package.json` — keep it that way; this package must stay usable anywhere

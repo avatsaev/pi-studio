@@ -2,8 +2,9 @@
 
 Self-hosted, local-first system for running and controlling the **Pi** AI coding agent. A long-lived
 **daemon** runs on your machine, manages agent processes, terminals, git worktrees, and projects, and
-exposes a WebSocket API. Clients (the CLI today; mobile/web/desktop apps in later sprints) connect to
-the daemon to observe and drive agents.
+exposes a WebSocket API. Clients — a **CLI** and a **React/Vite web UI** today, native desktop/mobile
+apps in later sprints — connect to the daemon to observe and drive agents. An optional **E2EE relay**
+lets a client reach a daemon behind NAT/firewall without exposing it directly.
 
 Your code never leaves your machine.
 
@@ -20,7 +21,7 @@ Your code never leaves your machine.
 
 ```bash
 npm install
-npm run build          # builds all workspace packages (protocol → … → server → cli)
+npm run build          # builds all workspace packages in dependency order (protocol → … → cli)
 ```
 
 You can also build just the daemon:
@@ -44,12 +45,16 @@ start it directly without rebuilding:
 npm run start:server   # node packages/server/dist/daemon/main.js
 ```
 
-By default the daemon:
+By default the production daemon:
 
-- listens on **`127.0.0.1:6767`**
+- listens on **`0.0.0.0:6767`** (reachable over the LAN; override with `PI_STUDIO_LISTEN`)
 - stores all state under **`$PI_STUDIO_HOME`** (default **`~/.pi-studio`**)
 - writes rotating NDJSON logs to **`$PI_STUDIO_HOME/logs/`**
 - writes a PID lock at **`$PI_STUDIO_HOME/pi-studio.pid`**
+- generates a persistent Curve25519 keypair at **`$PI_STUDIO_HOME/daemon-keypair.json`** (used for
+  relay pairing; see [Relay](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall))
+- registers the **full** RPC surface (agents, terminals, git/worktrees, projects, chat, loops,
+  schedules, files, providers) — this is the real daemon (`bootstrap.ts`), not a stub
 
 It runs in the foreground; press **Ctrl-C** (SIGINT) or send SIGTERM to shut down cleanly (the PID
 lock is released and the HTTP/WS servers close).
@@ -61,6 +66,8 @@ curl http://127.0.0.1:6767/api/health
 # → {"status":"ok"}
 ```
 
+`GET /api/health` is exempt from the Host-header allowlist and password auth.
+
 ### Configuration (environment variables)
 
 All are optional; the daemon also reads `$PI_STUDIO_HOME/config.json`.
@@ -68,10 +75,14 @@ All are optional; the daemon also reads `$PI_STUDIO_HOME/config.json`.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State + config + logs directory |
-| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`) |
+| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Daemon listen address (`host:port`) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
-| `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values |
-| `PI_STUDIO_SERVER_ID` | _(generated)_ | Stable server identity |
+| `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
+| `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
+| `PI_STUDIO_LOG_LEVEL` | `info` | pino log level |
+| `PI_STUDIO_RELAY_ENABLED` | `false` | Opt in to dialing out to a relay (see below) |
+| `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay `host:port` to dial |
+| `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` to reach the relay |
 
 Example — run on a different port with a password and an isolated home:
 
@@ -82,29 +93,27 @@ PI_STUDIO_PASSWORD=hunter2 \
 npm run start:server
 ```
 
-## Start it via the CLI (alternative)
+## Drive it from the CLI
 
-The `@av-pi-studio/cli` package provides a `pi-studio` command. After `npm run build`, you can run it
-through the workspace bin:
+The `@av-pi-studio/cli` package provides a `pi-studio` command. After `npm run build`, run it through
+the workspace bin:
 
 ```bash
 # start a local daemon (if one isn't already running) and print a pairing QR code
 node packages/cli/dist/cli.js daemon start
 
-# report daemon health
+# report daemon health / stop it
 node packages/cli/dist/cli.js daemon status
+node packages/cli/dist/cli.js daemon stop
 
 # set a daemon password (bcrypt-hashed into config.json; enforced on next start)
 node packages/cli/dist/cli.js daemon set-password hunter2
-
-# stop the local daemon
-node packages/cli/dist/cli.js daemon stop
 ```
 
 > Tip: `npm link` inside `packages/cli` (or installing the package) exposes the `pi-studio` binary on
 > your `PATH` so you can run `pi-studio daemon start` directly.
 
-Once a daemon is running, drive agents with the CLI:
+Once a daemon is running, drive agents:
 
 ```bash
 node packages/cli/dist/cli.js run --provider pi/<model> "implement user authentication"
@@ -113,90 +122,122 @@ node packages/cli/dist/cli.js attach <agentId>   # stream the live timeline
 node packages/cli/dist/cli.js --host workstation.local:6767 ls   # target a remote daemon
 ```
 
-Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`, `daemon`, `chat`,
-`terminal`, `loop`, `schedule`, `permit`, `provider`, `worktree`).
+Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`run`/`ls`/`attach`,
+`daemon`, `relay`, `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, `worktree`).
 
-## Temporary UI POC (visual feature testing)
+## Web UI (`packages/web-client`)
 
-A throwaway browser UI under [`poc/`](poc/) lets you exercise every feature visually. It talks the
-daemon WebSocket protocol directly (no build step, vanilla JS).
-
-> **Note:** the production daemon (`npm start`) ships an *empty* handler registry — feature wiring is
-> a later sprint. The POC therefore runs a **dev daemon** (`dev-bootstrap.ts`) that wires **all**
-> feature services (agents, terminals, chat, schedules, loops, projects/git/worktrees, files,
-> providers) onto the live registry. It's for local testing only; `bootstrap.ts` stays untouched.
-
-Two terminals:
+`@av-pi-studio/web-client` is the production React 19 + Vite 6 browser UI — a three-column workspace
+(sessions sidebar, tabbed chat/terminal center, files/changes sidebar). It talks to the daemon only
+through the `@av-pi-studio/client` SDK (never a raw WebSocket).
 
 ```bash
-# 1) build + start the dev daemon (all features wired). Binds 0.0.0.0:6767 by default so it's
-#    reachable over the LAN; prints ready-to-use connect URLs on startup.
+# run the dev daemon (all features + mock provider available) in one terminal
 npm run dev:daemon
 
-# 2) serve the UI (binds 0.0.0.0:7070 by default)
-npm run poc
+# run the Vite dev server in another
+npm run dev -w packages/web-client        # http://localhost:5173
 ```
 
-The dev daemon prints connect URLs on startup, e.g.:
+Enter the daemon URL (`ws://127.0.0.1:6767`) and optional password in the toolbar and click
+**Connect**. The password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
+static bundle: `npm run build:web-client` (or `build:electron -w packages/web-client` for the
+future Electron shell in `packages/desktop`).
 
+> `npm run dev:daemon` runs `dev-main.js` → `dev-bootstrap.ts`, a **minimal** dev daemon (mock
+> provider, a small handler subset) for iterating on the UI without credentials. It is **not** the
+> production daemon — `npm start` / `main.ts` / `bootstrap.ts` is.
+
+## Optional: E2EE relay (reaching a daemon behind NAT/firewall)
+
+By default a client connects **directly** to the daemon's WebSocket. When the daemon can't accept
+inbound connections (behind NAT, no port-forward), the `@av-pi-studio/relay` package provides an
+end-to-end encrypted rendezvous: the daemon dials **outbound** to a relay, the client connects to the
+same relay, and all application traffic is encrypted with Curve25519 ECDH + XSalsa20-Poly1305 (NaCl
+`box`). The relay is **untrusted and zero-knowledge** — it forwards ciphertext frames verbatim, keyed
+by session id, and never sees message contents, only metadata.
+
+The relay is **fully opt-in**: with `daemon.relay.enabled` unset (default `false`), the daemon behaves
+exactly as if the package weren't installed.
+
+### Simple setup — direct connection (default, no relay)
+
+The client reaches the daemon's WebSocket directly. Nothing extra to run.
+
+```mermaid
+graph LR
+  C["Client<br/>(CLI / web UI)"] -- "ws(s)://daemon:6767<br/>hello → status → RPC" --> D["Daemon<br/>(server)"]
+  D --> A["Pi agent<br/>(pi --mode rpc)"]
 ```
-Pi-Studio DEV daemon listening on 0.0.0.0:6767 (all features wired, bundled pi)
-  connect: ws://192.168.1.20:6767   POC: http://192.168.1.20:7070/?host=ws://192.168.1.20:6767&connect=1
+
+### Scaled setup — client → relay → daemon (daemon behind NAT)
+
+The daemon dials **outbound** to the relay (so no inbound port is needed on the daemon's network).
+The client dials the relay too. Both register the same `sessionId`; the relay pairs the two sockets
+and blindly forwards frames. The E2EE channel is established **end-to-end between client and daemon**,
+so the relay never holds decryptable traffic.
+
+```mermaid
+graph LR
+  subgraph client_net["Client network"]
+    C["Client<br/>(CLI / web UI)"]
+  end
+  subgraph public["Public / reachable host"]
+    R["Relay server<br/>(pi-studio-relay :7000)<br/>zero-knowledge bridge"]
+  end
+  subgraph daemon_net["Daemon network (NAT / firewall)"]
+    D["Daemon<br/>(server)"]
+    A["Pi agent"]
+  end
+
+  D -- "① outbound dial<br/>relay_register{sessionId}" --> R
+  C -- "② dial + relay_register{sessionId}" --> R
+  R -. "③ pairs sockets by sessionId,<br/>forwards ciphertext verbatim" .- R
+  C == "④ E2EE tunnel (Curve25519 + NaCl box)<br/>opaque to the relay" ==> D
+  D --> A
 ```
 
-Open the printed POC URL from any device on the network and it auto-connects. (Locally, just open
-<http://127.0.0.1:7070> and click **Connect**.) The default agent provider is **pi**; switch the
-provider dropdown to **mock** for a dependency-free smoke test.
+Handshake order over the relay: both sides send `relay_register{sessionId}` → client sends
+`e2ee_hello{ephemeralPublicKey}` → daemon replies `e2ee_ready` → all further traffic is
+`e2ee_app{frame}` ciphertext. Only **after** the E2EE tunnel is up does the normal
+`hello → status → RPC` protocol run inside it.
 
-### Running on a network
+### Running a relay + pointing a daemon at it
 
-The daemon is a WebSocket server, and the POC is a plain web page that connects to it by URL — so you
-can run the daemon on one machine and connect from another (laptop, phone) over the LAN:
+```bash
+# 1) start a relay on a reachable host (defaults to 0.0.0.0:7000)
+npx @av-pi-studio/relay --listen 0.0.0.0:7000
+# or via the CLI, managed as a local process:
+pi-studio relay start --listen 0.0.0.0:7000
 
-- The daemon binds `0.0.0.0:6767` by default (override with `PI_STUDIO_LISTEN=host:port`). Connect via
-  the server's IP: `?host=ws://SERVER_IP:6767`. Literal IP addresses are always accepted by the
-  Host-header allowlist, so no extra config is needed.
-- To reach the server by **hostname** instead of IP, add it to the allowlist:
-  `PI_STUDIO_HOSTNAMES=my-box.local` (localhost/`*.localhost` are always allowed).
-- Set a password with `PI_STUDIO_PASSWORD=…` and pass it in the POC's **password** field (or
-  `&password=…`) before exposing the daemon beyond a trusted network.
+# 2) point the daemon at it (config.json)
+#    { "daemon": { "relay": { "enabled": true, "endpoint": "relay-host:7000", "useTls": false } } }
+#    or env: PI_STUDIO_RELAY_ENABLED=true PI_STUDIO_RELAY_ENDPOINT=relay-host:7000
+```
 
-The UI has panels for providers, agents (create/run/list/inspect/send/stop/wait/timeline + a live
-event stream), terminals, chat rooms, schedules, loops, projects/git/worktrees, files, and a raw-RPC
-console. The right-hand **event log** shows every request, response, `rpc_error`, and broadcast
-(`agent_stream`, `agent_update`, …).
+The client then pairs via a pairing URL (carrying the daemon's public key + relay session id) and
+swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API works unchanged. See
+[`packages/relay/README.md`](packages/relay/README.md) for the full protocol and library API.
 
-The top **Chat (streaming)** panel is a simple conversational view: pick a provider, type a message,
-and the assistant's reply streams into a growing bubble (with tool-call / reasoning lines). The first
-message creates an agent; subsequent messages continue it. "new conversation" starts a fresh agent.
+## The `pi` provider
 
-Handy URL params for auto-connecting: `?host=ws://127.0.0.1:6767&connect=1` (and `&password=…`).
-You can also auto-send a first chat message for testing: `&provider=mock&say=hello`.
-The POC server honours `POC_PORT` and `POC_BIND` env vars.
+The `pi` CLI is **bundled** inside `@earendil-works/pi-coding-agent` — the daemon launches
+`node <pkg>/dist/cli.js --mode rpc`, so **no global `pi` install is required**. You only need pi
+*authenticated*: set `ANTHROPIC_API_KEY` (etc.) in the daemon's environment, or have
+`~/.pi/agent/auth.json` configured.
 
-### Troubleshooting: pi provider unavailable
-
-The `pi` CLI is **bundled** inside the `@earendil-works/pi-coding-agent` dependency — the daemon
-launches `node <pkg>/dist/cli.js --mode rpc`, so **no global `pi` install is required**. You only need
-pi *authenticated* (an API key or stored credentials): either set `ANTHROPIC_API_KEY` (etc.) in the
-daemon's environment, or have `~/.pi/agent/auth.json` configured.
-
-If you want to use a *different* pi than the bundled one, point the daemon at an absolute path in
+To use a *different* pi than the bundled one, point the daemon at an absolute path in
 `$PI_STUDIO_HOME/config.json`:
 
 ```json
 { "agents": { "providers": { "pi": { "command": ["/abs/path/to/pi", "--mode", "rpc"] } } } }
 ```
 
-Or just switch the POC's **provider** dropdown to **mock** for a dependency-free test.
-
-A missing/unresolvable pi surfaces as a clean `rpc_error` in the event log ("Pi provider
-unavailable…") instead of crashing the daemon.
-
-The daemon speaks the real Pi RPC protocol (`pi --mode rpc`, strict JSONL): a `create_agent` with the
-`pi` provider runs an actual model turn and streams `assistant_message` deltas, tool calls, and
-`turn_completed` into the event log. A literal `~` in the `cwd` field is expanded to your home
-directory.
+A missing/unresolvable pi surfaces as a clean `rpc_error` ("Pi provider unavailable…") instead of
+crashing the daemon. The daemon speaks the real Pi RPC protocol (strict JSONL): a `create_agent` with
+the `pi` provider runs an actual model turn and streams `assistant_message` deltas, tool calls, and
+`turn_completed`. A literal `~` in the `cwd` field is expanded to your home directory. For a
+dependency-free smoke test, use the `mock` provider instead.
 
 ## Development
 
@@ -207,21 +248,36 @@ npm run lint        # oxlint
 npm run fmt:check   # oxfmt --check
 ```
 
+Per-package tests run with `npx vitest run packages/<pkg>` (this repo has no vitest
+`--project` workspace config).
+
 ## Project layout
 
 ```
 packages/
-  protocol/   wire schemas + shared protocol types
-  client/     low-level daemon WS driver + PiStudioClient SDK facade
-  server/     the daemon (agents, terminals, git, projects, orchestration)
-  cli/        pi-studio terminal client + local daemon/relay control
-  highlight/  syntax-highlight helper
-  relay/      E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
-  web-client/ production React/Vite browser UI
-  desktop/    Electron wrapper (later sprint)
-poc/                temporary browser UI for visual feature testing
+  protocol/    wire schemas + shared protocol types (zero workspace deps)
+  client/      low-level daemon WS driver + PiStudioClient SDK facade
+  server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
+  cli/         pi-studio terminal client + local daemon/relay lifecycle control
+  highlight/   server-side syntax-highlight helper
+  relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
+  web-client/  production React/Vite browser UI
+  desktop/     Electron wrapper (later sprint — placeholder)
 clean-room-scope/   specifications + the sprint implementation plan
 ```
 
+Compile-time dependency graph:
+
+```
+protocol  ─────────────────────────────► (no workspace deps)
+highlight ─────────────────────────────► (no workspace deps)
+relay     ─────────────────────────────► (no workspace deps)
+client    ──────► protocol, relay
+server    ──────► protocol, highlight, relay
+cli       ──────► protocol, client, relay  (+ resolves server/web-client paths, no runtime import)
+web-client──────► protocol, client
+```
+
 The detailed specifications live under [`clean-room-scope/`](clean-room-scope/) —
-[`MAIN-SCOPE.md`](clean-room-scope/MAIN-SCOPE.md) is the entry point.
+[`MAIN-SCOPE.md`](clean-room-scope/MAIN-SCOPE.md) is the entry point. Each package also has its own
+`README.md` and `AGENTS.md`.

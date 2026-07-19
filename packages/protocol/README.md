@@ -92,7 +92,7 @@ These are enforced by convention and by the package's own tests, not by tooling:
 
 ```bash
 npm run build       # tsc -b
-npm test -- --project packages/protocol
+npx vitest run packages/protocol
 ```
 
 Tests are Vitest and live alongside their source files as `*.test.ts`.

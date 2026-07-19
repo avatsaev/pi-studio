@@ -3,7 +3,8 @@
 - **Sprint:** sprint-033-desktop
 - **Status:** backlog
 - **Estimated size:** M
-- **Depends on:** sprint-028 (full web app complete); sprint-004/task-005 (daemon bootstrap)
+- **Depends on:** web-client (React+Vite DOM app, `build:web`/`build:electron` targets already
+  wired); sprint-004/task-005 (daemon bootstrap)
 
 ## Goal
 Stand up the Electron main/preload shell that supervises a bundled daemon subprocess and loads the
@@ -26,10 +27,19 @@ web build of the app.
 - A bridge method to read/switch `desktopDaemonMode` at runtime: switching to `"embedded"` starts the
   local daemon immediately (no relaunch); switching to `"remote-only"` while the embedded host is the
   only saved host surfaces a confirmation first (renderer-side; see sprint-013/task-002).
-- Renderer detects Electron via `getIsElectron()`. The renderer is the **Vite-built React DOM app**
-  (`packages/app`, `VITE_TARGET=electron` build); `createWindow()` loads that bundle. Electron-only
-  modules (`*.electron.ts(x)`) are loaded via guarded dynamic `import()` (see
-  architecture/client-app-runtime § Platform rules).
+- Renderer detects Electron via `getIsElectron()` — **new work**: `web-client` has no Electron
+  detection or platform-gating module yet, so this task adds it (e.g. `src/platform/electron.ts`),
+  reads `import.meta.env.VITE_TARGET === "electron"` and/or the preload-injected marker, and is
+  cached per the existing `build:electron` Vite target. The renderer itself is the **Vite-built
+  React DOM app** (`packages/web-client`, `VITE_TARGET=electron` build via its existing
+  `build:electron` script); `createWindow()` loads that bundle
+  (`packages/web-client/dist/electron/index.html`). Electron-only modules (`*.electron.ts(x)`) are
+  loaded via guarded dynamic `import()` (see architecture/client-app-runtime § Platform rules).
+- `connection-store.ts`'s `connect()` currently only takes a URL typed by the user in the toolbar —
+  **new work**: it must also accept a daemon URL injected via `window.piStudio.daemonUrl` (set by
+  the preload bridge) so Electron can supply the local daemon address without the user typing it;
+  the browser path (toolbar input / URL params) is unchanged and takes precedence only when no
+  injected URL is present.
 
 ## Out of scope
 - Multi-window/land-on (task-002). Native integrations (task-003). Browser panes (task-004).

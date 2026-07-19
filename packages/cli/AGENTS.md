@@ -109,11 +109,14 @@ Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 |---------|-------------|
 | `daemon start` | Spawn a local daemon (if not already running), print pairing QR |
 | `daemon stop` | Send SIGTERM to the local daemon |
+| `daemon restart` | Stop then start the local daemon |
 | `daemon status` | Print health + PID |
 | `daemon set-password <pw>` | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json` |
 | `daemon pair` | Print the pairing URL / QR for an already-running daemon |
+| `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR |
 
-`ensureLocalDaemonAndPair(ctx, opts)` — used by the bare `pi-studio` default action:
+`ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
+start`, and `onboard`:
 1. Probe `host:port` with `DaemonRuntime.probe()`.
 2. If not running: call `DaemonRuntime.start({ home, listen })`.
 3. Wait up to N seconds for `GET /api/health` to return 200.
@@ -128,19 +131,21 @@ Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
 ### `feature` group (`feature-commands.ts`)
 
-Covers: `terminal`, `chat`, `schedule`, `loop`, `provider`, `worktree`, `project`, and `permit`.
-Each subcommand maps to the corresponding daemon RPC family.
+`registerFeatureCommands` registers `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,
+and `worktree` as sibling top-level command groups (no `feature` wrapper), plus a top-level
+`open <path>` command. Each subcommand maps to a canonical RPC name in `FEATURE_RPC`; several are
+flagged `TODO(verify)` in source for wire names not yet confirmed against the real daemon.
 
-| Subgroup | Sample commands |
-|----------|----------------|
-| `terminal` | `create`, `list`, `close` |
-| `chat` | `create-room`, `post`, `read`, `wait` |
-| `schedule` | `create`, `list`, `delete`, `trigger` |
-| `loop` | `create`, `list`, `stop`, `status` |
-| `provider` | `list`, `models`, `modes`, `refresh` |
-| `worktree` | `create`, `list`, `delete` |
-| `project` | `open`, `list` |
-| `permit` | `respond` (approve/deny a pending tool-call permission) |
+| Group | Commands | RPC |
+|-------|----------|-----|
+| `chat` | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>` | `chat_create_request`, `chat_list_request`, `chat_inspect_request`, `chat_post_request`, `chat_read_request`, `chat_wait_request`, `chat_delete_request` |
+| `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>` | `list_terminals_request`, `create_terminal_request`, `capture_terminal_request`, `terminal_input`, `kill_terminal_request` |
+| `loop` | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>` | `loop_run_request`, `loop_list_request`, `loop_inspect_request`, `loop_logs_request`, `loop_stop_request` |
+| `schedule` | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` | `schedule_create_request`, `schedule_list_request`, `schedule_inspect_request`, `schedule_update_request`, `schedule_pause_request`, `schedule_resume_request`, `schedule_run_once_request`, `schedule_logs_request`, `schedule_delete_request` |
+| `permit` | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>` | `list_permissions_request`, `respond_to_permission` (both allow/deny) |
+| `provider` | `ls`, `models <providerId>` | `list_providers`, `list_models` |
+| `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>` | `create_pistudio_worktree_request`, `pistudio_worktree_list_request`, `pistudio_worktree_archive_request` |
+| _(top-level)_ | `open <path>` | `open_project_request` (same path as the bare `pi-studio <path>` default action) |
 
 ### `relay` group (`relay-commands.ts`)
 
@@ -201,19 +206,23 @@ install shape (npm link, global `npm i -g`) without a separate vite/dev toolchai
 
 ```ts
 interface CliContext {
-  sink: OutputSink;           // write() / error() (stdout/stderr abstraction)
-  daemon?: DaemonRuntime;     // override for tests
-  connectOverrides?: { home?: string; url?: string; password?: string };
+  connect(opts: ConnectOptions): ReturnType<typeof connectDaemon>;  // injectable in tests
+  sink: OutputSink;               // write() / error() (stdout/stderr abstraction)
+  rpcTimeoutMs?: number;          // default RPC timeout override
+  connectOverrides?: Pick<ConnectOptions, "transport" | "clientId" | "home">;  // test hooks
+  daemon?: DaemonRuntime;        // local daemon control override for tests
+  relay?: RelayRuntime;          // local relay-server control override for tests
 }
 ```
 
 `withDaemon(ctx, opts, fn)` — connect to the daemon (resolves URL from `--host` or default
-`ws://127.0.0.1:6767`), run `fn(daemonClient)`, then disconnect. Handles `RpcError` and
+`ws://127.0.0.1:6767`), run `fn(daemonClient, ctx)`, then disconnect. Handles `RpcError` and
 connection errors with clean stderr output and non-zero exit codes.
 
-Exit codes:
+Exit codes (`cli-core.ts`):
 - `EXIT_OK = 0`
 - `EXIT_ERROR = 1`
+- `EXIT_CONNECTION = 2`
 - Others per Commander's help/version short-circuit handling.
 
 ---
@@ -232,17 +241,23 @@ Exit codes:
 
 ## Pairing / QR
 
-`buildPairingUrl(publicKey, { host })` constructs a `pi-studio://pair?…` URL encoding the
-server's Ed25519 public key and connection parameters. The QR code encodes this URL so a mobile
-app can scan it to set up a relay-authenticated connection.
+`buildPairingUrl(publicKeyB64, { host })` constructs a pairing URL (`https://app.pi-studio.sh/#offer=<publicKeyB64>&host=<host>`
+by default; base overridable) encoding the daemon's persistent **Curve25519** public key and
+optional direct host in the URL **fragment** (never sent to the pairing web origin). The QR code
+encodes this URL so a mobile/browser client can scan it to set up a relay-authenticated connection.
 
-`readDaemonPublicKey(home)` reads the keypair from `$PI_STUDIO_HOME/keypair.json`.
+`readDaemonPublicKey(home)` reads the keypair from `$PI_STUDIO_HOME/daemon-keypair.json` (same file
+`@av-pi-studio/server`'s `bootstrap.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).
 
 ---
 
 ## Invariants
 
-- **The CLI only speaks the WebSocket API.** It never imports from `@av-pi-studio/server` directly.
+- **The CLI process never runs daemon/relay code in-process.** It only speaks the WebSocket API to
+  drive an existing daemon, and only resolves `@av-pi-studio/server`/`@av-pi-studio/relay/server`
+  via `import.meta.resolve` (never `await import()`) to bake an absolute module URL into a detached
+  `node -e` subprocess it spawns — see `daemon-control.ts`'s `subprocessStarter` and
+  `relay-control.ts`'s `subprocessRelayStarter`.
 - **`withDaemon` handles all connection lifecycle.** Individual commands don't call
   `connect`/`disconnect` manually.
 - **`--json` flag** must be respected by all commands that produce structured output (use
@@ -257,7 +272,7 @@ app can scan it to set up a relay-authenticated connection.
 ## Testing
 
 ```bash
-npm test -- --project packages/cli
+npx vitest run packages/cli
 ```
 
 Tests cover: command parsing, provider-spec parsing, stream-event formatting, daemon-control

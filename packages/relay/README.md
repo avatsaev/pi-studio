@@ -140,7 +140,7 @@ await handle.close();
 
 ```bash
 npm run build       # tsc -b (also chmod +x's the pi-studio-relay binary)
-npm test -- --project packages/relay
+npx vitest run packages/relay
 ```
 
 Zero non-crypto runtime dependencies beyond `tweetnacl` (crypto) and `ws` (WebSocket server/client

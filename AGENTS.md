@@ -28,25 +28,32 @@ packages/
   highlight/   Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal.
-  desktop/     Electron shell wrapping a bundled daemon (placeholder, later sprint).
+  desktop/     Electron shell wrapping a bundled daemon — currently a placeholder (exports a single
+               package-id constant); real implementation is sprint-033-desktop, not yet built.
 
 clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Project docs.
 ```
 
-### Dependency graph (compile-time)
+### Dependency graph (compile-time, from each package's `package.json`)
 
 ```
 protocol    ─────────────────────────────────────────► (no workspace deps)
 highlight   ─────────────────────────────────────────► (no workspace deps)
 relay       ─────────────────────────────────────────► (no workspace deps)
-client      ──────► protocol
-server      ──────► protocol, highlight
-cli         ──────► protocol, client
+client      ──────► protocol, relay
+server      ──────► protocol, highlight, relay
+cli         ──────► protocol, client, relay, server, web-client
 web-client  ──────► protocol, client
-desktop     ──────► web-client, server
+desktop     ──────► server   (NOT web-client yet — planned for sprint-033-desktop, not wired)
 ```
+
+`cli` depends on `server` and `web-client` NOT to import their runtime code, but to (a) resolve
+`@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
+`import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
+`web-client`'s prebuilt static SPA assets for the `pi-studio web` command. See
+`packages/cli/AGENTS.md`.
 
 `protocol` is the single shared contract; nothing below it imports from above.
 
@@ -64,6 +71,7 @@ desktop     ──────► web-client, server
 | Format | oxfmt (`npm run fmt`) |
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
+| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -86,12 +94,12 @@ npm run fmt:check             # oxfmt --check
 npm run fmt                   # oxfmt (auto-fix)
 npm run clean                 # rm dist/ and *.tsbuildinfo everywhere
 
-# Run the daemon (builds server first)
+# Run the production daemon (real Pi provider, disk persistence, full RPC surface; builds server first)
 npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (all features wired, binds 0.0.0.0)
+# Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 0.0.0.0)
 npm run dev:daemon
 ```
 
@@ -102,10 +110,14 @@ npm run dev:daemon
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
-| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`) |
+| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` (production `main.ts`); the CLI's local-spawn path binds `127.0.0.1:6767` instead | Daemon bind address (`host:port`) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
-| `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values |
+| `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
+| `PI_STUDIO_LOG_LEVEL` | `info` | pino log level (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) |
+| `PI_STUDIO_RELAY_ENDPOINT` / `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Override `config.json`'s `daemon.relay.endpoint`/`publicEndpoint` (opt-in outbound relay) |
+| `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
+| `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 
 Also reads `$PI_STUDIO_HOME/config.json`.
 
@@ -123,8 +135,14 @@ All communication uses a **single WebSocket connection** per client.
   - `rpc_error` (correlated error response)
 - **Binary frames** carry terminal and file-transfer data with a 2-byte header `[opcode][slot]`.
 - All schemas are **append-only**: new optional fields only, types never narrowed, fields never removed.
-- RPC names follow a dotted convention: `domain.provider.operation.direction`
-  (e.g. `agent.permission.respond.request`). Legacy flat names are accepted but never generated.
+- RPC names are overwhelmingly **flat snake_case** (`create_agent_request`, `list_agents_request`,
+  `chat_create_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
+  not a "legacy" fallback. A small minority use a dotted `domain.provider.operation.direction` form
+  (`agent.permission.respond.request`, `agent.rewind.request`,
+  `checkout.github.set_auto_merge.request`); where a dotted name exists, the flat form is usually
+  also registered as an alias (`registry.registerAlias(flatName, dottedName)`) for compatibility.
+  Do not assume dotted is canonical when adding a new handler — match the flat convention unless
+  there's a specific reason to nest.
 
 ---
 
@@ -146,8 +164,10 @@ Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"`
 ## Persistence layout (`$PI_STUDIO_HOME/`)
 
 ```
-config.json           Daemon config (password hash, provider overrides, service proxy, …)
+config.json           Daemon config (password hash, provider overrides, relay, service proxy, …)
 pi-studio.pid         PID lock (prevents duplicate daemons)
+server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
+daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE)
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
@@ -155,11 +175,12 @@ agents/
 chat/
   rooms.json          Chat rooms + messages
 loops/
-  <loopId>.json       Loop records
+  loops.json           All loop records (single queued-write file, NOT one file per loop)
 schedules/
   <scheduleId>.json   Schedule records
-projects.json         Project registry
-workspaces.json       Workspace registry
+projects/
+  projects.json       Project registry
+  workspaces.json     Workspace registry
 ```
 
 All entity files use `.passthrough()` schemas and optional fields — unknown/future fields are

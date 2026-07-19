@@ -62,11 +62,16 @@ await agent.send("Add a health-check endpoint");
 
 | Method | Description |
 |---|---|
-| `connect()` | Opens the transport, waits for the `hello` → `status` handshake to complete |
-| `disconnect()` | Graceful close |
-| `request<T>(type, payload, opts?)` | Sends a correlated RPC, resolves with the response or rejects with `RpcError`/`RpcTimeoutError` |
+| `connect()` | Opens the transport, waits for the `hello` → `status` handshake to complete; resolves with the `ServerInfoPayload` |
+| `close(code?, reason?)` | Close the transport. There is no separate `disconnect()`. |
+| `request<T>(type, params?, timeoutMs?)` | Sends a correlated RPC, resolves with the response or rejects with `RpcError`/`RpcTimeoutError` |
+| `sendSession(message)` | Fire-and-forget session message (wrapped in a `session` envelope) — no response awaited |
+| `sendBinary(data)` | Send a raw binary frame (terminal/file-transfer) via the transport |
+| `ping(timeoutMs?)` | Send a JSON `ping`, await the correlated `pong` (not RFC 6455 ping) |
+| `hasFeature(flag)` | `true` iff the last `server_info.features.<flag>` was truthy |
 | `onSessionMessage(handler)` | Subscribe to every inbound `session` message; returns an unsubscribe fn |
-| `onTerminalFrame(handler)` | Subscribe to every inbound binary terminal frame |
+| `onTerminalFrame(handler)` | Subscribe to every decoded inbound binary terminal frame |
+| `onFileTransferFrame(handler)` | Subscribe to every decoded inbound binary file-transfer frame |
 | `onStateChange(handler)` | Subscribe to connection state transitions |
 | `state` / `serverId` / `features` / `serverCapabilities` | Current connection state and the identity/capabilities from the last handshake |
 
@@ -102,7 +107,7 @@ const client = new PiStudioClient(daemonClient);
 | Member | Description |
 |---|---|
 | `createAgent(req)` | `create_agent_request` RPC |
-| `agent(agentId)` | Scoped actions for an existing agent (`send`, `interrupt`, `update`, `resume`, `archive`, `onUpdate`, `timeline.fetch`/`.subscribe`) |
+| `agent(agentId)` | Scoped actions for an existing agent (`send`, `interrupt`, `update`, `resume`, `archive`, `delete`, `onUpdate`, `timeline.fetch`/`.subscribe`) |
 | `workspace(workspaceId)` | Scoped actions for a workspace |
 | `providers` | `listProviders()`, `listModels(provider)`, `listModes(provider)`, `refreshSnapshot()` |
 | `onAgentUpdate(handler)` / `onWorkspaceUpdate(handler)` | Subscribe to broadcasts across all agents/workspaces |
@@ -128,28 +133,38 @@ capabilities and identity are always rehydrated transparently.
 ```ts
 import { TerminalStreamRouter } from "@av-pi-studio/client";
 
-const router = new TerminalStreamRouter();
-const unsubscribe = router.subscribe(slot, (frame) => { /* handle this terminal's frames */ });
-daemon.onTerminalFrame((frame) => router.handleFrame(frame));
+const router = new TerminalStreamRouter(daemon);
+router.start();                                   // begin routing (idempotent)
+const unsubscribe = router.subscribeSlot(slot, {
+  onOutput: (data) => { /* opcode Output */ },
+  onSnapshot: (data) => { /* opcode Snapshot, sent on (re)subscribe */ },
+  onRestore: (data) => { /* opcode Restore, reflowable/mode-gated */ },
+});
+router.sendInput(slot, bytes);                    // opcode Input = 0x02
+router.sendResize(slot, rows, cols);              // opcode Resize = 0x03
+router.stop();                                    // stop routing; subscribers retained
 ```
 
 ## Custom transports
 
 ```ts
 interface Transport {
-  connect(): Promise<void>;
-  send(data: string | Uint8Array): void;
+  connect(url: string): Promise<void>;   // resolves once the raw connection is open (pre-handshake)
+  sendText(data: string): void;
+  sendBinary(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
-  onMessage(handler: (data: string | Uint8Array) => void): () => void;
-  onClose(handler: (code: number, reason: string) => void): () => void;
-  onError(handler: (err: Error) => void): () => void;
-  readonly readyState: "connecting" | "open" | "closing" | "closed";
+  readonly isOpen: boolean;
+
+  onMessage: ((data: string | ArrayBuffer | Blob) => void) | null;
+  onClose: ((code: number, reason: string) => void) | null;
+  onError: ((error: unknown) => void) | null;
 }
 ```
 
-`createWebSocketTransport(url, password?)` is the default Node/browser WebSocket-backed
-implementation. Inject your own `Transport` for tests, or to run over a different underlying
-channel.
+`createWebSocketTransport(factory?: WsFactory)` is the default Node/browser WebSocket-backed
+implementation. `factory` is an injectable `(url, protocols?) => AnyWebSocket` — inject a stub for
+tests, or a custom factory to carry a bearer-password subprotocol (there is no built-in `password`
+parameter; see `web-client`'s `connection-store.ts` for that pattern).
 
 ### Relay transport (E2EE, via `@av-pi-studio/relay`)
 
@@ -186,7 +201,7 @@ through a relay. See `@av-pi-studio/relay`'s README for running a relay server a
 
 ```bash
 npm run build       # tsc -b
-npm test -- --project packages/client
+npx vitest run packages/client
 ```
 
 Tests inject stub `Transport` implementations and mock clocks — no real sockets are opened.

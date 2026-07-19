@@ -117,18 +117,19 @@ tab auto-connects; the command never itself probes or starts a daemon. Blocks un
 
 ### Feature groups
 
-Each of the following maps to the corresponding daemon RPC family:
+`chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, and `worktree` are sibling top-level
+command groups (there is no `feature` wrapper, and no `project` group — opening a project is the
+top-level `open <path>` command shown above):
 
-| Group | Sample commands |
+| Group | Commands |
 |---|---|
-| `terminal` | `create`, `list`, `close` |
-| `chat` | `create-room`, `post`, `read`, `wait` |
-| `schedule` | `create`, `list`, `delete`, `trigger` |
-| `loop` | `create`, `list`, `stop`, `status` |
-| `provider` | `list`, `models`, `modes`, `refresh` |
-| `worktree` | `create`, `list`, `delete` |
-| `project` | `open`, `list` |
-| `permit` | `respond` — approve/deny a pending tool-call permission request |
+| `chat` | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>` |
+| `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>` |
+| `loop` | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>` |
+| `schedule` | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` |
+| `permit` | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>` |
+| `provider` | `ls`, `models <providerId>` |
+| `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>` |
 
 ## Using it as a library
 
@@ -148,15 +149,18 @@ exit codes along the way.
 
 ## How it talks to the daemon
 
-The CLI only ever speaks the WebSocket API via `@av-pi-studio/client` — it never imports from
-`@av-pi-studio/server` directly. A stable per-machine `clientId` is generated on first use and
-stored at `$PI_STUDIO_HOME/client-id`; `clientType` is always `"cli"`.
+The CLI process never runs daemon/relay code in-process — it only speaks the WebSocket API to
+drive an existing daemon. It resolves `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s
+absolute module URL via `import.meta.resolve` (never `await import()`) purely to bake that URL
+into a detached `node -e` subprocess it spawns for `daemon start`/`relay start` — see
+`daemon-control.ts`'s `subprocessStarter` and `relay-control.ts`'s `subprocessRelayStarter`. A
+stable per-machine `clientId` is generated on first use and stored at
+`$PI_STUDIO_HOME/client-id`; `clientType` is always `"cli"`.
 
 ## Development
 
 ```bash
-npm run build       # tsc -b (also chmod +x's the published binary)
-npm test -- --project packages/cli
+npx vitest run packages/cli
 ```
 
 Tests cover command parsing, provider-spec parsing, stream-event formatting, the daemon-control
