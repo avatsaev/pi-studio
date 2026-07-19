@@ -139,8 +139,10 @@ npm run dev:daemon
 npm run dev -w packages/web-client        # http://localhost:5173
 ```
 
-Enter the daemon URL (`ws://127.0.0.1:6767`) and optional password in the toolbar and click
-**Connect**. The password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
+Enter the daemon URL and optional password in the toolbar and click **Connect**. The URL accepts a
+bare `host:port`, a `ws://`/`wss://` URL, or `http://`/`https://` (mapped to `ws`/`wss` — the daemon
+upgrades HTTP to WebSocket on the same port), e.g. `127.0.0.1:6767` or `https://box.local:6767`. The
+password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
 static bundle: `npm run build:web-client` (or `build:electron -w packages/web-client` for the
 future Electron shell in `packages/desktop`).
 
@@ -218,6 +220,22 @@ pi-studio relay start --listen 0.0.0.0:7000
 The client then pairs via a pairing URL (carrying the daemon's public key + relay session id) and
 swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API works unchanged. See
 [`packages/relay/README.md`](packages/relay/README.md) for the full protocol and library API.
+
+## Run with Docker
+
+Prebuilt Dockerfiles + compose for the daemon and relay live in [`docker/`](docker/). The daemon
+image ships `git` + a compiled `node-pty` + the bundled `pi` runtime; the relay image is a tiny
+pure-JS stateless bridge. Both build from local monorepo source.
+
+```bash
+cd docker
+docker compose up --build   # relay :7000 + daemon :6767, daemon dials the relay
+```
+
+Then connect from the host: `pi-studio --host http://localhost:6767 ls`. Mount your projects at
+`/workspace` (`PI_STUDIO_PROJECTS=/abs/path`), persist state in the `/data` volume, and supply pi
+credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
+[`docker/README.md`](docker/README.md) for the full env/volume/auth/security matrix.
 
 ## The `pi` provider
 

@@ -34,6 +34,7 @@ packages/
 clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Project docs.
+docker/             Dockerfiles + compose for the daemon and relay (see docker/README.md).
 ```
 
 ### Dependency graph (compile-time, from each package's `package.json`)
@@ -101,6 +102,9 @@ npm run start:server          # node packages/server/dist/daemon/main.js
 
 # Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 0.0.0.0)
 npm run dev:daemon
+
+# Docker: build + run daemon (:6767) and relay (:7000); daemon dials the relay
+cd docker && docker compose up --build   # see docker/README.md
 ```
 
 ---
@@ -115,6 +119,7 @@ npm run dev:daemon
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino log level (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) |
+| `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into dialing the outbound relay (env equivalent of `daemon.relay.enabled`) |
 | `PI_STUDIO_RELAY_ENDPOINT` / `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Override `config.json`'s `daemon.relay.endpoint`/`publicEndpoint` (opt-in outbound relay) |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |

@@ -65,6 +65,7 @@ describe("env overlay (env wins)", () => {
     const cfg = overlayEnv(base, {
       PI_STUDIO_LISTEN: "0.0.0.0:7000",
       PI_STUDIO_PASSWORD: "$2b$hash",
+      PI_STUDIO_RELAY_ENABLED: "true",
       PI_STUDIO_RELAY_ENDPOINT: "relay.internal:9000",
       PI_STUDIO_RELAY_USE_TLS: "true",
       PI_STUDIO_SERVICE_PROXY_LISTEN: "127.0.0.1:8080",
@@ -72,6 +73,7 @@ describe("env overlay (env wins)", () => {
     });
     expect(cfg.daemon.listen).toBe("0.0.0.0:7000");
     expect(cfg.daemon.auth.password).toBe("$2b$hash");
+    expect(cfg.daemon.relay.enabled).toBe(true);
     expect(cfg.daemon.relay.endpoint).toBe("relay.internal:9000");
     expect(cfg.daemon.relay.useTls).toBe(true);
     expect(cfg.daemon.serviceProxy.listen).toBe("127.0.0.1:8080");

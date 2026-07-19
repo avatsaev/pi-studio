@@ -13,9 +13,13 @@ import {
   type ConnectionState,
 } from "@av-pi-studio/client";
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
+import { normalizeDaemonUrl } from "./normalize-url.js";
 
 export interface ConnectOptions {
-  /** `ws://host:port` (or `wss://…`). */
+  /**
+   * Daemon address. Accepts `ws://`/`wss://`, `http://`/`https://` (mapped to `ws`/`wss`), or a
+   * bare `host[:port]` (assumed `ws://`). Normalized via {@link normalizeDaemonUrl} before use.
+   */
   url: string;
   /** Bearer password, sent via the `pi-studio.bearer.<pw>` WS subprotocol. */
   password?: string;
@@ -59,7 +63,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       : undefined;
 
     const daemon = new DaemonClient({
-      url: opts.url,
+      url: normalizeDaemonUrl(opts.url),
       clientId: opts.clientId ?? generateClientId(),
       clientType: "browser",
       capabilities: {},

@@ -17,7 +17,8 @@ text-frame link) and get an identical API: `createDaemonChannel` / `createClient
 Also ships two ways to actually run a relay:
 - **Hosted**: `cf-adapter.ts`/`session-bridge.ts` — a Cloudflare Workers WebSocketPair adapter.
 - **Self-hosted**: `relay-server.ts`/`relay-main.ts` — a plain Node process, runnable directly
-  (`npx @av-pi-studio/relay`) or managed by `packages/cli`'s `pi-studio relay start|stop|status`.
+  (`npx @av-pi-studio/relay`), managed by `packages/cli`'s `pi-studio relay start|stop|status`, or
+  containerized via `docker/relay.Dockerfile` (tiny stateless image; see `docker/README.md`).
 
 Either way, the relay only ever forwards frames produced by this package's channel layer — it
 never has the keys to read or forge them.

@@ -44,13 +44,15 @@ Run `pi-studio --help` (or `<command> --help`) for the full command tree.
 
 | Flag | Description |
 |---|---|
-| `-H, --host <host>` | Daemon target — `workstation.local:6767`, `ws://…`, or bare `host:port` |
+| `-H, --host <host>` | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`) |
 | `--password <password>` | Password for a password-protected daemon |
 | `--home <dir>` | Override `$PI_STUDIO_HOME` (used for the client-id store) |
 | `--json` | Render command output as JSON instead of a table |
 
-**Connection resolution**: `--host host:port` → `ws://host:port`; `--host ws://…`/`wss://…` is
-used as-is; with no `--host`, the CLI targets `ws://127.0.0.1:6767`.
+**Connection resolution**: `--host host:port` → `ws://host:port`; a `ws://`/`wss://` URL is used
+as-is; `http://`/`https://` are accepted for familiarity and mapped to `ws://`/`wss://` (the daemon
+is an HTTP server that upgrades to WebSocket on the same port); `wss://`/`https://` imply TLS. With
+no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 **Default action** (no subcommand):
 - `pi-studio <path>` — open that path as a project on the daemon.

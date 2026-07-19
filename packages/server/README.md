@@ -141,6 +141,19 @@ npm run dev:daemon
 > `dev-bootstrap.ts` (the reverse — `dev-bootstrap.ts` importing one shared helper,
 > `wrapSessionEnvelope`, from `bootstrap.ts` — is fine and is what happens today).
 
+### Docker
+
+A production daemon image (multi-stage, compiles the native `node-pty` addon, ships `git` + the
+bundled `pi` runtime) lives at `docker/daemon.Dockerfile`, with a compose file that also runs the
+relay. From the repo root:
+
+```bash
+cd docker && docker compose up --build   # daemon :6767 + relay :7000
+```
+
+`$PI_STUDIO_HOME` is `/data` (mount a volume); bind-mount your projects at `/workspace`. See
+`docker/README.md` for the full env/volume/auth/security matrix.
+
 ---
 
 ## Configuration
@@ -161,6 +174,7 @@ All optional.
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (comma-separated, or `true` to allow all) |
 | `PI_STUDIO_SERVER_ID` | _(persisted/generated)_ | Stable server identity |
+| `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into the outbound relay dial (env equivalent of `daemon.relay.enabled`; `1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay server to dial outbound to when `daemon.relay.enabled` (`host:port`) |
 | `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` for the outbound relay dial (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Client-facing relay address, if different from the daemon's own dial target |

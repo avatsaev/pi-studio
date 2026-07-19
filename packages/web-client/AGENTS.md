@@ -73,7 +73,8 @@ src/
   components/primitives/   36 React design-system components (Button, Select, Dialog, Surface,
                             TextInput, Switch, Checkbox, Avatar, ScrollArea, ResizeHandle,
                             StatusBadge/Dot, Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
-  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient), query-client
+  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient), normalize-url
+                           (accepts ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
                            (TanStack Query), rpc-keys, files-changed (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
@@ -130,7 +131,9 @@ dev host/port via `WEB_CLIENT_DEV_HOST` / `WEB_CLIENT_DEV_PORT` (default `0.0.0.
 - **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
 - **Connection URL is currently toolbar/URL-param only** (`ui-store.ts` host field, seeded from
-  `?host=&password=&cwd=&connect=1` in `use-connection.ts`). Accepting an Electron-injected daemon
+  `?host=&password=&cwd=&connect=1` in `use-connection.ts`), normalized by `lib/connection/normalize-url.ts`
+  before it reaches the transport — the field accepts `ws://`/`wss://`, `http://`/`https://` (mapped
+  to `ws`/`wss`), or a bare `host:port`. Accepting an Electron-injected daemon
   URL (via `contextBridge`) and adding `getIsElectron()` platform gating are **not yet implemented**
   — both are sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.

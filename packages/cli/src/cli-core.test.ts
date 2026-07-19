@@ -138,8 +138,8 @@ function fakeContext(options: FakeOptions = {}): {
 
 describe("parseHost", () => {
   it("defaults to the local daemon when no host is given", () => {
-    expect(parseHost()).toEqual({ host: "127.0.0.1", port: 6767, explicit: false });
-    expect(parseHost("")).toEqual({ host: "127.0.0.1", port: 6767, explicit: false });
+    expect(parseHost()).toEqual({ host: "127.0.0.1", port: 6767, explicit: false, secure: false });
+    expect(parseHost("")).toEqual({ host: "127.0.0.1", port: 6767, explicit: false, secure: false });
   });
 
   it("parses host:port", () => {
@@ -147,16 +147,55 @@ describe("parseHost", () => {
       host: "workstation.local",
       port: 6767,
       explicit: true,
+      secure: false,
     });
   });
 
   it("parses a bare host with the default port", () => {
-    expect(parseHost("example.com")).toEqual({ host: "example.com", port: 6767, explicit: true });
+    expect(parseHost("example.com")).toEqual({
+      host: "example.com",
+      port: 6767,
+      explicit: true,
+      secure: false,
+    });
   });
 
   it("strips ws:// and wss:// schemes", () => {
-    expect(parseHost("ws://h:1234")).toEqual({ host: "h", port: 1234, explicit: true });
+    expect(parseHost("ws://h:1234")).toEqual({
+      host: "h",
+      port: 1234,
+      explicit: true,
+      secure: false,
+    });
+    expect(parseHost("wss://h:1234")).toEqual({
+      host: "h",
+      port: 1234,
+      explicit: true,
+      secure: true,
+    });
     expect(hostToUrl(parseHost("h:1234"))).toBe("ws://h:1234");
+  });
+
+  it("accepts http:// and https:// and maps them to ws/wss", () => {
+    expect(parseHost("http://h:1234")).toEqual({
+      host: "h",
+      port: 1234,
+      explicit: true,
+      secure: false,
+    });
+    expect(parseHost("https://h:1234")).toEqual({
+      host: "h",
+      port: 1234,
+      explicit: true,
+      secure: true,
+    });
+    // http/https flow through to the ws/wss URL actually opened.
+    expect(hostToUrl(parseHost("http://h:1234"))).toBe("ws://h:1234");
+    expect(hostToUrl(parseHost("https://h:1234"))).toBe("wss://h:1234");
+    // https with no explicit port implies the TLS default (443).
+    expect(hostToUrl(parseHost("https://secure.example.com"))).toBe(
+      "wss://secure.example.com:443",
+    );
   });
 });
 

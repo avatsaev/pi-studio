@@ -236,6 +236,9 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
             .filter((h) => h.length > 0);
   }
 
+  if (env.PI_STUDIO_RELAY_ENABLED !== undefined) {
+    next.daemon.relay.enabled = envBool(env.PI_STUDIO_RELAY_ENABLED);
+  }
   if (env.PI_STUDIO_RELAY_ENDPOINT) next.daemon.relay.endpoint = env.PI_STUDIO_RELAY_ENDPOINT;
   if (env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT) {
     next.daemon.relay.publicEndpoint = env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT;

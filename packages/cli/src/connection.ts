@@ -16,15 +16,19 @@ export interface ParsedHost {
   port: number;
   /** True when the value looked remote (explicit host given), false for the implicit local daemon. */
   explicit: boolean;
+  /** True for TLS schemes (`wss://` / `https://`); drives `ws` vs `wss` in {@link hostToUrl}. */
+  secure: boolean;
 }
 
 /**
- * Parse a `--host` value into host + port. Accepts `host`, `host:port`, `ws://host:port`,
- * `wss://host:port`. Missing port defaults to 6767 (features/cli.md § Global options).
+ * Parse a `--host` value into host + port. Accepts a bare `host` / `host:port`, or a URL with a
+ * `ws://`, `wss://`, `http://`, or `https://` scheme (`http`/`https` are accepted for familiarity
+ * and mapped to `ws`/`wss` — the daemon is an HTTP server that upgrades to WebSocket on the same
+ * port). `wss`/`https` imply TLS. Missing port defaults to 6767 (features/cli.md § Global options).
  */
 export function parseHost(value?: string): ParsedHost {
   if (!value || !value.trim()) {
-    return { host: DEFAULT_HOST, port: DEFAULT_PORT, explicit: false };
+    return { host: DEFAULT_HOST, port: DEFAULT_PORT, explicit: false, secure: false };
   }
   let raw = value.trim();
   let secure = false;
@@ -46,11 +50,11 @@ export function parseHost(value?: string): ParsedHost {
     host = raw.slice(0, idx) || DEFAULT_HOST;
     port = Number(raw.slice(idx + 1));
   }
-  return { host, port, explicit: true };
+  return { host, port, explicit: true, secure };
 }
 
-/** Build the WebSocket URL for a parsed host. */
-export function hostToUrl(parsed: ParsedHost, secure = false): string {
+/** Build the WebSocket URL for a parsed host (`wss://` when the parsed target is TLS). */
+export function hostToUrl(parsed: ParsedHost, secure = parsed.secure): string {
   const scheme = secure ? "wss" : "ws";
   return `${scheme}://${parsed.host}:${parsed.port}`;
 }

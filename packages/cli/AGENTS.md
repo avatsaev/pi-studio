@@ -230,9 +230,11 @@ Exit codes (`cli-core.ts`):
 ## Connection resolution
 
 1. `--host workstation.local:6767` → `ws://workstation.local:6767`
-2. `--host ws://workstation.local:6767` → used as-is
-3. No `--host` → `ws://127.0.0.1:6767`
-4. Password → sent as WS subprotocol bearer or query param.
+2. `--host ws://…`/`wss://…` → used as-is (`wss` ⇒ TLS)
+3. `--host http://…`/`https://…` → mapped to `ws://…`/`wss://…` (`https` ⇒ TLS). The daemon is a
+   single HTTP server that upgrades to WebSocket on the same port, so either scheme reaches it.
+4. No `--host` → `ws://127.0.0.1:6767`
+5. Password → sent as WS subprotocol bearer or query param.
 
 `clientId` is a stable UUID stored in `$PI_STUDIO_HOME/client-id` (created on first use).
 `clientType` is always `"cli"`.

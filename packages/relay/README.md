@@ -64,7 +64,7 @@ env vars) to dial out to the relay you started above:
 }
 ```
 
-Env equivalents: `PI_STUDIO_RELAY_ENDPOINT`, `PI_STUDIO_RELAY_USE_TLS`,
+Env equivalents: `PI_STUDIO_RELAY_ENABLED`, `PI_STUDIO_RELAY_ENDPOINT`, `PI_STUDIO_RELAY_USE_TLS`,
 `PI_STUDIO_RELAY_PUBLIC_ENDPOINT`, `PI_STUDIO_RELAY_PUBLIC_USE_TLS`. With `relay.enabled` unset
 (the default, `false`), the daemon behaves exactly as if this package didn't exist — the relay is
 fully opt-in and never affects direct WebSocket connections.

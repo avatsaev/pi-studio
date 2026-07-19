@@ -39,7 +39,7 @@ export function Toolbar() {
         className={styles.host}
         value={host}
         onChange={(e) => setHost(e.target.value)}
-        placeholder="ws://host:port"
+        placeholder="host:port or ws://… / http://…"
         disabled={connected}
       />
       <TextInput
