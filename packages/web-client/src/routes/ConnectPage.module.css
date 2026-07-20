@@ -1,0 +1,131 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  background: var(--pi-color-surface, #16181a);
+  flex-shrink: 0;
+}
+.brand {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  text-decoration: none;
+}
+.backLink:hover {
+  color: var(--pi-color-foreground, #fafafa);
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
+.card {
+  padding: 14px;
+}
+.formRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hostInput {
+  flex: 1;
+  min-width: 0;
+}
+.passwordInput {
+  width: 140px;
+}
+.error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--pi-color-destructive, #e5534b);
+  word-break: break-word;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sectionTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pi-color-foreground, #fafafa);
+}
+.manageLink {
+  font-size: 12px;
+  color: var(--pi-color-accent, #2e5cb8);
+  text-decoration: none;
+}
+.manageLink:hover {
+  text-decoration: underline;
+}
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.empty a {
+  color: var(--pi-color-accent, #2e5cb8);
+}
+.serverList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.serverRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+.serverIcon {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  flex-shrink: 0;
+}
+.serverName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pi-color-foreground, #fafafa);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.serverUrl {
+  flex: 1;
+  font-size: 12px;
+  font-family: var(--pi-font-mono, monospace);
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
