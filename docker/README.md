@@ -68,7 +68,11 @@ docker build -f docker/daemon.Dockerfile --build-arg INSTALL_GH=true -t pi-studi
 docker run -d --name pi-studio-relay -p 7000:7000 pi-studio-relay
 ```
 
-Stateless, no volumes. Env: `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`).
+Stateless, no volumes. Env: `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`),
+`PI_STUDIO_RELAY_LOG_LEVEL` (default `info`; `trace` adds per-frame byte counts),
+`PI_STUDIO_RELAY_LOG_DIR` (also write rotating NDJSON files there). The relay always logs its
+connection/session lifecycle to stdout as NDJSON, so `docker logs -f pi-studio-relay` shows
+registrations, detaches, and per-connection traffic stats out of the box.
 
 ### Daemon
 

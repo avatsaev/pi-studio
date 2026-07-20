@@ -128,4 +128,58 @@ describe("standalone relay server", () => {
     a2.close();
     b1.close();
   });
+
+  it("logs connection + session lifecycle to the injected logger (metadata only)", async () => {
+    interface LogRecord { level: string; msg?: string; [k: string]: unknown }
+    const records: LogRecord[] = [];
+    const capture = (level: string) => (obj: unknown, msg?: string) => {
+      records.push(typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg });
+    };
+    const logger = {
+      trace: capture("trace"),
+      debug: capture("debug"),
+      info: capture("info"),
+      warn: capture("warn"),
+      error: capture("error"),
+      fatal: capture("fatal"),
+    };
+    handle = await startRelayServer({ host: "127.0.0.1", port: 0, logger });
+
+    const daemon = new WebSocket(`ws://127.0.0.1:${handle.port}`);
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}`);
+    await Promise.all(
+      [daemon, client].map((s) => new Promise((resolve, reject) => {
+        s.once("open", resolve);
+        s.once("error", reject);
+      })),
+    );
+    daemon.send(JSON.stringify({ type: "relay_register", sessionId: "sess-log" }));
+    client.send(JSON.stringify({ type: "relay_register", sessionId: "sess-log" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    daemon.send("opaque-ciphertext-frame");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    daemon.close();
+    client.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const msgs = records.map((r) => r.msg);
+    expect(msgs).toContain("connection open");
+    expect(msgs).toContain("session registered");
+    expect(msgs).toContain("session registered — both peers attached");
+    expect(msgs).toContain("peer detached");
+    expect(msgs).toContain("connection closed");
+
+    // Registration records carry the session id + peer count; close records carry traffic stats.
+    const paired = records.find((r) => r.msg === "session registered — both peers attached");
+    expect(paired).toMatchObject({ sessionId: "sess-log", peers: 2 });
+    const closed = records.filter((r) => r.msg === "connection closed");
+    expect(closed.length).toBeGreaterThanOrEqual(2);
+    expect(closed[0]).toHaveProperty("durationMs");
+    expect(closed[0]).toHaveProperty("bytesIn");
+    expect(closed[0]).toHaveProperty("bytesOut");
+
+    // The frame-forward log exists only at trace level — and must never carry frame contents.
+    expect(msgs).not.toContain("opaque-ciphertext-frame");
+    expect(JSON.stringify(records)).not.toContain("opaque-ciphertext-frame");
+  });
 });
