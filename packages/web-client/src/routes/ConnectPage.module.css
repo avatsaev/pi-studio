@@ -49,11 +49,12 @@
   align-items: center;
 }
 .hostInput {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
 }
 .passwordInput {
-  width: 140px;
+  flex: 0 0 140px;
+  min-width: 0;
 }
 .error {
   margin: 10px 0 0;

@@ -81,7 +81,7 @@ src/
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient), normalize-url
                            (accepts ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
                            (TanStack Query), rpc-keys, files-changed (cache-invalidation signaling),
-                           connect-to-server (one-click connect shared by /connect and Settings)
+                           connect-to-server (connect action shared by /connect and Settings)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
                            terminal-store, explorer-store, saved-servers-store (+ tests)
@@ -102,7 +102,7 @@ src/
                             MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
                             TextViewer, viewer-registry
     git/                    ChangesPanel
-    settings/               SavedServersSection (Settings → Servers CRUD + one-click connect)
+    settings/               SettingsSidebar + server/provider detail panes and CRUD dialogs
     terminal/               TerminalPanel, TerminalsPanel
   routes/                  AppRouter (route table, browser/hash by build target), WorkspacePage
                            (the 3-column shell), ConnectPage, SettingsPage

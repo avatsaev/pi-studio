@@ -1,0 +1,15 @@
+.footerRow {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+.footerButton {
+  flex: 1;
+}
+.message {
+  margin: 0;
+  padding: 16px;
+  font-size: var(--pi-font-size-sm, 14px);
+  line-height: 1.5;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
