@@ -1,5 +1,6 @@
 import { encodeTerminalFrame } from "@av-pi-studio/protocol";
 
+import type { Logger } from "../logging/logger.js";
 import {
   createDefaultPtyBackend,
   type PtyBackend,
@@ -54,6 +55,8 @@ export interface TerminalManagerOptions {
   /** Max bytes retained as the transient "screen" snapshot. Default 64KiB. */
   snapshotBytes?: number;
   defaultShell?: string;
+  /** Operational logger: terminal opened/killed/exited (info), spawn failures (error). */
+  logger?: Logger;
 }
 
 interface ManagedTerminal {
@@ -75,12 +78,14 @@ export class TerminalManager {
   private readonly snapshotBytes: number;
   private readonly defaultShell: string;
   private readonly terminals = new Map<number, ManagedTerminal>();
+  private readonly logger?: Logger;
   private nextSlot = 1;
 
   constructor(options: TerminalManagerOptions = {}) {
     this.backend = options.backend ?? createDefaultPtyBackend();
     this.coalesceMs = options.coalesceMs ?? 4;
     this.snapshotBytes = options.snapshotBytes ?? 64 * 1024;
+    this.logger = options.logger;
     this.defaultShell = resolveExecutable(options.defaultShell ?? process.env.SHELL ?? "/bin/sh");
   }
 
@@ -100,14 +105,27 @@ export class TerminalManager {
     const rows = options.rows ?? 24;
     const shell = options.shell ?? this.defaultShell;
 
-    const pty = this.backend.spawn({
-      shell,
-      args: options.args,
-      cwd: options.cwd,
-      env: options.env,
-      cols,
-      rows,
-    });
+    let pty: PtyProcess;
+    try {
+      pty = this.backend.spawn({
+        shell,
+        args: options.args,
+        cwd: options.cwd,
+        env: options.env,
+        cols,
+        rows,
+      });
+    } catch (error) {
+      this.logger?.error(
+        { slot, workspaceId: options.workspaceId, shell, cwd: options.cwd, err: (error as Error)?.message ?? String(error) },
+        "terminal spawn failed",
+      );
+      throw error;
+    }
+    this.logger?.info(
+      { slot, workspaceId: options.workspaceId, shell, cwd: options.cwd, cols, rows, service: options.service === true ? true : undefined },
+      "terminal opened",
+    );
 
     const entry: TerminalRuntimeEntry = {
       slot,
@@ -195,6 +213,7 @@ export class TerminalManager {
   kill(slot: number): boolean {
     const managed = this.terminals.get(slot);
     if (!managed) return false;
+    this.logger?.info({ slot, workspaceId: managed.entry.workspaceId }, "terminal kill requested");
     managed.pty.kill();
     this.onExit(managed);
     return true;
@@ -229,6 +248,10 @@ export class TerminalManager {
       this.flush(managed);
     }
     managed.entry.closed = true;
+    this.logger?.info(
+      { slot: managed.entry.slot, workspaceId: managed.entry.workspaceId },
+      "terminal exited",
+    );
     managed.screenModel.dispose();
     this.terminals.delete(managed.entry.slot);
     // Notify subscribers the terminal closed (empty Output then drop). Clients treat an exited

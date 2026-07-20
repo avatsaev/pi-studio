@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import type { Logger } from "../logging/logger.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { AgentManager, PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
@@ -19,6 +20,8 @@ export interface AgentServiceDeps {
   resolveClient: (provider: string) => AgentClient;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   now?: () => string;
+  /** Operational logger: agent created (info), turn started/finished (info), failures (error). */
+  logger?: Logger;
 }
 
 /** In-memory timeline per agentId; persisted rows are on the AgentRecord.timeline. */
@@ -106,13 +109,26 @@ export class AgentService {
 
     // 2. Create the provider session → status "idle".
     const client = this.deps.resolveClient(provider);
-    const session = await client.createSession(
-      { provider, cwd, ...config } as Parameters<AgentClient["createSession"]>[0],
-      { cwd },
-    );
+    let session: AgentSession;
+    try {
+      session = await client.createSession(
+        { provider, cwd, ...config } as Parameters<AgentClient["createSession"]>[0],
+        { cwd },
+      );
+    } catch (error) {
+      this.deps.logger?.error(
+        { agentId, provider, model: config.model, cwd, err: (error as Error)?.message ?? String(error) },
+        "agent provider session failed",
+      );
+      throw error;
+    }
     this.deps.manager.attachSession(agentId, session);
     await this.deps.manager.persistSessionHandle(agentId);
     await this.deps.manager.setStatus(agentId, "idle");
+    this.deps.logger?.info(
+      { agentId, provider, model: config.model, cwd, title, autoArchive: autoArchive || undefined },
+      "agent created",
+    );
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
 
     // 3. Run initial prompt if provided.
@@ -157,6 +173,9 @@ export class AgentService {
     timeline.startEpoch();
 
     await this.deps.manager.setStatus(agentId, "running");
+    const turnStartedAt = Date.now();
+    // Log prompt SIZE, never the prompt itself — message contents are user data, not ops metadata.
+    this.deps.logger?.info({ agentId, promptChars: prompt.length }, "turn started");
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "running" });
 
     let userMessageEmitted = false;
@@ -235,6 +254,10 @@ export class AgentService {
     const lastEvent = timeline.allRows().at(-1)?.event;
     const newStatus =
       lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error" ? "error" : "idle";
+    this.deps.logger?.info(
+      { agentId, outcome: newStatus, durationMs: Date.now() - turnStartedAt },
+      newStatus === "error" ? "turn failed" : "turn finished",
+    );
 
     await this.deps.manager.setStatus(agentId, newStatus);
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: newStatus });

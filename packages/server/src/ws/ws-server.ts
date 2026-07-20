@@ -12,6 +12,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { PasswordAuth } from "../auth/password-auth.js";
 import { WS_BEARER_SUBPROTOCOL_PREFIX } from "../auth/password-auth.js";
 import { type CapabilityStore, createInMemoryCapabilityStore } from "./capability-store.js";
+import type { Logger } from "../logging/logger.js";
 import { Session } from "./session.js";
 
 /**
@@ -40,6 +41,8 @@ export interface WebSocketServerDeps {
   onSession?: (session: Session) => void;
   /** Called for every post-handshake frame. */
   onMessage?: (session: Session, frame: SessionFrame) => void;
+  /** Operational logger: upgrade rejections (warn), handshake failures (warn), session close (info). */
+  logger?: Logger;
 }
 
 export interface WebSocketServerHandle {
@@ -72,11 +75,19 @@ export function createWebSocketServer(
 
   httpServer.on("upgrade", (req, socket, head) => {
     if (deps.hostCheck && !deps.hostCheck(req.headers.host)) {
+      deps.logger?.warn(
+        { host: req.headers.host, remoteAddress: req.socket.remoteAddress },
+        "ws upgrade rejected: host not allowed",
+      );
       socket.write("HTTP/1.1 403 Host not allowed\r\n\r\n");
       socket.destroy();
       return;
     }
     if (deps.auth && !deps.auth.authenticateUpgrade(req)) {
+      deps.logger?.warn(
+        { host: req.headers.host, remoteAddress: req.socket.remoteAddress },
+        "ws upgrade rejected: unauthorized",
+      );
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
@@ -86,11 +97,13 @@ export function createWebSocketServer(
 
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     let session: Session | null = null;
+    const connectedAt = Date.now();
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (session === null) {
         // First frame must be a valid JSON `hello`.
         if (isBinary) {
+          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: binary first frame (expected hello)");
           ws.close(1008, "expected hello");
           return;
         }
@@ -98,11 +111,13 @@ export function createWebSocketServer(
         try {
           parsed = JSON.parse(data.toString("utf8"));
         } catch {
+          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: invalid hello JSON");
           ws.close(1008, "invalid hello");
           return;
         }
         const hello = helloSchema.safeParse(parsed);
         if (!hello.success) {
+          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: first frame not a valid hello");
           ws.close(1008, "first frame must be hello");
           return;
         }
@@ -139,8 +154,19 @@ export function createWebSocketServer(
       else deps.onMessage?.(session, { text: data.toString("utf8") });
     });
 
-    ws.on("close", () => {
-      if (session) sessions.delete(session);
+    ws.on("close", (code) => {
+      if (session) {
+        sessions.delete(session);
+        deps.logger?.info(
+          {
+            clientId: session.clientId,
+            clientType: session.clientType,
+            code,
+            durationMs: Date.now() - connectedAt,
+          },
+          "ws client disconnected",
+        );
+      }
     });
   });
 

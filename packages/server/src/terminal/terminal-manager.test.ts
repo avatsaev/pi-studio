@@ -146,6 +146,47 @@ describe("TerminalManager", () => {
     expect(backend.ptys[0]!.killed).toBe(true);
     expect(mgr.get(entry.slot)).toBeUndefined();
   });
+
+  it("logs open, kill and exit lifecycle to the injected logger", () => {
+    const records: Array<{ level: string; msg?: string; [k: string]: unknown }> = [];
+    const capture = (level: string) => (obj: unknown, msg?: string) => {
+      records.push(typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg });
+    };
+    const logger = {
+      trace: capture("trace"), debug: capture("debug"), info: capture("info"),
+      warn: capture("warn"), error: capture("error"), fatal: capture("fatal"),
+      child: () => logger,
+    };
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0, logger });
+    const entry = mgr.createTerminal({ workspaceId: "ws1", cwd: "/work" });
+    mgr.kill(entry.slot);
+
+    const opened = records.find((r) => r.msg === "terminal opened");
+    expect(opened).toMatchObject({ level: "info", slot: 1, workspaceId: "ws1", cwd: "/work" });
+    expect(records.find((r) => r.msg === "terminal kill requested")).toMatchObject({ level: "info", slot: 1 });
+    expect(records.find((r) => r.msg === "terminal exited")).toMatchObject({ level: "info", slot: 1 });
+  });
+
+  it("logs spawn failures at error and rethrows", () => {
+    const records: Array<{ level: string; msg?: string; [k: string]: unknown }> = [];
+    const capture = (level: string) => (obj: unknown, msg?: string) => {
+      records.push(typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg });
+    };
+    const logger = {
+      trace: capture("trace"), debug: capture("debug"), info: capture("info"),
+      warn: capture("warn"), error: capture("error"), fatal: capture("fatal"),
+      child: () => logger,
+    };
+    const failingBackend: PtyBackend = {
+      spawn: () => { throw new Error("pty unavailable"); },
+    };
+    const mgr = new TerminalManager({ backend: failingBackend, coalesceMs: 0, logger });
+    expect(() => mgr.createTerminal({ workspaceId: "ws1", shell: "/bin/sh" })).toThrow("pty unavailable");
+    expect(records.find((r) => r.msg === "terminal spawn failed")).toMatchObject({
+      level: "error", shell: "/bin/sh", err: "pty unavailable",
+    });
+  });
 });
 
 // Sanity: the encode/decode round-trips used above are the protocol codec.

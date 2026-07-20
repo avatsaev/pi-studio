@@ -406,9 +406,17 @@ For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package a
 
 ## Logging
 
-`createLogger(name, opts)` returns a `pino` logger that writes pretty output to stdout in
-development and rotating NDJSON to `$PI_STUDIO_HOME/logs/` in production. The level comes from the
-`log.level` config key (default `info`) or `LOG_LEVEL`.
+The daemon logs its full operational lifecycle through one `pino` logger created in the bootstrap
+(`src/logging/logger.ts`): startup (home, config, serverId), agent recovery, WS client
+connect/disconnect (with close code + duration), upgrade/auth rejections, every RPC (at `debug`,
+with duration; failures at `warn`), agent create/turn lifecycle (prompt *sizes*, never contents),
+terminal open/kill/exit, `pi` provider process spawn/exit, and relay dial events.
+
+Output goes to **stdout always** — pretty on a TTY, NDJSON otherwise (so `docker logs` /
+journald / PM2 work out of the box) — **plus** a rotating NDJSON file under
+`$PI_STUDIO_HOME/logs/` in production (both destinations, never either/or). Level comes from
+`PI_STUDIO_LOG_LEVEL` (`trace`|`debug`|`info`|`warn`|`error`|`fatal`|`silent`, default `info`);
+`debug` adds per-RPC request lines, `trace` is the most verbose.
 
 ---
 

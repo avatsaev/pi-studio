@@ -1,5 +1,6 @@
 import { pongSchema } from "@av-pi-studio/protocol";
 
+import type { Logger } from "../logging/logger.js";
 import type { Session } from "./session.js";
 
 /**
@@ -28,6 +29,13 @@ export type BinaryHandler = (session: Session, bytes: Uint8Array) => void;
 export class HandlerRegistry {
   private readonly handlers = new Map<string, RpcHandler>();
   private readonly aliases = new Map<string, string>();
+
+  /**
+   * @param logger Optional operational logger. When present, every dispatched RPC is logged at
+   * `debug` (type, requestId, clientId, durationMs) and handler failures at `warn` — one
+   * instrumentation point covering the entire RPC surface instead of per-handler logging.
+   */
+  constructor(readonly logger?: Logger) {}
 
   /** Register a handler for a canonical (dotted) message type. */
   register(type: string, handler: RpcHandler): this {
@@ -64,11 +72,17 @@ async function dispatchSessionMessage(
     // Unknown type → rpc_error if it expected a reply, otherwise ignore (handler policy).
     if (requestId)
       sendRpcError(session, requestId, "unknown_message_type", `no handler for ${type}`);
+    registry.logger?.debug({ type, requestId, clientId: session.clientId }, "rpc: no handler");
     return;
   }
 
+  const startedAt = Date.now();
   try {
     const result = await handler({ session, message, requestId });
+    registry.logger?.debug(
+      { type, requestId, clientId: session.clientId, durationMs: Date.now() - startedAt },
+      "rpc ok",
+    );
     if (result !== undefined) {
       const response =
         requestId &&
@@ -81,6 +95,16 @@ async function dispatchSessionMessage(
     }
   } catch (error) {
     // A handler failure (including a timeout) is an operation error, never a dead socket.
+    registry.logger?.warn(
+      {
+        type,
+        requestId,
+        clientId: session.clientId,
+        durationMs: Date.now() - startedAt,
+        err: (error as Error)?.message ?? String(error),
+      },
+      "rpc handler error",
+    );
     if (requestId) {
       sendRpcError(session, requestId, "handler_error", (error as Error)?.message ?? String(error));
     }

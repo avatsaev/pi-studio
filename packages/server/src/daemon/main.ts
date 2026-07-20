@@ -16,15 +16,19 @@ const handle = startDaemon({
   port: info.listen.port,
 });
 
-console.log(`pi-studio daemon listening on http://${info.listen.host}:${info.listen.port}`);
-console.log(`  serverId: ${handle.serverId}`);
-console.log(`  home:     ${handle.home}`);
-console.log(`  provider: ${handle.provider}`);
-console.log(`  ws: ready`);
-console.log(`  Press Ctrl+C to stop`);
+const log = handle.logger;
+log.info(
+  {
+    listen: `http://${info.listen.host}:${info.listen.port}`,
+    serverId: handle.serverId,
+    home: handle.home,
+    provider: handle.provider,
+  },
+  `pi-studio daemon listening on http://${info.listen.host}:${info.listen.port}`,
+);
 
 async function shutdown(): Promise<void> {
-  console.log("\nShutting down...");
+  log.info("shutting down");
   await handle.close();
   process.exit(0);
 }

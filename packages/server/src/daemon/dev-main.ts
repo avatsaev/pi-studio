@@ -23,14 +23,14 @@ const handle = startDevDaemon({
   hostnames,
 });
 
-console.log(`pi-studio dev daemon listening on http://${info.listen.host}:${info.listen.port}`);
-console.log(`  serverId: ${handle.serverId}`);
-console.log(`  provider: mock (dev only)`);
-console.log(`  ws: ready`);
-console.log(`  Press Ctrl+C to stop`);
+const log = handle.logger;
+log.info(
+  { listen: `http://${info.listen.host}:${info.listen.port}`, serverId: handle.serverId, provider: "mock" },
+  `pi-studio dev daemon listening on http://${info.listen.host}:${info.listen.port}`,
+);
 
 process.on("SIGINT", async () => {
-  console.log("\nShutting down...");
+  log.info("shutting down");
   await handle.close();
   process.exit(0);
 });

@@ -91,7 +91,13 @@ docker run -d --name pi-studio-daemon \
 | `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Bind address |
 | `PI_STUDIO_HOME` | `/data` | State dir (mount a volume here) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Connection password |
+| `PI_STUDIO_LOG_LEVEL` | `info` | pino level; `debug` adds per-RPC request lines |
 | `PI_STUDIO_RELAY_ENABLED` / `_ENDPOINT` / `_USE_TLS` | `false` / — / `false` | Dial out to a relay |
+
+The daemon logs its full lifecycle to stdout as NDJSON (startup, client connect/disconnect, agent
+create/turn lifecycle, terminal open/exit, `pi` process spawn/exit, relay dial events), so
+`docker logs -f pi-studio-daemon` works out of the box; a rotating copy also lands in
+`/data/logs/` on the data volume.
 
 ### Web UI
 

@@ -24,6 +24,7 @@ import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 
 import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
+import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService, getTimeline } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
@@ -66,6 +67,12 @@ export interface DaemonOptions {
   /** Overrides the config path (defaults to `<home>/config.json`). */
   configPath?: string;
   serverId?: string;
+  /**
+   * Operational logger. Defaults to `createDaemonLogger(home)`: stdout always (pretty TTY /
+   * NDJSON otherwise) plus a rotating NDJSON file under `<home>/logs/`, level from
+   * `PI_STUDIO_LOG_LEVEL` (default `info`). Tests inject `silentLogger()`.
+   */
+  logger?: Logger;
 }
 
 export interface DaemonHandle {
@@ -73,6 +80,7 @@ export interface DaemonHandle {
   serverId: string;
   home: string;
   provider: string;
+  logger: Logger;
   close(): Promise<void>;
 }
 
@@ -166,14 +174,17 @@ export function wrapSessionEnvelope(message: unknown): { type: "session"; messag
 export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const home = resolveHome(opts);
   mkdirSync(home, { recursive: true });
+  const logger = opts.logger ?? createDaemonLogger(home);
   const configPath = opts.configPath ?? join(home, "config.json");
   const config: PersistedConfig = loadConfig(configPath, process.env);
   const serverId = resolveServerId(home, opts.serverId);
   const daemonKeypairB64 = resolveDaemonKeypair(home);
   writePidLock(home);
+  logger.info({ home, configPath, serverId }, "daemon starting");
 
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
-  const resolveClient = (provider: string): AgentClient => resolveProviderClient(provider, config);
+  const resolveClient = (provider: string): AgentClient =>
+    resolveProviderClient(provider, config, { logger });
 
   // ── Disk-persisted agent manager (recovers agents on boot) ───────────────────
   const manager = new AgentManager({
@@ -205,14 +216,15 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // manager-internal and only reach clients via this subscription.
   manager.subscribe((event) => {
     if (event.type === "agent_archived" || event.type === "agent_deleted") {
+      logger.info({ agentId: event.agentId }, event.type.replace("_", " "));
       broadcast(getActiveSessions(), { type: "session", message: event });
     }
   });
 
-  const registry = new HandlerRegistry();
+  const registry = new HandlerRegistry(logger);
 
   // ── Core agent/session/timeline/permission handlers ──────────────────────────
-  const agentService = new AgentService({ manager, resolveClient, broadcast });
+  const agentService = new AgentService({ manager, resolveClient, broadcast, logger });
   agentService.registerHandlers(registry, getActiveSessions);
 
   const sessionOps = new SessionOperationsService({
@@ -404,7 +416,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const serviceProxy = new ServiceProxy(resolveServiceProxyConfig(config.daemon.serviceProxy));
 
   // ── Terminals: manager + control RPCs + binary stream ─────────────────────────
-  const terminalManager = new TerminalManager();
+  const terminalManager = new TerminalManager({ logger });
   registerTerminalHandlers(
     registry,
     {
@@ -513,9 +525,13 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     hostname: opts.host,
     version: "1.0.0",
     auth,
+    logger,
     hostCheck: (h) => hostChecker(h),
     onSession: (session) => {
-      console.log(`[ws] client connected: ${session.clientId} (${session.clientType})`);
+      logger.info(
+        { clientId: session.clientId, clientType: session.clientType },
+        "ws client connected",
+      );
     },
     onMessage: (session, frame) => {
       if ("text" in frame) {
@@ -589,7 +605,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               >[0]["socket"],
             });
             relaySessions.add(relaySession);
-            console.log(`[relay] client connected: ${relaySession.clientId} (${relaySession.clientType})`);
+            logger.info(
+              { clientId: relaySession.clientId, clientType: relaySession.clientType, via: "relay" },
+              "ws client connected",
+            );
 
             const payload = serverInfoPayloadSchema.parse({
               status: "server_info",
@@ -606,13 +625,13 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
           void routeTextFrame(relaySession, plaintext, registry);
         },
         onError: (err) => {
-          console.error(`[relay] channel error: ${(err as Error)?.message ?? String(err)}`);
+          logger.error({ err: (err as Error)?.message ?? String(err) }, "relay channel error");
         },
         onSessionStart: (sessionId) => {
-          console.log(`[relay] connected, session ${sessionId}`);
+          logger.info({ sessionId }, "relay connected");
         },
         onReconnect: (sessionId) => {
-          console.log(`[relay] reconnecting with new session ${sessionId}`);
+          logger.info({ sessionId }, "relay reconnecting with new session");
           resetRelaySession();
           relayReply = null;
         },
@@ -621,14 +640,21 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   }
 
   // Recover persisted agents on boot (best-effort; provider sessions are re-attached lazily).
-  void manager.recover?.();
+  void manager.recover().then(
+    (recovered) => {
+      logger.info({ recovered }, "agent recovery complete");
+    },
+    (err: unknown) => {
+      logger.error({ err: (err as Error)?.message ?? String(err) }, "agent recovery failed");
+    },
+  );
 
   // Fail cleanly on a bind error (e.g. EADDRINUSE) instead of an unhandled 'error' throw.
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`[daemon] cannot bind ${opts.host}:${opts.port} — address already in use`);
+      logger.error({ host: opts.host, port: opts.port }, "cannot bind — address already in use");
     } else {
-      console.error(`[daemon] server error: ${err.message}`);
+      logger.error({ err: err.message }, "http server error");
     }
     process.exitCode = 1;
     void wsHandle.close().finally(() => process.exit(1));
@@ -641,7 +667,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     serverId,
     home,
     provider: "pi",
+    logger,
     close: async () => {
+      logger.info("daemon shutting down");
       relayHandle?.close();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

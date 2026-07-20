@@ -24,6 +24,8 @@ export interface PiTransportSpawnArgs {
   env: Record<string, string>;
   /** Pi JSONL session file for resume/import (becomes the `nativeHandle`). */
   sessionFile?: string;
+  /** Operational logger: process spawned (info), spawn failure / abnormal exit (error), clean exit (info). */
+  logger?: Pick<Console, "info" | "warn" | "error">;
 }
 
 export interface PiRpcTransport {
@@ -114,6 +116,9 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
   /** Set once the process fails to spawn or exits abnormally; all further calls reject with it. */
   let failure: Error | null = null;
 
+  const log = spawnArgs.logger;
+  log?.info({ pid: child.pid, command, cwd: spawnArgs.cwd }, "pi process spawned");
+
   const failAll = (error: Error): void => {
     failure = error;
     for (const [, p] of pending) p.reject(error);
@@ -125,19 +130,25 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
   // CRITICAL: a missing binary emits an async 'error' event. Without this listener Node rethrows it
   // as an unhandled error and crashes the whole daemon. Convert it into a clean operation failure.
   child.on("error", (err: Error) => {
-    failAll(
-      err.message.includes("ENOENT")
-        ? new Error(
-            `failed to spawn '${command as string}': not found on PATH. Install the Pi CLI or use the mock provider.`,
-          )
-        : err,
-    );
+    const failureError = err.message.includes("ENOENT")
+      ? new Error(
+          `failed to spawn '${command as string}': not found on PATH. Install the Pi CLI or use the mock provider.`,
+        )
+      : err;
+    log?.error({ pid: child.pid, command, err: failureError.message }, "pi process spawn failed");
+    failAll(failureError);
   });
   child.on("exit", (code, signal) => {
     if (pending.size > 0) {
+      log?.error(
+        { pid: child.pid, code: code ?? undefined, signal: signal ?? undefined, pendingCommands: pending.size },
+        "pi process exited with commands in flight",
+      );
       failAll(
         new Error(`pi process exited (code ${code ?? "null"}${signal ? `, ${signal}` : ""})`),
       );
+    } else {
+      log?.info({ pid: child.pid, code: code ?? undefined, signal: signal ?? undefined }, "pi process exited");
     }
   });
   child.stdin?.on("error", () => {

@@ -26,6 +26,7 @@ import { ProviderRegistry } from "../agent/provider-registry.js";
 import { FileExplorerService } from "../files/file-explorer.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { wrapSessionEnvelope } from "./bootstrap.js";
 
 export interface DevBootstrapOptions {
@@ -33,16 +34,20 @@ export interface DevBootstrapOptions {
   port: number;
   serverId?: string;
   hostnames?: true | string[];
+  /** Operational logger. Defaults to a stdout dev logger (`PI_STUDIO_LOG_LEVEL`, pretty on a TTY). */
+  logger?: Logger;
 }
 
 export interface DevBootstrapHandle {
   httpServer: HttpServer;
   serverId: string;
+  logger: Logger;
   close(): Promise<void>;
 }
 
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const serverId = opts.serverId ?? randomUUID();
+  const logger = opts.logger ?? createDaemonLogger(undefined);
 
   // ── In-memory agent manager (no disk persistence in dev mode) ──────────────
   const agentsById = new Map<string, AgentRecord>();
@@ -86,9 +91,9 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   });
 
   // ── Handler registry ────────────────────────────────────────────────────────
-  const registry = new HandlerRegistry();
+  const registry = new HandlerRegistry(logger);
 
-  const agentService = new AgentService({ manager, resolveClient, broadcast });
+  const agentService = new AgentService({ manager, resolveClient, broadcast, logger });
   agentService.registerHandlers(registry, getActiveSessions);
 
   const sessionOps = new SessionOperationsService({
@@ -240,8 +245,12 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     serverId,
     hostname: opts.host,
     version: "0.1.0-dev",
+    logger,
     onSession: (session) => {
-      console.log(`[ws] client connected: ${session.clientId} (${session.clientType})`);
+      logger.info(
+        { clientId: session.clientId, clientType: session.clientType },
+        "ws client connected",
+      );
     },
     onMessage: (session, frame) => {
       if ("text" in frame) {
@@ -259,7 +268,9 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   return {
     httpServer,
     serverId,
+    logger,
     close: async () => {
+      logger.info("dev daemon shutting down");
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     },

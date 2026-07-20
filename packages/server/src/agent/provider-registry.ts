@@ -28,6 +28,7 @@ export const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = 
     new PiAgentClient({
       transportFactory: deps?.transportFactory,
       binaryResolver: deps?.binaryResolver,
+      logger: deps?.logger,
     }),
   mock: () => new MockAgentClient(),
 };
@@ -63,6 +64,7 @@ function buildPiClient(
         : undefined,
     transportFactory: deps?.transportFactory,
     binaryResolver: deps?.binaryResolver,
+    logger: deps?.logger,
   });
   return override ? applyModelOverrides(client, override) : client;
 }

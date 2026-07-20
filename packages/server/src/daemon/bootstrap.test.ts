@@ -10,6 +10,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { createClientChannel, decodeBase64 } from "@av-pi-studio/relay";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
+import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
 
 /**
@@ -68,7 +69,7 @@ async function connect(port: number): Promise<Client> {
 function boot(): { handle: DaemonHandle; port: number; home: string } {
   const home = mkdtempSync(join(tmpdir(), "pi-studio-prod-"));
   const port = 6800 + Math.floor(Math.random() * 200);
-  const h = startDaemon({ host: "127.0.0.1", port, home });
+  const h = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
   return { handle: h, port, home };
 }
 
@@ -362,7 +363,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
       }),
     );
     const port = 6800 + Math.floor(Math.random() * 200);
-    handle = startDaemon({ host: "127.0.0.1", port, home });
+    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
     // The daemon writes its persistent keypair to disk on first boot, before it dials the relay.
     const daemonPublicKeyB64 = JSON.parse(

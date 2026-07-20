@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { pino } from "pino";
+import { pino, multistream } from "pino";
 // `pino-pretty` is usable directly as a sonic-boom-compatible stream, which avoids spawning a
 // transport worker thread (worker threads are awkward under Vitest and add shutdown latency).
 import pinoPretty from "pino-pretty";
@@ -12,8 +12,12 @@ import { createStream as createRotatingStream } from "rotating-file-stream";
  * of the codebase injects a `Pick<Console, "info" | "warn" | "error">`-shaped logger; a pino logger
  * satisfies that shape, so existing call sites keep working while gaining levels + structure.
  *
- * - Dev / TTY: pretty, colorized, human-readable (no worker thread).
- * - Daemon with a home dir: structured NDJSON to a rotating file under `$PI_STUDIO_HOME/logs/`.
+ * - **stdout is ALWAYS written** (pretty/colorized on a TTY, raw NDJSON otherwise) — so
+ *   `docker logs`, journald, and PM2 see the daemon's lifecycle with zero configuration.
+ * - With a log dir (the production daemon's `$PI_STUDIO_HOME/logs/`): structured NDJSON is
+ *   ADDITIONALLY written to a rotating file — both destinations, never either/or.
+ * - `pino-pretty` is used directly as a sonic-boom-compatible stream, which avoids spawning a
+ *   transport worker thread (worker threads are awkward under Vitest and add shutdown latency).
  */
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "silent";
@@ -47,6 +51,8 @@ export interface CreateLoggerOptions {
   rotateMaxFiles?: number;
   /** Base bindings attached to every line (e.g. `{ name: "pi-studio" }`). */
   bindings?: Record<string, unknown>;
+  /** Override the stdout stream (tests). Defaults to `process.stdout`. */
+  stdoutStream?: NodeJS.WritableStream;
 }
 
 function resolveLevel(level: LogLevel | undefined): LogLevel {
@@ -62,32 +68,37 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
 
   if (level === "silent") return pino({ ...base, level: "silent" }) as unknown as Logger;
 
+  // stdout: pretty on a TTY, raw NDJSON otherwise (docker logs / journald / PM2).
+  const streams: Array<{ stream: NodeJS.WritableStream }> = [];
+  const pretty = options.pretty ?? Boolean(process.stdout.isTTY);
+  streams.push({
+    stream: pretty
+      ? pinoPretty({
+          colorize: true,
+          translateTime: "SYS:HH:MM:ss.l",
+          ignore: "pid,hostname",
+        })
+      : (options.stdoutStream ?? process.stdout),
+  });
+
+  // Optional rotating file — in addition to stdout, never instead of it.
   if (options.logDir) {
     mkdirSync(options.logDir, { recursive: true });
-    const stream = createRotatingStream("pi-studio.log", {
-      size: options.rotateSize ?? "10M",
-      maxFiles: options.rotateMaxFiles ?? 5,
-      path: options.logDir,
+    streams.push({
+      stream: createRotatingStream("pi-studio.log", {
+        size: options.rotateSize ?? "10M",
+        maxFiles: options.rotateMaxFiles ?? 5,
+        path: options.logDir,
+      }),
     });
-    return pino(base, stream) as unknown as Logger;
   }
 
-  const pretty = options.pretty ?? Boolean(process.stdout.isTTY);
-  if (pretty) {
-    const stream = pinoPretty({
-      colorize: true,
-      translateTime: "SYS:HH:MM:ss.l",
-      ignore: "pid,hostname",
-    });
-    return pino(base, stream) as unknown as Logger;
-  }
-
-  return pino(base) as unknown as Logger;
+  return pino(base, multistream(streams)) as unknown as Logger;
 }
 
 /**
- * Daemon logger: NDJSON to `<home>/logs/` when a home dir is given (the long-running daemon), else a
- * pretty/stdout dev logger.
+ * Daemon logger: stdout always, plus rotating NDJSON under `<home>/logs/` when a home dir is
+ * given (the long-running daemon). `createDaemonLogger(undefined)` is the stdout-only dev logger.
  */
 export function createDaemonLogger(
   home: string | undefined,

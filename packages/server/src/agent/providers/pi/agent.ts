@@ -65,6 +65,8 @@ export interface PiClientDeps {
   transportFactory?: PiTransportFactory;
   /** Injected for tests; defaults to a `$PATH` scan. */
   binaryResolver?: (bin: string, env?: Record<string, string | undefined>) => boolean;
+  /** Operational logger, forwarded to every spawned `pi` process transport. */
+  logger?: Pick<Console, "info" | "warn" | "error">;
 }
 
 export interface PiSessionLaunch {
@@ -290,6 +292,7 @@ export class PiAgentClient implements AgentClient {
       args,
       cwd: launchContext?.cwd ?? config.cwd,
       env: this.buildEnv(launchContext, options),
+      logger: this.deps.logger,
     });
     const session = new PiAgentSession(transport, { provider: this.provider, config });
     // Learn the JSONL file Pi picked for this fresh process, so `describePersistence()` can hand
@@ -311,6 +314,7 @@ export class PiAgentClient implements AgentClient {
       cwd,
       env: this.buildEnv(launchContext),
       sessionFile,
+      logger: this.deps.logger,
     });
     return Promise.resolve(
       new PiAgentSession(transport, {
@@ -346,6 +350,7 @@ export class PiAgentClient implements AgentClient {
       args: buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt }),
       cwd: cwd ?? ".",
       env: this.buildEnv(),
+      logger: this.deps.logger,
     });
     try {
       return await transport.request(command);

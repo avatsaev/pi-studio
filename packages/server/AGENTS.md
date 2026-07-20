@@ -298,10 +298,30 @@ daemon versions.
 
 ### Logging (`logging/`)
 
-`createLogger(name, opts)` returns a `pino` logger that:
-- Writes pretty-printed output to stdout (development).
-- Writes rotating NDJSON to `$PI_STUDIO_HOME/logs/` (production).
-- Log level from `LOG_LEVEL` env or `opts.level`.
+`createDaemonLogger(home, opts)` / `createLogger(opts)` return a `pino` logger (the `Logger`
+interface in `logging/logger.ts`) that:
+- **Always writes stdout** — pretty/colorized on a TTY, raw NDJSON otherwise (so `docker logs`,
+  journald, and PM2 work with zero configuration).
+- **Additionally writes rotating NDJSON** to `$PI_STUDIO_HOME/logs/` when a home/logDir is set
+  (multistream — both destinations, never either/or).
+- Level from `PI_STUDIO_LOG_LEVEL` (`trace`|`debug`|`info`|`warn`|`error`|`fatal`|`silent`),
+  default `info`; `opts.level` overrides. `silentLogger()` is the test no-op.
+
+The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
+`DaemonOptions.logger`/`DevBootstrapOptions.logger`) and threads it through every subsystem:
+
+| Where | What gets logged |
+|---|---|
+| `bootstrap.ts` / `dev-bootstrap.ts` | daemon starting (home, configPath, serverId), agent recovery count, agent archived/deleted, relay dial lifecycle, bind errors, shutdown |
+| `ws/ws-server.ts` | upgrade rejections (host allowlist, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
+| `ws/router.ts` (`HandlerRegistry(logger)`) | every RPC at `debug` (type, requestId, clientId, durationMs), handler failures at `warn`, unknown types at `debug` — one instrumentation point covering the whole RPC surface |
+| `agent/agent-service.ts` | agent created (provider, model, cwd), turn started (prompt SIZE, never contents), turn finished (outcome + durationMs), provider session failures |
+| `terminal/terminal-manager.ts` | terminal opened (slot, shell, cwd, size), kill requested, exited, spawn failures |
+| `agent/providers/pi/rpc-transport.ts` | `pi` process spawned (pid, cwd), spawn failures, exits (code/signal; `error` when commands were in flight) |
+
+**Logs are metadata-only by convention**: prompt text, message contents, and terminal output are
+user data — never log them (sizes/counts only). Connection metadata, ids, durations, and error
+messages are fair game.
 
 ---
 
@@ -314,6 +334,10 @@ daemon versions.
 - **AgentManager transitions are the only way to change agent status.** Call
   `manager.transition(agentId, newStatus)`, never mutate the record directly.
 - **All entity schemas use `.passthrough()`.** Unknown fields from newer daemons must load silently.
+- **New subsystems take the injected `Logger`, never `console.*`.** The daemon's one logger is
+  created in bootstrap and threaded everywhere; a bare `console.log` bypasses level control,
+  structure, and the rotating file. Log metadata only — never prompt text, message contents, or
+  terminal output.
 - **Terminal snapshot is optional for correctness.** A subscriber that arrives after PTY exit gets
   the last snapshot; no new Output frames will arrive.
 - **Service proxy auth bypass is intentional.** The service proxy route is not gated by daemon
