@@ -31,6 +31,8 @@ interface ConnectionStoreState {
   status: ConnectionState;
   serverInfo: ServerInfoPayload | null;
   error: string | null;
+  /** Normalized URL of the live connection; null when not connected. */
+  connectedUrl: string | null;
   /** Non-null once `connect()` has ever succeeded — the live SDK handles. */
   daemon: DaemonClient | null;
   client: PiStudioClient | null;
@@ -44,10 +46,30 @@ function generateClientId(): string {
   return "web-" + Math.random().toString(36).slice(2, 10);
 }
 
+function connectionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== "") return error.message;
+  if (typeof error === "string" && error.trim() !== "") return error;
+  // Browser WebSocket failures commonly reject with an opaque Event, whose String()
+  // representation is "[object Event]" and is not actionable in the UI.
+  return "Unable to connect to the daemon";
+}
+
+/** True when `targetUrl` identifies the daemon whose handshake is currently open. */
+export function isConnectedToDaemon(
+  status: ConnectionState,
+  connectedUrl: string | null,
+  targetUrl: string,
+): boolean {
+  return (
+    status === "open" && connectedUrl !== null && normalizeDaemonUrl(targetUrl) === connectedUrl
+  );
+}
+
 export const useConnectionStore = create<ConnectionStoreState>()((set, get) => ({
   status: "idle",
   serverInfo: null,
   error: null,
+  connectedUrl: null,
   daemon: null,
   client: null,
   reconnection: null,
@@ -80,17 +102,17 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     daemon.onStateChange((state) => set({ status: state }));
     reconnection.onReconnected(() => set({ error: null }));
     reconnection.onReconnectFailed((error) => {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set({ error: connectionErrorMessage(error) });
     });
 
     set({ daemon, client, reconnection, error: null, status: "connecting" });
 
     try {
       const info = await daemon.connect();
-      set({ serverInfo: info });
+      set({ serverInfo: info, connectedUrl: normalizeDaemonUrl(opts.url) });
       reconnection.start();
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set({ error: connectionErrorMessage(error) });
       throw error;
     }
   },
@@ -102,6 +124,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     set({
       status: "idle",
       serverInfo: null,
+      connectedUrl: null,
       daemon: null,
       client: null,
       reconnection: null,
