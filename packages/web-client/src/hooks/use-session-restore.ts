@@ -9,6 +9,7 @@
 
 import { useEffect, useRef } from "react";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { type PiStudioClient } from "@av-pi-studio/client";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
@@ -29,12 +30,15 @@ interface RestoredAgent {
 export function useSessionRestore(): void {
   const client = useConnectionStore((s) => s.client);
   const status = useConnectionStore((s) => s.status);
-  const restoredRef = useRef(false);
+  // Guard per CLIENT instance, not per hook instance: connect() builds a fresh
+  // PiStudioClient per connection, so switching servers without a page reload must
+  // re-run the restore for the new daemon's sessions.
+  const restoredForRef = useRef<PiStudioClient | null>(null);
 
   useEffect(() => {
     if (status !== "open" || !client) return;
-    if (restoredRef.current) return; // one restore per connection lifetime
-    restoredRef.current = true;
+    if (restoredForRef.current === client) return; // one restore per connection lifetime
+    restoredForRef.current = client;
 
     void (async () => {
       let agents: RestoredAgent[] = [];
