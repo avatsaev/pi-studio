@@ -5,10 +5,7 @@ modular, typed, performant app.
 
 > **Status: implemented.** The 3-column workspace shell, connection layer, sessions sidebar,
 > chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
-> system are all built and wired. Client-side routing exists (`/`, `/connect`, `/settings` —
-> `routes/AppRouter.tsx`), including a connect screen and a Settings view with saved-server
-> registration (providers section is a placeholder pending daemon config endpoints). Two Vite build
-> targets (`build:web` / `build:electron`) exist, but
+> system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
 > the **Electron-specific runtime code does not exist yet** — no `getIsElectron()`, no injected
 > daemon URL, no `contextBridge` consumer. That is `clean-room-scope/sprints/sprint-033-desktop`
 > scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
@@ -51,10 +48,8 @@ CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code f
 `@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod (brand-config validation) · CSS Modules ·
 clsx. Tests: Vitest.
 
-`react-router` v7 provides client-side routing (`routes/AppRouter.tsx`): `/` (workspace),
-`/connect` (connect screen), `/settings` (saved servers + providers placeholder). The web
-build uses history-API routing; the Electron build switches to hash routing because the
-renderer loads from `file://` (selected via `import.meta.env.VITE_TARGET`).
+`react-router` is **not** currently used — the app has a single hardcoded root page
+(`routes/WorkspacePage.tsx`), no client-side routing yet.
 
 ---
 
@@ -80,11 +75,10 @@ src/
                             StatusBadge/Dot, Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient), normalize-url
                            (accepts ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
-                           (TanStack Query), rpc-keys, files-changed (cache-invalidation signaling),
-                           connect-to-server (connect action shared by /connect and Settings)
+                           (TanStack Query), rpc-keys, files-changed (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
-                           terminal-store, explorer-store, saved-servers-store (+ tests)
+                           terminal-store, explorer-store (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore, use-shortcuts, use-explorer,
@@ -102,10 +96,8 @@ src/
                             MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
                             TextViewer, viewer-registry
     git/                    ChangesPanel
-    settings/               SettingsSidebar + server/provider detail panes and CRUD dialogs
     terminal/               TerminalPanel, TerminalsPanel
-  routes/                  AppRouter (route table, browser/hash by build target), WorkspacePage
-                           (the 3-column shell), ConnectPage, SettingsPage
+  routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)
   components/              (reserved for non-design-system reusable components; currently empty)
   test/                    (reserved for shared test utilities; currently empty)
 ```
@@ -143,20 +135,10 @@ entered at runtime, never baked into the image.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
 - **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
-- **Connection URL is toolbar/URL-param/saved-server driven** (`ui-store.ts` host field, seeded from
-  `?host=&password=&cwd=&connect=1` in `use-connection.ts` — those params ride on
-  `window.location.search`, which routing does not touch, so deep links keep working), normalized
-  by `lib/connection/normalize-url.ts` before it reaches the transport — the field accepts
-  `ws://`/`wss://`, `http://`/`https://` (mapped to `ws`/`wss`), or a bare `host:port`. Saved
-  servers persist client-side in localStorage via `stores/saved-servers-store.ts` (one JSON blob,
-  validate-on-load, echoing `theme/appearance-store.ts`). Relay entries are NOT yet supported: the
-  pairing link carries only the daemon public key, while a relay connection also needs the relay
-  endpoint and the daemon's live rendezvous session id (rotates per reconnect; no RPC exposes it).
-  Accepting an Electron-injected daemon URL (via `contextBridge`) and adding `getIsElectron()`
-  platform gating are **not yet implemented** — both are sprint-033-desktop/task-001 scope, to be
-  added to `connection-store.ts` and a new `platform/electron.ts` module respectively when that
-  sprint is implemented.
-- **Boot hooks live above the router.** `Boot` (connection boot, session restore, shortcuts)
-  mounts once in `app.tsx` outside `AppRouter`; its once-guards are per component instance, so it
-  must never move inside a route element. `useSessionRestore` guards per `PiStudioClient` instance
-  — a new connection (server switch without reload) re-runs the restore.
+- **Connection URL is currently toolbar/URL-param only** (`ui-store.ts` host field, seeded from
+  `?host=&password=&cwd=&connect=1` in `use-connection.ts`), normalized by `lib/connection/normalize-url.ts`
+  before it reaches the transport — the field accepts `ws://`/`wss://`, `http://`/`https://` (mapped
+  to `ws`/`wss`), or a bare `host:port`. Accepting an Electron-injected daemon
+  URL (via `contextBridge`) and adding `getIsElectron()` platform gating are **not yet implemented**
+  — both are sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
+  `platform/electron.ts` module respectively when that sprint is implemented.

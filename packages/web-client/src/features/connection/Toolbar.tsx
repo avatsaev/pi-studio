@@ -6,15 +6,7 @@
  * (SessionList.tsx), not here.
  */
 
-import { useNavigate } from "react-router";
-import {
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  Plug,
-  Settings,
-} from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
@@ -23,7 +15,6 @@ import { ConnectionStatus } from "./ConnectionStatus.js";
 import styles from "./Toolbar.module.css";
 
 export function Toolbar() {
-  const navigate = useNavigate();
   const status = useConnectionStore((s) => s.status);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
@@ -77,24 +68,6 @@ export function Toolbar() {
           size="sm"
           variant="ghost"
           iconOnly
-          title="Connect / servers"
-          onClick={() => navigate("/connect")}
-        >
-          <Plug size={16} />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          iconOnly
-          title="Settings"
-          onClick={() => navigate("/settings")}
-        >
-          <Settings size={16} />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          iconOnly
           title={leftSidebarCollapsed ? "Show sessions sidebar" : "Hide sessions sidebar"}
           onClick={() => toggleLeftSidebar()}
         >
@@ -104,9 +77,7 @@ export function Toolbar() {
           size="sm"
           variant="ghost"
           iconOnly
-          title={
-            rightSidebarCollapsed ? "Show files/changes sidebar" : "Hide files/changes sidebar"
-          }
+          title={rightSidebarCollapsed ? "Show files/changes sidebar" : "Hide files/changes sidebar"}
           onClick={() => toggleRightSidebar()}
         >
           {rightSidebarCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
