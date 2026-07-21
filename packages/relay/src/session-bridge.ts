@@ -22,6 +22,23 @@ export interface RelaySocket {
   close(code?: number, reason?: string): void;
 }
 
+/**
+ * Metadata-only lifecycle hooks a relay host (e.g. `relay-server.ts`) can subscribe to for
+ * operational logging. Every callback receives ONLY metadata the relay already legitimately sees
+ * (session ids, peer counts, frame sizes) — never frame contents. Firing these hooks does not
+ * weaken the zero-knowledge property: the bridge still parses nothing past the registration frame.
+ */
+export interface RelayBridgeEvents {
+  /** A socket failed to present a valid registration frame as its first frame (silently ignored). */
+  onRegisterRejected?(socket: RelaySocket): void;
+  /** A socket registered under `sessionId`; `peers` is the session's socket count after adding. */
+  onRegister?(socket: RelaySocket, sessionId: string, peers: number): void;
+  /** A frame of `bytes` UTF-8 bytes was forwarded from one socket to a peer in `sessionId`. */
+  onForward?(sessionId: string, bytes: number): void;
+  /** A registered socket detached; `peers` is the session's socket count after removal. */
+  onUnregister?(socket: RelaySocket, sessionId: string, peers: number): void;
+}
+
 function tryParseSessionId(data: string): string | null {
   try {
     const parsed = JSON.parse(data) as { type?: unknown; sessionId?: unknown };
@@ -42,6 +59,8 @@ function tryParseSessionId(data: string): string | null {
 export class RelaySessionBridge {
   private readonly sessions = new Map<string, Set<RelaySocket>>();
 
+  constructor(private readonly events: RelayBridgeEvents = {}) {}
+
   /**
    * Attach a raw socket. Its first frame MUST be a registration frame or it is silently ignored
    * (never forwarded, never crashes the bridge) — an unregistered socket receives nothing and
@@ -53,17 +72,24 @@ export class RelaySessionBridge {
     socket.onMessage((data) => {
       if (sessionId === null) {
         const parsedSessionId = tryParseSessionId(data);
-        if (!parsedSessionId) return; // not a registration frame; ignore malformed/unexpected input
+        if (!parsedSessionId) {
+          // not a registration frame; ignore malformed/unexpected input
+          this.events.onRegisterRejected?.(socket);
+          return;
+        }
         sessionId = parsedSessionId;
         const peers = this.sessions.get(sessionId) ?? new Set<RelaySocket>();
         peers.add(socket);
         this.sessions.set(sessionId, peers);
+        this.events.onRegister?.(socket, sessionId, peers.size);
         return;
       }
       // Forward verbatim to every OTHER socket sharing this session id. No JSON.parse, no
       // inspection — this frame may be the E2EE handshake or opaque ciphertext.
       for (const peer of this.sessions.get(sessionId) ?? []) {
-        if (peer !== socket) peer.send(data);
+        if (peer === socket) continue;
+        peer.send(data);
+        this.events.onForward?.(sessionId, data.length);
       }
     });
 
@@ -73,6 +99,7 @@ export class RelaySessionBridge {
       if (!peers) return;
       peers.delete(socket);
       if (peers.size === 0) this.sessions.delete(sessionId);
+      this.events.onUnregister?.(socket, sessionId, peers.size);
     });
   }
 

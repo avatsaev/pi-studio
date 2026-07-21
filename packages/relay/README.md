@@ -34,6 +34,23 @@ Defaults to `0.0.0.0:7000` if neither `--listen` nor `PI_STUDIO_RELAY_LISTEN` is
 - A WebSocket endpoint (root path) — where daemons and clients connect.
 - `GET /health` → `200 ok` — liveness probe.
 
+### Logging
+
+The relay logs its full operational lifecycle with pino: every connection open (id + remote
+address), session registration (session id, peer count), peer detach, and connection close (close
+code, duration, bytes in/out) — plus warns on pre-registration garbage and errors on socket
+failures. Frame forwarding is logged at `trace` with **sizes only**: the relay is zero-knowledge
+by construction and never sees (so never logs) message contents.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PI_STUDIO_RELAY_LOG_LEVEL` | `info` | pino level (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) |
+| `PI_STUDIO_RELAY_LOG_DIR` | _(unset)_ | Also write rotating NDJSON files here (stdout always gets logs too) |
+
+stdout always receives logs — NDJSON in non-TTY (so `docker logs` / journald work out of the box),
+pretty-printed on a TTY. `pi-studio relay start` (CLI) runs the relay detached with `stdio`
+ignored, so it configures a rotating file under `$PI_STUDIO_HOME/logs/` instead.
+
 Shuts down cleanly on `SIGINT`/`SIGTERM`.
 
 ### From the Pi-Studio CLI
@@ -96,7 +113,13 @@ import { startRelayServer } from "@av-pi-studio/relay/server";
 | `RelaySessionBridge` | `.` | relay server | Platform-agnostic verbatim frame bridge, keyed by session id — the zero-knowledge core |
 | `createCloudflareRelayHandler(opts)` | `.` | relay server | Thin Cloudflare Workers `WebSocketPair` wrapper around `RelaySessionBridge` |
 | `encodeBase64` / `decodeBase64` | `.` | both | Pure-JS base64 codec (no Node `Buffer`) — runs identically in Node and browser/RN |
-| `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run) |
+| `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run); accepts an optional `logger` |
+| `createRelayLogger(opts)` | `./server` | relay server | pino operational logger: stdout always (pretty TTY / NDJSON otherwise), optional rotating file via `logDir` |
+
+`RelaySessionBridge`'s constructor takes an optional `RelayBridgeEvents` (`onRegister`,
+`onRegisterRejected`, `onForward`, `onUnregister`) — metadata-only lifecycle hooks (session ids,
+peer counts, frame **sizes**, never contents) that `startRelayServer` wires to its logger; use
+them for your own metrics/logging when embedding the bridge.
 
 Both channel constructors expose an **identical** API — the daemon and client use symmetric code
 paths. Neither channel accepts app messages before its handshake completes; a daemon's channel
@@ -105,10 +128,13 @@ shared key from that same known public key before the handshake even starts.
 
 ```ts
 // Minimal self-hosted relay, embedded rather than run as a separate process:
-import { startRelayServer } from "@av-pi-studio/relay/server";
+import { startRelayServer, createRelayLogger } from "@av-pi-studio/relay/server";
 
-const handle = await startRelayServer({ host: "0.0.0.0", port: 7000 });
-console.log(`relay up on ws://${handle.host}:${handle.port}`);
+const handle = await startRelayServer({
+  host: "0.0.0.0",
+  port: 7000,
+  logger: createRelayLogger({ level: "info" }), // optional; omit for silent
+});
 // handle.bridge is the underlying RelaySessionBridge, if you need to inspect peerCount(sessionId)
 await handle.close();
 ```
@@ -143,5 +169,7 @@ npm run build       # tsc -b (also chmod +x's the pi-studio-relay binary)
 npx vitest run packages/relay
 ```
 
-Zero non-crypto runtime dependencies beyond `tweetnacl` (crypto) and `ws` (WebSocket server/client
-framing) — no framework, no HTTP client library beyond Node's own `node:http`.
+Runtime dependencies: `tweetnacl` (crypto) and `ws` (WebSocket framing) for the channel/bridge
+core, plus `pino` + `pino-pretty` + `rotating-file-stream` used only by the Node-only `./server`
+subpath (operational logging). The main barrel stays free of platform-specific imports — no
+framework, no HTTP client library beyond Node's own `node:http`.

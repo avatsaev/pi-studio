@@ -235,3 +235,106 @@ describe("RelaySessionBridge", () => {
     expect(relay.bridge.peerCount("sess-4")).toBe(0);
   });
 });
+
+/**
+ * Metadata-only event hooks (`RelayBridgeEvents`) — what the relay server's operational logging
+ * subscribes to. In-memory fake sockets keep these deterministic (no network timing).
+ */
+describe("RelaySessionBridge events", () => {
+  /** Minimal in-memory RelaySocket: capture sent frames, expose emit/close test triggers. */
+  function fakeSocket() {
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const closeHandlers: Array<(reason?: string) => void> = [];
+    const socket: RelaySocket = {
+      send: (d) => void sent.push(d),
+      onMessage: (h) => messageHandlers.push(h),
+      onClose: (h) => closeHandlers.push(h),
+      close: () => undefined,
+    };
+    return {
+      socket,
+      sent,
+      emit: (d: string) => messageHandlers.forEach((h) => h(d)),
+      emitClose: () => closeHandlers.forEach((h) => h()),
+    };
+  }
+
+  it("fires onRegister with the session id and post-add peer count", () => {
+    const events: Array<{ sessionId: string; peers: number }> = [];
+    const bridge = new RelaySessionBridge({
+      onRegister: (_s, sessionId, peers) => events.push({ sessionId, peers }),
+    });
+    const a = fakeSocket();
+    const b = fakeSocket();
+    bridge.attach(a.socket);
+    bridge.attach(b.socket);
+    a.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    b.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    expect(events).toEqual([
+      { sessionId: "s1", peers: 1 },
+      { sessionId: "s1", peers: 2 },
+    ]);
+  });
+
+  it("fires onRegisterRejected for a non-registration first frame, without registering the socket", () => {
+    let rejected = 0;
+    const bridge = new RelaySessionBridge({ onRegisterRejected: () => rejected++ });
+    const a = fakeSocket();
+    bridge.attach(a.socket);
+    a.emit("not json at all");
+    a.emit(JSON.stringify({ type: "something_else" }));
+    expect(rejected).toBe(2);
+    expect(bridge.peerCount("s1")).toBe(0);
+    // The socket can still register later (behavior unchanged by the hook).
+    a.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    expect(bridge.peerCount("s1")).toBe(1);
+  });
+
+  it("fires onForward per peer delivery with the frame size, never for the sender itself", () => {
+    const forwards: number[] = [];
+    const bridge = new RelaySessionBridge({ onForward: (_s, bytes) => forwards.push(bytes) });
+    const a = fakeSocket();
+    const b = fakeSocket();
+    bridge.attach(a.socket);
+    bridge.attach(b.socket);
+    a.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    b.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    const frame = "x".repeat(123);
+    a.emit(frame);
+    expect(b.sent).toEqual([frame]);
+    expect(forwards).toEqual([123]);
+    // A lone socket with no peer delivers nothing and fires no hook.
+    b.emitClose();
+    a.emit("hello");
+    expect(forwards).toEqual([123]);
+  });
+
+  it("fires onUnregister with the post-removal peer count", () => {
+    const events: Array<{ sessionId: string; peers: number }> = [];
+    const bridge = new RelaySessionBridge({
+      onUnregister: (_s, sessionId, peers) => events.push({ sessionId, peers }),
+    });
+    const a = fakeSocket();
+    const b = fakeSocket();
+    bridge.attach(a.socket);
+    bridge.attach(b.socket);
+    a.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    b.emit(JSON.stringify({ type: "relay_register", sessionId: "s1" }));
+    a.emitClose();
+    b.emitClose();
+    expect(events).toEqual([
+      { sessionId: "s1", peers: 1 },
+      { sessionId: "s1", peers: 0 },
+    ]);
+  });
+
+  it("never fires onUnregister for a socket that closed before registering", () => {
+    let unregistered = 0;
+    const bridge = new RelaySessionBridge({ onUnregister: () => unregistered++ });
+    const a = fakeSocket();
+    bridge.attach(a.socket);
+    a.emitClose();
+    expect(unregistered).toBe(0);
+  });
+});

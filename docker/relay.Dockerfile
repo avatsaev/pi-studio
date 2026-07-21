@@ -2,7 +2,7 @@
 #
 # pi-studio-relay — standalone E2EE relay server (@av-pi-studio/relay).
 #
-# Pure-JS (tweetnacl + ws), stateless, zero native addons. Built from local monorepo source.
+# Pure-JS (tweetnacl + ws + pino logging stack), stateless, zero native addons. Built from local monorepo source.
 # Build context MUST be the repo root:  docker build -f docker/relay.Dockerfile -t pi-studio-relay .
 
 # ── Stage 1: build ────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ COPY packages/relay packages/relay
 RUN npm run build:relay
 
 # Produce a minimal production node_modules containing only relay's runtime deps
-# (ws + tweetnacl) — relay has no workspace deps to resolve. Installed standalone.
+# (ws + tweetnacl + pino stack) — relay has no workspace deps to resolve. Installed standalone.
 WORKDIR /repo/prod
 RUN cp /repo/packages/relay/package.json ./package.json \
  && npm pkg delete devDependencies scripts bin \

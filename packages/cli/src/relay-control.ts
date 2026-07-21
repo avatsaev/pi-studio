@@ -91,9 +91,12 @@ export const subprocessRelayStarter: RelayStarter = ({ home, listen }) =>
     const idx = listen.lastIndexOf(":");
     const host = listen.slice(0, idx);
     const port = Number(listen.slice(idx + 1));
+    // stdio is "ignore" (detached child), so operational logs go to a rotating file under
+    // `$PI_STUDIO_HOME/logs/` — same destination pattern as the daemon's own file logging.
+    const logDir = join(home, "logs");
     const code = `import(${JSON.stringify(
       relayUrl,
-    )}).then(m=>m.startRelayServer({host:${JSON.stringify(host)},port:${JSON.stringify(port)}}))`;
+    )}).then(m=>m.startRelayServer({host:${JSON.stringify(host)},port:${JSON.stringify(port)},logger:m.createRelayLogger({logDir:${JSON.stringify(logDir)}})}))`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",

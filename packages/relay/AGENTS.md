@@ -30,8 +30,8 @@ never has the keys to read or forge them.
 ```
 src/
   index.ts             Re-exports channel.ts, base64.ts, session-bridge.ts, cf-adapter.ts.
-                        Deliberately does NOT re-export relay-server.ts (Node-only: node:http, ws)
-                        — see "./server" subpath export below.
+                        Deliberately does NOT re-export relay-server.ts / relay-logger.ts
+                        (Node-only: node:http, ws, node:fs) — see "./server" subpath export below.
   channel.ts           createClientChannel(), createDaemonChannel(), Transport,
                         EncryptedChannelEvents, ConnectionRole, RelaySessionAttachment,
                         EncryptedChannel.
@@ -55,11 +55,22 @@ src/
                         that transitively imports this package (e.g. web-client, via
                         `@av-pi-studio/client`'s relay transport).
   relay-server.test.ts
+  relay-logger.ts       createRelayLogger() — pino operational logger for the self-hosted relay.
+                        stdout ALWAYS (pretty on a TTY, NDJSON otherwise, so `docker logs` works),
+                        plus an optional rotating NDJSON file via `logDir` /
+                        `PI_STUDIO_RELAY_LOG_DIR`. Node-only — imported only from
+                        relay-server.ts/relay-main.ts (the `"./server"` subpath), never the main
+                        barrel; relay-server.ts re-exports it so embedders spawning the server
+                        inline (packages/cli's relay-control.ts) can build one from the same
+                        resolved module URL.
+  relay-logger.test.ts
   relay-main.ts          Process entry (`bin: pi-studio-relay`). Reads `--listen host:port` /
-                        `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), calls
+                        `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the stdout
+                        logger (`PI_STUDIO_RELAY_LOG_LEVEL`, default `info`), calls
                         startRelayServer(), shuts down cleanly on SIGINT/SIGTERM. This is what
                         `npx @av-pi-studio/relay` runs directly and what `pi-studio relay start`
-                        (packages/cli's relay-control.ts) spawns as a detached child process.
+                        (packages/cli's relay-control.ts) spawns as a detached child process (with
+                        a file logger under `$PI_STUDIO_HOME/logs/`, since stdio is ignored).
 ```
 
 ---
@@ -121,8 +132,16 @@ interface Transport {
 
 ```ts
 class RelaySessionBridge {
+  constructor(events?: RelayBridgeEvents); // optional metadata-only lifecycle hooks (logging)
   attach(socket: RelaySocket): void;     // pairs sockets by session id; forwards non-registration frames verbatim
   peerCount(sessionId: string): number;  // observability/test helper
+}
+
+interface RelayBridgeEvents {
+  onRegisterRejected?(socket): void;                    // first frame wasn't relay_register (still ignored)
+  onRegister?(socket, sessionId, peers): void;          // peers = post-add session socket count
+  onForward?(sessionId, bytes): void;                   // per peer delivery, frame SIZE only
+  onUnregister?(socket, sessionId, peers): void;        // peers = post-removal count
 }
 
 function createCloudflareRelayHandler(opts: {
@@ -130,6 +149,11 @@ function createCloudflareRelayHandler(opts: {
   createWebSocketPair?: () => CfWebSocketPair;  // inject in tests; defaults to the real Workers global
 }): (upgradeHeader: string | null) => { status: number; webSocket?: CfWebSocket };
 ```
+`RelayBridgeEvents` is how the relay server logs without ever inspecting traffic: every hook
+receives only metadata the relay already legitimately sees (session ids, peer counts, frame
+sizes) — never frame contents. A hook that parses or logs payload data would break the
+zero-knowledge property just as surely as parsing in `attach()` would.
+
 `RelaySessionBridge` is the platform-agnostic bridging core — it inspects ONLY the first frame a
 socket sends (to detect `{"type":"relay_register","sessionId":"..."}`, matching the daemon/client
 registration convention from task-002/003); every subsequent frame is forwarded byte-for-byte to
@@ -142,8 +166,8 @@ contents" — the bridge structurally cannot read `e2ee_app` ciphertext because 
 side for the caller's `fetch` handler to return in a `101` response
 (`new Response(null, { webSocket, status: 101 })`). It deliberately declares its own minimal
 structural `CfWebSocket`/`CfWebSocketPair` types instead of depending on
-`@cloudflare/workers-types`, so this zero-runtime-dependency package stays that way; the real
-Workers globals satisfy the structural shape naturally.
+`@cloudflare/workers-types`, so the browser-safe main barrel stays free of platform-specific type
+dependencies; the real Workers globals satisfy the structural shape naturally.
 
 ## Public API (`src/relay-server.ts`, `src/relay-main.ts`)
 
@@ -151,6 +175,7 @@ Workers globals satisfy the structural shape naturally.
 function startRelayServer(opts: {
   host?: string;  // default "0.0.0.0" — unlike the daemon, the relay must accept remote dials
   port: number;
+  logger?: RelayLogger;  // default: silent (tests/embedded); relay-main.ts passes a real stdout logger
 }): Promise<{
   host: string; port: number; bridge: RelaySessionBridge;
   close(): Promise<void>;
@@ -160,12 +185,21 @@ A plain Node `http` server exposing `GET /health` (200 `ok`) plus a `ws.WebSocke
 `attach()`es every incoming socket to a fresh `RelaySessionBridge` — daemon and client connections
 are treated identically; the bridge only distinguishes them by session id, never by role.
 
+With a logger injected, the server logs the full connection lifecycle: `connection open` (short
+conn id + remote address), `session registered` (session id + peer count; "both peers attached"
+when the second peer joins), `peer detached`, `connection closed` (close code, durationMs,
+bytesIn/bytesOut per connection), warns on pre-registration non-register frames, and errors on
+socket failures. Frame forwarding is logged at `trace` level with byte counts only.
+
 `relay-main.ts` is the CLI-facing process entry (`bin: pi-studio-relay`): parses `--listen host:port`
-/ `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), calls `startRelayServer`, logs the bound
-address, and closes cleanly on `SIGINT`/`SIGTERM`. `packages/cli`'s `relay-control.ts` resolves
-`startRelayServer` via `import.meta.resolve("@av-pi-studio/relay/server")` (the subpath export, not
-the main barrel) to spawn/manage it as a supervised subprocess for `pi-studio relay
-start|stop|status`.
+/ `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the operational logger
+(`createRelayLogger()` — stdout always, `PI_STUDIO_RELAY_LOG_LEVEL` default `info`,
+`PI_STUDIO_RELAY_LOG_DIR` for an additional rotating file), calls `startRelayServer`, logs the
+bound address, and closes cleanly on `SIGINT`/`SIGTERM`. `packages/cli`'s `relay-control.ts`
+resolves `startRelayServer` via `import.meta.resolve("@av-pi-studio/relay/server")` (the subpath
+export, not the main barrel) to spawn/manage it as a supervised subprocess for `pi-studio relay
+start|stop|status` — passing `createRelayLogger({ logDir: "$PI_STUDIO_HOME/logs" })` since the
+detached child's stdio is ignored.
 
 ---
 
@@ -191,20 +225,26 @@ start|stop|status`.
 - **Session-key freshness**: a new channel = a new ECDH derivation, so ciphertext cannot replay
   across sessions. Replay protection **within** a live session is NOT implemented (random nonces,
   no counter) — TODO(verify) per architecture/relay-e2ee.md.
-- **No Node-only APIs** in `base64.ts` (`channel.ts` uses `TextEncoder`/`TextDecoder`, also
-  available in browsers/RN) — the whole package must run identically in the daemon and in a future
-  browser/RN client transport.
+- **No Node-only APIs** in the main-barrel modules (`base64.ts`; `channel.ts` uses
+  `TextEncoder`/`TextDecoder`, also available in browsers/RN) — everything `index.ts` re-exports
+  must run identically in the daemon and in a browser/RN client transport. Node-only code
+  (`relay-server.ts`, `relay-logger.ts`) lives behind the `"./server"` subpath.
+- **Relay logs are metadata-only.** Any logging wired to `RelayBridgeEvents` (or added to
+  `relay-server.ts`) may record connection ids, remote addresses, session ids, peer counts,
+  durations, and byte sizes — NEVER frame contents. The relay can't read ciphertext anyway;
+  logging must not weaken that guarantee for plaintext-visible frames either.
 - **Never throw from a message handler** on malformed/tampered input — drop and report via
   `onAuthError`/return early instead, since a hostile or buggy relay must not be able to crash
   either side.
 - **`RelaySessionBridge.attach()` never inspects post-registration frames.** Adding any parsing
   there (even for debugging) breaks the zero-knowledge property the whole package exists for.
-- **`relay-server.ts` is never re-exported from the main barrel (`index.ts`).** It imports
-  `node:http`/`ws`; re-exporting it there would drag those Node-only imports into any bundler that
-  resolves this package's main entry — including browser builds of `web-client` (which transitively
-  imports `@av-pi-studio/relay` via `@av-pi-studio/client`'s relay transport). New Node-only
-  server-side additions belong behind the `"./server"` package.json export subpath, never the main
-  one; this was a real Vite build break caught and fixed during npm publish, not theoretical.
+- **`relay-server.ts` and `relay-logger.ts` are never re-exported from the main barrel
+  (`index.ts`).** They import `node:http`/`ws`/`node:fs`; re-exporting them there would drag
+  those Node-only imports into any bundler that resolves this package's main entry — including
+  browser builds of `web-client` (which transitively imports `@av-pi-studio/relay` via
+  `@av-pi-studio/client`'s relay transport). New Node-only server-side additions belong behind
+  the `"./server"` package.json export subpath, never the main one; this was a real Vite build
+  break caught and fixed during npm publish, not theoretical.
 
 ---
 
@@ -216,4 +256,5 @@ npx vitest run packages/relay/src/base64.test.ts
 npx vitest run packages/relay/src/session-bridge.test.ts
 npx vitest run packages/relay/src/cf-adapter.test.ts
 npx vitest run packages/relay/src/relay-server.test.ts
+npx vitest run packages/relay/src/relay-logger.test.ts
 ```

@@ -5,8 +5,14 @@
  * `startRelayServer`, logs the bound address + health endpoint, and shuts down cleanly on
  * `SIGINT`/`SIGTERM`. This is what `pi-studio relay start` (packages/cli) spawns as a detached
  * child process, and what `npx @av-pi-studio/relay` runs directly for a foreground/manual deploy.
+ *
+ * Logging: structured pino to stdout always (pretty on a TTY, NDJSON otherwise — so `docker logs`
+ * works out of the box); `PI_STUDIO_RELAY_LOG_LEVEL` sets the level (default `info`),
+ * `PI_STUDIO_RELAY_LOG_DIR` additionally writes a rotating NDJSON file. Metadata only — the relay
+ * never sees message contents, so nothing sensitive can be logged.
  */
 import { startRelayServer } from "./relay-server.js";
+import { createRelayLogger } from "./relay-logger.js";
 
 const DEFAULT_LISTEN = "0.0.0.0:7000";
 
@@ -29,12 +35,13 @@ function resolveListen(argv: string[]): string {
 
 async function main(): Promise<void> {
   const { host, port } = parseListen(resolveListen(process.argv.slice(2)));
-  const handle = await startRelayServer({ host, port });
+  const log = createRelayLogger();
+  const handle = await startRelayServer({ host, port, logger: log });
 
-  console.log(`[pi-studio-relay] listening on ws://${handle.host}:${handle.port} (health: /health)`);
+  log.info({ host: handle.host, port: handle.port }, `listening on ws://${handle.host}:${handle.port} (health: /health)`);
 
   const shutdown = (): void => {
-    console.log("[pi-studio-relay] shutting down");
+    log.info("shutting down");
     void handle.close().then(() => process.exit(0));
   };
   process.on("SIGINT", shutdown);
@@ -42,6 +49,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(`[pi-studio-relay] fatal: ${(err as Error)?.message ?? String(err)}`);
+  createRelayLogger().fatal({ err: (err as Error)?.message ?? String(err) }, "fatal");
   process.exit(1);
 });

@@ -1,0 +1,13 @@
+# Compose override: give the daemon a writable pi agent home preloaded with your model/auth
+# config, so agents can use your configured providers/models (baseten, litellm.*) and pi can
+# still write its own session/history state. Usage:
+#   PI_STUDIO_PI_CONFIG=/tmp/pi-agent-home \
+#     docker compose -f docker-compose.yml -f docker-compose.models.yml up -d
+#
+# PI_STUDIO_PI_CONFIG must be a directory (owned by uid 1000 = the container's `node` user)
+# containing at least models.json and auth.json (settings.json optional). It is bind-mounted
+# read-write at ~/.pi/agent inside the daemon — the path the bundled `pi` runtime reads and writes.
+services:
+  daemon:
+    volumes:
+      - "${PI_STUDIO_PI_CONFIG:?set PI_STUDIO_PI_CONFIG to a dir (uid 1000) holding models.json/auth.json}:/home/node/.pi/agent"

@@ -13,15 +13,25 @@
  * public key in the `e2ee_hello` handshake frame.
  */
 import { createServer, type Server as HttpServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { RelaySessionBridge, type RelaySocket } from "./session-bridge.js";
+import { createRelayLogger, type RelayLogger } from "./relay-logger.js";
+
+// The logger is re-exported from this Node-only subpath so embedders spawning the server inline
+// (packages/cli's relay-control.ts) can construct one from the same module URL they resolve for
+// startRelayServer — without a second import.meta.resolve.
+export { createRelayLogger, type RelayLogger, type CreateRelayLoggerOptions, type RelayLogLevel } from "./relay-logger.js";
 
 export interface RelayServerOptions {
   /** Interface to bind. Defaults to all interfaces (`0.0.0.0`) since the relay must accept
    *  connections dialed in from other hosts — unlike the daemon, which defaults to localhost. */
   host?: string;
   port: number;
+  /** Operational logger; defaults to a silent logger (tests, embedded use). `relay-main.ts`
+   *  passes a real stdout logger. */
+  logger?: RelayLogger;
 }
 
 export interface RelayServerHandle {
@@ -33,19 +43,35 @@ export interface RelayServerHandle {
 
 const DEFAULT_RELAY_HOST = "0.0.0.0";
 
-function wrapWsSocket(ws: WebSocket): RelaySocket {
+function wrapWsSocket(ws: WebSocket, meta: RelaySocketMeta): RelaySocket {
   const messageHandlers: Array<(data: string) => void> = [];
   ws.on("message", (data: Buffer, isBinary: boolean) => {
-    if (!isBinary) for (const h of messageHandlers) h(data.toString("utf8"));
+    if (isBinary) return;
+    const text = data.toString("utf8");
+    meta.bytesIn += text.length;
+    for (const h of messageHandlers) h(text);
   });
   return {
     send: (data) => {
-      if (ws.readyState === ws.OPEN) ws.send(data);
+      if (ws.readyState === ws.OPEN) {
+        meta.bytesOut += data.length;
+        ws.send(data);
+      }
     },
     onMessage: (h) => messageHandlers.push(h),
     onClose: (h) => ws.on("close", (code, reasonBuf: Buffer) => h(reasonBuf.toString("utf8") || `code ${code}`)),
     close: (code, reason) => ws.close(code, reason),
   };
+}
+
+/** Per-connection metadata, tracked for close-time summary logs. */
+interface RelaySocketMeta {
+  /** Short id correlating all log lines for one connection. */
+  conn: string;
+  remoteAddress: string;
+  connectedAt: number;
+  bytesIn: number;
+  bytesOut: number;
 }
 
 /**
@@ -56,7 +82,30 @@ function wrapWsSocket(ws: WebSocket): RelaySocket {
  */
 export function startRelayServer(opts: RelayServerOptions): Promise<RelayServerHandle> {
   const host = opts.host ?? DEFAULT_RELAY_HOST;
-  const bridge = new RelaySessionBridge();
+  const log = opts.logger ?? createRelayLogger({ level: "silent" });
+
+  // Connection metadata keyed by the bridged socket, so bridge lifecycle hooks can log with
+  // connection context (id + remote address) without the bridge knowing anything about transports.
+  const metas = new WeakMap<RelaySocket, RelaySocketMeta>();
+  const metaOf = (s: RelaySocket): RelaySocketMeta | undefined => metas.get(s);
+
+  const bridge = new RelaySessionBridge({
+    onRegisterRejected: (socket) => {
+      const m = metaOf(socket);
+      log.warn({ conn: m?.conn, remoteAddress: m?.remoteAddress }, "ignored frame before registration (first frame must be relay_register)");
+    },
+    onRegister: (socket, sessionId, peers) => {
+      const m = metaOf(socket);
+      log.info({ conn: m?.conn, remoteAddress: m?.remoteAddress, sessionId, peers }, peers === 2 ? "session registered — both peers attached" : "session registered");
+    },
+    onForward: (sessionId, bytes) => {
+      log.trace({ sessionId, bytes }, "frame forwarded");
+    },
+    onUnregister: (socket, sessionId, peers) => {
+      const m = metaOf(socket);
+      log.info({ conn: m?.conn, sessionId, peers }, peers === 0 ? "peer detached — session idle" : "peer detached");
+    },
+  });
 
   const httpServer: HttpServer = createServer((req, res) => {
     if (req.method === "GET" && req.url === "/health") {
@@ -67,7 +116,35 @@ export function startRelayServer(opts: RelayServerOptions): Promise<RelayServerH
   });
 
   const wss = new WebSocketServer({ server: httpServer });
-  wss.on("connection", (ws: WebSocket) => bridge.attach(wrapWsSocket(ws)));
+  wss.on("connection", (ws: WebSocket, req) => {
+    const meta: RelaySocketMeta = {
+      conn: randomUUID().slice(0, 8),
+      remoteAddress: req.socket.remoteAddress ?? "unknown",
+      connectedAt: Date.now(),
+      bytesIn: 0,
+      bytesOut: 0,
+    };
+    log.info({ conn: meta.conn, remoteAddress: meta.remoteAddress }, "connection open");
+    ws.on("error", (err) => {
+      log.error({ conn: meta.conn, remoteAddress: meta.remoteAddress, err: err.message }, "socket error");
+    });
+    ws.on("close", (code) => {
+      log.info(
+        {
+          conn: meta.conn,
+          remoteAddress: meta.remoteAddress,
+          code,
+          durationMs: Date.now() - meta.connectedAt,
+          bytesIn: meta.bytesIn,
+          bytesOut: meta.bytesOut,
+        },
+        "connection closed",
+      );
+    });
+    const socket = wrapWsSocket(ws, meta);
+    metas.set(socket, meta);
+    bridge.attach(socket);
+  });
 
   return new Promise<RelayServerHandle>((resolve, reject) => {
     httpServer.on("error", reject);
