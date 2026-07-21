@@ -1,17 +1,20 @@
 import type { Command } from "commander";
 
+import { loadConfig, type PersistedConfig } from "@av-pi-studio/server";
+
 import { type CliContext, type GlobalOptions, EXIT_ERROR, EXIT_OK } from "./cli-core.js";
 import { resolveHome } from "./client-id.js";
 import { parseHost } from "./connection.js";
 import {
   type DaemonRuntime,
   daemonStatus,
+  daemonPaths,
   defaultDaemonRuntime,
   setDaemonPassword,
   stopDaemon,
   waitForDaemon,
 } from "./daemon-control.js";
-import { buildPairingUrl, readDaemonPublicKey } from "./pairing.js";
+import { buildPairingUrl, readDaemonPublicKey, type PairingRelayInfo } from "./pairing.js";
 import { renderQrToTerminal } from "./qr.js";
 
 /**
@@ -28,6 +31,29 @@ function runtimeOf(ctx: CliContext): DaemonRuntime {
   return ctx.daemon ?? defaultDaemonRuntime();
 }
 
+/**
+ * Read `daemon.relay` from `config.json` (env-overlaid, matching how the daemon itself resolves
+ * relay config) and translate it into the `PairingRelayInfo` `buildPairingUrl` needs — `null` when
+ * the relay isn't enabled or has no usable client-facing endpoint. The client-facing endpoint
+ * prefers `publicEndpoint`/`publicUseTls` (the address clients should dial) and falls back to
+ * `endpoint`/`useTls` (the daemon's own outbound-dial target) when no separate public address was
+ * configured — the common case for a relay reachable at the same address from both sides.
+ *
+ * `printPairing` also forwards `config.app.baseUrl` (env `PI_STUDIO_APP_BASE_URL`) as
+ * `buildPairingUrl`'s `baseUrl` — self-hosted/local deployments should set this to their own
+ * web-client origin (e.g. `http://localhost:8080`) instead of the unreachable
+ * `DEFAULT_PAIRING_BASE` placeholder, which only makes sense once a real hosted landing page
+ * exists at that address.
+ */
+function resolvePairingRelayInfo(config: PersistedConfig): PairingRelayInfo | null {
+  const relay = config.daemon.relay;
+  if (!relay.enabled) return null;
+  const endpoint = relay.publicEndpoint ?? relay.endpoint;
+  if (!endpoint) return null;
+  const useTls = relay.publicEndpoint !== undefined ? relay.publicUseTls : relay.useTls;
+  return { endpoint, useTls };
+}
+
 /** Render the pairing QR + link for the daemon at `home`. Returns an exit code. */
 export async function printPairing(
   ctx: CliContext,
@@ -39,11 +65,20 @@ export async function printPairing(
     ctx.sink.error("no daemon keypair found — start the daemon first (`pi-studio daemon start`).");
     return EXIT_ERROR;
   }
+  const config = loadConfig(daemonPaths(home).config);
+  const relay = resolvePairingRelayInfo(config);
   const { host, port } = parseHost(hostArg);
-  const url = buildPairingUrl(publicKey, { host: `${host}:${port}` });
+  const url = buildPairingUrl(publicKey, {
+    host: `${host}:${port}`,
+    relay: relay ?? undefined,
+    baseUrl: config.app.baseUrl,
+  });
   const qr = await renderQrToTerminal(url);
   ctx.sink.write(qr);
   ctx.sink.write(`Pairing link: ${url}`);
+  if (relay) {
+    ctx.sink.write(`(routed via relay ${relay.endpoint} — reachable without a direct connection to this daemon)`);
+  }
   return EXIT_OK;
 }
 

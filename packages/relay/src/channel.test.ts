@@ -55,6 +55,8 @@ function pairChannels(sessionId = "sess-1") {
 
   const daemonMessages: string[] = [];
   const clientMessages: string[] = [];
+  const daemonBinaryMessages: Uint8Array[] = [];
+  const clientBinaryMessages: Uint8Array[] = [];
   const daemonAuthErrors: unknown[] = [];
   const clientAuthErrors: unknown[] = [];
 
@@ -66,6 +68,7 @@ function pairChannels(sessionId = "sess-1") {
     daemonKeypair,
     events: {
       onMessage: (m) => daemonMessages.push(m),
+      onBinaryMessage: (b) => daemonBinaryMessages.push(b),
       onAuthError: (e) => daemonAuthErrors.push(e),
     },
   });
@@ -75,11 +78,22 @@ function pairChannels(sessionId = "sess-1") {
     daemonPublicKey: daemonKeypair.publicKey,
     events: {
       onMessage: (m) => clientMessages.push(m),
+      onBinaryMessage: (b) => clientBinaryMessages.push(b),
       onAuthError: (e) => clientAuthErrors.push(e),
     },
   });
 
-  return { client, daemon, daemonKeypair, daemonMessages, clientMessages, daemonAuthErrors, clientAuthErrors };
+  return {
+    client,
+    daemon,
+    daemonKeypair,
+    daemonMessages,
+    clientMessages,
+    daemonBinaryMessages,
+    clientBinaryMessages,
+    daemonAuthErrors,
+    clientAuthErrors,
+  };
 }
 
 describe("relay encrypted channel", () => {
@@ -115,6 +129,81 @@ describe("relay encrypted channel", () => {
     daemon.send("hello client");
     expect(daemonMessages).toEqual(["hello daemon"]);
     expect(clientMessages).toEqual(["hello client"]);
+  });
+
+  it("round-trips an encrypted BINARY app message both ways (terminal I/O / file-transfer chunks)", () => {
+    const { client, daemon, clientBinaryMessages, daemonBinaryMessages } = pairChannels();
+    const inputBytes = new Uint8Array([1, 2, 3, 4, 250, 251, 252, 253, 254, 255]);
+    const outputBytes = new Uint8Array([0, 10, 20, 30, 40]);
+    client.sendBinary(inputBytes);
+    daemon.sendBinary(outputBytes);
+    expect(daemonBinaryMessages).toEqual([inputBytes]);
+    expect(clientBinaryMessages).toEqual([outputBytes]);
+  });
+
+  it("refuses sendBinary before the handshake completes", () => {
+    const daemonKeypair = nacl.box.keyPair();
+    const daemonTransport: Transport = {
+      send: () => {},
+      onMessage: () => {},
+      onClose: () => {},
+      close: () => {},
+    };
+    const daemon = createDaemonChannel({
+      transport: daemonTransport,
+      attachment: { sessionId: "sess-lonely-binary" },
+      daemonKeypair,
+    });
+    expect(() => daemon.sendBinary(new Uint8Array([1]))).toThrow(/handshake/);
+  });
+
+  it("rejects tampered BINARY ciphertext without crashing and without delivering it", () => {
+    const daemonKeypair = nacl.box.keyPair();
+    const daemonHandlers: Array<(data: string) => void> = [];
+    const clientHandlers: Array<(data: string) => void> = [];
+
+    const clientTransport: Transport = {
+      send: (data) => {
+        for (const h of daemonHandlers) h(data);
+      },
+      onMessage: (h) => clientHandlers.push(h),
+      onClose: () => {},
+      close: () => {},
+    };
+    const daemonTransport: Transport = {
+      send: (data) => {
+        for (const h of clientHandlers) h(data);
+      },
+      onMessage: (h) => daemonHandlers.push(h),
+      onClose: () => {},
+      close: () => {},
+    };
+
+    const daemonBinaryMessages: Uint8Array[] = [];
+    const daemonAuthErrors: unknown[] = [];
+    const daemon = createDaemonChannel({
+      transport: daemonTransport,
+      attachment: { sessionId: "sess-tamper-bin" },
+      daemonKeypair,
+      events: {
+        onBinaryMessage: (b) => daemonBinaryMessages.push(b),
+        onAuthError: (e) => daemonAuthErrors.push(e),
+      },
+    });
+    createClientChannel({
+      transport: clientTransport,
+      attachment: { sessionId: "sess-tamper-bin" },
+      daemonPublicKey: daemonKeypair.publicKey,
+    });
+
+    // Build a syntactically valid but cryptographically bogus BINARY app frame and inject it.
+    const bogusBinaryFrame = JSON.stringify({ type: "e2ee_bin", frame: "AAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
+    for (const h of daemonHandlers) h(bogusBinaryFrame);
+
+    expect(daemonAuthErrors.length).toBe(1);
+    expect(String((daemonAuthErrors[0] as Error).message)).toMatch(/binary message failed authentication/);
+    expect(daemonBinaryMessages).toEqual([]);
+    expect(daemon.ready).toBe(true); // a bad frame never tears down the channel
   });
 
   it("rejects tampered ciphertext without crashing and without delivering it", () => {

@@ -169,15 +169,21 @@ parameter; see `web-client`'s `connection-store.ts` for that pattern).
 ### Relay transport (E2EE, via `@av-pi-studio/relay`)
 
 ```ts
-import { createRelayTransport, parsePairingUrl } from "@av-pi-studio/client";
+import { createRelayTransport, parsePairingUrl, relayDialUrl } from "@av-pi-studio/client";
 
-const offer = parsePairingUrl(pairingUrlOrFragment); // { publicKey, publicKeyB64, host? }
-const transport = createRelayTransport({
-  sessionId: relaySessionId, // rendezvous id shared with the daemon's outbound relay connection
-  daemonPublicKey: offer!.publicKey,
+// offer: { publicKey, publicKeyB64, host? } OR { publicKey, publicKeyB64, relay: { endpoint, useTls } }
+const offer = parsePairingUrl(pairingUrlOrFragment);
+
+// sessionId defaults to deriveRelaySessionId(offer.publicKey) — the SAME id the daemon's own
+// outbound relay dial always registers under — so it never needs to be transmitted separately.
+const transport = createRelayTransport({ daemonPublicKey: offer!.publicKey });
+
+const daemon = new DaemonClient({
+  url: relayDialUrl(offer!.relay!), // the relay's own address, not the daemon's
+  clientId,
+  clientType: "cli",
+  transport,
 });
-
-const daemon = new DaemonClient({ url: relayWsUrl, clientId, clientType: "cli", transport });
 await daemon.connect(); // completes the E2EE handshake before the `hello` RPC ever crosses the wire
 ```
 

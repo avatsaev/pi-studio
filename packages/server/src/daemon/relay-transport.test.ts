@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { createClientChannel } from "@av-pi-studio/relay";
+import { createClientChannel, deriveRelaySessionId } from "@av-pi-studio/relay";
 
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
@@ -112,7 +112,7 @@ afterEach(async () => {
 });
 
 describe("daemon relay transport", () => {
-  it("dials outbound and registers a session id", async () => {
+  it("dials outbound and registers the deterministic session id derived from its public key", async () => {
     relay = await startFakeRelay();
     const daemonKeypair = nacl.box.keyPair();
 
@@ -124,6 +124,7 @@ describe("daemon relay transport", () => {
     );
 
     const sessionId = await started.promise;
+    expect(sessionId).toBe(deriveRelaySessionId(daemonKeypair.publicKey));
     await waitFor(() => relay!.registeredSessionIds.includes(sessionId));
     expect(relay.registeredSessionIds).toContain(sessionId);
   });
@@ -182,7 +183,7 @@ describe("daemon relay transport", () => {
     clientSocket.close();
   });
 
-  it("reconnects with a fresh session id when the relay connection drops", async () => {
+  it("reconnects with the SAME (deterministic) session id when the relay connection drops", async () => {
     relay = await startFakeRelay();
     const daemonKeypair = nacl.box.keyPair();
 
@@ -204,15 +205,20 @@ describe("daemon relay transport", () => {
     );
 
     const firstSessionId = await firstSessionStarted.promise;
+    expect(firstSessionId).toBe(deriveRelaySessionId(daemonKeypair.publicKey));
     await waitFor(() => relay!.registeredSessionIds.includes(firstSessionId));
     relay.dropSession(firstSessionId);
 
     const secondSessionId = await secondSessionStarted.promise;
-    expect(secondSessionId).not.toBe(firstSessionId);
+    // Deterministic: a pairing link built from this daemon's public key stays valid across the
+    // reconnect — this is the whole point of deriving the id from the keypair instead of a fresh
+    // randomUUID() per (re)connect.
+    expect(secondSessionId).toBe(firstSessionId);
 
     // The reconnect actually completes a fresh registration against the same (still-running) relay.
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(relay.registeredSessionIds).toContain(secondSessionId);
+    const registrationsOfSessionId = relay.registeredSessionIds.filter((id) => id === secondSessionId);
+    expect(registrationsOfSessionId.length).toBeGreaterThanOrEqual(2);
   });
 
   it("close() tears down the transport and stops reconnecting", async () => {

@@ -1,6 +1,7 @@
 // Browser/RN/Node-safe: pure crypto + logic, no platform-specific runtime imports.
 export * from "./channel.js";
 export * from "./base64.js";
+export * from "./session-id.js";
 export * from "./session-bridge.js";
 export * from "./cf-adapter.js";
 

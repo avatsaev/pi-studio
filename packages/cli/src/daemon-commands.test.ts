@@ -125,6 +125,17 @@ describe("pairing", () => {
     expect(url.split("#")[0]).not.toContain("PUBKEYB64");
   });
 
+  it("carries relay info instead of host when relay info is given", () => {
+    const url = buildPairingUrl("PUBKEYB64", {
+      host: "127.0.0.1:6767",
+      relay: { endpoint: "relay.molagent.ai", useTls: true },
+    });
+    const fragment = url.split("#")[1] as string;
+    expect(fragment).toContain("relay=relay.molagent.ai");
+    expect(fragment).toContain("relayTls=1");
+    expect(fragment).not.toContain("host=");
+  });
+
   it("reads the daemon public key from daemon-keypair.json", () => {
     const home = tmpHome();
     writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "ABC" }));
@@ -139,6 +150,76 @@ describe("pairing", () => {
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("Pairing link:");
     expect(out.join("\n")).toContain("offer=KEY123");
+  });
+
+  it("printPairing carries the relay endpoint (not host) when daemon.relay.enabled in config.json", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "KEY123" }));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        version: 1,
+        daemon: { relay: { enabled: true, endpoint: "relay.molagent.ai", useTls: true } },
+      }),
+    );
+    const { ctx, out } = ctxWith(home, fakeRuntime());
+    const code = await printPairing(ctx, home, "127.0.0.1:6767");
+    expect(code).toBe(0);
+    const printed = out.join("\n");
+    expect(printed).toContain("relay=relay.molagent.ai");
+    expect(printed).toContain("relayTls=1");
+    expect(printed).not.toContain("host=");
+    expect(printed).toContain("routed via relay relay.molagent.ai");
+  });
+
+  it("printPairing uses config.app.baseUrl instead of the default placeholder host", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "KEY123" }));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ version: 1, app: { baseUrl: "http://localhost:8080" } }),
+    );
+    const { ctx, out } = ctxWith(home, fakeRuntime());
+    const code = await printPairing(ctx, home, "127.0.0.1:6767");
+    expect(code).toBe(0);
+    const printed = out.join("\n");
+    expect(printed).toContain("Pairing link: http://localhost:8080/#offer=KEY123");
+    expect(printed).not.toContain("app.pi-studio.sh");
+  });
+
+  it("printPairing prefers publicEndpoint/publicUseTls over endpoint/useTls when both are set", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "KEY123" }));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        version: 1,
+        daemon: {
+          relay: {
+            enabled: true,
+            endpoint: "internal-relay:7000",
+            useTls: false,
+            publicEndpoint: "relay.molagent.ai",
+            publicUseTls: true,
+          },
+        },
+      }),
+    );
+    const { ctx, out } = ctxWith(home, fakeRuntime());
+    await printPairing(ctx, home, "127.0.0.1:6767");
+    const printed = out.join("\n");
+    expect(printed).toContain("relay=relay.molagent.ai");
+    expect(printed).toContain("relayTls=1");
+  });
+
+  it("printPairing falls back to host when relay is not enabled", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "KEY123" }));
+    const { ctx, out } = ctxWith(home, fakeRuntime());
+    await printPairing(ctx, home, "127.0.0.1:6767");
+    const printed = out.join("\n");
+    expect(printed).toContain("host=127.0.0.1%3A6767");
+    expect(printed).not.toContain("relay=");
   });
 
   it("printPairing errors when no keypair exists", async () => {

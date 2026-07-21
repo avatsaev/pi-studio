@@ -29,15 +29,27 @@ never has the keys to read or forge them.
 
 ```
 src/
-  index.ts             Re-exports channel.ts, base64.ts, session-bridge.ts, cf-adapter.ts.
-                        Deliberately does NOT re-export relay-server.ts / relay-logger.ts
-                        (Node-only: node:http, ws, node:fs) — see "./server" subpath export below.
+  index.ts             Re-exports channel.ts, base64.ts, session-id.ts, session-bridge.ts,
+                        cf-adapter.ts. Deliberately does NOT re-export relay-server.ts /
+                        relay-logger.ts (Node-only: node:http, ws, node:fs) — see "./server"
+                        subpath export below.
   channel.ts           createClientChannel(), createDaemonChannel(), Transport,
                         EncryptedChannelEvents, ConnectionRole, RelaySessionAttachment,
                         EncryptedChannel.
   channel.test.ts
   base64.ts             Pure-JS base64 codec (no Node Buffer — runs in browser/RN too).
   base64.test.ts
+  session-id.ts         deriveRelaySessionId(publicKey) — deterministic rendezvous session id
+                        derived from a daemon's persistent Curve25519 public key (SHA-512 of the
+                        key, truncated to 16 bytes / 32 hex chars). Lets a pairing link stay valid
+                        across relay reconnects: the daemon's own outbound dial
+                        (`packages/server/src/daemon/relay-transport.ts`) and the client's relay
+                        transport (`packages/client/src/relay-transport.ts`, when no `sessionId` is
+                        passed explicitly) both compute the SAME id from the SAME public key,
+                        instead of negotiating a fresh random id per connection that a
+                        previously-printed pairing link couldn't reference. Adds no new secret —
+                        the public key is already the pairing link's trust anchor.
+  session-id.test.ts
   session-bridge.ts     RelaySessionBridge — platform-agnostic verbatim frame-forwarding core any
                         relay server implementation bridges through (register by session id,
                         forward everything else untouched).
@@ -89,7 +101,15 @@ interface CreateDaemonChannelOptions {
 ```
 Waits for the peer's `e2ee_hello { ephemeralPublicKey }`, derives `sharedKey = ECDH(daemonSecret,
 clientEphemeralPublic)`, replies `e2ee_ready`, then becomes `ready`. Refuses (silently drops) any
-`e2ee_app` frame received before that.
+`e2ee_app` frame received before that. **Re-arms on every subsequent `e2ee_hello` too** — it does
+NOT latch onto the first client forever. The relay places no cap on how many sockets attach to one
+session id (a browser reload, a second tab, or a plain reconnect are all indistinguishable from a
+brand-new peer at the bridge layer), so the SAME long-lived daemon channel object can legitimately
+see a hello from a different client days after the first one. Re-deriving the shared key on each
+hello is idempotent for an actual replay (same ephemeral key → same shared key) and correct for a
+genuinely new peer ("last hello wins"); the alternative — ignoring every hello after the first —
+was a real bug: every peer but the first got stuck forever below `ready`
+(`cannot send before the E2EE handshake completes`), since the daemon never replied `e2ee_ready`.
 
 ### `createClientChannel(opts): EncryptedChannel`
 ```ts
@@ -111,10 +131,25 @@ interface EncryptedChannel {
   readonly role: "client" | "daemon";
   readonly attachment: RelaySessionAttachment;   // { sessionId }
   readonly ready: boolean;
-  send(plaintext: string): void;   // throws if not ready, or after close()
+  send(plaintext: string): void;        // text app traffic — throws if not ready, or after close()
+  sendBinary(bytes: Uint8Array): void;  // binary app traffic (terminal I/O, file-transfer chunks) —
+                                         // same crypto/gating as send(), tagged e2ee_bin not e2ee_app
   close(): void;
 }
 ```
+`sendBinary`/`onBinaryMessage` are the binary siblings of `send`/`onMessage` — identical
+handshake gating, identical ECDH shared key, identical auth-failure-drops-silently behavior, just
+fed raw bytes and tagged `e2ee_bin` on the wire instead of `e2ee_app`. Still a JSON text WS frame
+under the hood (base64-wrapped ciphertext) — no raw binary WebSocket frames are involved, so
+nothing downstream of the channel layer (the bridge, the self-hosted relay, the Cloudflare
+adapter) needed to change to support this.
+
+### `deriveRelaySessionId(publicKey: Uint8Array): string` (`session-id.ts`)
+SHA-512 of the public key, truncated to the first 16 bytes (32 lowercase hex chars). Pure function,
+deterministic — same key always yields the same id, distinct keys always yield distinct ids (see
+"Source layout" above for why this exists). Used as the default `sessionId` on both sides of a
+relay-routed pairing: the daemon's outbound dial and the client's relay transport when no
+`sessionId` is passed explicitly.
 
 ### `Transport` (caller-supplied; the concrete relay WS transport is wired in by task-002/003)
 ```ts
@@ -160,6 +195,12 @@ registration convention from task-002/003); every subsequent frame is forwarded 
 every OTHER socket sharing that session id, with **no** `JSON.parse` or inspection beyond that. This
 is the literal implementation of "a compromised relay can see only metadata... never message
 contents" — the bridge structurally cannot read `e2ee_app` ciphertext because it never looks at it.
+**No cap on peers per session id** — the backing `Set<RelaySocket>` grows unbounded as sockets
+register; the bridge doesn't know or care that the E2EE protocol above it expects "one daemon,
+one client" at a time. A daemon channel that dials once and lives for its whole process (the real
+deployment shape — see `relay-transport.ts`) can see MANY client sockets attach/detach under the
+same session id over its lifetime; `createDaemonChannel` is responsible for handling each one's
+`e2ee_hello` correctly, not the bridge.
 
 `createCloudflareRelayHandler` is a thin adapter: on a WebSocket upgrade it creates a
 `WebSocketPair`, `.accept()`s the SERVER side, attaches it to the bridge, and returns the CLIENT
@@ -236,6 +277,15 @@ detached child's stdio is ignored.
 - **Never throw from a message handler** on malformed/tampered input — drop and report via
   `onAuthError`/return early instead, since a hostile or buggy relay must not be able to crash
   either side.
+- **A daemon channel must accept a fresh `e2ee_hello` at any point in its life, not just once.**
+  The relay imposes no cap on peers per session id (`RelaySessionBridge.attach` — see
+  `peerCount`), and the daemon dials the relay once for its whole process lifetime under one
+  deterministic session id (`relay-transport.ts`). A browser reload, a second tab, or a plain
+  reconnect are all just "another socket sends `relay_register` under the same session id" from
+  the bridge's point of view — `createDaemonChannel` MUST re-derive and re-arm rather than
+  latching `ready` to the first peer forever. Regression test:
+  `session-bridge.test.ts`'s "a SECOND client, connecting after the first one dropped, …" — it
+  hangs/times out without the re-arm fix and passes with it.
 - **`RelaySessionBridge.attach()` never inspects post-registration frames.** Adding any parsing
   there (even for debugging) breaks the zero-knowledge property the whole package exists for.
 - **`relay-server.ts` and `relay-logger.ts` are never re-exported from the main barrel

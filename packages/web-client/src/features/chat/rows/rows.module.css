@@ -28,6 +28,16 @@
   border-bottom-right-radius: 2px;
 }
 
+.userPending {
+  opacity: 0.6;
+}
+
+.userFailed {
+  background: var(--pi-color-destructive, #3a1515);
+  color: var(--pi-color-destructiveForeground, #ff8a80);
+  opacity: 1;
+}
+
 .userImages {
   display: flex;
   gap: 6px;

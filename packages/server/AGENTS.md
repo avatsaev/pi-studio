@@ -347,13 +347,35 @@ messages are fair game.
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
-- **Relay connections need their own persistent `Session`, not a synthetic one built per message.**
-  Every relay frame must reuse the same `Session` for the life of one relay connection so the
-  `hello`→`status`/`server_info` handshake (which `routeTextFrame` does not itself understand) can
-  complete and capabilities persist across frames — see `relay-transport.ts`'s dispatch in
-  `bootstrap.ts` and its regression test in `bootstrap.test.ts` (a real cross-VM smoke test caught
-  this as a genuine bug: a bare relay dispatch that piped every message into `routeTextFrame`
-  directly hung every relay client indefinitely past the E2EE handshake).
+- **Relay connections need their own persistent `Session`, not a synthetic one built per message,
+  AND that `Session` must be dropped whenever a NEW peer completes the E2EE handshake — not only
+  on a relay-socket-level reconnect.** Every relay frame must reuse the same `Session` for the life
+  of one relay connection so the `hello`→`status`/`server_info` handshake (which `routeTextFrame`
+  does not itself understand) can complete and capabilities persist across frames — see
+  `relay-transport.ts`'s dispatch in `bootstrap.ts` and its regression test in `bootstrap.test.ts`
+  (a real cross-VM smoke test caught this as a genuine bug: a bare relay dispatch that piped every
+  message into `routeTextFrame` directly hung every relay client indefinitely past the E2EE
+  handshake). Separately: the relay places no cap on how many client sockets attach to the
+  daemon's one long-lived session id over its process lifetime (browser reload, second tab, plain
+  reconnect), and `createDaemonChannel` now re-arms its handshake for each new one
+  (`@av-pi-studio/relay`) rather than latching onto the first client forever. `connectRelay`'s
+  `onHandshake` event fires on every one of those re-handshakes, and `bootstrap.ts` wires it to
+  `resetRelaySession()` — otherwise a second peer's app traffic would get silently attributed to
+  the FIRST peer's now-defunct `Session` (wrong `clientId`/capabilities) instead of starting its
+  own `hello` handshake. This was a real bug caught via a live docker-compose smoke test, not
+  theoretical: a second browser connecting to an already-paired daemon hung forever on
+  "cannot send before the E2EE handshake completes" because the daemon channel silently dropped
+  its `e2ee_hello`.
+- **The relay's synthetic `Session.sendBinary()` and `Session.send()` share one socket-shaped
+  object whose `send(data)` discriminates by argument type** (`string` → `relayReply`/`e2ee_app`,
+  `Uint8Array` → `relayReplyBinary`/`e2ee_bin`) — see `bootstrap.ts`'s relay wiring. Both
+  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onMessage`/
+  `onBinaryMessage` callbacks respectively and must be reset (`= null`) alongside
+  `resetRelaySession()` on `onReconnect`, or a stale reply closure from a dead relay socket could
+  be invoked. Terminal I/O and file-transfer chunks ride this binary path — they are real binary
+  application data, but they cross the relay wire as base64-wrapped JSON text frames
+  (`@av-pi-studio/relay`'s `e2ee_bin`), never raw binary WebSocket frames; see that package's
+  AGENTS.md § Wire format for why.
 
 ---
 

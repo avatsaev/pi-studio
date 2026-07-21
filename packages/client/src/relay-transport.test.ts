@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
 import { WebSocketServer, WebSocket as NodeWebSocket } from "ws";
 
-import { createDaemonChannel, type EncryptedChannel } from "@av-pi-studio/relay";
+import { createDaemonChannel, deriveRelaySessionId, type EncryptedChannel } from "@av-pi-studio/relay";
 
-import { createRelayTransport } from "./relay-transport.js";
+import { createRelayTransport, relayDialUrl } from "./relay-transport.js";
 import { createWebSocketTransport } from "./transport.js";
 import { DaemonClient } from "./daemon-client.js";
 import { parsePairingUrl } from "./pairing.js";
@@ -75,6 +75,7 @@ function attachDaemonSide(
   sessionId: string,
   daemonKeypair: nacl.BoxKeyPair,
   onAppMessage: (plaintext: string, reply: (m: string) => void) => void,
+  onAppBinary?: (bytes: Uint8Array, replyBinary: (b: Uint8Array) => void) => void,
 ): Promise<{ socket: NodeWebSocket; channel: EncryptedChannel }> {
   const socket = new NodeWebSocket(`ws://127.0.0.1:${relayPort}`);
   const messageHandlers: Array<(data: string) => void> = [];
@@ -95,6 +96,7 @@ function attachDaemonSide(
         daemonKeypair,
         events: {
           onMessage: (plaintext) => onAppMessage(plaintext, (m) => channel.send(m)),
+          onBinaryMessage: (bytes) => onAppBinary?.(bytes, (b) => channel.sendBinary(b)),
         },
       });
       resolve({ socket, channel });
@@ -151,6 +153,66 @@ describe("client relay transport", () => {
     expect(receivedOnDaemon).toEqual([JSON.stringify({ type: "hello", clientId: "smoke-client", clientType: "cli", protocolVersion: 1 })]);
   });
 
+  it("sendBinary() no longer throws — a binary frame round-trips through the daemon over the relay", async () => {
+    // Regression: `createRelayTransport`'s `sendBinary()` used to unconditionally throw
+    // ("binary frames are not supported over the E2EE relay channel"), so terminal I/O and
+    // file-transfer never worked over a relay connection at all. Proves the fix using a REAL
+    // relay bridge + REAL E2EE handshake, exactly like the handshake test above, just exercising
+    // `sendBinary`/`onmessage`(binary) instead of `sendText`/`hello`.
+    relay = await startFakeRelay();
+    const daemonKeypair = nacl.box.keyPair();
+    const sessionId = crypto.randomUUID();
+
+    const receivedOnDaemon: Uint8Array[] = [];
+    const attached = await attachDaemonSide(
+      relay.port,
+      sessionId,
+      daemonKeypair,
+      (plaintext, reply) => {
+        const req = JSON.parse(plaintext) as { type: string };
+        if (req.type === "hello") {
+          reply(
+            JSON.stringify({
+              type: "status",
+              payload: { status: "server_info", serverId: "srv_bin_test", capabilities: {}, features: {} },
+            }),
+          );
+        }
+      },
+      (bytes, replyBinary) => {
+        receivedOnDaemon.push(bytes);
+        replyBinary(new Uint8Array([0x01, 1, 88, 89, 90])); // opcode Output, slot 1, "XYZ"
+      },
+    );
+    daemonSocket = attached.socket;
+
+    const transport = createRelayTransport({ sessionId, daemonPublicKey: daemonKeypair.publicKey });
+    client = new DaemonClient({
+      url: `ws://127.0.0.1:${relay.port}`,
+      clientId: "binary-smoke-client",
+      clientType: "cli",
+      transport,
+    });
+    await client.connect();
+
+    const binaryReceived = Promise.withResolvers<Uint8Array>();
+    // `DaemonClient.handleBinaryFrame` decodes every non-file-transfer-opcode binary frame as a
+    // terminal frame via `decodeTerminalFrame` — feed/expect bytes shaped like real terminal
+    // frames (opcode byte + slot byte + payload) so both directions decode cleanly.
+    client.onTerminalFrame((frame) => {
+      if (frame.opcode === "Output") binaryReceived.resolve(frame.data);
+    });
+
+    const inputFrame = new Uint8Array([0x02, 1, 65, 66, 67]); // opcode Input, slot 1, "ABC"
+    expect(() => client!.sendBinary(inputFrame)).not.toThrow();
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(receivedOnDaemon).toEqual([inputFrame]);
+
+    const echoed = await binaryReceived.promise;
+    expect(Array.from(echoed)).toEqual([88, 89, 90]);
+  });
+
   it("relay-profile connection is interchangeable with the direct transport via the same DaemonClient API", async () => {
     // Structural parity check: both transports satisfy the exact same `Transport` shape and both
     // drive `DaemonClient` identically — asserted by using `createRelayTransport` as a drop-in for
@@ -177,6 +239,51 @@ describe("client relay transport", () => {
     expect(typeof relayTransport.connect).toBe("function");
     expect(typeof relayTransport.sendText).toBe("function");
     expect(typeof relayTransport.close).toBe("function");
+  });
+
+  it("defaults sessionId to deriveRelaySessionId(daemonPublicKey) when omitted", async () => {
+    relay = await startFakeRelay();
+    const daemonKeypair = nacl.box.keyPair();
+    const derivedSessionId = deriveRelaySessionId(daemonKeypair.publicKey);
+
+    const attached = await attachDaemonSide(relay.port, derivedSessionId, daemonKeypair, (plaintext, reply) => {
+      const req = JSON.parse(plaintext) as { type: string };
+      if (req.type === "hello") {
+        reply(
+          JSON.stringify({
+            type: "status",
+            payload: { status: "server_info", serverId: "srv_derived", capabilities: {}, features: {} },
+          }),
+        );
+      }
+    });
+    daemonSocket = attached.socket;
+
+    // No sessionId passed — the transport must derive the exact same id the daemon side
+    // registered under (attachDaemonSide was given `derivedSessionId` explicitly above, standing
+    // in for the daemon's own `connectRelay`, which now always registers under this derived id).
+    const transport = createRelayTransport({ daemonPublicKey: daemonKeypair.publicKey });
+    client = new DaemonClient({
+      url: `ws://127.0.0.1:${relay.port}`,
+      clientId: "derived-session-client",
+      clientType: "cli",
+      transport,
+    });
+
+    const info = await client.connect();
+    expect(info.serverId).toBe("srv_derived");
+  });
+
+  it("relayDialUrl maps useTls to wss/ws and strips a redundant scheme prefix", () => {
+    expect(relayDialUrl({ endpoint: "relay.molagent.ai", useTls: true })).toBe(
+      "wss://relay.molagent.ai",
+    );
+    expect(relayDialUrl({ endpoint: "127.0.0.1:7000", useTls: false })).toBe(
+      "ws://127.0.0.1:7000",
+    );
+    expect(relayDialUrl({ endpoint: "wss://already-schemed.example/", useTls: true })).toBe(
+      "wss://already-schemed.example",
+    );
   });
 });
 
@@ -217,5 +324,23 @@ describe("pairing URL fragment parsing", () => {
     const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
     const offer = parsePairingUrl(`#offer=${encodeURIComponent(publicKeyB64)}`);
     expect(offer!.publicKeyB64).toBe(publicKeyB64);
+  });
+
+  it("extracts relay endpoint + TLS flag, omitting host, when the link is relay-routed", () => {
+    const keypair = nacl.box.keyPair();
+    const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
+    const url = `https://app.pi-studio.sh/#offer=${encodeURIComponent(publicKeyB64)}&relay=relay.molagent.ai&relayTls=1`;
+
+    const offer = parsePairingUrl(url);
+    expect(offer).not.toBeNull();
+    expect(offer!.relay).toEqual({ endpoint: "relay.molagent.ai", useTls: true });
+    expect(offer!.host).toBeUndefined();
+  });
+
+  it("treats relayTls=0 (or an absent value) as non-TLS", () => {
+    const keypair = nacl.box.keyPair();
+    const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
+    const offer = parsePairingUrl(`#offer=${encodeURIComponent(publicKeyB64)}&relay=127.0.0.1%3A7000&relayTls=0`);
+    expect(offer!.relay).toEqual({ endpoint: "127.0.0.1:7000", useTls: false });
   });
 });

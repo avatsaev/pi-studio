@@ -564,6 +564,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   if (config.daemon.relay.enabled) {
     let relaySession: Session | null = null;
     let relayReply: ((data: string) => void) | null = null;
+    let relayReplyBinary: ((bytes: Uint8Array) => void) | null = null;
 
     const resetRelaySession = (): void => {
       if (relaySession) relaySessions.delete(relaySession);
@@ -600,9 +601,16 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               clientId: hello.data.clientId,
               clientType: hello.data.clientType,
               capabilities,
-              socket: { send: (data: string) => relayReply?.(data), close: () => {} } as unknown as ConstructorParameters<
-                typeof Session
-              >[0]["socket"],
+              // `Session.send()` calls `socket.send(jsonString)`; `Session.sendBinary()` calls
+              // `socket.send(bytes)` — same method, discriminated by argument type here so both
+              // funnel to the matching relay reply callback (text `e2ee_app` vs binary `e2ee_bin`).
+              socket: {
+                send: (data: string | Uint8Array) => {
+                  if (typeof data === "string") relayReply?.(data);
+                  else relayReplyBinary?.(data);
+                },
+                close: () => {},
+              } as unknown as ConstructorParameters<typeof Session>[0]["socket"],
             });
             relaySessions.add(relaySession);
             logger.info(
@@ -624,16 +632,33 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
           void routeTextFrame(relaySession, plaintext, registry);
         },
+        onBinaryMessage: (bytes, replyBinary) => {
+          relayReplyBinary = replyBinary; // always the same underlying channel.sendBinary for this connection
+          if (relaySession === null) return; // binary frames before `hello` have no session to target
+          routeBinaryFrame(relaySession, bytes, (s, b) => {
+            terminalBinaryHandler(s, b);
+            fileTransferBinary(s, b);
+          });
+        },
         onError: (err) => {
           logger.error({ err: (err as Error)?.message ?? String(err) }, "relay channel error");
         },
         onSessionStart: (sessionId) => {
           logger.info({ sessionId }, "relay connected");
         },
+        onHandshake: () => {
+          // A NEW peer just completed the E2EE handshake on this (possibly already-`ready`)
+          // channel — browser reload, second tab, or a genuine reconnect all look identical here.
+          // Drop any app-level Session tied to whichever peer held the channel before; the next
+          // app frame is that new peer's own `hello`, not a continuation of the old one's.
+          if (relaySession) logger.info({ sessionId: relaySession.id }, "relay peer replaced");
+          resetRelaySession();
+        },
         onReconnect: (sessionId) => {
           logger.info({ sessionId }, "relay reconnecting with new session");
           resetRelaySession();
           relayReply = null;
+          relayReplyBinary = null;
         },
       },
     );

@@ -1,6 +1,6 @@
 /**
  * Daemon-side outbound relay transport (architecture/relay-e2ee.md § Behavior — Connection setup,
- * § TLS; architecture/daemon-bootstrap.md § Behavior — `connectRelay`).
+ * § TLS, § Pairing; architecture/daemon-bootstrap.md § Behavior — `connectRelay`).
  *
  * The daemon dials OUTBOUND to a relay server (so no inbound port needs to be opened) and registers
  * a session id so the relay can pair an incoming client connection with this daemon. Once
@@ -8,16 +8,28 @@
  * (`@av-pi-studio/relay`) — the daemon refuses to process ANY app message until the client's
  * `e2ee_hello`/`e2ee_ready` handshake completes.
  *
+ * The session id is `deriveRelaySessionId(keypair.publicKey)` — deterministic, not random — so a
+ * pairing URL printed once keeps working across relay reconnects. Earlier this used a fresh
+ * `randomUUID()` per connect AND per reconnect, which meant any pairing link went stale the moment
+ * the relay connection dropped and reconnected (the daemon would register under a session id no
+ * printed link referenced). Deriving from the public key — which the pairing link already carries
+ * and which the spec already treats as the trust anchor (relay-e2ee.md § Pairing) — costs nothing
+ * in secrecy and keeps the same session id for the life of the daemon's keypair.
+ *
  * TODO(verify): the exact registration frame format is unresolved upstream
  * (architecture/relay-e2ee.md § TODO(verify) — "Relay server routing/session-id assignment
  * protocol details"). This implementation registers with `{ type: "relay_register", sessionId }`
  * immediately after the socket opens; the client transport (task-003) and Cloudflare adapter
  * (task-004) built in this sprint agree on this same frame.
  */
-import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 
-import { createDaemonChannel, type EncryptedChannel, type Transport } from "@av-pi-studio/relay";
+import {
+  createDaemonChannel,
+  deriveRelaySessionId,
+  type EncryptedChannel,
+  type Transport,
+} from "@av-pi-studio/relay";
 
 /** Mirrors `daemon.relay` in `daemon-config.ts` / architecture/config.md. */
 export interface RelayConfig {
@@ -34,12 +46,29 @@ export interface DaemonKeypair {
 }
 
 export interface RelayTransportEvents {
-  /** Fired with a decrypted app message once a client's E2EE handshake completes; `reply` sends an encrypted response back on the same channel. */
+  /** Fired with a decrypted TEXT app message once a client's E2EE handshake completes; `reply` sends an encrypted text response back on the same channel. */
   onMessage?: (plaintext: string, reply: (message: string) => void) => void;
+  /**
+   * Fired with a decrypted BINARY app message (terminal I/O, file-transfer chunks) once a
+   * client's E2EE handshake completes; `replyBinary` sends an encrypted binary response back on
+   * the same channel. Mirrors `onMessage`/`reply` exactly, just for the binary sibling wire frame
+   * (`e2ee_bin` vs `e2ee_app` — see `@av-pi-studio/relay`'s `channel.ts`).
+   */
+  onBinaryMessage?: (bytes: Uint8Array, replyBinary: (bytes: Uint8Array) => void) => void;
   /** Fired once per successful (re)connection, with the session id just registered. */
   onSessionStart?: (sessionId: string) => void;
   /** Fired when a relay drop triggers a reconnect, with the NEW session id about to be registered. */
   onReconnect?: (sessionId: string) => void;
+  /**
+   * Fired every time the E2EE handshake (re)completes on the current relay socket — not just
+   * once per socket connection. The relay multiplexes one deterministic session id across
+   * however many client sockets attach over the daemon's lifetime (browser reload, second tab,
+   * plain reconnect); `createDaemonChannel` now re-arms on each fresh `e2ee_hello` instead of
+   * ignoring it, so a NEW peer taking over an already-`ready` channel fires this again. Consumers
+   * should treat it as "forget any app-level session state tied to the previous peer" — the next
+   * app frame is a new peer's `hello`, not a continuation of the old peer's session.
+   */
+  onHandshake?: () => void;
   onError?: (error: unknown) => void;
 }
 
@@ -86,10 +115,14 @@ function wrapSocket(socket: WebSocket): Transport {
 }
 
 /**
- * Dial outbound to the relay, register a fresh session id, and wire an E2EE `createDaemonChannel`
- * over the resulting socket. On drop, reconnects with a BRAND NEW session id (and therefore a
- * fresh ECDH derivation once a client re-attaches) — architecture/relay-e2ee.md § Error Handling:
- * "Relay restarts / drops → client/daemon reconnect; new session → new keys".
+ * Dial outbound to the relay, registering the deterministic session id derived from the daemon's
+ * own public key (`deriveRelaySessionId`) — the SAME id on every (re)connect, so a pairing URL
+ * printed once keeps working across relay drops/restarts. This does not weaken
+ * architecture/relay-e2ee.md § Error Handling's "new session → new keys" guarantee: the rendezvous
+ * session id is just a routing label the relay uses to pair sockets, never a key input — the
+ * client's `createClientChannel` still generates a FRESH ephemeral Curve25519 keypair on every
+ * connection, so every reconnect still derives an independent ECDH shared key even though the
+ * session id it registers under is unchanged.
  */
 export function connectRelay(
   keypair: DaemonKeypair,
@@ -99,7 +132,7 @@ export function connectRelay(
   let closed = false;
   let currentSocket: WebSocket | null = null;
   let currentChannel: EncryptedChannel | null = null;
-  let sessionId = randomUUID();
+  const sessionId = deriveRelaySessionId(keypair.publicKey);
 
   const dial = (): void => {
     if (closed) return;
@@ -116,6 +149,8 @@ export function connectRelay(
         daemonKeypair: keypair,
         events: {
           onMessage: (plaintext) => events.onMessage?.(plaintext, (message) => channel.send(message)),
+          onBinaryMessage: (bytes) => events.onBinaryMessage?.(bytes, (reply) => channel.sendBinary(reply)),
+          onReady: () => events.onHandshake?.(),
           onAuthError: (err) => events.onError?.(err),
         },
       });
@@ -127,7 +162,6 @@ export function connectRelay(
       currentSocket = null;
       currentChannel = null;
       if (closed) return;
-      sessionId = randomUUID();
       events.onReconnect?.(sessionId);
       dial();
     });

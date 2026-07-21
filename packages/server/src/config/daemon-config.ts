@@ -250,6 +250,8 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
     next.daemon.relay.publicUseTls = envBool(env.PI_STUDIO_RELAY_PUBLIC_USE_TLS);
   }
 
+  if (env.PI_STUDIO_APP_BASE_URL) next.app.baseUrl = env.PI_STUDIO_APP_BASE_URL;
+
   if (env.PI_STUDIO_SERVICE_PROXY_LISTEN) {
     next.daemon.serviceProxy.listen = env.PI_STUDIO_SERVICE_PROXY_LISTEN;
   }

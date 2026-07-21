@@ -86,6 +86,22 @@ Env equivalents: `PI_STUDIO_RELAY_ENABLED`, `PI_STUDIO_RELAY_ENDPOINT`, `PI_STUD
 (the default, `false`), the daemon behaves exactly as if this package didn't exist — the relay is
 fully opt-in and never affects direct WebSocket connections.
 
+### Pairing a browser client through the relay
+
+Once the daemon dials the relay (above), `pi-studio daemon pair` prints a pairing link that
+carries the relay's client-facing endpoint (`daemon.relay.publicEndpoint`/`publicUseTls`, falling
+back to `endpoint`/`useTls`) instead of a direct host — see `@av-pi-studio/cli`'s
+`buildPairingUrl`. A browser (`@av-pi-studio/web-client`) or any `@av-pi-studio/client` consumer
+opening that link connects via `createRelayTransport`, deriving the SAME rendezvous session id
+(`deriveRelaySessionId(daemonPublicKey)`) the daemon registered under — no session id needs to be
+transmitted separately, and the link keeps working across relay reconnects (the daemon always
+re-registers under this deterministic id, never a fresh random one per connection).
+
+The same pairing link can be opened by more than one client over the daemon's lifetime (a browser
+reload, a second tab, or handing the link to a different machine) — each one gets its own fresh
+E2EE handshake against the daemon's single long-lived relay channel; the daemon does not require
+re-pairing or lock onto whichever client connected first.
+
 ## Library API
 
 For embedding directly (custom relay deployments, tests, or building the daemon/client transports
@@ -108,10 +124,11 @@ import { startRelayServer } from "@av-pi-studio/relay/server";
 
 | Export | Subpath | Role | Purpose |
 |---|---|---|---|
-| `createDaemonChannel(opts)` | `.` | daemon | E2EE channel over an abstract `Transport`; waits for the client's `e2ee_hello`, replies `e2ee_ready` |
-| `createClientChannel(opts)` | `.` | client | E2EE channel; generates a fresh ephemeral keypair, sends `e2ee_hello` |
+| `createDaemonChannel(opts)` | `.` | daemon | E2EE channel over an abstract `Transport`; waits for the client's `e2ee_hello`, replies `e2ee_ready`; `send()`/`sendBinary()` for text/binary app traffic |
+| `createClientChannel(opts)` | `.` | client | E2EE channel; generates a fresh ephemeral keypair, sends `e2ee_hello`; `send()`/`sendBinary()` for text/binary app traffic |
 | `RelaySessionBridge` | `.` | relay server | Platform-agnostic verbatim frame bridge, keyed by session id — the zero-knowledge core |
 | `createCloudflareRelayHandler(opts)` | `.` | relay server | Thin Cloudflare Workers `WebSocketPair` wrapper around `RelaySessionBridge` |
+| `deriveRelaySessionId(publicKey)` | `.` | both | Deterministic rendezvous session id from a daemon's public key — lets a pairing link survive relay reconnects (see § Pairing note below) |
 | `encodeBase64` / `decodeBase64` | `.` | both | Pure-JS base64 codec (no Node `Buffer`) — runs identically in Node and browser/RN |
 | `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run); accepts an optional `logger` |
 | `createRelayLogger(opts)` | `./server` | relay server | pino operational logger: stdout always (pretty TTY / NDJSON otherwise), optional rotating file via `logDir` |
@@ -145,10 +162,18 @@ await handle.close();
   `{"type":"relay_register","sessionId":"<uuid>"}` — sent as the first frame by both the daemon
   and the client; pairs sockets sharing the same session id.
 - Handshake (plaintext, visible to the relay): `{"type":"e2ee_hello","ephemeralPublicKey":"<base64>"}`
-  (client→daemon), `{"type":"e2ee_ready"}` (daemon→client).
-- App traffic: `{"type":"e2ee_app","frame":"<base64(24-byte nonce ++ ciphertext)>"}`
+  (client→daemon), `{"type":"e2ee_ready"}` (daemon→client). A daemon channel accepts a fresh
+  `e2ee_hello` at any point — including after it's already completed one — re-deriving the shared
+  key and replying `e2ee_ready` again; the relay imposes no cap on how many client sockets attach
+  to one session id over the daemon's (long-lived, single-dial) connection.
+- App traffic (text — RPC/control messages): `{"type":"e2ee_app","frame":"<base64(24-byte nonce ++ ciphertext)>"}`
   (XSalsa20-Poly1305, `nacl.box`/`nacl.box.open`). Auth failure → frame silently dropped, never
   thrown into the transport's message loop.
+- App traffic (binary — terminal I/O, file-transfer chunks): `{"type":"e2ee_bin","frame":"<base64(24-byte nonce ++ ciphertext)>"}`.
+  Identical crypto/framing to `e2ee_app`, just fed raw bytes instead of UTF-8 text and dispatched
+  to a separate `onBinaryMessage` handler on receipt. Still travels as a JSON text WS frame — no
+  raw binary WebSocket frames cross the relay, so `RelaySessionBridge`/the self-hosted relay/the
+  Cloudflare adapter needed zero changes to support this.
 
 ## Security notes
 
@@ -161,6 +186,21 @@ await handle.close();
 - The relay itself (`RelaySessionBridge`) never parses a frame past the initial registration
   check — this is enforced structurally, not by convention: nothing in its forwarding path ever
   calls `JSON.parse` on post-registration traffic.
+
+## Performance notes (binary-over-relay)
+
+- The relay process itself pays **zero** extra cost for binary traffic — `RelaySessionBridge`
+  forwards `e2ee_bin` frames exactly like `e2ee_app`: verbatim, unparsed, byte-for-byte. All the
+  cost below is paid by the two ENDPOINTS (daemon + client), never the relay.
+- Wrapping binary as base64-in-JSON (rather than a raw binary WS frame) costs ~33% more wire bytes
+  plus a small JSON envelope per frame. Deliberate tradeoff (see "Wire protocol" above) to avoid
+  touching the relay's zero-knowledge bridging core for this.
+- Terminal I/O: negligible in practice. Output is already coalesced into ~4ms batches server-side
+  (`packages/server`'s `TerminalManager`) before it ever reaches the wire, and input is small,
+  human-paced keystrokes — a few KB encrypted with pure-JS `nacl.box` is sub-millisecond.
+- Large file transfers over relay pay proportionally more: every base64+encrypt/decrypt pass adds
+  up across many large chunks. Still bounded (pure-JS `nacl.box` throughput is tens of MB/s), but
+  a direct (non-relay) connection remains the faster path for bulk transfer.
 
 ## Development
 

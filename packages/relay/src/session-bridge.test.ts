@@ -187,6 +187,73 @@ describe("RelaySessionBridge", () => {
     expect(wireFrames.some((f) => f.includes("e2ee_app"))).toBe(true);
   });
 
+  it("a SECOND client, connecting after the first one dropped, still completes its own handshake on the same already-`ready` daemon channel", async () => {
+    // Regression, reproducing the exact production sequence: the daemon dials the relay ONCE and
+    // registers a deterministic session id for its whole process lifetime (`relay-transport.ts`).
+    // A first client (e.g. a CLI smoke-test script) connects, completes the E2EE handshake, then
+    // disconnects — the daemon's single long-lived `createDaemonChannel` object is untouched by
+    // this (only `RelaySessionBridge.peerCount` drops). A SECOND, unrelated client (e.g. a
+    // browser) later connects under the SAME session id and sends its own fresh `e2ee_hello`.
+    // `createDaemonChannel` used to permanently latch `ready = true` on the first client's hello
+    // and silently ignore every later one, leaving the second client's `createClientChannel`
+    // stuck forever below `ready` — the exact "cannot send before the E2EE handshake completes"
+    // failure. The daemon channel must re-arm on each fresh hello instead.
+    relay = await startTestRelay();
+    const daemonSocket = await relay.connect();
+    const clientOneSocket = await relay.connect();
+    openSockets.push(daemonSocket);
+
+    const sessionId = "sess-sequential-peers";
+    daemonSocket.send(JSON.stringify({ type: "relay_register", sessionId }));
+    clientOneSocket.send(JSON.stringify({ type: "relay_register", sessionId }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(relay.bridge.peerCount(sessionId)).toBe(2);
+
+    const daemonKeypair = nacl.box.keyPair();
+    let handshakeCount = 0;
+    createDaemonChannel({
+      transport: wrapWsSocket(daemonSocket),
+      attachment: { sessionId },
+      daemonKeypair,
+      events: { onReady: () => handshakeCount++ },
+    });
+
+    const clientOneReady = Promise.withResolvers<void>();
+    createClientChannel({
+      transport: wrapWsSocket(clientOneSocket),
+      attachment: { sessionId },
+      daemonPublicKey: daemonKeypair.publicKey,
+      events: { onReady: () => clientOneReady.resolve() },
+    });
+    await clientOneReady.promise;
+    expect(handshakeCount).toBe(1);
+
+    // Client one drops (browser tab closed / script exits) — the daemon channel object persists
+    // untouched, still `ready` from client one's now-defunct handshake.
+    clientOneSocket.close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(relay.bridge.peerCount(sessionId)).toBe(1); // only the daemon remains
+
+    // A brand-new client connects later under the SAME session id and must complete its OWN
+    // handshake, not inherit — or be blocked by — the stale one.
+    const clientTwoSocket = await relay.connect();
+    openSockets.push(clientTwoSocket);
+    clientTwoSocket.send(JSON.stringify({ type: "relay_register", sessionId }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const clientTwoReady = Promise.withResolvers<void>();
+    const clientTwo = createClientChannel({
+      transport: wrapWsSocket(clientTwoSocket),
+      attachment: { sessionId },
+      daemonPublicKey: daemonKeypair.publicKey,
+      events: { onReady: () => clientTwoReady.resolve() },
+    });
+    await clientTwoReady.promise;
+    expect(handshakeCount).toBe(2);
+    expect(clientTwo.ready).toBe(true);
+    expect(() => clientTwo.send("hello from client two")).not.toThrow();
+  });
+
   it("relay restart/drop → client and daemon reconnect into a new session with new keys (fresh bridge instance, no leftover state)", async () => {
     const relay1 = await startTestRelay();
     const daemon1 = await relay1.connect();

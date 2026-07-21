@@ -243,10 +243,23 @@ Exit codes (`cli-core.ts`):
 
 ## Pairing / QR
 
-`buildPairingUrl(publicKeyB64, { host })` constructs a pairing URL (`https://app.pi-studio.sh/#offer=<publicKeyB64>&host=<host>`
-by default; base overridable) encoding the daemon's persistent **Curve25519** public key and
-optional direct host in the URL **fragment** (never sent to the pairing web origin). The QR code
-encodes this URL so a mobile/browser client can scan it to set up a relay-authenticated connection.
+`buildPairingUrl(publicKeyB64, { host, relay, baseUrl })` constructs a pairing URL
+(`https://app.pi-studio.sh/#offer=<publicKeyB64>&host=<host>` by default — `DEFAULT_PAIRING_BASE`
+in `pairing.ts`, a placeholder hosted landing page that doesn't exist yet) encoding the daemon's
+persistent **Curve25519** public key in the URL **fragment** (never sent to the pairing web
+origin), plus either a direct `host` hint OR relay-routing info (`&relay=<endpoint>
+&relayTls=<0|1>`) — the two are mutually exclusive; `relay` wins when both are available.
+`printPairing` (`daemon-commands.ts`) resolves which one to pass by reading `daemon.relay` from
+`config.json` (`@av-pi-studio/server`'s `loadConfig`, env-overlaid): when `daemon.relay.enabled`,
+it uses `publicEndpoint`/`publicUseTls` (falling back to `endpoint`/`useTls` if no separate public
+address was configured) and omits `host` entirely — a relay-only daemon behind a firewall/NAT has
+no reachable direct host to offer. `printPairing` also forwards `config.app.baseUrl`
+(`PI_STUDIO_APP_BASE_URL` env override) as `baseUrl` — self-hosted/local deployments (e.g. the
+Docker compose stack, `docker/docker-compose.yml`) should set this to their own reachable
+web-client origin instead of the unreachable default. The QR/link encodes this URL so a
+browser/mobile client can scan/paste it to connect directly (`web-client`'s
+`connection-store.ts#connect()` detects the link via `@av-pi-studio/client`'s `parsePairingUrl` and
+branches to `createRelayTransport` when it carries a relay offer).
 
 `readDaemonPublicKey(home)` reads the keypair from `$PI_STUDIO_HOME/daemon-keypair.json` (same file
 `@av-pi-studio/server`'s `bootstrap.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).

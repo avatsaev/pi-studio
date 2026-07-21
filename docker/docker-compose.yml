@@ -47,10 +47,16 @@ services:
       PI_STUDIO_LISTEN: 0.0.0.0:6767
       # Optional connection password (bcrypt-checked). Strongly recommended before exposing.
       PI_STUDIO_PASSWORD: "${PI_STUDIO_PASSWORD:-}"
-      # Opt into dialing the relay above (client can then reach the daemon through it).
       PI_STUDIO_RELAY_ENABLED: "true"
       PI_STUDIO_RELAY_ENDPOINT: relay:7000
       PI_STUDIO_RELAY_USE_TLS: "false"
+      # Client-facing relay address — the browser can't resolve the compose-internal "relay"
+      # hostname above, so pairing links must carry this host-reachable one instead.
+      PI_STUDIO_RELAY_PUBLIC_ENDPOINT: "localhost:${PI_STUDIO_RELAY_PORT:-7000}"
+      PI_STUDIO_RELAY_PUBLIC_USE_TLS: "false"
+      # `pi-studio daemon pair` uses this as the pairing link's origin instead of the
+      # unreachable https://app.pi-studio.sh placeholder — point it at this stack's web UI.
+      PI_STUDIO_APP_BASE_URL: "http://localhost:${PI_STUDIO_WEB_PORT:-8080}"
       # pi provider auth — supply an API key here, or mount ~/.pi/agent/auth.json (see volumes).
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     ports:
@@ -60,8 +66,11 @@ services:
       - pi-studio-data:/data
       # Host projects the agents operate on. Override with PI_STUDIO_PROJECTS=/abs/path.
       - "${PI_STUDIO_PROJECTS:-..}:/workspace"
-      # Optional: mount pi credentials read-only instead of using ANTHROPIC_API_KEY.
-      # - "${HOME}/.pi/agent/auth.json:/home/node/.pi/agent/auth.json:ro"
+      # Mount the host's Pi CLI config (credentials, models.json, settings.json, sessions, …) so
+      # the containerized daemon's `pi` provider runs with the SAME identity/config you use
+      # locally, instead of an empty in-container config with no credentials. Override with
+      # PI_STUDIO_PI_HOME if your host config lives somewhere other than `~/.pi`.
+      - "${PI_STUDIO_PI_HOME:-${HOME}/.pi}:/home/node/.pi"
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:6767/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s

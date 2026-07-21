@@ -35,11 +35,18 @@ export interface Transport {
 export interface EncryptedChannelEvents {
   /** Fired once the E2EE handshake completes and app messages may flow. */
   onReady?: () => void;
-  /** Fired for each successfully decrypted+authenticated app message. */
+  /** Fired for each successfully decrypted+authenticated text app message. */
   onMessage?: (plaintext: string) => void;
+  /**
+   * Fired for each successfully decrypted+authenticated BINARY app message (terminal I/O,
+   * file-transfer chunks). Carried as a distinct wire frame type (`e2ee_bin`) from text `e2ee_app`
+   * messages, but otherwise identical: same handshake gate, same ECDH shared key, same
+   * auth-failure-drops-silently behavior — see `sendBinary`/`openBytes` below.
+   */
+  onBinaryMessage?: (bytes: Uint8Array) => void;
   /** Fired when the underlying transport closes. */
   onClose?: (reason?: string) => void;
-  /** Fired when a received frame fails authentication (tampered/corrupt) — the message is dropped. */
+  /** Fired when a received frame (text or binary) fails authentication (tampered/corrupt) — the message is dropped. */
   onAuthError?: (error: unknown) => void;
 }
 
@@ -51,10 +58,20 @@ export interface RelaySessionAttachment {
 export interface EncryptedChannel {
   readonly role: ConnectionRole;
   readonly attachment: RelaySessionAttachment;
-  /** True once the handshake has completed and `send` will actually transmit. */
+  /** True once the handshake has completed and `send`/`sendBinary` will actually transmit. */
   readonly ready: boolean;
-  /** Encrypt + send an application message. Throws if called before the handshake completes. */
+  /** Encrypt + send a text application message. Throws if called before the handshake completes. */
   send(plaintext: string): void;
+  /**
+   * Encrypt + send a BINARY application message (terminal I/O, file-transfer chunks). Wire format
+   * is a sibling of `send()`'s — same crypto, same nonce/ciphertext framing, just fed raw bytes
+   * instead of UTF-8 text and tagged `e2ee_bin` instead of `e2ee_app` so the receiver dispatches
+   * to `onBinaryMessage` instead of `onMessage`. Still travels as a JSON-wrapped base64 STRING
+   * over the relay's text-frame-only wire (architecture/relay-e2ee.md § Behavior) — no raw binary
+   * WebSocket frames are involved, so the relay bridge (`session-bridge.ts`) needs no changes.
+   * Throws if called before the handshake completes.
+   */
+  sendBinary(bytes: Uint8Array): void;
   close(): void;
 }
 
@@ -67,9 +84,13 @@ interface HandshakeReadyFrame {
 }
 interface AppFrame {
   type: "e2ee_app";
-  frame: string; // base64(nonce ++ ciphertext)
+  frame: string; // base64(nonce ++ ciphertext) of UTF-8 text
 }
-type WireFrame = HandshakeHelloFrame | HandshakeReadyFrame | AppFrame;
+interface AppBinaryFrame {
+  type: "e2ee_bin";
+  frame: string; // base64(nonce ++ ciphertext) of raw bytes
+}
+type WireFrame = HandshakeHelloFrame | HandshakeReadyFrame | AppFrame | AppBinaryFrame;
 
 function parseFrame(data: string): WireFrame | null {
   try {
@@ -83,10 +104,9 @@ function parseFrame(data: string): WireFrame | null {
 
 const NONCE_LENGTH = 24; // XSalsa20-Poly1305 nonce size (nacl.box.nonceLength)
 
-/** Encrypt `plaintext` under `sharedKey`, producing the wire frame `base64(nonce ++ ciphertext)`. */
-function seal(plaintext: string, sharedKey: Uint8Array): string {
+/** Encrypt raw `message` bytes under `sharedKey`, producing the wire frame `base64(nonce ++ ciphertext)`. */
+function sealBytes(message: Uint8Array, sharedKey: Uint8Array): string {
   const nonce = nacl.randomBytes(NONCE_LENGTH);
-  const message = new TextEncoder().encode(plaintext);
   const ciphertext = nacl.box.after(message, nonce, sharedKey);
   const combined = new Uint8Array(nonce.length + ciphertext.length);
   combined.set(nonce, 0);
@@ -94,8 +114,8 @@ function seal(plaintext: string, sharedKey: Uint8Array): string {
   return encodeBase64(combined);
 }
 
-/** Decrypt a `base64(nonce ++ ciphertext)` wire frame under `sharedKey`, or return `null` on auth failure. */
-function open(frame: string, sharedKey: Uint8Array): string | null {
+/** Decrypt a `base64(nonce ++ ciphertext)` wire frame under `sharedKey` to raw bytes, or `null` on auth failure. */
+function openBytes(frame: string, sharedKey: Uint8Array): Uint8Array | null {
   let combined: Uint8Array;
   try {
     combined = decodeBase64(frame);
@@ -105,7 +125,17 @@ function open(frame: string, sharedKey: Uint8Array): string | null {
   if (combined.length < NONCE_LENGTH) return null;
   const nonce = combined.slice(0, NONCE_LENGTH);
   const ciphertext = combined.slice(NONCE_LENGTH);
-  const opened = nacl.box.open.after(ciphertext, nonce, sharedKey);
+  return nacl.box.open.after(ciphertext, nonce, sharedKey);
+}
+
+/** Encrypt `plaintext` under `sharedKey`, producing the wire frame `base64(nonce ++ ciphertext)`. */
+function seal(plaintext: string, sharedKey: Uint8Array): string {
+  return sealBytes(new TextEncoder().encode(plaintext), sharedKey);
+}
+
+/** Decrypt a `base64(nonce ++ ciphertext)` wire frame under `sharedKey`, or return `null` on auth failure. */
+function open(frame: string, sharedKey: Uint8Array): string | null {
+  const opened = openBytes(frame, sharedKey);
   return opened ? new TextDecoder().decode(opened) : null;
 }
 
@@ -117,7 +147,10 @@ function wireAppMessages(
   events: EncryptedChannelEvents,
   getSharedKey: () => Uint8Array | null,
   isReady: () => boolean,
-): Pick<EncryptedChannel, "send" | "close"> & { handleAppFrame: (frame: AppFrame) => void } {
+): Pick<EncryptedChannel, "send" | "sendBinary" | "close"> & {
+  handleAppFrame: (frame: AppFrame) => void;
+  handleBinaryFrame: (frame: AppBinaryFrame) => void;
+} {
   let closed = false;
   transport.onClose((reason) => {
     closed = true;
@@ -135,6 +168,17 @@ function wireAppMessages(
       }
       events.onMessage?.(plaintext);
     },
+    handleBinaryFrame(frame) {
+      if (closed) return;
+      const sharedKey = getSharedKey();
+      if (!isReady() || !sharedKey) return; // refuse ANY app message before handshake completes
+      const bytes = openBytes(frame.frame, sharedKey);
+      if (bytes === null) {
+        events.onAuthError?.(new Error(`relay ${role} channel: binary message failed authentication`));
+        return;
+      }
+      events.onBinaryMessage?.(bytes);
+    },
     send(plaintext: string) {
       if (closed) throw new Error(`relay ${role} channel: cannot send after close()`);
       const sharedKey = getSharedKey();
@@ -142,6 +186,16 @@ function wireAppMessages(
         throw new Error(`relay ${role} channel: cannot send before the E2EE handshake completes`);
       }
       transport.send(JSON.stringify({ type: "e2ee_app", frame: seal(plaintext, sharedKey) } satisfies AppFrame));
+    },
+    sendBinary(bytes: Uint8Array) {
+      if (closed) throw new Error(`relay ${role} channel: cannot send after close()`);
+      const sharedKey = getSharedKey();
+      if (!isReady() || !sharedKey) {
+        throw new Error(`relay ${role} channel: cannot send before the E2EE handshake completes`);
+      }
+      transport.send(
+        JSON.stringify({ type: "e2ee_bin", frame: sealBytes(bytes, sharedKey) } satisfies AppBinaryFrame),
+      );
     },
     close() {
       if (closed) return;
@@ -192,7 +246,13 @@ export function createDaemonChannel(opts: CreateDaemonChannelOptions): Encrypted
     if (!frame) return; // ignore anything the relay/peer sends that isn't a recognized frame
 
     if (frame.type === "e2ee_hello") {
-      if (ready) return; // handshake already completed for this channel; ignore replays
+      // Re-run the handshake on EVERY e2ee_hello rather than ignoring it once `ready`. The relay
+      // multiplexes one deterministic session id across however many client sockets attach over
+      // the daemon's lifetime (browser reload, second tab, reconnect) — each is a legitimate NEW
+      // peer presenting a fresh ephemeral key, not a replay of the first one. Re-deriving simply
+      // re-arms the channel for whichever peer is currently attached ("last hello wins"); a truly
+      // identical replayed frame just re-derives the same shared key, so this is idempotent for
+      // an actual replay and correct for a new peer.
       let remotePublicKey: Uint8Array;
       try {
         remotePublicKey = decodeBase64(frame.ephemeralPublicKey);
@@ -208,6 +268,11 @@ export function createDaemonChannel(opts: CreateDaemonChannelOptions): Encrypted
 
     if (frame.type === "e2ee_app") {
       plumbing.handleAppFrame(frame);
+      return;
+    }
+
+    if (frame.type === "e2ee_bin") {
+      plumbing.handleBinaryFrame(frame);
     }
     // `e2ee_ready` is never sent to a daemon channel; ignore if it arrives.
   });
@@ -219,6 +284,7 @@ export function createDaemonChannel(opts: CreateDaemonChannelOptions): Encrypted
       return ready;
     },
     send: plumbing.send,
+    sendBinary: plumbing.sendBinary,
     close: plumbing.close,
   };
 }
@@ -268,6 +334,11 @@ export function createClientChannel(opts: CreateClientChannelOptions): Encrypted
 
     if (frame.type === "e2ee_app") {
       plumbing.handleAppFrame(frame);
+      return;
+    }
+
+    if (frame.type === "e2ee_bin") {
+      plumbing.handleBinaryFrame(frame);
     }
     // `e2ee_hello` is never sent to a client channel; ignore if it arrives.
   });
@@ -286,6 +357,7 @@ export function createClientChannel(opts: CreateClientChannelOptions): Encrypted
       return ready;
     },
     send: plumbing.send,
+    sendBinary: plumbing.sendBinary,
     close: plumbing.close,
   };
 }

@@ -182,6 +182,7 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` | _(unset)_ | Service-proxy listen address |
 | `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | _(unset)_ | Public base URL advertised for proxied services |
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
+| `PI_STUDIO_APP_BASE_URL` | `https://app.pi-studio.sh` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 
 > Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` and connecting via the
 > server's IP needs no extra config. To reach the daemon by **hostname**, add it to
@@ -229,10 +230,23 @@ extend the `pi` provider via `"extends": "pi"` (a custom provider must also set 
 
 **Relay (opt-in, off by default):** with `daemon.relay.enabled: true`, the daemon dials outbound
 to the `endpoint` (a self-hosted `@av-pi-studio/relay` server or Cloudflare Workers deployment)
-after the WS server is up, so remote clients can reach it without an inbound port. See
+after the WS server is up, so remote clients can reach it without an inbound port. It registers
+under a **deterministic** rendezvous session id derived from its own persistent public key
+(`deriveRelaySessionId`, `@av-pi-studio/relay`) — the same id on every (re)connect, so a pairing
+link printed once (`pi-studio daemon pair`) keeps working across relay drops/restarts. See
 `@av-pi-studio/relay`'s README for running a relay (`pi-studio-relay` bin / `pi-studio relay
 start`). Direct WebSocket connections are completely unaffected either way — the relay only adds
 an additional connection path.
+
+The same pairing link can be opened by any number of clients over the daemon's lifetime — each
+one gets its own fresh E2EE handshake and its own daemon-side `Session` (see `relay-transport.ts`'s
+`onHandshake` → `bootstrap.ts`'s `resetRelaySession()`); connecting a second client after a first
+one disconnected is a normal, supported reconnection, not a re-pairing.
+
+Terminal I/O and file-transfer chunks work over a relay connection too — the daemon and client
+encrypt binary application data as the relay channel's `e2ee_bin` frame (a base64-wrapped JSON
+text frame, not a raw binary WebSocket frame; see `@av-pi-studio/relay`'s README § Wire protocol),
+so no daemon or web-client feature is direct-connection-only.
 
 ---
 

@@ -13,6 +13,29 @@ export interface UserRow {
   id: string;
   text: string;
   images?: Array<{ mimeType?: string; data?: string }>;
+  /**
+   * Client-generated id passed as `clientMessageId` on `createAgent`/`send` (features/
+   * agent-sessions.md — the daemon echoes it back verbatim as the canonical `user_message`
+   * event's `messageId` since the live pi provider never mints its own). Lets the optimistic
+   * row inserted on Send reconcile against the server's broadcast instead of duplicating it.
+   * Undefined for rows sourced from session-restore hydration/replay, which had no local
+   * optimistic counterpart to reconcile against.
+   */
+  clientMessageId?: string;
+  /**
+   * True from the moment `Composer` inserts this row locally until the server's `user_message`
+   * broadcast for the same `clientMessageId` confirms it (see `reducer.ts`'s `onUserMessage`).
+   * Hydrated/replayed rows are never pending — they are already server-confirmed history.
+   */
+  pending?: boolean;
+  /**
+   * True when the RPC that was supposed to confirm this row (`createAgent`/`send`) rejected
+   * before any `user_message` broadcast arrived — e.g. a dropped connection. Never confirmed,
+   * never retried automatically; `pending` is cleared alongside it (see `reducer.ts`'s
+   * `markUserMessageFailed`) so the row stops showing a spinner and shows a failure indicator
+   * instead.
+   */
+  failed?: boolean;
 }
 
 export interface AssistantRow {

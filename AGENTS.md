@@ -123,6 +123,7 @@ cd docker && docker compose up --build   # see docker/README.md
 | `PI_STUDIO_RELAY_ENDPOINT` / `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Override `config.json`'s `daemon.relay.endpoint`/`publicEndpoint` (opt-in outbound relay) |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
+|`PI_STUDIO_APP_BASE_URL`|`https://app.pi-studio.sh`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 
 Also reads `$PI_STUDIO_HOME/config.json`.
 

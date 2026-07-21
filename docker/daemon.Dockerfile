@@ -49,9 +49,13 @@ ARG INSTALL_GH=false
 ENV NODE_ENV=production
 
 # git: required for project/worktree operations and remote checkout.
+# procps: provides `ps`, which `tree-kill` (agent/terminal process cleanup) shells out to on Linux
+# to enumerate a process tree before killing it — an unhandled ENOENT from a missing `ps` crashes
+# the whole daemon process (tree-kill's internal `spawn('ps', …)` has no error listener), not just
+# the kill attempt. Confirmed as a real crash in this image before procps was added.
 # gh: optional GitHub CLI, only when INSTALL_GH=true.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates \
+      git ca-certificates procps \
     && if [ "$INSTALL_GH" = "true" ]; then \
          apt-get install -y --no-install-recommends curl \
          && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \

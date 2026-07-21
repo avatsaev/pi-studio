@@ -4,15 +4,23 @@
  * `sessionStore.bindAgent` on success (the race-free binding point `useAgentStream` reacts to);
  * else → `client.agent(agentId).send(...)`. Stop → `client.agent(agentId).interrupt()`.
  *
- * IMPORTANT: `create_agent_request` (and `send_agent_prompt`) block server-side until the whole
- * turn finishes, broadcasting every `agent_stream` event for that turn *before* the RPC resolves.
- * A brand-new agent has no live subscription yet at that point — `useAgentStream` only attaches
- * once `bindAgent` sets `agentId`, which happens *after* `createAgent()` resolves. So for the
- * first turn `handleSend` subscribes to the raw broadcast directly and applies each `agent_stream`
- * event *as it arrives*, latching the new agent's id from the first such event (agent_update
- * frames are top-level and never reach `onSessionMessage`; agent_stream frames are session-wrapped
- * and do). So the user message and streamed response appear live instead of all at once when the
- * RPC returns.
+ * OPTIMISTIC ECHO: `create_agent_request`/`send_agent_prompt` block server-side until the whole
+ * turn finishes, and even the *first* broadcast event for that turn (the canonical `user_message`)
+ * only fires once the agent process is booted/warm — for a brand-new session that means a real
+ * process-spawn+handshake before anything appears (see AGENTS.md "First-message latency"). To hide
+ * that, `handleSend` mints a `clientMessageId` and inserts the user's row into the timeline
+ * *synchronously*, before the RPC is even issued. The daemon echoes the same id back verbatim as
+ * the `user_message` event's `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`);
+ * the reducer (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and
+ * confirms it in place instead of appending a duplicate.
+ *
+ * A brand-new agent has no live subscription yet when the first turn's events start arriving —
+ * `useAgentStream` only attaches once `bindAgent` sets `agentId`, which happens *after*
+ * `createAgent()` resolves. So for the first turn `handleSend` subscribes to the raw broadcast
+ * directly and applies each `agent_stream` event *as it arrives*, latching the new agent's id
+ * from the first such event (agent_update frames are top-level and never reach
+ * `onSessionMessage`; agent_stream frames are session-wrapped and do). That includes the
+ * `user_message` event that reconciles the optimistic row above.
  * `bindAgent` is deferred until the RPC resolves so `useAgentStream` attaches only for follow-up
  * turns and never re-applies the first turn (the reducer is not event-id-idempotent).
  */
@@ -56,7 +64,8 @@ export function Composer({ sessionId }: ComposerProps) {
   const client = useConnectionStore((s) => s.client);
   const session = useSessionStore((s) => s.sessions[sessionId]);
   const bindAgent = useSessionStore((s) => s.bindAgent);
-  const addUserMessage = useSessionStore((s) => s.addUserMessage);
+  const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
+  const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
   const setCwd = useSessionStore((s) => s.setCwd);
   const queryClient = useQueryClient();
 
@@ -120,18 +129,18 @@ export function Composer({ sessionId }: ComposerProps) {
     const sentImages = images;
     setImages([]);
 
-    // No optimistic local echo: the daemon canonically emits exactly one `user_message`
-    // stream event per prompt (packages/server/src/agent/agent-service.ts), broadcast to this
-    // session's timeline subscription — the reducer renders it from there. Echoing locally too
-    // would double the row; unlike the POC (whose `handleAgentStream` switch has no
-    // `user_message` case and so never rendered the server's broadcast), this store renders
-    // every event kind uniformly, so the server is the single source of truth here.
-    addUserMessage(sessionId);
     const prompt = trimmed || "Describe this image";
     const rpcImages =
       sentImages.length > 0
         ? sentImages.map((img) => ({ mimeType: img.mimeType, data: img.data }))
         : undefined;
+
+    // Optimistic echo: render the user's row synchronously instead of waiting for the daemon's
+    // `user_message` broadcast (see file header). `clientMessageId` is round-tripped through the
+    // RPC below and echoed back verbatim as the broadcast event's `messageId`, which is how the
+    // reducer reconciles this row instead of appending a duplicate once the server confirms it.
+    const clientMessageId = crypto.randomUUID();
+    addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages);
 
     setSending(true);
     try {
@@ -168,6 +177,7 @@ export function Composer({ sessionId }: ComposerProps) {
           result = await client.createAgent({
             config: { provider: "pi", cwd },
             initialPrompt: prompt,
+            clientMessageId,
             images: rpcImages,
             labels: {},
           });
@@ -177,11 +187,17 @@ export function Composer({ sessionId }: ComposerProps) {
 
         bindAgent(sessionId, result.agentId);
       } else {
-        await client.agent(session.agentId).send(prompt, { images: rpcImages });
+        await client.agent(session.agentId).send(prompt, { clientMessageId, images: rpcImages });
       }
     } catch {
-      // RPC failures surface via agent_stream `error`/`turn_failed` events (POC swallows the
-      // rejection the same way; the stream is the source of truth for user-visible failure).
+      // RPC rejection before any `user_message` broadcast arrived (e.g. dropped connection) —
+      // the optimistic row would otherwise stay pending forever with no feedback. If the server
+      // *did* manage to broadcast `user_message` first (the row is already reconciled), this is
+      // a no-op — `markUserMessageFailed` only touches a still-pending row. Turn-level failures
+      // that occur after that point still surface via `agent_stream` `error`/`turn_failed`
+      // events (POC swallows the RPC rejection the same way; the stream is the source of truth
+      // for those).
+      markUserMessageFailed(sessionId, clientMessageId);
     } finally {
       setSending(false);
     }

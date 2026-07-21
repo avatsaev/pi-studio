@@ -146,8 +146,27 @@ function onUserMessage(
   state: TimelineState,
   text: string,
   images?: Array<{ mimeType?: string; data?: string }>,
+  messageId?: string,
 ): TimelineState {
-  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images };
+  // Reconcile against the optimistic row `Composer` inserted synchronously on Send (same
+  // `clientMessageId`, echoed back verbatim by the daemon as this event's `messageId` — see
+  // `packages/server/src/agent/agent-service.ts` `runTurn`): confirm it in place instead of
+  // appending a duplicate. No match (session-restore replay, or a `messageId` the daemon minted
+  // itself) → append fresh, already-confirmed.
+  if (messageId !== undefined) {
+    const idx = state.rows.findIndex(
+      (r) => r.kind === "user" && r.pending && r.clientMessageId === messageId,
+    );
+    if (idx !== -1) {
+      const rows = state.rows.slice();
+      const prev = rows[idx];
+      if (prev?.kind === "user") {
+        rows[idx] = { ...prev, text, images, pending: false };
+        return { ...state, rows };
+      }
+    }
+  }
+  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images, clientMessageId: messageId };
   return { ...state, rows: [...state.rows, row] };
 }
 
@@ -157,7 +176,7 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
     case "turn_started":
       return onTurnStarted(state);
     case "user_message":
-      return onUserMessage(state, event.text ?? "", event.images);
+      return onUserMessage(state, event.text ?? "", event.images, event.messageId);
     case "assistant_message":
       return onAssistantMessage(state, event.text ?? "");
     case "reasoning":
@@ -180,6 +199,43 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
 /** Replay a whole ordered event list (session restore / timeline hydration) into fresh state. */
 export function replayEvents(events: readonly AgentStreamEvent[]): TimelineState {
   return events.reduce(applyStreamEvent, EMPTY_TIMELINE);
+}
+
+/**
+ * Insert the local optimistic echo `Composer` renders synchronously on Send, before the daemon's
+ * `create_agent_request`/`send_agent_prompt` round trip resolves. Keyed by the same
+ * `clientMessageId` sent on the RPC — the eventual `user_message` broadcast (`onUserMessage`
+ * above) reconciles this row in place by matching `pending` + `clientMessageId`, so the row never
+ * duplicates once the server confirms it.
+ */
+export function addOptimisticUserMessage(
+  state: TimelineState,
+  clientMessageId: string,
+  text: string,
+  images?: Array<{ mimeType?: string; data?: string }>,
+): TimelineState {
+  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images, clientMessageId, pending: true };
+  return { ...state, rows: [...state.rows, row] };
+}
+
+/**
+ * Mark a still-pending optimistic row as failed — the RPC that was meant to confirm it
+ * (`createAgent`/`send`) rejected before any `user_message` broadcast arrived. No-op if the row
+ * was already reconciled (server confirmed it before the RPC promise settled — the RPC contract
+ * is "resolves after the whole turn", so a `user_message` broadcast can arrive, then the promise
+ * can still reject later from a failure elsewhere in that same turn; the row is already correct
+ * by then and must not be clobbered back into a failed state).
+ */
+export function markUserMessageFailed(state: TimelineState, clientMessageId: string): TimelineState {
+  const idx = state.rows.findIndex(
+    (r) => r.kind === "user" && r.pending && r.clientMessageId === clientMessageId,
+  );
+  if (idx === -1) return state;
+  const rows = state.rows.slice();
+  const prev = rows[idx];
+  if (prev?.kind !== "user") return state;
+  rows[idx] = { ...prev, pending: false, failed: true };
+  return { ...state, rows };
 }
 
 export { EMPTY_TIMELINE };

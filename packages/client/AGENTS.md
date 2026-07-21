@@ -33,9 +33,9 @@ Provides:
 src/
   index.ts                    Public barrel (re-exports everything below).
   transport.ts                Transport interface + AnyWebSocket/WsFactory + createWebSocketTransport().
-  relay-transport.ts          createRelayTransport() — E2EE relay Transport (same interface as direct WS).
+  relay-transport.ts          createRelayTransport() + relayDialUrl() — E2EE relay Transport (same interface as direct WS).
   relay-transport.test.ts
-  pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host).
+  pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls).
   daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
   daemon-client.test.ts
   pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles.
@@ -74,19 +74,28 @@ a bearer-password subprotocol — see `web-client`'s `connection-store.ts` for t
 factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). Handles Node `ws`'s `Buffer` message
 type and the browser's default `Blob` `binaryType` in addition to `string`/`ArrayBuffer`.
 
-`createRelayTransport({ sessionId, daemonPublicKey, factory? })` (`relay-transport.ts`) — implements
-the identical `Transport` interface over an E2EE relay: dials the relay's own WebSocket address
-(NOT the daemon's), registers under `sessionId` (matching the daemon's outbound registration
-convention, `packages/server/src/daemon/relay-transport.ts`), completes the `e2ee_hello`/`e2ee_ready`
-handshake via `createClientChannel` (`@av-pi-studio/relay`) with a **fresh ephemeral** keypair, and
-only reports `isOpen` once that handshake finishes — no app RPC (including `hello`) can cross the
-wire before then. `sendBinary()` throws: binary frames (terminal/file-transfer) are not supported
-over the E2EE relay channel.
+`createRelayTransport({ sessionId?, daemonPublicKey, factory? })` (`relay-transport.ts`) —
+implements the identical `Transport` interface over an E2EE relay: dials the relay's own WebSocket
+address (NOT the daemon's — build it from a pairing offer's `relay` info via `relayDialUrl()`),
+registers under `sessionId` (or, when omitted, `deriveRelaySessionId(daemonPublicKey)` — the SAME
+deterministic id the daemon's own outbound dial always registers under,
+`packages/server/src/daemon/relay-transport.ts` — so a pairing offer's public key alone is enough
+to find the daemon on the relay without a separately-transmitted session id), completes the
+`e2ee_hello`/`e2ee_ready` handshake via `createClientChannel` (`@av-pi-studio/relay`) with a
+**fresh ephemeral** keypair, and only reports `isOpen` once that handshake finishes — no app RPC
+(including `hello`) can cross the wire before then. `sendBinary()` works too (terminal I/O,
+file-transfer chunks) — carried as the channel's `e2ee_bin` sibling wire frame to text `e2ee_app`
+(`@av-pi-studio/relay`'s `channel.ts`); still a JSON text WS frame under the hood (base64-wrapped
+ciphertext), never a raw binary WebSocket frame, so no relay-server change was needed.
 
-`parsePairingUrl(input)` (`pairing.ts`) parses a pairing URL's fragment (`#offer=<base64>&host=...`)
-into `{ publicKeyB64, publicKey, host? }`, ready to feed `createRelayTransport`'s
-`daemonPublicKey`. Returns `null` (never throws) if no `offer` param is present — callers must treat
-that as "not a valid pairing link," never fall back to an unauthenticated connection.
+`parsePairingUrl(input)` (`pairing.ts`) parses a pairing URL's fragment
+(`#offer=<base64>&host=...` or, for a relay-routed daemon, `#offer=<base64>&relay=<endpoint>
+&relayTls=<0|1>`) into `{ publicKeyB64, publicKey, host? }` or `{ publicKeyB64, publicKey, relay:
+{ endpoint, useTls } }` — `host` and `relay` are mutually exclusive, matching
+`packages/cli/src/pairing.ts#buildPairingUrl`'s output. `publicKey` feeds `createRelayTransport`'s
+`daemonPublicKey` directly; `relay` feeds `relayDialUrl()` + the transport's default session id.
+Returns `null` (never throws) if no `offer` param is present — callers must treat that as "not a
+valid pairing link," never fall back to an unauthenticated connection.
 
 ---
 
@@ -262,10 +271,16 @@ files.stop();                                     // stop routing; pending downl
 - **`clientId` must be stable** across reconnects (same session identity).
 - **`hello` is re-sent on every `connect()` call**, including reconnects — `DaemonClient` always
   sends the same capabilities map so reconnect rehydrates them transparently.
-- **`createRelayTransport`'s `sendBinary()` throws.** The E2EE relay channel carries text-frame app
-  traffic only — terminal/file-transfer binary frames have no relay path today.
+- **`createRelayTransport` supports `sendBinary()`.** Terminal I/O and file-transfer chunks work
+  over relay via the channel's `e2ee_bin` frame (a base64-wrapped JSON text frame, not raw binary
+  WebSocket — see `@av-pi-studio/relay`'s README § Wire protocol); `DaemonClient.onTerminalFrame`/
+  `onFileTransferFrame` receive them identically regardless of transport.
 - **`createRelayTransport` always generates a FRESH ephemeral keypair per channel** — never reuse
-  one across connections; only the daemon's public key (from the pairing offer) is persistent.
+  one across connections; only the daemon's public key (from the pairing offer) is persistent. The
+  rendezvous **session id** is a separate, non-secret routing label — deterministic by default
+  (`deriveRelaySessionId(daemonPublicKey)`), unlike the keypair — so it staying the same across
+  reconnects does NOT weaken "new session → new keys" (architecture/relay-e2ee.md § Error
+  Handling): the shared key still comes from the fresh ephemeral keypair, never from the session id.
 - **`crypto.randomUUID`** is used for request IDs with a `Date.now()`+`Math.random()` fallback for
   environments that lack it.
 

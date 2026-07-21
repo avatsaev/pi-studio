@@ -7,7 +7,12 @@
 
 import { create } from "zustand";
 import type { AgentStatus } from "@av-pi-studio/protocol";
-import { EMPTY_TIMELINE, applyStreamEvent as applyStreamEventToTimeline } from "@pi-studio-ui/timeline/reducer.js";
+import {
+  EMPTY_TIMELINE,
+  applyStreamEvent as applyStreamEventToTimeline,
+  addOptimisticUserMessage as addOptimisticUserMessageToTimeline,
+  markUserMessageFailed as markUserMessageFailedInTimeline,
+} from "@pi-studio-ui/timeline/reducer.js";
 import type { TimelineState } from "@pi-studio-ui/timeline/reducer.js";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 
@@ -34,7 +39,13 @@ interface SessionStoreState {
   setTitle(sessionId: string, title: string): void;
   setCwd(sessionId: string, cwd: string): void;
   applyStreamEvent(sessionId: string, event: AgentStreamEvent): void;
-  addUserMessage(sessionId: string): void;
+  addOptimisticUserMessage(
+    sessionId: string,
+    clientMessageId: string,
+    text: string,
+    images?: Array<{ mimeType?: string; data?: string }>,
+  ): void;
+  markUserMessageFailed(sessionId: string, clientMessageId: string): void;
   activate(sessionId: string): void;
   remove(sessionId: string): void;
   /** Register a restored session (session restore on connect, §4.3 "Session restore"). */
@@ -138,16 +149,26 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
     });
   },
 
-  addUserMessage(sessionId) {
+  addOptimisticUserMessage(sessionId, clientMessageId, text, images) {
     set((s) => {
       const entry = s.sessions[sessionId];
       if (!entry) return s;
+      const timeline = addOptimisticUserMessageToTimeline(entry.timeline, clientMessageId, text, images);
       return {
         sessions: {
           ...s.sessions,
-          [sessionId]: { ...entry, userMessageCount: entry.userMessageCount + 1 },
+          [sessionId]: { ...entry, timeline, userMessageCount: entry.userMessageCount + 1 },
         },
       };
+    });
+  },
+
+  markUserMessageFailed(sessionId, clientMessageId) {
+    set((s) => {
+      const entry = s.sessions[sessionId];
+      if (!entry) return s;
+      const timeline = markUserMessageFailedInTimeline(entry.timeline, clientMessageId);
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, timeline } } };
     });
   },
 

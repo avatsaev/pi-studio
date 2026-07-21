@@ -4,6 +4,11 @@
  * (`.sidebarToggles`, `margin-left: auto`). Provider is always "pi" (see Composer.tsx) — this
  * project has no other provider to select. "Open Workspace" lives in the sidebar header
  * (SessionList.tsx), not here.
+ *
+ * The host field ALSO accepts a full pairing link (`pi-studio daemon pair`'s QR/link,
+ * architecture/relay-e2ee.md § Pairing) pasted verbatim — `connect()` detects it via
+ * `parsePairingUrl` and routes through the relay transport automatically; the password field is
+ * ignored in that case (the pairing link's key is itself the credential).
  */
 
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -39,7 +44,7 @@ export function Toolbar() {
         className={styles.host}
         value={host}
         onChange={(e) => setHost(e.target.value)}
-        placeholder="host:port or ws://… / http://…"
+        placeholder="host:port, ws://…/http://…, or a pasted pairing link"
         disabled={connected}
       />
       <TextInput

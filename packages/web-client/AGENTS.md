@@ -73,9 +73,12 @@ src/
   components/primitives/   36 React design-system components (Button, Select, Dialog, Surface,
                             TextInput, Switch, Checkbox, Avatar, ScrollArea, ResizeHandle,
                             StatusBadge/Dot, Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
-  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient), normalize-url
-                           (accepts ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
-                           (TanStack Query), rpc-keys, files-changed (cache-invalidation signaling)
+  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
+                           relay-transport pairing-link connections), resolve-connect-target
+                           (pure routing: plain address vs. pairing link, direct vs. relay + tests),
+                           normalize-url (accepts ws/wss/http/https/bare-host, maps http→ws /
+                           https→wss), query-client (TanStack Query), rpc-keys, files-changed
+                           (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
                            terminal-store, explorer-store (+ test)
@@ -135,10 +138,17 @@ entered at runtime, never baked into the image.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
 - **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
-- **Connection URL is currently toolbar/URL-param only** (`ui-store.ts` host field, seeded from
-  `?host=&password=&cwd=&connect=1` in `use-connection.ts`), normalized by `lib/connection/normalize-url.ts`
-  before it reaches the transport — the field accepts `ws://`/`wss://`, `http://`/`https://` (mapped
-  to `ws`/`wss`), or a bare `host:port`. Accepting an Electron-injected daemon
-  URL (via `contextBridge`) and adding `getIsElectron()` platform gating are **not yet implemented**
-  — both are sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
+- **Connection input is toolbar/URL-param, either a direct address or a pairing link** — the same
+  `ui-store.ts` host field (seeded from `?host=&password=&cwd=&connect=1`, `?pair=<url>`, or a
+  `#offer=...` fragment already on the page's own URL, all in `use-connection.ts`) accepts either:
+  a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
+  `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
+  `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
+  store.ts#connect()` routes between the two via `resolveConnectTarget()`
+  (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
+  client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
+  offer — the daemon password field is ignored for a relay connection; the pairing link's public
+  key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
+  adding `getIsElectron()` platform gating are **not yet implemented** — both are
+  sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.

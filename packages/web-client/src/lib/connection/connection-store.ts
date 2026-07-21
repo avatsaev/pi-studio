@@ -9,19 +9,24 @@ import {
   DaemonClient,
   PiStudioClient,
   ReconnectionManager,
+  createRelayTransport,
   createWebSocketTransport,
   type ConnectionState,
+  type Transport,
 } from "@av-pi-studio/client";
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
-import { normalizeDaemonUrl } from "./normalize-url.js";
+import { resolveConnectTarget } from "./resolve-connect-target.js";
 
 export interface ConnectOptions {
   /**
-   * Daemon address. Accepts `ws://`/`wss://`, `http://`/`https://` (mapped to `ws`/`wss`), or a
-   * bare `host[:port]` (assumed `ws://`). Normalized via {@link normalizeDaemonUrl} before use.
+   * Daemon address, OR a full pairing link (`https://app.pi-studio.sh/#offer=...`) copied from
+   * `pi-studio daemon pair`. A pairing link is detected via {@link parsePairingUrl} and switches
+   * this connection to the relay transport automatically — see {@link connectViaPairingOffer}.
+   * Otherwise accepts `ws://`/`wss://`, `http://`/`https://` (mapped to `ws`/`wss`), or a bare
+   * `host[:port]` (assumed `ws://`), normalized via {@link normalizeDaemonUrl}.
    */
   url: string;
-  /** Bearer password, sent via the `pi-studio.bearer.<pw>` WS subprotocol. */
+  /** Bearer password, sent via the `pi-studio.bearer.<pw>` WS subprotocol. Ignored for a pairing-link (relay) connection — the pairing link's public key is itself the credential. */
   password?: string;
   /** Stable per-tab client id; generated once if omitted. */
   clientId?: string;
@@ -56,14 +61,24 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     // Tear down any previous connection before opening a new one.
     get().disconnect();
 
-    const transport = opts.password
-      ? createWebSocketTransport(
-          (url) => new WebSocket(url, [`pi-studio.bearer.${opts.password}`]) as unknown as never,
-        )
-      : undefined;
+    // A pasted pairing link (`pi-studio daemon pair`'s QR/link) takes over connection setup
+    // entirely: it carries the daemon's public key plus either a relay endpoint (branch to the
+    // E2EE relay transport, ignoring `opts.password` — the pairing key IS the credential) or a
+    // direct host hint (connect there exactly like a typed `url`, no password support in that
+    // form since a pairing link is generated once and doesn't carry one).
+    const target = resolveConnectTarget(opts.url);
+
+    let transport: Transport | undefined;
+    if (target.mode === "relay") {
+      transport = createRelayTransport({ daemonPublicKey: target.daemonPublicKey });
+    } else if (opts.password) {
+      transport = createWebSocketTransport(
+        (u) => new WebSocket(u, [`pi-studio.bearer.${opts.password}`]) as unknown as never,
+      );
+    }
 
     const daemon = new DaemonClient({
-      url: normalizeDaemonUrl(opts.url),
+      url: target.url,
       clientId: opts.clientId ?? generateClientId(),
       clientType: "browser",
       capabilities: {},
