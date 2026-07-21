@@ -5,7 +5,7 @@
  * dialog edits that entry; without it, it adds a new one.
  */
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Dialog } from "@pi-studio-ui/components/primitives/Dialog.js";
@@ -31,10 +31,22 @@ export function ServerFormDialog({
   /** Present → edit this entry; absent → add a new one. */
   server?: SavedServer;
 }) {
+  if (!open) return null;
+
+  return <ServerFormDialogSession onOpenChange={onOpenChange} server={server} />;
+}
+
+function ServerFormDialogSession({
+  onOpenChange,
+  server,
+}: {
+  onOpenChange: (open: boolean) => void;
+  server?: SavedServer;
+}) {
   const addServer = useSavedServersStore((s) => s.addServer);
   const updateServer = useSavedServersStore((s) => s.updateServer);
-  const formId = useId();
   const passwordInputId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
@@ -42,35 +54,42 @@ export function ServerFormDialog({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<ServerFormError | null>(null);
 
-  // Controlled dialogs do not call onOpenChange when their parent opens them. Reset on
-  // lifecycle changes so reopening Add — or editing another selected server — never leaks
-  // values from the previous form session.
-  useEffect(() => {
-    setName(server?.name ?? "");
-    setUrl(server?.url ?? "");
-    setPassword(server?.password ?? "");
-    setShowPassword(false);
-    setError(null);
-  }, [open, server?.id, server?.name, server?.url, server?.password]);
-
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (name.trim() === "") {
+    submit();
+  }
+
+  function submit() {
+    if (!formRef.current) return;
+
+    // Read from the real controls so browser autofill and any delayed React input event
+    // cannot make validation disagree with the values visible to the user.
+    const formData = new FormData(formRef.current);
+    const submittedName = String(formData.get("name") ?? "");
+    const submittedUrl = String(formData.get("url") ?? "");
+    const submittedPassword = String(formData.get("password") ?? "");
+
+    if (submittedName.trim() === "") {
       setError({ field: "name", message: "Name is required" });
       return;
     }
-    if (url.trim() === "") {
+    if (submittedUrl.trim() === "") {
       setError({ field: "url", message: "Address is required" });
       return;
     }
-    if (server) updateServer(server.id, { name, url, password });
-    else addServer({ name, url, password });
+    const input = {
+      name: submittedName,
+      url: submittedUrl,
+      password: submittedPassword,
+    };
+    if (server) updateServer(server.id, input);
+    else addServer(input);
     onOpenChange(false);
   }
 
   return (
     <Dialog
-      open={open}
+      open
       onOpenChange={onOpenChange}
       title={server ? "Edit server" : "Add server"}
       footer={
@@ -83,18 +102,19 @@ export function ServerFormDialog({
           >
             Cancel
           </Button>
-          <Button type="submit" form={formId} variant="default" className={styles.footerButton}>
+          <Button type="button" variant="default" className={styles.footerButton} onClick={submit}>
             {server ? "Save" : "Add server"}
           </Button>
         </div>
       }
     >
-      <form id={formId} className={styles.form} onSubmit={submit}>
+      <form ref={formRef} className={styles.form} onSubmit={handleSubmit}>
         <p className={styles.helper}>Enter the address of a Pi-Studio daemon.</p>
 
         <label className={styles.field}>
           <span className={styles.label}>Name</span>
           <TextInput
+            name="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="My server"
@@ -106,6 +126,7 @@ export function ServerFormDialog({
         <label className={styles.field}>
           <span className={styles.label}>Address</span>
           <TextInput
+            name="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="host:port or ws://… / http://…"
@@ -120,6 +141,7 @@ export function ServerFormDialog({
           <span className={styles.passwordWrap}>
             <TextInput
               id={passwordInputId}
+              name="password"
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
