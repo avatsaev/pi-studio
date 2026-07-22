@@ -118,6 +118,17 @@ SPA fallback — no vite/dev dependency at runtime, works from any install shape
 tab auto-connects; the command never itself probes or starts a daemon. Blocks until
 `SIGINT`/`SIGTERM`.
 
+### `update`
+
+| Command | Description |
+|---|---|
+| `update [--check]` | Self-update to the latest `@av-pi-studio/cli` version published on npm |
+
+Shells out to the same `npm install -g @av-pi-studio/cli@<version>` path used to install the CLI
+in the first place (see Install above), so it respects your npm config (registry mirrors, auth,
+proxies) instead of reimplementing a registry client. `--check` reports whether an update is
+available without installing anything.
+
 ### Feature groups
 
 `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, and `worktree` are sibling top-level

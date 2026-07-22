@@ -30,7 +30,7 @@ agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio r
 | `permit` | `allow`, `deny`, `ls` |
 | `provider` | `ls`, `models` |
 | `worktree` | `create`, `ls`, `archive` |
-| top-level | `pi-studio <path>` (open), `onboard`, `open` |
+| top-level | `pi-studio <path>` (open), `onboard`, `open`, `update [--check]` (self-update via `npm install -g`) |
 
 ### Example invocations
 ```

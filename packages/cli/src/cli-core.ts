@@ -3,6 +3,7 @@ import { DaemonClient, RpcError, RpcTimeoutError } from "@av-pi-studio/client";
 import { type ConnectOptions, connectDaemon } from "./connection.js";
 import type { DaemonRuntime } from "./daemon-control.js";
 import type { RelayRuntime } from "./relay-control.js";
+import type { UpdateRuntime } from "./update-control.js";
 import { type OutputFormat, type OutputSink, consoleSink, renderJson } from "./output.js";
 
 /**
@@ -38,6 +39,8 @@ export interface CliContext {
   daemon?: DaemonRuntime;
   /** Local relay-server control runtime (process/network side-effects); tests inject fakes. */
   relay?: RelayRuntime;
+  /** Self-update control runtime (npm registry/install side-effects); tests inject fakes. */
+  update?: UpdateRuntime;
 }
 
 /** Default production context. */

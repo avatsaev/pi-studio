@@ -52,6 +52,13 @@ src/
   web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
   web-server.test.ts
 
+  update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
+  update-commands.test.ts
+  update-control.ts      UpdateRuntime — getLatestVersion/installGlobal (shells out to `npm view`/
+                          `npm install -g`); compareVersions() (plain x.y.z numeric compare, no
+                          semver deps — this monorepo only ever publishes major.minor.patch).
+  update-control.test.ts
+
   program.test.ts
   cli-core.test.ts
   index.ts               Public barrel (for library consumers).
@@ -201,6 +208,30 @@ install shape (npm link, global `npm i -g`) without a separate vite/dev toolchai
 
 ---
 
+### `update` command (`update-commands.ts`)
+
+`pi-studio update [--check]` — self-updates the globally installed CLI to the latest
+`@av-pi-studio/cli` version published on npm, via the SAME `npm install -g` path used to install
+it in the first place (README.md § Install) — shells out to the user's own `npm`, rather than
+reimplementing a registry client, so it correctly respects npm config (registry mirrors, auth,
+proxies) and stays in sync with whatever `npm install -g` itself does.
+
+`--check` reports whether an update is available without installing anything (exit `EXIT_OK`
+either way — "already up to date" is not a failure).
+
+`UpdateRuntime` (`update-control.ts`):
+- `getLatestVersion(pkg)` — `npm view <pkg> version`; returns `null` on any failure (registry
+  unreachable, offline, etc.) rather than throwing, so `runUpdate` can render one clean error line.
+- `installGlobal(pkg, version)` — `npm install -g <pkg>@<version>`; throws on failure (surfaced via
+  the child's stderr, falling back to the error message).
+- `compareVersions(a, b)` — plain numeric `x.y.z` compare (missing segments treat as 0), NOT a full
+  semver comparator (no prerelease/build-metadata handling) — sufficient because this monorepo only
+  ever publishes bare `major.minor.patch` releases (`scripts/publish.sh`'s patch-only bump).
+- `CURRENT_VERSION` — this package's own `package.json` version, read via `createRequire` at
+  startup (same pattern as `program.ts`'s `-v/--version`) — never hardcoded.
+
+---
+
 ## `CliContext` and `withDaemon()`
 
 `CliContext` bundles injectable dependencies for testability:
@@ -213,6 +244,7 @@ interface CliContext {
   connectOverrides?: Pick<ConnectOptions, "transport" | "clientId" | "home">;  // test hooks
   daemon?: DaemonRuntime;        // local daemon control override for tests
   relay?: RelayRuntime;          // local relay-server control override for tests
+  update?: UpdateRuntime;        // self-update control override for tests
 }
 ```
 

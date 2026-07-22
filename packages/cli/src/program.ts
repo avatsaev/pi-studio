@@ -6,6 +6,7 @@ import { registerDaemonCommands, ensureLocalDaemonAndPair } from "./daemon-comma
 import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
 import { registerRelayCommands } from "./relay-commands.js";
 import { registerWebCommands } from "./web-commands.js";
+import { registerUpdateCommands } from "./update-commands.js";
 import { type CliContext, type GlobalOptions, defaultContext } from "./cli-core.js";
 
 // Read our own package.json for the version, same relative layout in both `src/` (ts-node/tsx)
@@ -66,6 +67,7 @@ function registerCommands(
   registerFeatureCommands(program, ctx, setExit);
   registerRelayCommands(program, ctx, setExit);
   registerWebCommands(program, ctx, setExit);
+  registerUpdateCommands(program, ctx, setExit);
 }
 
 /**
