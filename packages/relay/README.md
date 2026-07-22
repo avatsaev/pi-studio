@@ -48,7 +48,9 @@ by construction and never sees (so never logs) message contents.
 | `PI_STUDIO_RELAY_LOG_DIR` | _(unset)_ | Also write rotating NDJSON files here (stdout always gets logs too) |
 
 stdout always receives logs — NDJSON in non-TTY (so `docker logs` / journald work out of the box),
-pretty-printed on a TTY. `pi-studio relay start` (CLI) runs the relay detached with `stdio`
+pretty-printed on a TTY. The first line logged is always the package version
+(`pi-studio relay v<version> starting`), so `docker logs`/journald output immediately identifies
+which build is running. `pi-studio relay start` (CLI) runs the relay detached with `stdio`
 ignored, so it configures a rotating file under `$PI_STUDIO_HOME/logs/` instead.
 
 Shuts down cleanly on `SIGINT`/`SIGTERM`.

@@ -78,11 +78,14 @@ src/
   relay-logger.test.ts
   relay-main.ts          Process entry (`bin: pi-studio-relay`). Reads `--listen host:port` /
                         `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the stdout
-                        logger (`PI_STUDIO_RELAY_LOG_LEVEL`, default `info`), calls
-                        startRelayServer(), shuts down cleanly on SIGINT/SIGTERM. This is what
-                        `npx @av-pi-studio/relay` runs directly and what `pi-studio relay start`
-                        (packages/cli's relay-control.ts) spawns as a detached child process (with
-                        a file logger under `$PI_STUDIO_HOME/logs/`, since stdio is ignored).
+                        logger (`PI_STUDIO_RELAY_LOG_LEVEL`, default `info`), logs its own
+                        package.json version as the FIRST line (read via `createRequire` against
+                        `../package.json` — works from both `src/` and compiled `dist/`, one
+                        level below the package root either way), calls startRelayServer(),
+                        shuts down cleanly on SIGINT/SIGTERM. This is what `npx @av-pi-studio/relay`
+                        runs directly and what `pi-studio relay start` (packages/cli's
+                        relay-control.ts) spawns as a detached child process (with a file logger
+                        under `$PI_STUDIO_HOME/logs/`, since stdio is ignored).
 ```
 
 ---
@@ -235,7 +238,8 @@ socket failures. Frame forwarding is logged at `trace` level with byte counts on
 `relay-main.ts` is the CLI-facing process entry (`bin: pi-studio-relay`): parses `--listen host:port`
 / `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the operational logger
 (`createRelayLogger()` — stdout always, `PI_STUDIO_RELAY_LOG_LEVEL` default `info`,
-`PI_STUDIO_RELAY_LOG_DIR` for an additional rotating file), calls `startRelayServer`, logs the
+`PI_STUDIO_RELAY_LOG_DIR` for an additional rotating file), logs its `package.json` version as the
+first line (`pi-studio relay v<version> starting`), calls `startRelayServer`, logs the
 bound address, and closes cleanly on `SIGINT`/`SIGTERM`. `packages/cli`'s `relay-control.ts`
 resolves `startRelayServer` via `import.meta.resolve("@av-pi-studio/relay/server")` (the subpath
 export, not the main barrel) to spawn/manage it as a supervised subprocess for `pi-studio relay
