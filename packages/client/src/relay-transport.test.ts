@@ -285,6 +285,15 @@ describe("client relay transport", () => {
       "wss://already-schemed.example",
     );
   });
+
+  it("relayDialUrl also strips an http(s):// scheme, never concatenating two schemes", () => {
+    expect(relayDialUrl({ endpoint: "https://relay.molagent.ai", useTls: true })).toBe(
+      "wss://relay.molagent.ai",
+    );
+    expect(relayDialUrl({ endpoint: "http://relay.molagent.ai", useTls: false })).toBe(
+      "ws://relay.molagent.ai",
+    );
+  });
 });
 
 describe("pairing URL fragment parsing", () => {

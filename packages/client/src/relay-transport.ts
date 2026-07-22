@@ -45,7 +45,9 @@ export interface RelayTransportOptions {
 /** Build the relay's own `ws://`/`wss://` dial URL from a pairing offer's `relay` info. */
 export function relayDialUrl(relay: { endpoint: string; useTls: boolean }): string {
   const scheme = relay.useTls ? "wss" : "ws";
-  const host = relay.endpoint.replace(/^wss?:\/\//, "").replace(/\/+$/, "");
+  // Accept `http(s)://`/`ws(s)://`-prefixed endpoints (someone pasted a URL, not a bare host)
+  // and normalize to the scheme `useTls` actually calls for — never concatenate two schemes.
+  const host = relay.endpoint.replace(/^(?:https?|wss?):\/\//, "").replace(/\/+$/, "");
   return `${scheme}://${host}`;
 }
 

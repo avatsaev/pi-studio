@@ -129,6 +129,27 @@ describe("daemon relay transport", () => {
     expect(relay.registeredSessionIds).toContain(sessionId);
   });
 
+  it("strips an http(s):// scheme prefix on the endpoint instead of concatenating schemes", async () => {
+    relay = await startFakeRelay();
+    const daemonKeypair = nacl.box.keyPair();
+
+    const started = Promise.withResolvers<string>();
+    handle = connectRelay(
+      daemonKeypair,
+      {
+        enabled: true,
+        endpoint: `http://127.0.0.1:${relay.port}`,
+        useTls: false,
+        publicUseTls: false,
+      },
+      { onSessionStart: (sessionId) => started.resolve(sessionId) },
+    );
+
+    const sessionId = await started.promise;
+    await waitFor(() => relay!.registeredSessionIds.includes(sessionId));
+    expect(relay.registeredSessionIds).toContain(sessionId);
+  });
+
   it("refuses app messages until the e2ee handshake completes, then delivers them", async () => {
     relay = await startFakeRelay();
     const daemonKeypair = nacl.box.keyPair();

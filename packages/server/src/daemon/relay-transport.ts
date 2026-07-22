@@ -83,7 +83,9 @@ function relayUrl(config: RelayConfig): string {
     throw new Error("relay-transport: config.daemon.relay.endpoint is required when relay.enabled");
   }
   const scheme = config.useTls ? "wss" : "ws";
-  const host = config.endpoint.replace(/^wss?:\/\//, "").replace(/\/+$/, "");
+  // Accept `http(s)://`/`ws(s)://`-prefixed endpoints (someone pasted a URL, not a bare host)
+  // and normalize to the scheme `useTls` actually calls for — never concatenate two schemes.
+  const host = config.endpoint.replace(/^(?:https?|wss?):\/\//, "").replace(/\/+$/, "");
   return `${scheme}://${host}`;
 }
 
