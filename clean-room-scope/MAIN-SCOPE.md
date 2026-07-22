@@ -215,6 +215,7 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | `PI_STUDIO_SERVER_ID`                                        | No       | Override stable daemon id                          | generated                               |
 | `PI_STUDIO_PASSWORD`                                         | No       | Shared-secret daemon password (bcrypt-hashed)      | none                                    |
 | `PI_STUDIO_HOSTNAMES`                                        | No       | Host header allowlist (comma-sep; `true` disables) | `localhost`, `*.localhost`, literal IPs |
+| `PI_STUDIO_PI_HOME`                                           | No       | Redirect the bundled Pi CLI's own `.pi` config dir | `~/.pi` (Pi CLI's own default)          |
 | `PI_STUDIO_RELAY_ENDPOINT`                                   | No       | Relay internal endpoint                            | —                                       |
 | `PI_STUDIO_RELAY_PUBLIC_ENDPOINT`                            | No       | Relay client-facing endpoint                       | —                                       |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | No       | Relay TLS                                          | `false`                                 |

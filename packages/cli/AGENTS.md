@@ -75,6 +75,7 @@ Registered on the root Commander program:
 | `-H, --host <host>` | Daemon/host target (e.g. `workstation.local:6767` or `ws://…`) |
 | `--password <password>` | Password for password-protected daemons |
 | `--home <dir>` | Override `$PI_STUDIO_HOME` (client-id store) |
+| `--pi-home <dir>` | Override `$PI_STUDIO_PI_HOME`, forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) — redirects the bundled Pi CLI's own `.pi` config dir |
 | `--json` | Render output as JSON instead of a table |
 | `-v, --version` | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0 |
 

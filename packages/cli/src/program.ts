@@ -28,6 +28,7 @@ export function buildProgram(ctx: CliContext, setExit: (code: number) => void): 
     .option("-H, --host <host>", "daemon/host target (e.g. workstation.local:6767)")
     .option("--password <password>", "daemon password (for password-protected daemons)")
     .option("--home <dir>", "override $PI_STUDIO_HOME (client-id store)")
+    .option("--pi-home <dir>", "override $PI_STUDIO_PI_HOME (bundled Pi CLI's own .pi config dir)")
     .option("--json", "render output as JSON instead of a table", false)
     .enablePositionalOptions()
     .argument("[path]", "open a project at this path (bare `pi-studio <path>`)")

@@ -197,6 +197,11 @@ Two built-in providers: `pi` and `mock`.
   to `AgentStreamEvent`s.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
+- **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's
+  own `.pi` config dir. `provider-registry.ts#buildPiClient` derives
+  `PI_CODING_AGENT_DIR=<piHome>/agent` and `PI_CODING_AGENT_SESSION_DIR=<piHome>/agent/sessions`
+  as the base env for every spawned `pi` process; an explicit `agents.providers.pi.env` entry
+  overrides these (merged last in `PiAgentClient.buildEnv`).
 - **Prompt images:** `startTurn` translates `RunOptions.images` (wire shape `{ mimeType, data }`)
   into Pi's `ImageContent` shape `{ type: "image", data, mimeType }` before the `prompt` RPC
   notify (`docs/rpc.md` — `{ type: "prompt", message, images? }`). The wire shape is NOT forwarded

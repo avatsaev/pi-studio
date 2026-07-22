@@ -50,6 +50,26 @@ describe("resolveProviderClient", () => {
     expect(resolveProviderClient("mock", config, deps).provider).toBe("mock");
   });
 
+  it("piHome sets PI_CODING_AGENT_DIR/PI_CODING_AGENT_SESSION_DIR as base env, overridable", async () => {
+    const config = persistedConfigSchema.parse({ daemon: { piHome: "/custom/.pi" } });
+    const { deps, spawns } = fakeDeps();
+    const client = resolveProviderClient("pi", config, deps);
+    await client.createSession({ provider: "pi", cwd: "/w" });
+    expect(spawns[0]?.env.PI_CODING_AGENT_DIR).toBe(join("/custom/.pi", "agent"));
+    expect(spawns[0]?.env.PI_CODING_AGENT_SESSION_DIR).toBe(join("/custom/.pi", "agent", "sessions"));
+
+    const overridden = persistedConfigSchema.parse({
+      daemon: { piHome: "/custom/.pi" },
+      agents: {
+        providers: { pi: { env: { PI_CODING_AGENT_DIR: "/explicit/agent" } } },
+      },
+    });
+    const { deps: deps2, spawns: spawns2 } = fakeDeps();
+    const client2 = resolveProviderClient("pi", overridden, deps2);
+    await client2.createSession({ provider: "pi", cwd: "/w" });
+    expect(spawns2[0]?.env.PI_CODING_AGENT_DIR).toBe("/explicit/agent");
+  });
+
   it("launches a custom extends:pi profile via its command and finds imports via params.sessionDir", async () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "fork-sessions-"));
     writeFileSync(

@@ -60,7 +60,7 @@ describe("legacy migration", () => {
 });
 
 describe("env overlay (env wins)", () => {
-  it("overrides listen, password, relay, app.baseUrl and service-proxy keys", () => {
+  it("overrides listen, password, relay, app.baseUrl, service-proxy and piHome keys", () => {
     const base = persistedConfigSchema.parse({});
     const cfg = overlayEnv(base, {
       PI_STUDIO_LISTEN: "0.0.0.0:7000",
@@ -71,6 +71,7 @@ describe("env overlay (env wins)", () => {
       PI_STUDIO_APP_BASE_URL: "http://localhost:8080",
       PI_STUDIO_SERVICE_PROXY_LISTEN: "127.0.0.1:8080",
       PI_STUDIO_SERVICE_PROXY_ENABLED: "1",
+      PI_STUDIO_PI_HOME: "/custom/.pi",
     });
     expect(cfg.daemon.listen).toBe("0.0.0.0:7000");
     expect(cfg.daemon.auth.password).toBe("$2b$hash");
@@ -80,6 +81,7 @@ describe("env overlay (env wins)", () => {
     expect(cfg.app.baseUrl).toBe("http://localhost:8080");
     expect(cfg.daemon.serviceProxy.listen).toBe("127.0.0.1:8080");
     expect(cfg.daemon.serviceProxy.enabled).toBe(true);
+    expect(cfg.daemon.piHome).toBe("/custom/.pi");
   });
 
   it("PI_STUDIO_HOSTNAMES='true' disables the allowlist, else splits a CSV", () => {

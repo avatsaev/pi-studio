@@ -23,6 +23,8 @@ export interface GlobalOptions {
   password?: string;
   json?: boolean;
   home?: string;
+  /** Overrides `PI_STUDIO_PI_HOME` — redirects the bundled Pi CLI's own `.pi` config dir. */
+  piHome?: string;
 }
 
 /** Injectable runtime context (production defaults; tests override transport/sink/clientId). */

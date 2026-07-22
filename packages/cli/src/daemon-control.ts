@@ -59,7 +59,12 @@ export type PasswordHasher = (plaintext: string) => string;
 export type ProcessKiller = (pid: number, signal?: NodeJS.Signals) => boolean;
 
 /** Start a detached daemon process; returns its pid. */
-export type DaemonStarter = (opts: { home: string; listen: string }) => Promise<number>;
+export type DaemonStarter = (opts: {
+  home: string;
+  listen: string;
+  /** Overrides `PI_STUDIO_PI_HOME` — redirects the bundled Pi CLI's own `.pi` config dir. */
+  piHome?: string;
+}) => Promise<number>;
 
 export interface DaemonRuntime {
   probe: HealthProbe;
@@ -106,7 +111,7 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
  * when it's correctly installed, if npm's install topology nested it under `cli`'s own
  * `node_modules` rather than hoisting it to a shared root (observed in a real global install).
  */
-export const subprocessStarter: DaemonStarter = ({ home, listen }) =>
+export const subprocessStarter: DaemonStarter = ({ home, listen, piHome }) =>
   new Promise<number>((resolve, reject) => {
     const [host, portStr] = listen.split(":");
     const port = Number(portStr);
@@ -125,7 +130,12 @@ export const subprocessStarter: DaemonStarter = ({ home, listen }) =>
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, PI_STUDIO_HOME: home, PI_STUDIO_LISTEN: listen },
+      env: {
+        ...process.env,
+        PI_STUDIO_HOME: home,
+        PI_STUDIO_LISTEN: listen,
+        ...(piHome ? { PI_STUDIO_PI_HOME: piHome } : {}),
+      },
     });
     child.on("error", reject);
     if (child.pid === undefined) {

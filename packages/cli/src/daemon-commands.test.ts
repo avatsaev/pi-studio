@@ -273,6 +273,23 @@ describe("ensureLocalDaemonAndPair", () => {
     expect(out.join("\n")).toContain("Pairing link:");
   });
 
+  it("forwards --pi-home to runtime.start", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));
+    let receivedPiHome: string | undefined;
+    const runtime = fakeRuntime({
+      probe: async () => false,
+      start: async (opts) => ((receivedPiHome = opts.piHome), 123),
+    });
+    const { ctx } = ctxWith(home, runtime);
+    await ensureLocalDaemonAndPair(
+      ctx,
+      { home, piHome: "/custom/.pi" },
+      { sleep: noSleep },
+    );
+    expect(receivedPiHome).toBe("/custom/.pi");
+  });
+
   it("skips spawning when a daemon is already running", async () => {
     const home = tmpHome();
     writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));

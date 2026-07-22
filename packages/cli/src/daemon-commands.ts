@@ -99,7 +99,7 @@ export async function ensureLocalDaemonAndPair(
   }
 
   ctx.sink.write(`starting local daemon at ${host}:${port} …`);
-  await runtime.start({ home, listen: `${host}:${port}` });
+  await runtime.start({ home, listen: `${host}:${port}`, piHome: opts.piHome });
   const up = await waitForDaemon(runtime, host, port, { sleep: startOpts.sleep });
   if (!up) {
     ctx.sink.error("daemon did not become healthy in time.");

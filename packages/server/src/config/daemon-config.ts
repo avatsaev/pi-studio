@@ -102,6 +102,8 @@ export const persistedConfigSchema = z
             publicUseTls: z.boolean().default(false),
           })
           .default({}),
+        /** Overrides the bundled Pi CLI's own config dir (PI_CODING_AGENT_DIR/…SESSION_DIR). */
+        piHome: z.string().optional(),
         auth: z.object({ password: z.string().optional() }).default({}),
         serviceProxy: z
           .object({
@@ -224,6 +226,7 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
 
   if (env.PI_STUDIO_LISTEN) next.daemon.listen = env.PI_STUDIO_LISTEN;
   if (env.PI_STUDIO_PASSWORD) next.daemon.auth.password = env.PI_STUDIO_PASSWORD;
+  if (env.PI_STUDIO_PI_HOME) next.daemon.piHome = env.PI_STUDIO_PI_HOME;
 
   if (env.PI_STUDIO_HOSTNAMES !== undefined) {
     const raw = env.PI_STUDIO_HOSTNAMES.trim();

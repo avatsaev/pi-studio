@@ -179,6 +179,7 @@ tRPC API directly via `curl` for status polling, rather than waiting on an upstr
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
+| `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio daemon start --pi-home <dir>` sets this for a locally-spawned daemon. |
 | `PI_STUDIO_LISTEN` | `0.0.0.0:6767` (production `main.ts`); the CLI's local-spawn path binds `127.0.0.1:6767` instead | Daemon bind address (`host:port`) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |

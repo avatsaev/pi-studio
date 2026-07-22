@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { ProviderDefinition } from "@av-pi-studio/protocol";
 
 import type { PersistedConfig, ProviderOverride } from "../config/daemon-config.js";
@@ -49,15 +51,28 @@ function applyModelOverrides(client: PiAgentClient, override: ProviderOverride):
   return client;
 }
 
+/** Derive `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from `daemon.piHome`, so a single
+ * Pi-Studio setting redirects the bundled Pi CLI's entire `~/.pi/agent` tree (models.json,
+ * auth.json, settings.json, sessions/, …) to a custom directory. */
+function piHomeEnv(piHome: string | undefined): Record<string, string> {
+  if (!piHome) return {};
+  const agentDir = join(piHome, "agent");
+  return {
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
+  };
+}
+
 function buildPiClient(
   providerId: string,
   override: ProviderOverride | undefined,
+  config: PersistedConfig,
   deps?: ProviderClientDeps,
 ): AgentClient {
   const client = new PiAgentClient({
     provider: providerId,
     command: override?.command,
-    env: override?.env,
+    env: { ...piHomeEnv(config.daemon.piHome), ...override?.env },
     sessionDir:
       override?.params && typeof override.params.sessionDir === "string"
         ? override.params.sessionDir
@@ -81,10 +96,10 @@ export function resolveProviderClient(
 ): AgentClient {
   const override = config.agents.providers[providerId];
 
-  if (providerId === "pi") return buildPiClient("pi", override, deps);
+  if (providerId === "pi") return buildPiClient("pi", override, config, deps);
   if (providerId === "mock") return new MockAgentClient();
 
-  if (override?.extends === "pi") return buildPiClient(providerId, override, deps);
+  if (override?.extends === "pi") return buildPiClient(providerId, override, config, deps);
 
   const factory = PROVIDER_CLIENT_FACTORIES[providerId];
   if (factory) return factory(deps);
