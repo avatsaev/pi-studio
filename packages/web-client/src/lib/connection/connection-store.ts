@@ -36,6 +36,8 @@ interface ConnectionStoreState {
   status: ConnectionState;
   serverInfo: ServerInfoPayload | null;
   error: string | null;
+  /** Canonical identity of the live direct or relay target; null when disconnected. */
+  connectedTarget: string | null;
   /** Non-null once `connect()` has ever succeeded — the live SDK handles. */
   daemon: DaemonClient | null;
   client: PiStudioClient | null;
@@ -49,10 +51,37 @@ function generateClientId(): string {
   return "web-" + Math.random().toString(36).slice(2, 10);
 }
 
+function connectionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== "") return error.message;
+  if (typeof error === "string" && error.trim() !== "") return error;
+  return "Unable to connect to the daemon";
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Canonical identity used to compare saved entries with the current connection. */
+export function connectionTargetKey(input: string): string {
+  const target = resolveConnectTarget(input);
+  return target.mode === "direct"
+    ? `direct:${target.url}`
+    : `relay:${target.url}:${bytesToHex(target.daemonPublicKey)}`;
+}
+
+export function isConnectedToDaemon(
+  status: ConnectionState,
+  connectedTarget: string | null,
+  input: string,
+): boolean {
+  return status === "open" && connectedTarget === connectionTargetKey(input);
+}
+
 export const useConnectionStore = create<ConnectionStoreState>()((set, get) => ({
   status: "idle",
   serverInfo: null,
   error: null,
+  connectedTarget: null,
   daemon: null,
   client: null,
   reconnection: null,
@@ -95,17 +124,17 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     daemon.onStateChange((state) => set({ status: state }));
     reconnection.onReconnected(() => set({ error: null }));
     reconnection.onReconnectFailed((error) => {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set({ error: connectionErrorMessage(error) });
     });
 
     set({ daemon, client, reconnection, error: null, status: "connecting" });
 
     try {
       const info = await daemon.connect();
-      set({ serverInfo: info });
+      set({ serverInfo: info, connectedTarget: connectionTargetKey(opts.url) });
       reconnection.start();
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set({ error: connectionErrorMessage(error) });
       throw error;
     }
   },
@@ -117,6 +146,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     set({
       status: "idle",
       serverInfo: null,
+      connectedTarget: null,
       daemon: null,
       client: null,
       reconnection: null,

@@ -4,8 +4,9 @@ Production React web client for Pi-Studio. Re-implements the `poc/chat.html` pro
 modular, typed, performant app.
 
 > **Status: implemented.** The routed 3-column workspace shell, connection layer, sessions sidebar,
-> chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
-> system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
+> chat/timeline, composer, file explorer + viewers, git changes panel, terminals, app settings, and
+> the design system are all built and wired. Two Vite build targets (`build:web` /
+> `build:electron`) exist, but
 > the **Electron-specific runtime code does not exist yet** — no `getIsElectron()`, no injected
 > daemon URL, no `contextBridge` consumer. That is `clean-room-scope/sprints/sprint-033-desktop`
 > scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
@@ -48,9 +49,10 @@ CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code f
 `@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod (brand-config validation) · CSS Modules ·
 clsx. Tests: Vitest.
 
-`react-router` v7 provides client-side routing (`routes/AppRouter.tsx`). The web build uses
-history-API routing; the Electron build switches to hash routing because the renderer loads from
-`file://` (selected via `import.meta.env.VITE_TARGET`).
+`react-router` v7 provides client-side routing (`routes/AppRouter.tsx`): `/` (workspace),
+`/connect` (connection screen), and `/settings` (saved servers and a providers placeholder). The web
+build uses history-API routing; the Electron build switches to hash routing because the renderer
+loads from `file://` (selected via `import.meta.env.VITE_TARGET`).
 
 ---
 
@@ -79,10 +81,10 @@ src/
                            (pure routing: plain address vs. pairing link, direct vs. relay + tests),
                            normalize-url (accepts ws/wss/http/https/bare-host, maps http→ws /
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
-                           (cache-invalidation signaling)
+                           (cache-invalidation signaling), connect-to-server (shared route action)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
-                           terminal-store, explorer-store (+ test)
+                           terminal-store, explorer-store, saved-servers-store (+ tests)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore, use-shortcuts, use-explorer,
@@ -100,9 +102,10 @@ src/
                             MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
                             TextViewer, viewer-registry
     git/                    ChangesPanel
+    settings/               SettingsSidebar + server/provider detail panes and CRUD dialogs
     terminal/               TerminalPanel, TerminalsPanel
-  routes/                  AppRouter (browser/hash selection + route table), WorkspacePage
-                           (the 3-column shell: sidebar-left / center / sidebar-right)
+  routes/                  AppRouter (browser/hash selection + route table), WorkspacePage,
+                           ConnectPage, SettingsPage
   components/              (reserved for non-design-system reusable components; currently empty)
   test/                    (reserved for shared test utilities; currently empty)
 ```
@@ -149,11 +152,14 @@ entered at runtime, never baked into the image.
   a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
   `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
   `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
-  store.ts#connect()` routes between the two via `resolveConnectTarget()`
+store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
-  client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
+client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
   sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.
+- **Saved servers are client-local.** They persist in `localStorage` via
+  `stores/saved-servers-store.ts`, accept direct addresses or pairing links, and may optionally
+  retain a daemon password in plaintext when the user chooses to save one.

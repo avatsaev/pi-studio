@@ -11,10 +11,14 @@
  */
 
 import { createBrowserRouter, createHashRouter, Navigate, RouterProvider } from "react-router";
+import { ConnectPage } from "./ConnectPage.js";
+import { SettingsPage } from "./SettingsPage.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 
 const routes = [
   { path: "/", Component: WorkspacePage },
+  { path: "/connect", Component: ConnectPage },
+  { path: "/settings", Component: SettingsPage },
   { path: "*", element: <Navigate to="/" replace /> },
 ];
 
