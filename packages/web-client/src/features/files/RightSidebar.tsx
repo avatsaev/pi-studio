@@ -9,7 +9,6 @@ import { clsx } from "clsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { FileExplorer } from "./FileExplorer.js";
@@ -20,7 +19,6 @@ import styles from "./RightSidebar.module.css";
 export function RightSidebar() {
   const rightSidebarTab = useUiStore((s) => s.rightSidebarTab);
   const setRightSidebarTab = useUiStore((s) => s.setRightSidebarTab);
-  const currentPath = useExplorerStore((s) => s.currentPath);
   // Files/Changes browse the workspace currently in view in the tab strip — the same signal
   // every tab creation site uses (§4.7 follow-up: workspace-scoped tabs).
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
@@ -33,7 +31,7 @@ export function RightSidebar() {
   // so this button never opens a second subscription that could outlive/race the panel's. Only
   // relevant to Files/Changes — Terminals is live-pushed via `terminals_update`, nothing to poll.
   function handleRefresh() {
-    void queryClient.invalidateQueries({ queryKey: ["explorer", currentPath] });
+    void queryClient.invalidateQueries({ queryKey: ["explorer"] });
     if (client && cwd) {
       void client.connection.request("checkout_refresh_request", { cwd }).catch(() => {});
     }

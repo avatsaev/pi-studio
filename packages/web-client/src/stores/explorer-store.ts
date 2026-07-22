@@ -1,47 +1,64 @@
 /**
- * Explorer store — the right-sidebar Files tab's navigation position (POC `currentFilePath`
- * global, POC_TO_APP_PLAN_UI.md §4.7 / §3 `stores/explorer-store.ts`). File listing data itself is
- * TanStack Query cache (see `hooks/use-explorer.ts`), NOT store state — this store only tracks
- * *where* the explorer is currently looking.
+ * Explorer store — the right-sidebar Files tab's tree-expansion state (POC `currentFilePath`
+ * global, superseded by a tree view: POC_TO_APP_PLAN_UI.md §4.7 / §3 `stores/explorer-store.ts`).
+ * File listing data itself is TanStack Query cache (see `hooks/use-explorer.ts`), NOT store
+ * state — this store only tracks *which directories are expanded*, not their contents.
+ *
+ * `expandedByRoot` remembers each workspace's expanded-path set across workspace-tab switches,
+ * keyed by that workspace's resolved root path — restored when `setRoot` is called again with the
+ * same root (in-memory only, for the lifetime of the session; not persisted to disk).
  */
 
 import { create } from "zustand";
 import type { PiStudioClient } from "@av-pi-studio/client";
 
 interface ExplorerStoreState {
-  currentPath: string;
-  /** The active workspace's resolved cwd — the upper navigation boundary. `goUp()` never
-   * crosses above it and the "up" row hides once `currentPath` reaches it (§4.7: the file
-   * explorer is scoped to the workspace, not a general filesystem browser). */
+  /** The active workspace's resolved cwd — the tree root. Always a member of `expanded`; there
+   * is no row/chevron for it, its children render at depth 0 (§4.7: the file explorer is scoped
+   * to the workspace, not a general filesystem browser — there is nothing above this to show). */
   rootPath: string;
+  /** Absolute paths of directories currently expanded in the tree (always includes `rootPath`). */
+  expanded: Set<string>;
+  /** Session memory of each workspace's `expanded` set, keyed by its resolved root path. Keys
+   * are inserted dynamically as workspaces are visited this session, so a `Map` (not `Record`)
+   * is the right fit here. */
+  expandedByRoot: Map<string, Set<string>>;
 
-  /** Set both the boundary and the current position — called when the active workspace changes
-   * (POC_TO_APP_PLAN_UI.md §4.7 follow-up: workspace-scoped browsing). */
+  /** Switch the tree root — called when the active workspace changes. Saves the outgoing root's
+   * `expanded` set into `expandedByRoot` and restores the incoming root's remembered set (or
+   * seeds a fresh one containing just the root, if this root has never been visited this
+   * session). */
   setRoot(path: string): void;
-  setPath(path: string): void;
-  /** Navigate to the parent of `currentPath` (POC `#file-up` click handler), clamped to `rootPath`. */
-  goUp(): void;
+  /** Expand/collapse a directory. No-op for `rootPath` itself (always expanded). */
+  toggle(path: string): void;
 }
 
-export const useExplorerStore = create<ExplorerStoreState>()((set, get) => ({
-  currentPath: "",
+export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
   rootPath: "",
+  expanded: new Set(),
+  expandedByRoot: new Map(),
 
-  setRoot: (path) => set({ rootPath: path, currentPath: path }),
+  setRoot: (path) =>
+    set((s) => {
+      const expandedByRoot = new Map(s.expandedByRoot);
+      if (s.rootPath) expandedByRoot.set(s.rootPath, s.expanded);
+      const remembered = expandedByRoot.get(path);
+      const expanded = new Set(remembered);
+      expanded.add(path);
+      return { rootPath: path, expanded, expandedByRoot };
+    }),
 
-  setPath: (path) => set({ currentPath: path }),
-
-  goUp: () => {
-    const { currentPath, rootPath } = get();
-    if (!rootPath || currentPath === rootPath) return;
-    const parent = currentPath.split("/").slice(0, -1).join("/") || "/";
-    // Never navigate above the workspace root: if the computed parent is shorter than (or not a
-    // prefix of) rootPath, we've reached — or would overshoot — the boundary, so clamp to it.
-    const clamped = parent.length < rootPath.length || !parent.startsWith(rootPath) ? rootPath : parent;
-    set({ currentPath: clamped });
-  },
+  toggle: (path) =>
+    set((s) => {
+      if (path === s.rootPath) return s;
+      const expanded = new Set(s.expanded);
+      if (expanded.has(path)) expanded.delete(path);
+      else expanded.add(path);
+      const expandedByRoot = new Map(s.expandedByRoot);
+      expandedByRoot.set(s.rootPath, expanded);
+      return { expanded, expandedByRoot };
+    }),
 }));
-
 interface ExplorerEntry {
   name?: string;
   kind?: string;

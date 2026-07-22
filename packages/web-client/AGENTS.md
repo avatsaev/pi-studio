@@ -87,10 +87,11 @@ src/
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore, use-shortcuts, use-explorer,
-                           use-file-read/-diff/-download, use-file-transfer (upload + save-to-disk
-                           actions, shared FileTransferClient via file-transfer-instance),
-                           use-checkout-status, use-terminals, use-agent-stream (+
-                           agent-stream-events), use-home-dir
+                           use-explorer-tree (one query per expanded tree directory, feeds
+                           FileExplorer's flattened row list), use-file-read/-diff/-download,
+                           use-file-transfer (upload + save-to-disk actions, shared
+                           FileTransferClient via file-transfer-instance), use-checkout-status,
+                           use-terminals, use-agent-stream (+ agent-stream-events), use-home-dir
   features/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
@@ -99,10 +100,15 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, Attachments, rows/ (Assistant/User/
                             System/Error/Reasoning rows, ToolCard)
-    files/                  FilePanel, FileExplorer (upload button, drag-and-drop, per-row "⋮"
-                            context-menu trigger), FileContextMenu (download/delete), RightSidebar,
-                            DiffView, CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
-                            BinaryFallbackViewer, TextViewer, viewer-registry
+    files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
+                            tracked in explorer-store + fetched via use-explorer-tree, rows
+                            flattened by file-tree.ts and rendered through
+                            @tanstack/react-virtual; upload button/drag-and-drop resolved to the
+                            drop-target directory; per-row "⋮" context-menu trigger), TreeNode
+                            (presentational row: chevron/icon/name + actions button),
+                            FileContextMenu (download/delete), RightSidebar, DiffView, CodeView,
+                            MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
+                            TextViewer, viewer-registry
     git/                    ChangesPanel
     terminal/               TerminalPanel, TerminalsPanel
   routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)

@@ -2,40 +2,51 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useExplorerStore } from "./explorer-store.js";
 
 beforeEach(() => {
-  useExplorerStore.setState({ currentPath: "", rootPath: "" });
+  useExplorerStore.setState({ rootPath: "", expanded: new Set(), expandedByRoot: new Map() });
 });
 
-describe("explorer store — workspace-root navigation clamp", () => {
-  it("setRoot seeds both rootPath and currentPath to the same value", () => {
+describe("explorer store — tree expansion", () => {
+  it("setRoot seeds rootPath and auto-expands it", () => {
     useExplorerStore.getState().setRoot("/home/dev/project");
     const s = useExplorerStore.getState();
     expect(s.rootPath).toBe("/home/dev/project");
-    expect(s.currentPath).toBe("/home/dev/project");
+    expect(s.expanded.has("/home/dev/project")).toBe(true);
   });
 
-  it("goUp walks up a subdirectory back toward the root", () => {
+  it("toggle expands then collapses a directory", () => {
     useExplorerStore.getState().setRoot("/home/dev/project");
-    useExplorerStore.getState().setPath("/home/dev/project/src/features");
-    useExplorerStore.getState().goUp();
-    expect(useExplorerStore.getState().currentPath).toBe("/home/dev/project/src");
+    useExplorerStore.getState().toggle("/home/dev/project/src");
+    expect(useExplorerStore.getState().expanded.has("/home/dev/project/src")).toBe(true);
+    useExplorerStore.getState().toggle("/home/dev/project/src");
+    expect(useExplorerStore.getState().expanded.has("/home/dev/project/src")).toBe(false);
   });
 
-  it("goUp never crosses above rootPath, even from directly one level below it", () => {
+  it("toggle is a no-op on the root — it can never be collapsed", () => {
     useExplorerStore.getState().setRoot("/home/dev/project");
-    useExplorerStore.getState().setPath("/home/dev/project/src");
-    useExplorerStore.getState().goUp();
-    expect(useExplorerStore.getState().currentPath).toBe("/home/dev/project");
+    useExplorerStore.getState().toggle("/home/dev/project");
+    expect(useExplorerStore.getState().expanded.has("/home/dev/project")).toBe(true);
   });
 
-  it("goUp is a no-op once already at rootPath", () => {
-    useExplorerStore.getState().setRoot("/home/dev/project");
-    useExplorerStore.getState().goUp();
-    expect(useExplorerStore.getState().currentPath).toBe("/home/dev/project");
+  it("remembers a workspace's expanded set across a switch to another workspace and back", () => {
+    const store = useExplorerStore.getState();
+    store.setRoot("/home/dev/project-a");
+    store.toggle("/home/dev/project-a/src");
+    store.toggle("/home/dev/project-a/src/features");
+
+    store.setRoot("/home/dev/project-b");
+    expect(useExplorerStore.getState().expanded).toEqual(new Set(["/home/dev/project-b"]));
+
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    const restored = useExplorerStore.getState().expanded;
+    expect(restored.has("/home/dev/project-a")).toBe(true);
+    expect(restored.has("/home/dev/project-a/src")).toBe(true);
+    expect(restored.has("/home/dev/project-a/src/features")).toBe(true);
   });
 
-  it("goUp is a no-op when no root has been seeded yet", () => {
-    useExplorerStore.getState().setPath("/home/dev/project/src");
-    useExplorerStore.getState().goUp();
-    expect(useExplorerStore.getState().currentPath).toBe("/home/dev/project/src");
+  it("a fresh setRoot on a never-visited root starts with only the root expanded", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    useExplorerStore.getState().toggle("/home/dev/project-a/src");
+    useExplorerStore.getState().setRoot("/home/dev/project-c");
+    expect(useExplorerStore.getState().expanded).toEqual(new Set(["/home/dev/project-c"]));
   });
 });

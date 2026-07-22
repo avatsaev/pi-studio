@@ -5,6 +5,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import type { PiStudioClient } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 
@@ -69,26 +70,34 @@ function sortEntries(entries: ExplorerEntry[]): ExplorerEntry[] {
   });
 }
 
+/** Shared fetch — used by both the single-path `useExplorer` and the multi-path tree query
+ * (`useExplorerTree`, one TanStack Query per expanded directory). */
+export async function fetchExplorerListing(
+  client: PiStudioClient,
+  path: string,
+): Promise<ExplorerListing> {
+  const response = await client.connection.request<ExplorerRpcResponse>("file_explorer_request", {
+    path,
+  });
+  const result = response.result;
+  if (!result || result.ok === false) {
+    throw new Error(result && "error" in result ? result.error : "explorer request failed");
+  }
+  const entries = "entries" in result ? (result.entries ?? []) : [];
+  return {
+    path: result.resolvedPath ?? path,
+    entries: sortEntries(entries.map(normalizeEntry)),
+  };
+}
+
 export function useExplorer(path: string, enabled = true) {
   const client = useConnectionStore((s) => s.client);
 
   return useQuery({
     queryKey: rpcKeys.explorer(path),
-    queryFn: async (): Promise<ExplorerListing> => {
+    queryFn: () => {
       if (!client) throw new Error("not connected");
-      const response = await client.connection.request<ExplorerRpcResponse>(
-        "file_explorer_request",
-        { path },
-      );
-      const result = response.result;
-      if (!result || result.ok === false) {
-        throw new Error(result && "error" in result ? result.error : "explorer request failed");
-      }
-      const entries = "entries" in result ? (result.entries ?? []) : [];
-      return {
-        path: result.resolvedPath ?? path,
-        entries: sortEntries(entries.map(normalizeEntry)),
-      };
+      return fetchExplorerListing(client, path);
     },
     enabled: Boolean(client) && Boolean(path) && enabled,
   });
