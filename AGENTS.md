@@ -126,21 +126,29 @@ npm run publish -- --no-bump     # publish current versions as-is, no version bu
 
 # 2. Build + push Docker images — builds pi-studio-{relay,daemon,web-client} from local source,
 #    boot-smoke-tests web-client (runs it, curls for a 200) before pushing anything, then tags
-#    and pushes to Docker Hub under avatsaev/pi-studio-{relay,daemon,web-client}.
+#    and pushes to Docker Hub under avatsaev/pi-studio-{relay,daemon,web-client}. ALWAYS pass
+#    --tag matching step 1's version — step 3 deploys against that exact tag, not `:latest`
+#    (see step 3's note on why `:latest` alone doesn't work).
 #    Requires: docker login with push access.
-npm run docker:publish
-npm run docker:publish -- --tag 0.0.13   # also tag+push :0.0.13 alongside :latest (match step 1)
+npm run docker:publish -- --tag 0.0.13
 npm run docker:publish -- --dry-run      # build+smoke-test, skip the push
 
-# 3. Deploy to production — redeploys the `relay` and `web-client` compose stacks on Dokploy
-#    (project `molagent-platform`, https://infra.molagent.ai), which re-pulls the `:latest`
-#    digest step 2 just pushed and restarts. Does NOT build/push images itself — run AFTER step 2.
-#    Requires: `dokploy` CLI (https://github.com/Dokploy/cli) installed and authenticated
-#    (`dokploy auth`). The daemon is intentionally NOT deployed here — only relay + web UI run on
-#    molagent-platform; the daemon is self-hosted per user.
+# 3. Deploy to production — pins the `relay`/`web-client` compose stacks on Dokploy (project
+#    `molagent-platform`, https://infra.molagent.ai) to a CONCRETE version tag (default: the
+#    repo's current package.json version) and redeploys. Pinning matters: Dokploy's deploy
+#    command never runs `docker compose pull`, so a bare/`:latest` image reference already
+#    cached on the host silently keeps serving the OLD container even after a "successful"
+#    redeploy (real incident: 2026-07-22, app.molagent.ai served a two-day-old build through
+#    multiple redeploys until this was found and fixed). Rewriting the compose file's tag on
+#    every deploy forces Dokploy to detect a real diff and actually pull+recreate.
+#    Requires the tag from step 2 to already exist on Docker Hub, and the `dokploy` CLI
+#    (https://github.com/Dokploy/cli) installed and authenticated (`dokploy auth`). Does NOT
+#    build/push images itself — run AFTER step 2. The daemon is intentionally NOT deployed here
+#    — only relay + web UI run on molagent-platform; the daemon is self-hosted per user.
 npm run docker:deploy
 npm run docker:deploy -- relay        # one service only
 npm run docker:deploy -- web-client
+npm run docker:deploy -- --tag 0.0.12 # pin to a specific version (e.g. a hotfix rollback)
 npm run docker:deploy -- --no-wait    # trigger, don't poll for completion
 ```
 

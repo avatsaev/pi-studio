@@ -79,28 +79,44 @@ Requires `docker login` with push access to those repos first.
 
 ## Deploying to production (Dokploy)
 
-`scripts/dokploy-deploy.sh` (`npm run docker:deploy`) redeploys the `relay` and `web-client`
+`scripts/dokploy-deploy.sh` (`npm run docker:deploy`) deploys the `relay` and `web-client`
 compose stacks on the production Dokploy instance (project `molagent-platform`, relay at
-`relay.molagent.ai`, web UI at `app.molagent.ai`) so they re-pull the `:latest` image just pushed
-by `docker:publish` above and restart. It does NOT build/push images itself — run
+`relay.molagent.ai`, web UI at `app.molagent.ai`). It does NOT build/push images itself — run
 `npm run docker:deploy` after, or as a separate step from, `docker:publish`. The daemon is
 intentionally NOT part of this script: it isn't deployed to `molagent-platform` today (only the
 relay + web UI are; the daemon runs locally / self-hosted per user).
 
+**Pins each stack's image to a concrete version tag** (default: the repo's current
+`packages/protocol/package.json` version) rather than deploying against a bare/`:latest`
+reference. This is load-bearing, not cosmetic: Dokploy's deploy command is
+`docker compose up -d --build --remove-orphans` — it never runs `docker compose pull`, and there
+is no exposed API/CLI endpoint to force one. Against a bare `image: avatsaev/pi-studio-web-client`
+(implicit `:latest`) already cached on the Dokploy host, `up -d` sees nothing changed and leaves
+the stale container running while the deployment record still reports "done" — a real incident
+(2026-07-22: `app.molagent.ai` stayed on a two-day-old build after multiple "successful"
+redeploys, confirmed by comparing bundle hashes/container `Created` timestamps against Docker
+Hub's actual `:latest` digest). Rewriting the compose file's `image:` line to a fresh tag on every
+deploy forces Dokploy to detect a real diff and recreate the container, which DOES pull.
+
 ```bash
-npm run docker:deploy                 # redeploy both relay + web-client, wait for each
-npm run docker:deploy -- relay        # redeploy relay only
-npm run docker:deploy -- web-client   # redeploy web-client only
-npm run docker:deploy -- --no-wait    # trigger redeploys, don't poll for completion
+npm run docker:deploy                    # pin+deploy both to the repo's current version
+npm run docker:deploy -- relay           # relay only
+npm run docker:deploy -- web-client      # web-client only
+npm run docker:deploy -- --tag 0.0.12    # pin to a specific version (e.g. a hotfix rollback)
+npm run docker:deploy -- --no-wait       # trigger, don't poll for completion
 ```
 
+Requires the pinned version tag to already exist on Docker Hub — run
+`npm run docker:publish -- --tag <version>` FIRST if it doesn't.
+
 Requires the [`dokploy` CLI](https://github.com/Dokploy/cli) installed and authenticated
-(`dokploy auth`). Uses `dokploy compose redeploy` for the actual trigger, but talks to the Dokploy
-tRPC API directly via `curl` for status polling — as of `@dokploy/cli` 0.29.4, its `apiGet` helper
-omits tRPC's `{ json: ... }` superjson wrapper on query params, so every GET-style read endpoint
-that takes params (`compose.one`, `deployment.allByCompose`, `compose.search`, `project.one`, …)
-400s through the CLI; POST-style ones (`compose.redeploy`, `project.all`) are unaffected. This is a
-CLI bug (confirmed by hitting the same endpoints directly with the wrapper added), not an
+(`dokploy auth`). Uses `dokploy compose update` (rewrite the image tag) and `compose redeploy`
+(trigger) for POSTs, which work fine, but talks to the Dokploy tRPC API directly via `curl` for
+status polling — as of `@dokploy/cli` 0.29.4, its `apiGet` helper omits tRPC's `{ json: ... }`
+superjson wrapper on query params, so every GET-style read endpoint that takes params
+(`compose.one`, `deployment.allByCompose`, `compose.search`, `project.one`, …) 400s through the
+CLI; POST-style ones (`compose.update`, `compose.redeploy`, `project.all`) are unaffected. This is
+a CLI bug (confirmed by hitting the same endpoints directly with the wrapper added), not an
 auth/access problem — the script works around it rather than waiting on an upstream fix.
 
 ## Running individually
