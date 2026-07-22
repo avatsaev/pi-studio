@@ -38,6 +38,7 @@ export function Toolbar() {
   return (
     <div className={styles.toolbar}>
       <span className={styles.brand}>Pi-Studio</span>
+      <span className={styles.version}>v{__APP_VERSION__}</span>
       <ConnectionStatus />
       <div className={styles.sep} />
       <TextInput

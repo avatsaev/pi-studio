@@ -1,12 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 // Two build targets from one source:
 //   - web:      served over HTTP, absolute base, /daemon-ws dev proxy.
 //   - electron: loaded from file:// inside a BrowserWindow, relative base so
 //               assets resolve without a web server.
 // Selected via VITE_TARGET (defaults to "web").
+const { version: APP_VERSION }: { version: string } = JSON.parse(
+  readFileSync(resolve(__dirname, "package.json"), "utf8"),
+);
+
 export default defineConfig(() => {
   const target = process.env.VITE_TARGET ?? "web";
   const isElectron = target === "electron";
@@ -17,6 +22,9 @@ export default defineConfig(() => {
     base: isElectron ? "./" : "/",
     define: {
       "import.meta.env.VITE_TARGET": JSON.stringify(target),
+      // Own package.json version, baked in at build time (Toolbar.tsx — displayed after the
+      // brand title). Ambient type in `src/vite-env.d.ts`.
+      __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
     build: {
       outDir: isElectron ? "dist/electron" : "dist/web",

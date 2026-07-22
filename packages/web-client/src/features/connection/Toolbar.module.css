@@ -13,6 +13,12 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
+.version {
+  font-size: 11px;
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  white-space: nowrap;
+  margin-left: -4px; /* sits close to .brand — the flex gap alone reads as too much space here */
+}
 .sep {
   width: 1px;
   height: 18px;

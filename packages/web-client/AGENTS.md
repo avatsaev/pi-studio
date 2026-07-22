@@ -65,6 +65,8 @@ src/
   app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → WorkspacePage
   global.css               resets + scrollbar; colors come from theme --pi-* vars
   css-modules.d.ts          ambient CSS-module typings
+  vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
+                             package.json version, shown in Toolbar.tsx after the brand title)
   providers/               AppProviders (ThemeBoundary + QueryClientProvider), kv-store (localStorage-backed KeyValueStore)
   theme/                   tokens, palette, color-utils, variants, appearance-store, css-bridge, theme.ts, ThemeBoundary
   brand/                   brand config (zod-validated), brand-logo, theme-injection
