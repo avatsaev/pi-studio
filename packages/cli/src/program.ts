@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerAgentCommands } from "./agent-commands.js";
@@ -6,6 +7,10 @@ import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
 import { registerRelayCommands } from "./relay-commands.js";
 import { registerWebCommands } from "./web-commands.js";
 import { type CliContext, type GlobalOptions, defaultContext } from "./cli-core.js";
+
+// Read our own package.json for the version, same relative layout in both `src/` (ts-node/tsx)
+// and `dist/` (compiled — one level below the package root either way).
+const { version }: { version: string } = createRequire(import.meta.url)("../package.json");
 
 /**
  * Build the root Commander program (features/cli.md § Global options). Global options are attached
@@ -18,7 +23,7 @@ export function buildProgram(ctx: CliContext, setExit: (code: number) => void): 
   program
     .name("pi-studio")
     .description("Pi-Studio terminal client — speaks the daemon WebSocket protocol")
-    .version("0.0.0")
+    .version(version, "-v, --version")
     .option("-H, --host <host>", "daemon/host target (e.g. workstation.local:6767)")
     .option("--password <password>", "daemon password (for password-protected daemons)")
     .option("--home <dir>", "override $PI_STUDIO_HOME (client-id store)")

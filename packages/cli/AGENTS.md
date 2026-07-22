@@ -69,6 +69,7 @@ Registered on the root Commander program:
 | `--password <password>` | Password for password-protected daemons |
 | `--home <dir>` | Override `$PI_STUDIO_HOME` (client-id store) |
 | `--json` | Render output as JSON instead of a table |
+| `-v, --version` | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0 |
 
 Default action (no subcommand):
 - `pi-studio <path>` → `open_project` on the daemon at that path.

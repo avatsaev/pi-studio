@@ -48,6 +48,7 @@ Run `pi-studio --help` (or `<command> --help`) for the full command tree.
 | `--password <password>` | Password for a password-protected daemon |
 | `--home <dir>` | Override `$PI_STUDIO_HOME` (used for the client-id store) |
 | `--json` | Render command output as JSON instead of a table |
+| `-v, --version` | Print the installed CLI version and exit |
 
 **Connection resolution**: `--host host:port` → `ws://host:port`; a `ws://`/`wss://` URL is used
 as-is; `http://`/`https://` are accepted for familiarity and mapped to `ws://`/`wss://` (the daemon

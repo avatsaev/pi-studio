@@ -105,6 +105,19 @@ describe("program", () => {
     expect(code).not.toBe(0);
   });
 
+  it("run returns 0 for --version and -v without throwing", async () => {
+    // exitOverride makes commander's version output throw commander.version; run() maps it to
+    // success, same as --help.
+    expect(await run(["--version"])).toBe(0);
+    expect(await run(["-v"])).toBe(0);
+  });
+
+  it("prints the real package version, not a hardcoded placeholder", () => {
+    const program = buildProgram(safeCtx(), () => {});
+    expect(program.version()).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(program.version()).not.toBe("0.0.0");
+  });
+
   it("dispatches the top-level `run` command end-to-end", async () => {
     const { ctx, out } = fakeAgentCtx("agent-xyz");
     const code = await run(["run", "build the thing", "--provider", "pi/m"], ctx);
