@@ -60,6 +60,11 @@ docker build -f docker/web-client.Dockerfile -t pi-studio-web-client .
 docker build -f docker/daemon.Dockerfile --build-arg INSTALL_GH=true -t pi-studio-daemon .
 ```
 
+> **Full release pipeline**: `npm run release` (`scripts/release.sh`) chains npm publish + this
+> Docker build/push + the Dokploy deploy below into one command, tagged consistently end-to-end.
+> See root `AGENTS.md` § Release & production deployment. The sections below cover each script
+> individually — useful when you only need one step (e.g. re-pushing images without redeploying).
+
 ## Building + pushing to Docker Hub
 
 `scripts/docker-publish.sh` (`npm run docker:publish`) builds all three images from local source,

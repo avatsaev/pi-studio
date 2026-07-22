@@ -111,9 +111,23 @@ cd docker && docker compose up --build   # see docker/README.md
 
 ## Release & production deployment
 
-Three independent, ordered scripts take code from a clean working tree to running in production.
-Each is idempotent and safe to re-run; none of them auto-chains into the next — run them in order
-by hand (or from a CI job that does the same).
+`npm run release` (`scripts/release.sh`) chains all three steps below end-to-end: bump+publish npm
+packages, build+push Docker images tagged to match, then pin+deploy production on that exact tag.
+Pure orchestration — no logic beyond what the three scripts already do; each remains independently
+runnable (and this is what `release.sh` calls under the hood).
+
+```bash
+npm run release                    # full pipeline: publish npm -> publish docker -> deploy
+npm run release -- --dry-run       # steps 1+2 in dry-run; step 3 is skipped (nothing to deploy)
+npm run release -- --no-bump       # publish the current npm version as-is, no version bump
+npm run release -- --skip-npm      # npm already published — start from the on-disk version
+npm run release -- --skip-docker   # images already pushed for this version
+npm run release -- --skip-deploy   # publish only; deploy separately/later
+npm run release -- relay           # (forwarded to step 3) deploy relay only
+npm run release -- web-client      # (forwarded to step 3) deploy web-client only
+```
+
+Or run the three steps individually — each is idempotent and safe to re-run on its own:
 
 ```bash
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
