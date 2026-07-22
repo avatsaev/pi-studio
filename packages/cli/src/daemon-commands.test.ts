@@ -125,6 +125,11 @@ describe("pairing", () => {
     expect(url.split("#")[0]).not.toContain("PUBKEYB64");
   });
 
+  it("defaults to the production web-client origin, not an unreachable placeholder", () => {
+    const url = buildPairingUrl("PUBKEYB64", { host: "127.0.0.1:6767" });
+    expect(url.split("#")[0]).toBe("https://app.molagent.ai/");
+  });
+
   it("carries relay info instead of host when relay info is given", () => {
     const url = buildPairingUrl("PUBKEYB64", {
       host: "127.0.0.1:6767",

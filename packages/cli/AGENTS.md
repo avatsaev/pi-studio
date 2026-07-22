@@ -277,8 +277,10 @@ Exit codes (`cli-core.ts`):
 ## Pairing / QR
 
 `buildPairingUrl(publicKeyB64, { host, relay, baseUrl })` constructs a pairing URL
-(`https://app.pi-studio.sh/#offer=<publicKeyB64>&host=<host>` by default — `DEFAULT_PAIRING_BASE`
-in `pairing.ts`, a placeholder hosted landing page that doesn't exist yet) encoding the daemon's
+(`https://app.molagent.ai/#offer=<publicKeyB64>&host=<host>` by default — `DEFAULT_PAIRING_BASE`
+in `pairing.ts`, Pi-Studio's own production web-client; override via `PI_STUDIO_APP_BASE_URL`/
+`config.app.baseUrl` for self-hosted deployments, which should point it at THEIR OWN web-client
+origin instead) encoding the daemon's
 persistent **Curve25519** public key in the URL **fragment** (never sent to the pairing web
 origin), plus either a direct `host` hint OR relay-routing info (`&relay=<endpoint>
 &relayTls=<0|1>`) — the two are mutually exclusive; `relay` wins when both are available.

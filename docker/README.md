@@ -157,7 +157,7 @@ docker run -d --name pi-studio-daemon \
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Connection password |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino level; `debug` adds per-RPC request lines |
 | `PI_STUDIO_RELAY_ENABLED` / `_ENDPOINT` / `_USE_TLS` | `false` / — / `false` | Dial out to a relay |
-| `PI_STUDIO_APP_BASE_URL` | `https://app.pi-studio.sh` | Pairing link origin (`daemon pair`) — the compose stack sets this to `http://localhost:${PI_STUDIO_WEB_PORT:-8080}` |
+| `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — the compose stack sets this to `http://localhost:${PI_STUDIO_WEB_PORT:-8080}` |
 
 The daemon logs its full lifecycle to stdout as NDJSON (startup, client connect/disconnect, agent
 create/turn lifecycle, terminal open/exit, `pi` process spawn/exit, relay dial events), so

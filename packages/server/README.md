@@ -182,7 +182,7 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` | _(unset)_ | Service-proxy listen address |
 | `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | _(unset)_ | Public base URL advertised for proxied services |
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
-| `PI_STUDIO_APP_BASE_URL` | `https://app.pi-studio.sh` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
+| `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 
 > Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` and connecting via the
 > server's IP needs no extra config. To reach the daemon by **hostname**, add it to

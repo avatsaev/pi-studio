@@ -4,7 +4,7 @@ import { join } from "node:path";
 /**
  * Pairing helpers (architecture/relay-e2ee.md § Pairing). The daemon's persistent Curve25519 public
  * key is carried to clients in a **pairing URL** rendered as a QR code. The key rides in the URL
- * fragment, so the web origin (`app.pi-studio.sh`) never sees it.
+ * fragment, so the web origin never sees it.
  *
  * When the daemon dials an outbound relay (`daemon.relay.enabled`), the pairing URL ALSO carries
  * the relay's client-facing endpoint (`relay=`) and whether that endpoint speaks TLS (`relayTls=`)
@@ -15,7 +15,13 @@ import { join } from "node:path";
  * a firewall/NAT) has no reachable direct host to offer.
  */
 
-export const DEFAULT_PAIRING_BASE = "https://app.pi-studio.sh";
+/**
+ * Default pairing-link origin — Pi-Studio's own production web-client (deployed to Dokploy's
+ * `molagent-platform` project; `docker/README.md` § Deploying to production). Override via
+ * `PI_STUDIO_APP_BASE_URL` (`config.app.baseUrl`) for self-hosted/local deployments, e.g.
+ * `http://localhost:8080` — see `daemon-commands.ts`'s `resolvePairingRelayInfo`/`printPairing`.
+ */
+export const DEFAULT_PAIRING_BASE = "https://app.molagent.ai";
 
 /** Read the daemon's persistent public key (base64) from `$PI_STUDIO_HOME/daemon-keypair.json`. */
 export function readDaemonPublicKey(home: string): string | null {

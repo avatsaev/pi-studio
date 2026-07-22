@@ -55,7 +55,8 @@ services:
       PI_STUDIO_RELAY_PUBLIC_ENDPOINT: "localhost:${PI_STUDIO_RELAY_PORT:-7000}"
       PI_STUDIO_RELAY_PUBLIC_USE_TLS: "false"
       # `pi-studio daemon pair` uses this as the pairing link's origin instead of the
-      # unreachable https://app.pi-studio.sh placeholder — point it at this stack's web UI.
+      # default https://app.molagent.ai (Pi-Studio's own production web-client) — point it at
+      # this LOCAL compose stack's web UI instead, so pairing links generated here actually work.
       PI_STUDIO_APP_BASE_URL: "http://localhost:${PI_STUDIO_WEB_PORT:-8080}"
       # pi provider auth — supply an API key here, or mount ~/.pi/agent/auth.json (see volumes).
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"

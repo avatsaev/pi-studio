@@ -40,10 +40,11 @@ function runtimeOf(ctx: CliContext): DaemonRuntime {
  * configured — the common case for a relay reachable at the same address from both sides.
  *
  * `printPairing` also forwards `config.app.baseUrl` (env `PI_STUDIO_APP_BASE_URL`) as
- * `buildPairingUrl`'s `baseUrl` — self-hosted/local deployments should set this to their own
- * web-client origin (e.g. `http://localhost:8080`) instead of the unreachable
- * `DEFAULT_PAIRING_BASE` placeholder, which only makes sense once a real hosted landing page
- * exists at that address.
+ * `buildPairingUrl`'s `baseUrl` — self-hosted/local deployments should override this to their own
+ * web-client origin (e.g. `http://localhost:8080`) instead of `DEFAULT_PAIRING_BASE`
+ * (`pairing.ts`), which defaults to Pi-Studio's own production web-client
+ * (`https://app.molagent.ai`) — correct for a daemon that's meant to be pairable from THAT origin,
+ * but wrong for a self-hosted deployment's own separately-running web-client instance.
  */
 function resolvePairingRelayInfo(config: PersistedConfig): PairingRelayInfo | null {
   const relay = config.daemon.relay;
