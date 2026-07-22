@@ -3,7 +3,7 @@
 Production React web client for Pi-Studio. Re-implements the `poc/chat.html` proof of concept as a
 modular, typed, performant app.
 
-> **Status: implemented.** The 3-column workspace shell, connection layer, sessions sidebar,
+> **Status: implemented.** The routed 3-column workspace shell, connection layer, sessions sidebar,
 > chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
 > system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
 > the **Electron-specific runtime code does not exist yet** — no `getIsElectron()`, no injected
@@ -48,8 +48,9 @@ CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code f
 `@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod (brand-config validation) · CSS Modules ·
 clsx. Tests: Vitest.
 
-`react-router` is **not** currently used — the app has a single hardcoded root page
-(`routes/WorkspacePage.tsx`), no client-side routing yet.
+`react-router` v7 provides client-side routing (`routes/AppRouter.tsx`). The web build uses
+history-API routing; the Electron build switches to hash routing because the renderer loads from
+`file://` (selected via `import.meta.env.VITE_TARGET`).
 
 ---
 
@@ -62,7 +63,7 @@ tsconfig.json              app config (DOM libs, react-jsx, noEmit)
 tsconfig.node.json         config for vite.config.ts
 src/
   main.tsx                 createRoot → <StrictMode><App/></StrictMode>
-  app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → WorkspacePage
+  app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → AppRouter
   global.css               resets + scrollbar; colors come from theme --pi-* vars
   css-modules.d.ts          ambient CSS-module typings
   providers/               AppProviders (ThemeBoundary + QueryClientProvider), kv-store (localStorage-backed KeyValueStore)
@@ -100,7 +101,8 @@ src/
                             TextViewer, viewer-registry
     git/                    ChangesPanel
     terminal/               TerminalPanel, TerminalsPanel
-  routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)
+  routes/                  AppRouter (browser/hash selection + route table), WorkspacePage
+                           (the 3-column shell: sidebar-left / center / sidebar-right)
   components/              (reserved for non-design-system reusable components; currently empty)
   test/                    (reserved for shared test utilities; currently empty)
 ```
@@ -138,6 +140,9 @@ entered at runtime, never baked into the image.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
 - **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
+- **Boot hooks live above the router.** `Boot` (connection boot, session restore, shortcuts) mounts
+  once in `app.tsx` outside `AppRouter`; its once-guards are per component instance, so it must never
+  move inside a route element.
 - **Connection input is toolbar/URL-param, either a direct address or a pairing link** — the same
   `ui-store.ts` host field (seeded from `?host=&password=&cwd=&connect=1`, `?pair=<url>`, or a
   `#offer=...` fragment already on the page's own URL, all in `use-connection.ts`) accepts either:

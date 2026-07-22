@@ -1,5 +1,5 @@
 import { AppProviders } from "./providers/AppProviders.js";
-import { WorkspacePage } from "./routes/WorkspacePage.js";
+import { AppRouter } from "./routes/AppRouter.js";
 import { useConnectionBoot } from "./hooks/use-connection.js";
 import { useSessionRestore } from "./hooks/use-session-restore.js";
 import { useShortcuts } from "./hooks/use-shortcuts.js";
@@ -12,12 +12,12 @@ function Boot() {
 }
 
 // Root component. Connection boot + session restore + global shortcuts run once at the top;
-// the workspace shell renders the 3-column layout.
+// the router renders the active page without remounting those boot hooks.
 export function App() {
   return (
     <AppProviders>
       <Boot />
-      <WorkspacePage />
+      <AppRouter />
     </AppProviders>
   );
 }
