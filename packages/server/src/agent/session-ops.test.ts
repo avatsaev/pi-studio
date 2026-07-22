@@ -133,3 +133,38 @@ describe("import", () => {
     expect(managed?.session).not.toBeNull();
   });
 });
+
+describe("send prompt", () => {
+  it("lazily resumes from the persistence handle when no live session exists (post-restart)", async () => {
+    const { service, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+
+    // Simulate a daemon restart: the record survives on disk but the runtime session is gone
+    // (agent-manager.ts#recover — "runtime is NOT auto-resumed").
+    const managedAgent = manager.get(agentId)!;
+    managedAgent.record = {
+      ...managedAgent.record,
+      persistence: { provider: "mock", sessionId: "s1", nativeHandle: "mock:s1" } as AgentRecord["persistence"],
+    };
+    managedAgent.session = null;
+
+    const result = (await service.handleSendPrompt(
+      { agentId, prompt: "second" },
+      () => [],
+    )) as Record<string, unknown>;
+    expect(result.status).toBe("idle");
+    expect(manager.get(agentId)?.session).not.toBeNull();
+  });
+
+  it("throws when no live session and no persistence handle exists", async () => {
+    const { service, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const managedAgent = manager.get(agentId)!;
+    managedAgent.record = { ...managedAgent.record, persistence: undefined };
+    managedAgent.session = null;
+
+    await expect(service.handleSendPrompt({ agentId, prompt: "second" }, () => [])).rejects.toThrow(
+      "no live session",
+    );
+  });
+});

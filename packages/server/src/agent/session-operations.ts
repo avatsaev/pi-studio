@@ -4,7 +4,7 @@ import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
-import type { AgentClient } from "./provider-contract.js";
+import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
 import type { AgentService } from "./agent-service.js";
 
 /**
@@ -129,9 +129,7 @@ export class SessionOperationsService {
     }
 
     const client = this.deps.resolveClient(managed.record.provider);
-    const session = await client.resumeSession(
-      handle as import("./provider-contract.js").PersistenceHandle,
-    );
+    const session = await client.resumeSession(handle as PersistenceHandle);
     this.deps.manager.attachSession(agentId, session);
     await this.deps.manager.persistSessionHandle(agentId);
     await this.deps.manager.setStatus(agentId, "idle");

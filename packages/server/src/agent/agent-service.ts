@@ -7,7 +7,7 @@ import type { Logger } from "../logging/logger.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { AgentManager, PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
-import type { AgentClient, AgentSession, RunOptions } from "./provider-contract.js";
+import type { AgentClient, AgentSession, PersistenceHandle, RunOptions } from "./provider-contract.js";
 import { AgentTimelineStore } from "./timeline-store.js";
 
 /**
@@ -154,8 +154,24 @@ export class AgentService {
     const agentId = msg.agentId as string;
     const prompt = msg.prompt as string;
     const managed = this.deps.manager.get(agentId);
-    if (!managed?.session) throw new Error(`no live session for agent ${agentId}`);
-    await this.runTurn(agentId, managed.session, prompt, getSessions, {
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+
+    let session = managed.session;
+    if (!session) {
+      // No live provider session — e.g. after a daemon restart, which reloads agent records
+      // but never auto-resumes runtime (daemon-bootstrap.md § Recovery). Lazily resume from the
+      // persisted handle instead of failing the send outright, mirroring `resume_agent`
+      // (session-operations.ts#handleResume).
+      const handle = managed.record.persistence;
+      if (!handle) throw new Error(`no live session for agent ${agentId}`);
+      const client = this.deps.resolveClient(managed.record.provider);
+      session = await client.resumeSession(handle as PersistenceHandle);
+      this.deps.manager.attachSession(agentId, session);
+      await this.deps.manager.persistSessionHandle(agentId);
+      this.deps.logger?.info({ agentId }, "agent session resumed for send");
+    }
+
+    await this.runTurn(agentId, session, prompt, getSessions, {
       clientMessageId: msg.clientMessageId as string | undefined,
       images: msg.images as ImageAttachment[] | undefined,
     });

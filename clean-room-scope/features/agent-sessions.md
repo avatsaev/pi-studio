@@ -116,6 +116,7 @@ function run(agent, prompt):
 | Duplicate provider echo of a user message | Deduped by message id | — |
 | `autoArchive` + worktree | Agent (and its worktree) archived after terminal turn | global archive |
 | Resume with stale handle | Resume fails; surface error | `rpc_error` |
+| Send prompt with no live session (e.g. after a daemon restart) | Lazily resumes from the persisted handle, then runs the turn; fails only if no persistence handle exists | `agent_prompt_response` or `rpc_error` |
 
 ## Dependencies
 - Internal: AgentManager, provider registry/adapters, timeline store, permission flow, worktree

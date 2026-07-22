@@ -63,8 +63,10 @@ function bootstrap():
 - **Server id:** stable per-`$PI_STUDIO_HOME`; persisted as plain text `srv_<base64url>`. Used as
   `serverId` in the hello/`server_info` response so clients can recognize the same daemon across
   reconnects.
-- **Recovery:** agents are reloaded from disk; their runtime is *not* automatically resumed but
-  records are available. Loops with `status: "running"` are recovered as `"stopped"` with an
+- **Recovery:** agents are reloaded from disk; their runtime is *not* automatically resumed at boot,
+  but records are available. The provider session is resumed lazily on the next `send_agent_prompt`
+  or explicit `resume_agent` for that agent (agent-sessions.md § Error Handling — "Send prompt with
+  no live session"). Loops with `status: "running"` are recovered as `"stopped"` with an
   interruption log entry.
 
 ### Shutdown
