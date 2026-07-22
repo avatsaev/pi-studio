@@ -77,6 +77,32 @@ npm run docker:publish -- --install-gh    # bundle the GitHub CLI into the daemo
 
 Requires `docker login` with push access to those repos first.
 
+## Deploying to production (Dokploy)
+
+`scripts/dokploy-deploy.sh` (`npm run docker:deploy`) redeploys the `relay` and `web-client`
+compose stacks on the production Dokploy instance (project `molagent-platform`, relay at
+`relay.molagent.ai`, web UI at `app.molagent.ai`) so they re-pull the `:latest` image just pushed
+by `docker:publish` above and restart. It does NOT build/push images itself — run
+`npm run docker:deploy` after, or as a separate step from, `docker:publish`. The daemon is
+intentionally NOT part of this script: it isn't deployed to `molagent-platform` today (only the
+relay + web UI are; the daemon runs locally / self-hosted per user).
+
+```bash
+npm run docker:deploy                 # redeploy both relay + web-client, wait for each
+npm run docker:deploy -- relay        # redeploy relay only
+npm run docker:deploy -- web-client   # redeploy web-client only
+npm run docker:deploy -- --no-wait    # trigger redeploys, don't poll for completion
+```
+
+Requires the [`dokploy` CLI](https://github.com/Dokploy/cli) installed and authenticated
+(`dokploy auth`). Uses `dokploy compose redeploy` for the actual trigger, but talks to the Dokploy
+tRPC API directly via `curl` for status polling — as of `@dokploy/cli` 0.29.4, its `apiGet` helper
+omits tRPC's `{ json: ... }` superjson wrapper on query params, so every GET-style read endpoint
+that takes params (`compose.one`, `deployment.allByCompose`, `compose.search`, `project.one`, …)
+400s through the CLI; POST-style ones (`compose.redeploy`, `project.all`) are unaffected. This is a
+CLI bug (confirmed by hitting the same endpoints directly with the wrapper added), not an
+auth/access problem — the script works around it rather than waiting on an upstream fix.
+
 ## Running individually
 
 ### Relay

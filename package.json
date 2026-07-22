@@ -35,7 +35,8 @@
     "dev:daemon": "npm run build:server && node packages/server/dist/daemon/dev-main.js",
     "clean": "tsc -b --clean && rm -rf packages/*/dist packages/*/*.tsbuildinfo",
     "publish": "bash scripts/publish.sh",
-    "docker:publish": "bash scripts/docker-publish.sh"
+    "docker:publish": "bash scripts/docker-publish.sh",
+    "docker:deploy": "bash scripts/dokploy-deploy.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
