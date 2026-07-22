@@ -156,6 +156,62 @@ class MockAgentSession implements AgentSession {
     return { provider: this.provider, sessionId: this.id, nativeHandle: `mock:${this.id}` };
   }
 
+  // Slash-command operations (sprint-037): deterministic, dependency-free implementations for
+  // tests. `exportHtml` is deliberately omitted so callers can exercise the
+  // unsupported-provider-method → rpc_error path (see slash-command-ops.test.ts).
+
+  private sessionName: string | undefined;
+
+  getSessionStats(): Promise<{
+    sessionId: string;
+    totalMessages: number;
+    tokens: { total: number };
+  }> {
+    return Promise.resolve({ sessionId: this.id, totalMessages: this.history.length, tokens: { total: 0 } });
+  }
+
+  compact(): Promise<{ summary: string; firstKeptEntryId: string; tokensBefore: number }> {
+    return Promise.resolve({
+      summary: "mock compaction summary",
+      firstKeptEntryId: "mock-entry-0",
+      tokensBefore: 0,
+    });
+  }
+
+  newSession(): Promise<{ cancelled: boolean }> {
+    return Promise.resolve({ cancelled: false });
+  }
+
+  switchSession(): Promise<{ cancelled: boolean }> {
+    return Promise.resolve({ cancelled: false });
+  }
+
+  fork(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    return Promise.resolve({ text: `mock forked text for ${entryId}`, cancelled: false });
+  }
+
+  getForkMessages(): Promise<{ entryId: string; text: string }[]> {
+    return Promise.resolve([{ entryId: "mock-entry-0", text: "mock first prompt" }]);
+  }
+
+  clone(): Promise<{ cancelled: boolean }> {
+    return Promise.resolve({ cancelled: false });
+  }
+
+  setSessionName(name: string): Promise<void> {
+    this.sessionName = name;
+    return Promise.resolve();
+  }
+
+  cycleModel(): Promise<{ model: { id: string }; thinkingLevel: string }> {
+    return Promise.resolve({ model: { id: "mock-model" }, thinkingLevel: "medium" });
+  }
+
+  getLastAssistantText(): Promise<string | null> {
+    const last = [...this.history].reverse().find((e) => e.kind === "assistant_message");
+    return Promise.resolve(last && "text" in last ? (last.text as string) : null);
+  }
+
   close(): Promise<void> {
     this.closed = true;
     if (this.completionTimer) clearTimeout(this.completionTimer);

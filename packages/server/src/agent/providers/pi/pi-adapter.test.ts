@@ -17,12 +17,43 @@ class FakeTransport implements PiRpcTransport {
 
   constructor(public readonly spawnArgs: PiTransportSpawnArgs) {}
 
-  request(command: string): Promise<unknown> {
+  request(command: string, params?: Record<string, unknown>): Promise<unknown> {
     this.requests.push(command);
-    if (command === "get_available_models") {
-      return Promise.resolve({ models: [{ id: "pi-sonnet", name: "Sonnet" }] });
+    switch (command) {
+      case "get_available_models":
+        return Promise.resolve({ models: [{ id: "pi-sonnet", name: "Sonnet" }] });
+      case "get_session_stats":
+        return Promise.resolve({ sessionId: "s1", totalMessages: 4, tokens: { total: 100 } });
+      case "compact":
+        return Promise.resolve({
+          summary: "compacted",
+          firstKeptEntryId: "e1",
+          tokensBefore: 1000,
+          customInstructions: params?.customInstructions,
+        });
+      case "new_session":
+        return Promise.resolve({ cancelled: false });
+      case "switch_session":
+        return Promise.resolve({ cancelled: false, sessionPath: params?.sessionPath });
+      case "fork":
+        return Promise.resolve({ text: "forked text", cancelled: false, entryId: params?.entryId });
+      case "get_fork_messages":
+        return Promise.resolve({ messages: [{ entryId: "e1", text: "first" }] });
+      case "clone":
+        return Promise.resolve({ cancelled: false });
+      case "set_session_name":
+        return Promise.resolve({});
+      case "export_html":
+        return Promise.resolve({ path: params?.outputPath ?? "/tmp/session.html" });
+      case "set_model":
+        return Promise.resolve({ id: params?.modelId, provider: params?.provider });
+      case "cycle_model":
+        return Promise.resolve({ model: { id: "next-model" }, thinkingLevel: "medium" });
+      case "get_last_assistant_text":
+        return Promise.resolve({ text: "last reply" });
+      default:
+        return Promise.resolve({});
     }
-    return Promise.resolve({});
   }
 
   notify(command: string): void {
@@ -252,5 +283,62 @@ describe("import & resume", () => {
     const result = await client.importSession({ providerHandleId: fileA, cwd: "/work" });
     expect(result.persistence.nativeHandle).toBe(fileA);
     expect(spawns.at(-1)?.spawnArgs.sessionFile).toBe(fileA);
+  });
+});
+
+describe("slash-command operations (sprint-037)", () => {
+  it("getSessionStats issues get_session_stats and maps the response", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const stats = await session.getSessionStats?.();
+    expect(stats).toEqual({ sessionId: "s1", totalMessages: 4, tokens: { total: 100 } });
+    expect(spawns[0]?.requests).toContain("get_session_stats");
+  });
+
+  it("compact forwards customInstructions and maps the response", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const result = await session.compact?.("focus on code");
+    expect(result?.summary).toBe("compacted");
+    expect(result?.tokensBefore).toBe(1000);
+  });
+
+  it("newSession/clone/switchSession return {cancelled}", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.newSession?.()).toEqual({ cancelled: false });
+    expect(await session.clone?.()).toEqual({ cancelled: false });
+    expect(await session.switchSession?.("/tmp/other.jsonl")).toEqual({ cancelled: false });
+  });
+
+  it("fork returns text+cancelled; getForkMessages lists entries", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.fork?.("e1")).toEqual({ text: "forked text", cancelled: false });
+    expect(await session.getForkMessages?.()).toEqual([{ entryId: "e1", text: "first" }]);
+  });
+
+  it("setSessionName issues set_session_name; exportHtml maps path", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    await session.setSessionName?.("my-feature-work");
+    expect(spawns[0]?.requests).toContain("set_session_name");
+    const exported = await session.exportHtml?.();
+    expect(exported).toEqual({ path: "/tmp/session.html" });
+  });
+
+  it("setProviderModel issues set_model with provider+modelId; cycleModel maps the response", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    await session.setProviderModel?.("anthropic", "claude-sonnet-4-20250514");
+    expect(spawns[0]?.requests).toContain("set_model");
+    const cycled = await session.cycleModel?.();
+    expect(cycled).toEqual({ model: { id: "next-model" }, thinkingLevel: "medium" });
+  });
+
+  it("getLastAssistantText returns the mapped text", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.getLastAssistantText?.()).toBe("last reply");
   });
 });

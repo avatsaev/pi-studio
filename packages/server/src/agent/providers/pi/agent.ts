@@ -10,9 +10,13 @@ import type {
 
 import type {
   AgentClient,
+  AgentCompactResult,
+  AgentCycleModelResult,
+  AgentForkMessage,
   AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
+  AgentSessionStats,
   CreateSessionOptions,
   ImportableSessionRow,
   ImportSessionArgs,
@@ -236,6 +240,78 @@ class PiAgentSession implements AgentSession {
   interrupt(): Promise<void> {
     this.transport.notify("abort", {});
     return Promise.resolve();
+  }
+
+  // Slash-command operations (sprint-037): request/response Pi RPC commands, not fire-and-forget
+  // like `prompt`/`abort`. Response `data` is mapped into the provider-neutral result shape.
+
+  async getSessionStats(): Promise<AgentSessionStats> {
+    const data = (await this.transport.request("get_session_stats")) as AgentSessionStats;
+    return data ?? {};
+  }
+
+  async compact(customInstructions?: string): Promise<AgentCompactResult> {
+    const params = customInstructions ? { customInstructions } : {};
+    const data = (await this.transport.request("compact", params)) as AgentCompactResult;
+    return data ?? {};
+  }
+
+  async newSession(): Promise<{ cancelled: boolean }> {
+    const data = (await this.transport.request("new_session")) as { cancelled?: boolean };
+    return { cancelled: data?.cancelled ?? false };
+  }
+
+  async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
+    const data = (await this.transport.request("switch_session", { sessionPath })) as {
+      cancelled?: boolean;
+    };
+    return { cancelled: data?.cancelled ?? false };
+  }
+
+  async fork(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    const data = (await this.transport.request("fork", { entryId })) as {
+      text?: string;
+      cancelled?: boolean;
+    };
+    return { text: data?.text ?? "", cancelled: data?.cancelled ?? false };
+  }
+
+  async getForkMessages(): Promise<AgentForkMessage[]> {
+    const data = (await this.transport.request("get_fork_messages")) as {
+      messages?: AgentForkMessage[];
+    };
+    return Array.isArray(data?.messages) ? data.messages : [];
+  }
+
+  async clone(): Promise<{ cancelled: boolean }> {
+    const data = (await this.transport.request("clone")) as { cancelled?: boolean };
+    return { cancelled: data?.cancelled ?? false };
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    await this.transport.request("set_session_name", { name });
+  }
+
+  async exportHtml(outputPath?: string): Promise<{ path: string }> {
+    const params = outputPath ? { outputPath } : {};
+    const data = (await this.transport.request("export_html", params)) as { path?: string };
+    return { path: data?.path ?? "" };
+  }
+
+  async setProviderModel(provider: string, modelId: string): Promise<unknown> {
+    return this.transport.request("set_model", { provider, modelId });
+  }
+
+  async cycleModel(): Promise<AgentCycleModelResult> {
+    const data = (await this.transport.request("cycle_model")) as AgentCycleModelResult;
+    return data ?? {};
+  }
+
+  async getLastAssistantText(): Promise<string | null> {
+    const data = (await this.transport.request("get_last_assistant_text")) as {
+      text?: string | null;
+    };
+    return data?.text ?? null;
   }
 
   close(): Promise<void> {

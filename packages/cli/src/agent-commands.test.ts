@@ -5,12 +5,24 @@ import type { DaemonClient, Transport } from "@av-pi-studio/client";
 import {
   AGENT_RPC,
   attachAgent,
+  cloneAgentSession,
+  compactAgent,
+  cycleAgentModel,
+  exportAgentHtml,
+  forkAgent,
+  forkMessagesAgent,
   formatStreamEvent,
+  lastAssistantTextAgent,
   logsAgent,
   lsAgents,
+  newAgentSession,
   parseProviderModel,
   runAgent,
   sendAgent,
+  sessionStatsAgent,
+  setAgentModel,
+  setAgentSessionName,
+  switchAgentSession,
 } from "./agent-commands.js";
 import { type CliContext, connectOptionsFrom } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -19,6 +31,8 @@ import { connectDaemon } from "./connection.js";
 
 interface FakeOptions {
   responses?: Record<string, unknown | ((msg: Record<string, unknown>) => unknown)>;
+  /** Request types that should reply with an rpc_error instead of a response. */
+  rpcErrors?: Record<string, { message: string; code?: string }>;
 }
 
 function makeFake(options: FakeOptions = {}): {
@@ -57,6 +71,18 @@ function makeFake(options: FakeOptions = {}): {
         const reqType = msg.type as string;
         const requestId = msg.requestId as string;
         requests.push({ type: reqType, msg });
+        const err = options.rpcErrors?.[reqType];
+        if (err) {
+          queueMicrotask(() =>
+            transport.onMessage?.(
+              JSON.stringify({
+                type: "session",
+                message: { type: "rpc_error", requestId, message: err.message, code: err.code },
+              }),
+            ),
+          );
+          return;
+        }
         const r = options.responses?.[reqType];
         const payload =
           typeof r === "function" ? (r as (m: Record<string, unknown>) => unknown)(msg) : r;
@@ -223,5 +249,152 @@ describe("agent commands", () => {
     const done = attachAgent(client, ctx, "a1", { signal: controller.signal });
     controller.abort();
     expect(await done).toBe(0);
+  });
+});
+
+// ─── Slash-command operations (sprint-037) ───────────────────────────────────────
+
+describe("agent slash-command operations", () => {
+  it("sessionStatsAgent issues agent_session_stats_request and renders the payload", async () => {
+    const fake = makeFake({
+      responses: { [AGENT_RPC.sessionStats]: { sessionId: "s1", totalMessages: 3 } },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await sessionStatsAgent(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("s1");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.sessionStats)!;
+    expect(req.msg.agentId).toBe("a1");
+  });
+
+  it("compactAgent forwards customInstructions", async () => {
+    const fake = makeFake({
+      responses: { [AGENT_RPC.compact]: { summary: "done", tokensBefore: 500 } },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await compactAgent(client, ctx, "a1", "focus on code", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("done");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.compact)!;
+    expect(req.msg.customInstructions).toBe("focus on code");
+  });
+
+  it("newAgentSession reports 'new session started' when not cancelled", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.newSession]: { cancelled: false } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await newAgentSession(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("new session started");
+  });
+
+  it("switchAgentSession forwards sessionPath", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.switchSession]: { cancelled: false } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await switchAgentSession(client, ctx, "a1", "/tmp/other.jsonl", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("session switched");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.switchSession)!;
+    expect(req.msg.sessionPath).toBe("/tmp/other.jsonl");
+  });
+
+  it("forkAgent forwards entryId and renders the result", async () => {
+    const fake = makeFake({
+      responses: { [AGENT_RPC.fork]: { text: "forked text", cancelled: false } },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await forkAgent(client, ctx, "a1", "e1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("forked text");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.fork)!;
+    expect(req.msg.entryId).toBe("e1");
+  });
+
+  it("forkMessagesAgent renders the picker list as a table", async () => {
+    const fake = makeFake({
+      responses: {
+        [AGENT_RPC.forkMessages]: { messages: [{ entryId: "e1", text: "first prompt" }] },
+      },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await forkMessagesAgent(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("e1");
+    expect(out[0]).toContain("first prompt");
+  });
+
+  it("setAgentSessionName forwards name and reports 'renamed'", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.setSessionName]: {} } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await setAgentSessionName(client, ctx, "a1", "my-feature", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("renamed");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.setSessionName)!;
+    expect(req.msg.name).toBe("my-feature");
+  });
+
+  it("exportAgentHtml forwards outputPath and prints the resulting path", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.exportHtml]: { path: "/tmp/out.html" } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await exportAgentHtml(client, ctx, "a1", "/tmp/out.html", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("/tmp/out.html");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.exportHtml)!;
+    expect(req.msg.outputPath).toBe("/tmp/out.html");
+  });
+
+  it("cloneAgentSession reports 'cloned' when not cancelled", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.clone]: { cancelled: false } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await cloneAgentSession(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("cloned");
+  });
+
+  it("setAgentModel forwards provider+modelId", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.setModel]: { id: "m1" } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await setAgentModel(client, ctx, "a1", "anthropic", "m1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("m1");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.setModel)!;
+    expect(req.msg.provider).toBe("anthropic");
+    expect(req.msg.modelId).toBe("m1");
+  });
+
+  it("cycleAgentModel renders the resulting model", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.cycleModel]: { model: { id: "m2" } } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await cycleAgentModel(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("m2");
+  });
+
+  it("lastAssistantTextAgent prints the text, or '(none)' when null", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.lastAssistantText]: { text: "hello" } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await lastAssistantTextAgent(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("hello");
+
+    const fakeNone = makeFake({ responses: { [AGENT_RPC.lastAssistantText]: { text: null } } });
+    const { client: client2, ctx: ctx2, out: out2 } = await connectedClient(fakeNone.transport);
+    const code2 = await lastAssistantTextAgent(client2, ctx2, "a1", {});
+    expect(code2).toBe(0);
+    expect(out2[0]).toBe("(none)");
+  });
+
+  it("an unsupported provider method surfaces a clean CLI error (rpc_error → RpcError → nonzero exit)", async () => {
+    const fake = makeFake({
+      rpcErrors: {
+        [AGENT_RPC.exportHtml]: {
+          message: "agent a1's provider does not support 'export_html'",
+          code: "handler_error",
+        },
+      },
+    });
+    const { client, ctx } = await connectedClient(fake.transport);
+    await expect(exportAgentHtml(client, ctx, "a1", undefined, {})).rejects.toThrow(
+      /does not support/,
+    );
   });
 });

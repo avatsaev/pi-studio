@@ -103,6 +103,22 @@ function makeScriptedDaemon(): {
         });
         return;
       }
+      case "agent_session_stats_request": {
+        reply({
+          type: "agent_session_stats_response",
+          requestId,
+          payload: { sessionId: "s1", totalMessages: 3 },
+        });
+        return;
+      }
+      case "agent_compact_request": {
+        reply({
+          type: "agent_compact_response",
+          requestId,
+          payload: { summary: "compacted", tokensBefore: 1000 },
+        });
+        return;
+      }
       case "list_provider_models": {
         reply({
           type: "list_provider_models_response",
@@ -253,5 +269,77 @@ describe("PiStudioClient — provider actions", () => {
     expect(models.models.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(modes.modes.map((m) => m.id)).toEqual(["plan", "default"]);
     expect(refresh.refreshed).toBe(true);
+  });
+});
+
+describe("PiStudioClient — slash-command operations (sprint-037)", () => {
+  it("sessionStats issues agent_session_stats_request and returns the mapped payload", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const stats = await client.agent(created.agentId).sessionStats();
+    expect(stats).toEqual({ sessionId: "s1", totalMessages: 3 });
+    expect(fake.sent.find((m) => m.type === "agent_session_stats_request")?.agentId).toBe(
+      created.agentId,
+    );
+  });
+
+  it("compact forwards customInstructions and returns the mapped payload", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const result = await client.agent(created.agentId).compact("focus on code");
+    expect(result).toEqual({ summary: "compacted", tokensBefore: 1000 });
+    const req = fake.sent.find((m) => m.type === "agent_compact_request");
+    expect(req?.customInstructions).toBe("focus on code");
+  });
+
+  it("newSession, switchSession, fork, forkMessages, clone, setSessionName, exportHtml, setModel, cycleModel, lastAssistantText all issue their correlated RPC with agentId", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const handle = client.agent(created.agentId);
+
+    await handle.newSession();
+    await handle.switchSession("/tmp/other.jsonl");
+    await handle.fork("e1");
+    await handle.forkMessages();
+    await handle.clone();
+    await handle.setSessionName("my-feature");
+    await handle.exportHtml("/tmp/out.html");
+    await handle.setModel("anthropic", "claude-sonnet-4-20250514");
+    await handle.cycleModel();
+    await handle.lastAssistantText();
+
+    const types = fake.sent.map((m) => m.type);
+    expect(types).toEqual(
+      expect.arrayContaining([
+        "agent_new_session_request",
+        "agent_switch_session_request",
+        "agent_fork_request",
+        "agent_fork_messages_request",
+        "agent_clone_request",
+        "agent_set_session_name_request",
+        "agent_export_html_request",
+        "agent_set_model_request",
+        "agent_cycle_model_request",
+        "agent_last_assistant_text_request",
+      ]),
+    );
+    for (const m of fake.sent) {
+      if (m.type?.toString().startsWith("agent_") && m.type !== "create_agent_request") {
+        expect(m.agentId, `${m.type} carries agentId`).toBe(created.agentId);
+      }
+    }
+    expect(fake.sent.find((m) => m.type === "agent_switch_session_request")?.sessionPath).toBe(
+      "/tmp/other.jsonl",
+    );
+    expect(fake.sent.find((m) => m.type === "agent_fork_request")?.entryId).toBe("e1");
+    expect(fake.sent.find((m) => m.type === "agent_set_session_name_request")?.name).toBe(
+      "my-feature",
+    );
+    expect(fake.sent.find((m) => m.type === "agent_export_html_request")?.outputPath).toBe(
+      "/tmp/out.html",
+    );
+    const setModelReq = fake.sent.find((m) => m.type === "agent_set_model_request");
+    expect(setModelReq?.provider).toBe("anthropic");
+    expect(setModelReq?.modelId).toBe("claude-sonnet-4-20250514");
   });
 });

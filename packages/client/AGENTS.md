@@ -182,6 +182,14 @@ const client = new PiStudioClient(daemonClient);
 
 ### `PiStudioAgentActions` (from `agent(id)`)
 
+`sessionStats()` through `lastAssistantText()` (sprint-037) mirror Pi built-in slash commands that
+have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`,
+`/name`, `/export`, `/model`, `/copy`) — see `packages/server/AGENTS.md`'s Agent subsystem section
+for the full rationale (built-ins without an RPC equivalent, e.g. `/settings`/`/hotkeys`, have no
+wire representation at all). Each resolves to the RPC's `payload` object directly (`DaemonClient`
+unwraps `{type, requestId, payload}` responses to just `payload`), matching every other typed
+method on this facade.
+
 | Method | RPC |
 |--------|-----|
 | `send(prompt, opts?)` | `send_agent_prompt` |
@@ -194,6 +202,18 @@ const client = new PiStudioClient(daemonClient);
 | `onUpdate(handler)` | Subscribe to `agent_update` for this agent only |
 | `timeline.fetch(opts?)` | `fetch_agent_timeline_request` |
 | `timeline.subscribe(handler)` | Subscribe to `agent_stream` for this agent only |
+| `sessionStats()` | `agent_session_stats_request` (`/session` — tokens/cost/context-window usage) |
+| `compact(customInstructions?)` | `agent_compact_request` (`/compact`) |
+| `newSession()` | `agent_new_session_request` (`/new`) |
+| `switchSession(sessionPath)` | `agent_switch_session_request` (`/resume`) |
+| `fork(entryId)` | `agent_fork_request` (`/fork`) |
+| `forkMessages()` | `agent_fork_messages_request` (fork picker) |
+| `clone()` | `agent_clone_request` (`/clone`) |
+| `setSessionName(name)` | `agent_set_session_name_request` (`/name`) |
+| `exportHtml(outputPath?)` | `agent_export_html_request` (`/export`) |
+| `setModel(provider, modelId)` | `agent_set_model_request` (`/model` set) |
+| `cycleModel()` | `agent_cycle_model_request` (`/model` cycle) |
+| `lastAssistantText()` | `agent_last_assistant_text_request` (`/copy`) |
 
 ### `PiStudioProviderActions` (from `providers`)
 

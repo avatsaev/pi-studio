@@ -43,6 +43,44 @@ export interface AgentCommandDefinition {
   description?: string;
 }
 
+/** Result shapes for the slash-command operations (sprint-037), mirroring Pi RPC response data. */
+export interface AgentSessionStats {
+  sessionId?: string;
+  sessionFile?: string;
+  userMessages?: number;
+  assistantMessages?: number;
+  toolCalls?: number;
+  toolResults?: number;
+  totalMessages?: number;
+  tokens?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    total?: number;
+  };
+  cost?: number;
+  contextUsage?: { tokens?: number | null; contextWindow?: number; percent?: number | null };
+}
+
+export interface AgentCompactResult {
+  summary?: string;
+  firstKeptEntryId?: string;
+  tokensBefore?: number;
+  details?: unknown;
+}
+
+export interface AgentForkMessage {
+  entryId: string;
+  text: string;
+}
+
+export interface AgentCycleModelResult {
+  model?: unknown;
+  thinkingLevel?: string;
+  isScoped?: boolean;
+}
+
 /** Runtime info echoed from a live session. */
 export interface ProviderRuntimeInfo {
   provider: string;
@@ -130,6 +168,32 @@ export interface AgentSession {
   setThinkingOption?(id: string): Promise<void>;
   setFeature?(id: string, value: unknown): Promise<void>;
   tryHandleOutOfBand?(message: unknown): boolean;
+
+  // Slash-command operations (sprint-037) — optional, present only where the provider RPC exists.
+  /** `/session` — mirrors Pi RPC `get_session_stats`. */
+  getSessionStats?(): Promise<AgentSessionStats>;
+  /** `/compact` — mirrors Pi RPC `compact`. */
+  compact?(customInstructions?: string): Promise<AgentCompactResult>;
+  /** `/new` — mirrors Pi RPC `new_session`. Does NOT replace this `AgentSession` instance. */
+  newSession?(): Promise<{ cancelled: boolean }>;
+  /** `/resume` — mirrors Pi RPC `switch_session`. */
+  switchSession?(sessionPath: string): Promise<{ cancelled: boolean }>;
+  /** `/fork` — mirrors Pi RPC `fork`. */
+  fork?(entryId: string): Promise<{ text: string; cancelled: boolean }>;
+  /** Fork picker — mirrors Pi RPC `get_fork_messages`. */
+  getForkMessages?(): Promise<AgentForkMessage[]>;
+  /** `/clone` — mirrors Pi RPC `clone`. */
+  clone?(): Promise<{ cancelled: boolean }>;
+  /** `/name` — mirrors Pi RPC `set_session_name`. */
+  setSessionName?(name: string): Promise<void>;
+  /** `/export` — mirrors Pi RPC `export_html`. */
+  exportHtml?(outputPath?: string): Promise<{ path: string }>;
+  /** `/model` (set) — mirrors Pi RPC `set_model` (distinct from the legacy string-only `setModel?`). */
+  setProviderModel?(provider: string, modelId: string): Promise<unknown>;
+  /** `/model` (cycle) — mirrors Pi RPC `cycle_model`. */
+  cycleModel?(): Promise<AgentCycleModelResult>;
+  /** `/copy` — mirrors Pi RPC `get_last_assistant_text`. */
+  getLastAssistantText?(): Promise<string | null>;
 }
 
 /** A provider client: creates/resumes sessions and exposes discovery. */

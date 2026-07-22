@@ -385,6 +385,302 @@ export const agentRewindResponseSchema = z.object({
 export type AgentRewindResponse = z.infer<typeof agentRewindResponseSchema>;
 
 // ===========================================================================
+// Slash-command operations (sprint-037): Pi built-ins with an RPC equivalent —
+// /session, /compact, /new, /resume, /fork, /clone, /name, /export, /model, /copy.
+// Pi's own RPC docs are explicit that built-in TUI commands without one of these RPC
+// equivalents (e.g. /settings, /hotkeys) are never expanded by the `prompt` command and are
+// intentionally NOT represented on the wire.
+// ===========================================================================
+
+export const agentTokenUsageSchema = z
+  .object({
+    input: z.number().optional(),
+    output: z.number().optional(),
+    cacheRead: z.number().optional(),
+    cacheWrite: z.number().optional(),
+    total: z.number().optional(),
+  })
+  .passthrough();
+export type AgentTokenUsage = z.infer<typeof agentTokenUsageSchema>;
+
+export const agentContextUsageSchema = z
+  .object({
+    tokens: z.number().nullable().optional(),
+    contextWindow: z.number().optional(),
+    percent: z.number().nullable().optional(),
+  })
+  .passthrough();
+export type AgentContextUsage = z.infer<typeof agentContextUsageSchema>;
+
+/** `/session` — mirrors Pi RPC `get_session_stats`. */
+export const agentSessionStatsRequestSchema = z
+  .object({
+    type: z.literal("agent_session_stats_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentSessionStatsRequest = z.infer<typeof agentSessionStatsRequestSchema>;
+
+export const agentSessionStatsResponseSchema = z
+  .object({
+    type: z.literal("agent_session_stats_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        sessionId: z.string().optional(),
+        sessionFile: z.string().optional(),
+        userMessages: z.number().optional(),
+        assistantMessages: z.number().optional(),
+        toolCalls: z.number().optional(),
+        toolResults: z.number().optional(),
+        totalMessages: z.number().optional(),
+        tokens: agentTokenUsageSchema.optional(),
+        cost: z.number().optional(),
+        contextUsage: agentContextUsageSchema.optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentSessionStatsResponse = z.infer<typeof agentSessionStatsResponseSchema>;
+
+/** `/compact` — mirrors Pi RPC `compact`. */
+export const agentCompactRequestSchema = z
+  .object({
+    type: z.literal("agent_compact_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    customInstructions: z.string().optional(),
+  })
+  .passthrough();
+export type AgentCompactRequest = z.infer<typeof agentCompactRequestSchema>;
+
+export const agentCompactResponseSchema = z
+  .object({
+    type: z.literal("agent_compact_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        summary: z.string().optional(),
+        firstKeptEntryId: z.string().optional(),
+        tokensBefore: z.number().optional(),
+        details: z.unknown().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentCompactResponse = z.infer<typeof agentCompactResponseSchema>;
+
+/** `/new` — mirrors Pi RPC `new_session`. */
+export const agentNewSessionRequestSchema = z
+  .object({
+    type: z.literal("agent_new_session_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentNewSessionRequest = z.infer<typeof agentNewSessionRequestSchema>;
+
+export const agentNewSessionResponseSchema = z
+  .object({
+    type: z.literal("agent_new_session_response"),
+    requestId: z.string(),
+    payload: z.object({ cancelled: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type AgentNewSessionResponse = z.infer<typeof agentNewSessionResponseSchema>;
+
+/** `/resume` — mirrors Pi RPC `switch_session`. */
+export const agentSwitchSessionRequestSchema = z
+  .object({
+    type: z.literal("agent_switch_session_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    sessionPath: z.string(),
+  })
+  .passthrough();
+export type AgentSwitchSessionRequest = z.infer<typeof agentSwitchSessionRequestSchema>;
+
+export const agentSwitchSessionResponseSchema = z
+  .object({
+    type: z.literal("agent_switch_session_response"),
+    requestId: z.string(),
+    payload: z.object({ cancelled: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type AgentSwitchSessionResponse = z.infer<typeof agentSwitchSessionResponseSchema>;
+
+/** `/fork` — mirrors Pi RPC `fork`. */
+export const agentForkRequestSchema = z
+  .object({
+    type: z.literal("agent_fork_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    entryId: z.string(),
+  })
+  .passthrough();
+export type AgentForkRequest = z.infer<typeof agentForkRequestSchema>;
+
+export const agentForkResponseSchema = z
+  .object({
+    type: z.literal("agent_fork_response"),
+    requestId: z.string(),
+    payload: z.object({ text: z.string(), cancelled: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type AgentForkResponse = z.infer<typeof agentForkResponseSchema>;
+
+/** Fork picker — mirrors Pi RPC `get_fork_messages`. */
+export const agentForkMessagesRequestSchema = z
+  .object({
+    type: z.literal("agent_fork_messages_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentForkMessagesRequest = z.infer<typeof agentForkMessagesRequestSchema>;
+
+export const agentForkMessagesResponseSchema = z
+  .object({
+    type: z.literal("agent_fork_messages_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        messages: z.array(z.object({ entryId: z.string(), text: z.string() }).passthrough()),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentForkMessagesResponse = z.infer<typeof agentForkMessagesResponseSchema>;
+
+/** `/clone` — mirrors Pi RPC `clone`. */
+export const agentCloneRequestSchema = z
+  .object({
+    type: z.literal("agent_clone_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentCloneRequest = z.infer<typeof agentCloneRequestSchema>;
+
+export const agentCloneResponseSchema = z
+  .object({
+    type: z.literal("agent_clone_response"),
+    requestId: z.string(),
+    payload: z.object({ cancelled: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type AgentCloneResponse = z.infer<typeof agentCloneResponseSchema>;
+
+/** `/name` — mirrors Pi RPC `set_session_name`. */
+export const agentSetSessionNameRequestSchema = z
+  .object({
+    type: z.literal("agent_set_session_name_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    name: z.string(),
+  })
+  .passthrough();
+export type AgentSetSessionNameRequest = z.infer<typeof agentSetSessionNameRequestSchema>;
+
+export const agentSetSessionNameResponseSchema = z
+  .object({
+    type: z.literal("agent_set_session_name_response"),
+    requestId: z.string(),
+    payload: z.object({}).passthrough().optional(),
+  })
+  .passthrough();
+export type AgentSetSessionNameResponse = z.infer<typeof agentSetSessionNameResponseSchema>;
+
+/** `/export` — mirrors Pi RPC `export_html`. */
+export const agentExportHtmlRequestSchema = z
+  .object({
+    type: z.literal("agent_export_html_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    outputPath: z.string().optional(),
+  })
+  .passthrough();
+export type AgentExportHtmlRequest = z.infer<typeof agentExportHtmlRequestSchema>;
+
+export const agentExportHtmlResponseSchema = z
+  .object({
+    type: z.literal("agent_export_html_response"),
+    requestId: z.string(),
+    payload: z.object({ path: z.string() }).passthrough(),
+  })
+  .passthrough();
+export type AgentExportHtmlResponse = z.infer<typeof agentExportHtmlResponseSchema>;
+
+/** `/model` (set) — mirrors Pi RPC `set_model`. Model payload shape varies by provider. */
+export const agentSetModelRequestSchema = z
+  .object({
+    type: z.literal("agent_set_model_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    provider: z.string(),
+    modelId: z.string(),
+  })
+  .passthrough();
+export type AgentSetModelRequest = z.infer<typeof agentSetModelRequestSchema>;
+
+export const agentSetModelResponseSchema = z
+  .object({
+    type: z.literal("agent_set_model_response"),
+    requestId: z.string(),
+    payload: z.object({}).passthrough(),
+  })
+  .passthrough();
+export type AgentSetModelResponse = z.infer<typeof agentSetModelResponseSchema>;
+
+/** `/model` (cycle) — mirrors Pi RPC `cycle_model`. */
+export const agentCycleModelRequestSchema = z
+  .object({
+    type: z.literal("agent_cycle_model_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentCycleModelRequest = z.infer<typeof agentCycleModelRequestSchema>;
+
+export const agentCycleModelResponseSchema = z
+  .object({
+    type: z.literal("agent_cycle_model_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        model: z.unknown().nullable().optional(),
+        thinkingLevel: z.string().optional(),
+        isScoped: z.boolean().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentCycleModelResponse = z.infer<typeof agentCycleModelResponseSchema>;
+
+/** `/copy` — mirrors Pi RPC `get_last_assistant_text`. */
+export const agentLastAssistantTextRequestSchema = z
+  .object({
+    type: z.literal("agent_last_assistant_text_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentLastAssistantTextRequest = z.infer<typeof agentLastAssistantTextRequestSchema>;
+
+export const agentLastAssistantTextResponseSchema = z
+  .object({
+    type: z.literal("agent_last_assistant_text_response"),
+    requestId: z.string(),
+    payload: z.object({ text: z.string().nullable() }).passthrough(),
+  })
+  .passthrough();
+export type AgentLastAssistantTextResponse = z.infer<
+  typeof agentLastAssistantTextResponseSchema
+>;
+
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -423,6 +719,30 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   legacyRespondToPermissionSchema,
   agentRewindRequestSchema,
   agentRewindResponseSchema,
+  agentSessionStatsRequestSchema,
+  agentSessionStatsResponseSchema,
+  agentCompactRequestSchema,
+  agentCompactResponseSchema,
+  agentNewSessionRequestSchema,
+  agentNewSessionResponseSchema,
+  agentSwitchSessionRequestSchema,
+  agentSwitchSessionResponseSchema,
+  agentForkRequestSchema,
+  agentForkResponseSchema,
+  agentForkMessagesRequestSchema,
+  agentForkMessagesResponseSchema,
+  agentCloneRequestSchema,
+  agentCloneResponseSchema,
+  agentSetSessionNameRequestSchema,
+  agentSetSessionNameResponseSchema,
+  agentExportHtmlRequestSchema,
+  agentExportHtmlResponseSchema,
+  agentSetModelRequestSchema,
+  agentSetModelResponseSchema,
+  agentCycleModelRequestSchema,
+  agentCycleModelResponseSchema,
+  agentLastAssistantTextRequestSchema,
+  agentLastAssistantTextResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

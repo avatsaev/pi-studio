@@ -104,8 +104,27 @@ Default action (no subcommand):
 | `update <agentId>` | `update_agent` | Update model/mode/features/title/labels |
 | `resume <agentId>` | `resume_agent` | Resume a closed session |
 | `import --provider pi --cwd /path --handle <h>` | `import_agent_session` | Import a native session |
+| `session <agentId>` | `agent_session_stats_request` | Session stats (tokens/cost/context usage) — `/session` |
+| `compact <agentId> [-i <text>]` | `agent_compact_request` | Manually compact context — `/compact` |
+| `new-session <agentId>` | `agent_new_session_request` | Start a fresh session in place — `/new` |
+| `resume-session <agentId> -p <path>` | `agent_switch_session_request` | Load a different session file in place — `/resume` |
+| `fork <agentId> -e <entryId>` | `agent_fork_request` | Fork a new branch from a previous message — `/fork` |
+| `fork-messages <agentId>` | `agent_fork_messages_request` | List messages available to fork from |
+| `clone <agentId>` | `agent_clone_request` | Duplicate the session at the current position — `/clone` |
+| `name <agentId> <name>` | `agent_set_session_name_request` | Set the session display name — `/name` |
+| `export <agentId> [-o <path>]` | `agent_export_html_request` | Export the session to an HTML file — `/export` |
+| `model <agentId> --provider <p> --model <m>` | `agent_set_model_request` | Switch to a specific provider model — `/model` |
+| `cycle-model <agentId>` | `agent_cycle_model_request` | Cycle to the next available model — `/model` |
+| `last-message <agentId>` | `agent_last_assistant_text_request` | Print the last assistant message — `/copy` |
 
 `formatStreamEvent(event)` — renders an `AgentStreamEvent` as a single human-readable line.
+
+`session` through `last-message` (sprint-037) are CLI equivalents of Pi built-in slash commands
+that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`,
+`/name`, `/export`, `/model`, `/copy`). Built-ins with no RPC equivalent (`/settings`, `/hotkeys`,
+`/changelog`, `/login`, `/logout`, `/reload`, `/scoped-models`, `/trust`, `/share`, `/quit`) are
+TUI-only per Pi's own RPC docs and have no CLI command here — see `packages/server/AGENTS.md`'s
+Agent subsystem section for the full rationale.
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`

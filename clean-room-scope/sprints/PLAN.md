@@ -68,6 +68,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 034 | `sprint-034-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
 | 035 | `sprint-035-production-daemon` | Real production daemon: bootstrap + real Pi provider + disk persistence, register ALL handlers, terminals/binary frames, security + E2E (no mocks) | 4 |
 | 036 | `sprint-036-paseo-ux-parity` | Full Paseo UX/UI parity for the whole app: design tokens, sidebar redesign, navigation screens, workspace shell, timeline/composer, feature panels + wiring gaps | 6 |
+| 037 | `sprint-037-agent-slash-commands` | Server+SDK+CLI support for Pi built-in slash commands that have RPC equivalents (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`, `/name`, `/export`, `/model`, `/copy`): protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI (web-client deferred) | 6 |
 
 Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -320,6 +321,22 @@ Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-001 | Provider-usage daemon RPC + protocol schema | s005, s006, s002 | features/provider-usage; architecture/websocket-protocol, structured-generation |
 | task-002 | Wire provider-usage UI to live data | task-001; s025, s019 | features/provider-usage, composer-ui, app-navigation-screens |
 | task-003 | Setup panel & workspace scripts surface | s009, s003, s016 | features/service-proxy, feature-panels-ui; architecture/config |
+
+### sprint-037-agent-slash-commands
+> Server + SDK + CLI support for the subset of Pi built-in slash commands that have Pi RPC
+> equivalents. Pi's TUI-only built-ins (`/settings`, `/hotkeys`, `/changelog`, `/login`, `/logout`,
+> `/reload`, `/scoped-models`, `/trust`, `/share`, `/quit`) have no RPC and are excluded. web-client
+> affordances are deferred to a later sprint. Grounded in the live Pi RPC contract
+> (`node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`), not a new scope doc.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Protocol schemas for slash-command RPCs | none | packages/protocol; architecture/websocket-protocol |
+| task-002 | Provider-contract methods + Pi adapter RPC wiring | task-001 | provider-contract; providers/pi; features/agent-providers |
+| task-003 | Daemon RPC handlers | task-001, task-002 | session-operations; daemon/bootstrap; features/agent-sessions |
+| task-004 | Mock provider support + test fixtures | task-002, task-003 | providers/mock |
+| task-005 | SDK / client facade methods | task-001, task-003 | packages/client (PiStudioClient AgentHandle) |
+| task-006 | CLI slash-command subcommands | task-005 | packages/cli (agent group); features/cli |
 
 ## Coverage check
 

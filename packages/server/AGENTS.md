@@ -40,6 +40,9 @@ src/
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id.
     provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
     session-operations.ts         Helpers: create, send, interrupt, update, resume, archive.
+    slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
+                                   commands with a real Pi RPC equivalent (/session, /compact,
+                                   /new, /resume, /fork, /clone, /name, /export, /model, /copy).
     timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
     timeline-rpc.ts               fetch_agent_timeline handler.
     rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
@@ -189,6 +192,15 @@ Two built-in providers: `pi` and `mock`.
 - **`RunOptions.images`** (`RunOptions`/`StartTurnOptions`) carries `ImageAttachment[]` (the
   protocol wire shape `{ mimeType?, data? }`, base64 data). The provider is responsible for
   translating this into its native prompt-image format at the boundary (see Pi provider below).
+- **Slash-command operations** (`AgentSession`, all optional, sprint-037): `getSessionStats`,
+  `compact`, `newSession`, `switchSession`, `fork`/`getForkMessages`, `clone`, `setSessionName`,
+  `exportHtml`, `setProviderModel`, `cycleModel`, `getLastAssistantText` — mirror Pi built-in slash
+  commands that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`,
+  `/clone`, `/name`, `/export`, `/model`, `/copy`). Wired as their own daemon RPCs by
+  `slash-command-operations.ts` (`agent_session_stats_request`, `agent_compact_request`, …), NOT
+  routed through `prompt` — Pi's own RPC contract states built-in TUI commands without one of
+  these RPC equivalents (`/settings`, `/hotkeys`, …) are never expanded by `prompt` and have no
+  wire representation here. Unimplemented on a provider (e.g. `mock`) → `rpc_error`, never silent.
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.

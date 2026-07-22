@@ -1,11 +1,22 @@
 import type {
+  AgentCloneResponse,
+  AgentCompactResponse,
+  AgentCycleModelResponse,
+  AgentExportHtmlResponse,
+  AgentForkMessagesResponse,
+  AgentForkResponse,
+  AgentLastAssistantTextResponse,
+  AgentNewSessionResponse,
+  AgentSessionStatsResponse,
+  AgentSetModelResponse,
+  AgentSetSessionNameResponse,
   AgentStreamEvent,
+  AgentSwitchSessionResponse,
   CreateAgentRequest,
   FetchAgentTimelineResponse,
   SessionMessage,
   TimelineDirection,
 } from "@av-pi-studio/protocol";
-
 import type { DaemonClient } from "./daemon-client.js";
 
 /**
@@ -15,7 +26,12 @@ import type { DaemonClient } from "./daemon-client.js";
  * scope's `Pi-StudioClient` surface (architecture/client-app-runtime.md § Layered client library /
  * Facade and features/agent-sessions.md § Public Contract). Method names follow the server RPC
  * type names (`create_agent_request`, `send_agent_prompt`, `interrupt_agent`, `update_agent`,
- * `resume_agent`, `import_agent_session`, `fetch_agent_timeline_request`).
+ * `resume_agent`, `import_agent_session`, `fetch_agent_timeline_request`, and the sprint-037
+ * slash-command RPCs: `agent_session_stats_request`, `agent_compact_request`,
+ * `agent_new_session_request`, `agent_switch_session_request`, `agent_fork_request`,
+ * `agent_fork_messages_request`, `agent_clone_request`, `agent_set_session_name_request`,
+ * `agent_export_html_request`, `agent_set_model_request`, `agent_cycle_model_request`,
+ * `agent_last_assistant_text_request`).
  *
  * Out of scope: app runtime controller (sprint-012), terminal router (task-003).
  */
@@ -82,6 +98,34 @@ export interface PiStudioAgentActions {
   delete(): Promise<unknown>;
   /** Subscribe to `agent_update` events scoped to this agent. */
   onUpdate(handler: PiStudioAgentUpdateHandler): () => void;
+
+  // Slash-command operations (sprint-037): Pi built-ins with a real Pi RPC equivalent. Each
+  // resolves to the RPC's `payload` (the daemon unwraps `{type, requestId, payload}` to just
+  // `payload` for a correlated response — see DaemonClient.request's resolvePending contract).
+  /** `/session` — read-only stats (tokens, cost, context-window usage). */
+  sessionStats(): Promise<AgentSessionStatsResponse["payload"]>;
+  /** `/compact` — manually compact conversation context. */
+  compact(customInstructions?: string): Promise<AgentCompactResponse["payload"]>;
+  /** `/new` — start a fresh session in place. */
+  newSession(): Promise<AgentNewSessionResponse["payload"]>;
+  /** `/resume` — load a different session file in place. */
+  switchSession(sessionPath: string): Promise<AgentSwitchSessionResponse["payload"]>;
+  /** `/fork` — create a new branch from a previous user message. */
+  fork(entryId: string): Promise<AgentForkResponse["payload"]>;
+  /** Fork picker — user messages available to fork from. */
+  forkMessages(): Promise<AgentForkMessagesResponse["payload"]>;
+  /** `/clone` — duplicate the active branch into a new session at the current position. */
+  clone(): Promise<AgentCloneResponse["payload"]>;
+  /** `/name` — set the session display name. */
+  setSessionName(name: string): Promise<AgentSetSessionNameResponse["payload"]>;
+  /** `/export` — export the session to an HTML file. */
+  exportHtml(outputPath?: string): Promise<AgentExportHtmlResponse["payload"]>;
+  /** `/model` (set) — switch to a specific provider model. */
+  setModel(provider: string, modelId: string): Promise<AgentSetModelResponse["payload"]>;
+  /** `/model` (cycle) — cycle to the next available model. */
+  cycleModel(): Promise<AgentCycleModelResponse["payload"]>;
+  /** `/copy` — the text content of the last assistant message. */
+  lastAssistantText(): Promise<AgentLastAssistantTextResponse["payload"]>;
 }
 
 export interface PiStudioWorkspaceActions {
@@ -244,6 +288,72 @@ class AgentHandle implements PiStudioAgentActions {
       const m = msg as unknown as AgentUpdateMessage;
       if (m.type === "agent_update" && m.agentId === this.agentId) handler(m);
     });
+  }
+
+  // Slash-command operations (sprint-037).
+
+  sessionStats(): Promise<AgentSessionStatsResponse["payload"]> {
+    return this.daemon.request("agent_session_stats_request", { agentId: this.agentId });
+  }
+
+  compact(customInstructions?: string): Promise<AgentCompactResponse["payload"]> {
+    return this.daemon.request("agent_compact_request", {
+      agentId: this.agentId,
+      customInstructions,
+    });
+  }
+
+  newSession(): Promise<AgentNewSessionResponse["payload"]> {
+    return this.daemon.request("agent_new_session_request", { agentId: this.agentId });
+  }
+
+  switchSession(sessionPath: string): Promise<AgentSwitchSessionResponse["payload"]> {
+    return this.daemon.request("agent_switch_session_request", {
+      agentId: this.agentId,
+      sessionPath,
+    });
+  }
+
+  fork(entryId: string): Promise<AgentForkResponse["payload"]> {
+    return this.daemon.request("agent_fork_request", { agentId: this.agentId, entryId });
+  }
+
+  forkMessages(): Promise<AgentForkMessagesResponse["payload"]> {
+    return this.daemon.request("agent_fork_messages_request", { agentId: this.agentId });
+  }
+
+  clone(): Promise<AgentCloneResponse["payload"]> {
+    return this.daemon.request("agent_clone_request", { agentId: this.agentId });
+  }
+
+  setSessionName(name: string): Promise<AgentSetSessionNameResponse["payload"]> {
+    return this.daemon.request("agent_set_session_name_request", {
+      agentId: this.agentId,
+      name,
+    });
+  }
+
+  exportHtml(outputPath?: string): Promise<AgentExportHtmlResponse["payload"]> {
+    return this.daemon.request("agent_export_html_request", {
+      agentId: this.agentId,
+      outputPath,
+    });
+  }
+
+  setModel(provider: string, modelId: string): Promise<AgentSetModelResponse["payload"]> {
+    return this.daemon.request("agent_set_model_request", {
+      agentId: this.agentId,
+      provider,
+      modelId,
+    });
+  }
+
+  cycleModel(): Promise<AgentCycleModelResponse["payload"]> {
+    return this.daemon.request("agent_cycle_model_request", { agentId: this.agentId });
+  }
+
+  lastAssistantText(): Promise<AgentLastAssistantTextResponse["payload"]> {
+    return this.daemon.request("agent_last_assistant_text_request", { agentId: this.agentId });
   }
 }
 

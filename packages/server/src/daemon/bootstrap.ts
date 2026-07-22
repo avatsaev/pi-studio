@@ -28,6 +28,7 @@ import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService, getTimeline } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
+import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
 import { PermissionService } from "../agent/permissions.js";
 import { ProviderRegistry, resolveProviderClient } from "../agent/provider-registry.js";
@@ -234,6 +235,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     broadcast,
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
+
+  const slashCommandOps = new SlashCommandOperationsService({ manager, broadcast });
+  slashCommandOps.registerHandlers(registry, getActiveSessions);
 
   registerTimelineHandler(registry, { manager, resolveClient });
 

@@ -30,6 +30,20 @@ export const AGENT_RPC = {
   delete: "delete_agent",
   inspect: "inspect_agent_request",
   wait: "wait_for_agent",
+  // Slash-command operations (sprint-037): Pi built-ins with a real Pi RPC equivalent — daemon
+  // handlers registered in packages/server/src/agent/slash-command-operations.ts.
+  sessionStats: "agent_session_stats_request",
+  compact: "agent_compact_request",
+  newSession: "agent_new_session_request",
+  switchSession: "agent_switch_session_request",
+  fork: "agent_fork_request",
+  forkMessages: "agent_fork_messages_request",
+  clone: "agent_clone_request",
+  setSessionName: "agent_set_session_name_request",
+  exportHtml: "agent_export_html_request",
+  setModel: "agent_set_model_request",
+  cycleModel: "agent_cycle_model_request",
+  lastAssistantText: "agent_last_assistant_text_request",
 } as const;
 
 /** Parse a `--provider pi/<model>` spec into provider id + optional model. */
@@ -249,6 +263,195 @@ export function attachAgent(
   });
 }
 
+// ─── Slash-command operations (sprint-037) ───────────────────────────────────────
+
+/** `/session` — read-only session stats (tokens, cost, context-window usage). */
+export async function sessionStatsAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.sessionStats, {
+    agentId,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
+  return EXIT_OK;
+}
+
+/** `/compact` — manually compact conversation context. */
+export async function compactAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  customInstructions: string | undefined,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.compact, {
+    agentId,
+    customInstructions,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
+  return EXIT_OK;
+}
+
+/** `/new` — start a fresh session in place. */
+export async function newAgentSession(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.newSession, { agentId });
+  ctx.sink.write(
+    opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "new session started",
+  );
+  return EXIT_OK;
+}
+
+/** `/resume` — load a different session file in place. */
+export async function switchAgentSession(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  sessionPath: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.switchSession, {
+    agentId,
+    sessionPath,
+  });
+  ctx.sink.write(
+    opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "session switched",
+  );
+  return EXIT_OK;
+}
+
+/** `/fork` — create a new branch from a previous user message. */
+export async function forkAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  entryId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.fork, {
+    agentId,
+    entryId,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
+  return EXIT_OK;
+}
+
+interface ForkMessageRow extends Record<string, unknown> {
+  entryId: string;
+  text: string;
+}
+
+/** Fork picker — user messages available to fork from. */
+export async function forkMessagesAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ messages?: ForkMessageRow[] }>(
+    AGENT_RPC.forkMessages,
+    { agentId },
+  );
+  ctx.sink.write(
+    opts.json ? renderJson(payload) : renderTable(payload.messages ?? [], ["entryId", "text"]),
+  );
+  return EXIT_OK;
+}
+
+/** `/clone` — duplicate the active branch into a new session at the current position. */
+export async function cloneAgentSession(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.clone, { agentId });
+  ctx.sink.write(opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "cloned");
+  return EXIT_OK;
+}
+
+/** `/name` — set the session display name. */
+export async function setAgentSessionName(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  name: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request(AGENT_RPC.setSessionName, { agentId, name });
+  ctx.sink.write(opts.json ? renderJson(payload) : "renamed");
+  return EXIT_OK;
+}
+
+/** `/export` — export the session to an HTML file. */
+export async function exportAgentHtml(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  outputPath: string | undefined,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ path?: string }>(AGENT_RPC.exportHtml, {
+    agentId,
+    outputPath,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : payload.path ?? "(no path)");
+  return EXIT_OK;
+}
+
+/** `/model` (set) — switch to a specific provider model. */
+export async function setAgentModel(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  provider: string,
+  modelId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.setModel, {
+    agentId,
+    provider,
+    modelId,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
+  return EXIT_OK;
+}
+
+/** `/model` (cycle) — cycle to the next available model. */
+export async function cycleAgentModel(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.cycleModel, {
+    agentId,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
+  return EXIT_OK;
+}
+
+/** `/copy` — the text content of the last assistant message. */
+export async function lastAssistantTextAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ text?: string | null }>(AGENT_RPC.lastAssistantText, {
+    agentId,
+  });
+  ctx.sink.write(opts.json ? renderJson(payload) : payload.text ?? "(none)");
+  return EXIT_OK;
+}
+
 // ─── Commander wiring ───────────────────────────────────────────────────────────
 
 export function registerAgentCommands(
@@ -434,6 +637,121 @@ export function registerAgentCommands(
     .description("set the agent mode")
     .action((agentId: string, modeId: string) =>
       withDaemon(ctx, g(), (client) => updateAgent(client, ctx, agentId, { modeId }, g())).then(
+        setExit,
+      ),
+    );
+
+  // Slash-command operations (sprint-037): CLI equivalents of Pi built-in slash commands that
+  // have a real Pi RPC equivalent. See packages/server/AGENTS.md's Agent subsystem section.
+
+  // session — /session: read-only stats (tokens, cost, context-window usage).
+  agent
+    .command("session <agentId>")
+    .description("show session stats (tokens, cost, context usage) — /session")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => sessionStatsAgent(client, ctx, agentId, g())).then(setExit),
+    );
+
+  // compact — /compact: manually compact conversation context.
+  agent
+    .command("compact <agentId>")
+    .description("manually compact the session context — /compact")
+    .option("-i, --instructions <text>", "custom compaction instructions")
+    .action((agentId: string, o: { instructions?: string }) =>
+      withDaemon(ctx, g(), (client) =>
+        compactAgent(client, ctx, agentId, o.instructions, g()),
+      ).then(setExit),
+    );
+
+  // new-session — /new: start a fresh session in place.
+  agent
+    .command("new-session <agentId>")
+    .description("start a fresh session in place — /new")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => newAgentSession(client, ctx, agentId, g())).then(setExit),
+    );
+
+  // resume-session — /resume: load a different session file in place.
+  agent
+    .command("resume-session <agentId>")
+    .description("load a different session file in place — /resume")
+    .requiredOption("-p, --path <sessionPath>", "JSONL session file to switch to")
+    .action((agentId: string, o: { path: string }) =>
+      withDaemon(ctx, g(), (client) =>
+        switchAgentSession(client, ctx, agentId, o.path, g()),
+      ).then(setExit),
+    );
+
+  // fork / fork-messages — /fork: create a new branch from a previous user message.
+  agent
+    .command("fork <agentId>")
+    .description("create a new branch from a previous user message — /fork")
+    .requiredOption("-e, --entry <entryId>", "entry id to fork from (see `agent fork-messages`)")
+    .action((agentId: string, o: { entry: string }) =>
+      withDaemon(ctx, g(), (client) => forkAgent(client, ctx, agentId, o.entry, g())).then(
+        setExit,
+      ),
+    );
+  agent
+    .command("fork-messages <agentId>")
+    .description("list user messages available to fork from")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => forkMessagesAgent(client, ctx, agentId, g())).then(setExit),
+    );
+
+  // clone — /clone: duplicate the active branch into a new session at the current position.
+  agent
+    .command("clone <agentId>")
+    .description("duplicate the current session at the current position — /clone")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => cloneAgentSession(client, ctx, agentId, g())).then(setExit),
+    );
+
+  // name — /name: set the session display name.
+  agent
+    .command("name <agentId> <name>")
+    .description("set the session display name — /name")
+    .action((agentId: string, name: string) =>
+      withDaemon(ctx, g(), (client) => setAgentSessionName(client, ctx, agentId, name, g())).then(
+        setExit,
+      ),
+    );
+
+  // export — /export: export the session to an HTML file.
+  agent
+    .command("export <agentId>")
+    .description("export session to an HTML file — /export")
+    .option("-o, --out <path>", "output file path")
+    .action((agentId: string, o: { out?: string }) =>
+      withDaemon(ctx, g(), (client) =>
+        exportAgentHtml(client, ctx, agentId, o.out, g()),
+      ).then(setExit),
+    );
+
+  // model (set) / cycle-model — /model: switch or cycle the provider model.
+  agent
+    .command("model <agentId>")
+    .description("switch to a specific provider model — /model")
+    .requiredOption("--provider <provider>", "provider id, e.g. anthropic")
+    .requiredOption("--model <modelId>", "model id")
+    .action((agentId: string, o: { provider: string; model: string }) =>
+      withDaemon(ctx, g(), (client) =>
+        setAgentModel(client, ctx, agentId, o.provider, o.model, g()),
+      ).then(setExit),
+    );
+  agent
+    .command("cycle-model <agentId>")
+    .description("cycle to the next available model — /model")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => cycleAgentModel(client, ctx, agentId, g())).then(setExit),
+    );
+
+  // last-message — /copy: the text content of the last assistant message.
+  agent
+    .command("last-message <agentId>")
+    .description("print the last assistant message — /copy")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => lastAssistantTextAgent(client, ctx, agentId, g())).then(
         setExit,
       ),
     );

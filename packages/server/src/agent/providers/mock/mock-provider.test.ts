@@ -64,4 +64,46 @@ describe("mock provider", () => {
     const client: AgentClient = new MockAgentClient();
     expect(client.provider).toBe("mock");
   });
+
+  it("implements slash-command operations (sprint-037) deterministically", async () => {
+    const client = new MockAgentClient();
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+
+    expect(await session.getSessionStats?.()).toEqual({
+      sessionId: session.id,
+      totalMessages: 0,
+      tokens: { total: 0 },
+    });
+    expect(await session.compact?.()).toEqual({
+      summary: "mock compaction summary",
+      firstKeptEntryId: "mock-entry-0",
+      tokensBefore: 0,
+    });
+    expect(await session.newSession?.()).toEqual({ cancelled: false });
+    expect(await session.switchSession?.("/tmp/other.jsonl")).toEqual({ cancelled: false });
+    expect(await session.fork?.("e1")).toEqual({
+      text: "mock forked text for e1",
+      cancelled: false,
+    });
+    expect(await session.getForkMessages?.()).toEqual([
+      { entryId: "mock-entry-0", text: "mock first prompt" },
+    ]);
+    expect(await session.clone?.()).toEqual({ cancelled: false });
+    await session.setSessionName?.("my-feature-work");
+    expect(await session.cycleModel?.()).toEqual({
+      model: { id: "mock-model" },
+      thinkingLevel: "medium",
+    });
+    expect(await session.getLastAssistantText?.()).toBeNull();
+
+    // Deliberately omitted so callers can exercise the unsupported-provider-method path.
+    expect(session.exportHtml).toBeUndefined();
+  });
+
+  it("getLastAssistantText returns the most recent assistant message after a turn", async () => {
+    const client = new MockAgentClient();
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+    await session.run("hello");
+    expect(await session.getLastAssistantText?.()).toContain("hello");
+  });
 });

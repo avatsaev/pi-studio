@@ -108,6 +108,37 @@ describe("production daemon bootstrap", () => {
     client.close();
   }, 15000);
 
+  it("registers the slash-command RPC handlers (sprint-037) — unknown agent surfaces handler_error, never unknown_message_type", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const slashCommandProbes = [
+      { type: "agent_session_stats_request", agentId: "missing" },
+      { type: "agent_compact_request", agentId: "missing" },
+      { type: "agent_new_session_request", agentId: "missing" },
+      { type: "agent_switch_session_request", agentId: "missing", sessionPath: "/tmp/x.jsonl" },
+      { type: "agent_fork_request", agentId: "missing", entryId: "e1" },
+      { type: "agent_fork_messages_request", agentId: "missing" },
+      { type: "agent_clone_request", agentId: "missing" },
+      { type: "agent_set_session_name_request", agentId: "missing", name: "n" },
+      { type: "agent_export_html_request", agentId: "missing" },
+      { type: "agent_set_model_request", agentId: "missing", provider: "anthropic", modelId: "m1" },
+      { type: "agent_cycle_model_request", agentId: "missing" },
+      { type: "agent_last_assistant_text_request", agentId: "missing" },
+    ];
+    for (const probe of slashCommandProbes) {
+      const res = await client.rpc(probe);
+      // A registered handler that throws (unknown agent) yields "handler_error"; an unregistered
+      // type would yield "unknown_message_type" — this distinguishes wiring from behavior.
+      expect(res.type, `handler for ${probe.type}`).toBe("rpc_error");
+      expect(res.code, `handler for ${probe.type}`).toBe("handler_error");
+      expect(res.message as string, `handler for ${probe.type}`).toMatch(/unknown agent/);
+    }
+
+    client.close();
+  }, 15000);
+
   it("creates an agent via the opt-in mock provider and persists it to disk (reloads across boots)", async () => {
     const booted = boot();
     handle = booted.handle;

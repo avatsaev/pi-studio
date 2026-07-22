@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  agentStreamEventSchema,
+  agentCloneRequestSchema,
+  agentCloneResponseSchema,
+  agentCompactRequestSchema,
+  agentCompactResponseSchema,
+  agentCycleModelRequestSchema,
+  agentCycleModelResponseSchema,
+  agentExportHtmlRequestSchema,
+  agentExportHtmlResponseSchema,
+  agentForkMessagesRequestSchema,
+  agentForkMessagesResponseSchema,
+  agentForkRequestSchema,
+  agentForkResponseSchema,
+  agentLastAssistantTextRequestSchema,
+  agentLastAssistantTextResponseSchema,
+  agentNewSessionRequestSchema,
+  agentNewSessionResponseSchema,
+  agentSessionStatsRequestSchema,
+  agentSessionStatsResponseSchema,
+  agentSetModelRequestSchema,
+  agentSetModelResponseSchema,
+  agentSetSessionNameRequestSchema,
+  agentSetSessionNameResponseSchema,
   agentStatusMessageSchema,
+  agentStreamEventSchema,
+  agentSwitchSessionRequestSchema,
+  agentSwitchSessionResponseSchema,
   createAgentRequestSchema,
   fetchAgentTimelineResponseSchema,
   legacyRespondToPermissionSchema,
@@ -196,5 +220,230 @@ describe("session message union", () => {
       true,
     );
     expect(sessionMessageSchema.safeParse({ type: "never_seen" }).success).toBe(false);
+  });
+});
+
+describe("slash-command operations (sprint-037)", () => {
+  it("accepts a full agent_session_stats_response and tolerates unknown extra fields", () => {
+    const result = agentSessionStatsResponseSchema.safeParse({
+      type: "agent_session_stats_response",
+      requestId: "r1",
+      payload: {
+        sessionId: "s1",
+        tokens: { input: 100, output: 50, total: 150 },
+        contextUsage: { tokens: 500, contextWindow: 200000, percent: 0.25 },
+        fromTheFuture: true,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("requires agentId on agent_session_stats_request", () => {
+    expect(
+      agentSessionStatsRequestSchema.safeParse({
+        type: "agent_session_stats_request",
+        requestId: "r1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts optional customInstructions on agent_compact_request", () => {
+    expect(
+      agentCompactRequestSchema.safeParse({
+        type: "agent_compact_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentCompactRequestSchema.safeParse({
+        type: "agent_compact_request",
+        requestId: "r1",
+        agentId: "a1",
+        customInstructions: "focus on code",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_compact_response carries summary + tokensBefore", () => {
+    const result = agentCompactResponseSchema.safeParse({
+      type: "agent_compact_response",
+      requestId: "r1",
+      payload: { summary: "did stuff", firstKeptEntryId: "e1", tokensBefore: 150000 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("agent_new_session_response carries cancelled", () => {
+    expect(
+      agentNewSessionResponseSchema.safeParse({
+        type: "agent_new_session_response",
+        requestId: "r1",
+        payload: { cancelled: false },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_switch_session_request requires sessionPath", () => {
+    expect(
+      agentSwitchSessionRequestSchema.safeParse({
+        type: "agent_switch_session_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentSwitchSessionRequestSchema.safeParse({
+        type: "agent_switch_session_request",
+        requestId: "r1",
+        agentId: "a1",
+        sessionPath: "/tmp/s.jsonl",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_fork_request requires entryId; agent_fork_response carries text+cancelled", () => {
+    expect(
+      agentForkRequestSchema.safeParse({
+        type: "agent_fork_request",
+        requestId: "r1",
+        agentId: "a1",
+        entryId: "e1",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentForkResponseSchema.safeParse({
+        type: "agent_fork_response",
+        requestId: "r1",
+        payload: { text: "original prompt", cancelled: false },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_fork_messages_response carries a list of entryId/text pairs", () => {
+    const result = agentForkMessagesResponseSchema.safeParse({
+      type: "agent_fork_messages_response",
+      requestId: "r1",
+      payload: { messages: [{ entryId: "e1", text: "first" }] },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("agent_clone_response carries cancelled", () => {
+    expect(
+      agentCloneResponseSchema.safeParse({
+        type: "agent_clone_response",
+        requestId: "r1",
+        payload: { cancelled: false },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_set_session_name_request requires name", () => {
+    expect(
+      agentSetSessionNameRequestSchema.safeParse({
+        type: "agent_set_session_name_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentSetSessionNameRequestSchema.safeParse({
+        type: "agent_set_session_name_request",
+        requestId: "r1",
+        agentId: "a1",
+        name: "my-feature-work",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_export_html_response carries a path; outputPath is optional on the request", () => {
+    expect(
+      agentExportHtmlRequestSchema.safeParse({
+        type: "agent_export_html_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentExportHtmlResponseSchema.safeParse({
+        type: "agent_export_html_response",
+        requestId: "r1",
+        payload: { path: "/tmp/session.html" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_set_model_request requires provider + modelId", () => {
+    expect(
+      agentSetModelRequestSchema.safeParse({
+        type: "agent_set_model_request",
+        requestId: "r1",
+        agentId: "a1",
+        provider: "anthropic",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentSetModelRequestSchema.safeParse({
+        type: "agent_set_model_request",
+        requestId: "r1",
+        agentId: "a1",
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-20250514",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_cycle_model_response allows a null model (single-model case)", () => {
+    expect(
+      agentCycleModelResponseSchema.safeParse({
+        type: "agent_cycle_model_response",
+        requestId: "r1",
+        payload: { model: null },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_last_assistant_text_response allows a null text", () => {
+    expect(
+      agentLastAssistantTextResponseSchema.safeParse({
+        type: "agent_last_assistant_text_response",
+        requestId: "r1",
+        payload: { text: null },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("registers every new type in the session message union", () => {
+    const messages: Record<string, unknown> = {
+      agent_session_stats_request: { agentId: "a1" },
+      agent_session_stats_response: { payload: {} },
+      agent_compact_request: { agentId: "a1" },
+      agent_compact_response: { payload: {} },
+      agent_new_session_request: { agentId: "a1" },
+      agent_new_session_response: { payload: { cancelled: false } },
+      agent_switch_session_request: { agentId: "a1", sessionPath: "/tmp/s.jsonl" },
+      agent_switch_session_response: { payload: { cancelled: false } },
+      agent_fork_request: { agentId: "a1", entryId: "e1" },
+      agent_fork_response: { payload: { text: "x", cancelled: false } },
+      agent_fork_messages_request: { agentId: "a1" },
+      agent_fork_messages_response: { payload: { messages: [] } },
+      agent_clone_request: { agentId: "a1" },
+      agent_clone_response: { payload: { cancelled: false } },
+      agent_set_session_name_request: { agentId: "a1", name: "n" },
+      agent_set_session_name_response: {},
+      agent_export_html_request: { agentId: "a1" },
+      agent_export_html_response: { payload: { path: "/tmp/s.html" } },
+      agent_set_model_request: { agentId: "a1", provider: "anthropic", modelId: "m1" },
+      agent_set_model_response: { payload: {} },
+      agent_cycle_model_request: { agentId: "a1" },
+      agent_cycle_model_response: { payload: {} },
+      agent_last_assistant_text_request: { agentId: "a1" },
+      agent_last_assistant_text_response: { payload: { text: null } },
+    };
+    for (const [type, extra] of Object.entries(messages)) {
+      const result = sessionMessageSchema.safeParse({ type, requestId: "r1", ...extra });
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
   });
 });

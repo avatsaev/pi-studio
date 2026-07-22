@@ -19,6 +19,7 @@ import type { Session } from "../ws/session.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
+import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
 import { PermissionService } from "../agent/permissions.js";
 import { createMockClient } from "../agent/providers/mock/mock-provider.js";
@@ -103,6 +104,9 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     broadcast,
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
+
+  const slashCommandOps = new SlashCommandOperationsService({ manager, broadcast });
+  slashCommandOps.registerHandlers(registry, getActiveSessions);
 
   registerTimelineHandler(registry, { manager, resolveClient });
 
