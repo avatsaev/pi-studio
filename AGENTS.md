@@ -109,6 +109,49 @@ cd docker && docker compose up --build   # see docker/README.md
 
 ---
 
+## Release & production deployment
+
+Three independent, ordered scripts take code from a clean working tree to running in production.
+Each is idempotent and safe to re-run; none of them auto-chains into the next — run them in order
+by hand (or from a CI job that does the same).
+
+```bash
+# 1. Publish npm packages — bumps every workspace package to one aligned patch version,
+#    rewrites internal @av-pi-studio/* deps to match, builds+typechecks+tests, then publishes
+#    protocol/highlight/relay/client/web-client/server/cli to npm in that dependency order.
+#    Requires: npm login. Aborts if the git working tree isn't clean.
+npm run publish
+npm run publish -- --dry-run     # do everything except the actual `npm publish`
+npm run publish -- --no-bump     # publish current versions as-is, no version bump
+
+# 2. Build + push Docker images — builds pi-studio-{relay,daemon,web-client} from local source,
+#    boot-smoke-tests web-client (runs it, curls for a 200) before pushing anything, then tags
+#    and pushes to Docker Hub under avatsaev/pi-studio-{relay,daemon,web-client}.
+#    Requires: docker login with push access.
+npm run docker:publish
+npm run docker:publish -- --tag 0.0.13   # also tag+push :0.0.13 alongside :latest (match step 1)
+npm run docker:publish -- --dry-run      # build+smoke-test, skip the push
+
+# 3. Deploy to production — redeploys the `relay` and `web-client` compose stacks on Dokploy
+#    (project `molagent-platform`, https://infra.molagent.ai), which re-pulls the `:latest`
+#    digest step 2 just pushed and restarts. Does NOT build/push images itself — run AFTER step 2.
+#    Requires: `dokploy` CLI (https://github.com/Dokploy/cli) installed and authenticated
+#    (`dokploy auth`). The daemon is intentionally NOT deployed here — only relay + web UI run on
+#    molagent-platform; the daemon is self-hosted per user.
+npm run docker:deploy
+npm run docker:deploy -- relay        # one service only
+npm run docker:deploy -- web-client
+npm run docker:deploy -- --no-wait    # trigger, don't poll for completion
+```
+
+Production endpoints: `https://relay.molagent.ai` (relay, health at `/health`), `https://app.molagent.ai`
+(web-client SPA). See `docker/README.md` for the full detail on all three scripts, including a
+known `@dokploy/cli` 0.29.4 bug (`dokploy-deploy.sh`'s header comment) that makes several of the
+CLI's own read/list subcommands 400 — the deploy script works around it by talking to the Dokploy
+tRPC API directly via `curl` for status polling, rather than waiting on an upstream fix.
+
+---
+
 ## Daemon configuration (environment variables)
 
 | Variable | Default | Purpose |
