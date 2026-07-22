@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { encodeFileTransferFrame } from "@av-pi-studio/protocol";
+import { decodeFileTransferFrame, encodeFileTransferFrame } from "@av-pi-studio/protocol";
 
 import { DaemonClient } from "./daemon-client.js";
 import { FileTransferClient } from "./file-transfer-client.js";
@@ -9,10 +9,12 @@ import type { Transport } from "./transport.js";
 function makeFakeTransport(): {
   transport: Transport;
   sentText: string[];
+  sentBinary: Uint8Array[];
   push: (data: string) => void;
   pushBinary: (bytes: Uint8Array) => void;
 } {
   const sentText: string[] = [];
+  const sentBinary: Uint8Array[] = [];
   const transport: Transport = {
     onMessage: null,
     onClose: null,
@@ -37,12 +39,15 @@ function makeFakeTransport(): {
         );
       }
     },
-    sendBinary: () => {},
+    sendBinary: (data) => {
+      sentBinary.push(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer));
+    },
     close: () => {},
   };
   return {
     transport,
     sentText,
+    sentBinary,
     push: (data) => transport.onMessage?.(data),
     pushBinary: (bytes) =>
       transport.onMessage?.(
@@ -175,5 +180,67 @@ describe("FileTransferClient — download", () => {
     );
 
     await expect(downloadPromise).rejects.toThrow("not_found");
+  });
+});
+
+describe("FileTransferClient — upload", () => {
+  it("requests an upload stream, then pushes Begin→Chunk*→End for the assigned stream", async () => {
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    // > one chunk (32 KiB) → multiple Chunk frames.
+    const bytes = new Uint8Array(70_000).map((_, i) => i % 251);
+    const uploadPromise = transfer.upload("/tmp/out.bin", bytes);
+
+    const requestId = lastRequestId(fake.sentText);
+    const request = JSON.parse(fake.sentText.at(-1)!) as {
+      message: { type: string; path: string; transferId: string };
+    };
+    expect(request.message.type).toBe("file_upload_request");
+    expect(request.message.path).toBe("/tmp/out.bin");
+    const transferId = request.message.transferId;
+    expect(transferId).toBeTruthy();
+
+    fake.push(
+      JSON.stringify({
+        type: "session",
+        message: { type: "file_upload_response", requestId, ok: true, stream: 7 },
+      }),
+    );
+
+    await uploadPromise;
+
+    const frames = fake.sentBinary.map((b) => decodeFileTransferFrame(b));
+    expect(frames[0]).toMatchObject({ opcode: "Begin", stream: 7 });
+    if (frames[0]?.opcode === "Begin") expect(frames[0].meta.transferId).toBe(transferId);
+    expect(frames.at(-1)).toEqual({ opcode: "End", stream: 7, ok: true });
+    const chunks = frames.filter(
+      (f): f is Extract<typeof f, { opcode: "Chunk" }> => f.opcode === "Chunk",
+    );
+    expect(chunks.length).toBe(3); // 70000 / 32768 → 3 chunks
+    const reassembled = chunks.flatMap((c) => Array.from(c.data));
+    expect(reassembled).toEqual(Array.from(bytes));
+  });
+
+  it("rejects when the upload request is refused", async () => {
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    const uploadPromise = transfer.upload("", new Uint8Array([1]));
+    const requestId = lastRequestId(fake.sentText);
+    fake.push(
+      JSON.stringify({
+        type: "session",
+        message: { type: "file_upload_response", requestId, ok: false, error: "missing_fields" },
+      }),
+    );
+
+    await expect(uploadPromise).rejects.toThrow("missing_fields");
   });
 });

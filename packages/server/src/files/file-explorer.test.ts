@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -85,5 +85,51 @@ describe("FileExplorerService.listOrPreview", () => {
     const result = await svc.listOrPreview(join(dir, "does-not-exist"));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe("not_found");
+  });
+});
+
+describe("FileExplorerService.deleteFile", () => {
+  it("deletes a file", async () => {
+    const target = join(dir, "gone.txt");
+    await writeFile(target, "bye");
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(target);
+    expect(result.ok).toBe(true);
+    await expect(stat(target)).rejects.toThrow();
+  });
+
+  it("deletes a directory recursively", async () => {
+    const target = join(dir, "sub");
+    await mkdir(target);
+    await writeFile(join(target, "nested.txt"), "x");
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(target);
+    expect(result.ok).toBe(true);
+    await expect(stat(target)).rejects.toThrow();
+  });
+
+  it("resolves symlinks before deleting (removes the real target)", async () => {
+    const real = join(dir, "real2.txt");
+    const link = join(dir, "link2.txt");
+    await writeFile(real, "content");
+    await symlink(real, link);
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(link);
+    expect(result.ok).toBe(true);
+    await expect(stat(real)).rejects.toThrow();
+  });
+
+  it("returns not_found for a missing path", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(join(dir, "does-not-exist"));
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("not_found");
+  });
+
+  it("returns empty_path for an empty path", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile("");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("empty_path");
   });
 });

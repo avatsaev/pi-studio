@@ -29,13 +29,13 @@ export type ConnectionState = "idle" | "connecting" | "open" | "closing" | "clos
 /** The default wire protocol version this client speaks. */
 export const PROTOCOL_VERSION = 1;
 
-/** Generate a request correlation id. */
-function newRequestId(): string {
-  // crypto.randomUUID is available in browsers, RN (Hermes 0.74+), and Node 16+.
+/** Portable random id — `crypto.randomUUID` where available (browser secure context, RN Hermes
+ * 0.74+, Node 16+), else a timestamp+random fallback for insecure/older contexts. */
+export function randomId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface DaemonClientOptions {
@@ -187,7 +187,7 @@ export class DaemonClient {
     params: Record<string, unknown> = {},
     timeoutMs?: number,
   ): Promise<T> {
-    const requestId = (params.requestId as string | undefined) ?? newRequestId();
+    const requestId = (params.requestId as string | undefined) ?? randomId();
     return new Promise<T>((resolve, reject) => {
       const timeout = timeoutMs ?? this.rpcTimeoutMs;
       const timer =
@@ -221,7 +221,7 @@ export class DaemonClient {
    * browser/RN WebSocket APIs do not expose RFC6455 ping.
    */
   ping(timeoutMs = 10_000): Promise<void> {
-    const requestId = newRequestId();
+    const requestId = randomId();
     return new Promise<void>((resolve, reject) => {
       const timer =
         timeoutMs > 0

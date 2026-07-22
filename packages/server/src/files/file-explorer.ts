@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, readdir, realpath, stat } from "node:fs/promises";
+import { open, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 
 import type { HandlerRegistry } from "../ws/router.js";
@@ -72,6 +72,11 @@ export class FileExplorerService {
       projectId: String(ctx.message.projectId ?? ""),
       icon: null, // resolution mechanism TODO(verify)
     }));
+
+    registry.register("file_delete_request", async (ctx) => ({
+      type: "file_delete_response",
+      ...(await this.deleteFile(String(ctx.message.path ?? ""))),
+    }));
   }
 
   /** Normalize + resolve a path (symlinks), then list a directory or preview a file. */
@@ -105,6 +110,28 @@ export class FileExplorerService {
     if (!info.isFile()) return { ok: false, error: "unsupported" };
 
     return this.previewFile(inputPath, resolvedPath, info.size, info.mtimeMs);
+  }
+
+  /**
+   * Delete a file or directory (recursively) at `inputPath`, resolving symlinks first — same
+   * normalization/trust boundary as `listOrPreview` (features/file-explorer-transfer.md § Trust
+   * boundary). No confirmation/undo server-side; the client is expected to confirm destructive
+   * deletes before calling.
+   */
+  async deleteFile(inputPath: string): Promise<{ ok: boolean; error?: string }> {
+    if (!inputPath) return { ok: false, error: "empty_path" };
+    let resolvedPath: string;
+    try {
+      resolvedPath = await realpath(resolve(inputPath));
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+    try {
+      await rm(resolvedPath, { recursive: true });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "delete_failed" };
+    }
   }
 
   private async readDirectory(dir: string): Promise<DirEntry[]> {

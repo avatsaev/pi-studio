@@ -9,24 +9,9 @@
 
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DaemonClient } from "@av-pi-studio/client";
-import { FileTransferClient } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-
-// One FileTransferClient per daemon connection — mirrors `TerminalPanel.tsx`'s `routerFor`
-// (multiple viewers share the one frame demuxer over the shared socket).
-const transferByDaemon = new WeakMap<DaemonClient, FileTransferClient>();
-
-function transferFor(daemon: DaemonClient): FileTransferClient {
-  let transfer = transferByDaemon.get(daemon);
-  if (!transfer) {
-    transfer = new FileTransferClient(daemon);
-    transfer.start();
-    transferByDaemon.set(daemon, transfer);
-  }
-  return transfer;
-}
+import { transferFor } from "./file-transfer-instance.js";
 
 export interface FileDownload {
   objectUrl: string;

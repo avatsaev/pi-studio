@@ -87,8 +87,10 @@ src/
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore, use-shortcuts, use-explorer,
-                           use-file-read/-diff/-download, use-checkout-status, use-terminals,
-                           use-agent-stream (+ agent-stream-events), use-home-dir
+                           use-file-read/-diff/-download, use-file-transfer (upload + save-to-disk
+                           actions, shared FileTransferClient via file-transfer-instance),
+                           use-checkout-status, use-terminals, use-agent-stream (+
+                           agent-stream-events), use-home-dir
   features/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
@@ -97,9 +99,10 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, Attachments, rows/ (Assistant/User/
                             System/Error/Reasoning rows, ToolCard)
-    files/                  FilePanel, FileExplorer, RightSidebar, DiffView, CodeView,
-                            MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
-                            TextViewer, viewer-registry
+    files/                  FilePanel, FileExplorer (upload button, drag-and-drop, per-row "⋮"
+                            context-menu trigger), FileContextMenu (download/delete), RightSidebar,
+                            DiffView, CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
+                            BinaryFallbackViewer, TextViewer, viewer-registry
     git/                    ChangesPanel
     terminal/               TerminalPanel, TerminalsPanel
   routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)
@@ -154,3 +157,13 @@ entered at runtime, never baked into the image.
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
   sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.
+- **File upload/download/delete run only against a daemon that wires `FileTransferService` +
+  `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
+  `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
+  so upload/download RPCs have no handler there). Smoke-testing the Files sidebar's transfer
+  actions needs `npm start`/`npm run start:server`, not `npm run dev:daemon`.
+- **No confirmation for upload overwrite/delete happens server-side.** `FileExplorer.tsx` confirms
+  an upload that would clash with an existing name before calling `useFileTransfer().upload()`;
+  `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both
+  unconditionally (overwrites/`rm -rf`s whatever resolved path it's given) — never skip the
+  client-side confirm when adding new callers.

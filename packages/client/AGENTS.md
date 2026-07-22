@@ -20,7 +20,8 @@ Provides:
 4. **`TerminalStreamRouter`** — demuxes incoming binary terminal frames by slot to per-slot
    subscribers, and encodes outbound input/resize frames.
 5. **`FileTransferClient`** — demuxes incoming binary file-download frames, assembling
-   `Begin → Chunk* → End` into one buffer per request.
+   `Begin → Chunk* → End` into one buffer per request, and drives chunked uploads the other way
+   (request an upload stream, then push `Begin → Chunk* → End` frames the server writes to disk).
 6. **`createRelayTransport`** + **`parsePairingUrl`** — the client side of the E2EE relay: connects
    through a relay server instead of directly to the daemon, using the same `Transport` interface
    as a direct WebSocket, so `DaemonClient` doesn't need to know which one it's using.
@@ -43,7 +44,7 @@ src/
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
   terminal-stream-router.ts   TerminalStreamRouter — binary terminal frame demux/encode by slot.
   terminal-router.test.ts
-  file-transfer-client.ts     FileTransferClient — binary file-download frame demux + assembly.
+  file-transfer-client.ts     FileTransferClient — binary file-download/-upload frame demux + assembly.
   file-transfer-client.test.ts
 ```
 
@@ -252,7 +253,7 @@ A frame for a slot with no registered subscriber is silently dropped.
 
 ## `FileTransferClient` (`file-transfer-client.ts`)
 
-Mirrors `TerminalStreamRouter`'s inbound-frame-routing shape, but a download is a one-shot
+Mirrors `TerminalStreamRouter`'s inbound-frame-routing shape, but a transfer is a one-shot
 request/response rather than a persistent per-slot subscription:
 
 ```ts
@@ -260,6 +261,10 @@ const files = new FileTransferClient(daemonClient);
 files.start();                                    // begin routing (idempotent)
 const { bytes, fileName, mimeType } = await files.download(path);
 // requests a single-use token, then the chunked transfer, assembling Begin → Chunk* → End
+await files.upload(path, bytes);
+// requests an upload stream (server keys it by a fresh transferId), then pushes
+// Begin → Chunk* → End frames the server writes to `path` (creates parent dirs, overwrites
+// any existing file — no confirmation server-side; callers must confirm before calling).
 files.stop();                                     // stop routing; pending downloads are rejected
 ```
 
@@ -281,8 +286,13 @@ files.stop();                                     // stop routing; pending downl
   (`deriveRelaySessionId(daemonPublicKey)`), unlike the keypair — so it staying the same across
   reconnects does NOT weaken "new session → new keys" (architecture/relay-e2ee.md § Error
   Handling): the shared key still comes from the fresh ephemeral keypair, never from the session id.
-- **`crypto.randomUUID`** is used for request IDs with a `Date.now()`+`Math.random()` fallback for
-  environments that lack it.
+- **`randomId()`** (exported from `daemon-client.ts`) is the one portable id generator for both RPC
+  `requestId`s and `FileTransferClient.upload()`'s `transferId` — `crypto.randomUUID` where
+  available, else a `Date.now()`+`Math.random()` fallback. `crypto.randomUUID` requires a secure
+  context and is NOT guaranteed present in every browser/webview the client runs in (regression
+  hit in practice: an insecure-context web-client build threw `crypto.randomUUID is not a
+  function` on upload) — never call `crypto.randomUUID()` directly in this package; use
+  `randomId()`.
 
 ---
 

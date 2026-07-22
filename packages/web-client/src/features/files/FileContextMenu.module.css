@@ -1,0 +1,36 @@
+.trigger {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.content {
+  min-width: 140px;
+  padding: 4px;
+  border-radius: var(--pi-borderRadius-md, 6px);
+  background: var(--pi-color-surface, #16181a);
+  border: 1px solid var(--pi-color-border, #353b46);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+.item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+.item:hover,
+.item[data-highlighted] {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+.danger {
+  color: var(--pi-color-statusDanger, #e5484d);
+}
+.sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--pi-color-border, #353b46);
+}

@@ -1,13 +1,18 @@
-import { type FileTransferFrame } from "@av-pi-studio/protocol";
+import { encodeFileTransferFrame, type FileTransferFrame } from "@av-pi-studio/protocol";
 
-import type { DaemonClient } from "./daemon-client.js";
+import { randomId, type DaemonClient } from "./daemon-client.js";
 
 /**
- * Client-side demux + assembly for binary file downloads (features/file-explorer-transfer.md
- * § Binary transfer frames). Mirrors `TerminalStreamRouter`'s inbound-frame-routing shape, but a
- * download is a one-shot request/response rather than a persistent per-slot subscription: request
- * a token, request the download, await the assembled bytes.
+ * Client-side demux + assembly for binary file downloads plus chunked uploads
+ * (features/file-explorer-transfer.md § Binary transfer frames). Mirrors `TerminalStreamRouter`'s
+ * inbound-frame-routing shape, but a download is a one-shot request/response rather than a
+ * persistent per-slot subscription: request a token, request the download, await the assembled
+ * bytes. An upload is the inverse: request an upload stream, then push `Begin → Chunk* → End`
+ * binary frames the server writes to the target path.
  */
+
+/** Matches the server's default chunk size (`FileTransferService` DEFAULT_CHUNK_BYTES). */
+const UPLOAD_CHUNK_BYTES = 32 * 1024;
 
 export interface DownloadedFile {
   bytes: Uint8Array;
@@ -30,6 +35,12 @@ interface TokenResponse {
 
 interface DownloadRequestResponse {
   ok: boolean;
+  error?: string;
+}
+
+interface UploadRequestResponse {
+  ok: boolean;
+  stream?: number;
   error?: string;
 }
 
@@ -95,6 +106,31 @@ export class FileTransferClient {
     }
 
     return result;
+  }
+
+  /**
+   * Upload `bytes` to `path` on the daemon: requests an upload stream, then pushes
+   * `Begin → Chunk* → End` binary frames the server writes to disk (creating parent dirs,
+   * overwriting any existing file). The server keys the transfer by `transferId`, which the
+   * `Begin` frame must echo. Resolves once every frame is flushed to the socket.
+   */
+  async upload(path: string, bytes: Uint8Array): Promise<void> {
+    const transferId = randomId();
+    const response = await this.daemon.request<UploadRequestResponse>("file_upload_request", {
+      path,
+      transferId,
+    });
+    if (!response.ok || response.stream === undefined) {
+      throw new Error(response.error ?? "upload request failed");
+    }
+    const stream = response.stream;
+
+    this.daemon.sendBinary(encodeFileTransferFrame({ opcode: "Begin", stream, meta: { transferId } }));
+    for (let offset = 0; offset < bytes.length; offset += UPLOAD_CHUNK_BYTES) {
+      const data = bytes.subarray(offset, offset + UPLOAD_CHUNK_BYTES);
+      this.daemon.sendBinary(encodeFileTransferFrame({ opcode: "Chunk", stream, data }));
+    }
+    this.daemon.sendBinary(encodeFileTransferFrame({ opcode: "End", stream, ok: true }));
   }
 
   private dispatch(frame: FileTransferFrame): void {

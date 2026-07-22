@@ -27,6 +27,7 @@ export interface UiStoreState {
 
   cwdPickerOpen: boolean;
   sessionMenu: { sessionId: string; x: number; y: number } | null;
+  fileMenu: { path: string; isDirectory: boolean; x: number; y: number } | null;
   rightSidebarTab: "files" | "changes" | "terminals";
   /** Workspace cwds collapsed in the sidebar tree (§4.3 workspace grouping); expanded by default. */
   collapsedWorkspaces: Set<string>;
@@ -44,6 +45,8 @@ export interface UiStoreState {
   closeCwdPicker(): void;
   openSessionMenu(sessionId: string, x: number, y: number): void;
   closeSessionMenu(): void;
+  openFileMenu(path: string, isDirectory: boolean, x: number, y: number): void;
+  closeFileMenu(): void;
   setRightSidebarTab(tab: "files" | "changes" | "terminals"): void;
   toggleWorkspaceCollapsed(cwd: string): void;
   toggleLeftSidebar(): void;
@@ -63,6 +66,7 @@ export const useUiStore = create<UiStoreState>()((set) => ({
 
   cwdPickerOpen: false,
   sessionMenu: null,
+  fileMenu: null,
   rightSidebarTab: "files",
   collapsedWorkspaces: new Set(),
   leftSidebarCollapsed: false,
@@ -77,6 +81,8 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   closeCwdPicker: () => set({ cwdPickerOpen: false }),
   openSessionMenu: (sessionId, x, y) => set({ sessionMenu: { sessionId, x, y } }),
   closeSessionMenu: () => set({ sessionMenu: null }),
+  openFileMenu: (path, isDirectory, x, y) => set({ fileMenu: { path, isDirectory, x, y } }),
+  closeFileMenu: () => set({ fileMenu: null }),
   setRightSidebarTab: (tab) => set({ rightSidebarTab: tab }),
   toggleWorkspaceCollapsed: (cwd) =>
     set((s) => {

@@ -1,5 +1,88 @@
+.container {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.header {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+}
+.uploadButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--pi-color-border, #353b46);
+  background: var(--pi-color-surface, #1e2124);
+  color: var(--pi-color-foreground, #e4e6eb);
+  cursor: pointer;
+}
+.uploadButton:hover:not(:disabled) {
+  background: var(--pi-color-surfaceHover, #2a2e33);
+}
+.uploadButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hiddenInput {
+  display: none;
+}
+.status,
+.statusError {
+  font-size: 11px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.statusError {
+  color: var(--pi-color-danger, #e5534b);
+}
+.rowAction {
+  margin-left: auto;
+  display: none;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  cursor: pointer;
+  border-radius: 3px;
+}
+.rowAction:hover {
+  color: var(--pi-color-foreground, #e4e6eb);
+  background: var(--pi-color-surface, #1e2124);
+}
+.item:hover .rowAction {
+  display: inline-flex;
+}
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--pi-color-accentBright, #a2b4d7);
+  background: color-mix(in srgb, var(--pi-color-surface, #1e2124) 80%, transparent);
+  border: 2px dashed var(--pi-color-accentBright, #a2b4d7);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .list {
   padding: 4px 0;
+  flex: 1;
+  overflow-y: auto;
 }
 .upRow {
   padding: 4px 8px;
