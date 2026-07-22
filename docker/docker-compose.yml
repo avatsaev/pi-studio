@@ -71,6 +71,10 @@ services:
       # locally, instead of an empty in-container config with no credentials. Override with
       # PI_STUDIO_PI_HOME if your host config lives somewhere other than `~/.pi`.
       - "${PI_STUDIO_PI_HOME:-${HOME}/.pi}:/home/node/.pi"
+      # Mount the host's ~/DEV/avatsaev tree into the container home so agents/terminals and the
+      # file explorer can browse and operate on your real projects at the same path you use
+      # locally. Override with PI_STUDIO_DEV_DIR if your projects live elsewhere.
+      - "${PI_STUDIO_DEV_DIR:-${HOME}/DEV/avatsaev}:/home/node/DEV/avatsaev"
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:6767/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
