@@ -39,6 +39,25 @@ describe("createProcessTransport — spawn failure handling", () => {
     expect(String(event.error)).toMatch(/not found on PATH|ENOENT/i);
     await transport.close();
   });
+
+  it("folds captured stderr into the `error` stream event on a non-zero exit with commands in flight", async () => {
+    const transport = createProcessTransport({
+      args: [
+        process.execPath,
+        "-e",
+        "process.stderr.write('boom: something broke\\n'); process.exit(1);",
+      ],
+      cwd: ".",
+      env: {},
+    });
+    const event = await new Promise<Record<string, unknown>>((resolve) => {
+      transport.onEvent((e) => resolve(e as Record<string, unknown>));
+      transport.request("x").catch(() => {});
+    });
+    expect(event.type).toBe("error");
+    expect(String(event.error)).toContain("boom: something broke");
+    await transport.close();
+  });
 });
 
 describe("PiAgentClient — fail fast when unavailable", () => {

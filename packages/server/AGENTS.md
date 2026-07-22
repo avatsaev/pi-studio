@@ -192,6 +192,10 @@ Two built-in providers: `pi` and `mock`.
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
+- `rpc-transport.ts` captures the spawned process's stderr (last 16 KiB) and folds it into both
+  the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
+  stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
+  a bare exit-code message instead.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.

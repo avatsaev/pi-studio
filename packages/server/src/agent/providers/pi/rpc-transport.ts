@@ -119,6 +119,16 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
   const log = spawnArgs.logger;
   log?.info({ pid: child.pid, command, cwd: spawnArgs.cwd }, "pi process spawned");
 
+  // Capture stderr so a crashing `pi` process is diagnosable — the JSONL protocol lives on
+  // stdout only, so anything on stderr is either a startup crash, an uncaught exception, or a
+  // warning the CLI printed directly. Kept as a small ring buffer (last 16 KiB) so a runaway
+  // process can't grow this unbounded; logged in full on any non-zero/signal exit.
+  let stderrTail = "";
+  const STDERR_TAIL_MAX = 16 * 1024;
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderrTail = (stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_MAX);
+  });
+
   const failAll = (error: Error): void => {
     failure = error;
     for (const [, p] of pending) p.reject(error);
@@ -139,13 +149,33 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
     failAll(failureError);
   });
   child.on("exit", (code, signal) => {
+    const trimmedStderr = stderrTail.trim();
     if (pending.size > 0) {
       log?.error(
-        { pid: child.pid, code: code ?? undefined, signal: signal ?? undefined, pendingCommands: pending.size },
+        {
+          pid: child.pid,
+          code: code ?? undefined,
+          signal: signal ?? undefined,
+          pendingCommands: pending.size,
+          ...(trimmedStderr ? { stderr: trimmedStderr } : {}),
+        },
         "pi process exited with commands in flight",
       );
       failAll(
-        new Error(`pi process exited (code ${code ?? "null"}${signal ? `, ${signal}` : ""})`),
+        new Error(
+          `pi process exited (code ${code ?? "null"}${signal ? `, ${signal}` : ""})` +
+            (trimmedStderr ? `: ${trimmedStderr}` : ""),
+        ),
+      );
+    } else if (code !== 0 && code !== null) {
+      log?.error(
+        {
+          pid: child.pid,
+          code,
+          signal: signal ?? undefined,
+          ...(trimmedStderr ? { stderr: trimmedStderr } : {}),
+        },
+        "pi process exited non-zero",
       );
     } else {
       log?.info({ pid: child.pid, code: code ?? undefined, signal: signal ?? undefined }, "pi process exited");
