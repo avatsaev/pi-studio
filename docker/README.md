@@ -60,6 +60,23 @@ docker build -f docker/web-client.Dockerfile -t pi-studio-web-client .
 docker build -f docker/daemon.Dockerfile --build-arg INSTALL_GH=true -t pi-studio-daemon .
 ```
 
+## Building + pushing to Docker Hub
+
+`scripts/docker-publish.sh` (`npm run docker:publish`) builds all three images from local source,
+boot-smoke-tests `pi-studio-web-client` (runs it detached, curls for a 200) before pushing
+anything, then tags and pushes each to its Docker Hub repo under the `avatsaev` namespace:
+`avatsaev/pi-studio-relay`, `avatsaev/pi-studio-daemon`, `avatsaev/pi-studio-web-client`.
+
+```bash
+npm run docker:publish                    # build + smoke-test + push :latest
+npm run docker:publish -- --tag 0.0.12    # also tag + push :0.0.12 alongside :latest
+npm run docker:publish -- --dry-run       # build + smoke-test, skip the push
+npm run docker:publish -- --no-build      # push existing local images as-is
+npm run docker:publish -- --install-gh    # bundle the GitHub CLI into the daemon image
+```
+
+Requires `docker login` with push access to those repos first.
+
 ## Running individually
 
 ### Relay
