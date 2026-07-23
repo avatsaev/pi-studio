@@ -2,11 +2,13 @@ import { AppProviders } from "./providers/AppProviders.js";
 import { WorkspacePage } from "./routes/WorkspacePage.js";
 import { useConnectionBoot } from "./hooks/use-connection.js";
 import { useSessionRestore } from "./hooks/use-session-restore.js";
+import { useTerminalRestore } from "./hooks/use-terminal-restore.js";
 import { useShortcuts } from "./hooks/use-shortcuts.js";
 
 function Boot() {
   useConnectionBoot();
   useSessionRestore();
+  useTerminalRestore();
   useShortcuts();
   return null;
 }

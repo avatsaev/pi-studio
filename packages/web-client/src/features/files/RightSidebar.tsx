@@ -1,7 +1,9 @@
 /**
- * RightSidebar — Files/Changes/Terminals tab bar + refresh button (POC `.sidebar-right`, chat.html
- * ~line 364-374, POC_TO_APP_PLAN_UI.md §4.7; Terminals tab is new in the modern app, no POC
- * equivalent — see `TerminalsPanel.tsx`). Imported by `routes/WorkspacePage.tsx`.
+ * RightSidebar — Files/Changes tab bar + refresh button (POC `.sidebar-right`, chat.html
+ * ~line 364-374, POC_TO_APP_PLAN_UI.md §4.7). Imported by `routes/WorkspacePage.tsx`. Used to
+ * also host a Terminals tab (live PTY list + reattach/kill) — removed once the TabStrip's "+"
+ * menu (New chat / New terminal) made per-tab terminal creation directly discoverable, leaving
+ * the sidebar entry redundant (GitHub issue #8 follow-up).
  */
 
 import { RotateCw } from "lucide-react";
@@ -13,7 +15,6 @@ import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { FileExplorer } from "./FileExplorer.js";
 import { ChangesPanel } from "@pi-studio-ui/features/git/ChangesPanel.js";
-import { TerminalsPanel } from "@pi-studio-ui/features/terminal/TerminalsPanel.js";
 import styles from "./RightSidebar.module.css";
 
 export function RightSidebar() {
@@ -28,8 +29,7 @@ export function RightSidebar() {
 
   // Fires a one-shot refresh RPC (POC `checkout_refresh_request`) — subscription lifecycle for
   // live `checkout_status_update` pushes is owned solely by `ChangesPanel`'s `useCheckoutStatus`,
-  // so this button never opens a second subscription that could outlive/race the panel's. Only
-  // relevant to Files/Changes — Terminals is live-pushed via `terminals_update`, nothing to poll.
+  // so this button never opens a second subscription that could outlive/race the panel's.
   function handleRefresh() {
     void queryClient.invalidateQueries({ queryKey: ["explorer"] });
     if (client && cwd) {
@@ -53,34 +53,19 @@ export function RightSidebar() {
         >
           Changes
         </button>
-        <button
-          type="button"
-          className={clsx(styles.tabBtn, rightSidebarTab === "terminals" && styles.active)}
-          onClick={() => setRightSidebarTab("terminals")}
+        <Button
+          size="xs"
+          variant="ghost"
+          iconOnly
+          title="Refresh"
+          className={styles.refreshBtn}
+          onClick={handleRefresh}
         >
-          Terminals
-        </button>
-        {rightSidebarTab !== "terminals" && (
-          <Button
-            size="xs"
-            variant="ghost"
-            iconOnly
-            title="Refresh"
-            className={styles.refreshBtn}
-            onClick={handleRefresh}
-          >
-            <RotateCw size={13} />
-          </Button>
-        )}
+          <RotateCw size={13} />
+        </Button>
       </div>
       <div className={styles.content}>
-        {rightSidebarTab === "files" ? (
-          <FileExplorer />
-        ) : rightSidebarTab === "changes" ? (
-          <ChangesPanel />
-        ) : (
-          <TerminalsPanel />
-        )}
+        {rightSidebarTab === "files" ? <FileExplorer /> : <ChangesPanel />}
       </div>
     </div>
   );

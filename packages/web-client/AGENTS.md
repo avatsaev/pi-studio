@@ -83,15 +83,18 @@ src/
                            (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
   stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
-                           terminal-store, explorer-store (+ test)
+                           explorer-store (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
-  hooks/                   use-connection (boot), use-session-restore, use-shortcuts, use-explorer,
-                           use-explorer-tree (one query per expanded tree directory, feeds
-                           FileExplorer's flattened row list), use-file-read/-diff/-download,
+  hooks/                   use-connection (boot), use-session-restore, use-terminal-restore
+                           (one-shot reopen of every daemon-side terminal as a tab on connect —
+                           the safety net for terminals that outlive their tab, e.g. a daemon
+                           restart or a terminal created outside this UI), use-shortcuts,
+                           use-explorer, use-explorer-tree (one query per expanded tree directory,
+                           feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
                            FileTransferClient via file-transfer-instance), use-checkout-status,
-                           use-terminals, use-agent-stream (+ agent-stream-events), use-home-dir
+                           use-agent-stream (+ agent-stream-events), use-home-dir
   features/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
@@ -111,7 +114,11 @@ src/
                             MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
                             TextViewer, viewer-registry
     git/                    ChangesPanel
-    terminal/               TerminalPanel, TerminalsPanel
+    terminal/               TerminalPanel (one xterm instance per open terminal tab; opening a
+                            tab whose `data.slot` is already known — e.g. from
+                            `use-terminal-restore.ts` — subscribes to the existing PTY instead of
+                            spawning a new one). No dedicated "Terminals" management view —
+                            orphaned terminals reopen automatically as tabs on connect.
   routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)
   components/              (reserved for non-design-system reusable components; currently empty)
   test/                    (reserved for shared test utilities; currently empty)

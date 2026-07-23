@@ -48,6 +48,7 @@
   background: var(--pi-color-surfaceHover, #1e2124);
 }
 .newTab {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -81,6 +82,7 @@
 .item {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   border-radius: 4px;
   font-size: 13px;
@@ -90,4 +92,8 @@
 .item:hover,
 .item[data-highlighted] {
   background: var(--pi-color-surfaceHover, #1e2124);
+}
+.itemIcon {
+  flex-shrink: 0;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

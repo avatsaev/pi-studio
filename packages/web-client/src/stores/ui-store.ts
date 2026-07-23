@@ -28,7 +28,7 @@ export interface UiStoreState {
   cwdPickerOpen: boolean;
   sessionMenu: { sessionId: string; x: number; y: number } | null;
   fileMenu: { path: string; isDirectory: boolean; x: number; y: number } | null;
-  rightSidebarTab: "files" | "changes" | "terminals";
+  rightSidebarTab: "files" | "changes";
   /** Workspace cwds collapsed in the sidebar tree (§4.3 workspace grouping); expanded by default. */
   collapsedWorkspaces: Set<string>;
   /** Left (sessions tree) / right (Files·Changes) sidebar visibility; both expanded by default. */
@@ -47,7 +47,7 @@ export interface UiStoreState {
   closeSessionMenu(): void;
   openFileMenu(path: string, isDirectory: boolean, x: number, y: number): void;
   closeFileMenu(): void;
-  setRightSidebarTab(tab: "files" | "changes" | "terminals"): void;
+  setRightSidebarTab(tab: "files" | "changes"): void;
   toggleWorkspaceCollapsed(cwd: string): void;
   toggleLeftSidebar(): void;
   toggleRightSidebar(): void;

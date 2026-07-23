@@ -159,13 +159,26 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
   // means React never re-runs the effect body itself; only the cleanup fires, and only on
   // unmount, so this never races the slot-creation effect above or double-kills on a client
   // change. Without this, every closed terminal tab leaked its PTY process forever.
+  //
+  // For a REATTACH (this tab opened with a non-null `data.slot` from the very first render —
+  // `use-terminal-restore.ts`, or the create-effect above once it has resolved) `slotRef.current`
+  // is non-null from the start, so StrictMode's synchronous mount→cleanup→remount phantom cycle
+  // would fire this cleanup and kill the PTY immediately on mount — unlike a freshly created
+  // terminal, where `slotRef.current` is still `null` during that same phantom window (see the
+  // create-effect's own comment) and so never hits this path. Deferred via `setTimeout`, exactly
+  // like the create-effect's response handler: by the time it fires, StrictMode's remount has
+  // already flipped `isMountedRef` back to `true` if this was a phantom unmount, so the kill is
+  // skipped; a genuine close never remounts, so `isMountedRef` stays `false` and the kill proceeds.
   useEffect(() => {
     return () => {
       const currentSlot = slotRef.current;
       if (currentSlot === null) return;
-      void clientRef.current?.connection
-        .request("kill_terminal_request", { slot: currentSlot })
-        .catch(() => {});
+      setTimeout(() => {
+        if (isMountedRef.current) return; // StrictMode remounted synchronously — not a real close
+        void clientRef.current?.connection
+          .request("kill_terminal_request", { slot: currentSlot })
+          .catch(() => {});
+      }, 0);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

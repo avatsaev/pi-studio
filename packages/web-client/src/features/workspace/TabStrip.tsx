@@ -84,7 +84,9 @@ function TabItem({ tab }: { tab: Tab }) {
 
 /** Trailing "+" control — opens a new chat or terminal in the currently visible workspace.
  * Rendered as a sibling of `SortableContext`, not inside it, so it's never draggable/sortable
- * and reorder/`closestCenter` collision detection never sees it (GitHub issue #8). */
+ * and reorder/`closestCenter` collision detection never sees it (GitHub issue #8). Orphaned
+ * terminals (a PTY running on the daemon with no open tab) don't need a menu entry here — they're
+ * auto-reopened as tabs by `use-terminal-restore.ts` on connect, the same way chat sessions are. */
 function NewTabMenu({ workspaceCwd }: { workspaceCwd: string | null }) {
   const cwd = workspaceCwd ?? "~";
   return (
@@ -102,9 +104,11 @@ function NewTabMenu({ workspaceCwd }: { workspaceCwd: string | null }) {
       <DropdownMenu.Portal>
         <DropdownMenu.Content className={styles.content} align="start" sideOffset={4}>
           <DropdownMenu.Item className={styles.item} onSelect={() => openNewChat(cwd)}>
+            <MessageSquare size={13} className={styles.itemIcon} />
             New chat
           </DropdownMenu.Item>
           <DropdownMenu.Item className={styles.item} onSelect={() => openNewTerminal(cwd)}>
+            <TerminalSquare size={13} className={styles.itemIcon} />
             New terminal
           </DropdownMenu.Item>
         </DropdownMenu.Content>
