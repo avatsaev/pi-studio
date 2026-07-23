@@ -13,6 +13,7 @@
  */
 
 import { create } from "zustand";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal";
 
@@ -194,6 +195,23 @@ export function openNewTerminal(workspaceCwd: string): void {
     label: `Terminal ${terminalCount}`,
     closable: true,
     data: { slot: null, cwd: workspaceCwd },
+    workspaceCwd,
+  });
+}
+
+/** Open a brand-new chat: creates a session against a workspace cwd and opens/focuses its chat
+ * tab. Shared by the sidebar's "+ New conversation" button, `open-workspace.ts`'s create-new
+ * path, the zero-sessions bootstrap in `use-session-restore.ts`, and the TabStrip's "+" button —
+ * so every caller mints identical tab ids/labels (mirrors `openNewTerminal` above). `workspaceCwd`
+ * MUST already be normalized by the caller (same contract as `openNewTerminal`). */
+export function openNewChat(workspaceCwd: string): void {
+  const id = useSessionStore.getState().createSession(workspaceCwd);
+  useTabStore.getState().open({
+    id: tabIds.chat(id),
+    kind: "chat",
+    label: "New chat",
+    closable: true,
+    data: { sessionId: id },
     workspaceCwd,
   });
 }

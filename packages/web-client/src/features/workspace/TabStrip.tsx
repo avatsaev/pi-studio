@@ -3,8 +3,9 @@
  * Adds drag reorder (the POC couldn't reorder) + Radix Tooltip on truncated labels.
  */
 
-import { MessageSquare, FileText, GitCompare, TerminalSquare, X } from "lucide-react";
+import { MessageSquare, FileText, GitCompare, TerminalSquare, X, Plus } from "lucide-react";
 import { clsx } from "clsx";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   DndContext,
   closestCenter,
@@ -19,7 +20,13 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useTabStore, type Tab, type TabKind } from "@pi-studio-ui/stores/tab-store.js";
+import {
+  useTabStore,
+  openNewChat,
+  openNewTerminal,
+  type Tab,
+  type TabKind,
+} from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./TabStrip.module.css";
 
 const ICON_BY_KIND: Record<TabKind, typeof MessageSquare> = {
@@ -75,6 +82,37 @@ function TabItem({ tab }: { tab: Tab }) {
   );
 }
 
+/** Trailing "+" control — opens a new chat or terminal in the currently visible workspace.
+ * Rendered as a sibling of `SortableContext`, not inside it, so it's never draggable/sortable
+ * and reorder/`closestCenter` collision detection never sees it (GitHub issue #8). */
+function NewTabMenu({ workspaceCwd }: { workspaceCwd: string | null }) {
+  const cwd = workspaceCwd ?? "~";
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className={styles.newTab}
+          title="New tab"
+          disabled={!workspaceCwd}
+        >
+          <Plus size={14} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className={styles.content} align="start" sideOffset={4}>
+          <DropdownMenu.Item className={styles.item} onSelect={() => openNewChat(cwd)}>
+            New chat
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={styles.item} onSelect={() => openNewTerminal(cwd)}>
+            New terminal
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 export function TabStrip() {
   const tabs = useTabStore((s) => s.tabs);
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
@@ -89,14 +127,18 @@ export function TabStrip() {
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={visibleTabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-        <div className={styles.strip}>
+    <div className={styles.strip}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext
+          items={visibleTabs.map((t) => t.id)}
+          strategy={horizontalListSortingStrategy}
+        >
           {visibleTabs.map((tab) => (
             <TabItem key={tab.id} tab={tab} />
           ))}
-        </div>
-      </SortableContext>
-    </DndContext>
+        </SortableContext>
+      </DndContext>
+      <NewTabMenu workspaceCwd={activeWorkspaceCwd} />
+    </div>
   );
 }

@@ -6,7 +6,7 @@
 
 import { FolderOpen } from "lucide-react";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
@@ -22,7 +22,6 @@ export function SessionList() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activate = useSessionStore((s) => s.activate);
-  const createSession = useSessionStore((s) => s.createSession);
   const openTab = useTabStore((s) => s.open);
   const status = useConnectionStore((s) => s.status);
   const openSessionMenu = useUiStore((s) => s.openSessionMenu);
@@ -34,15 +33,7 @@ export function SessionList() {
 
   function handleNewSession(targetWorkspaceCwd: string) {
     const targetCwd = normalizeCwd(targetWorkspaceCwd || "~", homeDir);
-    const id = createSession(targetCwd);
-    openTab({
-      id: tabIds.chat(id),
-      kind: "chat",
-      label: "New chat",
-      closable: true,
-      data: { sessionId: id },
-      workspaceCwd: targetCwd,
-    });
+    openNewChat(targetCwd);
   }
 
   function handleSelect(sessionId: string) {
