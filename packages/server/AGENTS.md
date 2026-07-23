@@ -57,6 +57,9 @@ src/
         agent.ts                  PiAgentClient — spawns pi --mode rpc, manages session.
         event-mapper.ts           Maps raw Pi JSONL events → AgentStreamEvent.
         rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
+        session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
+                                   Pi's own on-disk JSONL session file (no live process needed).
+        session-hydration.test.ts
         transport-errors.test.ts
         pi-adapter.test.ts
       mock/
@@ -71,7 +74,7 @@ src/
     index.ts
 
   http/
-    http-server.ts                HTTP server: /api/health, /api/download/:token, static serving.
+    http-server.ts                HTTP server: /api/health, Host-allowlist, CORS, optional bearer auth, and an `onRequest` delegate (wired to the service proxy).
     host-allowlist.ts             Host header validation (prevents DNS rebinding).
     index.ts
 
@@ -304,9 +307,11 @@ daemon versions.
 
 ### HTTP server (`http/`)
 
-- `GET /api/health` → `{ status: "ok" }` (unauthenticated)
-- `GET /api/download/:token` → streams a pre-issued file download (token from `DownloadTokenStore`)
-- Static serving for `app/` assets (future sprint)
+- `GET /api/health` → `{ status: "ok" }` (unauthenticated, exempt from Host + auth checks)
+- Host-header allowlist (403 on mismatch) → CORS headers (`daemon.cors.allowedOrigins`) → optional
+  bearer auth → delegates to an injected `onRequest` handler else 404. The daemon wires `onRequest`
+  to the service proxy (`proxy/service-proxy.ts`) only — there is no HTTP file-download route;
+  file downloads happen over the WebSocket via binary frames (`files/file-transfer.ts`), not HTTP.
 - `HostAllowlist` rejects requests with disallowed `Host` headers (DNS-rebinding protection)
 
 ### Auth (`auth/`)

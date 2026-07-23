@@ -128,6 +128,7 @@ class MockAgentSession implements AgentSession {
       sessionId: this.id,
       model: this.config.model ?? "mock-model",
       modeId: this.mode,
+      extra: { cwd: this.config.cwd },
     };
   }
 
@@ -240,9 +241,14 @@ export class MockAgentClient implements AgentClient {
     return Promise.resolve(new MockAgentSession(config, this.options));
   }
 
-  resumeSession(_handle: PersistenceHandle): Promise<AgentSession> {
+  resumeSession(
+    _handle: PersistenceHandle,
+    overrides?: Partial<AgentSessionConfig>,
+    launchContext?: LaunchContext,
+  ): Promise<AgentSession> {
+    const cwd = launchContext?.cwd ?? overrides?.cwd ?? ".";
     return Promise.resolve(
-      new MockAgentSession({ provider: "mock", cwd: ".", model: "mock-model" }, this.options),
+      new MockAgentSession({ provider: "mock", cwd, model: "mock-model" }, this.options),
     );
   }
 

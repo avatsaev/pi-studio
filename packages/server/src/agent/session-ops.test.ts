@@ -108,7 +108,12 @@ describe("resume", () => {
 
     const result = (await ops.handleResume({ agentId }, () => [])) as Record<string, unknown>;
     expect(result.ok).toBe(true);
-    expect(manager.get(agentId)?.session).not.toBeNull();
+    const resumed = manager.get(agentId)?.session;
+    expect(resumed).not.toBeNull();
+    // Regression: resume must carry the agent's original cwd, not fall back to "." (the daemon's
+    // own cwd) — a lost cwd on resume made the agent silently answer questions like "what is
+    // your pwd?" from the wrong directory after a daemon restart.
+    expect(resumed?.getRuntimeInfo().extra?.cwd).toBe("/work");
   });
 
   it("throws rpc_error on a stale handle (no persistence)", async () => {
@@ -153,7 +158,10 @@ describe("send prompt", () => {
       () => [],
     )) as Record<string, unknown>;
     expect(result.status).toBe("idle");
-    expect(manager.get(agentId)?.session).not.toBeNull();
+    const resumed = manager.get(agentId)?.session;
+    expect(resumed).not.toBeNull();
+    // Regression: lazy resume on send must also carry the record's cwd.
+    expect(resumed?.getRuntimeInfo().extra?.cwd).toBe("/work");
   });
 
   it("throws when no live session and no persistence handle exists", async () => {

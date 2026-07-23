@@ -33,7 +33,7 @@ src/
   pairing.ts             buildPairingUrl() + readDaemonPublicKey() — relay pairing URL construction.
   qr.ts                  renderQrToTerminal() — QR code string via the `qrcode` library.
 
-  agent-commands.ts      Agent command group (run/ls/attach/send/stop/wait/timeline/…).
+  agent-commands.ts      Agent command group (run/ls/attach/send/stop/wait/logs/…).
   agent-commands.test.ts
 
   daemon-commands.ts     Daemon command group (start/stop/status/set-password/pair).
@@ -97,13 +97,13 @@ Default action (no subcommand):
 | `send <agentId> "prompt"` | `send_agent_prompt` | Send a follow-up prompt |
 | `stop <agentId>` | `interrupt_agent` | Interrupt the current turn |
 | `wait <agentId>` | `wait_for_agent` | Block until idle/closed |
-| `timeline <agentId>` | `fetch_agent_timeline_request` | Print paged timeline history |
+| `logs <agentId> [-n <limit>]` | `fetch_agent_timeline_request` | Print paged timeline history |
 | `inspect <agentId>` | `inspect_agent_request` | Print agent record |
 | `archive <agentId>` | `archive_agent` | Soft-delete |
 | `delete <agentId>` | `delete_agent` | Hard delete |
 | `update <agentId>` | `update_agent` | Update model/mode/features/title/labels |
-| `resume <agentId>` | `resume_agent` | Resume a closed session |
-| `import --provider pi --cwd /path --handle <h>` | `import_agent_session` | Import a native session |
+| `reload <agentId>` | `resume_agent` | Resume/reload a closed session |
+| `import <sessionRef>` | `import_agent_session` | Import a provider-native session by its handle |
 | `session <agentId>` | `agent_session_stats_request` | Session stats (tokens/cost/context usage) — `/session` |
 | `compact <agentId> [-i <text>]` | `agent_compact_request` | Manually compact context — `/compact` |
 | `new-session <agentId>` | `agent_new_session_request` | Start a fresh session in place — `/new` |
@@ -124,7 +124,10 @@ that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `
 `/name`, `/export`, `/model`, `/copy`). Built-ins with no RPC equivalent (`/settings`, `/hotkeys`,
 `/changelog`, `/login`, `/logout`, `/reload`, `/scoped-models`, `/trust`, `/share`, `/quit`) are
 TUI-only per Pi's own RPC docs and have no CLI command here — see `packages/server/AGENTS.md`'s
-Agent subsystem section for the full rationale.
+Agent subsystem section for the full rationale. (Naming note: Pi's own TUI-only `/reload` in that
+excluded list is unrelated to this CLI's `reload <agentId>` command above — the latter is a
+`resume_agent` RPC call, named for reloading a closed *daemon* session, not Pi's
+extensions/skills/keybindings reload.)
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`

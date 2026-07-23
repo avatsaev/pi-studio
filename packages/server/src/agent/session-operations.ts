@@ -129,7 +129,8 @@ export class SessionOperationsService {
     }
 
     const client = this.deps.resolveClient(managed.record.provider);
-    const session = await client.resumeSession(handle as PersistenceHandle);
+    const cwd = managed.record.cwd;
+    const session = await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd });
     this.deps.manager.attachSession(agentId, session);
     await this.deps.manager.persistSessionHandle(agentId);
     await this.deps.manager.setStatus(agentId, "idle");

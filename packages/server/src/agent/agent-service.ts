@@ -165,7 +165,8 @@ export class AgentService {
       const handle = managed.record.persistence;
       if (!handle) throw new Error(`no live session for agent ${agentId}`);
       const client = this.deps.resolveClient(managed.record.provider);
-      session = await client.resumeSession(handle as PersistenceHandle);
+      const cwd = managed.record.cwd;
+      session = await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd });
       this.deps.manager.attachSession(agentId, session);
       await this.deps.manager.persistSessionHandle(agentId);
       this.deps.logger?.info({ agentId }, "agent session resumed for send");
