@@ -10,7 +10,7 @@
 import { useEffect, useRef } from "react";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
 import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
@@ -98,15 +98,7 @@ export function useSessionRestore(): void {
         // No restored sessions — start one fresh, mirroring POC `if (sessions.length===0) createSession()`.
         const cwd = useUiStore.getState().cwd || "~";
         const targetCwd = normalizeCwd(cwd, homeDir);
-        const id = useSessionStore.getState().createSession(cwd);
-        useTabStore.getState().open({
-          id: tabIds.chat(id),
-          kind: "chat",
-          label: "New chat",
-          closable: true,
-          data: { sessionId: id },
-          workspaceCwd: targetCwd,
-        });
+        openNewChat(targetCwd);
       }
     })();
   }, [status, client]);

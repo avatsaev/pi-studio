@@ -8,7 +8,7 @@
  */
 
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { groupSessionsByWorkspace } from "./workspace-grouping.js";
 
@@ -23,23 +23,26 @@ import { groupSessionsByWorkspace } from "./workspace-grouping.js";
  * different normalization here would resurrect the tilde/absolute duplicate-workspace bug.
  */
 export function openWorkspace(cwd: string, homeDir: string | null): void {
-  const { order, sessions, createSession, activate } = useSessionStore.getState();
+  const { order, sessions } = useSessionStore.getState();
 
   const groups = groupSessionsByWorkspace(order, sessions, homeDir);
   const existing = groups.find((g) => g.cwd === cwd);
 
-  const sessionId = existing?.sessions[0]?.id ?? createSession(cwd);
-  activate(sessionId);
-
-  const session = useSessionStore.getState().sessions[sessionId];
-  useTabStore.getState().open({
-    id: tabIds.chat(sessionId),
-    kind: "chat",
-    label: session?.title ?? "New chat",
-    closable: true,
-    data: { sessionId },
-    workspaceCwd: cwd,
-  });
+  if (existing?.sessions[0]) {
+    const sessionId = existing.sessions[0].id;
+    useSessionStore.getState().activate(sessionId);
+    const session = useSessionStore.getState().sessions[sessionId];
+    useTabStore.getState().open({
+      id: tabIds.chat(sessionId),
+      kind: "chat",
+      label: session?.title ?? "New chat",
+      closable: true,
+      data: { sessionId },
+      workspaceCwd: cwd,
+    });
+  } else {
+    openNewChat(cwd);
+  }
 
   useUiStore.getState().setCwd(cwd);
 }

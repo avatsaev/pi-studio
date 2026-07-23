@@ -69,8 +69,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 035 | `sprint-035-production-daemon` | Real production daemon: bootstrap + real Pi provider + disk persistence, register ALL handlers, terminals/binary frames, security + E2E (no mocks) | 4 |
 | 036 | `sprint-036-paseo-ux-parity` | Full Paseo UX/UI parity for the whole app: design tokens, sidebar redesign, navigation screens, workspace shell, timeline/composer, feature panels + wiring gaps | 6 |
 | 037 | `sprint-037-agent-slash-commands` | Server+SDK+CLI support for Pi built-in slash commands that have RPC equivalents (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`, `/name`, `/export`, `/model`, `/copy`): protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI (web-client deferred) | 6 |
+| 038 | `sprint-038-tab-strip-new-tab-menu` | web-client: TabStrip "+" button opening a New chat / New terminal menu, scoped to the active workspace (GitHub issue #8); dedupes the New-chat-tab creation path into one shared helper alongside the existing `openNewTerminal` | 3 |
 
-Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
+Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
@@ -337,6 +338,18 @@ Total: **25 sprints, 116 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-004 | Mock provider support + test fixtures | task-002, task-003 | providers/mock |
 | task-005 | SDK / client facade methods | task-001, task-003 | packages/client (PiStudioClient AgentHandle) |
 | task-006 | CLI slash-command subcommands | task-005 | packages/cli (agent group); features/cli |
+
+### sprint-038-tab-strip-new-tab-menu
+> web-client only. Real GitHub issue (#8), not derived from a `clean-room-scope/features/*.md`
+> spec — `features/workspace-ui.md`'s tab model describes a different, aspirational
+> draft/agent/pane architecture not reflected in the current implementation; tasks below reference
+> the live source files (`tab-store.ts`, `TabStrip.tsx`, `SessionList.tsx`, …) directly instead.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Shared `openNewChat` helper alongside `openNewTerminal` | none | packages/web-client (tab-store, session-store, SessionList, open-workspace, use-session-restore) |
+| task-002 | TabStrip "+" button with New chat / New terminal menu | task-001 | packages/web-client (TabStrip, TabStrip.module.css, SessionContextMenu dropdown pattern) |
+| task-003 | Docs sync + full verification pass | task-001, task-002 | packages/web-client/AGENTS.md |
 
 ## Coverage check
 

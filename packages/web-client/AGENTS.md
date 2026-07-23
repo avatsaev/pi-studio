@@ -96,7 +96,8 @@ src/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
                             open-workspace, status-map, workspace-grouping
-    workspace/              TabStrip, TabPanelHost, panel-registry
+    workspace/              TabStrip (tabs + trailing "+" menu: New chat / New terminal, scoped
+                            to the active workspace — GitHub issue #8), TabPanelHost, panel-registry
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, Attachments, rows/ (Assistant/User/
                             System/Error/Reasoning rows, ToolCard)
@@ -166,8 +167,10 @@ entered at runtime, never baked into the image.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
-  so upload/download RPCs have no handler there). Smoke-testing the Files sidebar's transfer
-  actions needs `npm start`/`npm run start:server`, not `npm run dev:daemon`.
+  so upload/download RPCs have no handler there). The dev daemon also registers no terminal-RPC
+  service (`create_terminal_request` has no handler under `dev-bootstrap.ts`) — smoke-testing the
+  Files sidebar's transfer actions or terminals (via `Ctrl/Cmd+T` or the TabStrip "+" menu) needs
+  `npm start`/`npm run start:server`, not `npm run dev:daemon`.
 - **No confirmation for upload overwrite/delete happens server-side.** `FileExplorer.tsx` confirms
   an upload that would clash with an existing name before calling `useFileTransfer().upload()`;
   `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both
