@@ -18,8 +18,10 @@
  * `useAgentStream` only attaches once `bindAgent` sets `agentId`, which happens *after*
  * `createAgent()` resolves. So for the first turn `handleSend` subscribes to the raw broadcast
  * directly and applies each `agent_stream` event *as it arrives*, latching the new agent's id
- * from the first such event (agent_update frames are top-level and never reach
- * `onSessionMessage`; agent_stream frames are session-wrapped and do). That includes the
+ * from *its own* `user_message` echo (`messageId === clientMessageId`) — never from "the first
+ * such event", since another session's agent can be mid-turn on the same socket concurrently and
+ * its frames would otherwise be misattributed here (agent_update frames are top-level and never
+ * reach `onSessionMessage`; agent_stream frames are session-wrapped and do). That includes the
  * `user_message` event that reconciles the optimistic row above.
  * `bindAgent` is deferred until the RPC resolves so `useAgentStream` attaches only for follow-up
  * turns and never re-applies the first turn (the reducer is not event-id-idempotent).
@@ -33,7 +35,7 @@ import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { applyAgentStreamEvent } from "@pi-studio-ui/hooks/agent-stream-events.js";
+import { applyAgentStreamEvent, createFirstTurnGate } from "@pi-studio-ui/hooks/agent-stream-events.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import styles from "./Composer.module.css";
 
@@ -153,22 +155,23 @@ export function Composer({ sessionId }: ComposerProps) {
         // running indicator) until the whole turn finished — the reported bug. Instead we watch
         // the live broadcast during the call and apply events as they arrive.
         //
-        // We latch the agent id from the *first `agent_stream` event* we see, not from
-        // `agent_update{status:"initializing"}`: `agent_update` is broadcast as a bare top-level
-        // frame that the client's frame router drops (only `session`-wrapped frames reach
-        // `onSessionMessage`), whereas every `agent_stream` frame IS `session`-wrapped and carries
-        // its `agentId`. The daemon creates exactly one agent per `createAgent`, so the first
-        // stream event on this socket after we subscribe belongs to our new agent.
+        // We latch the agent id from *our own* canonical `user_message` echo (`messageId ===
+        // clientMessageId`), never from "the first `agent_stream` frame we happen to observe":
+        // another session's agent can be mid-turn on this same socket right now, so the first
+        // frame to arrive after we subscribe may belong to THAT agent, not ours. Latching onto it
+        // would misattribute its events into this session's timeline and then silently drop this
+        // turn's real events (mismatched agentId) once they start arriving. `agent_update` frames
+        // are broadcast bare/top-level and never reach `onSessionMessage` (only `session`-wrapped
+        // frames do), but every `agent_stream` frame IS session-wrapped, including the
+        // `user_message` echo — so this key is always observable here.
         //
         // `bindAgent` is deferred until *after* the RPC resolves: binding attaches
         // `useAgentStream`, and since the reducer isn't event-id-idempotent, a mid-turn attach
         // would double every remaining row. Binding post-resolve means this handler is the sole
         // applier for the first turn and `useAgentStream` only ever sees follow-up turns.
-        let liveAgentId: string | null = null;
+        const isOwnTurnEvent = createFirstTurnGate(clientMessageId);
         const unsubscribeLive = client.connection.onSessionMessage((msg) => {
-          if (!isAgentStreamMessage(msg)) return;
-          if (liveAgentId === null) liveAgentId = msg.agentId;
-          if (msg.agentId !== liveAgentId) return;
+          if (!isAgentStreamMessage(msg) || !isOwnTurnEvent(msg)) return;
           applyAgentStreamEvent({ sessionId, event: msg.event, client, queryClient });
         });
 

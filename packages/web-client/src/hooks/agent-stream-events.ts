@@ -19,6 +19,31 @@ export interface ApplyAgentStreamEventArgs {
   queryClient: QueryClient;
 }
 
+/**
+ * Correlates first-turn `agent_stream` broadcasts with the agent a specific `createAgent` call
+ * just spawned. `create_agent_request` doesn't resolve with the new `agentId` until the whole
+ * first turn completes, so `Composer.handleSend` watches the raw broadcast and applies frames as
+ * they arrive — but the socket is shared across every open session, and another session's agent
+ * can be mid-turn concurrently. The first `agent_stream` frame observed after subscribing is
+ * therefore NOT necessarily this call's own agent. Only latch onto an `agentId` once its
+ * canonical `user_message` echo is seen (`messageId === clientMessageId`, minted by this call and
+ * echoed back verbatim by the daemon — `agent-service.ts` `runTurn`), then accept only further
+ * frames carrying that same `agentId`. Returns a predicate reporting whether a given frame belongs
+ * to this turn and should be applied.
+ */
+export function createFirstTurnGate(
+  clientMessageId: string,
+): (msg: { agentId: string; event: AgentStreamEvent }) => boolean {
+  let liveAgentId: string | null = null;
+  return (msg) => {
+    if (liveAgentId === null) {
+      if (msg.event.kind !== "user_message" || msg.event.messageId !== clientMessageId) return false;
+      liveAgentId = msg.agentId;
+    }
+    return msg.agentId === liveAgentId;
+  };
+}
+
 export function applyAgentStreamEvent({
   sessionId,
   event,
