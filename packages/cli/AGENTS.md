@@ -55,9 +55,14 @@ src/
   update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
   update-commands.test.ts
   update-control.ts      UpdateRuntime — getLatestVersion/installGlobal (shells out to `npm view`/
-                          `npm install -g`); compareVersions() (plain x.y.z numeric compare, no
-                          semver deps — this monorepo only ever publishes major.minor.patch).
+                          `npm install -g`, self-healing npm's ENOTEMPTY stale-staging-dir rename
+                          bug — see § `update` command below); compareVersions() (plain x.y.z
+                          numeric compare, no semver deps — this monorepo only ever publishes
+                          major.minor.patch).
   update-control.test.ts
+
+  promise-with-resolvers.d.ts   Promise.withResolvers() ambient decl (lib predates ES2024;
+                                 mirrors web-client/src/lib/promise-with-resolvers.d.ts).
 
   program.test.ts
   cli-core.test.ts
@@ -246,7 +251,14 @@ either way — "already up to date" is not a failure).
 - `getLatestVersion(pkg)` — `npm view <pkg> version`; returns `null` on any failure (registry
   unreachable, offline, etc.) rather than throwing, so `runUpdate` can render one clean error line.
 - `installGlobal(pkg, version)` — `npm install -g <pkg>@<version>`; throws on failure (surfaced via
-  the child's stderr, falling back to the error message).
+  the child's stderr, falling back to the error message). Self-heals npm's own `ENOTEMPTY`
+  rename-collision bug: npm's arborist stages each install swap under a directory name hashed
+  from the install path (`@npmcli/arborist`'s `retire-path.js`) and only deletes it after a
+  *successful* install, so an interrupted/killed/concurrent prior update leaves that exact
+  directory behind non-empty — colliding with every subsequent install forever until removed by
+  hand. `installWithStaleStagingRetry` detects that specific error via `staleStagingDirFrom`,
+  `rm -rf`s the directory npm itself reported, and retries (bounded, default 3 attempts) before
+  giving up and rethrowing.
 - `compareVersions(a, b)` — plain numeric `x.y.z` compare (missing segments treat as 0), NOT a full
   semver comparator (no prerelease/build-metadata handling) — sufficient because this monorepo only
   ever publishes bare `major.minor.patch` releases (`scripts/publish.sh`'s patch-only bump).
