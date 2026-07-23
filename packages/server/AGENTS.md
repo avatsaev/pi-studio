@@ -174,8 +174,15 @@ src/
 
 **`AgentManager`** — the single source of truth for agent state:
 - In-memory `Map<agentId, ManagedAgent>` backed by JSON files.
-- Enforces the lifecycle FSM: `initializing → idle ↔ running → error → closed`.
-- Every transition persists the record AND broadcasts `agent_update` to subscribers.
+- Enforces the lifecycle FSM: `initializing → idle ↔ running → error → closed` via `setStatus()`.
+- `updateRecord(id, patch)` merges arbitrary persisted fields (title, labels, config, …) and
+  writes them to disk; it does NOT broadcast — each RPC call site (`update_agent`,
+  `agent_set_session_name_request`, …) owns its own `agent_update` broadcast shape/timing. This is
+  the only path that may write to a record's fields; nothing outside `AgentManager` may mutate
+  `managed.record` directly (a patch that only touches the in-memory object without going through
+  `updateRecord`/`setStatus` never reaches `agents/**.json` — this was a real bug in session
+  rename, fixed by routing both rename RPCs through `updateRecord`).
+- Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
 - On startup, recovers `running` agents (crash recovery).
 - Parent/child relationships via `PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id"`.
@@ -357,8 +364,12 @@ messages are fair game.
   `providers/pi/` or `providers/mock/` from outside `agent/`.
 - **`HandlerRegistry` is explicit.** Register handlers in bootstrap/dev-bootstrap, not
   auto-discovery.
-- **AgentManager transitions are the only way to change agent status.** Call
-  `manager.transition(agentId, newStatus)`, never mutate the record directly.
+- **`AgentManager` is the only place that mutates or persists an agent record.** Status changes go
+  through `manager.setStatus(agentId, newStatus)`; any other field (title, labels, config, …)
+  goes through `manager.updateRecord(agentId, patch)`. Never mutate `managed.record` directly from
+  an RPC handler — it will show up over the WS broadcast but silently fail to reach
+  `agents/**.json` on disk (this exact bug broke session rename until both `update_agent` and
+  `agent_set_session_name_request` were routed through `updateRecord`).
 - **All entity schemas use `.passthrough()`.** Unknown fields from newer daemons must load silently.
 - **New subsystems take the injected `Logger`, never `console.*`.** The daemon's one logger is
   created in bootstrap and threaded everywhere; a bare `console.log` bypasses level control,

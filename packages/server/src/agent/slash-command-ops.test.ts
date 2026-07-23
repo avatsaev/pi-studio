@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
+import type { AgentRecord } from "../persistence/entity-schemas.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -13,11 +14,16 @@ function makeSetup(): {
   service: AgentService;
   ops: SlashCommandOperationsService;
   broadcasts: unknown[];
+  saved: AgentRecord[];
 } {
   const broadcasts: unknown[] = [];
+  const saved: AgentRecord[] = [];
   const manager = new AgentManager({
     home: "/unused",
-    saveAgent: () => Promise.resolve(),
+    saveAgent: (r) => {
+      saved.push(r);
+      return Promise.resolve();
+    },
     loadAllAgents: () => Promise.resolve([]),
     now: () => NOW,
   });
@@ -32,7 +38,7 @@ function makeSetup(): {
     manager,
     broadcast: (_, m) => broadcasts.push(m),
   });
-  return { manager, service, ops, broadcasts };
+  return { manager, service, ops, broadcasts, saved };
 }
 
 async function createAgent(service: AgentService): Promise<string> {
@@ -85,7 +91,9 @@ describe("delegation to optional AgentSession methods", () => {
     const agentId = await createAgent(service);
     manager.attachSession(
       agentId,
-      sessionStub({ getSessionStats: () => Promise.resolve({ sessionId: "s1", totalMessages: 3 }) }),
+      sessionStub({
+        getSessionStats: () => Promise.resolve({ sessionId: "s1", totalMessages: 3 }),
+      }),
     );
     const result = (await ops.handleSessionStats({ agentId })) as Record<string, unknown>;
     expect(result).toEqual({
@@ -178,13 +186,16 @@ describe("delegation to optional AgentSession methods", () => {
   it("agent_clone_request broadcasts on success", async () => {
     const { service, ops, manager, broadcasts } = makeSetup();
     const agentId = await createAgent(service);
-    manager.attachSession(agentId, sessionStub({ clone: () => Promise.resolve({ cancelled: false }) }));
+    manager.attachSession(
+      agentId,
+      sessionStub({ clone: () => Promise.resolve({ cancelled: false }) }),
+    );
     await ops.handleClone({ agentId }, () => []);
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId });
   });
 
-  it("agent_set_session_name_request requires name and broadcasts the new title", async () => {
-    const { service, ops, manager, broadcasts } = makeSetup();
+  it("agent_set_session_name_request requires name, broadcasts the new title, and persists the record", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
     const agentId = await createAgent(service);
     let seenName: string | undefined;
     manager.attachSession(
@@ -199,9 +210,12 @@ describe("delegation to optional AgentSession methods", () => {
     await expect(ops.handleSetSessionName({ agentId }, () => [])).rejects.toThrow(
       /name is required/,
     );
+    saved.length = 0; // drop the initial creation write
     await ops.handleSetSessionName({ agentId, name: "my-feature" }, () => []);
     expect(seenName).toBe("my-feature");
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId, title: "my-feature" });
+    expect(manager.get(agentId)?.record.title).toBe("my-feature");
+    expect(saved.some((r) => r.id === agentId && r.title === "my-feature")).toBe(true);
   });
 
   it("agent_export_html_request forwards optional outputPath", async () => {
@@ -215,7 +229,10 @@ describe("delegation to optional AgentSession methods", () => {
       }),
     );
     const result = (await ops.handleExportHtml({ agentId })) as Record<string, unknown>;
-    expect(result).toEqual({ type: "agent_export_html_response", payload: { path: "/default.html" } });
+    expect(result).toEqual({
+      type: "agent_export_html_response",
+      payload: { path: "/default.html" },
+    });
   });
 
   it("agent_set_model_request requires provider+modelId and broadcasts the model", async () => {
@@ -240,7 +257,10 @@ describe("delegation to optional AgentSession methods", () => {
       sessionStub({ cycleModel: () => Promise.resolve({ model: { id: "m2" } }) }),
     );
     const result = (await ops.handleCycleModel({ agentId }, () => [])) as Record<string, unknown>;
-    expect(result).toEqual({ type: "agent_cycle_model_response", payload: { model: { id: "m2" } } });
+    expect(result).toEqual({
+      type: "agent_cycle_model_response",
+      payload: { model: { id: "m2" } },
+    });
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId });
   });
 

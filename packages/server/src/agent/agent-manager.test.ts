@@ -73,6 +73,29 @@ describe("transitions", () => {
   });
 });
 
+describe("updateRecord", () => {
+  it("merges a field patch, persists it to disk, and does not broadcast", async () => {
+    const { mgr, saved, updates } = makeManager();
+    const agent = await mgr.add(record({ title: undefined, labels: { a: "1" } }));
+    saved.length = 0;
+    updates.length = 0;
+
+    await mgr.updateRecord(agent.record.id, { title: "Renamed", labels: { a: "1", b: "2" } });
+
+    expect(mgr.get(agent.record.id)?.record.title).toBe("Renamed");
+    expect(mgr.get(agent.record.id)?.record.labels).toEqual({ a: "1", b: "2" });
+    expect(saved.at(-1)?.title).toBe("Renamed");
+    // Broadcasting an `agent_update` for a field patch is the caller's job (each RPC handler owns
+    // its own WS broadcast shape/timing) — `updateRecord` only guarantees the disk write.
+    expect(updates).toHaveLength(0);
+  });
+
+  it("throws for an unknown agent id", async () => {
+    const { mgr } = makeManager();
+    await expect(mgr.updateRecord("missing", { title: "x" })).rejects.toThrow("unknown agent");
+  });
+});
+
 describe("literal status", () => {
   it("a parent's status is unaffected by a running child", async () => {
     const { mgr } = makeManager();

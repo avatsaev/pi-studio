@@ -96,14 +96,13 @@ export class SessionOperationsService {
       }
     }
 
-    // Persist updated record without recreating the session.
-    managed.record = {
-      ...managed.record,
+    // Persist updated record without recreating the session — actually write it to disk
+    // (`$PI_STUDIO_HOME/agents/**.json`), not just mutate the in-memory copy.
+    await this.deps.manager.updateRecord(agentId, {
       title,
       labels,
       config: config as AgentRecord["config"],
-      updatedAt: this.now(),
-    };
+    });
     this.broadcastAll(getSessions(), {
       type: "agent_update",
       agentId,

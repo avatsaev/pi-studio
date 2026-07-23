@@ -14,11 +14,16 @@ function makeSetup(): {
   service: AgentService;
   ops: SessionOperationsService;
   broadcasts: unknown[];
+  saved: AgentRecord[];
 } {
   const broadcasts: unknown[] = [];
+  const saved: AgentRecord[] = [];
   const manager = new AgentManager({
     home: "/unused",
-    saveAgent: () => Promise.resolve(),
+    saveAgent: (r) => {
+      saved.push(r);
+      return Promise.resolve();
+    },
     loadAllAgents: () => Promise.resolve([]),
     now: () => NOW,
   });
@@ -36,7 +41,7 @@ function makeSetup(): {
     broadcast: (_, m) => broadcasts.push(m),
     now: () => NOW,
   });
-  return { manager, service, ops, broadcasts };
+  return { manager, service, ops, broadcasts, saved };
 }
 
 async function createAgent(service: AgentService, prompt?: string): Promise<string> {
@@ -82,6 +87,14 @@ describe("update agent", () => {
     expect(manager.get(agentId)?.record.labels.tag).toBe("sprint");
     // Session object is unchanged (not recreated).
     expect(manager.get(agentId)?.session).toBe(before);
+  });
+
+  it("actually persists the new title to disk, not just the in-memory record", async () => {
+    const { service, ops, saved } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    saved.length = 0; // drop the initial creation write
+    await ops.handleUpdate({ agentId, title: "Renamed" }, () => []);
+    expect(saved.some((r) => r.id === agentId && r.title === "Renamed")).toBe(true);
   });
 });
 
@@ -149,7 +162,11 @@ describe("send prompt", () => {
     const managedAgent = manager.get(agentId)!;
     managedAgent.record = {
       ...managedAgent.record,
-      persistence: { provider: "mock", sessionId: "s1", nativeHandle: "mock:s1" } as AgentRecord["persistence"],
+      persistence: {
+        provider: "mock",
+        sessionId: "s1",
+        nativeHandle: "mock:s1",
+      } as AgentRecord["persistence"],
     };
     managedAgent.session = null;
 

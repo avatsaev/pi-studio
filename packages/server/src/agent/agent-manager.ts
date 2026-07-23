@@ -47,7 +47,10 @@ export interface AgentDeletedBroadcast {
   agentId: string;
 }
 
-export type AgentManagerEvent = AgentUpdateBroadcast | AgentArchivedBroadcast | AgentDeletedBroadcast;
+export type AgentManagerEvent =
+  | AgentUpdateBroadcast
+  | AgentArchivedBroadcast
+  | AgentDeletedBroadcast;
 export type AgentManagerSubscriber = (event: AgentManagerEvent) => void;
 
 export class InvalidAgentTransitionError extends Error {
@@ -153,6 +156,20 @@ export class AgentManager {
       updatedAt: this.now(),
     };
     await this.save(managed.record);
+  }
+
+  /**
+   * Merge arbitrary persisted record fields (title, labels, config, …) and write them to disk.
+   * Does NOT broadcast — per the existing convention (see daemon/bootstrap.ts's `manager.subscribe`
+   * comment), each RPC call site owns its own WS broadcast shape/timing; this only guarantees the
+   * mutation actually reaches `$PI_STUDIO_HOME/agents/**.json` instead of living in memory only.
+   */
+  async updateRecord(id: string, patch: Partial<AgentRecord>): Promise<ManagedAgent> {
+    const managed = this.agents.get(id);
+    if (!managed) throw new Error(`unknown agent: ${id}`);
+    managed.record = { ...managed.record, ...patch, updatedAt: this.now() };
+    await this.save(managed.record);
+    return managed;
   }
 
   /** Transition an agent's `lastStatus`, persisting and broadcasting the change. */

@@ -167,7 +167,8 @@ export class SlashCommandOperationsService {
     return { type: "agent_clone_response", payload };
   }
 
-  /** `/name` — sets the session display name; broadcast the new title. */
+  /** `/name` — sets the session display name; persist it to the record (single source of truth:
+   * `AgentManager.updateRecord`) and broadcast the new title. */
   async handleSetSessionName(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -178,6 +179,7 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.setSessionName) throw unsupported(agentId, "set_session_name");
     await session.setSessionName(name);
+    await this.deps.manager.updateRecord(agentId, { title: name });
     this.broadcastAgentUpdate(getSessions, agentId, { title: name });
     return { type: "agent_set_session_name_response", payload: {} };
   }
