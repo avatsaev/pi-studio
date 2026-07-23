@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { measureElement as measureElementDefault, useVirtualizer } from "@tanstack/react-virtual";
 import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
 import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
 import { AssistantRow } from "./rows/AssistantRow.js";
@@ -46,7 +46,10 @@ export function Timeline({ session }: TimelineProps) {
   const running = session.status === "running";
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
-  const prevRowCountRef = useRef(rows.length);
+  // Init to 0 (not `rows.length`) so a freshly-mounted tab with existing history — a brand-new
+  // chat tab switch or a session restored from disk — still counts as "grew" on its first effect
+  // run and scrolls to the last message, instead of opening at the top.
+  const prevRowCountRef = useRef(0);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -54,6 +57,20 @@ export function Timeline({ session }: TimelineProps) {
     estimateSize: () => 48,
     overscan: 8,
     getItemKey: (index) => rows[index]?.id ?? index,
+    // `TabPanelHost` keeps inactive chat tabs mounted under `display:none` rather than
+    // unmounting them (so switching tabs preserves scroll position — see its own doc comment).
+    // But a `display:none` ancestor collapses every row to a 0×0 border box, and the default
+    // `measureElement` would cache that bogus 0 height — shrinking `.inner`'s total height to
+    // ~0 and permanently clamping the scroll container's `scrollTop` to 0 in the process, which
+    // survives the tab becoming visible again (the browser never un-clamps a scroll offset just
+    // because content grows back). Skip the measurement while hidden and keep whatever size is
+    // already cached (or the `estimateSize` default on first mount) instead.
+    measureElement: (element, entry, instance) => {
+      if ((element as HTMLElement).offsetParent !== null) return measureElementDefault(element, entry, instance);
+      const index = instance.indexFromElement(element);
+      const key = instance.options.getItemKey(index);
+      return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(index);
+    },
   });
 
   function handleScroll(): void {
