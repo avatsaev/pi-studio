@@ -192,6 +192,72 @@ export function setDaemonPassword(home: string, plaintext: string, runtime: Daem
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
+/** Env vars that configure the outbound relay dial (config.md § Env precedence). */
+const RELAY_ENV_KEYS = [
+  "PI_STUDIO_RELAY_ENABLED",
+  "PI_STUDIO_RELAY_ENDPOINT",
+  "PI_STUDIO_RELAY_PUBLIC_ENDPOINT",
+  "PI_STUDIO_RELAY_USE_TLS",
+  "PI_STUDIO_RELAY_PUBLIC_USE_TLS",
+] as const;
+
+function envBool(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/**
+ * Persist `PI_STUDIO_RELAY_*` env vars into `config.json`'s `daemon.relay` (creating the file/home
+ * if missing), so a later `pi-studio daemon start` invoked *without* those env vars still dials the
+ * same relay.
+ *
+ * The daemon's own `loadConfig` (`overlayEnv`) overlays env vars onto `config.json` at load time,
+ * but that overlay is in-memory only, scoped to that one process — it never writes back to disk.
+ * Nothing else persists relay settings either (unlike `daemon.auth.password`, which has
+ * `setDaemonPassword`), so relay env vars were silently forgotten the moment the shell/env that set
+ * them was gone, even though the daemon they started really was relay-enabled in the meantime.
+ *
+ * No-ops (does not touch or create `config.json`) when none of `RELAY_ENV_KEYS` are set — a plain
+ * `daemon start` with no relay env vars must not force a config file into existence or disturb an
+ * already-persisted relay config. Mirrors `setDaemonPassword`'s read-merge-write shape.
+ */
+export function persistRelayEnvOverrides(
+  home: string,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (!RELAY_ENV_KEYS.some((key) => env[key] !== undefined)) return;
+
+  const path = daemonPaths(home).config;
+  let config: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      config = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    } catch {
+      config = {};
+    }
+  }
+  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
+  const relay = (daemon.relay as Record<string, unknown> | undefined) ?? {};
+
+  if (env.PI_STUDIO_RELAY_ENABLED !== undefined)
+    relay.enabled = envBool(env.PI_STUDIO_RELAY_ENABLED);
+  if (env.PI_STUDIO_RELAY_ENDPOINT) relay.endpoint = env.PI_STUDIO_RELAY_ENDPOINT;
+  if (env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT)
+    relay.publicEndpoint = env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT;
+  if (env.PI_STUDIO_RELAY_USE_TLS !== undefined)
+    relay.useTls = envBool(env.PI_STUDIO_RELAY_USE_TLS);
+  if (env.PI_STUDIO_RELAY_PUBLIC_USE_TLS !== undefined) {
+    relay.publicUseTls = envBool(env.PI_STUDIO_RELAY_PUBLIC_USE_TLS);
+  }
+
+  daemon.relay = relay;
+  config.daemon = daemon;
+  if (config.version === undefined) config.version = 1;
+
+  mkdirSync(home, { recursive: true });
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
 /** Stop the local daemon by signaling its recorded pid. Returns false when no daemon was found. */
 export function stopDaemon(home: string, runtime: DaemonRuntime): boolean {
   const pid = readDaemonPid(home);

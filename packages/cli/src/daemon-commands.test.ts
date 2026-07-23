@@ -9,6 +9,7 @@ import { connectDaemon } from "./connection.js";
 import {
   type DaemonRuntime,
   daemonStatus,
+  persistRelayEnvOverrides,
   setDaemonPassword,
   stopDaemon,
   waitForDaemon,
@@ -93,6 +94,60 @@ describe("setDaemonPassword", () => {
     expect(config.daemon.listen).toBe("0.0.0.0:6767");
     expect(config.app.baseUrl).toBe("x");
     expect(config.daemon.auth.password).toBe("hashed:pw");
+  });
+});
+
+// ─── relay env persistence ──────────────────────────────────────────────────────
+
+describe("persistRelayEnvOverrides", () => {
+  it("does nothing when no PI_STUDIO_RELAY_* env var is set", () => {
+    const home = tmpHome();
+    persistRelayEnvOverrides(home, {});
+    expect(() => readFileSync(join(home, "config.json"), "utf8")).toThrow();
+  });
+
+  it("writes daemon.relay into a fresh config.json", () => {
+    const home = tmpHome();
+    persistRelayEnvOverrides(home, {
+      PI_STUDIO_RELAY_ENABLED: "true",
+      PI_STUDIO_RELAY_ENDPOINT: "relay.molagent.ai",
+      PI_STUDIO_RELAY_USE_TLS: "true",
+    });
+    const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(config.daemon.relay).toEqual({
+      enabled: true,
+      endpoint: "relay.molagent.ai",
+      useTls: true,
+    });
+    expect(config.version).toBe(1);
+  });
+
+  it("preserves existing config keys and merges into an existing daemon.relay block", () => {
+    const home = tmpHome();
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        version: 1,
+        daemon: { listen: "0.0.0.0:6767", relay: { enabled: false, endpoint: "old.example" } },
+        app: { baseUrl: "x" },
+      }),
+    );
+    persistRelayEnvOverrides(home, { PI_STUDIO_RELAY_ENABLED: "true" });
+    const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(config.daemon.listen).toBe("0.0.0.0:6767");
+    expect(config.app.baseUrl).toBe("x");
+    expect(config.daemon.relay).toEqual({ enabled: true, endpoint: "old.example" });
+  });
+
+  it("a later invocation with no relay env vars leaves a previously persisted relay config untouched", () => {
+    const home = tmpHome();
+    persistRelayEnvOverrides(home, {
+      PI_STUDIO_RELAY_ENABLED: "true",
+      PI_STUDIO_RELAY_ENDPOINT: "r.example",
+    });
+    persistRelayEnvOverrides(home, {});
+    const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(config.daemon.relay).toEqual({ enabled: true, endpoint: "r.example" });
   });
 });
 
@@ -273,6 +328,35 @@ describe("ensureLocalDaemonAndPair", () => {
     expect(out.join("\n")).toContain("Pairing link:");
   });
 
+  it("persists PI_STUDIO_RELAY_* env vars into config.json (features/cli.md § daemon start)", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));
+    const runtime = fakeRuntime({ probe: async () => false, start: async () => 123 });
+    const { ctx } = ctxWith(home, runtime);
+    const prev = {
+      PI_STUDIO_RELAY_ENABLED: process.env.PI_STUDIO_RELAY_ENABLED,
+      PI_STUDIO_RELAY_ENDPOINT: process.env.PI_STUDIO_RELAY_ENDPOINT,
+      PI_STUDIO_RELAY_USE_TLS: process.env.PI_STUDIO_RELAY_USE_TLS,
+    };
+    process.env.PI_STUDIO_RELAY_ENABLED = "true";
+    process.env.PI_STUDIO_RELAY_ENDPOINT = "relay.molagent.ai";
+    process.env.PI_STUDIO_RELAY_USE_TLS = "true";
+    try {
+      await ensureLocalDaemonAndPair(ctx, { home }, { sleep: noSleep });
+    } finally {
+      for (const [key, value] of Object.entries(prev)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+    const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(config.daemon.relay).toEqual({
+      enabled: true,
+      endpoint: "relay.molagent.ai",
+      useTls: true,
+    });
+  });
+
   it("forwards --pi-home to runtime.start", async () => {
     const home = tmpHome();
     writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));
@@ -282,11 +366,7 @@ describe("ensureLocalDaemonAndPair", () => {
       start: async (opts) => ((receivedPiHome = opts.piHome), 123),
     });
     const { ctx } = ctxWith(home, runtime);
-    await ensureLocalDaemonAndPair(
-      ctx,
-      { home, piHome: "/custom/.pi" },
-      { sleep: noSleep },
-    );
+    await ensureLocalDaemonAndPair(ctx, { home, piHome: "/custom/.pi" }, { sleep: noSleep });
     expect(receivedPiHome).toBe("/custom/.pi");
   });
 

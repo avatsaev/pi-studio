@@ -10,6 +10,7 @@ import {
   daemonStatus,
   daemonPaths,
   defaultDaemonRuntime,
+  persistRelayEnvOverrides,
   setDaemonPassword,
   stopDaemon,
   waitForDaemon,
@@ -78,7 +79,9 @@ export async function printPairing(
   ctx.sink.write(qr);
   ctx.sink.write(`Pairing link: ${url}`);
   if (relay) {
-    ctx.sink.write(`(routed via relay ${relay.endpoint} — reachable without a direct connection to this daemon)`);
+    ctx.sink.write(
+      `(routed via relay ${relay.endpoint} — reachable without a direct connection to this daemon)`,
+    );
   }
   return EXIT_OK;
 }
@@ -91,6 +94,7 @@ export async function ensureLocalDaemonAndPair(
 ): Promise<number> {
   const runtime = runtimeOf(ctx);
   const home = resolveCtxHome(ctx, opts);
+  persistRelayEnvOverrides(home);
   const { host, port } = parseHost(opts.host);
 
   if (await runtime.probe(host, port)) {

@@ -143,7 +143,7 @@ Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
 | Command | Description |
 |---------|-------------|
-| `daemon start` | Spawn a local daemon (if not already running), print pairing QR |
+| `daemon start` | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
 | `daemon stop` | Send SIGTERM to the local daemon |
 | `daemon restart` | Stop then start the local daemon |
 | `daemon status` | Print health + PID |
@@ -153,10 +153,11 @@ Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
 `ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
 start`, and `onboard`:
-1. Probe `host:port` with `DaemonRuntime.probe()`.
-2. If not running: call `DaemonRuntime.start({ home, listen })`.
-3. Wait up to N seconds for `GET /api/health` to return 200.
-4. Print pairing QR via `buildPairingUrl()` + `renderQrToTerminal()`.
+1. `persistRelayEnvOverrides(home)` — see below.
+2. Probe `host:port` with `DaemonRuntime.probe()`.
+3. If not running: call `DaemonRuntime.start({ home, listen })`.
+4. Wait up to N seconds for `GET /api/health` to return 200.
+5. Print pairing QR via `buildPairingUrl()` + `renderQrToTerminal()`.
 
 `DaemonRuntime` (`daemon-control.ts`):
 - `probe(host, port)` — HTTP GET `/api/health`, returns true if 200.
@@ -164,6 +165,18 @@ start`, and `onboard`:
 - `stop(home)` — read PID from `pi-studio.pid`, send SIGTERM.
 - `status(home)` — read PID and probe health.
 - `waitForDaemon(runtime, host, port, opts)` — poll health until up or timeout.
+
+`persistRelayEnvOverrides(home, env = process.env)` (`daemon-control.ts`) — writes any
+`PI_STUDIO_RELAY_*` env vars present in `env` into `config.json`'s `daemon.relay` (creating the
+file/home if missing), so a `daemon start`/`restart`/`onboard` run WITH relay env vars set makes
+the daemon remember them on a LATER run WITHOUT those env vars. Needed because
+`@av-pi-studio/server`'s `loadConfig`/`overlayEnv` only overlays env vars onto the in-memory config
+for that one process — it never writes back to disk, so without this the relay config a `daemon
+start` was invoked with was otherwise silently forgotten as soon as the shell/env that set it was
+gone. No-ops (never touches or creates `config.json`) when no `PI_STUDIO_RELAY_*` env var is set, so
+a plain `daemon start` can't force a config file into existence or clobber an already-persisted
+relay config. Mirrors `setDaemonPassword`'s read-merge-write shape; only the fields whose env var is
+actually present get overwritten.
 
 ### `feature` group (`feature-commands.ts`)
 
