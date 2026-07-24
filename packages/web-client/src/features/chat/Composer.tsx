@@ -87,12 +87,19 @@ export function Composer({ sessionId }: ComposerProps) {
 
   const [text, setText] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
+  // Two independent busy flags: `sending` guards Send/create-agent, whose RPC blocks
+  // server-side for the *entire* turn (`runTurn` doesn't resolve until the turn ends — see
+  // AGENTS.md "Steering"); `steering` guards the separate, fire-and-forget steer RPC. Sharing
+  // one flag would leave the Steer button disabled for the whole turn, since the original
+  // send's promise stays pending throughout it.
   const [sending, setSending] = useState(false);
+  const [steering, setSteering] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const running = session?.status === "running";
-  const canSubmit = Boolean(client) && !sending && (text.trim().length > 0 || images.length > 0);
+  const busy = running ? steering : sending;
+  const canSubmit = Boolean(client) && !busy && (text.trim().length > 0 || images.length > 0);
 
   async function addImageFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) return;
@@ -136,7 +143,8 @@ export function Composer({ sessionId }: ComposerProps) {
   }
 
   async function submit(mode: "send" | "steer"): Promise<void> {
-    if (!client || !session || sending) return;
+    if (!client || !session) return;
+    if (mode === "steer" ? steering : sending) return;
     // Steering only makes sense against a live agent — a running session always has one; bail
     // rather than fall through to the create-agent path below (that path is send-only).
     if (mode === "steer" && !session.agentId) return;
@@ -162,7 +170,8 @@ export function Composer({ sessionId }: ComposerProps) {
     const clientMessageId = crypto.randomUUID();
     addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages, mode === "steer");
 
-    setSending(true);
+    const setBusy = mode === "steer" ? setSteering : setSending;
+    setBusy(true);
     try {
       if (mode === "steer") {
         // Fire-and-forget injection into the live turn — never touches `bindAgent` or the
@@ -225,7 +234,7 @@ export function Composer({ sessionId }: ComposerProps) {
       // for those).
       markUserMessageFailed(sessionId, clientMessageId);
     } finally {
-      setSending(false);
+      setBusy(false);
     }
   }
 

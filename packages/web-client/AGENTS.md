@@ -193,3 +193,8 @@ entered at runtime, never baked into the image.
   longer listed (`reducer.ts`'s `onQueueUpdate`, wired into `applyStreamEvent`'s `queue_update`
   case); `UserRow.tsx` renders a small "queued" pill while it's set. Follow-up (`.followUp(...)`,
   delivered only once the turn fully stops) is SDK/CLI-only — intentionally not surfaced in this UI.
+  `Composer.tsx` tracks **two independent busy flags** (`sending` for Send/create-agent, `steering`
+  for Steer) rather than one shared flag: the Send/create-agent RPC blocks server-side for the
+  *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
+  flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
+  whichever flag matches the currently-rendered action (`running ? steering : sending`).
