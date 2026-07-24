@@ -39,7 +39,7 @@ src/
     provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral).
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id.
     provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
-    session-operations.ts         Helpers: create, send, interrupt, update, resume, archive.
+    session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
                                    /new, /resume, /fork, /clone, /name, /export, /model, /copy).
@@ -201,6 +201,16 @@ Two built-in providers: `pi` and `mock`.
 - `AgentSession.run(prompt, opts)` — start a turn; events emitted via `onEvent(handler)`.
 - `AgentSession.startTurn(prompt, opts)` — fire-and-forget turn start, returns `{ turnId }`.
 - `AgentSession.interrupt()` — cancel the current turn.
+- `AgentSession.steer(message, opts?)` / `AgentSession.followUp(message, opts?)` (both optional,
+  present when `capabilities.supportsSteering`) — **inject a message into a LIVE turn** without
+  starting a new turn (Pi RPC `steer`/`follow_up`, docs/rpc.md). `steer` is delivered after the
+  current assistant turn's tool calls, before the next LLM call; `follow_up` only after the agent
+  fully stops. Fire-and-forget like `interrupt`; the provider confirms queue state asynchronously
+  via a `queue_update` stream event (mapped in `event-mapper.ts`), NOT via a response. Wired as the
+  daemon RPCs `steer_agent_request` / `follow_up_agent_request` in `session-operations.ts`
+  (`handleSteer`) — these reach the live session directly, never route through `runTurn`, and never
+  change agent status. The handler optimistically appends the injected text as a `user_message`
+  timeline row so history shows it; `ok:false` when there is no live session.
 - `AgentSession.close()` — shut down the session.
 - `AgentSession.update(patch)` — change model/mode/features without recreating.
 - `AgentSession.importSession(args)` / `AgentClient.listImportableeSessions()` — resume a

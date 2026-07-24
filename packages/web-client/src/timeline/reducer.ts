@@ -170,6 +170,23 @@ function onUserMessage(
   return { ...state, rows: [...state.rows, row] };
 }
 
+/**
+ * `queue_update` carries the pending-steering queue as raw strings, not ids (Pi's `steer`/
+ * `follow_up` RPC has no message-id concept — see `provider-contract.ts`). Clear the `queued` flag
+ * on any row whose text no longer appears in `steering[]`: Pi has handed it to the LLM. Rows are
+ * matched by exact text, best-effort — sufficient for a UX badge, not a precise queue model.
+ */
+function onQueueUpdate(state: TimelineState, steering: readonly string[]): TimelineState {
+  let changed = false;
+  const rows = state.rows.map((row) => {
+    if (row.kind !== "user" || !row.queued) return row;
+    if (steering.includes(row.text)) return row;
+    changed = true;
+    return { ...row, queued: false };
+  });
+  return changed ? { ...state, rows } : state;
+}
+
 /** Apply one `AgentStreamEvent` to timeline state. Pure — no mutation of the input. */
 export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent): TimelineState {
   switch (event.kind) {
@@ -191,6 +208,8 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
       return onTurnCanceled(state);
     case "error":
       return onError(state, event.message);
+    case "queue_update":
+      return onQueueUpdate(state, event.steering ?? []);
     default:
       return state; // unknown/future kind — ignore gracefully (append-only protocol)
   }
@@ -202,19 +221,29 @@ export function replayEvents(events: readonly AgentStreamEvent[]): TimelineState
 }
 
 /**
- * Insert the local optimistic echo `Composer` renders synchronously on Send, before the daemon's
- * `create_agent_request`/`send_agent_prompt` round trip resolves. Keyed by the same
- * `clientMessageId` sent on the RPC — the eventual `user_message` broadcast (`onUserMessage`
- * above) reconciles this row in place by matching `pending` + `clientMessageId`, so the row never
- * duplicates once the server confirms it.
+ * Insert the local optimistic echo `Composer` renders synchronously on Send/Steer, before the
+ * daemon's `create_agent_request`/`send_agent_prompt`/`steer_agent_request` round trip resolves.
+ * Keyed by the same `clientMessageId` sent on the RPC — the eventual `user_message` broadcast
+ * (`onUserMessage` above) reconciles this row in place by matching `pending` + `clientMessageId`,
+ * so the row never duplicates once the server confirms it. `queued: true` marks a steered message
+ * (cleared later by `onQueueUpdate` above); a normal send never sets it.
  */
 export function addOptimisticUserMessage(
   state: TimelineState,
   clientMessageId: string,
   text: string,
   images?: Array<{ mimeType?: string; data?: string }>,
+  queued?: boolean,
 ): TimelineState {
-  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images, clientMessageId, pending: true };
+  const row: TimelineRow = {
+    kind: "user",
+    id: nextRowId(),
+    text,
+    images,
+    clientMessageId,
+    pending: true,
+    queued,
+  };
   return { ...state, rows: [...state.rows, row] };
 }
 

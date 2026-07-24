@@ -19,6 +19,20 @@
   letter-spacing: 0.03em;
 }
 
+.queuedBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 22%, transparent);
+  color: var(--pi-color-accent, #2e5cb8);
+}
+
 /* ─── User ─────────────────────────────────────────────────────────────── */
 
 .user {

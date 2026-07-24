@@ -6,6 +6,8 @@ import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
 import type { AgentService } from "./agent-service.js";
+import { getTimeline } from "./agent-service.js";
+import type { ImageAttachment } from "@av-pi-studio/protocol";
 
 /**
  * Session operations beyond create/first-run (features/agent-sessions.md § Other operations,
@@ -43,6 +45,12 @@ export class SessionOperationsService {
     );
     registry.register("import_agent_session", (ctx) =>
       this.handleImport(ctx.message as Record<string, unknown>, getActiveSessions),
+    );
+    registry.register("steer_agent_request", (ctx) =>
+      this.handleSteer(ctx.message as Record<string, unknown>, getActiveSessions, "steer"),
+    );
+    registry.register("follow_up_agent_request", (ctx) =>
+      this.handleSteer(ctx.message as Record<string, unknown>, getActiveSessions, "followUp"),
     );
     // Legacy flat alias.
     registry.registerAlias("cancel_agent", "interrupt_agent");
@@ -83,6 +91,51 @@ export class SessionOperationsService {
       this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle" });
     }
     return { type: "interrupt_response", agentId, ok: true };
+  }
+
+  /**
+   * `steer_agent_request` / `follow_up_agent_request` — inject a message into a LIVE turn without
+   * starting a new turn (Pi RPC `steer`/`follow_up`, docs/rpc.md). Unlike `send_agent_prompt` this
+   * never routes through `runTurn`, never changes agent status, and is only meaningful while the
+   * turn is running. We optimistically append the injected text as a `user_message` timeline row so
+   * history shows what the user asked for; the provider then confirms queue state asynchronously
+   * via `queue_update` events, which flow through the in-flight `runTurn` subscriber.
+   */
+  async handleSteer(
+    msg: Record<string, unknown>,
+    getSessions: () => Iterable<Session>,
+    kind: "steer" | "followUp",
+  ): Promise<unknown> {
+    const responseType =
+      kind === "steer" ? "steer_agent_response" : "follow_up_agent_response";
+    const agentId = msg.agentId as string;
+    const message = msg.message as string;
+    const images = msg.images as ImageAttachment[] | undefined;
+    const managed = this.deps.manager.get(agentId);
+    if (!managed || !managed.session) return { type: responseType, agentId, ok: false };
+
+    const fn = kind === "steer" ? managed.session.steer : managed.session.followUp;
+    if (!fn) return { type: responseType, agentId, ok: false };
+
+    // Optimistic user_message row (best-effort — only if a live timeline exists for this turn).
+    const timeline = getTimeline(agentId);
+    if (timeline) {
+      const messageId = (msg.clientMessageId as string | undefined) ?? randomUUID();
+      const row = timeline.append({ kind: "user_message", messageId, text: message, images });
+      this.broadcastAll(getSessions(), {
+        type: "session",
+        message: {
+          type: "agent_stream",
+          agentId,
+          seq: row.seq,
+          timestamp: row.timestamp,
+          event: { kind: "user_message", messageId, text: message, images },
+        },
+      });
+    }
+
+    await fn.call(managed.session, message, images ? { images } : undefined);
+    return { type: responseType, agentId, ok: true };
   }
 
   async handleUpdate(

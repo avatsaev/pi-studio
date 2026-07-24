@@ -20,6 +20,7 @@ import {
   runAgent,
   sendAgent,
   sessionStatsAgent,
+  steerAgent,
   setAgentModel,
   setAgentSessionName,
   switchAgentSession,
@@ -201,6 +202,32 @@ describe("agent commands", () => {
     const req = fake.requests.find((r) => r.type === AGENT_RPC.send)!;
     expect(req.msg.agentId).toBe("a1");
     expect(req.msg.prompt).toBe("also add tests");
+  });
+
+  it("steer maps to steer_agent_request", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.steer]: { ok: true } } });
+    const { client, ctx } = await connectedClient(fake.transport);
+    await steerAgent(client, ctx, "a1", "focus on tests", {}, "steer");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.steer)!;
+    expect(req.msg.agentId).toBe("a1");
+    expect(req.msg.message).toBe("focus on tests");
+  });
+
+  it("follow-up maps to follow_up_agent_request", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.followUp]: { ok: true } } });
+    const { client, ctx } = await connectedClient(fake.transport);
+    await steerAgent(client, ctx, "a1", "then summarize", {}, "followUp");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.followUp)!;
+    expect(req.msg.message).toBe("then summarize");
+  });
+
+  it("formatStreamEvent renders a queue_update", () => {
+    expect(
+      formatStreamEvent({ kind: "queue_update", steering: ["fix errors"], followUp: [] }),
+    ).toBe("~ queue [steering: fix errors]");
+    expect(formatStreamEvent({ kind: "queue_update", steering: [], followUp: [] })).toBe(
+      "~ queue [empty]",
+    );
   });
 
   it("logs fetches the timeline backward and renders events", async () => {

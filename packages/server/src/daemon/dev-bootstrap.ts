@@ -37,6 +37,13 @@ export interface DevBootstrapOptions {
   hostnames?: true | string[];
   /** Operational logger. Defaults to a stdout dev logger (`PI_STUDIO_LOG_LEVEL`, pretty on a TTY). */
   logger?: Logger;
+  /**
+   * Delay (ms) before a mock turn auto-completes (`MockSessionOptions.turnDelayMs`). Defaults to
+   * the mock provider's own default (5ms) — long enough for `interrupt` to win a race, too short
+   * to observe "running" state by hand. Bump this for manual UI testing of running-state behavior
+   * (spinners, Stop, Steer) against the dev daemon.
+   */
+  mockTurnDelayMs?: number;
 }
 
 export interface DevBootstrapHandle {
@@ -62,7 +69,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   });
 
   // ── Provider resolution: mock only in dev ───────────────────────────────────
-  const mockClient = createMockClient();
+  const mockClient = createMockClient({ turnDelayMs: opts.mockTurnDelayMs });
   const resolveClient = (_provider: string): AgentClient => mockClient;
 
   // ── Broadcast helper ─────────────────────────────────────────────────────────

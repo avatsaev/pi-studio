@@ -266,6 +266,11 @@ export const agentStreamEventSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("turn_canceled"), turnId: z.string().optional() }),
   z.object({ kind: z.literal("error"), message: z.string().optional() }),
+  z.object({
+    kind: z.literal("queue_update"),
+    steering: z.array(z.string()).optional(),
+    followUp: z.array(z.string()).optional(),
+  }),
 ]);
 export type AgentStreamEvent = z.infer<typeof agentStreamEventSchema>;
 
@@ -679,6 +684,57 @@ export type AgentLastAssistantTextResponse = z.infer<
   typeof agentLastAssistantTextResponseSchema
 >;
 
+// ===========================================================================
+// Steering (steer_agent / follow_up_agent) — inject a message into a LIVE turn
+// (Pi RPC `steer` / `follow_up`, docs/rpc.md). Fire-and-forget like interrupt_agent:
+// does not start a new turn or change agent status. Delivery is confirmed by a
+// `queue_update` stream event, not by the response payload.
+// ===========================================================================
+
+export const steerAgentRequestSchema = z
+  .object({
+    type: z.literal("steer_agent_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    message: z.string(),
+    images: z.array(imageAttachmentSchema).optional(),
+    clientMessageId: z.string().optional(),
+  })
+  .passthrough();
+export type SteerAgentRequest = z.infer<typeof steerAgentRequestSchema>;
+
+export const steerAgentResponseSchema = z
+  .object({
+    type: z.literal("steer_agent_response"),
+    requestId: z.string(),
+    agentId: z.string(),
+    ok: z.boolean(),
+  })
+  .passthrough();
+export type SteerAgentResponse = z.infer<typeof steerAgentResponseSchema>;
+
+export const followUpAgentRequestSchema = z
+  .object({
+    type: z.literal("follow_up_agent_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    message: z.string(),
+    images: z.array(imageAttachmentSchema).optional(),
+    clientMessageId: z.string().optional(),
+  })
+  .passthrough();
+export type FollowUpAgentRequest = z.infer<typeof followUpAgentRequestSchema>;
+
+export const followUpAgentResponseSchema = z
+  .object({
+    type: z.literal("follow_up_agent_response"),
+    requestId: z.string(),
+    agentId: z.string(),
+    ok: z.boolean(),
+  })
+  .passthrough();
+export type FollowUpAgentResponse = z.infer<typeof followUpAgentResponseSchema>;
+
 
 // ===========================================================================
 // RPC error
@@ -743,6 +799,10 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentCycleModelResponseSchema,
   agentLastAssistantTextRequestSchema,
   agentLastAssistantTextResponseSchema,
+  steerAgentRequestSchema,
+  steerAgentResponseSchema,
+  followUpAgentRequestSchema,
+  followUpAgentResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

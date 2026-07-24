@@ -132,6 +132,17 @@ export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
         status: event.isError ? "error" : "completed",
       };
 
+    // ── Steering / follow-up queue ──
+    case "queue_update": {
+      const steering = Array.isArray(event.steering)
+        ? event.steering.filter((m): m is string => typeof m === "string")
+        : [];
+      const followUp = Array.isArray(event.followUp)
+        ? event.followUp.filter((m): m is string => typeof m === "string")
+        : [];
+      return { kind: "queue_update", steering, followUp };
+    }
+
     // ── Errors ──
     case "extension_error":
       return { kind: "error", message: str(event.error) };
@@ -144,7 +155,6 @@ export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
     case "message_start":
     case "message_end":
     case "tool_execution_update":
-    case "queue_update":
     case "compaction_start":
     case "compaction_end":
     case "auto_retry_start":

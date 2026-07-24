@@ -81,6 +81,14 @@ export interface PiStudioAgentActions {
   run(prompt: string, opts?: { clientMessageId?: string; images?: unknown[] }): Promise<unknown>;
   /** Interrupt the current turn. */
   interrupt(): Promise<unknown>;
+  /** Steer the LIVE turn — inject a message delivered after the current assistant turn's tool
+   *  calls, before the next LLM call. Provider must support steering (Pi does). */
+  steer(message: string, opts?: { clientMessageId?: string; images?: unknown[] }): Promise<unknown>;
+  /** Queue a follow-up message delivered only after the agent fully stops. */
+  followUp(
+    message: string,
+    opts?: { clientMessageId?: string; images?: unknown[] },
+  ): Promise<unknown>;
   /** Update model/mode/thinking/features/title/labels without recreating the session. */
   update(patch: {
     modeId?: string;
@@ -258,6 +266,30 @@ class AgentHandle implements PiStudioAgentActions {
 
   interrupt(): Promise<unknown> {
     return this.daemon.request("interrupt_agent", { agentId: this.agentId });
+  }
+
+  steer(
+    message: string,
+    opts: { clientMessageId?: string; images?: unknown[] } = {},
+  ): Promise<unknown> {
+    return this.daemon.request("steer_agent_request", {
+      agentId: this.agentId,
+      message,
+      clientMessageId: opts.clientMessageId,
+      images: opts.images,
+    });
+  }
+
+  followUp(
+    message: string,
+    opts: { clientMessageId?: string; images?: unknown[] } = {},
+  ): Promise<unknown> {
+    return this.daemon.request("follow_up_agent_request", {
+      agentId: this.agentId,
+      message,
+      clientMessageId: opts.clientMessageId,
+      images: opts.images,
+    });
   }
 
   update(patch: {

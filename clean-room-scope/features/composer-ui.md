@@ -71,6 +71,18 @@ reload into the composer) and **Send now** (remove + submit immediately; the dae
 the active run; on failure re-insert at the **front** + show error). On desktop, `Cmd/Ctrl+Enter` performs
 the *opposite* of the default (interrupt↔queue).
 
+### Steering (web-client's implemented alternative to Queue's "interrupt" behavior)
+`packages/web-client`'s current `Composer` does not implement the queue-track/edit/send-now
+mechanism above; instead, while the agent is running, its primary action becomes **Steer** —
+injecting the message into the *live* turn server-side (`steer_agent_request`, see
+[agent-sessions.md § Steering & follow-up](agent-sessions.md)) rather than deferring it client-side
+until the turn ends. Enter routes `submit("steer")` instead of `submit("send")` while running;
+Shift+Enter still inserts a newline either way. The inserted optimistic row carries a `queued: true`
+flag (distinct from the queue-track's local `{id, text, attachments}` entries above) that renders as
+a small pill and clears once a `queue_update` stream event no longer lists the row's text — see
+[timeline-rendering.md § User rows](timeline-rendering.md). Follow-up (queue-until-idle) is
+SDK/CLI-only for now — not surfaced as composer UI.
+
 ### Text input
 Controlled multiline that auto-grows (native content-size; web height-mirror) between min/max with scroll
 past max. Cursor/selection is tracked to detect the active `/command` or `@file` token. Non-editable while

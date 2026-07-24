@@ -8,7 +8,7 @@
  * turn finishes, and even the *first* broadcast event for that turn (the canonical `user_message`)
  * only fires once the agent process is booted/warm — for a brand-new session that means a real
  * process-spawn+handshake before anything appears (see AGENTS.md "First-message latency"). To hide
- * that, `handleSend` mints a `clientMessageId` and inserts the user's row into the timeline
+ * that, `submit` mints a `clientMessageId` and inserts the user's row into the timeline
  * *synchronously*, before the RPC is even issued. The daemon echoes the same id back verbatim as
  * the `user_message` event's `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`);
  * the reducer (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and
@@ -16,7 +16,7 @@
  *
  * A brand-new agent has no live subscription yet when the first turn's events start arriving —
  * `useAgentStream` only attaches once `bindAgent` sets `agentId`, which happens *after*
- * `createAgent()` resolves. So for the first turn `handleSend` subscribes to the raw broadcast
+ * `createAgent()` resolves. So for the first turn `submit` subscribes to the raw broadcast
  * directly and applies each `agent_stream` event *as it arrives*, latching the new agent's id
  * from *its own* `user_message` echo (`messageId === clientMessageId`) — never from "the first
  * such event", since another session's agent can be mid-turn on the same socket concurrently and
@@ -25,11 +25,20 @@
  * `user_message` event that reconciles the optimistic row above.
  * `bindAgent` is deferred until the RPC resolves so `useAgentStream` attaches only for follow-up
  * turns and never re-applies the first turn (the reducer is not event-id-idempotent).
+ *
+ * STEERING: while the agent is running, the primary action becomes **Steer** instead of Send
+ * (`send_agent_prompt` is only legal when idle — see AGENTS.md "Steering"). Steer reuses the exact
+ * optimistic-echo + reconciliation path above (`clientMessageId` in, same `user_message` echo
+ * back), just against `client.agent(id).steer(...)` instead of `.send(...)`, and marks the
+ * optimistic row `queued: true` so `UserRow` can show a "queued" badge until a `queue_update`
+ * stream event drops the text from its `steering[]` list (`timeline/reducer.ts`'s
+ * `onQueueUpdate`). Follow-up (`.followUp(...)`, delivered only after the turn fully stops) is
+ * intentionally not surfaced here — SDK/CLI only for now.
  */
 
 import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Paperclip, Send, Square } from "lucide-react";
+import { Navigation, Paperclip, Send, Square } from "lucide-react";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
@@ -62,6 +71,11 @@ function isAgentStreamMessage(msg: unknown): msg is AgentStreamMessage {
   return "agentId" in msg && typeof msg.agentId === "string" && "event" in msg;
 }
 
+/** `steer_agent_response`'s `{ ok: false }` — no live turn, or the provider lacks steering. */
+function isOkFalse(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "ok" in value && value.ok === false;
+}
+
 export function Composer({ sessionId }: ComposerProps) {
   const client = useConnectionStore((s) => s.client);
   const session = useSessionStore((s) => s.sessions[sessionId]);
@@ -78,7 +92,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const running = session?.status === "running";
-  const canSend = Boolean(client) && !sending && (text.trim().length > 0 || images.length > 0);
+  const canSubmit = Boolean(client) && !sending && (text.trim().length > 0 || images.length > 0);
 
   async function addImageFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) return;
@@ -117,12 +131,15 @@ export function Composer({ sessionId }: ComposerProps) {
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
     if (ev.key === "Enter" && !ev.shiftKey) {
       ev.preventDefault();
-      void handleSend();
+      void submit(running ? "steer" : "send");
     }
   }
 
-  async function handleSend(): Promise<void> {
+  async function submit(mode: "send" | "steer"): Promise<void> {
     if (!client || !session || sending) return;
+    // Steering only makes sense against a live agent — a running session always has one; bail
+    // rather than fall through to the create-agent path below (that path is send-only).
+    if (mode === "steer" && !session.agentId) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
 
@@ -141,12 +158,18 @@ export function Composer({ sessionId }: ComposerProps) {
     // `user_message` broadcast (see file header). `clientMessageId` is round-tripped through the
     // RPC below and echoed back verbatim as the broadcast event's `messageId`, which is how the
     // reducer reconciles this row instead of appending a duplicate once the server confirms it.
+    // Steered rows are additionally marked `queued: true` (cleared by a later `queue_update`).
     const clientMessageId = crypto.randomUUID();
-    addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages);
+    addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages, mode === "steer");
 
     setSending(true);
     try {
-      if (!session.agentId) {
+      if (mode === "steer") {
+        // Fire-and-forget injection into the live turn — never touches `bindAgent` or the
+        // first-turn broadcast gate below (those exist only for the no-agent-yet create path).
+        const result = await client.agent(session.agentId!).steer(prompt, { clientMessageId, images: rpcImages });
+        if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
+      } else if (!session.agentId) {
         const cwd = session.cwd || "~";
         setCwd(sessionId, cwd);
         // The daemon runs the entire first turn *before* `createAgent()` resolves, broadcasting
@@ -219,7 +242,11 @@ export function Composer({ sessionId }: ComposerProps) {
           className={styles.textarea}
           rows={1}
           value={text}
-          placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"
+          placeholder={
+            running
+              ? "Steer the running turn… (Enter to steer, Shift+Enter for newline)"
+              : "Ask anything… (Enter to send, Shift+Enter for newline)"
+          }
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
@@ -245,9 +272,20 @@ export function Composer({ sessionId }: ComposerProps) {
         onChange={handleFileInputChange}
       />
       <div className={styles.actions}>
-        <Button size="sm" disabled={!canSend} onClick={() => void handleSend()} leftIcon={<Send size={14} />}>
-          Send
-        </Button>
+        {running ? (
+          <Button
+            size="sm"
+            disabled={!canSubmit}
+            onClick={() => void submit("steer")}
+            leftIcon={<Navigation size={14} />}
+          >
+            Steer
+          </Button>
+        ) : (
+          <Button size="sm" disabled={!canSubmit} onClick={() => void submit("send")} leftIcon={<Send size={14} />}>
+            Send
+          </Button>
+        )}
         {running && (
           <Button size="sm" variant="destructive" onClick={handleStop} leftIcon={<Square size={14} />}>
             Stop

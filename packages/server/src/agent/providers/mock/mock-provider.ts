@@ -32,6 +32,7 @@ export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsMcpServers: false,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
+  supportsSteering: true,
 };
 
 const MOCK_MODES: AgentModeDefinition[] = [
@@ -119,6 +120,31 @@ class MockAgentSession implements AgentSession {
       this.completionTimer = null;
       this.emit({ kind: "turn_canceled", turnId });
     }
+    return Promise.resolve();
+  }
+
+  // Steering: queue the message and emit a `queue_update` reflecting the pending queue, mirroring
+  // Pi's behavior deterministically for tests. No delivery timing is simulated.
+  private readonly steeringQueue: string[] = [];
+  private readonly followUpQueue: string[] = [];
+
+  steer(message: string): Promise<void> {
+    this.steeringQueue.push(message);
+    this.emit({
+      kind: "queue_update",
+      steering: [...this.steeringQueue],
+      followUp: [...this.followUpQueue],
+    });
+    return Promise.resolve();
+  }
+
+  followUp(message: string): Promise<void> {
+    this.followUpQueue.push(message);
+    this.emit({
+      kind: "queue_update",
+      steering: [...this.steeringQueue],
+      followUp: [...this.followUpQueue],
+    });
     return Promise.resolve();
   }
 
@@ -279,6 +305,6 @@ export class MockAgentClient implements AgentClient {
 }
 
 /** Factory matching the provider-registry signature `(logger, runtimeSettings, options)`. */
-export function createMockClient(): MockAgentClient {
-  return new MockAgentClient();
+export function createMockClient(options?: MockSessionOptions): MockAgentClient {
+  return new MockAgentClient(options);
 }

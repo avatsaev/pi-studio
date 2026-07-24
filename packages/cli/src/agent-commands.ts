@@ -2,7 +2,7 @@ import type { DaemonClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { Command } from "commander";
 
-import { type CliContext, type GlobalOptions, EXIT_OK, withDaemon } from "./cli-core.js";
+import { type CliContext, type GlobalOptions, EXIT_ERROR, EXIT_OK, withDaemon } from "./cli-core.js";
 import { renderJson, renderObject, renderTable } from "./output.js";
 
 /**
@@ -20,6 +20,8 @@ export const AGENT_RPC = {
   create: "create_agent_request",
   send: "send_agent_prompt",
   stop: "interrupt_agent",
+  steer: "steer_agent_request",
+  followUp: "follow_up_agent_request",
   update: "update_agent",
   resume: "resume_agent",
   import: "import_agent_session",
@@ -85,6 +87,16 @@ export function formatStreamEvent(event: AgentStreamEvent): string {
       return `--- turn canceled ---`;
     case "error":
       return `!! ${event.message ?? "error"}`;
+    case "queue_update": {
+      const parts: string[] = [];
+      if (event.steering && event.steering.length > 0) {
+        parts.push(`steering: ${event.steering.join(" | ")}`);
+      }
+      if (event.followUp && event.followUp.length > 0) {
+        parts.push(`follow-up: ${event.followUp.join(" | ")}`);
+      }
+      return `~ queue [${parts.join("; ") || "empty"}]`;
+    }
     default:
       return JSON.stringify(event);
   }
@@ -159,6 +171,25 @@ export async function sendAgent(
   const payload = await client.request(AGENT_RPC.send, { agentId, prompt });
   ctx.sink.write(opts.json ? renderJson(payload) : "sent");
   return EXIT_OK;
+}
+
+/** `steer` / `follow-up` — inject a message into a LIVE turn (does not start a new turn). */
+export async function steerAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  message: string,
+  opts: GlobalOptions,
+  mode: "steer" | "followUp",
+): Promise<number> {
+  const rpc = mode === "steer" ? AGENT_RPC.steer : AGENT_RPC.followUp;
+  const payload = (await client.request(rpc, { agentId, message })) as { ok?: boolean };
+  if (opts.json) {
+    ctx.sink.write(renderJson(payload));
+  } else {
+    ctx.sink.write(payload.ok ? (mode === "steer" ? "steered" : "queued follow-up") : "not delivered (no live turn)");
+  }
+  return payload.ok === false ? EXIT_ERROR : EXIT_OK;
 }
 
 /** Generic single-agent RPC by id (stop/archive/delete/reload/wait). */
@@ -547,6 +578,28 @@ export function registerAgentCommands(
     .command("send <agentId> <prompt>")
     .description("send a follow-up prompt (alias of `agent send`)")
     .action(sendAction);
+
+  // steer / follow-up (+ top-level aliases) — inject into a LIVE turn
+  const steerAction = (agentId: string, message: string) =>
+    withDaemon(ctx, g(), (client) => steerAgent(client, ctx, agentId, message, g(), "steer")).then(
+      setExit,
+    );
+  agent
+    .command("steer <agentId> <message>")
+    .description("steer a running turn (delivered after the current tool calls, before the next LLM call)")
+    .action(steerAction);
+  program
+    .command("steer <agentId> <message>")
+    .description("steer a running turn (alias of `agent steer`)")
+    .action(steerAction);
+  const followUpAction = (agentId: string, message: string) =>
+    withDaemon(ctx, g(), (client) =>
+      steerAgent(client, ctx, agentId, message, g(), "followUp"),
+    ).then(setExit);
+  agent
+    .command("follow-up <agentId> <message>")
+    .description("queue a follow-up message delivered after the agent stops")
+    .action(followUpAction);
 
   // stop / archive / delete / reload / wait
   agent

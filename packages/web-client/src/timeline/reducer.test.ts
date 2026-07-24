@@ -103,3 +103,51 @@ describe("timeline reducer — optimistic user-message echo", () => {
     expect(s).toBe(before); // pure no-op — same reference, no cloning
   });
 });
+
+describe("timeline reducer — steering (queued flag + queue_update)", () => {
+  it("marks a steered optimistic row queued, and onUserMessage reconciliation preserves it", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(s, "cm-steer-1", "focus on tests", undefined, true);
+    expect(s.rows[0]).toMatchObject({ kind: "user", pending: true, queued: true });
+
+    s = applyStreamEvent(s, { kind: "user_message", messageId: "cm-steer-1", text: "focus on tests" });
+
+    expect(s.rows).toHaveLength(1); // reconciled, not duplicated
+    expect(s.rows[0]).toMatchObject({ kind: "user", pending: false, queued: true });
+  });
+
+  it("a normal (non-steered) optimistic row is never queued", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(s, "cm-send-1", "hello");
+    const row = s.rows[0];
+    if (row?.kind !== "user") throw new Error("expected user row");
+    expect(row.queued).toBeFalsy();
+  });
+
+  it("queue_update clears queued once the text drops out of steering[]", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(s, "cm-steer-2", "actually, focus on tests", undefined, true);
+    s = applyStreamEvent(s, { kind: "queue_update", steering: ["actually, focus on tests"] });
+
+    expect(s.rows[0]).toMatchObject({ queued: true }); // still queued — text is still pending delivery
+
+    s = applyStreamEvent(s, { kind: "queue_update", steering: [] });
+
+    expect(s.rows[0]).toMatchObject({ queued: false }); // delivered — text no longer listed
+  });
+
+  it("queue_update never touches an unqueued row even if its text matches followUp[]", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(s, "cm-send-2", "hello");
+    const before = s;
+    s = applyStreamEvent(s, { kind: "queue_update", steering: [], followUp: ["hello"] });
+
+    expect(s).toBe(before); // pure no-op — same reference, no cloning
+  });
+
+  it("is a pure no-op when queue_update has nothing to clear", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "queue_update", steering: ["unrelated"] });
+    expect(s.rows).toHaveLength(0);
+  });
+});

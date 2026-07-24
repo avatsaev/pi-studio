@@ -70,6 +70,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 036 | `sprint-036-paseo-ux-parity` | Full Paseo UX/UI parity for the whole app: design tokens, sidebar redesign, navigation screens, workspace shell, timeline/composer, feature panels + wiring gaps | 6 |
 | 037 | `sprint-037-agent-slash-commands` | Server+SDK+CLI support for Pi built-in slash commands that have RPC equivalents (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`, `/name`, `/export`, `/model`, `/copy`): protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI (web-client deferred) | 6 |
 | 038 | `sprint-038-tab-strip-new-tab-menu` | web-client: TabStrip "+" button opening a New chat / New terminal menu, scoped to the active workspace (GitHub issue #8); dedupes the New-chat-tab creation path into one shared helper alongside the existing `openNewTerminal` | 3 |
+| 039 | `sprint-039-agent-turn-steering` | Steer a live agent turn end-to-end: inject a message mid-turn (Pi `steer`/`follow_up`) + `queue_update` event — protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI, and web-client (Send→Steer swap + queued badge) | 8 |
 
 Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -350,6 +351,28 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-001 | Shared `openNewChat` helper alongside `openNewTerminal` | none | packages/web-client (tab-store, session-store, SessionList, open-workspace, use-session-restore) |
 | task-002 | TabStrip "+" button with New chat / New terminal menu | task-001 | packages/web-client (TabStrip, TabStrip.module.css, SessionContextMenu dropdown pattern) |
 | task-003 | Docs sync + full verification pass | task-001, task-002 | packages/web-client/AGENTS.md |
+
+### sprint-039-agent-turn-steering
+> Full-stack "steer a running turn" feature: while an agent is mid-turn, inject additional
+> instructions without waiting for it to finish. Grounded in the live Pi RPC contract
+> (`node_modules/@earendil-works/pi-coding-agent/docs/rpc.md` § Prompting: `steer`/`follow_up`,
+> `queue_update`). Dedicated fire-and-forget RPCs (like `interrupt_agent`), NOT a
+> `send_agent_prompt` overload. web-client surfaces **steer only** (Send→Steer swap + queued
+> badge); follow-up stays SDK/CLI-level for now.
+>
+> **Status:** COMPLETE — all 8 tasks done. Full workspace `build`/`typecheck`/`lint`/`vitest run`
+> green (86 files, 699 tests). See `done/*-summary.md` for what each task actually shipped.
+
+| Task | Title | Status | Depends on | Covers |
+|------|-------|--------|------------|--------|
+| task-001 | Protocol steering schemas + `queue_update` event + `supportsSteering` flag | done | none | packages/protocol; architecture/websocket-protocol |
+| task-002 | Provider-contract `steer`/`followUp` + Pi adapter + `queue_update` mapping | done | task-001 | provider-contract; providers/pi; features/agent-providers |
+| task-003 | Daemon `steer_agent_request`/`follow_up_agent_request` handlers | done | task-001, task-002 | session-operations; daemon/bootstrap; features/agent-sessions |
+| task-004 | Mock provider steering support | done | task-002 | providers/mock |
+| task-005 | SDK / client facade `steer`/`followUp` | done | task-001 | packages/client (PiStudioClient agent handle) |
+| task-006 | CLI `steer` / `follow-up` commands + `queue_update` render | done | task-005 | packages/cli (agent group); features/cli |
+| task-007 | web-client Composer Send→Steer swap + queued badge | done | task-005 | packages/web-client (Composer, timeline reducer/row-model, UserRow); features/composer-ui, timeline-rendering |
+| task-008 | Docs sync + full verification pass | done | task-001,002,003,005,006,007 | AGENTS.md (web-client); features/agent-sessions, composer-ui, timeline-rendering, timeline-streaming |
 
 ## Coverage check
 

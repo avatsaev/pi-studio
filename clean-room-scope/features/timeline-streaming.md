@@ -34,6 +34,10 @@ through the daemon's current tail.
 - **Timestamps:** row `timestamp` values are canonical, daemon-owned. Providers may supply original
   replay timestamps, but clients must not apply local-clock trust heuristics or hide time UI.
 - Default fetch page = ~200 projected items.
+- **`queue_update` is not a projected/persisted timeline item.** It's an ephemeral live-stream-only
+  signal reflecting the pending steer/follow-up queues (see
+  [agent-sessions.md § Steering & follow-up](agent-sessions.md)); it never appears in
+  `fetch_agent_timeline_request` history and carries no sequence number.
 
 ## Behavior & Algorithms
 

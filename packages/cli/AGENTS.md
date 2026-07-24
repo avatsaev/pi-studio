@@ -101,6 +101,8 @@ Default action (no subcommand):
 | `attach <agentId>` | subscribe `agent_stream` | Stream live events from an agent |
 | `send <agentId> "prompt"` | `send_agent_prompt` | Send a follow-up prompt |
 | `stop <agentId>` | `interrupt_agent` | Interrupt the current turn |
+| `steer <agentId> "message"` | `steer_agent_request` | Steer a running turn (after current tool calls) |
+| `follow-up <agentId> "message"` | `follow_up_agent_request` | Queue a message for after the agent stops |
 | `wait <agentId>` | `wait_for_agent` | Block until idle/closed |
 | `logs <agentId> [-n <limit>]` | `fetch_agent_timeline_request` | Print paged timeline history |
 | `inspect <agentId>` | `inspect_agent_request` | Print agent record |

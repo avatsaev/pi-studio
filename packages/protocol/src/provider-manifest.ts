@@ -27,6 +27,9 @@ export const agentCapabilityFlagsSchema = z.object({
   supportsRewindConversation: z.boolean().optional(),
   supportsRewindFiles: z.boolean().optional(),
   supportsRewindBoth: z.boolean().optional(),
+  // Steering capability (features/agent-sessions.md § Steering) — additive, optional. When true,
+  // the provider accepts `steer`/`follow_up` messages injected into a live turn.
+  supportsSteering: z.boolean().optional(),
 }).passthrough();
 export type AgentCapabilityFlags = z.infer<typeof agentCapabilityFlagsSchema>;
 

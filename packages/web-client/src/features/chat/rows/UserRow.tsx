@@ -6,7 +6,10 @@
  * `row.pending` (optimistic echo not yet confirmed by the server's `user_message` broadcast —
  * see Composer.tsx) dims the row via CSS; `row.failed` (the RPC rejected before confirmation
  * ever arrived) tints it toward the error color and appends a "failed to send" label instead.
- * Both are terminal states set once by the reducer — this component only reflects them.
+ * `row.queued` (steered mid-turn, not yet handed to the LLM — cleared by a `queue_update` stream
+ * event, see `timeline/reducer.ts`'s `onQueueUpdate`) shows a small "queued" pill next to the
+ * sender label. All three are terminal/transient states set by the reducer — this component only
+ * reflects them.
  */
 
 import { useState } from "react";
@@ -25,7 +28,10 @@ export function UserRow({ row }: UserRowProps) {
 
   return (
     <div className={`${styles.row} ${styles.user}${stateClass ? ` ${stateClass}` : ""}`}>
-      <span className={styles.who}>you{row.failed ? " · failed to send" : ""}</span>
+      <span className={styles.who}>
+        you{row.failed ? " · failed to send" : ""}
+        {row.queued && !row.failed && <span className={styles.queuedBadge}>queued</span>}
+      </span>
       {row.text}
       {row.images && row.images.length > 0 && (
         <div className={styles.userImages}>

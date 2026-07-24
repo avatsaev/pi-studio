@@ -183,3 +183,13 @@ entered at runtime, never baked into the image.
   `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both
   unconditionally (overwrites/`rm -rf`s whatever resolved path it's given) — never skip the
   client-side confirm when adding new callers.
+- **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
+  action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
+  routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
+  images})`. Steer reuses the exact optimistic-echo + reconciliation path Send uses
+  (`addOptimisticUserMessage`/`onUserMessage` in `timeline/reducer.ts`), just with a `queued: true`
+  flag on the inserted `UserRow`. A `queue_update` stream event (`{steering: string[], followUp:
+  string[]}`, no ids — best-effort text correlation) clears `queued` once the row's exact text is no
+  longer listed (`reducer.ts`'s `onQueueUpdate`, wired into `applyStreamEvent`'s `queue_update`
+  case); `UserRow.tsx` renders a small "queued" pill while it's set. Follow-up (`.followUp(...)`,
+  delivered only once the turn fully stops) is SDK/CLI-only — intentionally not surfaced in this UI.

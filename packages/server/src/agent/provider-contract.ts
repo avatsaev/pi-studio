@@ -113,6 +113,11 @@ export interface RunOptions {
 
 export type StartTurnOptions = RunOptions;
 
+/** Options for a steering / follow-up message injected into a live turn. */
+export interface SteerOptions {
+  images?: ImageAttachment[];
+}
+
 export interface CreateSessionOptions {
   env?: Record<string, string>;
 }
@@ -168,6 +173,14 @@ export interface AgentSession {
   setThinkingOption?(id: string): Promise<void>;
   setFeature?(id: string, value: unknown): Promise<void>;
   tryHandleOutOfBand?(message: unknown): boolean;
+
+  // Steering (features/agent-sessions.md § Steering) — inject a message into a LIVE turn without
+  // starting a new turn. Fire-and-forget, mirroring Pi RPC `steer`/`follow_up`. Present only where
+  // the provider supports it (capabilities.supportsSteering).
+  /** `steer` — queue a message delivered after the current assistant turn's tool calls. */
+  steer?(message: string, opts?: SteerOptions): Promise<void>;
+  /** `follow_up` — queue a message delivered only after the agent fully stops. */
+  followUp?(message: string, opts?: SteerOptions): Promise<void>;
 
   // Slash-command operations (sprint-037) — optional, present only where the provider RPC exists.
   /** `/session` — mirrors Pi RPC `get_session_stats`. */

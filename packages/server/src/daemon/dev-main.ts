@@ -21,6 +21,9 @@ const handle = startDevDaemon({
   port: info.listen.port,
   serverId: process.env.PI_STUDIO_SERVER_ID,
   hostnames,
+  mockTurnDelayMs: process.env.PI_STUDIO_MOCK_TURN_DELAY_MS
+    ? Number(process.env.PI_STUDIO_MOCK_TURN_DELAY_MS)
+    : undefined,
 });
 
 const log = handle.logger;

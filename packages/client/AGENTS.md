@@ -195,6 +195,8 @@ method on this facade.
 | `send(prompt, opts?)` | `send_agent_prompt` |
 | `run(prompt, opts?)` | alias for `send` |
 | `interrupt()` | `interrupt_agent` |
+| `steer(message, opts?)` | `steer_agent_request` — inject into a live turn (after current tool calls) |
+| `followUp(message, opts?)` | `follow_up_agent_request` — queue for after the agent stops |
 | `update(patch)` | `update_agent` (model/mode/thinking/features/title/labels) |
 | `resume()` | `resume_agent` |
 | `archive()` | `archive_agent` (soft-delete — keeps the record, can resume) |

@@ -36,6 +36,14 @@ export interface UserRow {
    * instead.
    */
   failed?: boolean;
+  /**
+   * True from the moment a steered message is optimistically inserted (`Composer`'s Steer path,
+   * `clientMessageId`/`queued: true` on `addOptimisticUserMessage`) until a `queue_update` stream
+   * event no longer lists this row's `text` in its `steering[]` array — i.e. Pi has handed the
+   * steering message to the LLM. Best-effort text correlation (`queue_update` carries strings, not
+   * ids — see `reducer.ts`'s `onQueueUpdate`). Never set on a normal (non-steered) send.
+   */
+  queued?: boolean;
 }
 
 export interface AssistantRow {

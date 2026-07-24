@@ -61,7 +61,7 @@ src/
 | `agentDeletedSchema` | schema | Broadcast: agent hard-deleted |
 | `agentArchivedSchema` | schema | Broadcast: agent archived (soft delete) |
 | `agentStreamSchema` | schema | Broadcast: live agent turn event |
-| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error |
+| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error, `queue_update` (`steering[]`/`followUp[]` — pending steering/follow-up queue changed) |
 | `imageAttachmentSchema` / `ImageAttachment` | schema + type | User-message image attachment wire shape `{ mimeType?, data? }` (base64); provider adapters convert to their native prompt-image format |
 | `toolCallDetailSchema` / `ToolCallDetail` | discriminated union | Tool detail normalized across providers (shell/read/edit/write/search/fetch/task) |
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
@@ -74,6 +74,10 @@ src/
 | `rewindModeSchema` / `RewindMode` | schema + type | `"conversation" \| "files" \| "both"` |
 | `agentRewindRequestSchema` / `AgentRewindRequest` | schema + type | `agent.rewind.request` — conversation/file time-travel |
 | `agentRewindResponseSchema` / `AgentRewindResponse` | schema + type | Response, includes `truncatedAt` |
+| `steerAgentRequestSchema` / `SteerAgentRequest` | schema + type | `steer_agent_request` — inject a message into a live turn (Pi `steer`); `agentId`, `message`, optional `images`/`clientMessageId` |
+| `steerAgentResponseSchema` / `SteerAgentResponse` | schema + type | Response `{ agentId, ok }` (`ok:false` = no live turn) |
+| `followUpAgentRequestSchema` / `FollowUpAgentRequest` | schema + type | `follow_up_agent_request` — queue a message delivered after the agent stops (Pi `follow_up`) |
+| `followUpAgentResponseSchema` / `FollowUpAgentResponse` | schema + type | Response `{ agentId, ok }` |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |

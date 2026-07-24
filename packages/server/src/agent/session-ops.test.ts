@@ -218,3 +218,83 @@ describe("send prompt", () => {
     );
   });
 });
+
+describe("steer / follow-up", () => {
+  it("delivers a steer message to the live session and reports ok", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const managed = manager.get(agentId)!;
+    const events: unknown[] = [];
+    managed.session!.subscribe((e) => events.push(e));
+
+    const result = (await ops.handleSteer(
+      { agentId, message: "focus on error handling" },
+      () => [],
+      "steer",
+    )) as Record<string, unknown>;
+
+    expect(result.type).toBe("steer_agent_response");
+    expect(result.ok).toBe(true);
+    // Mock provider emits a queue_update reflecting the pending steering queue.
+    expect(events).toContainEqual({
+      kind: "queue_update",
+      steering: ["focus on error handling"],
+      followUp: [],
+    });
+  });
+
+  it("delivers a follow-up message onto the follow-up queue", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const managed = manager.get(agentId)!;
+    const events: unknown[] = [];
+    managed.session!.subscribe((e) => events.push(e));
+
+    const result = (await ops.handleSteer(
+      { agentId, message: "then summarize" },
+      () => [],
+      "followUp",
+    )) as Record<string, unknown>;
+
+    expect(result.type).toBe("follow_up_agent_response");
+    expect(result.ok).toBe(true);
+    expect(events).toContainEqual({ kind: "queue_update", steering: [], followUp: ["then summarize"] });
+  });
+
+  it("broadcasts the injected text as a user_message timeline row", async () => {
+    const { service, ops, broadcasts } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const before = broadcasts.length;
+
+    await ops.handleSteer({ agentId, message: "steered text" }, () => [], "steer");
+
+    const streamed = broadcasts.slice(before).find((m) => {
+      const rec = m as { type?: string; message?: { type?: string; event?: { kind?: string } } };
+      return rec.type === "session" && rec.message?.event?.kind === "user_message";
+    }) as { message: { event: { text?: string } } } | undefined;
+    expect(streamed).toBeDefined();
+    expect(streamed!.message.event.text).toBe("steered text");
+  });
+
+  it("returns ok: false when the agent has no live session", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    manager.get(agentId)!.session = null;
+    const result = (await ops.handleSteer(
+      { agentId, message: "x" },
+      () => [],
+      "steer",
+    )) as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns ok: false for an unknown agent", async () => {
+    const { ops } = makeSetup();
+    const result = (await ops.handleSteer(
+      { agentId: "nope", message: "x" },
+      () => [],
+      "steer",
+    )) as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+  });
+});

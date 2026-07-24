@@ -53,6 +53,7 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsMcpServers: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
+  supportsSteering: true,
 };
 
 export interface PiClientDeps {
@@ -165,12 +166,14 @@ class PiAgentSession implements AgentSession {
     for (const event of this.history) yield event;
   }
 
-  startTurn(prompt: string, opts?: RunOptions): Promise<{ turnId: string }> {
-    const turnId = randomUUID();
-    // Pi RPC `prompt` command (docs/rpc.md): `{type:"prompt", message, images?}`. Images must be
-    // Pi's `ImageContent` shape (`{type:"image", data, mimeType}`) — the client only sends
-    // `{mimeType, data}`, so convert here rather than forwarding the wire shape verbatim.
-    const images = opts?.images
+  /**
+   * Convert client `{mimeType, data}` attachments to Pi's `ImageContent` shape
+   * (`{type:"image", data, mimeType}`, docs/rpc.md). Shared by `prompt`, `steer`, `follow_up`.
+   */
+  private toPiImages(
+    images: RunOptions["images"],
+  ): { type: "image"; data: string; mimeType: string }[] | undefined {
+    const mapped = images
       ?.map((img) => {
         const rec = img as Record<string, unknown>;
         const data = typeof rec.data === "string" ? rec.data : undefined;
@@ -178,10 +181,14 @@ class PiAgentSession implements AgentSession {
         return data && mimeType ? { type: "image" as const, data, mimeType } : undefined;
       })
       .filter((img): img is { type: "image"; data: string; mimeType: string } => img !== undefined);
-    this.transport.notify("prompt", {
-      message: prompt,
-      ...(images && images.length > 0 ? { images } : {}),
-    });
+    return mapped && mapped.length > 0 ? mapped : undefined;
+  }
+
+  startTurn(prompt: string, opts?: RunOptions): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    // Pi RPC `prompt` command (docs/rpc.md): `{type:"prompt", message, images?}`.
+    const images = this.toPiImages(opts?.images);
+    this.transport.notify("prompt", { message: prompt, ...(images ? { images } : {}) });
     return Promise.resolve({ turnId });
   }
 
@@ -239,6 +246,20 @@ class PiAgentSession implements AgentSession {
 
   interrupt(): Promise<void> {
     this.transport.notify("abort", {});
+    return Promise.resolve();
+  }
+
+  // Steering (docs/rpc.md `steer`/`follow_up`): fire-and-forget like `abort`. Injected into a live
+  // turn; delivery is reported asynchronously via the `queue_update` event, not a response.
+  steer(message: string, opts?: { images?: RunOptions["images"] }): Promise<void> {
+    const images = this.toPiImages(opts?.images);
+    this.transport.notify("steer", { message, ...(images ? { images } : {}) });
+    return Promise.resolve();
+  }
+
+  followUp(message: string, opts?: { images?: RunOptions["images"] }): Promise<void> {
+    const images = this.toPiImages(opts?.images);
+    this.transport.notify("follow_up", { message, ...(images ? { images } : {}) });
     return Promise.resolve();
   }
 

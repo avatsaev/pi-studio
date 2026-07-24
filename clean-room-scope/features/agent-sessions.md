@@ -55,7 +55,9 @@ Request fields:
 ### Other operations (session RPC families + MCP/CLI mirrors)
 | Operation | Surface |
 |-----------|---------|
-| Send a prompt / follow-up | `send_agent_prompt` (MCP), `pi-studio send`, composer submit |
+| Send a prompt / follow-up (while idle) | `send_agent_prompt` (MCP), `pi-studio send`, composer submit |
+| Steer a running turn (mid-turn injection, delivered before the next LLM call) | `steer_agent_request` (SDK/CLI `steer`), composer **Steer** button |
+| Queue a follow-up (delivered only once the turn fully stops) | `follow_up_agent_request` (SDK/CLI `followUp`) — not surfaced in the web composer |
 | Interrupt current turn | interrupt RPC / `pi-studio stop` / `cancel_agent`/`kill_agent` (MCP) |
 | Resume a closed session | resume via `PersistenceHandle` |
 | Import a provider-native session | `listImportableSessions` → `importSession` |
@@ -66,8 +68,10 @@ Request fields:
 
 ### Stream events (`AgentStreamEvent` kinds)
 `user_message`, `assistant_message`, `reasoning`, `tool_call`, `turn_started`, `turn_completed`,
-`turn_failed`, `turn_canceled`, `error`. Tool calls normalize to `ToolCallDetail` kinds: `shell`,
-`read`, `edit`, `write`, `search`, `fetch`, `task` (and provider-specific via mapper utils).
+`turn_failed`, `turn_canceled`, `error`, `queue_update` (`{steering?: string[], followUp?: string[]}`
+— the pending steer/follow-up queues, delivered whenever either changes; carries message text, not
+ids). Tool calls normalize to `ToolCallDetail` kinds: `shell`, `read`, `edit`, `write`, `search`,
+`fetch`, `task` (and provider-specific via mapper utils).
 
 ## Behavior & Algorithms
 
@@ -98,6 +102,20 @@ function run(agent, prompt):
   prompt, using the same message id given to / received from the provider runtime.
 - Optimistic client messages are UI-only; provider transcript echoes are optional. Dedupe by
   provider-visible message id, **not** by text — use the id given to / received from the Pi runtime.
+
+### Steering & follow-up (mid-turn injection)
+- **Steer** reaches the *live* session directly — never routes through the normal turn-run path,
+  never starts a new turn, never changes agent status. Delivered before the runtime's next LLM
+  call (i.e. it can land between tool calls within the same turn). `ok:false` (no error) when there
+  is no live turn or the provider doesn't support steering.
+- **Follow-up** queues a message delivered only once the current turn fully stops (idle/error/
+  canceled) — distinct from "send a prompt while idle", which starts a turn immediately.
+- Both mint a `clientMessageId` and are broadcast as a normal `user_message` timeline row using that
+  id (same optimistic-echo/reconcile contract as "Canonical user message rule" above) — a steered/
+  follow-up message is a real timeline row, not a side channel.
+- `queue_update` reflects the pending queues by **text**, not id (steer/follow-up have no message-id
+  concept on the wire) — clients needing to track an individual queued message's delivery must
+  correlate by exact text.
 
 ### Draft metadata
 - Model/mode/command/feature lookups prefer top-level provider APIs (`listModels`, `listModes`,

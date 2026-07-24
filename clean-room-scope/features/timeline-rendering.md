@@ -34,7 +34,7 @@ ids so streaming only re-renders the last block.
 ### Row kinds
 | Kind | Key fields | Renders as |
 |------|-----------|------------|
-| `user_message` | `text`, `timestamp`, `images?`, `attachments?`, `optimistic?` | Right-aligned bubble |
+| `user_message` | `text`, `timestamp`, `images?`, `attachments?`, `optimistic?`, `queued?` (web-client only — set for a steered message, cleared by `queue_update`; see [composer-ui.md § Steering](composer-ui.md)) | Right-aligned bubble |
 | `assistant_message` | `text`, `messageId?`, `blockGroupId?`, `blockIndex?` | Markdown block(s) |
 | `thought` | `text`, `status: loading\|ready` | Collapsible "Thinking" card (a tool card with a brain icon) |
 | `tool_call` | `payload` (agent or orchestrator) | Tool-call card, or a "Spoke" block, or a plan card, or a todo |
@@ -66,7 +66,8 @@ suppress their own outer margins via a context flag.
   16). Inside: image thumbnails (48×48 pills, wrap) → structured attachment pills (review/PR/issue/text,
   max-width ~220) → selectable text. Below (right-aligned), revealed on hover (always on native/compact):
   timestamp, an optional **rewind menu** (see [rewind.md](rewind.md) — hidden entirely when the agent's
-  provider supports no rewind mode), copy button.
+  provider supports no rewind mode), copy button. Web-client only: a small "queued" pill next to the
+  sender label while `queued` is set (steered message not yet delivered to the LLM).
 - **Assistant message / markdown:** vertical padding 12, collapsible top/bottom when adjacent blocks share a
   block group. Text split into memoized markdown blocks (12px between blocks). Markdown engine with
   typographer + linkify; `file://` links allowed. See § Markdown support.

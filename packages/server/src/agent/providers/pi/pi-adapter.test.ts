@@ -81,6 +81,10 @@ class FakeTransport implements PiRpcTransport {
       this.fire({ type: "agent_end" });
     }
     if (command === "abort") this.fire({ type: "agent_end" });
+    if (command === "steer") this.fire({ type: "queue_update", steering: ["steered"], followUp: [] });
+    if (command === "follow_up") {
+      this.fire({ type: "queue_update", steering: [], followUp: ["later"] });
+    }
   }
 
   private fire(event: unknown): void {
@@ -201,6 +205,28 @@ describe("event mapper", () => {
     });
   });
 
+  it("maps queue_update to a queue_update stream event with steering/followUp arrays", () => {
+    expect(
+      mapPiEvent({
+        type: "queue_update",
+        steering: ["Focus on error handling"],
+        followUp: ["After that, summarize"],
+      }),
+    ).toEqual({
+      kind: "queue_update",
+      steering: ["Focus on error handling"],
+      followUp: ["After that, summarize"],
+    });
+  });
+
+  it("maps an empty queue_update to empty arrays", () => {
+    expect(mapPiEvent({ type: "queue_update" })).toEqual({
+      kind: "queue_update",
+      steering: [],
+      followUp: [],
+    });
+  });
+
   it("maps real Pi events and ignores unknown ones", () => {
     expect(mapPiEvent({ type: "agent_start" })).toEqual({ kind: "turn_started" });
     expect(mapPiEvent({ type: "agent_end" })).toEqual({ kind: "turn_completed" });
@@ -274,6 +300,26 @@ describe("PiAgentClient", () => {
     session.subscribe((e) => events.push(e));
     await session.interrupt();
     expect(events.map((e) => e.kind)).toContain("turn_completed");
+  });
+
+  it("steer sends a `steer` notify and surfaces the mapped queue_update", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.steer!("focus on error handling");
+    expect(spawns[0]?.notifies).toContain("steer");
+    expect(events).toContainEqual({ kind: "queue_update", steering: ["steered"], followUp: [] });
+  });
+
+  it("followUp sends a `follow_up` notify and surfaces the mapped queue_update", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.followUp!("then summarize");
+    expect(spawns[0]?.notifies).toContain("follow_up");
+    expect(events).toContainEqual({ kind: "queue_update", steering: [], followUp: ["later"] });
   });
 });
 

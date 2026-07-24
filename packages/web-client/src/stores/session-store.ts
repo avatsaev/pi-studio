@@ -44,6 +44,7 @@ interface SessionStoreState {
     clientMessageId: string,
     text: string,
     images?: Array<{ mimeType?: string; data?: string }>,
+    queued?: boolean,
   ): void;
   markUserMessageFailed(sessionId: string, clientMessageId: string): void;
   activate(sessionId: string): void;
@@ -149,11 +150,17 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
     });
   },
 
-  addOptimisticUserMessage(sessionId, clientMessageId, text, images) {
+  addOptimisticUserMessage(sessionId, clientMessageId, text, images, queued) {
     set((s) => {
       const entry = s.sessions[sessionId];
       if (!entry) return s;
-      const timeline = addOptimisticUserMessageToTimeline(entry.timeline, clientMessageId, text, images);
+      const timeline = addOptimisticUserMessageToTimeline(
+        entry.timeline,
+        clientMessageId,
+        text,
+        images,
+        queued,
+      );
       return {
         sessions: {
           ...s.sessions,
