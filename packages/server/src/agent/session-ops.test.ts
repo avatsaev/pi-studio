@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import type { AgentClient, AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -154,11 +155,19 @@ describe("resume", () => {
     expect(resumed?.getRuntimeInfo().extra?.cwd).toBe("/work");
   });
 
-  it("throws rpc_error on a stale handle (no persistence)", async () => {
+  it("first-spawns fresh when there is no persistence handle, even over an already-live session", async () => {
     const { service, ops, manager } = makeSetup();
     const agentId = await createAgent(service, "first");
+    const before = manager.get(agentId)?.session;
     manager.get(agentId)!.record = { ...manager.get(agentId)!.record, persistence: undefined };
-    await expect(ops.handleResume({ agentId }, () => [])).rejects.toThrow("stale");
+
+    const result = (await ops.handleResume({ agentId }, () => [])) as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+    const after = manager.get(agentId)?.session;
+    expect(after).not.toBeNull();
+    // Resume always forces a fresh process (deliberate "restart" semantics) — never reuses the
+    // session that was already live going in.
+    expect(after).not.toBe(before);
   });
 });
 
@@ -206,16 +215,85 @@ describe("send prompt", () => {
     expect(resumed?.getRuntimeInfo().extra?.cwd).toBe("/work");
   });
 
-  it("throws when no live session and no persistence handle exists", async () => {
+  it("first-spawns fresh when there is no live session and no persistence handle (deferred draft's first send)", async () => {
     const { service, manager } = makeSetup();
     const agentId = await createAgent(service, "first");
     const managedAgent = manager.get(agentId)!;
     managedAgent.record = { ...managedAgent.record, persistence: undefined };
     managedAgent.session = null;
 
-    await expect(service.handleSendPrompt({ agentId, prompt: "second" }, () => [])).rejects.toThrow(
-      "no live session",
-    );
+    const result = (await service.handleSendPrompt(
+      { agentId, prompt: "second" },
+      () => [],
+    )) as Record<string, unknown>;
+    expect(result.status).toBe("idle");
+    expect(manager.get(agentId)?.session).not.toBeNull();
+  });
+
+  it("replays a materialized draft's pinned model on first spawn", async () => {
+    const { manager } = makeSetup();
+    const setProviderModelCalls: Array<[string, string]> = [];
+    const fakeSession = {
+      provider: "mock",
+      id: "fake-session",
+      capabilities: {},
+      subscribe: () => () => {},
+      run: () => Promise.resolve(),
+      getRuntimeInfo: () => ({ provider: "mock", model: "picked-model" }),
+      getAvailableModes: () => [],
+      getCurrentMode: () => null,
+      setMode: () => Promise.resolve(),
+      getPendingPermissions: () => [],
+      respondToPermission: () => Promise.resolve(),
+      describePersistence: () => ({
+        provider: "mock",
+        sessionId: "fake-session",
+        nativeHandle: "mock:fake-session",
+      }),
+      close: () => Promise.resolve(),
+      setProviderModel: (modelProvider: string, modelId: string) => {
+        setProviderModelCalls.push([modelProvider, modelId]);
+        return Promise.resolve({});
+      },
+    } as unknown as AgentSession;
+    const fakeClient = {
+      provider: "mock",
+      capabilities: {},
+      createSession: () => Promise.resolve(fakeSession),
+      resumeSession: () => Promise.reject(new Error("must not resume — this draft never spawned")),
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+    } as unknown as AgentClient;
+
+    const service = new AgentService({
+      manager,
+      resolveClient: () => fakeClient,
+      broadcast: () => {},
+      now: () => NOW,
+    });
+
+    // Deferred draft: created with a pinned model but no `initialPrompt`, so no process spawns.
+    const created = (await service.handleCreate(
+      {
+        requestId: "req-draft",
+        config: {
+          provider: "mock",
+          cwd: "/work",
+          model: "picked-model",
+          modelProvider: "anthropic",
+        },
+      },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.session).toBeNull();
+
+    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+
+    // `createSession` (not `resumeSession`) was used for the first spawn, and the pinned model
+    // was replayed onto it — neither `createSession` nor `resumeSession` consult
+    // `AgentSessionConfig.model` themselves (Pi resolves its own default at spawn regardless).
+    expect(setProviderModelCalls).toEqual([["anthropic", "picked-model"]]);
   });
 });
 

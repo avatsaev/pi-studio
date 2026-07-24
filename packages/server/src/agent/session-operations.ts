@@ -4,9 +4,9 @@ import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
-import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
+import type { AgentClient } from "./provider-contract.js";
 import type { AgentService } from "./agent-service.js";
-import { getTimeline } from "./agent-service.js";
+import { getTimeline, spawnOrResumeSession } from "./agent-service.js";
 import type { ImageAttachment } from "@av-pi-studio/protocol";
 
 /**
@@ -186,20 +186,11 @@ export class SessionOperationsService {
     getSessions: () => Iterable<Session>,
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
-    const managed = this.deps.manager.get(agentId);
-    if (!managed) throw new Error(`unknown agent: ${agentId}`);
-
-    const handle = managed.record.persistence;
-    if (!handle) {
-      // Stale / no handle → rpc_error.
-      throw new Error(`agent ${agentId} has no persistence handle (stale or not resumable)`);
-    }
-
-    const client = this.deps.resolveClient(managed.record.provider);
-    const cwd = managed.record.cwd;
-    const session = await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd });
-    this.deps.manager.attachSession(agentId, session);
-    await this.deps.manager.persistSessionHandle(agentId);
+    // Always spawns/resumes fresh, even over an already-live session (an explicit resume is a
+    // deliberate "restart the process" action) — and, for a deferred draft that was never spawned
+    // (`record.persistence` absent), first-spawns it and replays its pinned model instead of the
+    // old "no persistence handle → rpc_error" behavior (see `spawnOrResumeSession`'s doc comment).
+    await spawnOrResumeSession(this.deps, agentId);
     await this.deps.manager.setStatus(agentId, "idle");
     this.broadcastAll(getSessions(), {
       type: "agent_update",

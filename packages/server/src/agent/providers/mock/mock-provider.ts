@@ -286,6 +286,10 @@ export class MockAgentClient implements AgentClient {
     return Promise.resolve(MOCK_MODES);
   }
 
+  resolveDefaultModel(): Promise<{ provider?: string; model?: string } | null> {
+    return Promise.resolve({ provider: "mock", model: "mock-model" });
+  }
+
   isAvailable(): boolean {
     return true;
   }

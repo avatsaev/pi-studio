@@ -1,30 +1,36 @@
 /**
  * Composer — autosizing textarea + attach/send/stop (POC `initChatPanel`/`send()`,
- * POC_TO_APP_PLAN_UI.md §4.4). Send routing: no `agentId` yet → `client.createAgent(...)` then
- * `sessionStore.bindAgent` on success (the race-free binding point `useAgentStream` reacts to);
- * else → `client.agent(agentId).send(...)`. Stop → `client.agent(agentId).interrupt()`.
+ * POC_TO_APP_PLAN_UI.md §4.4). Every send goes through `ensureMaterialized` (`stores/
+ * materialize.ts`) first: a brand-new session (`agentId: null`) becomes a real, persisted draft
+ * via a no-`initialPrompt` `createAgent` call — the daemon persists the record but does NOT spawn
+ * a provider process yet (`agent-service.ts` `handleCreate`'s deferred-draft branch); the process
+ * spawns lazily on this very send (`spawnOrResumeSession`). `ensureMaterialized` is a no-op once
+ * already bound, so this is the single path for both "first message ever" and every follow-up:
+ * `client.agent(agentId).send(...)`. Stop → `client.agent(agentId).interrupt()`.
  *
- * OPTIMISTIC ECHO: `create_agent_request`/`send_agent_prompt` block server-side until the whole
- * turn finishes, and even the *first* broadcast event for that turn (the canonical `user_message`)
- * only fires once the agent process is booted/warm — for a brand-new session that means a real
- * process-spawn+handshake before anything appears (see AGENTS.md "First-message latency"). To hide
- * that, `submit` mints a `clientMessageId` and inserts the user's row into the timeline
- * *synchronously*, before the RPC is even issued. The daemon echoes the same id back verbatim as
- * the `user_message` event's `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`);
- * the reducer (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and
- * confirms it in place instead of appending a duplicate.
+ * Because the agent is bound (materialized) *before* this call, `useAgentStream` (attaches once
+ * `agentId` is set) is already subscribed by the time `send`'s turn starts streaming — unlike the
+ * old "one RPC does create-agent-and-run-the-first-turn" path, there is no window where the first
+ * turn's events arrive on a raw broadcast nobody is listening to, so this file no longer needs a
+ * first-turn gate/latch dance for a still-unbound session.
  *
- * A brand-new agent has no live subscription yet when the first turn's events start arriving —
- * `useAgentStream` only attaches once `bindAgent` sets `agentId`, which happens *after*
- * `createAgent()` resolves. So for the first turn `submit` subscribes to the raw broadcast
- * directly and applies each `agent_stream` event *as it arrives*, latching the new agent's id
- * from *its own* `user_message` echo (`messageId === clientMessageId`) — never from "the first
- * such event", since another session's agent can be mid-turn on the same socket concurrently and
- * its frames would otherwise be misattributed here (agent_update frames are top-level and never
- * reach `onSessionMessage`; agent_stream frames are session-wrapped and do). That includes the
- * `user_message` event that reconciles the optimistic row above.
- * `bindAgent` is deferred until the RPC resolves so `useAgentStream` attaches only for follow-up
- * turns and never re-applies the first turn (the reducer is not event-id-idempotent).
+ * OPTIMISTIC ECHO: `send_agent_prompt` blocks server-side until the whole turn finishes, and even
+ * the *first* broadcast event only fires once the agent process is booted/warm — for a session
+ * materializing on this very send, that means a real process-spawn+handshake before anything
+ * appears (see AGENTS.md "First-message latency"). To hide that, `submit` mints a
+ * `clientMessageId` and inserts the user's row into the timeline *synchronously*, before the RPC
+ * is even issued. The daemon echoes the same id back verbatim as the `user_message` event's
+ * `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`); the reducer
+ * (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and confirms it in
+ * place instead of appending a duplicate.
+ *
+ * MODEL PRESELECT: a brand-new session shows the model it would actually run on (`tab-store.ts`
+ * `openNewChat` seeds it via `resolveDefaultModel`) before anything is materialized. Picking a
+ * different model (`StatusBar.tsx`'s `handleSelectModel`, moved there from this file since the
+ * model picker now lives in the footer, not the composer) or typing the first character here
+ * both materialize the draft immediately, pinning whatever model is CURRENTLY displayed into
+ * `config.model`/`config.modelProvider` — replayed by the server on first spawn regardless of
+ * whether it's the untouched default or an explicit pick (`spawnOrResumeSession`).
  *
  * STEERING: while the agent is running, the primary action becomes **Steer** instead of Send
  * (`send_agent_prompt` is only legal when idle — see AGENTS.md "Steering"). Steer reuses the exact
@@ -33,20 +39,18 @@
  * optimistic row `queued: true` so `UserRow` can show a "queued" badge until a `queue_update`
  * stream event drops the text from its `steering[]` list (`timeline/reducer.ts`'s
  * `onQueueUpdate`). Follow-up (`.followUp(...)`, delivered only after the turn fully stops) is
- * intentionally not surfaced here — SDK/CLI only for now.
+ * intentionally not surfaced here — SDK/CLI only for now. Steering only makes sense against a
+ * live agent — never triggers materialization itself.
  */
 
 import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Navigation, Paperclip, Send, Square } from "lucide-react";
-import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { applyAgentStreamEvent, createFirstTurnGate } from "@pi-studio-ui/hooks/agent-stream-events.js";
+import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
-import { ModelMenu } from "./ModelMenu.js";
 import styles from "./Composer.module.css";
 
 const MAX_TEXTAREA_HEIGHT = 160;
@@ -60,18 +64,6 @@ function autoResize(el: HTMLTextAreaElement): void {
   el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
 }
 
-interface AgentStreamMessage {
-  type: "agent_stream";
-  agentId: string;
-  event: AgentStreamEvent;
-}
-
-function isAgentStreamMessage(msg: unknown): msg is AgentStreamMessage {
-  if (typeof msg !== "object" || msg === null) return false;
-  if (!("type" in msg) || msg.type !== "agent_stream") return false;
-  return "agentId" in msg && typeof msg.agentId === "string" && "event" in msg;
-}
-
 /** `steer_agent_response`'s `{ ok: false }` — no live turn, or the provider lacks steering. */
 function isOkFalse(value: unknown): boolean {
   return typeof value === "object" && value !== null && "ok" in value && value.ok === false;
@@ -80,12 +72,9 @@ function isOkFalse(value: unknown): boolean {
 export function Composer({ sessionId }: ComposerProps) {
   const client = useConnectionStore((s) => s.client);
   const session = useSessionStore((s) => s.sessions[sessionId]);
-  const bindAgent = useSessionStore((s) => s.bindAgent);
   const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
   const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
   const setCwd = useSessionStore((s) => s.setCwd);
-  const setModel = useSessionStore((s) => s.setModel);
-  const queryClient = useQueryClient();
 
   const [text, setText] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -133,8 +122,16 @@ export function Composer({ sessionId }: ComposerProps) {
   }
 
   function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
+    const wasEmpty = text.length === 0;
     setText(ev.target.value);
     autoResize(ev.target);
+    // First keystroke on a still-client-only draft materializes it — pins whatever model is
+    // currently displayed (the preselected default, or an earlier explicit pick) into the record.
+    if (wasEmpty && ev.target.value.length > 0 && client && session && !session.agentId) {
+      void ensureMaterialized(client, sessionId).catch(() => {
+        // Best-effort: if this fails, `submit`'s own `ensureMaterialized` call retries on send.
+      });
+    }
   }
 
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -147,8 +144,7 @@ export function Composer({ sessionId }: ComposerProps) {
   async function submit(mode: "send" | "steer"): Promise<void> {
     if (!client || !session) return;
     if (mode === "steer" ? steering : sending) return;
-    // Steering only makes sense against a live agent — a running session always has one; bail
-    // rather than fall through to the create-agent path below (that path is send-only).
+    // Steering only makes sense against a live agent — a running session always has one.
     if (mode === "steer" && !session.agentId) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
@@ -176,55 +172,21 @@ export function Composer({ sessionId }: ComposerProps) {
     setBusy(true);
     try {
       if (mode === "steer") {
-        // Fire-and-forget injection into the live turn — never touches `bindAgent` or the
-        // first-turn broadcast gate below (those exist only for the no-agent-yet create path).
-        const result = await client.agent(session.agentId!).steer(prompt, { clientMessageId, images: rpcImages });
+        // Fire-and-forget injection into the live turn — never touches materialization, which
+        // only applies to the send-only, no-agent-yet path below.
+        const result = await client
+          .agent(session.agentId!)
+          .steer(prompt, { clientMessageId, images: rpcImages });
         if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
-      } else if (!session.agentId) {
-        const cwd = session.cwd || "~";
-        setCwd(sessionId, cwd);
-        // The daemon runs the entire first turn *before* `createAgent()` resolves, broadcasting
-        // every `agent_stream` event for it in the meantime (agent-service.ts `runTurn`). If we
-        // waited for the RPC to learn our agentId the timeline would stay empty (and show no
-        // running indicator) until the whole turn finished — the reported bug. Instead we watch
-        // the live broadcast during the call and apply events as they arrive.
-        //
-        // We latch the agent id from *our own* canonical `user_message` echo (`messageId ===
-        // clientMessageId`), never from "the first `agent_stream` frame we happen to observe":
-        // another session's agent can be mid-turn on this same socket right now, so the first
-        // frame to arrive after we subscribe may belong to THAT agent, not ours. Latching onto it
-        // would misattribute its events into this session's timeline and then silently drop this
-        // turn's real events (mismatched agentId) once they start arriving. `agent_update` frames
-        // are broadcast bare/top-level and never reach `onSessionMessage` (only `session`-wrapped
-        // frames do), but every `agent_stream` frame IS session-wrapped, including the
-        // `user_message` echo — so this key is always observable here.
-        //
-        // `bindAgent` is deferred until *after* the RPC resolves: binding attaches
-        // `useAgentStream`, and since the reducer isn't event-id-idempotent, a mid-turn attach
-        // would double every remaining row. Binding post-resolve means this handler is the sole
-        // applier for the first turn and `useAgentStream` only ever sees follow-up turns.
-        const isOwnTurnEvent = createFirstTurnGate(clientMessageId);
-        const unsubscribeLive = client.connection.onSessionMessage((msg) => {
-          if (!isAgentStreamMessage(msg) || !isOwnTurnEvent(msg)) return;
-          applyAgentStreamEvent({ sessionId, event: msg.event, client, queryClient });
-        });
-
-        let result: { agentId: string };
-        try {
-          result = await client.createAgent({
-            config: { provider: "pi", cwd },
-            initialPrompt: prompt,
-            clientMessageId,
-            images: rpcImages,
-            labels: {},
-          });
-        } finally {
-          unsubscribeLive();
-        }
-
-        bindAgent(sessionId, result.agentId);
       } else {
-        await client.agent(session.agentId).send(prompt, { clientMessageId, images: rpcImages });
+        if (!session.agentId) setCwd(sessionId, session.cwd || "~");
+        // Materializes the still-client-only draft if `handleTextareaChange`/`handleSelectModel`
+        // haven't already (e.g. text arrived by some path other than the tracked keystroke) — a
+        // no-op once bound. `useAgentStream` attaches the instant `agentId` is bound, before this
+        // turn's first event can possibly arrive (see file header), so `send` needs no separate
+        // first-turn broadcast path the way a combined create-and-run RPC used to.
+        const agentId = await ensureMaterialized(client, sessionId);
+        await client.agent(agentId).send(prompt, { clientMessageId, images: rpcImages });
       }
     } catch {
       // RPC rejection before any `user_message` broadcast arrived (e.g. dropped connection) —
@@ -245,31 +207,8 @@ export function Composer({ sessionId }: ComposerProps) {
     void client?.agent(session.agentId).interrupt();
   }
 
-  function handleSelectModel(modelId: string, modelProvider?: string): void {
-    if (!session?.agentId) {
-      setModel(sessionId, modelId); // no bound agent yet: local-only display pick, nothing to send
-      return;
-    }
-    if (!modelProvider) return; // no known underlying LLM provider for this model — never fall
-    // back to the pi-studio provider id ("pi") here; Pi has no model registered under a provider
-    // literally named "pi" (sprint-043's "Model not found: pi/<modelId>" bug).
-    setModel(sessionId, modelId); // optimistic; confirmed by the server's `agent_update({model})`
-    void client
-      ?.agent(session.agentId)
-      .setModel(modelProvider, modelId)
-      .catch(() => {
-        // Same swallow-and-let-the-stream-be-the-source-of-truth convention as `submit`'s catch
-        // above — a rejected `agent_set_model_request` has no dedicated UI surface today.
-      });
-  }
-
   return (
     <div className={styles.composer}>
-      <ModelMenu
-        currentModel={session?.model}
-        provider="pi"
-        onSelect={handleSelectModel}
-      />
       <div className={styles.inputArea}>
         <TextArea
           ref={textareaRef}
@@ -316,12 +255,22 @@ export function Composer({ sessionId }: ComposerProps) {
             Steer
           </Button>
         ) : (
-          <Button size="sm" disabled={!canSubmit} onClick={() => void submit("send")} leftIcon={<Send size={14} />}>
+          <Button
+            size="sm"
+            disabled={!canSubmit}
+            onClick={() => void submit("send")}
+            leftIcon={<Send size={14} />}
+          >
             Send
           </Button>
         )}
         {running && (
-          <Button size="sm" variant="destructive" onClick={handleStop} leftIcon={<Square size={14} />}>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={handleStop}
+            leftIcon={<Square size={14} />}
+          >
             Stop
           </Button>
         )}

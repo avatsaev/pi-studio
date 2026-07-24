@@ -139,6 +139,11 @@ export const agentSessionConfigSchema = z.object({
   cwd: z.string(),
   modeId: z.string().optional(),
   model: z.string().optional(),
+  /** The model's own underlying LLM provider (e.g. `"anthropic"`), pinned alongside `model` when
+   * a deferred draft materializes (either the resolved default or an explicit `/model` pick) —
+   * required to replay it via `setProviderModel` on first spawn, since neither `createSession`
+   * nor `resumeSession` consult this field (Pi resolves its own default at spawn). */
+  modelProvider: z.string().optional(),
   thinkingOptionId: z.string().optional(),
   featureValues: z.record(z.string(), z.unknown()).optional(),
   title: z.string().nullable().optional(),

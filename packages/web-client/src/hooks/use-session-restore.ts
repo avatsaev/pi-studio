@@ -25,9 +25,16 @@ interface RestoredAgent {
   cwd?: string;
   title?: string;
   lastActivity?: number;
-  /** Live model/provider (sprint-042), sourced server-side from the attached session's runtime
-   * info — see `list_agents_request` in `daemon/bootstrap.ts`/`dev-bootstrap.ts`. */
+  /** Live model (sprint-042), sourced server-side from the attached session's runtime info when
+   * one exists, else the persisted `record.config?.model` (deferred draft or daemon restart —
+   * see `list_agents_request` in `daemon/bootstrap.ts`/`dev-bootstrap.ts`). */
   model?: string;
+  /** The model's OWN underlying LLM provider (e.g. `"anthropic"`) — always sourced from
+   * `record.config?.modelProvider` (no live-session override exists for this field; a session's
+   * `getRuntimeInfo().provider` is the pi-studio `AgentClient` id, a different namespace — see
+   * `provider-contract.ts` `ProviderRuntimeInfo`). REQUIRED to call `setModel` again after a
+   * restore without falling into `handleSelectModel`'s `if (!modelProvider) return` no-op. */
+  modelProvider?: string;
   provider?: string;
 }
 
@@ -89,6 +96,7 @@ export function useSessionRestore(): void {
           timeline,
           userMessageCount: timeline.rows.filter((r) => r.kind === "user").length,
           model: agent.model,
+          modelProvider: agent.modelProvider,
         });
       }
 
@@ -128,7 +136,8 @@ export function useSessionRestore(): void {
     if (status !== "open" || !client) return;
     return client.onAgentUpdate((msg) => {
       if (hasStringModel(msg)) {
-        useSessionStore.getState().setModelByAgentId(msg.agentId, msg.model);
+        const modelProvider = typeof msg.modelProvider === "string" ? msg.modelProvider : undefined;
+        useSessionStore.getState().setModelByAgentId(msg.agentId, msg.model, modelProvider);
       }
     });
   }, [status, client]);

@@ -54,10 +54,19 @@ import { ServiceProxy, resolveServiceProxyConfig } from "../proxy/service-proxy.
 
 import { ScheduleService, type ScheduleExecutor } from "../orchestration/schedule-service.js";
 import { ChatService } from "../orchestration/chat-service.js";
-import { LoopService, type LoopExecutor, type WorkerOutcome } from "../orchestration/loop-service.js";
+import {
+  LoopService,
+  type LoopExecutor,
+  type WorkerOutcome,
+} from "../orchestration/loop-service.js";
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 
-import { SERVER_FEATURES, helloSchema, serverInfoPayloadSchema, statusSchema } from "@av-pi-studio/protocol";
+import {
+  SERVER_FEATURES,
+  helloSchema,
+  serverInfoPayloadSchema,
+  statusSchema,
+} from "@av-pi-studio/protocol";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
 export interface DaemonOptions {
@@ -162,7 +171,9 @@ function writePidLock(home: string): void {
  * wrap manually (`{ type: "session", message: event }`) — passed through as-is, never
  * double-wrapped.
  */
-export function wrapSessionEnvelope(message: unknown): { type: "session"; message: unknown } | unknown {
+export function wrapSessionEnvelope(
+  message: unknown,
+): { type: "session"; message: unknown } | unknown {
   const isRecord = typeof message === "object" && message !== null;
   if (isRecord && (message as Record<string, unknown>).type === "session") return message;
   return { type: "session", message };
@@ -257,6 +268,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       lastActivity: new Date(m.record.updatedAt).getTime(),
       provider: m.record.provider,
       model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
+      modelProvider: m.record.config?.modelProvider,
     })),
   }));
 
@@ -300,6 +312,30 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     };
   });
 
+  // ── Default-model discovery (deferred-draft preselect: new chats show the model they'll
+  // actually run on before anything is spawned) ──────────────────────────────
+  const defaultModelCache = new Map<string, { provider?: string; model?: string } | null>();
+  registry.register("resolve_default_model", async (ctx) => {
+    const provider = String(ctx.message.provider ?? "pi");
+    const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
+    const cacheKey = `${provider}:${cwd ?? ""}`;
+    let resolved = defaultModelCache.get(cacheKey);
+    if (resolved === undefined) {
+      const client = resolveClient(provider);
+      resolved = client.resolveDefaultModel
+        ? await client.resolveDefaultModel(cwd ? { cwd } : undefined)
+        : null;
+      defaultModelCache.set(cacheKey, resolved);
+    }
+    return {
+      type: "resolve_default_model_response",
+      requestId: ctx.requestId ?? "",
+      provider,
+      model: resolved?.model,
+      modelProvider: resolved?.provider,
+    };
+  });
+
   // ── Projects / workspaces (real disk registry) ────────────────────────────────
   const workspaceRegistry = new WorkspaceRegistryService(home);
   const openProject = new OpenProjectService({ home, broadcast, registry: workspaceRegistry });
@@ -336,7 +372,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         projectId: "agents",
         cwd: m.record.cwd,
         kind: "directory" as const,
-        displayName: m.record.labels?.["title"] ?? m.record.cwd.split("/").filter(Boolean).pop() ?? m.record.cwd,
+        displayName:
+          m.record.labels?.["title"] ??
+          m.record.cwd.split("/").filter(Boolean).pop() ??
+          m.record.cwd,
         agentStatus: statusOf(m.record.cwd),
         createdAt: new Date(m.record.createdAt).getTime(),
         updatedAt: new Date(m.record.updatedAt).getTime(),
@@ -375,10 +414,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       await workspaceRegistry.archiveWorkspace(workspaceId);
     },
   }).registerHandlers(registry);
-  new WorktreeService({ home, registry: workspaceRegistry, broadcast, getActiveSessions }).registerHandlers(
-    registry,
+  new WorktreeService({
+    home,
+    registry: workspaceRegistry,
+    broadcast,
     getActiveSessions,
-  );
+  }).registerHandlers(registry, getActiveSessions);
 
   // ── Files: explorer (with download tokens) + transfer ─────────────────────────
   const fileTransfer = new FileTransferService();
@@ -398,7 +439,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     const filePath = String(ctx.message.path ?? "");
     const cwd = String(ctx.message.cwd ?? "");
     const staged = Boolean(ctx.message.staged);
-    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : (cwd || undefined);
+    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : cwd || undefined;
     const runGitDiff = (args: string[]) =>
       new Promise<string>((resolve) => {
         execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
@@ -418,17 +459,21 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // Simple text file read RPC for the POC UI (returns up to 512KB of UTF-8 text).
   registry.register("file_read_request", (ctx) => {
     const filePath = String(ctx.message.path ?? "");
-    const resolved = filePath.startsWith("~")
-      ? join(homedir(), filePath.slice(1))
-      : filePath;
+    const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
     try {
       const stat = statSync(resolved);
-      if (stat.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (stat.size > 512 * 1024) return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
+      if (stat.isDirectory())
+        return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (stat.size > 512 * 1024)
+        return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
       const content = readFileSync(resolved, "utf8");
       return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
     } catch (e: unknown) {
-      return { type: "file_read_response", ok: false, error: (e as Error).message ?? "read_failed" };
+      return {
+        type: "file_read_response",
+        ok: false,
+        error: (e as Error).message ?? "read_failed",
+      };
     }
   });
 
@@ -477,7 +522,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const loopExecutor: LoopExecutor = {
     async runWorker({ provider, model, modeId, cwd, prompt }) {
       const res = (await agentService.handleCreate(
-        { config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) }, initialPrompt: prompt },
+        {
+          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
+          initialPrompt: prompt,
+        },
         getActiveSessions,
       )) as { payload?: { agentId?: string } };
       const agentId = res?.payload?.agentId ?? "";
@@ -493,26 +541,36 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     },
     runShellCheck(command, cwd) {
       return new Promise((resolve) => {
-        execFile("/bin/sh", ["-c", command], { cwd, windowsHide: true }, (error, stdout, stderr) => {
-          const exitCode =
-            error && typeof (error as { code?: unknown }).code === "number"
-              ? (error as { code: number }).code
-              : error
-                ? 1
-                : 0;
-          resolve({ exitCode, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
-        });
+        execFile(
+          "/bin/sh",
+          ["-c", command],
+          { cwd, windowsHide: true },
+          (error, stdout, stderr) => {
+            const exitCode =
+              error && typeof (error as { code?: unknown }).code === "number"
+                ? (error as { code: number }).code
+                : error
+                  ? 1
+                  : 0;
+            resolve({ exitCode, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
+          },
+        );
       });
     },
     async runVerifier({ provider, model, modeId, cwd }, verifyPrompt, workerOutput) {
       const prompt = `${verifyPrompt}\n\n--- Worker output ---\n${workerOutput ?? "(none)"}`;
       const res = (await agentService.handleCreate(
-        { config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) }, initialPrompt: prompt },
+        {
+          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
+          initialPrompt: prompt,
+        },
         getActiveSessions,
       )) as { payload?: { agentId?: string } };
       const agentId = res?.payload?.agentId ?? "";
       const text = lastAssistantText(agentId) ?? "";
-      const passed = /\b(pass|passed|success|succeeded|ok|yes)\b/i.test(text) && !/\b(fail|failed|no)\b/i.test(text);
+      const passed =
+        /\b(pass|passed|success|succeeded|ok|yes)\b/i.test(text) &&
+        !/\b(fail|failed|no)\b/i.test(text);
       return { passed, reason: text.slice(0, 200), agentId };
     },
     async archiveAgent(agentId) {
@@ -634,7 +692,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
             });
             relaySessions.add(relaySession);
             logger.info(
-              { clientId: relaySession.clientId, clientType: relaySession.clientType, via: "relay" },
+              {
+                clientId: relaySession.clientId,
+                clientType: relaySession.clientType,
+                via: "relay",
+              },
               "ws client connected",
             );
 

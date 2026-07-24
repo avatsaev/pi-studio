@@ -306,6 +306,24 @@ describe("PiAgentClient", () => {
     expect(spawns.flatMap((t) => t.requests)).toEqual(["get_available_models"]);
   });
 
+  it("resolveDefaultModel spawns --no-session and asks get_state, not a scratch prompt", async () => {
+    const { client, spawns } = clientWithFake();
+    const resolved = await client.resolveDefaultModel();
+    expect(resolved).toEqual({ provider: undefined, model: "claude-opus-4" });
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]?.spawnArgs.args).toContain("--no-session");
+    expect(spawns[0]?.requests).toEqual(["get_state"]);
+    expect(spawns[0]?.notifies).not.toContain("prompt");
+  });
+
+  it("resolveDefaultModel's --no-session spawn never touches listModels' plain top-level spawn", async () => {
+    const { client, spawns } = clientWithFake();
+    await client.listModels();
+    await client.resolveDefaultModel();
+    expect(spawns[0]?.spawnArgs.args).not.toContain("--no-session");
+    expect(spawns[1]?.spawnArgs.args).toContain("--no-session");
+  });
+
   it("interrupt aborts the active turn", async () => {
     const { client } = clientWithFake();
     const session = await client.createSession({ provider: "pi", cwd: "/work" });

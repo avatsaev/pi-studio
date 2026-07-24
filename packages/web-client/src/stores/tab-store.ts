@@ -14,6 +14,8 @@
 
 import { create } from "zustand";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { resolveDefaultModel } from "@pi-studio-ui/stores/materialize.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal";
 
@@ -214,4 +216,14 @@ export function openNewChat(workspaceCwd: string): void {
     data: { sessionId: id },
     workspaceCwd,
   });
+
+  // Preselect the model this chat would actually run on, before anything is spawned or
+  // persisted (`materialize.ts` `resolveDefaultModel`) — purely a local display seed, cached
+  // per connection so only the very first "New chat" after connecting pays the lookup.
+  const client = useConnectionStore.getState().client;
+  if (client) {
+    void resolveDefaultModel(client).then(({ model, modelProvider }) => {
+      if (model) useSessionStore.getState().setModel(id, model, modelProvider);
+    });
+  }
 }

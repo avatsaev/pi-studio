@@ -1,8 +1,9 @@
 /**
- * Shared `AgentStreamEvent` → store-update logic, used both by the live subscription
- * (`use-agent-stream.ts`) and by the live first-turn apply in `Composer.tsx` (see its comment for
- * why: `create_agent_request` blocks until the whole first turn completes, so the timeline is fed
- * from the raw broadcast as events arrive rather than from a not-yet-attached subscription).
+ * Shared `AgentStreamEvent` → store-update logic, consumed by the live subscription
+ * (`use-agent-stream.ts`), which attaches the instant a session's `agentId` is bound —
+ * including a freshly materialized draft, before its first turn can possibly start streaming
+ * (`Composer.tsx`'s file header) — so there is no separate raw-broadcast/first-turn-gate path
+ * here anymore.
  */
 
 import type { PiStudioClient } from "@av-pi-studio/client";
@@ -17,31 +18,6 @@ export interface ApplyAgentStreamEventArgs {
   event: AgentStreamEvent;
   client: PiStudioClient;
   queryClient: QueryClient;
-}
-
-/**
- * Correlates first-turn `agent_stream` broadcasts with the agent a specific `createAgent` call
- * just spawned. `create_agent_request` doesn't resolve with the new `agentId` until the whole
- * first turn completes, so `Composer.handleSend` watches the raw broadcast and applies frames as
- * they arrive — but the socket is shared across every open session, and another session's agent
- * can be mid-turn concurrently. The first `agent_stream` frame observed after subscribing is
- * therefore NOT necessarily this call's own agent. Only latch onto an `agentId` once its
- * canonical `user_message` echo is seen (`messageId === clientMessageId`, minted by this call and
- * echoed back verbatim by the daemon — `agent-service.ts` `runTurn`), then accept only further
- * frames carrying that same `agentId`. Returns a predicate reporting whether a given frame belongs
- * to this turn and should be applied.
- */
-export function createFirstTurnGate(
-  clientMessageId: string,
-): (msg: { agentId: string; event: AgentStreamEvent }) => boolean {
-  let liveAgentId: string | null = null;
-  return (msg) => {
-    if (liveAgentId === null) {
-      if (msg.event.kind !== "user_message" || msg.event.messageId !== clientMessageId) return false;
-      liveAgentId = msg.agentId;
-    }
-    return msg.agentId === liveAgentId;
-  };
 }
 
 export function applyAgentStreamEvent({

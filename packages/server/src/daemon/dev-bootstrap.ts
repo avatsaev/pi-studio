@@ -131,6 +131,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       lastActivity: new Date(m.record.updatedAt).getTime(),
       provider: m.record.provider,
       model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
+      modelProvider: m.record.config?.modelProvider,
     }));
     return {
       type: "list_agents_response",
@@ -171,7 +172,12 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       cwd: m.record.cwd,
       kind: "directory" as const,
       displayName: m.record.labels?.["title"] ?? m.record.cwd,
-      agentStatus: m.record.lastStatus === "running" ? "running" : m.record.lastStatus === "error" ? "error" : "idle",
+      agentStatus:
+        m.record.lastStatus === "running"
+          ? "running"
+          : m.record.lastStatus === "error"
+            ? "error"
+            : "idle",
       createdAt: new Date(m.record.createdAt).getTime(),
       updatedAt: new Date(m.record.updatedAt).getTime(),
     }));
@@ -212,6 +218,29 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     };
   });
 
+  // ── Default-model discovery (deferred-draft preselect) ───────────────────
+  const defaultModelCache = new Map<string, { provider?: string; model?: string } | null>();
+  registry.register("resolve_default_model", async (ctx) => {
+    const provider = String(ctx.message.provider ?? "pi");
+    const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
+    const cacheKey = `${provider}:${cwd ?? ""}`;
+    let resolved = defaultModelCache.get(cacheKey);
+    if (resolved === undefined) {
+      const client = resolveClient(provider);
+      resolved = client.resolveDefaultModel
+        ? await client.resolveDefaultModel(cwd ? { cwd } : undefined)
+        : null;
+      defaultModelCache.set(cacheKey, resolved);
+    }
+    return {
+      type: "resolve_default_model_response",
+      requestId: ctx.requestId ?? "",
+      provider,
+      model: resolved?.model,
+      modelProvider: resolved?.provider,
+    };
+  });
+
   // ── File explorer: real directory listing + file preview from disk ───────
   // (features/file-explorer-transfer.md). Lets the workspace Explorer + file
   // preview panes show actual files.
@@ -226,7 +255,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     const filePath = String(ctx.message.path ?? "");
     const cwd = String(ctx.message.cwd ?? "");
     const staged = Boolean(ctx.message.staged);
-    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : (cwd || undefined);
+    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : cwd || undefined;
     const runGitDiff = (args: string[]) =>
       new Promise<string>((resolve) => {
         execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
@@ -249,12 +278,18 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
     try {
       const stat = statSync(resolved);
-      if (stat.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (stat.size > 512 * 1024) return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
+      if (stat.isDirectory())
+        return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (stat.size > 512 * 1024)
+        return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
       const content = readFileSync(resolved, "utf8");
       return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
     } catch (e: unknown) {
-      return { type: "file_read_response", ok: false, error: (e as Error).message ?? "read_failed" };
+      return {
+        type: "file_read_response",
+        ok: false,
+        error: (e as Error).message ?? "read_failed",
+      };
     }
   });
 

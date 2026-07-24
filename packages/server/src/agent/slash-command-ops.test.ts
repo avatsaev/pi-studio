@@ -41,9 +41,13 @@ function makeSetup(): {
   return { manager, service, ops, broadcasts, saved };
 }
 
+/** Eagerly spawns a live mock session — `handleCreate` no longer spawns a provider process when
+ * `initialPrompt` is omitted (deferred draft creation), so this passes one explicitly. Every
+ * delegation test below needs a live `session` to exercise, whether from this spawn or a later
+ * `manager.attachSession(agentId, sessionStub(...))` override. */
 async function createAgent(service: AgentService): Promise<string> {
   const result = (await service.handleCreate(
-    { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
+    { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" }, initialPrompt: "hi" },
     () => [],
   )) as Record<string, unknown>;
   return (result.payload as Record<string, unknown>).agentId as string;
@@ -269,7 +273,7 @@ describe("delegation to optional AgentSession methods", () => {
     });
   });
 
-  it("agent_set_model_request requires provider+modelId, broadcasts, and persists the model", async () => {
+  it("agent_set_model_request requires provider+modelId, broadcasts, and persists the model+provider", async () => {
     const { service, ops, manager, broadcasts, saved } = makeSetup();
     const agentId = await createAgent(service);
     manager.attachSession(
@@ -281,12 +285,56 @@ describe("delegation to optional AgentSession methods", () => {
     );
     saved.length = 0; // drop the initial creation write
     await ops.handleSetModel({ agentId, provider: "anthropic", modelId: "m1" }, () => []);
-    expect(broadcasts).toContainEqual({ type: "agent_update", agentId, model: "m1" });
+    expect(broadcasts).toContainEqual({
+      type: "agent_update",
+      agentId,
+      model: "m1",
+      modelProvider: "anthropic",
+    });
     // Persisted to the record's config so a restored session (no live `session`, e.g. right after
     // a daemon restart) still shows it — previously only the live session's runtime info carried
-    // the model, which came back empty once the session was no longer attached.
+    // the model, which came back empty once the session was no longer attached. `modelProvider`
+    // must travel alongside `model` — dropping it left a restored session's next pick from
+    // silently no-op'ing (`handleSelectModel`'s `if (!modelProvider) return`).
     expect(manager.get(agentId)?.record.config?.model).toBe("m1");
+    expect(manager.get(agentId)?.record.config?.modelProvider).toBe("anthropic");
     expect(saved.some((r) => r.id === agentId && r.config?.model === "m1")).toBe(true);
+  });
+
+  it("agent_set_model_request on a still-unspawned deferred draft persists directly instead of throwing (real bug: picking a model before the first send silently never saved, reverting to the default on the next reconnect)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    // Deferred-draft creation: no `initialPrompt` means `handleCreate` persists the record but
+    // never spawns a provider process (`agent-service.ts` `handleCreate`'s deferred branch) —
+    // `managed.session` stays `null` exactly like a real "New chat" tab before anything is sent.
+    const created = (await service.handleCreate(
+      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.session).toBeNull();
+    saved.length = 0; // drop the initial creation write
+
+    const result = (await ops.handleSetModel(
+      { agentId, provider: "anthropic", modelId: "m1" },
+      () => [],
+    )) as Record<string, unknown>;
+
+    expect(result).toEqual({
+      type: "agent_set_model_response",
+      payload: { id: "m1", provider: "anthropic" },
+    });
+    expect(broadcasts).toContainEqual({
+      type: "agent_update",
+      agentId,
+      model: "m1",
+      modelProvider: "anthropic",
+    });
+    expect(manager.get(agentId)?.record.config?.model).toBe("m1");
+    expect(manager.get(agentId)?.record.config?.modelProvider).toBe("anthropic");
+    expect(saved.some((r) => r.id === agentId && r.config?.model === "m1")).toBe(true);
+    // No live session to spawn or attach — the pick is pure config-persistence, replayed only
+    // once `spawnOrResumeSession` first spawns the process on the eventual first send.
+    expect(manager.get(agentId)?.session).toBeNull();
   });
 
   it("agent_cycle_model_request delegates, broadcasts, and persists the resulting model", async () => {

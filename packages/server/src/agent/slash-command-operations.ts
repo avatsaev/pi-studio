@@ -199,18 +199,37 @@ export class SlashCommandOperationsService {
     return { type: "agent_export_html_response", payload };
   }
 
-  /** Persist the resolved model into the record's config so `list_agents_request` can surface it
-   * after a daemon restart or a fresh connection, before any session is resumed and re-attached
-   * (`managed.session` is `null` at that point, so `bootstrap.ts`/`dev-bootstrap.ts` fall back to
-   * `record.config?.model` — previously never written, which is why a restored session's model
-   * selector came back empty even though `/model` had been set earlier in the same session). */
-  private async persistModel(agentId: string, modelId: string | undefined): Promise<void> {
+  /** Persist the resolved model, and its own underlying LLM `provider` (e.g. `"anthropic"` —
+   * distinct from the pi-studio `AgentClient` id on `record.provider`), into the record's config
+   * so `list_agents_request` can surface it after a daemon restart, a fresh connection, or a
+   * pick on a still-unspawned deferred draft (`managed.session` is `null` in all three cases, so
+   * `bootstrap.ts`/`dev-bootstrap.ts` fall back to `record.config`) — previously only `model` was
+   * written here, which is why a restored session's model selector came back with no known
+   * provider even though `/model` had been set earlier in the same session. */
+  private async persistModel(
+    agentId: string,
+    modelId: string | undefined,
+    modelProvider?: string,
+  ): Promise<void> {
     if (!modelId) return;
-    const config = { ...this.deps.manager.get(agentId)?.record.config, model: modelId };
+    const config = {
+      ...this.deps.manager.get(agentId)?.record.config,
+      model: modelId,
+      ...(modelProvider && { modelProvider }),
+    };
     await this.deps.manager.updateRecord(agentId, { config });
   }
 
-  /** `/model` (set) — broadcast the model change and persist it (see `persistModel`). */
+  /** `/model` (set) — broadcast the model change and persist it (see `persistModel`). A
+   * materialized draft with no live process yet (`managed.session === null` — deferred-draft
+   * creation, `agent-service.ts` `handleCreate`, defers the real spawn to first send) has no
+   * live session to call `setProviderModel` on; picking a model there just pins it into the
+   * persisted config directly, the same way the untouched preselected default gets pinned at
+   * materialization time, for `spawnOrResumeSession` to replay on first spawn. Skipping this
+   * branch (routing straight to `requireSession`, which throws `"has no live session"`) was a
+   * real bug: the thrown RPC error is swallowed client-side (`ModelMenu`'s caller has no
+   * dedicated UI surface for it), so the pick silently never reached disk — reverting to the
+   * default on the next reconnect even though the picker showed the new model the whole time. */
   async handleSetModel(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -219,11 +238,17 @@ export class SlashCommandOperationsService {
     const provider = msg.provider as string;
     const modelId = msg.modelId as string;
     if (!provider || !modelId) throw new Error("provider and modelId are required");
-    const session = requireSession(this.deps.manager, agentId);
-    if (!session.setProviderModel) throw unsupported(agentId, "set_model");
-    const payload = await session.setProviderModel(provider, modelId);
-    await this.persistModel(agentId, modelId);
-    this.broadcastAgentUpdate(getSessions, agentId, { model: modelId });
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    if (!managed.session) {
+      await this.persistModel(agentId, modelId, provider);
+      this.broadcastAgentUpdate(getSessions, agentId, { model: modelId, modelProvider: provider });
+      return { type: "agent_set_model_response", payload: { id: modelId, provider } };
+    }
+    if (!managed.session.setProviderModel) throw unsupported(agentId, "set_model");
+    const payload = await managed.session.setProviderModel(provider, modelId);
+    await this.persistModel(agentId, modelId, provider);
+    this.broadcastAgentUpdate(getSessions, agentId, { model: modelId, modelProvider: provider });
     return { type: "agent_set_model_response", payload };
   }
 

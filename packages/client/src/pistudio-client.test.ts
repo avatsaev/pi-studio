@@ -143,6 +143,16 @@ function makeScriptedDaemon(): {
         });
         return;
       }
+      case "resolve_default_model": {
+        reply({
+          type: "resolve_default_model_response",
+          requestId,
+          provider: msg.provider,
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+        });
+        return;
+      }
       default:
         reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
     }
@@ -269,6 +279,17 @@ describe("PiStudioClient — provider actions", () => {
     expect(models.models.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(modes.modes.map((m) => m.id)).toEqual(["plan", "default"]);
     expect(refresh.refreshed).toBe(true);
+  });
+
+  it("resolveDefaultModel issues resolve_default_model and returns the resolved model/provider", async () => {
+    const { client, fake } = await makeFacade();
+    const resolved = await client.providers.resolveDefaultModel("pi", "/work");
+    expect(resolved.type).toBe("resolve_default_model_response");
+    expect(resolved.model).toBe("claude-sonnet-5");
+    expect(resolved.modelProvider).toBe("anthropic");
+    const req = fake.sent.find((m) => m.type === "resolve_default_model");
+    expect(req?.provider).toBe("pi");
+    expect(req?.cwd).toBe("/work");
   });
 });
 

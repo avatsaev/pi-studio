@@ -50,6 +50,57 @@ export function seedTimeline(agentId: string, rows: import("./timeline-store.js"
   timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows }));
 }
 
+/**
+ * Ensure `agentId` has a live provider session: resume from a persisted handle, or — for a
+ * deferred draft that was never spawned (`record.persistence` absent; see `AgentService.handleCreate`
+ * step 2) — spawn it for the first time. Either way, replay the record's pinned model
+ * (`config.model`/`config.modelProvider`, written when a draft materializes — see
+ * `slash-command-operations.ts` `persistModel` and the web-client's `ensureMaterialized`) via
+ * `setProviderModel`, since neither `createSession` nor `resumeSession` consult
+ * `AgentSessionConfig.model` — Pi resolves its own default at spawn regardless
+ * (`providers/pi/agent.ts` `discoverState`'s doc comment). Attaches the session and persists its
+ * handle either way. Always spawns/resumes fresh — callers that want "reuse the live session if
+ * there is one" check `managed.session` themselves first (`AgentService.handleSendPrompt` does;
+ * `SessionOperationsService.handleResume` intentionally always forces a fresh process).
+ */
+export async function spawnOrResumeSession(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    logger?: Logger;
+  },
+  agentId: string,
+): Promise<AgentSession> {
+  const managed = deps.manager.get(agentId);
+  if (!managed) throw new Error(`unknown agent: ${agentId}`);
+  const { record } = managed;
+  const client = deps.resolveClient(record.provider);
+  const cwd = record.cwd;
+  const handle = record.persistence;
+  const session = handle
+    ? await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd })
+    : await client.createSession(
+        { provider: record.provider, cwd, ...record.config } as Parameters<
+          AgentClient["createSession"]
+        >[0],
+        { cwd },
+      );
+
+  if (!handle) {
+    const modelId = record.config?.model;
+    const modelProvider = record.config?.modelProvider;
+    if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
+  }
+
+  deps.manager.attachSession(agentId, session);
+  await deps.manager.persistSessionHandle(agentId);
+  deps.logger?.info(
+    { agentId, firstSpawn: !handle },
+    handle ? "agent session resumed" : "agent session spawned (deferred draft)",
+  );
+  return session;
+}
+
 export class AgentService {
   private readonly now: () => string;
 
@@ -86,7 +137,10 @@ export class AgentService {
     const clientMessageId = msg.clientMessageId as string | undefined;
     const autoArchive = Boolean(msg.autoArchive);
 
-    // 1. Create the agent record at status "initializing".
+    // 1. Create the agent record at status "initializing". `config` is persisted verbatim
+    // (`AgentRecord.config`) so a deferred draft (no `initialPrompt`, see step 2) can still spawn
+    // with it later, and so a materialized model pick (`config.model`/`config.modelProvider`)
+    // survives to first spawn (`spawnOrResumeSession` below).
     const record: AgentRecord = {
       id: randomUUID(),
       provider,
@@ -95,6 +149,7 @@ export class AgentService {
       updatedAt: this.now(),
       labels,
       lastStatus: "initializing",
+      config: config as AgentRecord["config"],
       timeline: [],
     };
 
@@ -107,7 +162,26 @@ export class AgentService {
       labels,
     });
 
-    // 2. Create the provider session → status "idle".
+    // 2. Deferred draft: no `initialPrompt` → persist the record and stop here, WITHOUT spawning
+    // a provider process. A brand-new chat tab materializes into exactly this shape the instant
+    // the user picks a model or starts typing (web-client `ensureMaterialized`) — persisted so it
+    // survives a reload/reconnect, but costing nothing (no process, no Pi-owned JSONL session
+    // file) until the first real send actually needs one. That first send (`handleSendPrompt`) or
+    // an explicit `resume_agent` (`session-operations.ts`) spawns it via `spawnOrResumeSession`,
+    // which also replays any pinned model. Every other caller of this RPC (CLI `run`, the MCP
+    // `create_agent` tool, scheduled/loop agents) always passes `initialPrompt`, so this branch is
+    // new behavior only for the web-client's deferred-draft path, never a regression for them.
+    if (!initialPrompt) {
+      await this.deps.manager.setStatus(agentId, "idle");
+      this.deps.logger?.info(
+        { agentId, provider, model: config.model, cwd, title },
+        "agent created (deferred draft, no process spawned)",
+      );
+      this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
+      return { type: "create_agent_response", requestId, payload: { agentId } };
+    }
+
+    // 3. Eager path: spawn now and run the initial prompt.
     const client = this.deps.resolveClient(provider);
     let session: AgentSession;
     try {
@@ -131,14 +205,11 @@ export class AgentService {
     );
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
 
-    // 3. Run initial prompt if provided.
-    if (initialPrompt) {
-      await this.runTurn(agentId, session, initialPrompt, getSessions, {
-        clientMessageId,
-        autoArchive,
-        images: msg.images as ImageAttachment[] | undefined,
-      });
-    }
+    await this.runTurn(agentId, session, initialPrompt, getSessions, {
+      clientMessageId,
+      autoArchive,
+      images: msg.images as ImageAttachment[] | undefined,
+    });
 
     return {
       type: "create_agent_response",
@@ -156,21 +227,11 @@ export class AgentService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
 
-    let session = managed.session;
-    if (!session) {
-      // No live provider session — e.g. after a daemon restart, which reloads agent records
-      // but never auto-resumes runtime (daemon-bootstrap.md § Recovery). Lazily resume from the
-      // persisted handle instead of failing the send outright, mirroring `resume_agent`
-      // (session-operations.ts#handleResume).
-      const handle = managed.record.persistence;
-      if (!handle) throw new Error(`no live session for agent ${agentId}`);
-      const client = this.deps.resolveClient(managed.record.provider);
-      const cwd = managed.record.cwd;
-      session = await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd });
-      this.deps.manager.attachSession(agentId, session);
-      await this.deps.manager.persistSessionHandle(agentId);
-      this.deps.logger?.info({ agentId }, "agent session resumed for send");
-    }
+    // No live provider session — either a daemon restart (reloads records but never
+    // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
+    // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a draft
+    // that was never spawned, spawns it for the first time and replays its pinned model.
+    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
 
     await this.runTurn(agentId, session, prompt, getSessions, {
       clientMessageId: msg.clientMessageId as string | undefined,

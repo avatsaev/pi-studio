@@ -82,11 +82,12 @@ src/
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
                            (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
-  stores/                  Zustand slices: ui-store, tab-store, session-store (SessionEntry.model,
-                           poll-reconciled + live-updated by agent_update), git-store (branch/
-                           ahead/behind/detached/upstream/conflictCount alongside changes[]),
-                           stats-store (per-sessionId context/tokens/cost/model — sprint-042),
-                           explorer-store (+ test)
+  stores/                  Zustand slices: ui-store, tab-store, session-store (SessionEntry.model/
+                           modelProvider, poll-reconciled + live-updated by agent_update),
+                           materialize (deferred-draft materialization + preselected default
+                           model, + test), git-store (branch/ahead/behind/detached/upstream/
+                           conflictCount alongside changes[]), stats-store (per-sessionId
+                           context/tokens/cost/model — sprint-042), explorer-store (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore (session directory restore
@@ -111,9 +112,10 @@ src/
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
-    chat/                   ChatPanel, Timeline, Composer, ModelMenu (composer's model-selector
-                            button + searchable popup, sprint-043), Attachments, rows/ (Assistant/
-                            User/System/Error/Reasoning rows, ToolCard)
+    chat/                   ChatPanel, Timeline, Composer, ModelMenu (status bar's model-selector
+                            searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
+                            selector"), Attachments, rows/ (Assistant/User/System/Error/Reasoning
+                            rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -211,11 +213,10 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
-- **Model selector (sprint-043).** `ModelMenu.tsx` (`features/chat/`) is the composer's model
-  control — a ghost trigger button (first child of `Composer.tsx`'s `.composer` row, left of the
-  textarea) showing `session.model` or a `"Model"` placeholder, opening a Radix `DropdownMenu`
-  with a fuzzy search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id),
-  the current model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
+- **Model selector (sprint-043, moved to the status bar) + deferred draft materialization.**
+  `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
+  search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
+  model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
   unit-tested — kept out of the `.tsx` file since the root Vitest config only discovers
   `.test.ts`, not `.test.tsx`, under a node environment; there is no jsdom/React-Testing-Library
   render test anywhere in this package despite `@testing-library/react` being a devDependency —
@@ -223,27 +224,69 @@ entered at runtime, never baked into the image.
   `--pi-color-foregroundMuted`. Each model row carries its own underlying LLM `provider` (e.g.
   `"anthropic"`) alongside its `id` (`AgentModelDefinition.provider`/`ProviderModel.provider`,
   threaded through from Pi's own `Model` object — see `packages/server/AGENTS.md` §
-  ProviderRegistry). Selection calls `useSessionStore.setModel(sessionId, modelId)` optimistically
-  first, then — only if the session has a bound `agentId` **and** the selected row has a known
-  `provider` — fires `client.agent(agentId).setModel(modelProvider, modelId)`
-  (`agent_set_model_request`), swallowing a rejection with no dedicated UI surface (same
-  swallow-and-let-the-broadcast-be-authoritative convention as `Composer.tsx`'s `submit()`).
-  **Never pass the pi-studio `AgentClient` id (`"pi"`) as this `provider` argument** — that was a
-  real shipped bug (`agent_set_model_request` always failed server-side with `"Model not found:
-  pi/<modelId>"`, silently reverting to the default model on the next turn since the change never
-  actually applied): Pi's `set_model` RPC's `provider` field is the model's own LLM provider, a
-  completely different namespace from the pi-studio provider id used only to pick which
-  `AgentClient` answers `list_provider_models`. A fresh session with no bound agent only gets the
-  local optimistic pick — Pi-Studio does not pass `config.model` at agent-creation time (the `pi`
-  provider resolves its own default), so agent creation is intentionally NOT threaded with this
-  pick. Model discovery goes through the daemon's `list_provider_models` RPC (both bootstraps,
-  backed by `AgentClient.listModels` with no spawned agent — see
-  `packages/server/AGENTS.md` § ProviderRegistry and `packages/client/AGENTS.md` §
-  `PiStudioProviderActions`).
+  ProviderRegistry). `ModelMenu` itself no longer owns a trigger element: it takes a
+  `renderTrigger(currentModel)` prop and wraps whatever the caller renders in
+  `DropdownMenu.Trigger asChild` — originally the composer's own ghost button, now
+  `StatusBar.tsx`'s icon+text segment button (`styles.modelSegment`), showing `session.model` or
+  a `"Model"` placeholder. The composer no longer renders `ModelMenu` or holds any model-picking
+  code; picking still updates `SessionEntry.model`/`modelProvider` through the same store action,
+  so the composer's materialize-on-first-keystroke path sees the same value regardless of where
+  the pick happened.
+
+  **A brand-new "New chat" tab is not blank.** `tab-store.ts`'s `openNewChat` fires
+  `stores/materialize.ts`'s `resolveDefaultModel(client)` right after `createSession` — a
+  daemon-cached lookup of the model Pi would actually run on with no override (`resolve_default_
+  model`, `packages/server/AGENTS.md` § `ProviderRegistry`) — and seeds `session.model`/
+  `modelProvider` from it, purely as a local display value: nothing is created or persisted
+  server-side yet.
+
+  **Selecting a model (`StatusBar.tsx`'s `handleSelectModel`), or typing the very first character
+  (`Composer.tsx`'s `handleTextareaChange`),** materializes the draft (`stores/materialize.ts`'s
+  `ensureMaterialized`) if it isn't bound yet: a no-`initialPrompt` `client.createAgent(...)`
+  that the daemon persists WITHOUT spawning a provider process (`packages/server/AGENTS.md` §
+  "Deferred draft creation"), carrying whatever model is CURRENTLY on the session entry — the
+  untouched preselected default, or the pick that just landed via
+  `useSessionStore.setModel(sessionId, modelId, modelProvider)` — as
+  `config.model`/`config.modelProvider`. The daemon replays that pinned model on the process's
+  first real spawn (`spawnOrResumeSession`), unconditionally — this is why `setModel` always
+  carries `modelProvider` alongside `modelId` now, not just for the already-bound case.
+  `ensureMaterialized` is idempotent (a no-op once bound) and serializes concurrent callers (a
+  model pick racing a keystroke racing Send) onto one `createAgent` call, so `Composer.tsx`'s
+  `submit()` also calls it unconditionally right before every send — this is also why
+  `Composer.tsx` no longer needs the old "watch the raw broadcast for the first turn" dance: by
+  the time a turn can start, `agentId` is already bound and `useAgentStream` is already
+  subscribed.
+
+  **Once the session has a bound `agentId`,** `StatusBar.tsx`'s `handleSelectModel` instead fires
+  `client.agent(agentId).setModel(modelProvider, modelId)` (`agent_set_model_request`) directly
+  (no re-materialization — that already happened), swallowing a rejection with no dedicated UI
+  surface (same swallow-and-let-the-broadcast-be-authoritative convention as `Composer.tsx`'s
+  `submit()`). **A bound `agentId` does NOT imply a live process** — a deferred draft's `agentId`
+  is set the instant it materializes, well before the first send that actually spawns one — so
+  this call can legitimately hit an agent with no live session at all. That distinction is
+  handled entirely server-side now (`agent_set_model_request`'s handler persists directly to
+  `record.config` when there's no live session — see `packages/server/AGENTS.md` §
+  `list_agents_request`); the client never needs to know which case it's in, and the swallowed
+  rejection above only ever fires for a genuine failure (unsupported provider, dead process),
+  not for this once-common, previously-silent no-op. **Never pass the pi-studio `AgentClient` id
+  (`"pi"`) as this `provider` argument** — that was a real shipped bug (`agent_set_model_request`
+  always failed server-side with `"Model not found: pi/<modelId>"`, silently reverting to the
+  default model on the next turn since the change never actually applied): Pi's `set_model` RPC's
+  `provider` field is the model's own LLM provider, a completely different namespace from the
+  pi-studio provider id used only to pick which `AgentClient` answers `list_provider_models`.
+  Model discovery goes through the daemon's `list_provider_models` RPC (both bootstraps, backed
+  by `AgentClient.listModels` with no spawned agent — see `packages/server/AGENTS.md` §
+  ProviderRegistry and `packages/client/AGENTS.md` § `PiStudioProviderActions`).
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
-  screen, unlike any feature panel), renders six icon-prefixed segments for the **active
-  session** in order: model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token
-  total, cost. Reads `session-store`/`git-store`/`stats-store` (all reactive selectors); polls via
+  screen, unlike any feature panel), renders six segments for the **active session** in order:
+  model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The
+  model segment is the only interactive one (sprint-043) — a button rendering `ModelMenu`'s
+  `renderTrigger`, always shown while a session is active (even before a model is known, as a
+  `"Model"` placeholder), unlike the other five which are plain icon+text and only render when
+  their underlying value exists (`gitAvailable`, `session`, …). Its leading chevron is therefore
+  driven separately from the generic segment loop's `i > 0` check — see the render's `Boolean(session)
+  || i > 0` condition — since it sits outside the `segments` array those five build. Reads
+  `session-store`/`git-store`/`stats-store` (all reactive selectors); polls via
   `useSessionStats(activeSessionId)`. Two subtleties that matter if you touch this area:
   - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
     keyed off `tab-store.activeWorkspaceCwd` — NOT `session.cwd` (a per-session field), and NOT a

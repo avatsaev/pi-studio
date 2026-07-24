@@ -248,6 +248,19 @@ export interface AgentClient {
   importSession?(args: ImportSessionArgs): Promise<ImportSessionResult>;
   getDiagnostic?(): Promise<unknown>;
   /**
+   * Resolve the model a brand-new session with no explicit override would run on — settings'
+   * configured default, else the provider's built-in default — WITHOUT spawning a persistent
+   * session. Backs the web-client's "preselect the default model on a new chat": the value is a
+   * display seed only, pinned into `config.model`/`config.modelProvider` only once the draft
+   * materializes (`slash-command-operations.ts` `persistModel`, `agent-service.ts`
+   * `spawnOrResumeSession`). Providers without a cheap session-less lookup omit this — the RPC
+   * handler (`resolve_default_model`) just returns an empty result and the client shows a
+   * placeholder.
+   */
+  resolveDefaultModel?(opts?: {
+    cwd?: string;
+  }): Promise<{ provider?: string; model?: string } | null>;
+  /**
    * Rebuild a full timeline from a provider-native resume handle, without spawning a live
    * session. Used when the daemon's in-memory `AgentTimelineStore` is empty (e.g. after a
    * restart) but the agent record still carries a `persistence` handle — the `pi` provider

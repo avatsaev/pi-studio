@@ -162,6 +162,20 @@ export interface ListProviderModelsResponse {
   models: ProviderModel[];
 }
 
+export interface ResolveDefaultModelResponse {
+  type: "resolve_default_model_response";
+  requestId: string;
+  provider: string;
+  /** The model a brand-new session with no override would run on — settings' configured default,
+   * else the provider's built-in default — or `undefined` if the provider can't resolve one
+   * without spawning a session. Display-only: never itself sent back to the daemon as a pick. */
+  model?: string;
+  /** The resolved model's own underlying LLM provider (e.g. `"anthropic"`) — same distinction as
+   * `ProviderModel.provider`, required to pin it via `config.modelProvider` if the draft
+   * materializes without the user ever changing it. */
+  modelProvider?: string;
+}
+
 export interface PiStudioProviderActions {
   /** List available providers. */
   listProviders(): Promise<unknown>;
@@ -169,6 +183,9 @@ export interface PiStudioProviderActions {
   listModels(provider: string): Promise<ListProviderModelsResponse>;
   /** List modes for a provider. */
   listModes(provider: string): Promise<unknown>;
+  /** Resolve the model a brand-new session would run on with no override — backs the
+   * web-client's "preselect the default model on a new chat" before anything is spawned. */
+  resolveDefaultModel(provider: string, cwd?: string): Promise<ResolveDefaultModelResponse>;
   /** Trigger an explicit provider snapshot refresh (no hidden revalidation). */
   refreshSnapshot(): Promise<unknown>;
 }
@@ -434,6 +451,12 @@ class ProviderHandle implements PiStudioProviderActions {
   }
   listModes(provider: string): Promise<unknown> {
     return this.daemon.request("list_provider_modes", { provider });
+  }
+  resolveDefaultModel(provider: string, cwd?: string): Promise<ResolveDefaultModelResponse> {
+    return this.daemon.request<ResolveDefaultModelResponse>("resolve_default_model", {
+      provider,
+      ...(cwd ? { cwd } : {}),
+    });
   }
   refreshSnapshot(): Promise<unknown> {
     // Dotted-namespace RPC per the protocol convention.

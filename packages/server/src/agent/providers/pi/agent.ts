@@ -506,10 +506,38 @@ export class PiAgentClient implements AgentClient {
     return Promise.resolve([]);
   }
 
-  private async topLevel(command: string, cwd?: string): Promise<unknown> {
+  /**
+   * Resolve the model a brand-new session would run on with no `--model`/`--provider` override:
+   * settings.json `defaultModel`/`defaultProvider`, else Pi's built-in default (docs/settings.md
+   * § Global settings, docs/rpc.md § get_state). Spawns a transient `pi --mode rpc --no-session`
+   * process (`--no-session`: docs/rpc.md's own common-options list, "Disable session
+   * persistence") purely to ask `get_state`, then closes it — `--no-session` guarantees this never
+   * leaves a scratch JSONL file, the exact risk `listModels`'s doc comment above flags for
+   * spawning a session-anchored process just to read metadata. Display-only: the result is never
+   * itself persisted or replayed — see `AgentClient.resolveDefaultModel`'s doc comment.
+   */
+  async resolveDefaultModel(opts?: { cwd?: string }): Promise<{ provider?: string; model?: string } | null> {
+    const data = (await this.topLevel("get_state", opts?.cwd, { noSession: true })) as
+      | Record<string, unknown>
+      | undefined;
+    const rec = data?.model as Record<string, unknown> | undefined;
+    if (!rec) return null;
+    return {
+      provider: typeof rec.provider === "string" ? rec.provider : undefined,
+      model: modelIdFrom(rec),
+    };
+  }
+
+  private async topLevel(
+    command: string,
+    cwd?: string,
+    opts?: { noSession?: boolean },
+  ): Promise<unknown> {
     if (!this.isAvailable()) throw this.unavailableError();
+    const args = buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt });
+    if (opts?.noSession) args.push("--no-session");
     const transport = this.factory({
-      args: buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt }),
+      args,
       cwd: cwd ?? ".",
       env: this.buildEnv(),
       logger: this.deps.logger,

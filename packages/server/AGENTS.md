@@ -192,20 +192,54 @@ src/
   session to interrupt. `interrupt_agent` applies the same normalization as a second line of
   defense whenever it finds a session-less record still claiming `running`/`initializing`.
 - Parent/child relationships via `PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id"`.
+- **Deferred draft creation** — `create_agent_request` (`agent-service.ts` `handleCreate`) with no
+  `initialPrompt` persists the `AgentRecord` (including the raw client `config`, so it survives to
+  a later first spawn) but does **not** spawn a provider process: `managed.session` stays `null`
+  and `record.persistence` stays unset. Backs the web-client's "New chat" tab materializing into a
+  real, restorable draft — surviving reload/reconnect — without paying for a `pi` process or a
+  Pi-owned JSONL session file until the user actually sends. Every other caller of this RPC (CLI
+  `run`, the MCP `create_agent` tool, `ScheduleService`, `LoopService`) always passes
+  `initialPrompt`, so eager creation is unaffected. `spawnOrResumeSession` (`agent-service.ts`,
+  shared by `AgentService.handleSendPrompt` and `SessionOperationsService.handleResume`) is the
+  single place that turns a record into a live session: `resumeSession` from `record.persistence`
+  when present, else a first-ever `createSession` — and, only on that first spawn, replays
+  `record.config.model`/`config.modelProvider` via `setProviderModel` (unconditionally: whatever
+  was pinned when the draft materialized, whether the untouched preselected default or an
+  explicit pick — see `resolve_default_model` below), since neither `createSession` nor
+  `resumeSession` themselves consult `AgentSessionConfig.model` (Pi resolves its own default at
+  spawn regardless).
 - `list_agents_request` (both `bootstrap.ts` and `dev-bootstrap.ts`) returns each active agent's
   `agentId`/`status`/`title`/`cwd`/`labels`/`lastActivity`, plus **`provider`** (always
-  `record.provider`) and **`model`** (sprint-042: `managed.session?.getRuntimeInfo().model ??
+  `record.provider`), **`model`** (sprint-042: `managed.session?.getRuntimeInfo().model ??
   managed.record.config?.model` — the live attached session's runtime info first (Pi's own
   `get_state` is the ultimate source of truth there, `providers/pi/agent.ts`), falling back to
-  `record.config.model` for an agent with no currently-attached session, e.g. right after a
-  daemon restart before it's resumed — restore is lazy (`daemon-bootstrap.md` § Recovery) and
-  never spawns a process just to ask Pi its model. `SlashCommandOperationsService.persistModel`
-  (`slash-command-operations.ts`) writes every `/model` set/cycle into `record.config.model` via
-  `AgentManager.updateRecord` so this fallback has a real value instead of `undefined` (previously
-  the reported bug: a restored session's model selector came back empty even though `/model` had
-  been set earlier in the same conversation). This persisted value is a display cache only — it is
-  never sent back to Pi on resume (`resumeSession` only passes `cwd`), so it can never override
-  Pi's own remembered model once the session is actually live again. No protocol schema exists for
+  `record.config.model` for an agent with no currently-attached session, e.g. a deferred draft, or
+  right after a daemon restart before it's resumed — restore is lazy (`daemon-bootstrap.md` §
+  Recovery) and never spawns a process just to ask Pi its model), and **`modelProvider`** (always
+  `record.config?.modelProvider` — no live-session override exists for this one: a session's
+  `getRuntimeInfo().provider` is the pi-studio `AgentClient` id, a different namespace, never the
+  model's own LLM provider). `SlashCommandOperationsService.persistModel` (`slash-command-
+  operations.ts`) writes every `/model` set/cycle's `model` **and** `modelProvider` into
+  `record.config` via `AgentManager.updateRecord` so both fallbacks have real values instead of
+  `undefined` (previously the reported bug: a restored session's model selector came back empty
+  even though `/model` had been set earlier in the same conversation — and separately,
+  `modelProvider` was dropped entirely, which silently no-op'd the NEXT pick after any restore,
+  since the client's live-set path bails out early when it doesn't have one).
+  **`handleSetModel` (`/model` set) branches on whether the agent has a live session at all**,
+  not just whether `agentId` is bound: a deferred draft's `agentId` is bound the instant it
+  materializes (`ensureMaterialized`), long before any process spawns, so `managed.session` stays
+  `null` until the first send. Routing that case through `requireSession` (which throws `"has no
+  live session"`) was a real shipped bug — the client swallows the RPC rejection with no dedicated
+  UI surface, so picking a model on an already-materialized-but-unspawned draft looked like it
+  worked (the client's own optimistic store update) but never reached `persistModel`, silently
+  reverting to the default on the next reconnect. `handleSetModel` now short-circuits that case:
+  no live session → persist `modelId`/`provider` straight into `record.config` (the exact same
+  write `spawnOrResumeSession`'s first-spawn replay reads back later) and return success, without
+  attempting `session.setProviderModel` at all. For an *already-live* session this value is a
+  display cache only — it is never sent back to Pi on resume (`resumeSession` only passes `cwd`),
+  so it can never override Pi's own remembered model once the session is actually live again; the
+  one case where it IS sent back is a deferred draft's first spawn (`spawnOrResumeSession` above),
+  which is a `createSession`, not a resume. No protocol schema exists for
   `list_agents_request`/`response` at all — it is, and remains, an untyped ad hoc RPC on both
   server and client.
 
@@ -227,6 +261,21 @@ resolve which client answered this RPC. Dropping this field when mapping Pi's ra
 real shipped bug: every `agent_set_model_request` calling `setProviderModel("pi", modelId)` failed
 with `"Model not found: pi/<modelId>"` since Pi has no model registered under a provider literally
 named "pi" — the client must pass each model's own `provider`, never this RPC's `provider` param.
+
+**`resolve_default_model`** (both `bootstrap.ts` and `dev-bootstrap.ts`) — resolves the model a
+brand-new session with no override would run on: settings' configured default, else the
+provider's built-in default (docs/settings.md `defaultModel`/`defaultProvider`). Calls
+`AgentClient.resolveDefaultModel(opts?: { cwd?: string })` (optional capability; `providers/pi/
+agent.ts` implements it by spawning a *transient* `pi --mode rpc --no-session` process purely to
+ask `get_state`, then closing it — `--no-session` guarantees no scratch JSONL file is left behind,
+the exact risk flagged for spawning a session-anchored process just to read metadata) and returns
+`{ type: "resolve_default_model_response", requestId, provider, model?, modelProvider? }`. Results
+are cached per `(provider, cwd)` for the daemon process's lifetime — the default rarely changes, so
+this fires once, not on every "New chat". Backs the web-client's "preselect the default model on a
+new chat" (`stores/materialize.ts` `resolveDefaultModel`): purely a display seed, never itself
+persisted until a draft materializes (`ensureMaterialized`), at which point it's pinned into
+`config.model`/`config.modelProvider` exactly like an explicit pick — see "Deferred draft
+creation" above.
 
 **`AgentClient` / `AgentSession`** (interfaces in `provider-contract.ts`):
 - `AgentClient.createSession(config, ctx)` → `AgentSession`

@@ -1,13 +1,5 @@
-/* ModelMenu — composer model-selector trigger + anchored searchable picker (sprint-043). */
-
-.modelBtn {
-  flex-shrink: 0;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  justify-content: flex-start;
-}
+/* ModelMenu — model-selector trigger + anchored searchable picker (sprint-043; the trigger
+   element itself is now rendered by the caller, e.g. StatusBar.module.css's .modelSegment). */
 
 .content {
   min-width: 240px;

@@ -36,6 +36,13 @@ describe("session store — model (sprint-042)", () => {
     expect(useSessionStore.getState().sessions["s1"]?.model).toBe("sonnet");
   });
 
+  it("setModel also carries the model's own LLM provider (modelProvider)", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    useSessionStore.getState().setModel("s1", "claude-sonnet-5", "anthropic");
+    expect(useSessionStore.getState().sessions["s1"]?.model).toBe("claude-sonnet-5");
+    expect(useSessionStore.getState().sessions["s1"]?.modelProvider).toBe("anthropic");
+  });
+
   it("setModel on an unknown sessionId is a no-op", () => {
     useSessionStore.getState().setModel("nope", "sonnet");
     expect(useSessionStore.getState().sessions["nope"]).toBeUndefined();

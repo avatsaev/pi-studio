@@ -197,6 +197,26 @@ describe("production daemon bootstrap", () => {
     client.close();
   }, 15000);
 
+  it("resolve_default_model resolves via the mock provider and caches across requests", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const first = await client.rpc({ type: "resolve_default_model", provider: "mock" });
+    expect(first.type).toBe("resolve_default_model_response");
+    expect(first.model).toBe("mock-model");
+    expect(first.modelProvider).toBe("mock");
+
+    // Second request for the same provider/cwd hits the daemon's in-memory cache — still
+    // resolves to the same value (the cache's existence is opaque from the wire, but a second
+    // round trip must never fail or drift).
+    const second = await client.rpc({ type: "resolve_default_model", provider: "mock" });
+    expect(second.model).toBe("mock-model");
+    expect(second.modelProvider).toBe("mock");
+
+    client.close();
+  }, 15000);
+
   it("archive_agent soft-deletes: agent is closed but its record survives on disk", async () => {
     const booted = boot();
     handle = booted.handle;

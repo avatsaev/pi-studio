@@ -6,10 +6,26 @@
  * per-session `stats-store`; nothing here is scoped to a specific tab. Mounting this component is
  * also what drives the active session's stats poll (`useSessionStats`, sprint-042/task-004) — no
  * other consumer of `stats-store` exists yet, so the poll runs exactly while the bar is on screen.
+ *
+ * The model segment (moved here from the composer) is interactive: it's always shown while a
+ * session is active (even before a model is known, as a "Model" placeholder) and opens the same
+ * `ModelMenu` searchable picker the composer used to host, via `renderTrigger` so it can match
+ * this bar's segment styling instead of the composer's toolbar button.
  */
 
 import type { ReactNode } from "react";
-import { ChevronRight, Coins, Cpu, DollarSign, Folder, GitBranch, Gauge } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Coins,
+  Cpu,
+  DollarSign,
+  Folder,
+  GitBranch,
+  Gauge,
+} from "lucide-react";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
@@ -24,6 +40,7 @@ import {
   formatPercent,
   formatTokens,
 } from "./status-bar-format.js";
+import { ModelMenu } from "../chat/ModelMenu.js";
 import styles from "./StatusBar.module.css";
 
 interface Segment {
@@ -38,6 +55,8 @@ export function StatusBar() {
   const session = useSessionStore((s) =>
     activeSessionId ? s.sessions[activeSessionId] : undefined,
   );
+  const client = useConnectionStore((s) => s.client);
+  const setModel = useSessionStore((s) => s.setModel);
   const homeDir = useHomeDir();
   // Own the same live checkout-status subscription `ChangesPanel` uses (POC pattern,
   // `use-checkout-status.ts`), keyed off the same `activeWorkspaceCwd` — so the branch segment
@@ -61,10 +80,6 @@ export function StatusBar() {
 
   const segments: Segment[] = [];
 
-  if (session?.model) {
-    segments.push({ key: "model", icon: <Cpu size={13} />, text: session.model });
-  }
-
   if (session) {
     const cwdText = formatCwd(session.cwd, homeDir);
     segments.push({ key: "cwd", icon: <Folder size={13} />, text: cwdText, title: session.cwd });
@@ -72,7 +87,7 @@ export function StatusBar() {
 
   if (gitAvailable) {
     const branchMeta = formatBranchMeta(ahead, behind);
-    const parts = [detached ? "(detached)" : branch ?? "?"];
+    const parts = [detached ? "(detached)" : (branch ?? "?")];
     if (branchMeta) parts.push(branchMeta);
     if (dirtyCount > 0) parts.push(`●${dirtyCount}`);
     if (conflictCount > 0) parts.push(`⚠${conflictCount}`);
@@ -97,11 +112,66 @@ export function StatusBar() {
     });
   }
 
+  /**
+   * `modelProvider` is the model's OWN underlying LLM provider (e.g. `"anthropic"`) — REQUIRED by
+   * `client.agent(id).setModel(provider, modelId)`'s `provider` argument. Never hardcode the
+   * pi-studio provider id ("pi") here; Pi has no model registered under a provider literally
+   * named "pi" (sprint-043's "Model not found: pi/<modelId>" bug). Mirrors the composer's former
+   * `handleSelectModel` (moved here with the UI).
+   */
+  function handleSelectModel(modelId: string, modelProvider?: string): void {
+    if (!activeSessionId) return;
+    setModel(activeSessionId, modelId, modelProvider); // optimistic display pick either way
+    if (!client) return;
+    if (!session?.agentId) {
+      // Materializes the draft, pinning this pick into `config.model`/`config.modelProvider` for
+      // first-spawn replay — `setModel` above already updated the entry `ensureMaterialized`
+      // reads when building the create-agent config.
+      void ensureMaterialized(client, activeSessionId).catch(() => {
+        // Best-effort: the composer's own `ensureMaterialized` call retries on the next send.
+      });
+      return;
+    }
+    if (!modelProvider) return;
+    void client
+      .agent(session.agentId)
+      .setModel(modelProvider, modelId)
+      .catch(() => {
+        // Same swallow-and-let-the-stream-be-the-source-of-truth convention as the composer's
+        // `submit` catch — a rejected `agent_set_model_request` has no dedicated UI surface today.
+      });
+  }
+
   return (
     <div className={styles.statusBar}>
+      {session && (
+        <span className={styles.segmentGroup}>
+          <ModelMenu
+            currentModel={session.model}
+            provider="pi"
+            onSelect={handleSelectModel}
+            renderTrigger={(currentModel) => (
+              <button
+                type="button"
+                className={styles.modelSegment}
+                disabled={!client}
+                title={currentModel ? `Model: ${currentModel}` : "Select model"}
+              >
+                <span className={styles.icon}>
+                  <Cpu size={13} />
+                </span>
+                <span className={styles.text}>{currentModel ?? "Model"}</span>
+                <ChevronDown size={12} className={styles.modelChevron} aria-hidden="true" />
+              </button>
+            )}
+          />
+        </span>
+      )}
       {segments.map((seg, i) => (
         <span key={seg.key} className={styles.segmentGroup}>
-          {i > 0 && <ChevronRight size={12} className={styles.chevron} aria-hidden="true" />}
+          {(Boolean(session) || i > 0) && (
+            <ChevronRight size={12} className={styles.chevron} aria-hidden="true" />
+          )}
           <span className={styles.segment} title={seg.title}>
             <span className={styles.icon}>{seg.icon}</span>
             <span className={styles.text}>{seg.text}</span>

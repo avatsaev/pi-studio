@@ -48,6 +48,9 @@ export const serializableConfigSchema = z
     title: z.string().nullable().optional(),
     modeId: z.string().optional(),
     model: z.string().optional(),
+    /** The picked model's own LLM provider — see `agentSessionConfigSchema`'s field of the same
+     * name (`@av-pi-studio/protocol`) for why this must travel with `model`. */
+    modelProvider: z.string().optional(),
     thinkingOptionId: z.string().optional(),
     featureValues: z.record(z.string(), z.unknown()).optional(),
     extra: z.record(z.string(), z.unknown()).optional(),

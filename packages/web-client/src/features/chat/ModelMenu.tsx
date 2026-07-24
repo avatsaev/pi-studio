@@ -1,21 +1,20 @@
 /**
- * ModelMenu — composer toolbar control (sprint-043). A ghost trigger button shows the session's
- * current model (or a placeholder before one is known); clicking it opens an anchored dropdown
- * listing the provider's models with a fuzzy search filter at the top. The current model sorts
- * first with a checkmark; every row renders `label (id)` with the id in muted text.
+ * ModelMenu — model-selector trigger + anchored searchable picker (sprint-043; moved from the
+ * composer into the workspace `StatusBar` footer). Renders a caller-supplied trigger element
+ * (`renderTrigger`, e.g. `StatusBar.tsx`'s icon+text segment button) that opens an anchored
+ * dropdown listing the provider's models with a fuzzy search filter at the top. The current
+ * model sorts first with a checkmark; every row renders `label (id)` with the id in muted text.
  *
  * Anchoring follows `TabStrip.tsx`'s `NewTabMenu` visible-trigger pattern (`DropdownMenu.Trigger
- * asChild` wrapping a real `<Button>`), NOT `SessionContextMenu`'s invisible fixed-coordinate
+ * asChild` wrapping a real element), NOT `SessionContextMenu`'s invisible fixed-coordinate
  * trigger (that pattern is for right-click menus only). Search reuses the pure `filterOptions`
  * helper (case-insensitive substring on label + id) instead of a bespoke filter.
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
 import { filterOptions, type ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
 import { sortCurrentFirst, dedupeById } from "./model-menu-sort.js";
@@ -32,10 +31,13 @@ export interface ModelMenuProps {
    * named "pi" (sprint-043's "Model not found: pi/<modelId>" bug).
    */
   onSelect: (modelId: string, modelProvider?: string) => void;
+  /** Renders the visible trigger element (must forward ref/props via `DropdownMenu.Trigger
+   * asChild` — a real `<button>`/`Button`, not a fragment). Receives `currentModel` so the
+   * caller can render its own placeholder/label styling. */
+  renderTrigger: (currentModel: string | undefined) => ReactNode;
 }
 
-export function ModelMenu({ currentModel, provider, onSelect }: ModelMenuProps) {
-  const client = useConnectionStore((s) => s.client);
+export function ModelMenu({ currentModel, provider, onSelect, renderTrigger }: ModelMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -45,12 +47,7 @@ export function ModelMenu({ currentModel, provider, onSelect }: ModelMenuProps) 
   // of a spinner every time, while TanStack Query refetches it in the background so it stays
   // current. Only fetches while the menu is actually open (`enabled: open`), matching
   // `OpenWorkspaceDialog.tsx`'s `useExplorer(path, open && ...)` convention.
-  const {
-    data: models = [],
-    isLoading,
-    isError,
-    error,
-  } = useProviderModels(provider, open);
+  const { data: models = [], isLoading, isError, error } = useProviderModels(provider, open);
   const sortedModels = dedupeById(sortCurrentFirst(models, currentModel));
 
   // Reset the search query and refocus the search input every time the menu opens.
@@ -78,17 +75,7 @@ export function ModelMenu({ currentModel, provider, onSelect }: ModelMenuProps) 
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false}>
-      <DropdownMenu.Trigger asChild>
-        <Button
-          variant="ghost"
-          size="md"
-          className={styles.modelBtn}
-          disabled={!client}
-          title={currentModel ? `Model: ${currentModel}` : "Select model"}
-        >
-          {currentModel ?? "Model"}
-        </Button>
-      </DropdownMenu.Trigger>
+      <DropdownMenu.Trigger asChild>{renderTrigger(currentModel)}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className={styles.content} align="start" sideOffset={4}>
           <input
