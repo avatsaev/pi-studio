@@ -13,6 +13,7 @@
  */
 
 import { useState } from "react";
+import { Clock } from "lucide-react";
 import { Dialog } from "@pi-studio-ui/components/primitives/Dialog.js";
 import type { UserRow as UserRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import styles from "./rows.module.css";
@@ -24,13 +25,24 @@ export interface UserRowProps {
 export function UserRow({ row }: UserRowProps) {
   const [openedSrc, setOpenedSrc] = useState<string | null>(null);
 
-  const stateClass = row.failed ? styles.userFailed : row.pending ? styles.userPending : "";
+  const stateClass = row.failed
+    ? styles.userFailed
+    : row.pending
+      ? styles.userPending
+      : row.queued
+        ? styles.userQueued
+        : "";
 
   return (
     <div className={`${styles.row} ${styles.user}${stateClass ? ` ${stateClass}` : ""}`}>
       <span className={styles.who}>
         you{row.failed ? " · failed to send" : ""}
-        {row.queued && !row.failed && <span className={styles.queuedBadge}>queued</span>}
+        {row.queued && !row.failed && (
+          <span className={styles.queuedBadge}>
+            <Clock size={9} />
+            queued
+          </span>
+        )}
       </span>
       {row.text}
       {row.images && row.images.length > 0 && (
