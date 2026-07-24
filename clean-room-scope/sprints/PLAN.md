@@ -71,6 +71,8 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 037 | `sprint-037-agent-slash-commands` | Server+SDK+CLI support for Pi built-in slash commands that have RPC equivalents (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`, `/name`, `/export`, `/model`, `/copy`): protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI (web-client deferred) | 6 |
 | 038 | `sprint-038-tab-strip-new-tab-menu` | web-client: TabStrip "+" button opening a New chat / New terminal menu, scoped to the active workspace (GitHub issue #8); dedupes the New-chat-tab creation path into one shared helper alongside the existing `openNewTerminal` | 3 |
 | 039 | `sprint-039-agent-turn-steering` | Steer a live agent turn end-to-end: inject a message mid-turn (Pi `steer`/`follow_up`) + `queue_update` event — protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI, and web-client (Send→Steer swap + queued badge) | 8 |
+| 040 | `sprint-040-agent-command-discovery` | Server-only: surface Pi's `get_commands` (extension commands, prompt templates, skills) as a per-session `agent_list_commands_request` discovery RPC — protocol schemas, enriched command-definition contract + Pi adapter `listCommands`, daemon handler, mock + docs (SDK/CLI/UI deferred) | 4 |
+| 041 | `sprint-041-agent-turn-settlement` | Fix premature turn termination: the Pi adapter declares a turn terminal on the first `agent_end`, but Pi emits one `agent_end` per low-level run (with `willRetry`) and a single `agent_settled` at the true end — retried/compaction/continued turns appear finished mid-flight, lose post-retry stream rows, flip status to idle early, and can auto-archive a live agent. Make the event-mapper settlement-driven (honour `willRetry`, derive terminal kind from the settled run's `stopReason`), wire it per-session, add a fake-transport `agent_settled` + retry-subscription regression, and sync scope/AGENTS docs | 3 |
 
 Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -373,6 +375,39 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-006 | CLI `steer` / `follow-up` commands + `queue_update` render | done | task-005 | packages/cli (agent group); features/cli |
 | task-007 | web-client Composer Send→Steer swap + queued badge | done | task-005 | packages/web-client (Composer, timeline reducer/row-model, UserRow); features/composer-ui, timeline-rendering |
 | task-008 | Docs sync + full verification pass | done | task-001,002,003,005,006,007 | AGENTS.md (web-client); features/agent-sessions, composer-ui, timeline-rendering, timeline-streaming |
+
+### sprint-040-agent-command-discovery
+> Server-only. Surfaces Pi's `get_commands` (extension commands, prompt templates, skills — the
+> disjoint set from sprint-037's built-in slash commands) as a per-session discovery RPC. Grounded
+> in the live Pi RPC contract (`node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`
+> § Commands: `get_commands`), not a new scope doc. `AgentSession.listCommands?` is already declared
+> in the contract but unimplemented; this sprint wires it end-to-end server-side. SDK/CLI/MCP/web-
+> client discovery surfaces are a deliberate follow-up.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Protocol schemas for `agent_list_commands_request`/`_response` | none | packages/protocol; architecture/websocket-protocol |
+| task-002 | Enrich `AgentCommandDefinition` + implement Pi `listCommands` | task-001 | provider-contract; providers/pi; features/agent-providers |
+| task-003 | Daemon `agent_list_commands_request` handler | task-001, task-002 | slash-command-operations; daemon/bootstrap; features/agent-sessions |
+| task-004 | Mock support + docs sync + verification | task-002, task-003 | providers/mock; AGENTS.md (protocol, server) |
+
+### sprint-041-agent-turn-settlement
+> Bug fix, server-only. The Pi adapter's event-mapper maps every `agent_end → turn_completed`, but
+> Pi emits one `agent_end` per low-level run — decorated with `willRetry` — and a single
+> `agent_settled` at the true end of a session-level run (auto-retry, overflow-compaction, and
+> queued steering/follow-up all loop before settle). Firing terminal on the first `agent_end` tears
+> down the daemon's stream subscription mid-turn, drops post-retry rows, flips status to idle early,
+> and can auto-archive a live agent. Grounded in the live Pi RPC contract
+> (`node_modules/@earendil-works/pi-coding-agent/docs/rpc.md` § Events; `dist/core/agent-session.js`
+> `_runAgentPrompt`/`_willRetryAfterAgentEnd`/`_emitAgentSettled`), not a new scope doc. Reuses the
+> existing `turn_completed`/`turn_failed`/`turn_canceled` protocol kinds — no schema change. Closes
+> the `agent_settled`/`willRetry` audit gap deferred in sprint-040/task-001.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Settlement-driven event-mapper (`willRetry` non-terminal; `agent_settled` → terminal by `stopReason`) + per-session wiring | none | providers/pi (event-mapper, agent); features/agent-sessions |
+| task-002 | Fake-transport `agent_settled` wiring + retry-subscription regression test | task-001 | providers/pi (pi-adapter.test); agent-service (runTurn) |
+| task-003 | Scope-doc + AGENTS.md sync and full verification | task-001, task-002 | features/agent-sessions; architecture/agent-lifecycle; AGENTS.md (server) |
 
 ## Coverage check
 
