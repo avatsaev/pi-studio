@@ -58,7 +58,22 @@ export class SessionOperationsService {
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
-    if (!managed?.session) return { type: "interrupt_response", agentId, ok: false };
+    if (!managed) return { type: "interrupt_response", agentId, ok: false };
+
+    if (!managed.session) {
+      // No live provider session to interrupt (e.g. a daemon restart that hasn't lazily
+      // re-attached one yet — see AgentService.handleSendPrompt). If the record is stuck on a
+      // status that requires a session — the same impossible state `AgentManager.recover()`
+      // reconciles on boot — self-heal it here too, so Stop can clear a session wedged by an
+      // out-of-band restart without waiting for the next one. Already idle/error/closed is a
+      // legitimate no-op.
+      if (managed.record.lastStatus === "running" || managed.record.lastStatus === "initializing") {
+        await this.deps.manager.setStatus(agentId, "idle");
+        this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle" });
+        return { type: "interrupt_response", agentId, ok: true };
+      }
+      return { type: "interrupt_response", agentId, ok: false };
+    }
 
     await managed.session.interrupt();
     // The provider session will emit turn_canceled which goes through runTurn's subscriber.

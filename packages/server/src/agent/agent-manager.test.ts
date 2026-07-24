@@ -114,7 +114,7 @@ describe("literal status", () => {
 
 describe("recover", () => {
   it("reloads persisted agents without auto-resuming runtimes and runs the loop hook", async () => {
-    const persisted = [record({ lastStatus: "running" }), record({ lastStatus: "idle" })];
+    const persisted = [record({ lastStatus: "idle" }), record({ lastStatus: "closed" })];
     const onRecoverLoops = vi.fn();
     const { mgr } = makeManager({
       loadAllAgents: () => Promise.resolve(persisted),
@@ -126,9 +126,35 @@ describe("recover", () => {
     for (const r of persisted) {
       const managed = mgr.get(r.id);
       expect(managed?.session).toBeNull(); // runtime not resumed
-      expect(managed?.record.lastStatus).toBe(r.lastStatus); // record preserved as-is
+      expect(managed?.record.lastStatus).toBe(r.lastStatus); // already-resting status preserved as-is
     }
     expect(onRecoverLoops).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes a 'running'/'initializing' record left by a mid-turn crash back to 'idle', and persists it", async () => {
+    const persisted = [
+      record({ lastStatus: "running" }),
+      record({ lastStatus: "initializing" }),
+      record({ lastStatus: "idle" }),
+    ];
+    const { mgr, saved } = makeManager({ loadAllAgents: () => Promise.resolve(persisted) });
+
+    await mgr.recover();
+
+    // A recovered record has no live session — "running"/"initializing" describe a state that
+    // requires one, so recovery reconciles both down to "idle" (the same normalization
+    // `archiveAgent` already applies for archived agents) instead of resurrecting a session the
+    // UI shows as perpetually "working" with a Stop button that has nothing to interrupt.
+    expect(mgr.get(persisted[0]!.id)?.record.lastStatus).toBe("idle");
+    expect(mgr.get(persisted[1]!.id)?.record.lastStatus).toBe("idle");
+    expect(mgr.get(persisted[2]!.id)?.record.lastStatus).toBe("idle"); // already idle, untouched
+
+    // Only the two reconciled records are written back to disk — the already-idle one is not
+    // rewritten (no change to persist).
+    expect(saved).toHaveLength(2);
+    expect(saved.map((r) => r.id).toSorted()).toEqual(
+      [persisted[0]!.id, persisted[1]!.id].toSorted(),
+    );
   });
 });
 

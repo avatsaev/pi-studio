@@ -138,7 +138,10 @@ describe("event mapper", () => {
       toolName: "edit",
       result: {
         content: [{ type: "text", text: "Successfully replaced 1 block(s) in demo.txt." }],
-        details: { patch: "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n" },
+        details: {
+          patch:
+            "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n",
+        },
       },
       isError: false,
     };
@@ -172,7 +175,9 @@ describe("event mapper", () => {
   });
 
   it("leaves output undefined on tool_execution_start (no result yet)", () => {
-    expect(mapPiEvent({ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} })).toEqual({
+    expect(
+      mapPiEvent({ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} }),
+    ).toEqual({
       kind: "tool_call",
       callId: "c1",
       tool: { kind: "shell", command: undefined },
@@ -182,7 +187,12 @@ describe("event mapper", () => {
 
   it("reads toolName + args from a tool_execution_start (real Pi shape)", () => {
     expect(
-      mapPiEvent({ type: "tool_execution_start", toolCallId: "c-sh", toolName: "bash", args: { command: "echo hi" } }),
+      mapPiEvent({
+        type: "tool_execution_start",
+        toolCallId: "c-sh",
+        toolName: "bash",
+        args: { command: "echo hi" },
+      }),
     ).toEqual({
       kind: "tool_call",
       callId: "c-sh",
@@ -283,6 +293,29 @@ describe("import & resume", () => {
     const result = await client.importSession({ providerHandleId: fileA, cwd: "/work" });
     expect(result.persistence.nativeHandle).toBe(fileA);
     expect(spawns.at(-1)?.spawnArgs.sessionFile).toBe(fileA);
+    // The freshly spawned process must actually load that file's history — RPC mode has no CLI
+    // flag to preload a session at spawn, only the `switch_session` command (docs/rpc.md).
+    // Asserting just the sessionFile plumbing (above) previously let this regress silently: the
+    // spawn args looked right while the live process never got a `switch_session` request at all.
+    expect(spawns.at(-1)?.requests).toContain("switch_session");
+  });
+
+  it("resumeSession loads the persisted history into the freshly spawned process via switch_session", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.resumeSession(
+      { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
+      { cwd: "/work" },
+      { cwd: "/work" },
+    );
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]?.requests).toContain("switch_session");
+    expect(session.describePersistence()?.nativeHandle).toBe("/tmp/prior-conversation.jsonl");
+  });
+
+  it("createSession (a brand-new, non-resumed session) never sends switch_session", async () => {
+    const { client, spawns } = clientWithFake();
+    await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(spawns[0]?.requests).not.toContain("switch_session");
   });
 });
 

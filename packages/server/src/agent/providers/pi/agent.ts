@@ -377,7 +377,19 @@ export class PiAgentClient implements AgentClient {
     return session;
   }
 
-  resumeSession(
+  /**
+   * Resume a persisted session by spawning a FRESH `pi --mode rpc` process and loading `handle`'s
+   * JSONL file into it via `switch_session` (docs/rpc.md § switch_session — "Load a different
+   * session file"). RPC mode has no CLI flag to preload a session at spawn (`--session <path>` is
+   * a TUI-only flag per docs/usage.md, absent from rpc.md's own "Common options"), so a freshly
+   * spawned process always starts on its own new/default session with zero history — without this
+   * call the resumed session is conversationally empty. The daemon's *own* record/timeline still
+   * shows the full prior conversation in the UI (that's fetched separately from
+   * `agents/**.json`/the timeline store), which is what made this bug easy to miss: the UI looked
+   * fine right up until the next prompt, which then got no prior context at all. `importSession`
+   * shares this exact path and was equally affected.
+   */
+  async resumeSession(
     handle: PersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
     launchContext?: LaunchContext,
@@ -392,13 +404,13 @@ export class PiAgentClient implements AgentClient {
       sessionFile,
       logger: this.deps.logger,
     });
-    return Promise.resolve(
-      new PiAgentSession(transport, {
-        provider: this.provider,
-        config: { provider: this.provider, cwd, ...overrides },
-        sessionFile,
-      }),
-    );
+    const session = new PiAgentSession(transport, {
+      provider: this.provider,
+      config: { provider: this.provider, cwd, ...overrides },
+      sessionFile,
+    });
+    if (sessionFile) await session.switchSession(sessionFile);
+    return session;
   }
 
   /** Discover models via the Pi RPC `get_available_models` command (no scratch session). */

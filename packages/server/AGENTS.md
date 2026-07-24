@@ -184,7 +184,13 @@ src/
   rename, fixed by routing both rename RPCs through `updateRecord`).
 - Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
-- On startup, recovers `running` agents (crash recovery).
+- On startup, `recover()` rehydrates every persisted record with no live session attached, and
+  normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
+  `idle` — both in memory and on disk — since neither status is a legal resting state without a
+  session. Without this, a crash mid-turn permanently wedges that session in the web UI: the
+  "working" indicator never clears, and `interrupt_agent` (Stop) is a no-op because there is no
+  session to interrupt. `interrupt_agent` applies the same normalization as a second line of
+  defense whenever it finds a session-less record still claiming `running`/`initializing`.
 - Parent/child relationships via `PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id"`.
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
@@ -218,6 +224,17 @@ Two built-in providers: `pi` and `mock`.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
+- **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
+  `switch_session` to load `handle.nativeHandle`'s JSONL history into it.** RPC mode has no CLI
+  flag to preload a session at spawn — `--session <path>` is a TUI-only flag (docs/usage.md),
+  absent from `docs/rpc.md`'s own "Common options" — so a freshly spawned process always starts
+  on its own new/default session with zero history; `switch_session` is the documented RPC
+  mechanism for loading one into an already-running process. `importSession` calls
+  `resumeSession` internally and shares this same requirement. Skipping this call was a real bug:
+  the daemon's own record/timeline still showed the full prior conversation (fetched separately
+  from `agents/**.json`), so the UI looked fine right up until the next prompt, which then got no
+  prior context at all — after a daemon restart or `/import`, the live `pi` process had amnesia
+  even though the chat history on screen looked intact.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.

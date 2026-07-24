@@ -297,11 +297,24 @@ export class AgentManager {
   /**
    * Boot recovery: rehydrate persisted agents (runtime is NOT auto-resumed — records only), then run
    * the loop-recovery hook (`running` loops → `stopped`). Returns the number of agents reloaded.
+   *
+   * A record left `running`/`initializing` on disk (daemon killed mid-turn) describes a state
+   * that requires a live session — but recovery attaches none (`this.wrap(record, null)`).
+   * Left uncorrected this resurrects an impossible state: the UI shows a live "working"
+   * indicator, `interrupt_agent` is a no-op (no session to interrupt), and a follow-up send
+   * can't legally re-enter "running" from "running" (`ALLOWED_TRANSITIONS`). Normalize both back
+   * to "idle" and persist it — the same normalization `archiveAgent` already does for archived
+   * agents — so the record is truthful and resumable again.
    */
   async recover(): Promise<number> {
     const records = await this.loadAll();
     for (const record of records) {
-      this.agents.set(record.id, this.wrap(record, null));
+      const reconciled =
+        record.lastStatus === "running" || record.lastStatus === "initializing"
+          ? { ...record, lastStatus: "idle" as const, updatedAt: this.now() }
+          : record;
+      if (reconciled !== record) await this.save(reconciled);
+      this.agents.set(reconciled.id, this.wrap(reconciled, null));
     }
     await this.deps.onRecoverLoops?.();
     return records.length;

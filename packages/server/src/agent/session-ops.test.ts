@@ -75,6 +75,31 @@ describe("interrupt", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(events).toContain("turn_canceled");
   });
+
+  it("self-heals a stuck 'running' record with no live session (e.g. after a daemon restart the boot-recovery reconciliation missed, or an agent stuck before this fix)", async () => {
+    const { service, ops, manager, broadcasts } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const managed = manager.get(agentId)!;
+    // Simulate the state a mid-turn crash + un-reconciled restart would leave: no live session,
+    // but the record still claims "running" — exactly what left Stop unable to do anything.
+    managed.session = null;
+    await manager.setStatus(agentId, "idle"); // legal step so the next transition is valid…
+    managed.record = { ...managed.record, lastStatus: "running" }; // …then force the stuck state
+
+    const result = (await ops.handleInterrupt({ agentId }, () => [])) as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+    expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
+    expect(broadcasts).toContainEqual({ type: "agent_update", agentId, status: "idle" });
+  });
+
+  it("no-ops (ok: false) when there is no session and the record is already resting", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    manager.get(agentId)!.session = null;
+    await manager.setStatus(agentId, "idle");
+    const result = (await ops.handleInterrupt({ agentId }, () => [])) as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("update agent", () => {

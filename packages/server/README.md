@@ -318,6 +318,10 @@ surface the rest of the daemon depends on is `src/agent/provider-contract.ts`:
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - **Prompt images:** `startTurn` converts the wire shape `{ mimeType, data }` into Pi's
   `ImageContent` shape `{ type: "image", data, mimeType }` before the `prompt` RPC.
+- **Resuming a session** (`resumeSession`, used by the lazy resume-on-send path and by
+  `importSession`) spawns a fresh `pi --mode rpc` process, then issues `switch_session` to load
+  the persisted JSONL file into it — RPC mode has no CLI flag to preload a session at spawn, only
+  this RPC command.
 - A literal `~` in `cwd` is expanded to the home directory before spawning.
 - A missing/unresolvable `pi` surfaces as a clean `rpc_error` ("Pi provider unavailable…") rather
   than crashing the daemon.
@@ -392,9 +396,13 @@ src/
 ### Lifecycle FSM
 
 `AgentManager` enforces `initializing → idle ↔ running → error → closed`. Every transition persists
-the record **and** broadcasts `agent_update` to subscribers. Archiving soft-deletes (sets
-`archivedAt`). On startup, `running` agents are recovered (crash recovery), and `running` loops are
-recovered as `stopped` with an interruption log entry.
+the record **and** broadcasts `agent_update` to subscribers; any other field (title, labels,
+config) goes through `updateRecord(id, patch)`, which persists but leaves broadcasting to the RPC
+call site. Archiving soft-deletes (sets `archivedAt`). On startup, persisted records are
+rehydrated with no live session re-attached; any record still stuck at `running`/`initializing`
+(daemon killed mid-turn) is reconciled back to `idle` since neither status is valid without a
+session — `interrupt_agent` applies the same reconciliation as a second line of defense. `running`
+loops are recovered as `stopped` with an interruption log entry.
 
 For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package and the specs under
 [`clean-room-scope/`](../../clean-room-scope/).
