@@ -86,7 +86,8 @@ class FakeTransport implements PiRpcTransport {
       this.fire({ type: "agent_end" });
     }
     if (command === "abort") this.fire({ type: "agent_end" });
-    if (command === "steer") this.fire({ type: "queue_update", steering: ["steered"], followUp: [] });
+    if (command === "steer")
+      this.fire({ type: "queue_update", steering: ["steered"], followUp: [] });
     if (command === "follow_up") {
       this.fire({ type: "queue_update", steering: [], followUp: ["later"] });
     }
@@ -243,6 +244,49 @@ describe("event mapper", () => {
     ).toEqual({ kind: "assistant_message", text: "hello" });
     expect(mapPiEvent({ type: "noise" })).toBeNull();
     expect(mapPiEvent({ type: "turn_end" })).toBeNull();
+  });
+
+  it("maps agent_end with a failed final assistant message to turn_failed (real repro: provider 429)", () => {
+    // Regression: `agent_end` used to unconditionally report `turn_completed`, so a live turn
+    // that failed with an immediate provider error (e.g. a 429 quota-exceeded rejection) was
+    // silently reported as a success — no `turn_failed`/error ever reached the live stream, and
+    // the daemon's own `newStatus` computation (which trusts this mapping) never learned the
+    // turn failed either. Restore-from-JSONL (`session-hydration.ts`) already handled this
+    // correctly by reading the same `stopReason`/`errorMessage` fields; this mirrors it live.
+    expect(
+      mapPiEvent({
+        type: "agent_end",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hi" }] },
+          {
+            role: "assistant",
+            content: [],
+            stopReason: "error",
+            errorMessage: "OpenAI API error (429): 429 quota exceeded\n",
+          },
+        ],
+      }),
+    ).toEqual({ kind: "turn_failed", error: "OpenAI API error (429): 429 quota exceeded\n" });
+  });
+
+  it("maps agent_end with an aborted final assistant message to turn_canceled", () => {
+    expect(
+      mapPiEvent({
+        type: "agent_end",
+        messages: [{ role: "assistant", content: [], stopReason: "aborted" }],
+      }),
+    ).toEqual({ kind: "turn_canceled" });
+  });
+
+  it("maps agent_end with a clean final assistant message to turn_completed", () => {
+    expect(
+      mapPiEvent({
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: [{ type: "text", text: "hi" }], stopReason: "stop" },
+        ],
+      }),
+    ).toEqual({ kind: "turn_completed" });
   });
 });
 

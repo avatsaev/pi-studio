@@ -346,6 +346,19 @@ creation" above.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.
+- **`agent_end`'s `messages` array is the only place a live turn's real outcome is decided** — it
+  used to unconditionally map to `turn_completed`, ignoring the payload entirely. `session-
+  hydration.ts` (restore-from-JSONL) always correctly read the closing assistant message's
+  `stopReason`/`errorMessage` to emit `turn_failed`/`turn_canceled`, but the *live* mapper did
+  not mirror that check — so a turn that failed immediately (e.g. a provider 429/quota-exceeded
+  rejection) was reported live as a plain success: no `turn_failed`/error ever reached the
+  client's live stream, `runTurn`'s own `newStatus` computation (which trusts this same mapping)
+  never learned the turn failed either, and the error only became visible after a full
+  reconnect/restore re-read the (correctly-hydrated) persisted timeline. Fixed by having the
+  `agent_end` case find the last assistant-role message in `event.messages` and check its
+  `stopReason` exactly like `session-hydration.ts` does, before falling back to
+  `turn_completed`. Caught by live-testing the exact repro (fresh chat → pick a model known to
+  429 → send) against a real `pi --mode rpc` process, not by any pre-existing unit test.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's

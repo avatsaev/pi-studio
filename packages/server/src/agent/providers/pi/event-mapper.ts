@@ -55,7 +55,11 @@ export function mapToolCall(raw: unknown): ToolCallDetail {
       return {
         kind: "edit",
         path: str(input.path),
-        diff: str(input.diff) ?? str(input.patch) ?? str(resultDetails.patch) ?? str(resultDetails.diff),
+        diff:
+          str(input.diff) ??
+          str(input.patch) ??
+          str(resultDetails.patch) ??
+          str(resultDetails.diff),
         output,
       };
     case "write":
@@ -94,8 +98,27 @@ export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
     // ── Run / turn boundaries ──
     case "agent_start":
       return { kind: "turn_started" };
-    case "agent_end":
+    case "agent_end": {
+      // `event.messages` carries every `AgentMessage` produced by this low-level run (rpc.md
+      // "agent_end"). Its FINAL entry's `stopReason` is the same field `session-hydration.ts`
+      // reads back out of Pi's persisted JSONL on restore — mirror that mapping here so a
+      // failed/aborted run is reported live exactly as it would be after a reload, instead of
+      // unconditionally reporting success (the only place a live turn's outcome is decided; a
+      // wrong verdict here means neither the live UI nor `agent-service.ts`'s own `newStatus`
+      // computation — which trusts this event stream — ever learn the turn failed).
+      const messages: Record<string, unknown>[] = Array.isArray(event.messages)
+        ? event.messages.map(asRecord)
+        : [];
+      const last = messages.findLast((m) => m.role === "assistant") ?? {};
+      const stopReason = str(last.stopReason);
+      if (stopReason === "error") {
+        return { kind: "turn_failed", error: str(last.errorMessage) ?? "error" };
+      }
+      if (stopReason === "aborted") {
+        return { kind: "turn_canceled" };
+      }
       return { kind: "turn_completed" };
+    }
 
     // ── Streaming assistant deltas ──
     case "message_update": {
