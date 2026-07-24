@@ -269,8 +269,8 @@ describe("delegation to optional AgentSession methods", () => {
     });
   });
 
-  it("agent_set_model_request requires provider+modelId and broadcasts the model", async () => {
-    const { service, ops, manager, broadcasts } = makeSetup();
+  it("agent_set_model_request requires provider+modelId, broadcasts, and persists the model", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
     const agentId = await createAgent(service);
     manager.attachSession(
       agentId,
@@ -279,23 +279,41 @@ describe("delegation to optional AgentSession methods", () => {
     await expect(ops.handleSetModel({ agentId }, () => [])).rejects.toThrow(
       /provider and modelId are required/,
     );
+    saved.length = 0; // drop the initial creation write
     await ops.handleSetModel({ agentId, provider: "anthropic", modelId: "m1" }, () => []);
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId, model: "m1" });
+    // Persisted to the record's config so a restored session (no live `session`, e.g. right after
+    // a daemon restart) still shows it — previously only the live session's runtime info carried
+    // the model, which came back empty once the session was no longer attached.
+    expect(manager.get(agentId)?.record.config?.model).toBe("m1");
+    expect(saved.some((r) => r.id === agentId && r.config?.model === "m1")).toBe(true);
   });
 
-  it("agent_cycle_model_request delegates and broadcasts", async () => {
-    const { service, ops, manager, broadcasts } = makeSetup();
+  it("agent_cycle_model_request delegates, broadcasts, and persists the resulting model", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
     const agentId = await createAgent(service);
+    let model: string | undefined;
     manager.attachSession(
       agentId,
-      sessionStub({ cycleModel: () => Promise.resolve({ model: { id: "m2" } }) }),
+      sessionStub({
+        // Mirrors the real `pi` provider (`providers/pi/agent.ts`): `cycleModel()` updates its
+        // own tracked model before returning, which `getRuntimeInfo()` then reflects.
+        cycleModel: () => {
+          model = "m2";
+          return Promise.resolve({ model: { id: "m2" } });
+        },
+        getRuntimeInfo: () => ({ provider: "mock", model }),
+      }),
     );
+    saved.length = 0; // drop the initial creation write
     const result = (await ops.handleCycleModel({ agentId }, () => [])) as Record<string, unknown>;
     expect(result).toEqual({
       type: "agent_cycle_model_response",
       payload: { model: { id: "m2" } },
     });
-    expect(broadcasts).toContainEqual({ type: "agent_update", agentId });
+    expect(broadcasts).toContainEqual({ type: "agent_update", agentId, model: "m2" });
+    expect(manager.get(agentId)?.record.config?.model).toBe("m2");
+    expect(saved.some((r) => r.id === agentId && r.config?.model === "m2")).toBe(true);
   });
 
   it("agent_last_assistant_text_request returns null when there is none", async () => {

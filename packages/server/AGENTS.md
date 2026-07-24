@@ -195,11 +195,19 @@ src/
 - `list_agents_request` (both `bootstrap.ts` and `dev-bootstrap.ts`) returns each active agent's
   `agentId`/`status`/`title`/`cwd`/`labels`/`lastActivity`, plus **`provider`** (always
   `record.provider`) and **`model`** (sprint-042: `managed.session?.getRuntimeInfo().model ??
-  managed.record.config?.model` — the live attached session's runtime info first, since
-  `record.config`/`record.runtimeInfo` are never persisted anywhere today; falls back to
-  `undefined` for an agent with no currently-attached session, e.g. right after a daemon restart
-  before it's resumed). No protocol schema exists for `list_agents_request`/`response` at all —
-  it is, and remains, an untyped ad hoc RPC on both server and client.
+  managed.record.config?.model` — the live attached session's runtime info first (Pi's own
+  `get_state` is the ultimate source of truth there, `providers/pi/agent.ts`), falling back to
+  `record.config.model` for an agent with no currently-attached session, e.g. right after a
+  daemon restart before it's resumed — restore is lazy (`daemon-bootstrap.md` § Recovery) and
+  never spawns a process just to ask Pi its model. `SlashCommandOperationsService.persistModel`
+  (`slash-command-operations.ts`) writes every `/model` set/cycle into `record.config.model` via
+  `AgentManager.updateRecord` so this fallback has a real value instead of `undefined` (previously
+  the reported bug: a restored session's model selector came back empty even though `/model` had
+  been set earlier in the same conversation). This persisted value is a display cache only — it is
+  never sent back to Pi on resume (`resumeSession` only passes `cwd`), so it can never override
+  Pi's own remembered model once the session is actually live again. No protocol schema exists for
+  `list_agents_request`/`response` at all — it is, and remains, an untyped ad hoc RPC on both
+  server and client.
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.

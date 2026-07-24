@@ -199,7 +199,18 @@ export class SlashCommandOperationsService {
     return { type: "agent_export_html_response", payload };
   }
 
-  /** `/model` (set) — broadcast the model change. */
+  /** Persist the resolved model into the record's config so `list_agents_request` can surface it
+   * after a daemon restart or a fresh connection, before any session is resumed and re-attached
+   * (`managed.session` is `null` at that point, so `bootstrap.ts`/`dev-bootstrap.ts` fall back to
+   * `record.config?.model` — previously never written, which is why a restored session's model
+   * selector came back empty even though `/model` had been set earlier in the same session). */
+  private async persistModel(agentId: string, modelId: string | undefined): Promise<void> {
+    if (!modelId) return;
+    const config = { ...this.deps.manager.get(agentId)?.record.config, model: modelId };
+    await this.deps.manager.updateRecord(agentId, { config });
+  }
+
+  /** `/model` (set) — broadcast the model change and persist it (see `persistModel`). */
   async handleSetModel(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -211,11 +222,14 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.setProviderModel) throw unsupported(agentId, "set_model");
     const payload = await session.setProviderModel(provider, modelId);
+    await this.persistModel(agentId, modelId);
     this.broadcastAgentUpdate(getSessions, agentId, { model: modelId });
     return { type: "agent_set_model_response", payload };
   }
 
-  /** `/model` (cycle) — broadcast the resulting model. */
+  /** `/model` (cycle) — broadcast and persist the resulting model (see `persistModel`). Reads the
+   * resolved id back off `getRuntimeInfo()` rather than the raw `cycleModel()` payload since the
+   * provider (`providers/pi/agent.ts`) already normalizes it there via `modelIdFrom`. */
   async handleCycleModel(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -224,7 +238,9 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.cycleModel) throw unsupported(agentId, "cycle_model");
     const payload = await session.cycleModel();
-    this.broadcastAgentUpdate(getSessions, agentId);
+    const modelId = session.getRuntimeInfo().model;
+    await this.persistModel(agentId, modelId);
+    this.broadcastAgentUpdate(getSessions, agentId, modelId ? { model: modelId } : {});
     return { type: "agent_cycle_model_response", payload };
   }
 
