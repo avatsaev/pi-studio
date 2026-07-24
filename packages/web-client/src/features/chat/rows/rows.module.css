@@ -29,8 +29,8 @@
   text-transform: none;
   letter-spacing: normal;
   vertical-align: middle;
-  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 22%, transparent);
-  color: var(--pi-color-accent, #2e5cb8);
+  background: color-mix(in srgb, var(--pi-color-accentBright, #a2b4d7) 30%, transparent);
+  color: var(--pi-color-accentBright, #a2b4d7);
 }
 
 /* ─── User ─────────────────────────────────────────────────────────────── */
