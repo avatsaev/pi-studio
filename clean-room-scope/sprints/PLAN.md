@@ -74,6 +74,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 040 | `sprint-040-agent-command-discovery` | Server-only: surface Pi's `get_commands` (extension commands, prompt templates, skills) as a per-session `agent_list_commands_request` discovery RPC — protocol schemas, enriched command-definition contract + Pi adapter `listCommands`, daemon handler, mock + docs (SDK/CLI/UI deferred) | 4 |
 | 041 | `sprint-041-agent-turn-settlement` | Fix premature turn termination: the Pi adapter declares a turn terminal on the first `agent_end`, but Pi emits one `agent_end` per low-level run (with `willRetry`) and a single `agent_settled` at the true end — retried/compaction/continued turns appear finished mid-flight, lose post-retry stream rows, flip status to idle early, and can auto-archive a live agent. Make the event-mapper settlement-driven (honour `willRetry`, derive terminal kind from the settled run's `stopReason`), wire it per-session, add a fake-transport `agent_settled` + retry-subscription regression, and sync scope/AGENTS docs | 3 |
 | 042 | `sprint-042-workspace-status-bar` | web-client: a full-width ~75px bottom powerline status bar for the active session — icon-prefixed segments (model · cwd · git branch+ahead/behind/dirty/conflict · context % · token total · cost), fully swapping on session switch with live branch and per-session-cached stats. UI-primary: adds optional `model`/`provider` to `list_agents_response` and a poll-reconciled `model` to `agent_session_stats` (append-only); retains git branch meta in git-store, adds `SessionEntry.model` + a per-session stats-store, a `use-session-stats` poll, pure formatters, the `StatusBar` component, and docs | 7 |
+| 043 | `sprint-043-model-selector` | web-client: a per-conversation model selector in the chat composer (left of the input) showing the current model, opening an anchored popup with a fuzzy search filter, checkmark on the selected model (sorted first), and rows of `label (id)` with the id in muted text. Unblocks the picker by registering the previously-unserved `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`), types the client SDK response, and reuses the fully-wired `agent_set_model_request` for selection. | 5 |
 
 Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -434,6 +435,28 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-005 | Pure status-bar value formatters (tokens/percent/cost/cwd/branch-meta) | none | packages/web-client (status-bar-format); features/workspace-ui |
 | task-006 | `StatusBar` powerline component + WorkspacePage bottom mount | task-003, task-004, task-005 | packages/web-client (StatusBar, WorkspacePage); features/workspace-ui; architecture/design-system |
 | task-007 | Docs sync (protocol/server/web-client AGENTS.md — NOT `workspace-ui.md`, see this sprint's header note) + E2E verification | task-001..006 | AGENTS.md (protocol, server, web-client) |
+
+### sprint-043-model-selector
+> web-client feature. A per-conversation **model selector** in the chat composer, placed left of the
+> text input: a ghost button showing the current model (`session.model`, or a `"Model"` placeholder
+> for a fresh session), opening a Radix-`DropdownMenu` popup with a top **fuzzy search filter**
+> (reusing `filterOptions`), the current model **sorted first with a checkmark** (lucide `Check`
+> idiom), and rows rendering `label` + `(id)` with the id in `--pi-color-foregroundMuted`. Reuses
+> the visible-trigger menu pattern from `TabStrip`'s `NewTabMenu` (NOT the invisible-coordinate
+> `SessionContextMenu` pattern). **Unblocks the picker** by registering the previously-unserved
+> `list_provider_models` daemon RPC in both bootstraps (backed by the already-built
+> `AgentClient.listModels`, no spawned agent needed) and typing the client SDK response; selection
+> reuses the fully-wired `agent_set_model_request` → `setProviderModel` → `agent_update({model})`
+> path, so `session.model` and the StatusBar reconcile for free. New sessions with no bound agent
+> store the pick locally only (agent creation is not changed — out of scope).
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Register `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`) | none | packages/server (bootstrap, dev-bootstrap); features/provider-usage, agent-providers |
+| task-002 | Type client SDK `providers.listModels` response (`ProviderModel`/`ListProviderModelsResponse`) | task-001 | packages/client (pistudio-client, index); features/provider-usage |
+| task-003 | `ModelMenu` component: trigger button + anchored searchable picker with checkmark + muted `(id)` rows | task-002 | packages/web-client (features/chat/ModelMenu); features/composer-ui, provider-usage; architecture/design-system |
+| task-004 | Mount `ModelMenu` in Composer + wire optimistic `setModel` | task-003 | packages/web-client (features/chat/Composer); features/composer-ui, provider-usage |
+| task-005 | E2E verification + docs sync (server/client/web-client AGENTS.md) | task-001..004 | AGENTS.md (server, client, web-client); features/composer-ui, provider-usage |
 
 ## Coverage check
 

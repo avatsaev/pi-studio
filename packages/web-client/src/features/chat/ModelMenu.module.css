@@ -1,0 +1,98 @@
+/* ModelMenu — composer model-selector trigger + anchored searchable picker (sprint-043). */
+
+.modelBtn {
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  justify-content: flex-start;
+}
+
+.content {
+  min-width: 240px;
+  padding: 4px;
+  border-radius: var(--pi-borderRadius-md, 6px);
+  background: var(--pi-color-surface, #16181a);
+  border: 1px solid var(--pi-color-border, #353b46);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: var(--pi-radius-md, 6px);
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  background: var(--pi-color-surface2, #27272a);
+  color: var(--pi-color-foreground, #fafafa);
+  font-size: 12px;
+  outline: none;
+}
+.search::placeholder {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+}
+.search:focus {
+  border-color: var(--pi-color-accent, #2e5cb8);
+}
+
+.list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+.item:hover,
+.item[data-highlighted] {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
+
+.checkSlot {
+  width: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pi-color-foreground, #fafafa);
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelId {
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  margin-left: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  font-size: 12px;
+}
+
+.stateError {
+  padding: 8px;
+  color: var(--pi-color-danger, #e5534b);
+  font-size: 12px;
+}

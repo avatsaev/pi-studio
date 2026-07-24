@@ -111,8 +111,9 @@ src/
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
-    chat/                   ChatPanel, Timeline, Composer, Attachments, rows/ (Assistant/User/
-                            System/Error/Reasoning rows, ToolCard)
+    chat/                   ChatPanel, Timeline, Composer, ModelMenu (composer's model-selector
+                            button + searchable popup, sprint-043), Attachments, rows/ (Assistant/
+                            User/System/Error/Reasoning rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -210,6 +211,35 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
+- **Model selector (sprint-043).** `ModelMenu.tsx` (`features/chat/`) is the composer's model
+  control — a ghost trigger button (first child of `Composer.tsx`'s `.composer` row, left of the
+  textarea) showing `session.model` or a `"Model"` placeholder, opening a Radix `DropdownMenu`
+  with a fuzzy search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id),
+  the current model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
+  unit-tested — kept out of the `.tsx` file since the root Vitest config only discovers
+  `.test.ts`, not `.test.tsx`, under a node environment; there is no jsdom/React-Testing-Library
+  render test anywhere in this package despite `@testing-library/react` being a devDependency —
+  see `StatusBar`'s precedent below), and rows showing `label (id)` with the id in
+  `--pi-color-foregroundMuted`. Each model row carries its own underlying LLM `provider` (e.g.
+  `"anthropic"`) alongside its `id` (`AgentModelDefinition.provider`/`ProviderModel.provider`,
+  threaded through from Pi's own `Model` object — see `packages/server/AGENTS.md` §
+  ProviderRegistry). Selection calls `useSessionStore.setModel(sessionId, modelId)` optimistically
+  first, then — only if the session has a bound `agentId` **and** the selected row has a known
+  `provider` — fires `client.agent(agentId).setModel(modelProvider, modelId)`
+  (`agent_set_model_request`), swallowing a rejection with no dedicated UI surface (same
+  swallow-and-let-the-broadcast-be-authoritative convention as `Composer.tsx`'s `submit()`).
+  **Never pass the pi-studio `AgentClient` id (`"pi"`) as this `provider` argument** — that was a
+  real shipped bug (`agent_set_model_request` always failed server-side with `"Model not found:
+  pi/<modelId>"`, silently reverting to the default model on the next turn since the change never
+  actually applied): Pi's `set_model` RPC's `provider` field is the model's own LLM provider, a
+  completely different namespace from the pi-studio provider id used only to pick which
+  `AgentClient` answers `list_provider_models`. A fresh session with no bound agent only gets the
+  local optimistic pick — Pi-Studio does not pass `config.model` at agent-creation time (the `pi`
+  provider resolves its own default), so agent creation is intentionally NOT threaded with this
+  pick. Model discovery goes through the daemon's `list_provider_models` RPC (both bootstraps,
+  backed by `AgentClient.listModels` with no spawned agent — see
+  `packages/server/AGENTS.md` § ProviderRegistry and `packages/client/AGENTS.md` §
+  `PiStudioProviderActions`).
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
   screen, unlike any feature panel), renders six icon-prefixed segments for the **active
   session** in order: model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token
@@ -232,3 +262,18 @@ entered at runtime, never baked into the image.
     *segment* reads `SessionEntry.model`, so skipping this write-through leaves the segment
     permanently blank even though the poll succeeded (a real bug this sprint's live smoke test
     caught before it shipped).
+- **Timeline auto-scroll's mount-time "grew" ref must revert on cleanup.** `Timeline.tsx`'s
+  stick-to-bottom effect compares `session.timeline.rows.length` against a `prevRowCountRef` to
+  decide whether to re-run `virtualizer.scrollToIndex(rows.length - 1, {align: "end"})` — but
+  without an explicit cleanup that restores the ref's PREVIOUS value, this silently breaks under
+  React StrictMode's dev-only double-invoke (mount → phantom cleanup → mount, same instance, no
+  actual teardown — see `TerminalPanel.tsx`'s own doc comment for the established pattern): the
+  phantom first invocation already flips the ref, so the real second invocation sees `grew ===
+  false` and skips the scroll — right as `@tanstack/react-virtual`'s OWN scroll-element
+  re-attachment (which correctly redoes itself across that same phantom cycle) resets the DOM
+  `scrollTop` back to `0`. Net effect (a real, live-verified bug, not theoretical): every
+  freshly-opened or freshly-restored chat tab with existing history opened at the TOP instead of
+  the bottom — confirmed via a `scrollTo` call-stack trace showing the sequence `0` (virtualizer's
+  first attach) → correct offset (this effect) → `0` again (virtualizer's phantom-cycle
+  re-attach, unopposed because the ref-guard silently ate the real second invocation). Fixed by
+  returning `() => { prevRowCountRef.current = prevCount; }` from the effect.

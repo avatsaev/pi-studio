@@ -3,7 +3,10 @@
  * variable-size rows (POC `.chat-area`, POC_TO_APP_PLAN_UI.md §4.3/§6). Auto-scrolls to the
  * bottom on new rows unless the user has scrolled up more than 40px from the bottom; re-sticks
  * whenever the row count grows from a user's own send (POC's forced `scrollTop = scrollHeight`,
- * fixed to respect manual scroll-up).
+ * fixed to respect manual scroll-up). The mount-time "grew" tracking ref reverts itself on
+ * cleanup — required for correctness under React StrictMode's dev-only double-invoke, which
+ * otherwise swallows the necessary scroll-to-bottom on a freshly restored/opened session (see
+ * the effect's own comment).
  */
 
 import { useEffect, useRef } from "react";
@@ -81,11 +84,24 @@ export function Timeline({ session }: TimelineProps) {
   }
 
   useEffect(() => {
-    const grew = rows.length > prevRowCountRef.current;
+    const prevCount = prevRowCountRef.current;
+    const grew = rows.length > prevCount;
     prevRowCountRef.current = rows.length;
-    if (!grew) return;
-    if (!stickToBottomRef.current) return;
-    virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+    if (grew && stickToBottomRef.current) {
+      virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+    }
+    // React StrictMode double-invokes this effect on mount (mount -> phantom cleanup -> mount,
+    // same instance — see TerminalPanel.tsx's own StrictMode doc comment for the established
+    // pattern here). `@tanstack/react-virtual`'s own scroll-element attachment effect DOES
+    // correctly redo its setup across that phantom cycle and, in doing so, resets the DOM
+    // `scrollTop` back to 0 on the second (real) attach — but without this cleanup, this ref's
+    // `grew` flip from the first (phantom) invocation would make the second invocation a false
+    // "unchanged" no-op, permanently losing the scroll-to-bottom to the library's reset and
+    // leaving a freshly restored/opened session's timeline stuck at the top. Reverting the ref
+    // on cleanup makes each real invocation see the true count it started from.
+    return () => {
+      prevRowCountRef.current = prevCount;
+    };
   }, [rows.length, virtualizer]);
 
   if (rows.length === 0) {

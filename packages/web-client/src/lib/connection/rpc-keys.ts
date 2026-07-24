@@ -11,5 +11,6 @@ export const rpcKeys = {
     ["file", "diff", path, cwd, staged] as const,
   explorer: (path: string) => ["explorer", path] as const,
   agentList: () => ["agents", "list"] as const,
+  providerModels: (provider: string) => ["providers", "models", provider] as const,
   agentTimeline: (agentId: string) => ["agents", "timeline", agentId] as const,
 };

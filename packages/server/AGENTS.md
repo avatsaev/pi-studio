@@ -204,6 +204,22 @@ src/
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.
 
+**`list_provider_models`** (sprint-043, both `bootstrap.ts` and `dev-bootstrap.ts`) — resolves the
+requested `provider` (default `"pi"`) via `resolveClient` and returns
+`{ type: "list_provider_models_response", requestId, provider, models: AgentModelDefinition[] }`
+by calling `AgentClient.listModels(opts?: { cwd?: string })` directly — no agent session is spawned.
+Backs the web-client composer's model-selector popup (`packages/web-client/src/features/chat/
+ModelMenu.tsx`). Like `list_providers`/`list_agents_request`, it is registered as a flat ad hoc RPC
+with no protocol schema and is not in `sessionMessageSchema`'s discriminated union — it validates
+via the `sessionMessageBaseSchema` passthrough fallback. Each returned `AgentModelDefinition`
+(`provider-contract.ts`) carries `provider` — the model's OWN underlying LLM provider (e.g.
+`"anthropic"`), read
+straight from Pi's `Model` object's own `provider` field, NOT the `"pi"` `AgentClient` id used to
+resolve which client answered this RPC. Dropping this field when mapping Pi's raw model list was a
+real shipped bug: every `agent_set_model_request` calling `setProviderModel("pi", modelId)` failed
+with `"Model not found: pi/<modelId>"` since Pi has no model registered under a provider literally
+named "pi" — the client must pass each model's own `provider`, never this RPC's `provider` param.
+
 **`AgentClient` / `AgentSession`** (interfaces in `provider-contract.ts`):
 - `AgentClient.createSession(config, ctx)` → `AgentSession`
 - `AgentSession.run(prompt, opts)` — start a turn; events emitted via `onEvent(handler)`.

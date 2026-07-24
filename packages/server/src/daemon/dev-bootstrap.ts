@@ -198,6 +198,20 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     providers: providerRegistry.listMetadata(),
   }));
 
+  // ── Provider model discovery (sprint-043: composer model selector) ──────────
+  registry.register("list_provider_models", async (ctx) => {
+    const provider = String(ctx.message.provider ?? "pi");
+    const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
+    const client = resolveClient(provider);
+    const models = await client.listModels(cwd ? { cwd } : undefined);
+    return {
+      type: "list_provider_models_response",
+      requestId: ctx.requestId ?? "",
+      provider,
+      models,
+    };
+  });
+
   // ── File explorer: real directory listing + file preview from disk ───────
   // (features/file-explorer-transfer.md). Lets the workspace Explorer + file
   // preview panes show actual files.

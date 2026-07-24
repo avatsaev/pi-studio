@@ -142,11 +142,31 @@ export interface PiStudioWorkspaceActions {
   onUpdate(handler: PiStudioWorkspaceUpdateHandler): () => void;
 }
 
+export interface ProviderModel {
+  id: string;
+  label?: string;
+  description?: string;
+  /**
+   * The model's own underlying LLM provider (e.g. `"anthropic"`) — REQUIRED by
+   * `AgentHandle.setModel(provider, modelId)`'s `provider` argument. Distinct from the
+   * `ListProviderModelsResponse.provider` field above, which is the pi-studio `AgentClient` id
+   * (`"pi"`/`"mock"`) used only to pick which client answered this list.
+   */
+  provider?: string;
+}
+
+export interface ListProviderModelsResponse {
+  type: "list_provider_models_response";
+  requestId: string;
+  provider: string;
+  models: ProviderModel[];
+}
+
 export interface PiStudioProviderActions {
   /** List available providers. */
   listProviders(): Promise<unknown>;
   /** List models for a provider. */
-  listModels(provider: string): Promise<unknown>;
+  listModels(provider: string): Promise<ListProviderModelsResponse>;
   /** List modes for a provider. */
   listModes(provider: string): Promise<unknown>;
   /** Trigger an explicit provider snapshot refresh (no hidden revalidation). */
@@ -409,8 +429,8 @@ class ProviderHandle implements PiStudioProviderActions {
   listProviders(): Promise<unknown> {
     return this.daemon.request("list_providers", {});
   }
-  listModels(provider: string): Promise<unknown> {
-    return this.daemon.request("list_provider_models", { provider });
+  listModels(provider: string): Promise<ListProviderModelsResponse> {
+    return this.daemon.request<ListProviderModelsResponse>("list_provider_models", { provider });
   }
   listModes(provider: string): Promise<unknown> {
     return this.daemon.request("list_provider_modes", { provider });

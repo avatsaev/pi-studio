@@ -286,6 +286,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     providers: providerRegistry.listMetadata(),
   }));
 
+  // ── Provider model discovery (sprint-043: composer model selector) ──────────
+  registry.register("list_provider_models", async (ctx) => {
+    const provider = String(ctx.message.provider ?? "pi");
+    const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
+    const client = resolveClient(provider);
+    const models = await client.listModels(cwd ? { cwd } : undefined);
+    return {
+      type: "list_provider_models_response",
+      requestId: ctx.requestId ?? "",
+      provider,
+      models,
+    };
+  });
+
   // ── Projects / workspaces (real disk registry) ────────────────────────────────
   const workspaceRegistry = new WorkspaceRegistryService(home);
   const openProject = new OpenProjectService({ home, broadcast, registry: workspaceRegistry });

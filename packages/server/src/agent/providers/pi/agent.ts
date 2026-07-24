@@ -479,7 +479,14 @@ export class PiAgentClient implements AgentClient {
     return session;
   }
 
-  /** Discover models via the Pi RPC `get_available_models` command (no scratch session). */
+  /**
+   * Discover models via the Pi RPC `get_available_models` command (no scratch session). Each raw
+   * entry is Pi's full `Model` object (docs/rpc.md § Model) — carries its own `provider` (the
+   * underlying LLM provider, e.g. `"anthropic"`), which is REQUIRED to call `set_model` back
+   * (sprint-043: dropping this field here caused every `agent_set_model_request` to fail with
+   * "Model not found: pi/<modelId>" — "pi" is the pi-studio `AgentClient` id, never a real LLM
+   * provider Pi recognizes).
+   */
   async listModels(opts?: { cwd?: string }): Promise<AgentModelDefinition[]> {
     const data = await this.topLevel("get_available_models", opts?.cwd);
     const raw = (data as Record<string, unknown>)?.models;
@@ -489,6 +496,7 @@ export class PiAgentClient implements AgentClient {
       return {
         id: String(rec.id ?? rec.name ?? ""),
         label: typeof rec.name === "string" ? rec.name : String(rec.id ?? ""),
+        provider: typeof rec.provider === "string" ? rec.provider : undefined,
       } as AgentModelDefinition;
     });
   }

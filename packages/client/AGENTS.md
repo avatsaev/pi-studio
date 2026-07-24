@@ -219,12 +219,22 @@ method on this facade.
 
 ### `PiStudioProviderActions` (from `providers`)
 
-| Method | RPC |
-|--------|-----|
-| `listProviders()` | `list_providers` |
-| `listModels(provider)` | `list_provider_models` |
-| `listModes(provider)` | `list_provider_modes` |
-| `refreshSnapshot()` | `providers.snapshot.refresh.request` (one of the rare dotted-name RPCs — see root `AGENTS.md` § Protocol overview) |
+| Method | RPC | Return |
+|--------|-----|--------|
+| `listProviders()` | `list_providers` | `unknown` |
+| `listModels(provider)` | `list_provider_models` | `Promise<ListProviderModelsResponse>` (sprint-043 — daemon handler in both bootstraps calls `AgentClient.listModels`, no spawned agent) |
+| `listModes(provider)` | `list_provider_modes` | `unknown` (no daemon handler registered yet) |
+| `refreshSnapshot()` | `providers.snapshot.refresh.request` (one of the rare dotted-name RPCs — see root `AGENTS.md` § Protocol overview) | `unknown` (no daemon handler registered yet) |
+
+`ListProviderModelsResponse` (`{ type, requestId, provider, models: ProviderModel[] }`) and
+`ProviderModel` (`{ id, label?, description?, provider? }`) are exported from `pistudio-client.ts`.
+`ProviderModel.provider` is the model's OWN underlying LLM provider (e.g. `"anthropic"`, threaded
+through from Pi's `Model` object) — REQUIRED by `AgentHandle.setModel(provider, modelId)`'s
+`provider` argument, and a completely different value from `ListProviderModelsResponse.provider`
+above (the pi-studio `AgentClient` id). Conflating the two was a real shipped bug: passing `"pi"`
+to `setModel` made every `agent_set_model_request` fail server-side with `"Model not found:
+pi/<modelId>"`. Like the RPC itself, both types exist only in this package — no `packages/protocol`
+schema backs them, matching `list_providers`/`list_agents_request`'s untyped-ad-hoc-RPC convention.
 
 ### `importAgentSession(daemon, args)` (named export)
 

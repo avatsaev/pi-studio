@@ -46,6 +46,7 @@ import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-stor
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { applyAgentStreamEvent, createFirstTurnGate } from "@pi-studio-ui/hooks/agent-stream-events.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
+import { ModelMenu } from "./ModelMenu.js";
 import styles from "./Composer.module.css";
 
 const MAX_TEXTAREA_HEIGHT = 160;
@@ -83,6 +84,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
   const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
   const setCwd = useSessionStore((s) => s.setCwd);
+  const setModel = useSessionStore((s) => s.setModel);
   const queryClient = useQueryClient();
 
   const [text, setText] = useState("");
@@ -243,8 +245,31 @@ export function Composer({ sessionId }: ComposerProps) {
     void client?.agent(session.agentId).interrupt();
   }
 
+  function handleSelectModel(modelId: string, modelProvider?: string): void {
+    if (!session?.agentId) {
+      setModel(sessionId, modelId); // no bound agent yet: local-only display pick, nothing to send
+      return;
+    }
+    if (!modelProvider) return; // no known underlying LLM provider for this model — never fall
+    // back to the pi-studio provider id ("pi") here; Pi has no model registered under a provider
+    // literally named "pi" (sprint-043's "Model not found: pi/<modelId>" bug).
+    setModel(sessionId, modelId); // optimistic; confirmed by the server's `agent_update({model})`
+    void client
+      ?.agent(session.agentId)
+      .setModel(modelProvider, modelId)
+      .catch(() => {
+        // Same swallow-and-let-the-stream-be-the-source-of-truth convention as `submit`'s catch
+        // above — a rejected `agent_set_model_request` has no dedicated UI surface today.
+      });
+  }
+
   return (
     <div className={styles.composer}>
+      <ModelMenu
+        currentModel={session?.model}
+        provider="pi"
+        onSelect={handleSelectModel}
+      />
       <div className={styles.inputArea}>
         <TextArea
           ref={textareaRef}

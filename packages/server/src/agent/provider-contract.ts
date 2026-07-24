@@ -29,6 +29,16 @@ export interface AgentModelDefinition {
   id: string;
   label?: string;
   description?: string;
+  /**
+   * The underlying LLM provider this model belongs to (e.g. `"anthropic"`, `"openai"`,
+   * `"google"`) — Pi's own `Model` object always carries this (docs/rpc.md § Model), and it is
+   * REQUIRED by Pi's `set_model` RPC's `provider` argument. Distinct from (and never to be
+   * confused with) the pi-studio `AgentClient` provider id (`"pi"`, `"mock"`) used to pick which
+   * client answers `list_provider_models` — passing that pi-studio id here to `setProviderModel`
+   * instead of the model's own provider is exactly the sprint-043 bug ("Model not found:
+   * pi/<modelId>"): Pi has no model registered under a provider literally named "pi".
+   */
+  provider?: string;
 }
 
 export interface AgentModeDefinition {
