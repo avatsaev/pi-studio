@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import type { AgentUpdateMessage } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
@@ -24,6 +25,19 @@ interface RestoredAgent {
   cwd?: string;
   title?: string;
   lastActivity?: number;
+  /** Live model/provider (sprint-042), sourced server-side from the attached session's runtime
+   * info — see `list_agents_request` in `daemon/bootstrap.ts`/`dev-bootstrap.ts`. */
+  model?: string;
+  provider?: string;
+}
+
+/** Exported for direct unit testing — this project's vitest config runs `.test.ts` under a plain
+ * Node environment (no DOM), so hooks with effects are verified by smoke test (task-007) rather
+ * than rendered; this narrow type guard is the one piece of the listener worth a direct test. */
+export function hasStringModel(
+  msg: AgentUpdateMessage,
+): msg is AgentUpdateMessage & { model: string } {
+  return typeof msg.model === "string";
 }
 
 export function useSessionRestore(): void {
@@ -74,6 +88,7 @@ export function useSessionRestore(): void {
           cwd: agent.cwd || "~",
           timeline,
           userMessageCount: timeline.rows.filter((r) => r.kind === "user").length,
+          model: agent.model,
         });
       }
 
@@ -101,5 +116,20 @@ export function useSessionRestore(): void {
         openNewChat(targetCwd);
       }
     })();
+  }, [status, client]);
+
+  // Live model updates from an explicit `/model` set (sprint-042). `agent_update` is broadcast
+  // by every RPC that changes agent state (create/status/model/…) and reaches `onSessionMessage`
+  // because the daemon wraps every non-session-enveloped broadcast in `{type:"session", message}`
+  // (`wrapSessionEnvelope`, `daemon/bootstrap.ts`) — this listener only reacts to the ones that
+  // carry a `model`. Lives for the whole connection (not gated by `restoredRef`, unlike the
+  // one-shot restore fetch above), so a model change on any session — active or not — is captured.
+  useEffect(() => {
+    if (status !== "open" || !client) return;
+    return client.onAgentUpdate((msg) => {
+      if (hasStringModel(msg)) {
+        useSessionStore.getState().setModelByAgentId(msg.agentId, msg.model);
+      }
+    });
   }, [status, client]);
 }

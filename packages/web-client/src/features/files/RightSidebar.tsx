@@ -28,8 +28,9 @@ export function RightSidebar() {
   const queryClient = useQueryClient();
 
   // Fires a one-shot refresh RPC (POC `checkout_refresh_request`) — subscription lifecycle for
-  // live `checkout_status_update` pushes is owned solely by `ChangesPanel`'s `useCheckoutStatus`,
-  // so this button never opens a second subscription that could outlive/race the panel's.
+  // live `checkout_status_update` pushes is owned solely by `StatusBar`'s `useCheckoutStatus`
+  // (sprint-042: promoted from `ChangesPanel` since `StatusBar` is always mounted), so this
+  // button never opens a second subscription that could outlive/race it.
   function handleRefresh() {
     void queryClient.invalidateQueries({ queryKey: ["explorer"] });
     if (client && cwd) {

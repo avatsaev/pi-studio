@@ -238,6 +238,21 @@ describe("slash-command operations (sprint-037)", () => {
     expect(result.success).toBe(true);
   });
 
+  it("agent_session_stats_response accepts an optional model (sprint-042)", () => {
+    const withModel = agentSessionStatsResponseSchema.safeParse({
+      type: "agent_session_stats_response",
+      requestId: "r1",
+      payload: { model: "claude-opus-4" },
+    });
+    expect(withModel.success).toBe(true);
+    const withoutModel = agentSessionStatsResponseSchema.safeParse({
+      type: "agent_session_stats_response",
+      requestId: "r1",
+      payload: {},
+    });
+    expect(withoutModel.success).toBe(true);
+  });
+
   it("requires agentId on agent_session_stats_request", () => {
     expect(
       agentSessionStatsRequestSchema.safeParse({

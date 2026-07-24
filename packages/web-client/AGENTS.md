@@ -82,11 +82,18 @@ src/
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
                            (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
-  stores/                  Zustand slices: ui-store, tab-store, session-store, git-store,
+  stores/                  Zustand slices: ui-store, tab-store, session-store (SessionEntry.model,
+                           poll-reconciled + live-updated by agent_update), git-store (branch/
+                           ahead/behind/detached/upstream/conflictCount alongside changes[]),
+                           stats-store (per-sessionId context/tokens/cost/model — sprint-042),
                            explorer-store (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
-  hooks/                   use-connection (boot), use-session-restore, use-terminal-restore
+  hooks/                   use-connection (boot), use-session-restore (session directory restore
+                           + a connection-lifetime `agent_update` listener that keeps
+                           session-store.model live on an explicit `/model` set), use-session-stats
+                           (per-session context/token/cost/model poll — sprint-042, see AGENTS.md
+                           § Invariants "Status bar"), use-terminal-restore
                            (one-shot reopen of every daemon-side terminal as a tab on connect —
                            the safety net for terminals that outlive their tab, e.g. a daemon
                            restart or a terminal created outside this UI), use-shortcuts,
@@ -100,7 +107,9 @@ src/
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
                             open-workspace, status-map, workspace-grouping
     workspace/              TabStrip (tabs + trailing "+" menu: New chat / New terminal, scoped
-                            to the active workspace — GitHub issue #8), TabPanelHost, panel-registry
+                            to the active workspace — GitHub issue #8), TabPanelHost, panel-registry,
+                            StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
+                            bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, Attachments, rows/ (Assistant/User/
                             System/Error/Reasoning rows, ToolCard)
@@ -113,13 +122,16 @@ src/
                             FileContextMenu (download/delete), RightSidebar, DiffView, CodeView,
                             MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
                             TextViewer, viewer-registry
-    git/                    ChangesPanel
+    git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
+                            "Status bar" for why it no longer owns its own checkout-status
+                            subscription)
     terminal/               TerminalPanel (one xterm instance per open terminal tab; opening a
                             tab whose `data.slot` is already known — e.g. from
                             `use-terminal-restore.ts` — subscribes to the existing PTY instead of
                             spawning a new one). No dedicated "Terminals" management view —
                             orphaned terminals reopen automatically as tabs on connect.
-  routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right)
+  routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right,
+                           plus the full-width `StatusBar` pinned to the bottom of `.shell`)
   components/              (reserved for non-design-system reusable components; currently empty)
   test/                    (reserved for shared test utilities; currently empty)
 ```
@@ -198,3 +210,25 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
+- **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
+  screen, unlike any feature panel), renders six icon-prefixed segments for the **active
+  session** in order: model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token
+  total, cost. Reads `session-store`/`git-store`/`stats-store` (all reactive selectors); polls via
+  `useSessionStats(activeSessionId)`. Two subtleties that matter if you touch this area:
+  - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
+    keyed off `tab-store.activeWorkspaceCwd` — NOT `session.cwd` (a per-session field), and NOT a
+    per-panel subscription. `ChangesPanel.tsx` used to own this subscription itself, opening it
+    only while the Changes tab was visible; it is now a pure `git-store` reader. The daemon's
+    `checkout_status_subscribe`/`_unsubscribe` handlers key on a flat, non-reference-counted
+    `session:cwd` map (`packages/server/src/projects/git-checkout-rpc.ts`) — a SECOND independent
+    subscriber to the same cwd is not additive, it's a race: whichever one unmounts first silently
+    kills the live feed for the other too. Never add a second `useCheckoutStatus(cwd)` call
+    anywhere in this app for the same cwd `StatusBar` is already watching.
+  - **The context/token/cost/model fields are pull-only** — no `AgentStreamEvent` kind carries
+    them (see `agentStreamEventSchema` in `@av-pi-studio/protocol`). `use-session-stats.ts` polls
+    `client.agent(id).sessionStats()` on mount/session-switch, on a ~12s interval, and immediately
+    when the session's `status` transitions away from `"running"`. Its `applySessionStats` also
+    writes a poll-returned `model` back into `session-store` (not just `stats-store`) — the model
+    *segment* reads `SessionEntry.model`, so skipping this write-through leaves the segment
+    permanently blank even though the poll succeeded (a real bug this sprint's live smoke test
+    caught before it shipped).

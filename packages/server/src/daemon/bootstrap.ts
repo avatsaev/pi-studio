@@ -255,6 +255,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       cwd: m.record.cwd,
       labels: m.record.labels ?? {},
       lastActivity: new Date(m.record.updatedAt).getTime(),
+      provider: m.record.provider,
+      model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
     })),
   }));
 

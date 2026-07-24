@@ -73,6 +73,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 039 | `sprint-039-agent-turn-steering` | Steer a live agent turn end-to-end: inject a message mid-turn (Pi `steer`/`follow_up`) + `queue_update` event — protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI, and web-client (Send→Steer swap + queued badge) | 8 |
 | 040 | `sprint-040-agent-command-discovery` | Server-only: surface Pi's `get_commands` (extension commands, prompt templates, skills) as a per-session `agent_list_commands_request` discovery RPC — protocol schemas, enriched command-definition contract + Pi adapter `listCommands`, daemon handler, mock + docs (SDK/CLI/UI deferred) | 4 |
 | 041 | `sprint-041-agent-turn-settlement` | Fix premature turn termination: the Pi adapter declares a turn terminal on the first `agent_end`, but Pi emits one `agent_end` per low-level run (with `willRetry`) and a single `agent_settled` at the true end — retried/compaction/continued turns appear finished mid-flight, lose post-retry stream rows, flip status to idle early, and can auto-archive a live agent. Make the event-mapper settlement-driven (honour `willRetry`, derive terminal kind from the settled run's `stopReason`), wire it per-session, add a fake-transport `agent_settled` + retry-subscription regression, and sync scope/AGENTS docs | 3 |
+| 042 | `sprint-042-workspace-status-bar` | web-client: a full-width ~75px bottom powerline status bar for the active session — icon-prefixed segments (model · cwd · git branch+ahead/behind/dirty/conflict · context % · token total · cost), fully swapping on session switch with live branch and per-session-cached stats. UI-primary: adds optional `model`/`provider` to `list_agents_response` and a poll-reconciled `model` to `agent_session_stats` (append-only); retains git branch meta in git-store, adds `SessionEntry.model` + a per-session stats-store, a `use-session-stats` poll, pure formatters, the `StatusBar` component, and docs | 7 |
 
 Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
 25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
@@ -408,6 +409,31 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-001 | Settlement-driven event-mapper (`willRetry` non-terminal; `agent_settled` → terminal by `stopReason`) + per-session wiring | none | providers/pi (event-mapper, agent); features/agent-sessions |
 | task-002 | Fake-transport `agent_settled` wiring + retry-subscription regression test | task-001 | providers/pi (pi-adapter.test); agent-service (runTurn) |
 | task-003 | Scope-doc + AGENTS.md sync and full verification | task-001, task-002 | features/agent-sessions; architecture/agent-lifecycle; AGENTS.md (server) |
+
+### sprint-042-workspace-status-bar
+> web-client feature. A full-width, ~75px, bottom powerline status bar showing the **active
+> session's** metadata as icon-prefixed segments (lucide): model · cwd · git branch (+ ahead/behind,
+> dirty count, conflict flag) · context usage % · token total · session cost. Fully swaps on session
+> switch; branch live-updates from the active-cwd checkout subscription; context/token/cost are
+> pull-only (polled via the existing `agent_session_stats_request`) and cached per session. UI-primary
+> — the only server change is two append-only optional fields (`list_agents_response` model/provider
+> and a poll-reconciled `agent_session_stats` model). References the live source files
+> (`git-store.ts`, `session-store.ts`, `use-checkout-status.ts`, `WorkspacePage.tsx`) directly.
+> `features/workspace-ui.md` describes a different, aspirational Paseo-parity pane/tab/header
+> architecture not reflected in the current implementation (same discrepancy sprint-038 already
+> flagged) — its "Primary header" section doesn't cover a bottom status bar at all, so this sprint
+> does NOT edit it; the shipped bar is documented at the AGENTS.md/live-source level instead
+> (`packages/protocol/AGENTS.md`, `packages/server/AGENTS.md`, `packages/web-client/AGENTS.md`).
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | `list_agents_response` optional `model`/`provider` (protocol + both bootstraps) | none | packages/protocol; packages/server (bootstrap, dev-bootstrap); features/agent-sessions; architecture/websocket-protocol |
+| task-002 | Poll-reconciled `model` in `agent_session_stats` payload (runtime-info fallback) | none | packages/protocol; packages/server (slash-command-operations); features/agent-sessions, agent-providers |
+| task-003 | Client stores: git branch/ahead/behind/dirty retention, `SessionEntry.model`, per-session `stats-store` | none | packages/web-client (git-store, session-store, stats-store); features/git-checkout, workspace-ui |
+| task-004 | `use-session-stats` poll + model wiring on create/restore/`agent_update` | task-003 | packages/web-client (use-session-stats, use-session-restore); features/agent-sessions, workspace-ui |
+| task-005 | Pure status-bar value formatters (tokens/percent/cost/cwd/branch-meta) | none | packages/web-client (status-bar-format); features/workspace-ui |
+| task-006 | `StatusBar` powerline component + WorkspacePage bottom mount | task-003, task-004, task-005 | packages/web-client (StatusBar, WorkspacePage); features/workspace-ui; architecture/design-system |
+| task-007 | Docs sync (protocol/server/web-client AGENTS.md — NOT `workspace-ui.md`, see this sprint's header note) + E2E verification | task-001..006 | AGENTS.md (protocol, server, web-client) |
 
 ## Coverage check
 

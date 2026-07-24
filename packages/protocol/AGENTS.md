@@ -78,6 +78,7 @@ src/
 | `steerAgentResponseSchema` / `SteerAgentResponse` | schema + type | Response `{ agentId, ok }` (`ok:false` = no live turn) |
 | `followUpAgentRequestSchema` / `FollowUpAgentRequest` | schema + type | `follow_up_agent_request` — queue a message delivered after the agent stops (Pi `follow_up`) |
 | `followUpAgentResponseSchema` / `FollowUpAgentResponse` | schema + type | Response `{ agentId, ok }` |
+| `agentSessionStatsResponseSchema` / `AgentSessionStatsResponse` | schema + type | `/session` response payload — tokens/cost/contextUsage, plus optional `model` (sprint-042: back-filled server-side from runtime info when the provider's own stats omit it, so a poll-driven client has a self-correcting model source) |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -142,6 +143,12 @@ UI-only scaffolding types:
   decode without errors on older clients.
 - **`rpcName()` for new RPCs.** New handlers must use the dotted `domain.provider.operation.direction`
   convention. Legacy flat names are accepted via aliases but never generated.
+- **Not every RPC has a schema here.** `list_agents_request`/`list_agents_response` is a real,
+  actively-used daemon RPC (`agentId`/`status`/`title`/`cwd`/`labels`/`lastActivity`/`provider`/
+  `model`) that has never been given a Zod schema — both server (`daemon/bootstrap.ts`,
+  `dev-bootstrap.ts`) and client (`use-session-restore.ts`) handle it as an untyped
+  `Record<string, unknown>` with a local TS interface cast. Don't assume every wire message is
+  covered by this package; grep the actual handler registration before assuming a schema exists.
 
 ---
 

@@ -92,6 +92,17 @@ export function buildPiArgs(
   return args;
 }
 
+/** Extract a usable model identifier from a Pi `Model` object (`{id, name, api, provider}`,
+ * docs/rpc.md § Model) or `null`/`undefined`. Prefers `id` (the wire-stable identifier); falls
+ * back to `name` (display label) if `id` is somehow absent. */
+function modelIdFrom(model: unknown): string | undefined {
+  if (!model || typeof model !== "object") return undefined;
+  const rec = model as Record<string, unknown>;
+  if (typeof rec.id === "string") return rec.id;
+  if (typeof rec.name === "string") return rec.name;
+  return undefined;
+}
+
 class PiAgentSession implements AgentSession {
   readonly provider: string;
   readonly id = randomUUID();
@@ -101,6 +112,7 @@ class PiAgentSession implements AgentSession {
   private readonly history: AgentStreamEvent[] = [];
   private modes: AgentModeDefinition[] = [];
   private mode: string | null;
+  private model: string | undefined;
   private sessionFile?: string;
 
   constructor(
@@ -141,17 +153,36 @@ class PiAgentSession implements AgentSession {
   }
 
   /**
-   * Learn the JSONL session file Pi picked for THIS process via `get_state` (docs/rpc.md
-   * `get_state.sessionFile`). A freshly spawned `createSession` never sets `sessionFile` at
-   * construction (only resume/import do, since they choose the file up front) — without this,
-   * `describePersistence()` would return no `nativeHandle` and a plain restart could never find
-   * the conversation Pi already wrote to disk. Best-effort: `--no-session` or a request failure
-   * leaves `sessionFile` unset, which is a legitimate ephemeral-session state, not an error.
+   * Learn state Pi already knows about THIS process via `get_state` (docs/rpc.md § get_state):
+   * the JSONL session file it picked (`sessionFile`) and its current model (`model`).
+   *
+   * `sessionFile`: a freshly spawned `createSession` never sets it at construction (only resume/
+   * import do, since they choose the file up front) — without this, `describePersistence()` would
+   * return no `nativeHandle` and a plain restart could never find the conversation Pi already
+   * wrote to disk.
+   *
+   * `model`: the Pi provider otherwise never tracks its own current model at all —
+   * `AgentSessionConfig.model` isn't consulted at spawn (Pi resolves its own default/persisted
+   * model), and `getRuntimeInfo()` is a synchronous contract method, so it cannot make its own RPC
+   * call. Without this, `getRuntimeInfo().model` would always be `undefined`, leaving both
+   * `list_agents` (sprint-042/task-001) and the session-stats poll's runtime-info fallback
+   * (sprint-042/task-002) with nothing to report for the ONLY provider used in production (the
+   * mock provider always has a model, which is why this gap wasn't caught by unit tests — only a
+   * live smoke test against a real `pi` process surfaced it).
+   *
+   * Best-effort: a request failure leaves both fields exactly as they were (unset for a fresh
+   * session), which is a legitimate state, not an error.
    */
-  async discoverSessionFile(): Promise<void> {
+  async discoverState(): Promise<void> {
     try {
       const state = (await this.transport.request("get_state")) as Record<string, unknown>;
-      if (typeof state.sessionFile === "string") this.sessionFile = state.sessionFile;
+      // Never clobber an already-known sessionFile (resume/import chose it up front and already
+      // `switchSession()`ed to it) — only a fresh, never-anchored session learns it here.
+      if (!this.sessionFile && typeof state.sessionFile === "string") {
+        this.sessionFile = state.sessionFile;
+      }
+      const modelId = modelIdFrom(state.model);
+      if (modelId) this.model = modelId;
     } catch {
       /* best-effort */
     }
@@ -209,7 +240,12 @@ class PiAgentSession implements AgentSession {
   }
 
   getRuntimeInfo(): ProviderRuntimeInfo {
-    return { provider: this.provider, sessionId: this.id, modeId: this.mode ?? undefined };
+    return {
+      provider: this.provider,
+      sessionId: this.id,
+      modeId: this.mode ?? undefined,
+      model: this.model,
+    };
   }
 
   getAvailableModes(): AgentModeDefinition[] {
@@ -320,11 +356,16 @@ class PiAgentSession implements AgentSession {
   }
 
   async setProviderModel(provider: string, modelId: string): Promise<unknown> {
-    return this.transport.request("set_model", { provider, modelId });
+    const data = await this.transport.request("set_model", { provider, modelId });
+    const resolved = modelIdFrom(data);
+    if (resolved) this.model = resolved;
+    return data;
   }
 
   async cycleModel(): Promise<AgentCycleModelResult> {
     const data = (await this.transport.request("cycle_model")) as AgentCycleModelResult;
+    const resolved = modelIdFrom(data?.model);
+    if (resolved) this.model = resolved;
     return data ?? {};
   }
 
@@ -392,9 +433,10 @@ export class PiAgentClient implements AgentClient {
       logger: this.deps.logger,
     });
     const session = new PiAgentSession(transport, { provider: this.provider, config });
-    // Learn the JSONL file Pi picked for this fresh process, so `describePersistence()` can hand
-    // back a `nativeHandle` a restarted daemon can later rehydrate the timeline from.
-    await session.discoverSessionFile();
+    // Learn the JSONL file Pi picked for this fresh process (so `describePersistence()` can hand
+    // back a `nativeHandle` a restarted daemon can later rehydrate the timeline from) and its
+    // current model (sprint-042 — see `discoverState`'s doc comment for why).
+    await session.discoverState();
     return session;
   }
 
@@ -431,6 +473,9 @@ export class PiAgentClient implements AgentClient {
       sessionFile,
     });
     if (sessionFile) await session.switchSession(sessionFile);
+    // Learn the resumed process's current model (sprint-042 — a fresh `pi --mode rpc` process has
+    // no local model state until asked; see `discoverState`'s doc comment).
+    await session.discoverState();
     return session;
   }
 

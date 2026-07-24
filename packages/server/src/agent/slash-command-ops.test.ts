@@ -102,6 +102,40 @@ describe("delegation to optional AgentSession methods", () => {
     });
   });
 
+  it("agent_session_stats_request back-fills model from getRuntimeInfo() when stats omit it (sprint-042)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        getSessionStats: () => Promise.resolve({ sessionId: "s1", totalMessages: 3 }),
+        getRuntimeInfo: () => ({ provider: "mock", model: "opus" }),
+      }),
+    );
+    const result = (await ops.handleSessionStats({ agentId })) as Record<string, unknown>;
+    expect(result).toEqual({
+      type: "agent_session_stats_response",
+      payload: { sessionId: "s1", totalMessages: 3, model: "opus" },
+    });
+  });
+
+  it("agent_session_stats_request preserves a provider-supplied model over getRuntimeInfo() (sprint-042)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        getSessionStats: () => Promise.resolve({ sessionId: "s1", model: "sonnet" }),
+        getRuntimeInfo: () => ({ provider: "mock", model: "opus" }),
+      }),
+    );
+    const result = (await ops.handleSessionStats({ agentId })) as Record<string, unknown>;
+    expect(result).toEqual({
+      type: "agent_session_stats_response",
+      payload: { sessionId: "s1", model: "sonnet" },
+    });
+  });
+
   it("agent_compact_request forwards customInstructions and broadcasts agent_update", async () => {
     const { service, ops, manager, broadcasts } = makeSetup();
     const agentId = await createAgent(service);

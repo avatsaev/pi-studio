@@ -20,6 +20,11 @@ class FakeTransport implements PiRpcTransport {
   request(command: string, params?: Record<string, unknown>): Promise<unknown> {
     this.requests.push(command);
     switch (command) {
+      case "get_state":
+        return Promise.resolve({
+          sessionFile: "/tmp/fake-pi-session.jsonl",
+          model: { id: "claude-opus-4", name: "Opus 4" },
+        });
       case "get_available_models":
         return Promise.resolve({ models: [{ id: "pi-sonnet", name: "Sonnet" }] });
       case "get_session_stats":
@@ -266,6 +271,14 @@ describe("PiAgentClient", () => {
     });
   });
 
+  it("discovers sessionFile and model via get_state on createSession (sprint-042)", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(spawns[0]?.requests).toContain("get_state");
+    expect(session.getRuntimeInfo().model).toBe("claude-opus-4");
+    expect(session.describePersistence()?.nativeHandle).toBe("/tmp/fake-pi-session.jsonl");
+  });
+
   it("passes system prompts via --append-system-prompt (not replacing Pi's prompt)", async () => {
     const { client, spawns } = clientWithFake();
     await client.createSession({ provider: "pi", cwd: "/work", systemPrompt: "be terse" });
@@ -356,6 +369,9 @@ describe("import & resume", () => {
     expect(spawns).toHaveLength(1);
     expect(spawns[0]?.requests).toContain("switch_session");
     expect(session.describePersistence()?.nativeHandle).toBe("/tmp/prior-conversation.jsonl");
+    // discoverState (sprint-042) also runs for a resumed session — a fresh `pi --mode rpc`
+    // process has no local model state until asked, resume included.
+    expect(session.getRuntimeInfo().model).toBe("claude-opus-4");
   });
 
   it("createSession (a brand-new, non-resumed session) never sends switch_session", async () => {
@@ -406,13 +422,16 @@ describe("slash-command operations (sprint-037)", () => {
     expect(exported).toEqual({ path: "/tmp/session.html" });
   });
 
-  it("setProviderModel issues set_model with provider+modelId; cycleModel maps the response", async () => {
+  it("setProviderModel issues set_model with provider+modelId; cycleModel maps the response; both update getRuntimeInfo().model (sprint-042)", async () => {
     const { client, spawns } = clientWithFake();
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(session.getRuntimeInfo().model).toBe("claude-opus-4"); // from get_state on create
     await session.setProviderModel?.("anthropic", "claude-sonnet-4-20250514");
     expect(spawns[0]?.requests).toContain("set_model");
+    expect(session.getRuntimeInfo().model).toBe("claude-sonnet-4-20250514");
     const cycled = await session.cycleModel?.();
     expect(cycled).toEqual({ model: { id: "next-model" }, thinkingLevel: "medium" });
+    expect(session.getRuntimeInfo().model).toBe("next-model");
   });
 
   it("getLastAssistantText returns the mapped text", async () => {

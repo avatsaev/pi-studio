@@ -3,6 +3,10 @@
  * global + `handleCheckoutStatusUpdate`, POC_TO_APP_PLAN_UI.md §4.7). `applyProjection` ports the
  * POC mapping verbatim: staged entries key off `indexStatus`, unstaged entries key off
  * `worktreeStatus`, untracked paths are always "added"/unstaged.
+ *
+ * Also retains the projection's branch metadata (branch/ahead/behind/detached/upstream/conflict
+ * count/availability) for the workspace status bar's git segment (sprint-042) — previously
+ * discarded here even though `use-checkout-status.ts` already receives the full projection.
  */
 
 import { create } from "zustand";
@@ -34,24 +38,44 @@ export interface ChangeEntry {
   staged: boolean;
 }
 
+/** Branch metadata reset when a cwd isn't a git repo (or has no projection yet). */
+const EMPTY_BRANCH_META = {
+  available: false,
+  branch: null as string | null,
+  upstream: null as string | null,
+  ahead: 0,
+  behind: 0,
+  detached: false,
+  conflictCount: 0,
+};
+
 interface GitStoreState {
   subscribedCwd: string | null;
   changes: ChangeEntry[];
+  available: boolean;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  detached: boolean;
+  conflictCount: number;
 
   setSubscribedCwd(cwd: string | null): void;
-  /** Map a `checkout_status_update` projection into flat change rows (POC `handleCheckoutStatusUpdate`). */
+  /** Map a `checkout_status_update` projection into flat change rows (POC `handleCheckoutStatusUpdate`)
+   * plus the branch metadata above. */
   applyProjection(projection: CheckoutStatusProjection | null | undefined): void;
 }
 
 export const useGitStore = create<GitStoreState>()((set) => ({
   subscribedCwd: null,
   changes: [],
+  ...EMPTY_BRANCH_META,
 
   setSubscribedCwd: (cwd) => set({ subscribedCwd: cwd }),
 
   applyProjection: (projection) => {
     if (!projection || !projection.available) {
-      set({ changes: [] });
+      set({ changes: [], ...EMPTY_BRANCH_META });
       return;
     }
 
@@ -73,6 +97,15 @@ export const useGitStore = create<GitStoreState>()((set) => ({
     for (const path of projection.untracked) {
       changes.push({ path, status: "added", staged: false });
     }
-    set({ changes });
+    set({
+      changes,
+      available: true,
+      branch: projection.branch,
+      upstream: projection.upstream,
+      ahead: projection.ahead,
+      behind: projection.behind,
+      detached: projection.detached,
+      conflictCount: projection.conflicted.length,
+    });
   },
 }));

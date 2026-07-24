@@ -443,6 +443,9 @@ export const agentSessionStatsResponseSchema = z
         tokens: agentTokenUsageSchema.optional(),
         cost: z.number().optional(),
         contextUsage: agentContextUsageSchema.optional(),
+        /** Current model id (sprint-042: poll-authoritative source for the web-client status
+         * bar's model segment; back-filled server-side when the provider's own stats omit it). */
+        model: z.string().optional(),
       })
       .passthrough(),
   })

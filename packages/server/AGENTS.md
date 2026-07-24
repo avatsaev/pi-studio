@@ -192,6 +192,14 @@ src/
   session to interrupt. `interrupt_agent` applies the same normalization as a second line of
   defense whenever it finds a session-less record still claiming `running`/`initializing`.
 - Parent/child relationships via `PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id"`.
+- `list_agents_request` (both `bootstrap.ts` and `dev-bootstrap.ts`) returns each active agent's
+  `agentId`/`status`/`title`/`cwd`/`labels`/`lastActivity`, plus **`provider`** (always
+  `record.provider`) and **`model`** (sprint-042: `managed.session?.getRuntimeInfo().model ??
+  managed.record.config?.model` — the live attached session's runtime info first, since
+  `record.config`/`record.runtimeInfo` are never persisted anywhere today; falls back to
+  `undefined` for an agent with no currently-attached session, e.g. right after a daemon restart
+  before it's resumed). No protocol schema exists for `list_agents_request`/`response` at all —
+  it is, and remains, an untyped ad hoc RPC on both server and client.
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.
@@ -227,6 +235,10 @@ Two built-in providers: `pi` and `mock`.
   routed through `prompt` — Pi's own RPC contract states built-in TUI commands without one of
   these RPC equivalents (`/settings`, `/hotkeys`, …) are never expanded by `prompt` and have no
   wire representation here. Unimplemented on a provider (e.g. `mock`) → `rpc_error`, never silent.
+  `handleSessionStats` (sprint-042) back-fills `payload.model` from
+  `session.getRuntimeInfo().model` whenever the provider's own `getSessionStats()` result omits
+  it — making the RPC a self-correcting model source for a poll-driven client (covers `/model`
+  cycle and cross-client changes an `agent_update` broadcast alone can't fully convey).
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
@@ -245,6 +257,19 @@ Two built-in providers: `pi` and `mock`.
   from `agents/**.json`), so the UI looked fine right up until the next prompt, which then got no
   prior context at all — after a daemon restart or `/import`, the live `pi` process had amnesia
   even though the chat history on screen looked intact.
+- **`getRuntimeInfo().model` is cached, not live** — Pi has no synchronous way to report its
+  current model, and the contract method `getRuntimeInfo()` cannot itself make an RPC call.
+  `discoverState()` (also renamed from `discoverSessionFile()`, sprint-042) issues ONE `get_state`
+  call after both `createSession` and `resumeSession` construct the session, reading Pi's `Model`
+  object (`{id, name, api, provider}`, docs/rpc.md § Model) out of `data.model` into a cached
+  field — never clobbering an already-known `sessionFile` (resume/import anchor it up front).
+  `setProviderModel`/`cycleModel` also update the cache from their own responses, so an explicit
+  `/model` set/cycle is reflected immediately, not only on the next `discoverState()`. Before this,
+  `getRuntimeInfo().model` was always `undefined` for the real `pi` provider — only the `mock`
+  provider ever populated it — silently defeating `list_agents_request`'s `model` field (above)
+  and `agent_session_stats_request`'s runtime-info fallback (`slash-command-operations.ts`
+  `handleSessionStats`) for the only provider used in production. Caught by a live smoke test
+  against a real spawned `pi --mode rpc` process, not by any unit test.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.

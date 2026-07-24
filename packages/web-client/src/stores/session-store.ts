@@ -25,6 +25,10 @@ export interface SessionEntry {
   timeline: TimelineState;
   /** User-turn count, for the sidebar meta line (POC: `messages.filter(role==='user').length`). */
   userMessageCount: number;
+  /** Current model id, shown by the workspace status bar's model segment (sprint-042). Seeded
+   * from create-agent config / a restored `list_agents` entry, updated live by an
+   * `agent_update({model})` broadcast, and reconciled by the periodic session-stats poll. */
+  model?: string;
 }
 
 interface SessionStoreState {
@@ -36,6 +40,8 @@ interface SessionStoreState {
   bindAgent(sessionId: string, agentId: string): void;
   setStatus(sessionId: string, status: AgentStatus | "idle"): void;
   setStatusByAgentId(agentId: string, status: AgentStatus | "idle"): void;
+  setModel(sessionId: string, model: string | undefined): void;
+  setModelByAgentId(agentId: string, model: string | undefined): void;
   setTitle(sessionId: string, title: string): void;
   setCwd(sessionId: string, cwd: string): void;
   applyStreamEvent(sessionId: string, event: AgentStreamEvent): void;
@@ -113,6 +119,19 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
   setStatusByAgentId(agentId, status) {
     const entry = get().findByAgentId(agentId);
     if (entry) get().setStatus(entry.id, status);
+  },
+
+  setModel(sessionId, model) {
+    set((s) => {
+      const entry = s.sessions[sessionId];
+      if (!entry) return s;
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, model } } };
+    });
+  },
+
+  setModelByAgentId(agentId, model) {
+    const entry = get().findByAgentId(agentId);
+    if (entry) get().setModel(entry.id, model);
   },
 
   setTitle(sessionId, title) {

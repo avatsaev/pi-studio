@@ -1,0 +1,43 @@
+.statusBar {
+  height: 35px;
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  overflow-x: auto;
+  border-top: 1px solid var(--pi-color-border, #353b46);
+  background: var(--pi-color-surface, #16181a);
+  font-size: 12px;
+  color: var(--pi-color-foreground, #e4e6eb);
+  white-space: nowrap;
+}
+.segmentGroup {
+  display: flex;
+  align-items: center;
+}
+.chevron {
+  color: var(--pi-color-border, #353b46);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.segment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--pi-color-surfaceRaised, #1c1f22);
+}
+.icon {
+  display: flex;
+  align-items: center;
+  color: var(--pi-color-foregroundMuted, #7a8394);
+  flex-shrink: 0;
+}
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}

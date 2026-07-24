@@ -129,6 +129,8 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       cwd: m.record.cwd,
       labels: m.record.labels ?? {},
       lastActivity: new Date(m.record.updatedAt).getTime(),
+      provider: m.record.provider,
+      model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
     }));
     return {
       type: "list_agents_response",

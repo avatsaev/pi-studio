@@ -61,6 +61,9 @@ export interface AgentSessionStats {
   };
   cost?: number;
   contextUsage?: { tokens?: number | null; contextWindow?: number; percent?: number | null };
+  /** Current model id (sprint-042: back-filled from `getRuntimeInfo()` when the provider's own
+   * stats payload omits it, so the periodic stats poll is a self-correcting model source). */
+  model?: string;
 }
 
 export interface AgentCompactResult {

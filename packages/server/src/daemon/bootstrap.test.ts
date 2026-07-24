@@ -145,15 +145,26 @@ describe("production daemon bootstrap", () => {
     const client = await connect(booted.port);
 
     const cwd = booted.home;
-    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd, model: "mock-model-x" },
+    });
     expect(created.type).toBe("create_agent_response");
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    // Directory listing reflects it.
+    // Directory listing reflects it, including the live model/provider (sprint-042).
     const list = await client.rpc({ type: "list_agents_request" });
-    const agents = list.agents as Array<{ agentId: string }>;
-    expect(agents.some((a) => a.agentId === agentId)).toBe(true);
+    const rawAgents = list.agents;
+    expect(Array.isArray(rawAgents)).toBe(true);
+    const entries = Array.isArray(rawAgents) ? rawAgents : [];
+    const entry = entries.find(
+      (a): a is Record<string, unknown> =>
+        typeof a === "object" && a !== null && "agentId" in a && a.agentId === agentId,
+    );
+    expect(entry).toBeTruthy();
+    expect(entry?.provider).toBe("mock");
+    expect(entry?.model).toBe("mock-model-x");
 
     // It persisted to disk under the temp home.
     const onDisk = await loadAllAgents(booted.home);

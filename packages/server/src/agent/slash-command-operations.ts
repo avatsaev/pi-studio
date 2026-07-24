@@ -82,12 +82,17 @@ export class SlashCommandOperationsService {
     this.deps.broadcast(getSessions(), { type: "agent_update", agentId, ...extra });
   }
 
-  /** `/session` — read-only, no broadcast needed. */
+  /** `/session` — read-only, no broadcast needed. `model` is filled in from the session's live
+   * runtime info when the provider's own stats payload omits it (sprint-042: makes the periodic
+   * stats poll a self-correcting source for the status bar's model segment, covering `/model`
+   * cycle and cross-client changes that `agent_update` alone doesn't fully convey). */
   async handleSessionStats(msg: Record<string, unknown>): Promise<unknown> {
     const agentId = msg.agentId as string;
     const session = requireSession(this.deps.manager, agentId);
     if (!session.getSessionStats) throw unsupported(agentId, "get_session_stats");
-    const payload = await session.getSessionStats();
+    const stats = await session.getSessionStats();
+    const payload =
+      stats.model !== undefined ? stats : { ...stats, model: session.getRuntimeInfo().model };
     return { type: "agent_session_stats_response", payload };
   }
 

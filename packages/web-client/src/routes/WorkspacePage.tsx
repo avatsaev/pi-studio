@@ -14,6 +14,7 @@ import { SessionList } from "@pi-studio-ui/features/sessions/SessionList.js";
 import { TabStrip } from "@pi-studio-ui/features/workspace/TabStrip.js";
 import { TabPanelHost } from "@pi-studio-ui/features/workspace/TabPanelHost.js";
 import { RightSidebar } from "@pi-studio-ui/features/files/RightSidebar.js";
+import { StatusBar } from "@pi-studio-ui/features/workspace/StatusBar.js";
 import { OpenWorkspaceDialog } from "@pi-studio-ui/features/workspace-picker/OpenWorkspaceDialog.js";
 import { ResizeHandle } from "@pi-studio-ui/components/primitives/ResizeHandle.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
@@ -48,6 +49,7 @@ export function WorkspacePage() {
           </aside>
         )}
       </div>
+      <StatusBar />
       <OpenWorkspaceDialog />
     </div>
   );
