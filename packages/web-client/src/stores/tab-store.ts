@@ -77,6 +77,15 @@ function tabsInWorkspace(tabs: Tab[], cwd: string): Tab[] {
   return tabs.filter((t) => t.workspaceCwd === cwd);
 }
 
+/** Keep the sidebar's `session-store.activeSessionId` in lockstep with whichever chat tab is
+ * now active, so switching tabs in the center pane highlights the matching sidebar row exactly
+ * as if it had been clicked there directly. No-op for non-chat tabs (file/diff/terminal) — the
+ * sidebar simply keeps showing whichever chat was last active. */
+function syncActiveSession(tab: Tab | undefined): void {
+  if (tab?.kind !== "chat") return;
+  useSessionStore.getState().activate((tab.data as ChatTabData).sessionId);
+}
+
 export const useTabStore = create<TabStoreState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
@@ -95,9 +104,11 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       activeWorkspaceCwd: tab.workspaceCwd,
       lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: tab.id },
     }));
+    syncActiveSession(tab);
   },
 
   close(id) {
+    let fallbackTab: Tab | undefined;
     set((s) => {
       const closed = s.tabs.find((t) => t.id === id);
       if (!closed) return s;
@@ -113,6 +124,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         const siblingIdx = Math.min(idx, siblings.length - 1);
         const next = siblings[siblingIdx];
         activeTabId = next?.id ?? null;
+        fallbackTab = next;
       }
       if (lastActiveTabByWorkspace[closed.workspaceCwd] === id) {
         const stillOpen = tabsInWorkspace(tabs, closed.workspaceCwd)[0];
@@ -121,26 +133,32 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       }
       return { tabs, activeTabId, lastActiveTabByWorkspace };
     });
+    syncActiveSession(fallbackTab);
   },
 
   activate(id) {
+    let activatedTab: Tab | undefined;
     set((s) => {
       const tab = s.tabs.find((t) => t.id === id);
       if (!tab) return s;
+      activatedTab = tab;
       return {
         activeTabId: id,
         activeWorkspaceCwd: tab.workspaceCwd,
         lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: id },
       };
     });
+    syncActiveSession(activatedTab);
   },
 
   switchWorkspace(cwd) {
+    let switchedTab: Tab | undefined;
     set((s) => {
       const siblings = tabsInWorkspace(s.tabs, cwd);
       const remembered = s.lastActiveTabByWorkspace[cwd];
       const stillOpen = remembered && siblings.some((t) => t.id === remembered);
-      const activeTabId = stillOpen ? remembered : siblings[0]?.id ?? null;
+      const activeTabId = stillOpen ? remembered : (siblings[0]?.id ?? null);
+      switchedTab = siblings.find((t) => t.id === activeTabId);
       return {
         activeWorkspaceCwd: cwd,
         activeTabId,
@@ -149,6 +167,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           : s.lastActiveTabByWorkspace,
       };
     });
+    syncActiveSession(switchedTab);
   },
 
   reorder(fromId, toId) {

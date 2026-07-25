@@ -36,6 +36,7 @@
 }
 .item.active {
   background: var(--pi-color-surfaceSunken, #111);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
 }
 .title {
   display: flex;
