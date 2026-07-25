@@ -8,6 +8,11 @@
  *
  * A daemon reporting zero agents restores nothing: `activeWorkspaceCwd` stays `null` and the UI
  * renders its no-workspace empty state (`TabPanelHost`) — this hook never auto-creates a session.
+ * Every known agent restores, including an idle, never-used draft (eager materialization,
+ * `materialize.ts`, `tab-store.ts`'s `openNewChat`) that survives to the next connect because its
+ * tab was never explicitly closed — it is a real persisted session the instant it materializes,
+ * not a phantom the UI should hide; only an explicit close (`closeTab`'s `discardIfEmpty`) or an
+ * explicit delete removes it.
  */
 
 import { useEffect, useRef } from "react";
@@ -90,10 +95,18 @@ export function useSessionRestore(): void {
           // Best-effort: an unreadable timeline still gets an (empty) restored session.
         }
 
+        // A never-used draft (eager materialization, `materialize.ts`) has no server-persisted
+        // title (only an explicit rename — `SessionContextMenu.tsx` — ever sets one) and no
+        // messages to derive one from; default it to "New chat", matching a freshly
+        // `createSession`-created entry, instead of falling through to the cwd basename.
+        const isEmptyDraft = timeline.rows.length === 0;
         sessionStore.hydrate({
           id: `s-${agent.agentId.slice(0, 12)}`,
           agentId: agent.agentId,
-          title: agent.title || agent.cwd?.split("/").pop() || "Restored",
+          title:
+            agent.title ||
+            (isEmptyDraft ? "New chat" : agent.cwd?.split("/").pop()) ||
+            "Restored",
           status: (agent.status as AgentStatus | undefined) ?? "idle",
           cwd: agent.cwd || "~",
           timeline,

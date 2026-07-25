@@ -118,28 +118,25 @@ export function StatusBar() {
    * pi-studio provider id ("pi") here; Pi has no model registered under a provider literally
    * named "pi" (sprint-043's "Model not found: pi/<modelId>" bug). Mirrors the composer's former
    * `handleSelectModel` (moved here with the UI).
+   *
+   * Single path regardless of whether the session is already materialized: `ensureMaterialized`
+   * is a no-op once bound (the common case now that `tab-store.ts` `openNewChat` materializes
+   * eagerly) and otherwise awaits whatever in-flight materialize is already running — the
+   * `setModel` optimistic pick two lines up already updated the entry that materialize reads
+   * `config.model`/`config.modelProvider` from, so there is no dropped-pick race even when this
+   * fires while the eager materialize is still in flight.
    */
   function handleSelectModel(modelId: string, modelProvider?: string): void {
     if (!activeSessionId) return;
     setModel(activeSessionId, modelId, modelProvider); // optimistic display pick either way
-    if (!client) return;
-    if (!session?.agentId) {
-      // Materializes the draft, pinning this pick into `config.model`/`config.modelProvider` for
-      // first-spawn replay — `setModel` above already updated the entry `ensureMaterialized`
-      // reads when building the create-agent config.
-      void ensureMaterialized(client, activeSessionId).catch(() => {
-        // Best-effort: the composer's own `ensureMaterialized` call retries on the next send.
-      });
-      return;
-    }
-    if (!modelProvider) return;
-    void client
-      .agent(session.agentId)
-      .setModel(modelProvider, modelId)
-      .catch(() => {
-        // Same swallow-and-let-the-stream-be-the-source-of-truth convention as the composer's
-        // `submit` catch — a rejected `agent_set_model_request` has no dedicated UI surface today.
-      });
+    if (!client || !modelProvider) return;
+    void (async () => {
+      const agentId = await ensureMaterialized(client, activeSessionId);
+      await client.agent(agentId).setModel(modelProvider, modelId);
+    })().catch(() => {
+      // Same swallow-and-let-the-stream-be-the-source-of-truth convention as the composer's
+      // `submit` catch — a rejected `agent_set_model_request` has no dedicated UI surface today.
+    });
   }
 
   return (

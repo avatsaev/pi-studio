@@ -15,7 +15,7 @@
 import { create } from "zustand";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { resolveDefaultModel } from "@pi-studio-ui/stores/materialize.js";
+import { ensureMaterialized, discardIfEmpty } from "@pi-studio-ui/stores/materialize.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal";
 
@@ -205,7 +205,14 @@ export function openNewTerminal(workspaceCwd: string): void {
  * tab. Shared by the sidebar's "+ New conversation" button, `open-workspace.ts`'s create-new
  * path, and the TabStrip's "+" button — so every caller mints identical tab ids/labels (mirrors
  * `openNewTerminal` above). `workspaceCwd` MUST already be normalized by the caller (same
- * contract as `openNewTerminal`). */
+ * contract as `openNewTerminal`).
+ *
+ * Materializes eagerly: the tab and sidebar row appear synchronously from `createSession`/`open`
+ * above, then `ensureMaterialized` (`materialize.ts`) commits a real, persisted `AgentRecord` in
+ * the background — no spawn yet, just the record (`agent-service.ts` `handleCreate`'s
+ * deferred-draft branch) — so every "New chat" has a bound `agentId` before the user does
+ * anything. Best-effort: a failure here (or opening while disconnected, guarded by `if (client)`)
+ * is retried by `Composer.submit`'s own `ensureMaterialized` call on the first send. */
 export function openNewChat(workspaceCwd: string): void {
   const id = useSessionStore.getState().createSession(workspaceCwd);
   useTabStore.getState().open({
@@ -217,13 +224,21 @@ export function openNewChat(workspaceCwd: string): void {
     workspaceCwd,
   });
 
-  // Preselect the model this chat would actually run on, before anything is spawned or
-  // persisted (`materialize.ts` `resolveDefaultModel`) — purely a local display seed, cached
-  // per connection so only the very first "New chat" after connecting pays the lookup.
   const client = useConnectionStore.getState().client;
   if (client) {
-    void resolveDefaultModel(client).then(({ model, modelProvider }) => {
-      if (model) useSessionStore.getState().setModel(id, model, modelProvider);
+    void ensureMaterialized(client, id).catch(() => {
+      // Best-effort: `Composer.submit`'s own `ensureMaterialized` retries on the first send.
     });
   }
+}
+
+/** Close a tab, discarding a never-used chat's draft record with it (`materialize.ts`
+ * `discardIfEmpty`). Every UI close path MUST go through this, not `useTabStore.close` directly.
+ */
+export function closeTab(tabId: string): void {
+  const tab = useTabStore.getState().tabs.find((t) => t.id === tabId);
+  useTabStore.getState().close(tabId);
+  if (tab?.kind !== "chat") return;
+  const { sessionId } = tab.data as ChatTabData;
+  void discardIfEmpty(useConnectionStore.getState().client, sessionId);
 }
