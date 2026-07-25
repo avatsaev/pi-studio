@@ -1,12 +1,12 @@
 {
   "name": "@av-pi-studio/desktop",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/server": "^0.0.37"
+    "@av-pi-studio/server": "^0.0.38"
   }
 }
