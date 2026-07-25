@@ -29,14 +29,20 @@ interface ExplorerStoreState {
    * seeds a fresh one containing just the root, if this root has never been visited this
    * session). */
   setRoot(path: string): void;
-  /** Expand/collapse a directory. No-op for `rootPath` itself (always expanded). */
   toggle(path: string): void;
+  /** In-progress inline "new file"/"new folder" row in the tree: the directory it will be
+   * created in, and which kind. Only one draft at a time. */
+  draft: { parentPath: string; kind: "file" | "directory" } | null;
+  /** Begin an inline draft under `parentPath`, expanding it so the draft row is visible. */
+  startDraft(parentPath: string, kind: "file" | "directory"): void;
+  cancelDraft(): void;
 }
 
 export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
   rootPath: "",
   expanded: new Set(),
   expandedByRoot: new Map(),
+  draft: null,
 
   setRoot: (path) =>
     set((s) => {
@@ -45,7 +51,7 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
       const remembered = expandedByRoot.get(path);
       const expanded = new Set(remembered);
       expanded.add(path);
-      return { rootPath: path, expanded, expandedByRoot };
+      return { rootPath: path, expanded, expandedByRoot, draft: null };
     }),
 
   toggle: (path) =>
@@ -58,6 +64,17 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
       expandedByRoot.set(s.rootPath, expanded);
       return { expanded, expandedByRoot };
     }),
+
+  startDraft: (parentPath, kind) =>
+    set((s) => {
+      const expanded = new Set(s.expanded);
+      expanded.add(parentPath);
+      const expandedByRoot = new Map(s.expandedByRoot);
+      if (s.rootPath) expandedByRoot.set(s.rootPath, expanded);
+      return { draft: { parentPath, kind }, expanded, expandedByRoot };
+    }),
+
+  cancelDraft: () => set({ draft: null }),
 }));
 interface ExplorerEntry {
   name?: string;
@@ -93,10 +110,9 @@ export function onHomeDirResolved(listener: HomeDirListener): () => void {
 export async function resolveHome(client: PiStudioClient): Promise<string> {
   if (cachedHomeDir) return cachedHomeDir;
   try {
-    const response = await client.connection.request<ExplorerRpcResponse>(
-      "file_explorer_request",
-      { path: "/home" },
-    );
+    const response = await client.connection.request<ExplorerRpcResponse>("file_explorer_request", {
+      path: "/home",
+    });
     const entries = response.result?.entries ?? response.entries ?? [];
     const first = entries.find((e) => e.kind === "directory" || e.type === "directory");
     cachedHomeDir = "/home/" + (first?.name || "user");

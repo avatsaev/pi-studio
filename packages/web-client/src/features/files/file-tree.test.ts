@@ -18,7 +18,13 @@ describe("flattenTree", () => {
 
   it("lists the root's children at depth 0 without a row for the root itself", () => {
     const tree = new Map([
-      ["/proj", listing([{ name: "src", kind: "directory" }, { name: "readme.md", kind: "file" }])],
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
     ]);
     const rows = flattenTree("/proj", new Set(["/proj"]), tree);
     expect(rows).toEqual([
@@ -71,6 +77,44 @@ describe("flattenTree", () => {
     const rows = flattenTree("/proj", new Set(["/proj"]), tree);
     expect(rows).toEqual([
       { kind: "directory", path: "/proj/src", name: "src", depth: 0, expanded: false },
+    ]);
+  });
+  it("puts a draft row for the root first, ahead of the root's own children", () => {
+    const tree = new Map([
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
+    ]);
+    const draft = { parentPath: "/proj", kind: "file" as const };
+    const rows = flattenTree("/proj", new Set(["/proj"]), tree, draft);
+    expect(rows[0]).toEqual({
+      kind: "draft",
+      path: "/proj::draft",
+      depth: 0,
+      draftKind: "file",
+      parentPath: "/proj",
+    });
+    expect(rows).toHaveLength(3);
+  });
+
+  it("puts a draft row ahead of the loading row for an expanded-but-unsettled directory", () => {
+    const tree = new Map([["/proj", listing([{ name: "src", kind: "directory" }])]]);
+    const draft = { parentPath: "/proj/src", kind: "directory" as const };
+    const rows = flattenTree("/proj", new Set(["/proj", "/proj/src"]), tree, draft);
+    expect(rows).toEqual([
+      { kind: "directory", path: "/proj/src", name: "src", depth: 0, expanded: true },
+      {
+        kind: "draft",
+        path: "/proj/src::draft",
+        depth: 1,
+        draftKind: "directory",
+        parentPath: "/proj/src",
+      },
+      { kind: "loading", path: "/proj/src", depth: 1 },
     ]);
   });
 });

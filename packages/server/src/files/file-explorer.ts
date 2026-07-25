@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, readdir, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, open, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 
 import type { HandlerRegistry } from "../ws/router.js";
@@ -77,6 +77,64 @@ export class FileExplorerService {
       type: "file_delete_response",
       ...(await this.deleteFile(String(ctx.message.path ?? ""))),
     }));
+
+    registry.register("file_create_request", async (ctx) => ({
+      type: "file_create_response",
+      ...(await this.createEntry(
+        String(ctx.message.path ?? ""),
+        String(ctx.message.name ?? ""),
+        ctx.message.kind === "directory" ? "directory" : "file",
+      )),
+    }));
+  }
+
+  /**
+   * Create an empty file or an empty directory named `rawName` inside `parentPath` — same
+   * normalization/trust-boundary posture as `deleteFile`. Non-recursive `mkdir` and
+   * create-exclusive (`wx`) file opens are deliberate: both fail loudly on a name collision
+   * instead of silently overwriting or truncating existing data.
+   */
+  async createEntry(
+    parentPath: string,
+    rawName: string,
+    kind: "file" | "directory",
+  ): Promise<
+    { ok: true; path: string; kind: "file" | "directory" } | { ok: false; error: string }
+  > {
+    if (!parentPath) return { ok: false, error: "empty_path" };
+    const name = rawName.trim();
+    if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0")) {
+      return { ok: false, error: "invalid_name" };
+    }
+    let resolvedParent: string;
+    try {
+      resolvedParent = await realpath(resolve(parentPath));
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+    let info;
+    try {
+      info = await stat(resolvedParent);
+    } catch {
+      return { ok: false, error: "unreadable" };
+    }
+    if (!info.isDirectory()) return { ok: false, error: "not_a_directory" };
+
+    const target = join(resolvedParent, name);
+    try {
+      if (kind === "directory") {
+        await mkdir(target);
+      } else {
+        const handle = await open(target, "wx");
+        await handle.close();
+      }
+      return { ok: true, path: target, kind };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        return { ok: false, error: "exists" };
+      }
+      return { ok: false, error: err instanceof Error ? err.message : "create_failed" };
+    }
   }
 
   /** Normalize + resolve a path (symlinks), then list a directory or preview a file. */

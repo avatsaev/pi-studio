@@ -9,6 +9,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import styles from "./FileContextMenu.module.css";
 
@@ -16,6 +17,7 @@ export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);
   const closeFileMenu = useUiStore((s) => s.closeFileMenu);
   const client = useConnectionStore((s) => s.client);
+  const startDraft = useExplorerStore((s) => s.startDraft);
   const { saveToDisk } = useFileTransfer();
   const queryClient = useQueryClient();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -66,6 +68,15 @@ export function FileContextMenu() {
     }
   }
 
+  function startNew(kind: "file" | "directory") {
+    if (!menu) return;
+    const parent = menu.isDirectory
+      ? menu.path
+      : menu.path.split("/").slice(0, -1).join("/") || "/";
+    closeFileMenu();
+    startDraft(parent, kind);
+  }
+
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>
@@ -80,6 +91,13 @@ export function FileContextMenu() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className={styles.content} align="start" sideOffset={2}>
+          <DropdownMenu.Item className={styles.item} onSelect={() => startNew("file")}>
+            New File
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={styles.item} onSelect={() => startNew("directory")}>
+            New Folder
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className={styles.sep} />
           {!menu.isDirectory && (
             <DropdownMenu.Item className={styles.item} onSelect={download}>
               Download

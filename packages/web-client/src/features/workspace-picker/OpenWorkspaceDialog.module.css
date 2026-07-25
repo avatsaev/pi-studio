@@ -10,6 +10,23 @@
   flex: 1;
   font-size: 12px;
 }
+.createRow {
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  flex-shrink: 0;
+}
+.createInput {
+  flex: 1;
+  font-size: 12px;
+}
+.createError {
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  color: var(--pi-color-danger, #e5534b);
+}
 .list {
   flex: 1;
   overflow-y: auto;

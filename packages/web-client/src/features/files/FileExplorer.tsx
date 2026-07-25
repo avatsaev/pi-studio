@@ -13,16 +13,19 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Upload } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Upload, FilePlus, FolderPlus } from "lucide-react";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useExplorerStore, resolveTildePath } from "@pi-studio-ui/stores/explorer-store.js";
 import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { flattenTree } from "./file-tree.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
+import { createEntry } from "./create-entry.js";
 import styles from "./FileExplorer.module.css";
 
 const ROW_HEIGHT_PX = 24;
@@ -33,12 +36,16 @@ export function FileExplorer() {
   const expanded = useExplorerStore((s) => s.expanded);
   const setRoot = useExplorerStore((s) => s.setRoot);
   const toggle = useExplorerStore((s) => s.toggle);
+  const draft = useExplorerStore((s) => s.draft);
+  const startDraft = useExplorerStore((s) => s.startDraft);
+  const cancelDraft = useExplorerStore((s) => s.cancelDraft);
   // The workspace currently in view in the tab strip drives what Files/Changes browse — same
   // authoritative signal every tab creation site uses (§4.7 follow-up: workspace-scoped tabs).
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
   const openTab = useTabStore((s) => s.open);
   const { upload } = useFileTransfer();
   const openFileMenu = useUiStore((s) => s.openFileMenu);
+  const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -59,7 +66,10 @@ export function FileExplorer() {
   }, [client, activeWorkspaceCwd, setRoot]);
 
   const tree = useExplorerTree(expanded);
-  const rows = useMemo(() => flattenTree(rootPath, expanded, tree), [rootPath, expanded, tree]);
+  const rows = useMemo(
+    () => flattenTree(rootPath, expanded, tree, draft),
+    [rootPath, expanded, tree, draft],
+  );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -80,6 +90,20 @@ export function FileExplorer() {
     });
   }
 
+  async function submitDraft(parentPath: string, name: string) {
+    const kind = draft?.kind ?? "file";
+    cancelDraft();
+    if (!client) return;
+    try {
+      const created = await createEntry(client, parentPath, name, kind);
+      await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(parentPath) });
+      setStatus({ text: `Created ${created}`, error: false });
+      if (kind === "file") handleOpenFile(created);
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : "Failed to create", error: true });
+    }
+  }
+
   async function uploadFiles(dir: string, files: File[]) {
     if (!files.length || !dir) return;
     const existingListing = tree.get(dir)?.listing;
@@ -87,12 +111,17 @@ export function FileExplorer() {
     const clashes = files.filter((f) => existing.has(f.name));
     if (clashes.length > 0) {
       const names = clashes.map((f) => f.name).join(", ");
-      if (!window.confirm(`Overwrite ${clashes.length > 1 ? "these files" : "this file"}? ${names}`)) {
+      if (
+        !window.confirm(`Overwrite ${clashes.length > 1 ? "these files" : "this file"}? ${names}`)
+      ) {
         return;
       }
     }
 
-    setStatus({ text: `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`, error: false });
+    setStatus({
+      text: `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`,
+      error: false,
+    });
     try {
       for (const file of files) await upload(dir, file);
       setStatus({
@@ -100,7 +129,10 @@ export function FileExplorer() {
         error: false,
       });
     } catch (e) {
-      setStatus({ text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`, error: true });
+      setStatus({
+        text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`,
+        error: true,
+      });
     }
   }
 
@@ -134,6 +166,24 @@ export function FileExplorer() {
         <button
           type="button"
           className={styles.uploadButton}
+          onClick={() => startDraft(rootPath, "file")}
+          disabled={!rootPath}
+          title="New file in workspace root"
+        >
+          <FilePlus size={12} />
+        </button>
+        <button
+          type="button"
+          className={styles.uploadButton}
+          onClick={() => startDraft(rootPath, "directory")}
+          disabled={!rootPath}
+          title="New folder in workspace root"
+        >
+          <FolderPlus size={12} />
+        </button>
+        <button
+          type="button"
+          className={styles.uploadButton}
           onClick={() => fileInputRef.current?.click()}
           disabled={!rootPath}
           title="Upload files to the workspace root"
@@ -158,9 +208,7 @@ export function FileExplorer() {
       )}
 
       <div className={styles.list} ref={scrollRef}>
-        {rows.length === 0 && (
-          <div className={styles.emptyState}>No files loaded</div>
-        )}
+        {rows.length === 0 && <div className={styles.emptyState}>No files loaded</div>}
         <div style={{ position: "relative", height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index];
@@ -186,6 +234,8 @@ export function FileExplorer() {
                   onToggle={toggle}
                   onOpenFile={handleOpenFile}
                   onContextMenu={(path, isDirectory, x, y) => openFileMenu(path, isDirectory, x, y)}
+                  onSubmitDraft={(parentPath, name) => void submitDraft(parentPath, name)}
+                  onCancelDraft={cancelDraft}
                 />
               </div>
             );

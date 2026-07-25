@@ -44,7 +44,23 @@ interface ErrorRow {
   message: string;
 }
 
-export type TreeRow = DirRow | FileRow | LoadingRow | ErrorRow;
+/** The inline "new file"/"new folder" name-entry row. `path` is a synthetic key (never a real
+ * filesystem path) so the virtualizer's `getItemKey` stays unique. */
+interface DraftRow {
+  kind: "draft";
+  path: string; // `${parentPath}::draft`
+  depth: number;
+  draftKind: "file" | "directory";
+  parentPath: string;
+}
+
+export type TreeRow = DirRow | FileRow | LoadingRow | ErrorRow | DraftRow;
+
+/** Which directory has an in-progress inline create row, and what kind it is. */
+export interface TreeDraft {
+  parentPath: string;
+  kind: "file" | "directory";
+}
 
 function joinPath(dir: string, name: string): string {
   return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
@@ -56,7 +72,17 @@ function pushChildren(
   depth: number,
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
+  draft?: TreeDraft | null,
 ): void {
+  if (draft?.parentPath === dirPath) {
+    rows.push({
+      kind: "draft",
+      path: `${dirPath}::draft`,
+      depth,
+      draftKind: draft.kind,
+      parentPath: dirPath,
+    });
+  }
   const node = tree.get(dirPath);
   if (!node || node.isLoading) {
     rows.push({ kind: "loading", path: dirPath, depth });
@@ -68,7 +94,7 @@ function pushChildren(
     return;
   }
   for (const entry of node.listing?.entries ?? []) {
-    pushEntry(rows, dirPath, entry, depth, expanded, tree);
+    pushEntry(rows, dirPath, entry, depth, expanded, tree, draft);
   }
 }
 function pushEntry(
@@ -78,6 +104,7 @@ function pushEntry(
   depth: number,
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
+  draft?: TreeDraft | null,
 ): void {
   const path = joinPath(parentPath, entry.name);
   if (entry.kind !== "directory") {
@@ -86,7 +113,7 @@ function pushEntry(
   }
   const isExpanded = expanded.has(path);
   rows.push({ kind: "directory", path, name: entry.name, depth, expanded: isExpanded });
-  if (isExpanded) pushChildren(rows, path, depth + 1, expanded, tree);
+  if (isExpanded) pushChildren(rows, path, depth + 1, expanded, tree, draft);
 }
 
 /** Flatten the tree rooted at `rootPath` into the ordered rows currently visible. */
@@ -94,9 +121,10 @@ export function flattenTree(
   rootPath: string,
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
+  draft?: TreeDraft | null,
 ): TreeRow[] {
   if (!rootPath) return [];
   const rows: TreeRow[] = [];
-  pushChildren(rows, rootPath, 0, expanded, tree);
+  pushChildren(rows, rootPath, 0, expanded, tree, draft);
   return rows;
 }

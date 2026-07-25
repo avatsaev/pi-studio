@@ -120,11 +120,17 @@ src/
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
                             @tanstack/react-virtual; upload button/drag-and-drop resolved to the
-                            drop-target directory; per-row "⋮" context-menu trigger), TreeNode
-                            (presentational row: chevron/icon/name + actions button),
-                            FileContextMenu (download/delete), RightSidebar, DiffView, CodeView,
-                            MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
-                            TextViewer, viewer-registry
+                            drop-target directory; per-row "⋮" context-menu trigger; header +
+                            context-menu "New File"/"New Folder" actions insert an inline
+                            TreeDraftRow under the target directory, named in place and created
+                            on Enter), TreeNode (presentational row: chevron/icon/name + actions
+                            button, delegates draft rows to TreeDraftRow), TreeDraftRow (owns the
+                            draft input's local text state), FileContextMenu (New File/New
+                            Folder/download/delete), create-entry.ts (shared `file_create_request`
+                            caller + error-code messages, used by FileExplorer's tree draft and
+                            OpenWorkspaceDialog's "new folder" affordance), RightSidebar, DiffView,
+                            CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
+                            BinaryFallbackViewer, TextViewer, viewer-registry
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
                             "Status bar" for why it no longer owns its own checkout-status
                             subscription)
@@ -206,12 +212,17 @@ entered at runtime, never baked into the image.
   so upload/download RPCs have no handler there). The dev daemon also registers no terminal-RPC
   service (`create_terminal_request` has no handler under `dev-bootstrap.ts`) — smoke-testing the
   Files sidebar's transfer actions or terminals (via `Ctrl/Cmd+T` or the TabStrip "+" menu) needs
-  `npm start`/`npm run start:server`, not `npm run dev:daemon`.
+  `npm start`/`npm run start:server`, not `npm run dev:daemon`. Creating a file/folder
+  (`file_create_request`, also on `FileExplorerService`) works under both bootstraps, unlike
+  upload/download.
 - **No confirmation for upload overwrite/delete happens server-side.** `FileExplorer.tsx` confirms
   an upload that would clash with an existing name before calling `useFileTransfer().upload()`;
   `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both
   unconditionally (overwrites/`rm -rf`s whatever resolved path it's given) — never skip the
-  client-side confirm when adding new callers.
+  client-side confirm when adding new callers. Creates (`create-entry.ts`) are the deliberate
+  exception: `mkdir` is non-recursive and file creation opens `wx` (create-exclusive, never
+  truncates), so a name collision fails loudly with an `"exists"` error instead of needing a
+  confirm dialog — do not "improve" this by switching to `{ recursive: true }` or `"w"`.
 - **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
   action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
   routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
