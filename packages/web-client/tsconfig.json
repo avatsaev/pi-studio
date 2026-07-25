@@ -9,8 +9,7 @@
     "noEmit": true,
     "composite": false,
     "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "baseUrl": ".",
-    "paths": { "@pi-studio-ui/*": ["src/*"] }
+    "paths": { "@pi-studio-ui/*": ["./src/*"] }
   },
   "include": ["src"],
   "exclude": ["dist"],
