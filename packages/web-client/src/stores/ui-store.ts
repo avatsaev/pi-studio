@@ -1,8 +1,8 @@
 /**
  * UI store — ephemeral, session-independent UI state that doesn't belong to any single agent
  * session: the toolbar's connection fields, overlay visibility (workspace-open dialog, session
- * context menu), and `cwd` — the default cwd for a brand-new bare session (SessionList's
- * "+ New conversation", session restore's zero-sessions fallback). NOT the "current browsing
+ * context menu), and `cwd` — the default cwd for a brand-new bare session and the initial path
+ * of `OpenWorkspaceDialog` when no workspace is in view. NOT the "current browsing
  * scope" — that's `tab-store.ts`'s `activeWorkspaceCwd`, driven by whichever tab is in view
  * (§4.7 follow-up: workspace-scoped tabs). Sidebar visibility/width (collapsed flags, resizable
  * widths dragged via `ResizeHandle`) also live here. Mirrors POC globals `$("host")`,

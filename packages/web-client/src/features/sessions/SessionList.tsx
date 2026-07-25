@@ -69,6 +69,11 @@ export function SessionList() {
         </Button>
       </div>
       <div className={styles.list}>
+        {groups.length === 0 && (
+          <div className={styles.emptyState}>
+            {status !== "open" ? "Not connected" : "No workspaces — open a folder to start"}
+          </div>
+        )}
         {groups.map((group) => {
           const collapsed = collapsedWorkspaces.has(group.cwd);
           return (

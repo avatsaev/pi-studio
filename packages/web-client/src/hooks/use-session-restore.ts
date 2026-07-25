@@ -5,13 +5,16 @@
  * (POC_TO_APP_PLAN_UI.md §4.3 "Session restore"). Live agent-stream subscription for restored
  * sessions is wired by `ChatPanel`'s `useAgentStream` once its tab mounts, keyed off `agentId` —
  * no `expectingAgent` race, since `agentId` is always known before subscribing.
+ *
+ * A daemon reporting zero agents restores nothing: `activeWorkspaceCwd` stays `null` and the UI
+ * renders its no-workspace empty state (`TabPanelHost`) — this hook never auto-creates a session.
  */
 
 import { useEffect, useRef } from "react";
 import type { AgentUpdateMessage } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
 import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
@@ -100,29 +103,25 @@ export function useSessionRestore(): void {
         });
       }
 
-      const homeDir = await resolveHome(client).catch(() => null);
       const { order, sessions } = useSessionStore.getState();
-      if (order.length > 0) {
-        const first = sessions[order[0] ?? ""];
-        if (first) {
-          const targetCwd = normalizeCwd(first.cwd || "~", homeDir);
-          useSessionStore.getState().activate(first.id);
-          useUiStore.getState().setCwd(first.cwd);
-          useTabStore.getState().open({
-            id: tabIds.chat(first.id),
-            kind: "chat",
-            label: first.title,
-            closable: true,
-            data: { sessionId: first.id },
-            workspaceCwd: targetCwd,
-          });
-        }
-      } else {
-        // No restored sessions — start one fresh, mirroring POC `if (sessions.length===0) createSession()`.
-        const cwd = useUiStore.getState().cwd || "~";
-        const targetCwd = normalizeCwd(cwd, homeDir);
-        openNewChat(targetCwd);
-      }
+      const first = order.length > 0 ? sessions[order[0] ?? ""] : undefined;
+      // Zero restored sessions: leave `tab-store.activeWorkspaceCwd` null and let `TabPanelHost`
+      // render its "no workspace open" state. NEVER auto-create a session here — a workspace
+      // exists only because the user opened a folder (or a restored agent carries a cwd).
+      if (!first) return;
+
+      const homeDir = await resolveHome(client).catch(() => null);
+      const targetCwd = normalizeCwd(first.cwd || "~", homeDir);
+      useSessionStore.getState().activate(first.id);
+      useUiStore.getState().setCwd(first.cwd);
+      useTabStore.getState().open({
+        id: tabIds.chat(first.id),
+        kind: "chat",
+        label: first.title,
+        closable: true,
+        data: { sessionId: first.id },
+        workspaceCwd: targetCwd,
+      });
     })();
   }, [status, client]);
 

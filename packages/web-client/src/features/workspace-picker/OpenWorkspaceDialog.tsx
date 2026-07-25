@@ -25,19 +25,21 @@ export function OpenWorkspaceDialog() {
   const open = useUiStore((s) => s.cwdPickerOpen);
   const closeDialog = useUiStore((s) => s.closeCwdPicker);
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
+  const uiCwd = useUiStore((s) => s.cwd);
   const client = useConnectionStore((s) => s.client);
   const homeDir = useHomeDir();
 
   const [path, setPathState] = useState("/");
   const [inputValue, setInputValue] = useState("/");
 
-  // Seed the picker at the workspace currently in view each time it opens.
+  // Seed the picker at the workspace currently in view each time it opens. Falls back to the
+  // `?cwd=` deep-link param / last-opened workspace (`ui-store.cwd`), then home.
   useEffect(() => {
     if (!open) return;
-    const seed = normalizeCwd(activeWorkspaceCwd || "~", homeDir);
+    const seed = normalizeCwd(activeWorkspaceCwd || uiCwd || "~", homeDir);
     setPathState(seed);
     setInputValue(seed);
-  }, [open, client, activeWorkspaceCwd]);
+  }, [open, client, activeWorkspaceCwd, uiCwd]);
 
   const { data, isLoading, isError, error } = useExplorer(path, open && Boolean(client));
   const dirEntries = (data?.entries ?? []).filter((e) => e.kind === "directory");

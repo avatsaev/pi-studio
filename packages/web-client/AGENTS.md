@@ -186,6 +186,20 @@ entered at runtime, never baked into the image.
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
   sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.
+- **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
+  restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
+  returns without touching `tab-store`/`ui-store` at all: `activeWorkspaceCwd` stays `null` and no
+  session/tab is created. (It previously called `openNewChat` in this case, materializing a
+  client-only session rooted at a guessed home dir and paying an unwanted `resolve_default_model`
+  RPC on every fresh connect — removed.) `TabPanelHost.tsx` renders a dedicated "No workspace open"
+  empty state (with an "Open Workspace" button wired to `ui-store.openCwdPicker()`) specifically
+  for `activeWorkspaceCwd === null`, distinct from its "workspace in view, no tabs yet" state;
+  `SessionList.tsx`'s sidebar shows a matching "No workspaces — open a folder to start" (or
+  "Not connected") hint instead of a blank rectangle. A workspace exists only because the user
+  opened one via `OpenWorkspaceDialog`, or because a restored agent carried a `cwd`. `?cwd=` (see
+  above) is no longer write-only in this state: `OpenWorkspaceDialog` seeds its picker from
+  `activeWorkspaceCwd || ui-store.cwd || "~"`, so the deep-link param (or the last workspace
+  opened) still does something useful even with no workspace in view.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
