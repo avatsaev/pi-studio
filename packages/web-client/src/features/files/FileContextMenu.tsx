@@ -99,11 +99,13 @@ export function FileContextMenu() {
           </DropdownMenu.Item>
           <DropdownMenu.Separator className={styles.sep} />
           {!menu.isDirectory && (
-            <DropdownMenu.Item className={styles.item} onSelect={download}>
-              Download
-            </DropdownMenu.Item>
+            <>
+              <DropdownMenu.Item className={styles.item} onSelect={download}>
+                Download
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className={styles.sep} />
+            </>
           )}
-          <DropdownMenu.Separator className={styles.sep} />
           <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={remove}>
             Delete
           </DropdownMenu.Item>
