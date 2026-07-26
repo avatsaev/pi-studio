@@ -65,7 +65,7 @@ desktop     ──────► server   (NOT web-client yet — planned for s
 
 | Concern | Choice |
 |---------|--------|
-| Language | TypeScript 6 (ESM, `"type": "module"`) |
+| Language | TypeScript 7 (ESM, `"type": "module"`) |
 | Runtime | Node.js ≥ 20 (Node 24 in active development) |
 | Build | `tsc -b` per package; root `npm run build` chains them in dependency order |
 | Testing | Vitest (`npm test` at root) |
