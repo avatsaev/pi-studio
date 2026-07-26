@@ -5,7 +5,7 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "references": [{ "path": "../protocol" }, { "path": "../client" }],
+  "references": [{ "path": "../protocol" }, { "path": "../client" }, { "path": "../server" }],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "dist"]
 }

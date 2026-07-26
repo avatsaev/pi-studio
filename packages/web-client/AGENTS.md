@@ -41,7 +41,7 @@ this package stays a pure renderer and must not gain Node-only dependencies.
 
 ## Stack
 
-React 19 · TypeScript 6 (ESM) · Vite 6 · Zustand (client state) · TanStack Query + Virtual ·
+React 19 · TypeScript 7 (ESM) · Vite 6 · Zustand (client state) · TanStack Query + Virtual ·
 Radix UI (dialog/dropdown-menu/popover/tooltip) + floating-ui (overlays) · dnd-kit ·
 Framer Motion · lucide-react · react-markdown + remark-gfm · Shiki (syntax highlighting) ·
 CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code file viewer) ·
