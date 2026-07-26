@@ -223,7 +223,11 @@ export const agentArchivedSchema = z.object({
 
 /** `ToolCallDetail` — normalized across providers, discriminated on `kind`. */
 export const toolCallDetailSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("shell"), command: z.string().optional(), output: z.string().optional() }),
+  z.object({
+    kind: z.literal("shell"),
+    command: z.string().optional(),
+    output: z.string().optional(),
+  }),
   z.object({ kind: z.literal("read"), path: z.string().optional(), output: z.string().optional() }),
   z.object({
     kind: z.literal("edit"),
@@ -231,8 +235,16 @@ export const toolCallDetailSchema = z.discriminatedUnion("kind", [
     diff: z.string().optional(),
     output: z.string().optional(),
   }),
-  z.object({ kind: z.literal("write"), path: z.string().optional(), output: z.string().optional() }),
-  z.object({ kind: z.literal("search"), query: z.string().optional(), output: z.string().optional() }),
+  z.object({
+    kind: z.literal("write"),
+    path: z.string().optional(),
+    output: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("search"),
+    query: z.string().optional(),
+    output: z.string().optional(),
+  }),
   z.object({ kind: z.literal("fetch"), url: z.string().optional(), output: z.string().optional() }),
   z.object({
     kind: z.literal("task"),
@@ -373,25 +385,31 @@ export const legacyRespondToPermissionSchema = z.object({
 export const rewindModeSchema = z.enum(["conversation", "files", "both"]);
 export type RewindMode = z.infer<typeof rewindModeSchema>;
 
-export const agentRewindRequestSchema = z.object({
-  type: z.literal("agent.rewind.request"),
-  requestId: z.string(),
-  agentId: z.string(),
-  messageId: z.string(),
-  mode: rewindModeSchema,
-}).passthrough();
-export type AgentRewindRequest = z.infer<typeof agentRewindRequestSchema>;
-
-export const agentRewindResponseSchema = z.object({
-  type: z.literal("agent.rewind.response"),
-  requestId: z.string(),
-  payload: z.object({
+export const agentRewindRequestSchema = z
+  .object({
+    type: z.literal("agent.rewind.request"),
+    requestId: z.string(),
     agentId: z.string(),
     messageId: z.string(),
     mode: rewindModeSchema,
-    truncatedAt: z.string().optional(),
-  }).passthrough(),
-}).passthrough();
+  })
+  .passthrough();
+export type AgentRewindRequest = z.infer<typeof agentRewindRequestSchema>;
+
+export const agentRewindResponseSchema = z
+  .object({
+    type: z.literal("agent.rewind.response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        agentId: z.string(),
+        messageId: z.string(),
+        mode: rewindModeSchema,
+        truncatedAt: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
 export type AgentRewindResponse = z.infer<typeof agentRewindResponseSchema>;
 
 // ===========================================================================
@@ -688,9 +706,7 @@ export const agentLastAssistantTextResponseSchema = z
     payload: z.object({ text: z.string().nullable() }).passthrough(),
   })
   .passthrough();
-export type AgentLastAssistantTextResponse = z.infer<
-  typeof agentLastAssistantTextResponseSchema
->;
+export type AgentLastAssistantTextResponse = z.infer<typeof agentLastAssistantTextResponseSchema>;
 
 // ===========================================================================
 // Steering (steer_agent / follow_up_agent) — inject a message into a LIVE turn
@@ -743,6 +759,47 @@ export const followUpAgentResponseSchema = z
   .passthrough();
 export type FollowUpAgentResponse = z.infer<typeof followUpAgentResponseSchema>;
 
+// ===========================================================================
+// Command discovery (agent_list_commands) — surfaces Pi's `get_commands`: user/project-authored
+// extension commands (`pi.registerCommand()`), prompt templates (`.pi/agent/prompts/*.md`), and
+// skills (`.pi/agent/skills/<name>/SKILL.md`). Disjoint from the built-in slash-command RPCs above
+// (Pi's own structured commands are never returned by `get_commands`). Read-only, session-scoped.
+// ===========================================================================
+
+export const agentCommandDescriptorSchema = z
+  .object({
+    name: z.string(),
+    id: z.string().optional(),
+    description: z.string().optional(),
+    source: z.enum(["extension", "prompt", "skill"]).optional(),
+    scope: z.enum(["user", "project", "temporary"]).optional(),
+    path: z.string().optional(),
+  })
+  .passthrough();
+export type AgentCommandDescriptor = z.infer<typeof agentCommandDescriptorSchema>;
+
+/** Surfaces Pi's `get_commands` RPC: extension/prompt/skill discovery for a live session. */
+export const agentListCommandsRequestSchema = z
+  .object({
+    type: z.literal("agent_list_commands_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentListCommandsRequest = z.infer<typeof agentListCommandsRequestSchema>;
+
+export const agentListCommandsResponseSchema = z
+  .object({
+    type: z.literal("agent_list_commands_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        commands: z.array(agentCommandDescriptorSchema),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentListCommandsResponse = z.infer<typeof agentListCommandsResponseSchema>;
 
 // ===========================================================================
 // RPC error
@@ -811,6 +868,8 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   steerAgentResponseSchema,
   followUpAgentRequestSchema,
   followUpAgentResponseSchema,
+  agentListCommandsRequestSchema,
+  agentListCommandsResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

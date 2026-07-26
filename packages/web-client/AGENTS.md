@@ -104,7 +104,10 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
                            FileTransferClient via file-transfer-instance), use-checkout-status,
-                           use-agent-stream (+ agent-stream-events), use-home-dir
+  use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
+                           query), use-agent-commands (composer `/` picker RPC query — cached
+                           identically to use-provider-models, see AGENTS.md § Invariants
+                           "Slash-command picker")
   features/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
@@ -116,8 +119,10 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, ModelMenu (status bar's model-selector
                             searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
-                            selector"), Attachments, rows/ (Assistant/User/System/Error/Reasoning
-                            rows, ToolCard)
+                            selector"), CommandMenu (composer's `/` slash-command popup — see
+                            AGENTS.md § Invariants "Slash-command picker") + slash-commands.ts
+                            (pure token/filter/apply logic, unit-tested), Attachments,
+                            rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -324,6 +329,87 @@ entered at runtime, never baked into the image.
   visible (and its tab reopens) across a refresh/reconnect for as long as nobody explicitly closes
   it or deletes it. Only `closeTab`'s `discardIfEmpty` (above) or an explicit delete ever removes
   one.
+
+- **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
+  `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
+  `use-agent-commands.ts`, cached IDENTICALLY to `use-provider-models.ts` — same `useQuery` shape,
+  no `staleTime`/`gcTime`/`retry` override, keyed by `["agents","commands",sessionId]` (session id,
+  not agent id, so a draft that materializes mid-open doesn't orphan its cache entry). This is
+  deliberate, not an oversight: reopening the menu (including the auto-open on every `/` keystroke)
+  renders the cached rows immediately with no spinner while a background refetch keeps the list
+  current, exactly like the model picker.
+  - **`CommandMenu.tsx` reuses `ModelMenu.module.css`'s chrome, not `ModelMenu.tsx`'s code.**
+    `ModelMenu` owns its `open`/`query` state privately and renders its own search `<input>`;
+    neither fits a menu whose open state and filter query are driven entirely by the composer's
+    textarea. `CommandMenu` takes `open`/`onOpenChange`/`options`/`highlightedIndex` as props and
+    renders rows as `<div role="option">`, not `DropdownMenu.Item` — `Item` brings Radix roving
+    focus/typeahead, which would fight the textarea for keyboard focus.
+  - **Both `onOpenAutoFocus` AND `onCloseAutoFocus` on `DropdownMenu.Content` must be prevented.**
+    Preventing only the open side (so typing `/` doesn't yank focus into the menu) is not enough:
+    Radix's default is to return focus to the trigger element whenever `open` flips to `false`,
+    which fires AFTER `applySelectedCommand`'s own `el.focus()` on the textarea and silently undoes
+    it — a real, live-caught bug (every close, not just Escape, routes through this: apply,
+    Escape, and click-away all flip `open` to `false` the same way). The `/` trigger button must
+    never end up focused after any close.
+  - **`Composer.tsx`'s `submit()` must close the menu itself**, not just `applyCommand`'s
+    trailing-space path (`shouldOpenMenu(" …")` → false). A bare Enter or a Send/Steer button click
+    can fire while the menu is still open over a draft with zero filter matches (`filtered.length
+    === 0`, so `handleKeyDown`'s accept branch never ran) — without an explicit `setMenuOpen(false)`
+    in `submit()`, sending clears the draft to `""` but leaves the menu open, which then renders
+    the full unfiltered list (empty `text` → `parseSlashToken` → `null` → unfiltered `options`)
+    right after the send. Another real, live-caught bug.
+  - **The highlight is `applyCommand`'s contract, not decoration.** `knownCommandSpan(text, names)`
+    (`slash-commands.ts`) only marks the leading token when it exactly, case-sensitively matches a
+    name from the same `get_commands` payload — the identical test Pi's own `agent-session.js`
+    applies before executing a command — so a highlighted token is a live "Pi will recognize this"
+    guarantee, not styling. Rendered via a transparent-text mirror `<div>` behind the `<textarea>`
+    (`.highlightLayer`/`.commandMark` in `Composer.module.css`), NOT a rich editor — swapping the
+    textarea for CodeMirror/contenteditable would rewrite paste, attachment, and autosize behavior
+    the composer already handles.
+  - **The mark's chip padding comes from `box-shadow` spread, never `padding`/`margin` on the
+    horizontal axis.** `.highlightLayer` is a transparent-text mirror that must stay
+    pixel-identical to the real `<textarea>` underneath it, character for character — any
+    horizontal padding on `.commandMark` would add real width to that inline span, shifting every
+    character after it in the mirror layer out of alignment with the real text. `box-shadow`
+    paints outside the layout box entirely, so a zero-blur, positive-spread shadow extends the
+    same wash color a few px past the glyphs without changing the box's width at all — real chip
+    breathing room, zero risk to the alignment invariant.
+  - **Mouse hover and keyboard selection are two independent, differently-styled states, not one
+    shared `highlightedIndex`.** Native CSS `:hover` (`.commandItem:hover` in
+    `ModelMenu.module.css`) drives mouse feedback — the browser's own hit-testing, always
+    accurate, never missing a fast pointer move. `.commandItem.itemActive` (accent-tinted fill +
+    left bar, overriding the shared `.item.itemActive` rule's plain surface-color fill, which was
+    too close in luminance to `.commandContent`'s own background to read as "selected") is driven
+    only by `highlightedIndex`, which only `ArrowUp`/`ArrowDown` ever write — mouse hover no
+    longer syncs into it via `onMouseEnter`. An earlier version routed hover through that same
+    state so both states could share one look; that added a React render round-trip to something
+    the browser already tracks for free, and could miss fast pointer movement (the old highlight
+    staying stuck on a row the mouse had already left). Because the two states now render
+    differently, they can safely coexist when arrow-key nav scrolls the list under a mouse
+    pointer that never moved: the stale hover on whatever's now underneath reads as a subtle,
+    clearly-secondary cue next to the real accent-marked selection, never a confusing duplicate.
+  - **`onOpenAutoFocus` on `DropdownMenu.Content` is real but not in Radix's public prop type.**
+    `MenuContentImpl` (`@radix-ui/react-menu`) destructures and forwards it at runtime, but the
+    public `DropdownMenuContentProps` type deliberately omits it (`MenuContentImplPrivateProps`,
+    internal-API-only) — passing it as a plain JSX attribute fails typecheck with "did you mean
+    onCloseAutoFocus". `CommandMenu.tsx`'s `preventOpenAutoFocus` constant is typed separately and
+    spread in (`{...preventOpenAutoFocus}`), which is honest about the gap without widening
+    `DropdownMenu.Content`'s props as a whole. This was a real, unnoticed break because
+    `packages/web-client` isn't in the root `tsconfig.json`'s project references — `npm run
+    typecheck` never covers it; only the full `npm run build` (which runs `vite build`'s own
+    `tsc -b`) catches it.
+  - **Extension-sourced commands are hidden, not disabled, while a turn is running**
+    (`commandOptions(commands, { running })` in `slash-commands.ts`): Pi rejects extension commands
+    on `steer`/`follow_up` (`_throwIfExtensionCommand`), the only send path while a turn is in
+    flight, and that rejection is a silently-dropped `notify` response at the transport layer — so
+    offering them here would fail invisibly. Prompt templates and skills are unaffected; they still
+    expand into a normal turn either way.
+  - **Live-verified against a real spawned `pi` process, not just the mock provider**: Pi only
+    scans a project's `.pi/prompts/`/`.pi/extensions/` when the CWD is a trusted project (Pi's own
+    `~/.pi/agent/trust.json`, `defaultProjectTrust`) — an untrusted directory silently returns zero
+    project-scoped commands from `get_commands`, not an error. This is a Pi-side gate this feature
+    does not (and should not) work around.
+
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
   screen, unlike any feature panel), renders six segments for the **active session** in order:
   model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The

@@ -56,6 +56,35 @@ class FakeTransport implements PiRpcTransport {
         return Promise.resolve({ model: { id: "next-model" }, thinkingLevel: "medium" });
       case "get_last_assistant_text":
         return Promise.resolve({ text: "last reply" });
+      case "get_commands":
+        return Promise.resolve({
+          commands: [
+            {
+              name: "session-name",
+              description: "Set or clear session name",
+              source: "extension",
+              sourceInfo: { path: "/home/user/.pi/agent/extensions/session.ts" },
+            },
+            {
+              name: "fix-tests",
+              description: "Fix failing tests",
+              source: "prompt",
+              sourceInfo: {
+                scope: "project",
+                path: "/home/user/myproject/.pi/agent/prompts/fix-tests.md",
+              },
+            },
+            {
+              name: "skill:brave-search",
+              description: "Web search via Brave API",
+              source: "skill",
+              sourceInfo: {
+                scope: "user",
+                path: "/home/user/.pi/agent/skills/brave-search/SKILL.md",
+              },
+            },
+          ],
+        });
       default:
         return Promise.resolve({});
     }
@@ -93,7 +122,7 @@ class FakeTransport implements PiRpcTransport {
     }
   }
 
-  private fire(event: unknown): void {
+  protected fire(event: unknown): void {
     for (const cb of this.eventCbs) cb(event);
   }
 
@@ -500,5 +529,167 @@ describe("slash-command operations (sprint-037)", () => {
     const { client } = clientWithFake();
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
     expect(await session.getLastAssistantText?.()).toBe("last reply");
+  });
+
+  it("listCommands issues get_commands and maps name/id/description/source/scope/path", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.listCommands?.()).toEqual([
+      {
+        id: "session-name",
+        name: "session-name",
+        description: "Set or clear session name",
+        source: "extension",
+        scope: undefined,
+        path: "/home/user/.pi/agent/extensions/session.ts",
+      },
+      {
+        id: "fix-tests",
+        name: "fix-tests",
+        description: "Fix failing tests",
+        source: "prompt",
+        scope: "project",
+        path: "/home/user/myproject/.pi/agent/prompts/fix-tests.md",
+      },
+      {
+        id: "skill:brave-search",
+        name: "skill:brave-search",
+        description: "Web search via Brave API",
+        source: "skill",
+        scope: "user",
+        path: "/home/user/.pi/agent/skills/brave-search/SKILL.md",
+      },
+    ]);
+  });
+
+  it("listCommands returns [] when the response has no commands array", async () => {
+    class NoCommandsTransport extends FakeTransport {
+      override request(command: string, params?: Record<string, unknown>): Promise<unknown> {
+        if (command === "get_commands") return Promise.resolve({});
+        return super.request(command, params);
+      }
+    }
+    const client = new PiAgentClient({
+      command: ["pi", "--mode", "rpc"],
+      transportFactory: (args) => new NoCommandsTransport(args),
+      binaryResolver: () => true,
+    });
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.listCommands?.()).toEqual([]);
+  });
+});
+
+describe("slash-prompt turn completion (web-client slash commands, step 1)", () => {
+  /**
+   * Extends {@link FakeTransport} for the slash-prompt correlation path (`PiAgentSession.run` now
+   * routes a `/`-prefixed prompt through `transport.request("prompt", …)` instead of `notify`,
+   * then probes `get_state` for `isStreaming` to know whether Pi ran an inline extension command
+   * or started a real turn — see `agent.ts`'s `runSlashPrompt`). Overrides only `get_state`
+   * (adding the post-ack streaming flag `discoverState()` doesn't need) and `prompt` (moving it
+   * from `notify` to `request`); every other command still goes through the base fake unchanged.
+   */
+  class SlashTransport extends FakeTransport {
+    private getStateCalls = 0;
+
+    constructor(
+      args: PiTransportSpawnArgs,
+      private readonly streaming: boolean,
+      private readonly rejectPrompt = false,
+    ) {
+      super(args);
+    }
+
+    override request(command: string, params?: Record<string, unknown>): Promise<unknown> {
+      if (command === "get_state") {
+        this.getStateCalls += 1;
+        // The first get_state is `discoverState()`'s spawn-time probe — keep the base fake's
+        // sessionFile/model payload so existing spawn-time expectations are untouched. Every
+        // subsequent call is `runSlashPrompt`'s post-ack streaming probe.
+        if (this.getStateCalls === 1) return super.request(command, params);
+        this.requests.push(command);
+        return Promise.resolve({ isStreaming: this.streaming });
+      }
+      if (command === "prompt") {
+        this.requests.push(command);
+        return this.rejectPrompt ? Promise.reject(new Error("ack rejected")) : Promise.resolve({});
+      }
+      return super.request(command, params);
+    }
+
+    /** Lets a test simulate the turn-terminal event `runSlashPrompt` awaits after a streaming ack. */
+    fireEvent(event: unknown): void {
+      this.fire(event);
+    }
+  }
+
+  function clientWithSlashFake(
+    streaming: boolean,
+    opts?: { rejectPrompt?: boolean },
+  ): { client: PiAgentClient; spawns: SlashTransport[] } {
+    const spawns: SlashTransport[] = [];
+    const client = new PiAgentClient({
+      command: ["pi", "--mode", "rpc"],
+      transportFactory: (args) => {
+        const t = new SlashTransport(args, streaming, opts?.rejectPrompt ?? false);
+        spawns.push(t);
+        return t;
+      },
+      binaryResolver: () => true,
+    });
+    return { client, spawns };
+  }
+
+  it("an inline extension command (isStreaming: false) resolves run() with no turn-terminal event, via request not notify", async () => {
+    const { client, spawns } = clientWithSlashFake(false);
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.run("/session-name x");
+
+    expect(spawns[0]?.requests).toContain("prompt");
+    expect(spawns[0]?.notifies).not.toContain("prompt");
+    expect(events).toHaveLength(0);
+  });
+
+  it("a real turn (isStreaming: true) is awaited until turn_completed fires", async () => {
+    const { client, spawns } = clientWithSlashFake(true);
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    let resolved = false;
+    const running = session.run("/fix-tests").then(() => {
+      resolved = true;
+    });
+    // Flush the ack + get_state probe's two sequential `await`s deterministically (no wall-clock
+    // wait): each is an already-resolved promise, so draining a few microtask ticks is enough to
+    // reach the pending `await terminal` without racing a real timer.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    spawns[0]?.fireEvent({ type: "agent_end" });
+    await running;
+    expect(resolved).toBe(true);
+    expect(events.map((e) => e.kind)).toContain("turn_completed");
+  });
+
+  it("a rejected prompt ack propagates as a rejected run() (previously silently swallowed by notify)", async () => {
+    const { client } = clientWithSlashFake(false, { rejectPrompt: true });
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+
+    await expect(session.run("/bad")).rejects.toThrow("ack rejected");
+  });
+
+  it("a non-slash prompt still goes out via notify (untouched fast path)", async () => {
+    const { client, spawns } = clientWithSlashFake(false);
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.run("do it");
+
+    expect(spawns[0]?.notifies).toContain("prompt");
+    expect(events.map((e) => e.kind)).toContain("turn_completed");
   });
 });

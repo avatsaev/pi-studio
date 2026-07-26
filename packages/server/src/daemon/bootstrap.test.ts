@@ -39,7 +39,9 @@ async function connect(port: number): Promise<Client> {
 
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => {
-      ws.send(JSON.stringify({ type: "hello", clientId: "test", clientType: "cli", protocolVersion: 1 }));
+      ws.send(
+        JSON.stringify({ type: "hello", clientId: "test", clientType: "cli", protocolVersion: 1 }),
+      );
     });
     ws.on("message", (data: Buffer) => {
       const env = JSON.parse(data.toString("utf8"));
@@ -126,6 +128,7 @@ describe("production daemon bootstrap", () => {
       { type: "agent_set_model_request", agentId: "missing", provider: "anthropic", modelId: "m1" },
       { type: "agent_cycle_model_request", agentId: "missing" },
       { type: "agent_last_assistant_text_request", agentId: "missing" },
+      { type: "agent_list_commands_request", agentId: "missing" },
     ];
     for (const probe of slashCommandProbes) {
       const res = await client.rpc(probe);
@@ -179,7 +182,10 @@ describe("production daemon bootstrap", () => {
     const client = await connect(booted.port);
 
     const cwd = booted.home;
-    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
     const agentId = (created.payload as { agentId?: string })?.agentId as string;
     expect(agentId).toBeTruthy();
 
@@ -223,7 +229,10 @@ describe("production daemon bootstrap", () => {
     const client = await connect(booted.port);
 
     const cwd = booted.home;
-    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
     const agentId = (created.payload as { agentId?: string })?.agentId as string;
     expect(agentId).toBeTruthy();
 
@@ -283,7 +292,14 @@ describe("broadcast() session envelope", () => {
 
     const opened = Promise.withResolvers<void>();
     ws.once("open", () => {
-      ws.send(JSON.stringify({ type: "hello", clientId: "test-2", clientType: "cli", protocolVersion: 1 }));
+      ws.send(
+        JSON.stringify({
+          type: "hello",
+          clientId: "test-2",
+          clientType: "cli",
+          protocolVersion: 1,
+        }),
+      );
     });
     ws.on("message", (data: Buffer) => {
       const env = JSON.parse(data.toString("utf8"));
@@ -429,9 +445,8 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
     // The daemon writes its persistent keypair to disk on first boot, before it dials the relay.
-    const daemonPublicKeyB64 = JSON.parse(
-      readFileSync(join(home, "daemon-keypair.json"), "utf8"),
-    ).publicKeyB64 as string;
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
 
     const sessionId = await waitForSessionId(relay);
     const clientSocket = await relay.connectClient(sessionId);
@@ -472,7 +487,14 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     // end-to-end through an actual relay bridge — not a mock of the crypto.
     await ready.promise;
 
-    channel.send(JSON.stringify({ type: "hello", clientId: "relay-e2e-test", clientType: "cli", protocolVersion: 1 }));
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
     const info = await serverInfo.promise;
     // This is the real regression this test guards: over the relay, `hello` must reach the SAME
     // handshake path the direct WS listener runs (validate → session → `status`/`server_info`),
@@ -520,9 +542,8 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
-    const daemonPublicKeyB64 = JSON.parse(
-      readFileSync(join(home, "daemon-keypair.json"), "utf8"),
-    ).publicKeyB64 as string;
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
 
     const sessionId = await waitForSessionId(relay);
     const clientSocket = await relay.connectClient(sessionId);
@@ -574,13 +595,24 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     });
     await ready.promise;
 
-    channel.send(JSON.stringify({ type: "hello", clientId: "relay-bin-e2e-test", clientType: "cli", protocolVersion: 1 }));
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-bin-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
 
     const createResponsePromise = waitForResponse("relay-bin-create");
     channel.send(
       JSON.stringify({
         type: "session",
-        message: { type: "create_terminal_request", requestId: "relay-bin-create", workspaceId: "" },
+        message: {
+          type: "create_terminal_request",
+          requestId: "relay-bin-create",
+          workspaceId: "",
+        },
       }),
     );
     const createResponse = await createResponsePromise;

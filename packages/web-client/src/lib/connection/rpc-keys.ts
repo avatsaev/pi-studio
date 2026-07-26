@@ -13,4 +13,5 @@ export const rpcKeys = {
   agentList: () => ["agents", "list"] as const,
   providerModels: (provider: string) => ["providers", "models", provider] as const,
   agentTimeline: (agentId: string) => ["agents", "timeline", agentId] as const,
+  agentCommands: (sessionId: string) => ["agents", "commands", sessionId] as const,
 };

@@ -13,6 +13,7 @@ import {
   forkMessagesAgent,
   formatStreamEvent,
   lastAssistantTextAgent,
+  listAgentCommands,
   logsAgent,
   lsAgents,
   newAgentSession,
@@ -423,5 +424,42 @@ describe("agent slash-command operations", () => {
     await expect(exportAgentHtml(client, ctx, "a1", undefined, {})).rejects.toThrow(
       /does not support/,
     );
+  });
+
+  it("listAgentCommands renders a name/source/scope/description table and forwards agentId", async () => {
+    const fake = makeFake({
+      responses: {
+        [AGENT_RPC.listCommands]: {
+          commands: [
+            {
+              name: "fix-tests",
+              description: "Fix failing tests",
+              source: "prompt",
+              scope: "project",
+              path: "/w/.pi/agent/prompts/fix-tests.md",
+            },
+          ],
+        },
+      },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await listAgentCommands(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toContain("NAME");
+    expect(out[0]).toContain("fix-tests");
+    expect(out[0]).toContain("prompt");
+    expect(out[0]).toContain("project");
+    // `path` is intentionally not a table column (only `--json` carries it).
+    expect(out[0]).not.toContain(".pi/agent/prompts");
+    const req = fake.requests.find((r) => r.type === AGENT_RPC.listCommands)!;
+    expect(req.msg.agentId).toBe("a1");
+  });
+
+  it("listAgentCommands prints (no results) for an empty command list", async () => {
+    const fake = makeFake({ responses: { [AGENT_RPC.listCommands]: { commands: [] } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await listAgentCommands(client, ctx, "a1", {});
+    expect(code).toBe(0);
+    expect(out[0]).toBe("(no results)");
   });
 });

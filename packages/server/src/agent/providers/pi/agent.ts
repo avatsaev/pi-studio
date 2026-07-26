@@ -10,6 +10,7 @@ import type {
 
 import type {
   AgentClient,
+  AgentCommandDefinition,
   AgentCompactResult,
   AgentCycleModelResult,
   AgentForkMessage,
@@ -224,6 +225,11 @@ class PiAgentSession implements AgentSession {
   }
 
   run(prompt: string, opts?: RunOptions): Promise<void> {
+    // A prompt starting with `/` may be an extension command, which Pi runs inline and emits NO
+    // turn lifecycle for (dist/core/agent-session.js `prompt()` returns right after
+    // `_tryExecuteExtensionCommand`) — awaiting a terminal event for one hangs the turn, and with
+    // it the agent's `running` status, forever. Those go through `runSlashPrompt`.
+    if (prompt.startsWith("/")) return this.runSlashPrompt(prompt, opts);
     return new Promise<void>((resolve) => {
       const unsub = this.subscribe((event) => {
         if (
@@ -237,6 +243,46 @@ class PiAgentSession implements AgentSession {
       });
       void this.startTurn(prompt, opts);
     });
+  }
+
+  /**
+   * Send a `/command` prompt *correlated* (`request`, not `notify`) so Pi's own ack is observable:
+   * Pi acks on preflight (dist/modes/rpc/rpc-mode.js `case "prompt"`), then `get_state.isStreaming`
+   * — set synchronously as `_runAgentPrompt`'s first statement, hence already `true` for a real
+   * turn by the time the ack reaches us — says whether a turn is actually running. Not streaming ⇒
+   * the command was handled inline (extension command) and this turn is already over. A rejected
+   * ack (no model, no auth, "Agent is already processing") now surfaces as a failed turn instead of
+   * being silently dropped the way an unmatched `notify` response is (rpc-transport.ts `handleLine`).
+   */
+  private async runSlashPrompt(prompt: string, opts?: RunOptions): Promise<void> {
+    let terminated = false;
+    let onTerminal: (() => void) | undefined;
+    const terminal = new Promise<void>((resolve) => {
+      onTerminal = resolve;
+    });
+    const unsub = this.subscribe((event) => {
+      if (
+        event.kind === "turn_completed" ||
+        event.kind === "turn_failed" ||
+        event.kind === "turn_canceled"
+      ) {
+        terminated = true;
+        onTerminal?.();
+      }
+    });
+    try {
+      const images = this.toPiImages(opts?.images);
+      await this.transport.request("prompt", {
+        message: prompt,
+        ...(images ? { images } : {}),
+      });
+      if (terminated) return;
+      const state = (await this.transport.request("get_state")) as { isStreaming?: boolean };
+      if (state.isStreaming === false) return;
+      await terminal;
+    } finally {
+      unsub();
+    }
   }
 
   getRuntimeInfo(): ProviderRuntimeInfo {
@@ -374,6 +420,27 @@ class PiAgentSession implements AgentSession {
       text?: string | null;
     };
     return data?.text ?? null;
+  }
+
+  /** `get_commands` (docs/rpc.md § get_commands) — extension/prompt/skill discovery. */
+  async listCommands(): Promise<AgentCommandDefinition[]> {
+    const data = (await this.transport.request("get_commands")) as {
+      commands?: Array<{
+        name: string;
+        description?: string;
+        source?: "extension" | "prompt" | "skill";
+        sourceInfo?: { scope?: "user" | "project" | "temporary"; path?: string };
+      }>;
+    };
+    if (!Array.isArray(data?.commands)) return [];
+    return data.commands.map((cmd) => ({
+      id: cmd.name,
+      name: cmd.name,
+      description: cmd.description,
+      source: cmd.source,
+      scope: cmd.sourceInfo?.scope,
+      path: cmd.sourceInfo?.path,
+    }));
   }
 
   close(): Promise<void> {
@@ -516,7 +583,9 @@ export class PiAgentClient implements AgentClient {
    * spawning a session-anchored process just to read metadata. Display-only: the result is never
    * itself persisted or replayed — see `AgentClient.resolveDefaultModel`'s doc comment.
    */
-  async resolveDefaultModel(opts?: { cwd?: string }): Promise<{ provider?: string; model?: string } | null> {
+  async resolveDefaultModel(opts?: {
+    cwd?: string;
+  }): Promise<{ provider?: string; model?: string } | null> {
     const data = (await this.topLevel("get_state", opts?.cwd, { noSession: true })) as
       | Record<string, unknown>
       | undefined;

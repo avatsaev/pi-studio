@@ -2,7 +2,13 @@ import type { DaemonClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { Command } from "commander";
 
-import { type CliContext, type GlobalOptions, EXIT_ERROR, EXIT_OK, withDaemon } from "./cli-core.js";
+import {
+  type CliContext,
+  type GlobalOptions,
+  EXIT_ERROR,
+  EXIT_OK,
+  withDaemon,
+} from "./cli-core.js";
 import { renderJson, renderObject, renderTable } from "./output.js";
 
 /**
@@ -46,6 +52,9 @@ export const AGENT_RPC = {
   setModel: "agent_set_model_request",
   cycleModel: "agent_cycle_model_request",
   lastAssistantText: "agent_last_assistant_text_request",
+  // Command discovery (sprint-040): user/project-authored commands surfaced from Pi's
+  // `get_commands` — extension commands, prompt templates, and skills.
+  listCommands: "agent_list_commands_request",
 } as const;
 
 /** Parse a `--provider pi/<model>` spec into provider id + optional model. */
@@ -187,7 +196,13 @@ export async function steerAgent(
   if (opts.json) {
     ctx.sink.write(renderJson(payload));
   } else {
-    ctx.sink.write(payload.ok ? (mode === "steer" ? "steered" : "queued follow-up") : "not delivered (no live turn)");
+    ctx.sink.write(
+      payload.ok
+        ? mode === "steer"
+          ? "steered"
+          : "queued follow-up"
+        : "not delivered (no live turn)",
+    );
   }
   return payload.ok === false ? EXIT_ERROR : EXIT_OK;
 }
@@ -386,10 +401,9 @@ export async function forkMessagesAgent(
   agentId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ messages?: ForkMessageRow[] }>(
-    AGENT_RPC.forkMessages,
-    { agentId },
-  );
+  const payload = await client.request<{ messages?: ForkMessageRow[] }>(AGENT_RPC.forkMessages, {
+    agentId,
+  });
   ctx.sink.write(
     opts.json ? renderJson(payload) : renderTable(payload.messages ?? [], ["entryId", "text"]),
   );
@@ -433,7 +447,7 @@ export async function exportAgentHtml(
     agentId,
     outputPath,
   });
-  ctx.sink.write(opts.json ? renderJson(payload) : payload.path ?? "(no path)");
+  ctx.sink.write(opts.json ? renderJson(payload) : (payload.path ?? "(no path)"));
   return EXIT_OK;
 }
 
@@ -479,7 +493,35 @@ export async function lastAssistantTextAgent(
   const payload = await client.request<{ text?: string | null }>(AGENT_RPC.lastAssistantText, {
     agentId,
   });
-  ctx.sink.write(opts.json ? renderJson(payload) : payload.text ?? "(none)");
+  ctx.sink.write(opts.json ? renderJson(payload) : (payload.text ?? "(none)"));
+  return EXIT_OK;
+}
+
+// ─── Command discovery (sprint-040) ───
+
+interface AgentCommandRow extends Record<string, unknown> {
+  name: string;
+  description?: string;
+  source?: string;
+  scope?: string;
+  path?: string;
+}
+
+/** Command discovery — extension commands, prompt templates, and skills (Pi `get_commands`). */
+export async function listAgentCommands(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: GlobalOptions,
+): Promise<number> {
+  const payload = await client.request<{ commands?: AgentCommandRow[] }>(AGENT_RPC.listCommands, {
+    agentId,
+  });
+  ctx.sink.write(
+    opts.json
+      ? renderJson(payload)
+      : renderTable(payload.commands ?? [], ["name", "source", "scope", "description"]),
+  );
   return EXIT_OK;
 }
 
@@ -586,7 +628,9 @@ export function registerAgentCommands(
     );
   agent
     .command("steer <agentId> <message>")
-    .description("steer a running turn (delivered after the current tool calls, before the next LLM call)")
+    .description(
+      "steer a running turn (delivered after the current tool calls, before the next LLM call)",
+    )
     .action(steerAction);
   program
     .command("steer <agentId> <message>")
@@ -730,9 +774,9 @@ export function registerAgentCommands(
     .description("load a different session file in place — /resume")
     .requiredOption("-p, --path <sessionPath>", "JSONL session file to switch to")
     .action((agentId: string, o: { path: string }) =>
-      withDaemon(ctx, g(), (client) =>
-        switchAgentSession(client, ctx, agentId, o.path, g()),
-      ).then(setExit),
+      withDaemon(ctx, g(), (client) => switchAgentSession(client, ctx, agentId, o.path, g())).then(
+        setExit,
+      ),
     );
 
   // fork / fork-messages — /fork: create a new branch from a previous user message.
@@ -741,9 +785,7 @@ export function registerAgentCommands(
     .description("create a new branch from a previous user message — /fork")
     .requiredOption("-e, --entry <entryId>", "entry id to fork from (see `agent fork-messages`)")
     .action((agentId: string, o: { entry: string }) =>
-      withDaemon(ctx, g(), (client) => forkAgent(client, ctx, agentId, o.entry, g())).then(
-        setExit,
-      ),
+      withDaemon(ctx, g(), (client) => forkAgent(client, ctx, agentId, o.entry, g())).then(setExit),
     );
   agent
     .command("fork-messages <agentId>")
@@ -776,9 +818,9 @@ export function registerAgentCommands(
     .description("export session to an HTML file — /export")
     .option("-o, --out <path>", "output file path")
     .action((agentId: string, o: { out?: string }) =>
-      withDaemon(ctx, g(), (client) =>
-        exportAgentHtml(client, ctx, agentId, o.out, g()),
-      ).then(setExit),
+      withDaemon(ctx, g(), (client) => exportAgentHtml(client, ctx, agentId, o.out, g())).then(
+        setExit,
+      ),
     );
 
   // model (set) / cycle-model — /model: switch or cycle the provider model.
@@ -807,5 +849,13 @@ export function registerAgentCommands(
       withDaemon(ctx, g(), (client) => lastAssistantTextAgent(client, ctx, agentId, g())).then(
         setExit,
       ),
+    );
+
+  // commands — command discovery: extension commands, prompt templates, and skills.
+  agent
+    .command("commands <agentId>")
+    .description("list discoverable commands: extensions, prompt templates, skills")
+    .action((agentId: string) =>
+      withDaemon(ctx, g(), (client) => listAgentCommands(client, ctx, agentId, g())).then(setExit),
     );
 }

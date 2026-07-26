@@ -247,7 +247,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
 
-  const slashCommandOps = new SlashCommandOperationsService({ manager, broadcast });
+  const slashCommandOps = new SlashCommandOperationsService({
+    manager,
+    resolveClient,
+    broadcast,
+    logger,
+  });
   slashCommandOps.registerHandlers(registry, getActiveSessions);
 
   registerTimelineHandler(registry, { manager, resolveClient });

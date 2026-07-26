@@ -42,7 +42,8 @@ src/
     session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
-                                   /new, /resume, /fork, /clone, /name, /export, /model, /copy).
+                                   /new, /resume, /fork, /clone, /name, /export, /model, /copy),
+                                   plus command discovery (agent_list_commands_request, sprint-040).
     timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
     timeline-rpc.ts               fetch_agent_timeline handler.
     rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
@@ -312,6 +313,35 @@ creation" above.
   `session.getRuntimeInfo().model` whenever the provider's own `getSessionStats()` result omits
   it — making the RPC a self-correcting model source for a poll-driven client (covers `/model`
   cycle and cross-client changes an `agent_update` broadcast alone can't fully convey).
+- **Command discovery** (`AgentSession.listCommands?()`, optional, sprint-040): surfaces Pi's
+  `get_commands` RPC — extension commands (`pi.registerCommand()`), prompt templates (global
+  `~/.pi/agent/prompts/*.md`; project `<cwd>/.pi/prompts/*.md`, gated behind Pi's own project-trust
+  decision — see `~/.pi/agent/trust.json` — a bare untrusted `.pi/prompts/` dir is silently
+  invisible to `get_commands`, not an error), and skills (`.pi/agent/skills/<name>/SKILL.md`) — a
+  set disjoint from the built-in slash commands above (Pi's own structured RPCs are never returned
+  by `get_commands`). Wired as `agent_list_commands_request`/`_response` by
+  `slash-command-operations.ts`'s `handleListCommands`; unlike every other handler in that file it
+  lazily spawns/resumes (`spawnOrResumeSession`, same as `AgentService.handleSendPrompt`) instead
+  of requiring an already-live `managed.session` — the web-client's `/` picker must work on a
+  never-sent "New chat" draft, which otherwise has no process yet. `AgentCommandDefinition` carries
+  `name` (required), optional `id`/`label`/`description`/`source`
+  (`extension`\|`prompt`\|`skill`)/`scope` (`user`\|`project`\|`temporary`)/`path`. Implemented for
+  `pi` (maps `RpcSlashCommand.sourceInfo`) and `mock` (fixed 3-entry list, one per source, for
+  dependency-free testing); unimplemented on a provider → `rpc_error`, never silent. Consumed by the
+  SDK (`client.agent(id).listCommands()`), CLI (`pi-studio agent commands <agentId>`), and the
+  web-client's `/` composer picker (`packages/web-client/AGENTS.md` § Slash-command picker).
+- **A `/`-prefixed prompt must not hang the turn** (`providers/pi/agent.ts`'s `run`/
+  `runSlashPrompt`, web-client slash commands): Pi runs an extension command inline and returns
+  from `prompt()` immediately — **no turn lifecycle event is ever emitted for it** — but
+  `PiAgentSession.run()` otherwise only resolves on `turn_completed`/`turn_failed`/`turn_canceled`,
+  so awaiting one for an inline command would hang the turn (and the agent's `"running"` status)
+  forever. `run` routes any prompt starting with `/` through `runSlashPrompt`, which sends `prompt`
+  as a correlated `request` (not the usual fire-and-forget `notify`) so Pi's own ack is observable,
+  then probes `get_state.isStreaming`: `false` means the command ran inline and there is no turn to
+  await (return immediately); `true` means a real turn started (a prompt template or a
+  `pi.sendMessage` skill/extension call) and the existing terminal-event wait applies as normal. An
+  ack rejection now surfaces as a rejected turn instead of being silently dropped the way an
+  unmatched `notify` response is.
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.

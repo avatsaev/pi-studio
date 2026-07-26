@@ -1,7 +1,7 @@
 # Task 002 — Enrich command-definition contract + implement Pi `listCommands`
 
 - **Sprint:** sprint-040-agent-command-discovery
-- **Status:** backlog
+- **Status:** in_progress
 - **Estimated size:** S
 - **Depends on:** task-001
 

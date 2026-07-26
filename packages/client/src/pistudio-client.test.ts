@@ -119,6 +119,25 @@ function makeScriptedDaemon(): {
         });
         return;
       }
+      case "agent_list_commands_request": {
+        reply({
+          type: "agent_list_commands_response",
+          requestId,
+          payload: {
+            commands: [
+              {
+                name: "fix-tests",
+                description: "Fix failing tests",
+                source: "prompt",
+                scope: "project",
+                path: "/w/.pi/agent/prompts/fix-tests.md",
+              },
+              { name: "skill:brave-search", source: "skill", scope: "user" },
+            ],
+          },
+        });
+        return;
+      }
       case "list_provider_models": {
         reply({
           type: "list_provider_models_response",
@@ -296,7 +315,10 @@ describe("PiStudioClient — provider actions", () => {
 describe("PiStudioClient — slash-command operations (sprint-037)", () => {
   it("sessionStats issues agent_session_stats_request and returns the mapped payload", async () => {
     const { client, fake } = await makeFacade();
-    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
     const stats = await client.agent(created.agentId).sessionStats();
     expect(stats).toEqual({ sessionId: "s1", totalMessages: 3 });
     expect(fake.sent.find((m) => m.type === "agent_session_stats_request")?.agentId).toBe(
@@ -306,7 +328,10 @@ describe("PiStudioClient — slash-command operations (sprint-037)", () => {
 
   it("compact forwards customInstructions and returns the mapped payload", async () => {
     const { client, fake } = await makeFacade();
-    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
     const result = await client.agent(created.agentId).compact("focus on code");
     expect(result).toEqual({ summary: "compacted", tokensBefore: 1000 });
     const req = fake.sent.find((m) => m.type === "agent_compact_request");
@@ -315,7 +340,10 @@ describe("PiStudioClient — slash-command operations (sprint-037)", () => {
 
   it("newSession, switchSession, fork, forkMessages, clone, setSessionName, exportHtml, setModel, cycleModel, lastAssistantText all issue their correlated RPC with agentId", async () => {
     const { client, fake } = await makeFacade();
-    const created = await client.createAgent({ config: { provider: "mock", cwd: "/w" }, labels: {} });
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
     const handle = client.agent(created.agentId);
 
     await handle.newSession();
@@ -362,5 +390,22 @@ describe("PiStudioClient — slash-command operations (sprint-037)", () => {
     const setModelReq = fake.sent.find((m) => m.type === "agent_set_model_request");
     expect(setModelReq?.provider).toBe("anthropic");
     expect(setModelReq?.modelId).toBe("claude-sonnet-4-20250514");
+  });
+});
+
+describe("PiStudioClient — command discovery (sprint-040)", () => {
+  it("listCommands issues agent_list_commands_request with agentId and returns the commands payload", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const payload = await client.agent(created.agentId).listCommands();
+    expect(payload.commands.map((c) => c.name)).toEqual(["fix-tests", "skill:brave-search"]);
+    expect(payload.commands[0]?.source).toBe("prompt");
+    expect(payload.commands[0]?.scope).toBe("project");
+    expect(fake.sent.find((m) => m.type === "agent_list_commands_request")?.agentId).toBe(
+      created.agentId,
+    );
   });
 });

@@ -51,6 +51,9 @@
 .item[data-highlighted] {
   background: var(--pi-color-surfaceHover, #1e2124);
 }
+.item.itemActive {
+  background: var(--pi-color-surfaceHover, #1e2124);
+}
 
 .checkSlot {
   width: 16px;
@@ -87,4 +90,110 @@
   padding: 8px;
   color: var(--pi-color-danger, #e5534b);
   font-size: 12px;
+}
+
+/* CommandMenu-only additions (web-client slash commands) — command descriptions run far longer
+   than a model's "(id)" suffix, so these give the popup a sane max width, room to breathe between
+   rows, and a clear visual hierarchy between the command name, its type pill, and its
+   description (distinct weight/size/color for each, not three same-looking lines of text). */
+.commandContent {
+  max-width: 420px;
+}
+.commandList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.commandItem {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 10px;
+}
+/* Command rows use TWO independent, differently-styled states instead of forcing hover and
+   keyboard-selection to share one look:
+   - `.commandItem.itemActive` below reuses `SessionList.module.css`'s exact "selected sidebar
+     row" recipe — `background: var(--pi-color-surfaceSunken)` + `box-shadow: inset 2px 0 0
+     var(--pi-color-accent)`, with `border-radius: 0` since that recipe is a full-width,
+     square-cornered row treatment, unlike this popup's own rounded rows — driven only by
+     `highlightedIndex`, which only `ArrowUp`/`ArrowDown` ever write. It overrides the shared
+     `.item.itemActive` rule above (same specificity, later wins): that shared rule's plain
+     `--pi-color-surfaceHover` fill sits only ~8/255 luminance steps above `.commandContent`'s
+     own `--pi-color-surface` backdrop — real but too subtle to read as "selected" at a glance.
+   - Native `:hover` is "the mouse is over this" — the browser's own hit-testing, not a JS copy
+     of it. An earlier version routed mouse feedback through `onMouseEnter` into the same
+     `highlightedIndex` state so it could reuse the active look; that added a React render
+     round-trip to something the browser already does every frame for free, and it could miss
+     fast pointer movement (staying stuck on a row the mouse had already left).
+   Because the two states render differently, they can coexist without looking like a
+   "duplicate" bug: when arrow-key nav scrolls the list under a mouse pointer that never moved,
+   the stale hover on whatever's now underneath reads as a subtle secondary cue next to the real,
+   accent-marked keyboard selection — never mistaken for a second selection. */
+.commandItem:hover {
+  background: color-mix(in srgb, var(--pi-color-surfaceHover, #1e2124) 55%, transparent);
+}
+.commandItem.itemActive {
+  background: var(--pi-color-surfaceSunken, #111);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
+  border-radius: 0;
+}
+.commandItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+.commandItemHeader .label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pi-color-foreground, #fafafa);
+}
+.commandKindBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  border-radius: 9999px;
+  border: 1px solid var(--pi-color-border, #3f3f46);
+  background: var(--pi-color-surface2, #27272a);
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  font-size: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+/* One distinct hue per command source (extension/prompt/skill) — the same translucent-wash +
+   tinted-border + tinted-text recipe `StatusBadge.tsx` builds at runtime via `color-mix`, just
+   hardcoded per variant here since these three are fixed, not data-driven like status colors. */
+.commandKindExtension {
+  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 45%, transparent);
+  color: var(--pi-color-accent, #2e5cb8);
+}
+.commandKindPrompt {
+  background: color-mix(in srgb, var(--pi-color-statusSuccess, #16a34a) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-statusSuccess, #16a34a) 45%, transparent);
+  color: var(--pi-color-statusSuccess, #16a34a);
+}
+.commandKindSkill {
+  background: color-mix(in srgb, var(--pi-color-statusMerged, #9333ea) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-statusMerged, #9333ea) 45%, transparent);
+  color: var(--pi-color-statusMerged, #9333ea);
+}
+.commandDescription {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.4;
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

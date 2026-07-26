@@ -45,13 +45,25 @@
  */
 
 import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
-import { Navigation, Paperclip, Send, Square } from "lucide-react";
+import { clsx } from "clsx";
+import { Navigation, Paperclip, Send, Slash, Square } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
+import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
+import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
+import { CommandMenu } from "./CommandMenu.js";
+import {
+  applyCommand,
+  commandOptions,
+  knownCommandSpan,
+  moveHighlight,
+  parseSlashToken,
+  shouldOpenMenu,
+} from "./slash-commands.js";
 import styles from "./Composer.module.css";
 
 const MAX_TEXTAREA_HEIGHT = 160;
@@ -88,10 +100,23 @@ export function Composer({ sessionId }: ComposerProps) {
   const [steering, setSteering] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
 
   const running = session?.status === "running";
   const busy = running ? steering : sending;
   const canSubmit = Boolean(client) && !busy && (text.trim().length > 0 || images.length > 0);
+
+  // Read-through cached exactly like `use-provider-models.ts` (see the hook's own docstring):
+  // reopening the `/` menu — including the auto-open that fires on every `/` keystroke — shows
+  // the cached rows immediately instead of a spinner every time.
+  const { data: commands = [], isLoading, isError, error } = useAgentCommands(sessionId, menuOpen);
+  const { options, hiddenExtensionCount } = commandOptions(commands, { running });
+  const token = parseSlashToken(text);
+  const filtered = token ? filterOptions(options, token.name) : options;
+  const commandNames = commands.map((c) => c.name);
+  // The span to highlight in the textarea — only a token Pi will actually recognize as a command.
+  const span = knownCommandSpan(text, commandNames);
 
   async function addImageFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) return;
@@ -123,14 +148,75 @@ export function Composer({ sessionId }: ComposerProps) {
   }
 
   function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
-    setText(ev.target.value);
+    const next = ev.target.value;
+    setText(next);
     autoResize(ev.target);
+    // `/` at the very start opens the menu and keeps it open while the name is still being typed;
+    // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
+    // only recognizes a command at index 0 (`agent-session.js` `text.startsWith("/")`).
+    const shouldOpen = shouldOpenMenu(next);
+    if (shouldOpen !== menuOpen) setMenuOpen(shouldOpen);
+    if (shouldOpen) setHighlight(0);
   }
 
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
+    // A single Backspace deletes the WHOLE recognized command token, like a chip/mention, instead
+    // of forcing the user to peck through it one character at a time. Scoped to `!menuOpen` (the
+    // command has already been accepted/typed in full and the menu closed) so it never fights
+    // the ArrowDown/Enter accept flow below while the user is still actively narrowing a match.
+    if (!menuOpen && span && ev.key === "Backspace") {
+      const el = ev.currentTarget;
+      const caret = el.selectionStart;
+      if (caret !== null && caret === el.selectionEnd) {
+        // Also swallow the single trailing space `applyCommand` appends, so the draft goes
+        // straight back to empty (or to whatever args followed) in one keystroke, not two.
+        const deletableEnd = span.end + (text[span.end] === " " ? 1 : 0);
+        if (caret > 0 && caret <= deletableEnd) {
+          ev.preventDefault();
+          const next = text.slice(deletableEnd);
+          setText(next);
+          el.setSelectionRange(0, 0);
+          autoResize(el);
+          return;
+        }
+      }
+    }
+    if (menuOpen && filtered.length > 0) {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        setHighlight((i) => moveHighlight(i, ev.key === "ArrowDown" ? 1 : -1, filtered.length));
+        return;
+      }
+      // Enter and Tab both accept the preselected command — they complete the token, they do NOT
+      // send. The user still has to press Enter again to submit, so a command can take arguments.
+      if ((ev.key === "Enter" && !ev.shiftKey) || ev.key === "Tab") {
+        ev.preventDefault();
+        const name = filtered[highlight]?.value;
+        if (name) applySelectedCommand(name);
+        return;
+      }
+    }
+    if (menuOpen && ev.key === "Escape") {
+      ev.preventDefault();
+      setMenuOpen(false);
+      return;
+    }
     if (ev.key === "Enter" && !ev.shiftKey) {
       ev.preventDefault();
       void submit(running ? "steer" : "send");
+    }
+  }
+
+  function applySelectedCommand(name: string): void {
+    const next = applyCommand(text, name);
+    setText(next);
+    setMenuOpen(false);
+    setHighlight(0);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(next.length, next.length);
+      autoResize(el);
     }
   }
 
@@ -143,6 +229,11 @@ export function Composer({ sessionId }: ComposerProps) {
     if (!trimmed && images.length === 0) return;
 
     setText("");
+    // A bare Enter (or the Send/Steer button) can fire while the menu is still open — e.g. the
+    // draft is a command-like token with no filter match yet (`filtered.length === 0`), so the
+    // accept branch in `handleKeyDown` never ran. Close it here too, not just in `applyCommand`'s
+    // trailing-space path, so a send never leaves the menu stuck open over an empty draft.
+    setMenuOpen(false);
     if (textareaRef.current) autoResize(textareaRef.current);
     const sentImages = images;
     setImages([]);
@@ -202,21 +293,56 @@ export function Composer({ sessionId }: ComposerProps) {
 
   return (
     <div className={styles.composer}>
+      <CommandMenu
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        options={filtered}
+        highlightedIndex={highlight}
+        onSelect={applySelectedCommand}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={error instanceof Error ? error.message : undefined}
+        hiddenExtensionCount={hiddenExtensionCount}
+        renderTrigger={() => (
+          <Button
+            className={styles.slashBtn}
+            variant="ghost"
+            size="md"
+            iconOnly
+            title="Slash commands"
+            aria-label="Slash commands"
+          >
+            <Slash size={16} />
+          </Button>
+        )}
+      />
       <div className={styles.inputArea}>
-        <TextArea
-          ref={textareaRef}
-          className={styles.textarea}
-          rows={1}
-          value={text}
-          placeholder={
-            running
-              ? "Steer the running turn… (Enter to steer, Shift+Enter for newline)"
-              : "Ask anything… (Enter to send, Shift+Enter for newline)"
-          }
-          onChange={handleTextareaChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-        />
+        <div className={styles.textareaWrap}>
+          <div className={styles.highlightLayer} aria-hidden>
+            {span ? (
+              <>
+                <mark className={styles.commandMark}>{text.slice(0, span.end)}</mark>
+                {text.slice(span.end)}
+              </>
+            ) : (
+              text
+            )}
+          </div>
+          <TextArea
+            ref={textareaRef}
+            className={clsx(styles.textarea, span && styles.textareaOverlaid)}
+            rows={1}
+            value={text}
+            placeholder={
+              running
+                ? "Steer the running turn… (Enter to steer, Shift+Enter for newline)"
+                : "Ask anything… (Enter to send, Shift+Enter for newline)"
+            }
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+          />
+        </div>
         <Attachments images={images} onRemove={handleRemoveImage} />
       </div>
       <Button

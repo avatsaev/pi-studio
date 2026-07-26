@@ -8,6 +8,7 @@ import type {
 
 import type {
   AgentClient,
+  AgentCommandDefinition,
   AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
@@ -183,9 +184,10 @@ class MockAgentSession implements AgentSession {
     return { provider: this.provider, sessionId: this.id, nativeHandle: `mock:${this.id}` };
   }
 
-  // Slash-command operations (sprint-037): deterministic, dependency-free implementations for
-  // tests. `exportHtml` is deliberately omitted so callers can exercise the
-  // unsupported-provider-method → rpc_error path (see slash-command-ops.test.ts).
+  // Slash-command operations (sprint-037) + command discovery (sprint-040): deterministic,
+  // dependency-free implementations for tests. `exportHtml` is deliberately omitted so callers
+  // can exercise the unsupported-provider-method → rpc_error path (see slash-command-ops.test.ts);
+  // `listCommands` is implemented (below) so that path stays proven by `exportHtml` alone.
 
   private sessionName: string | undefined;
 
@@ -194,7 +196,11 @@ class MockAgentSession implements AgentSession {
     totalMessages: number;
     tokens: { total: number };
   }> {
-    return Promise.resolve({ sessionId: this.id, totalMessages: this.history.length, tokens: { total: 0 } });
+    return Promise.resolve({
+      sessionId: this.id,
+      totalMessages: this.history.length,
+      tokens: { total: 0 },
+    });
   }
 
   compact(): Promise<{ summary: string; firstKeptEntryId: string; tokensBefore: number }> {
@@ -237,6 +243,38 @@ class MockAgentSession implements AgentSession {
   getLastAssistantText(): Promise<string | null> {
     const last = [...this.history].reverse().find((e) => e.kind === "assistant_message");
     return Promise.resolve(last && "text" in last ? (last.text as string) : null);
+  }
+
+  /** Command discovery (sprint-040): a deterministic, dependency-free multi-source list — one
+   * each of extension/prompt/skill — covering `agent_list_commands_request` without needing a
+   * real `pi` binary. */
+  listCommands(): Promise<AgentCommandDefinition[]> {
+    return Promise.resolve([
+      {
+        id: "session-name",
+        name: "session-name",
+        description: "Set or clear session name",
+        source: "extension",
+        scope: "project",
+        path: ".pi/agent/extensions/session.ts",
+      },
+      {
+        id: "fix-tests",
+        name: "fix-tests",
+        description: "Fix failing tests",
+        source: "prompt",
+        scope: "project",
+        path: ".pi/agent/prompts/fix-tests.md",
+      },
+      {
+        id: "skill:brave-search",
+        name: "skill:brave-search",
+        description: "Web search via Brave API",
+        source: "skill",
+        scope: "user",
+        path: "~/.pi/agent/skills/brave-search/SKILL.md",
+      },
+    ]);
   }
 
   close(): Promise<void> {

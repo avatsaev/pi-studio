@@ -106,4 +106,38 @@ describe("mock provider", () => {
     await session.run("hello");
     expect(await session.getLastAssistantText?.()).toContain("hello");
   });
+
+  it("listCommands returns a deterministic multi-source list (sprint-040)", async () => {
+    const client = new MockAgentClient();
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+    expect(await session.listCommands?.()).toEqual([
+      {
+        id: "session-name",
+        name: "session-name",
+        description: "Set or clear session name",
+        source: "extension",
+        scope: "project",
+        path: ".pi/agent/extensions/session.ts",
+      },
+      {
+        id: "fix-tests",
+        name: "fix-tests",
+        description: "Fix failing tests",
+        source: "prompt",
+        scope: "project",
+        path: ".pi/agent/prompts/fix-tests.md",
+      },
+      {
+        id: "skill:brave-search",
+        name: "skill:brave-search",
+        description: "Web search via Brave API",
+        source: "skill",
+        scope: "user",
+        path: "~/.pi/agent/skills/brave-search/SKILL.md",
+      },
+    ]);
+    // exportHtml stays deliberately omitted (see the sprint-037 test above) so the
+    // unsupported-provider-method → rpc_error path remains covered now that listCommands exists.
+    expect(session.exportHtml).toBeUndefined();
+  });
 });

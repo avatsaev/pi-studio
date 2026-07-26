@@ -394,7 +394,8 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-004 | Mock support + docs sync + verification | task-002, task-003 | providers/mock; AGENTS.md (protocol, server) |
 
 ### sprint-041-agent-turn-settlement
-> Bug fix, server-only. The Pi adapter's event-mapper maps every `agent_end → turn_completed`, but
+> Bug fix, server-only. The Pi adapter's event-mapper treats every `agent_end` as the turn's terminal
+> event (deriving the kind from that run's last assistant `stopReason`), but
 > Pi emits one `agent_end` per low-level run — decorated with `willRetry` — and a single
 > `agent_settled` at the true end of a session-level run (auto-retry, overflow-compaction, and
 > queued steering/follow-up all loop before settle). Firing terminal on the first `agent_end` tears
@@ -409,7 +410,7 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 |------|-------|------------|--------|
 | task-001 | Settlement-driven event-mapper (`willRetry` non-terminal; `agent_settled` → terminal by `stopReason`) + per-session wiring | none | providers/pi (event-mapper, agent); features/agent-sessions |
 | task-002 | Fake-transport `agent_settled` wiring + retry-subscription regression test | task-001 | providers/pi (pi-adapter.test); agent-service (runTurn) |
-| task-003 | Scope-doc + AGENTS.md sync and full verification | task-001, task-002 | features/agent-sessions; architecture/agent-lifecycle; AGENTS.md (server) |
+| task-003 | Scope-doc + AGENTS.md sync and full verification | task-001, task-002 | features/agent-sessions; architecture/agent-lifecycle; AGENTS.md (server); packages/server/docs (gateway-architecture, rpc-communication) |
 
 ### sprint-042-workspace-status-bar
 > web-client feature. A full-width, ~75px, bottom powerline status bar showing the **active

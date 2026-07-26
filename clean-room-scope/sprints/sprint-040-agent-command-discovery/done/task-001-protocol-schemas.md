@@ -1,7 +1,7 @@
 # Task 001 — Protocol schemas for agent command-discovery RPC
 
 - **Sprint:** sprint-040-agent-command-discovery
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** none
 
