@@ -6,13 +6,10 @@
  * `session.status` transitions so the Composer's Stop button and the session-list status dot
  * stay live.
  *
- * NOTE: this only covers events that arrive *after* the subscription attaches, which requires a
- * bound `agentId`. The daemon runs the whole first turn of a brand-new agent *before*
- * `create_agent_request` resolves, so `Composer.handleSend` applies that first turn live from the
- * raw broadcast (latching the agent id from the first `agent_stream` frame it sees) and only
- * calls `bindAgent` once the RPC resolves — after the turn is already applied. This hook therefore
- * attaches only in time for *follow-up* turns, which is exactly what avoids double-applying the
- * first turn (the reducer is not event-id-idempotent).
+ * By design, a deferred draft's `agentId` is bound before any turn can start (at tab-open time
+ * via `ensureMaterialized` in the Composer), so this subscription attaches before streaming
+ * begins. There is no raw-broadcast first-turn workaround — every event is captured by the live
+ * subscription, including the first turn.
  */
 
 import { useEffect } from "react";

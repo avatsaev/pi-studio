@@ -554,6 +554,15 @@ messages are fair game.
 
 ---
 
+---
+
+## Documentation
+
+| Document | Scope |
+| --- | --- |
+| `docs/gateway-architecture.md` | System topology: client → WS → router → services → providers. The full flow of a user prompt from send to daemon to `pi` process to broadcast. **Read this for the big picture.** |
+| `docs/rpc-communication.md` | RPC request/response mechanics: the two correlation layers (WebSocket ↔ daemon, daemon ↔ `pi`), the handler contract, broadcast semantics, client-side reconnect/backfill, and a recipe for adding a new RPC. **Read this to understand how the communication works.** |
+
 ## Testing
 
 ```bash

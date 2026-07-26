@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/web-client",
-  "version": "0.0.39",
+  "version": "0.0.40",
   "type": "module",
   "files": [
     "dist"
@@ -14,8 +14,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/client": "^0.0.39",
-    "@av-pi-studio/protocol": "^0.0.39",
+    "@av-pi-studio/client": "^0.0.40",
+    "@av-pi-studio/protocol": "^0.0.40",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.1",

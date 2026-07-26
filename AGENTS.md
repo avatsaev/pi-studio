@@ -33,7 +33,8 @@ packages/
 
 clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
-docs/               Project docs.
+docs/               Monorepo-wide documentation (build layering, validation conventions). Server
+                    architecture docs live in `packages/server/docs/`.
 docker/             Dockerfiles + compose for the daemon, relay, and web UI (see docker/README.md).
 ```
 
