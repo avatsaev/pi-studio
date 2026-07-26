@@ -15,7 +15,7 @@
 import { create } from "zustand";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { resolveDefaultModel } from "@pi-studio-ui/stores/materialize.js";
+import { ensureMaterialized, discardIfEmpty } from "@pi-studio-ui/stores/materialize.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal";
 
@@ -77,6 +77,15 @@ function tabsInWorkspace(tabs: Tab[], cwd: string): Tab[] {
   return tabs.filter((t) => t.workspaceCwd === cwd);
 }
 
+/** Keep the sidebar's `session-store.activeSessionId` in lockstep with whichever chat tab is
+ * now active, so switching tabs in the center pane highlights the matching sidebar row exactly
+ * as if it had been clicked there directly. No-op for non-chat tabs (file/diff/terminal) — the
+ * sidebar simply keeps showing whichever chat was last active. */
+function syncActiveSession(tab: Tab | undefined): void {
+  if (tab?.kind !== "chat") return;
+  useSessionStore.getState().activate((tab.data as ChatTabData).sessionId);
+}
+
 export const useTabStore = create<TabStoreState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
@@ -95,9 +104,11 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       activeWorkspaceCwd: tab.workspaceCwd,
       lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: tab.id },
     }));
+    syncActiveSession(tab);
   },
 
   close(id) {
+    let fallbackTab: Tab | undefined;
     set((s) => {
       const closed = s.tabs.find((t) => t.id === id);
       if (!closed) return s;
@@ -113,6 +124,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         const siblingIdx = Math.min(idx, siblings.length - 1);
         const next = siblings[siblingIdx];
         activeTabId = next?.id ?? null;
+        fallbackTab = next;
       }
       if (lastActiveTabByWorkspace[closed.workspaceCwd] === id) {
         const stillOpen = tabsInWorkspace(tabs, closed.workspaceCwd)[0];
@@ -121,26 +133,32 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       }
       return { tabs, activeTabId, lastActiveTabByWorkspace };
     });
+    syncActiveSession(fallbackTab);
   },
 
   activate(id) {
+    let activatedTab: Tab | undefined;
     set((s) => {
       const tab = s.tabs.find((t) => t.id === id);
       if (!tab) return s;
+      activatedTab = tab;
       return {
         activeTabId: id,
         activeWorkspaceCwd: tab.workspaceCwd,
         lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: id },
       };
     });
+    syncActiveSession(activatedTab);
   },
 
   switchWorkspace(cwd) {
+    let switchedTab: Tab | undefined;
     set((s) => {
       const siblings = tabsInWorkspace(s.tabs, cwd);
       const remembered = s.lastActiveTabByWorkspace[cwd];
       const stillOpen = remembered && siblings.some((t) => t.id === remembered);
-      const activeTabId = stillOpen ? remembered : siblings[0]?.id ?? null;
+      const activeTabId = stillOpen ? remembered : (siblings[0]?.id ?? null);
+      switchedTab = siblings.find((t) => t.id === activeTabId);
       return {
         activeWorkspaceCwd: cwd,
         activeTabId,
@@ -149,6 +167,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           : s.lastActiveTabByWorkspace,
       };
     });
+    syncActiveSession(switchedTab);
   },
 
   reorder(fromId, toId) {
@@ -203,9 +222,16 @@ export function openNewTerminal(workspaceCwd: string): void {
 
 /** Open a brand-new chat: creates a session against a workspace cwd and opens/focuses its chat
  * tab. Shared by the sidebar's "+ New conversation" button, `open-workspace.ts`'s create-new
- * path, the zero-sessions bootstrap in `use-session-restore.ts`, and the TabStrip's "+" button —
- * so every caller mints identical tab ids/labels (mirrors `openNewTerminal` above). `workspaceCwd`
- * MUST already be normalized by the caller (same contract as `openNewTerminal`). */
+ * path, and the TabStrip's "+" button — so every caller mints identical tab ids/labels (mirrors
+ * `openNewTerminal` above). `workspaceCwd` MUST already be normalized by the caller (same
+ * contract as `openNewTerminal`).
+ *
+ * Materializes eagerly: the tab and sidebar row appear synchronously from `createSession`/`open`
+ * above, then `ensureMaterialized` (`materialize.ts`) commits a real, persisted `AgentRecord` in
+ * the background — no spawn yet, just the record (`agent-service.ts` `handleCreate`'s
+ * deferred-draft branch) — so every "New chat" has a bound `agentId` before the user does
+ * anything. Best-effort: a failure here (or opening while disconnected, guarded by `if (client)`)
+ * is retried by `Composer.submit`'s own `ensureMaterialized` call on the first send. */
 export function openNewChat(workspaceCwd: string): void {
   const id = useSessionStore.getState().createSession(workspaceCwd);
   useTabStore.getState().open({
@@ -217,13 +243,21 @@ export function openNewChat(workspaceCwd: string): void {
     workspaceCwd,
   });
 
-  // Preselect the model this chat would actually run on, before anything is spawned or
-  // persisted (`materialize.ts` `resolveDefaultModel`) — purely a local display seed, cached
-  // per connection so only the very first "New chat" after connecting pays the lookup.
   const client = useConnectionStore.getState().client;
   if (client) {
-    void resolveDefaultModel(client).then(({ model, modelProvider }) => {
-      if (model) useSessionStore.getState().setModel(id, model, modelProvider);
+    void ensureMaterialized(client, id).catch(() => {
+      // Best-effort: `Composer.submit`'s own `ensureMaterialized` retries on the first send.
     });
   }
+}
+
+/** Close a tab, discarding a never-used chat's draft record with it (`materialize.ts`
+ * `discardIfEmpty`). Every UI close path MUST go through this, not `useTabStore.close` directly.
+ */
+export function closeTab(tabId: string): void {
+  const tab = useTabStore.getState().tabs.find((t) => t.id === tabId);
+  useTabStore.getState().close(tabId);
+  if (tab?.kind !== "chat") return;
+  const { sessionId } = tab.data as ChatTabData;
+  void discardIfEmpty(useConnectionStore.getState().client, sessionId);
 }

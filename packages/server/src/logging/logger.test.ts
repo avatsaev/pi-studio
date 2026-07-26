@@ -73,6 +73,19 @@ describe("createLogger", () => {
     expect(contents).toContain("should be kept");
   });
 
+  it("surfaces debug-level records through multistream (regression: per-stream level default)", () => {
+    // pino's `multistream()` defaults an entry's own level to "info" when unset, silently
+    // dropping debug/trace records at the dispatch step even when the root logger's level is
+    // lower — `createLogger` must pass its resolved `level` to every stream entry. The plain
+    // `sink()` Writable is written synchronously by multistream's dispatch (unlike the rotating
+    // file stream elsewhere in this suite, which needs a real flush wait), so no timer is needed.
+    const s = sink();
+    const log = createLogger(quiet(s, { level: "debug" }));
+    log.debug({ type: "list_agents_request" }, "rpc ok");
+
+    expect(s.text()).toContain("rpc ok");
+  });
+
   it("child loggers inherit bindings", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-studio-log-"));
     const log = createLogger(quiet(sink(), { logDir: dir }));

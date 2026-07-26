@@ -9,3 +9,21 @@
 }
 
 /* Color variants map to semantic token values (applied via inline style). */
+
+/* Running status: a subtle ring with a bright rotating arc, in place of a flat filled dot.
+   Sized up from the 8px dot and using accentBright (not accent) — a thin 8px ring in the more
+   muted accent color all but disappeared against the dark background. */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 2px solid var(--pi-color-border, #353b46);
+  flex-shrink: 0;
+  animation: statusSpin 0.7s linear infinite;
+}
+@keyframes statusSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

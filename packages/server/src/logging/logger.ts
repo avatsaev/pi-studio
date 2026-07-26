@@ -69,9 +69,13 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
   if (level === "silent") return pino({ ...base, level: "silent" }) as unknown as Logger;
 
   // stdout: pretty on a TTY, raw NDJSON otherwise (docker logs / journald / PM2).
-  const streams: Array<{ stream: NodeJS.WritableStream }> = [];
+  // Each stream entry needs its OWN `level` — pino's `multistream()` defaults an entry's level
+  // to "info" when omitted, silently discarding debug/trace records at the multistream dispatch
+  // step even though `logger.level` itself (and thus `logger.debug()`'s enabled check) is lower.
+  const streams: Array<{ stream: NodeJS.WritableStream; level: LogLevel }> = [];
   const pretty = options.pretty ?? Boolean(process.stdout.isTTY);
   streams.push({
+    level,
     stream: pretty
       ? pinoPretty({
           colorize: true,
@@ -85,6 +89,7 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
   if (options.logDir) {
     mkdirSync(options.logDir, { recursive: true });
     streams.push({
+      level,
       stream: createRotatingStream("pi-studio.log", {
         size: options.rotateSize ?? "10M",
         maxFiles: options.rotateMaxFiles ?? 5,

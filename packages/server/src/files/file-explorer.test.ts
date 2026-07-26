@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -130,6 +130,83 @@ describe("FileExplorerService.deleteFile", () => {
     const svc = new FileExplorerService();
     const result = await svc.deleteFile("");
     expect(result.ok).toBe(false);
+    expect(result.error).toBe("empty_path");
+  });
+});
+
+describe("FileExplorerService.createEntry", () => {
+  it("creates an empty file", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(dir, "notes.txt", "file");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.kind).toBe("file");
+    const info = await stat(result.path);
+    expect(info.isFile()).toBe(true);
+    expect(info.size).toBe(0);
+  });
+
+  it("creates a directory", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(dir, "sub", "directory");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.kind).toBe("directory");
+    const info = await stat(result.path);
+    expect(info.isDirectory()).toBe(true);
+  });
+
+  it("returns exists for a colliding file name and leaves the existing content untouched", async () => {
+    const target = join(dir, "keep.txt");
+    await writeFile(target, "keep");
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(dir, "keep.txt", "file");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("exists");
+    expect(await readFile(target, "utf8")).toBe("keep");
+  });
+
+  it("returns exists for a colliding directory name", async () => {
+    await mkdir(join(dir, "existing"));
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(dir, "existing", "directory");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("exists");
+  });
+
+  it.each(["a/b", "", ".."])("returns invalid_name for %j", async (name) => {
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(dir, name, "file");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("invalid_name");
+  });
+
+  it("returns not_found for a missing parent", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(join(dir, "does-not-exist"), "x.txt", "file");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("not_found");
+  });
+
+  it("returns not_a_directory when the parent is a regular file", async () => {
+    const parent = join(dir, "not-a-dir.txt");
+    await writeFile(parent, "x");
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry(parent, "x.txt", "file");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("not_a_directory");
+  });
+
+  it("returns empty_path for an empty parent path", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.createEntry("", "x.txt", "file");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
     expect(result.error).toBe("empty_path");
   });
 });

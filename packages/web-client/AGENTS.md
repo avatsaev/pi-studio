@@ -41,7 +41,7 @@ this package stays a pure renderer and must not gain Node-only dependencies.
 
 ## Stack
 
-React 19 · TypeScript 5 (ESM) · Vite 6 · Zustand (client state) · TanStack Query + Virtual ·
+React 19 · TypeScript 6 (ESM) · Vite 6 · Zustand (client state) · TanStack Query + Virtual ·
 Radix UI (dialog/dropdown-menu/popover/tooltip) + floating-ui (overlays) · dnd-kit ·
 Framer Motion · lucide-react · react-markdown + remark-gfm · Shiki (syntax highlighting) ·
 CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code file viewer) ·
@@ -82,12 +82,14 @@ src/
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
                            (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
-  stores/                  Zustand slices: ui-store, tab-store, session-store (SessionEntry.model/
-                           modelProvider, poll-reconciled + live-updated by agent_update),
-                           materialize (deferred-draft materialization + preselected default
-                           model, + test), git-store (branch/ahead/behind/detached/upstream/
-                           conflictCount alongside changes[]), stats-store (per-sessionId
-                           context/tokens/cost/model — sprint-042), explorer-store (+ test)
+  stores/                  Zustand slices: ui-store, tab-store (openNewChat materializes eagerly;
+                           closeTab wraps the store's close action + materialize.ts's
+                           discardIfEmpty), session-store (SessionEntry.model/modelProvider,
+                           poll-reconciled + live-updated by agent_update), materialize (eager
+                           draft materialization + default-model resolution + discardIfEmpty, +
+                           test), git-store (branch/ahead/behind/detached/upstream/conflictCount
+                           alongside changes[]), stats-store (per-sessionId context/tokens/cost/
+                           model — sprint-042), explorer-store (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
                            highlight (+ tests)
   hooks/                   use-connection (boot), use-session-restore (session directory restore
@@ -120,11 +122,17 @@ src/
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
                             @tanstack/react-virtual; upload button/drag-and-drop resolved to the
-                            drop-target directory; per-row "⋮" context-menu trigger), TreeNode
-                            (presentational row: chevron/icon/name + actions button),
-                            FileContextMenu (download/delete), RightSidebar, DiffView, CodeView,
-                            MarkdownFileViewer, ImageViewer, VideoViewer, BinaryFallbackViewer,
-                            TextViewer, viewer-registry
+                            drop-target directory; per-row "⋮" context-menu trigger; header +
+                            context-menu "New File"/"New Folder" actions insert an inline
+                            TreeDraftRow under the target directory, named in place and created
+                            on Enter), TreeNode (presentational row: chevron/icon/name + actions
+                            button, delegates draft rows to TreeDraftRow), TreeDraftRow (owns the
+                            draft input's local text state), FileContextMenu (New File/New
+                            Folder/download/delete), create-entry.ts (shared `file_create_request`
+                            caller + error-code messages, used by FileExplorer's tree draft and
+                            OpenWorkspaceDialog's "new folder" affordance), RightSidebar, DiffView,
+                            CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
+                            BinaryFallbackViewer, TextViewer, viewer-registry
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
                             "Status bar" for why it no longer owns its own checkout-status
                             subscription)
@@ -186,18 +194,37 @@ entered at runtime, never baked into the image.
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
   sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.
+- **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
+  restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
+  returns without touching `tab-store`/`ui-store` at all: `activeWorkspaceCwd` stays `null` and no
+  session/tab is created. (It previously called `openNewChat` in this case, materializing a
+  client-only session rooted at a guessed home dir and paying an unwanted `resolve_default_model`
+  RPC on every fresh connect — removed.) `TabPanelHost.tsx` renders a dedicated "No workspace open"
+  empty state (with an "Open Workspace" button wired to `ui-store.openCwdPicker()`) specifically
+  for `activeWorkspaceCwd === null`, distinct from its "workspace in view, no tabs yet" state;
+  `SessionList.tsx`'s sidebar shows a matching "No workspaces — open a folder to start" (or
+  "Not connected") hint instead of a blank rectangle. A workspace exists only because the user
+  opened one via `OpenWorkspaceDialog`, or because a restored agent carried a `cwd`. `?cwd=` (see
+  above) is no longer write-only in this state: `OpenWorkspaceDialog` seeds its picker from
+  `activeWorkspaceCwd || ui-store.cwd || "~"`, so the deep-link param (or the last workspace
+  opened) still does something useful even with no workspace in view.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
   so upload/download RPCs have no handler there). The dev daemon also registers no terminal-RPC
   service (`create_terminal_request` has no handler under `dev-bootstrap.ts`) — smoke-testing the
   Files sidebar's transfer actions or terminals (via `Ctrl/Cmd+T` or the TabStrip "+" menu) needs
-  `npm start`/`npm run start:server`, not `npm run dev:daemon`.
+  `npm start`/`npm run start:server`, not `npm run dev:daemon`. Creating a file/folder
+  (`file_create_request`, also on `FileExplorerService`) works under both bootstraps, unlike
+  upload/download.
 - **No confirmation for upload overwrite/delete happens server-side.** `FileExplorer.tsx` confirms
   an upload that would clash with an existing name before calling `useFileTransfer().upload()`;
   `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both
   unconditionally (overwrites/`rm -rf`s whatever resolved path it's given) — never skip the
-  client-side confirm when adding new callers.
+  client-side confirm when adding new callers. Creates (`create-entry.ts`) are the deliberate
+  exception: `mkdir` is non-recursive and file creation opens `wx` (create-exclusive, never
+  truncates), so a name collision fails loudly with an `"exists"` error instead of needing a
+  confirm dialog — do not "improve" this by switching to `{ recursive: true }` or `"w"`.
 - **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
   action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
   routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
@@ -213,7 +240,7 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
-- **Model selector (sprint-043, moved to the status bar) + deferred draft materialization.**
+- **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
   model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
@@ -230,53 +257,73 @@ entered at runtime, never baked into the image.
   `StatusBar.tsx`'s icon+text segment button (`styles.modelSegment`), showing `session.model` or
   a `"Model"` placeholder. The composer no longer renders `ModelMenu` or holds any model-picking
   code; picking still updates `SessionEntry.model`/`modelProvider` through the same store action,
-  so the composer's materialize-on-first-keystroke path sees the same value regardless of where
+  so whichever materialize path is currently in flight sees the same value regardless of where
   the pick happened.
 
-  **A brand-new "New chat" tab is not blank.** `tab-store.ts`'s `openNewChat` fires
-  `stores/materialize.ts`'s `resolveDefaultModel(client)` right after `createSession` — a
-  daemon-cached lookup of the model Pi would actually run on with no override (`resolve_default_
-  model`, `packages/server/AGENTS.md` § `ProviderRegistry`) — and seeds `session.model`/
-  `modelProvider` from it, purely as a local display value: nothing is created or persisted
-  server-side yet.
+  **A brand-new "New chat" tab materializes the instant its tab is created, not on first
+  keystroke/pick/send.** `tab-store.ts`'s `openNewChat` fires `stores/materialize.ts`'s
+  `ensureMaterialized(client, id)` right after `createSession`+`open` — the tab/sidebar row
+  appear synchronously, and the real, persisted `AgentRecord` (see below) is created in the
+  background, best-effort (a failure or an offline open is retried by `Composer.tsx`'s `submit()`,
+  which still calls `ensureMaterialized` unconditionally before every send — the one remaining
+  place other than `openNewChat` and `StatusBar.tsx`'s `handleSelectModel` that calls it).
+  `ensureMaterialized` itself resolves the default model (`resolveDefaultModel`, a daemon-cached
+  `resolve_default_model` lookup — `packages/server/AGENTS.md` § `ProviderRegistry`) when the
+  entry has none yet, seeding `session.model`/`modelProvider` from it — re-checking the CURRENT
+  entry (not a stale snapshot) right before applying that default, so an explicit pick that lands
+  while the lookup is still in flight always wins over the resolved default, never the reverse.
+  `ensureMaterialized` is a no-`initialPrompt` `client.createAgent(...)` that the daemon persists
+  WITHOUT spawning a provider process (`packages/server/AGENTS.md` § "Deferred draft creation"),
+  carrying whatever model is on the (possibly just-seeded) entry as `config.model`/
+  `config.modelProvider`. The daemon replays that pinned model on the process's first real spawn
+  (`spawnOrResumeSession`), unconditionally — this is why `setModel` always carries
+  `modelProvider` alongside `modelId`, not just for the already-bound case. `ensureMaterialized`
+  is idempotent (a no-op once bound) and serializes concurrent callers (eager-open racing a model
+  pick racing Send) onto one `createAgent` call via its `materializing` in-flight map — this is
+  also why `Composer.tsx` needs no "watch the raw broadcast for the first turn" dance: by the time
+  a turn can start, `agentId` is already bound and `useAgentStream` is already subscribed.
 
-  **Selecting a model (`StatusBar.tsx`'s `handleSelectModel`), or typing the very first character
-  (`Composer.tsx`'s `handleTextareaChange`),** materializes the draft (`stores/materialize.ts`'s
-  `ensureMaterialized`) if it isn't bound yet: a no-`initialPrompt` `client.createAgent(...)`
-  that the daemon persists WITHOUT spawning a provider process (`packages/server/AGENTS.md` §
-  "Deferred draft creation"), carrying whatever model is CURRENTLY on the session entry — the
-  untouched preselected default, or the pick that just landed via
-  `useSessionStore.setModel(sessionId, modelId, modelProvider)` — as
-  `config.model`/`config.modelProvider`. The daemon replays that pinned model on the process's
-  first real spawn (`spawnOrResumeSession`), unconditionally — this is why `setModel` always
-  carries `modelProvider` alongside `modelId` now, not just for the already-bound case.
-  `ensureMaterialized` is idempotent (a no-op once bound) and serializes concurrent callers (a
-  model pick racing a keystroke racing Send) onto one `createAgent` call, so `Composer.tsx`'s
-  `submit()` also calls it unconditionally right before every send — this is also why
-  `Composer.tsx` no longer needs the old "watch the raw broadcast for the first turn" dance: by
-  the time a turn can start, `agentId` is already bound and `useAgentStream` is already
-  subscribed.
-
-  **Once the session has a bound `agentId`,** `StatusBar.tsx`'s `handleSelectModel` instead fires
-  `client.agent(agentId).setModel(modelProvider, modelId)` (`agent_set_model_request`) directly
-  (no re-materialization — that already happened), swallowing a rejection with no dedicated UI
+  **Once the session has a bound `agentId`,** `StatusBar.tsx`'s `handleSelectModel` still awaits
+  `ensureMaterialized` unconditionally (a no-op once bound, the common case now) before firing
+  `client.agent(agentId).setModel(modelProvider, modelId)` (`agent_set_model_request`) — one path
+  regardless of materialization state, unlike the old branch that returned early (silently
+  dropping the pick) whenever a materialize was already in flight, which eager materialization
+  made the COMMON case rather than a rare race. Rejections are swallowed with no dedicated UI
   surface (same swallow-and-let-the-broadcast-be-authoritative convention as `Composer.tsx`'s
   `submit()`). **A bound `agentId` does NOT imply a live process** — a deferred draft's `agentId`
   is set the instant it materializes, well before the first send that actually spawns one — so
   this call can legitimately hit an agent with no live session at all. That distinction is
-  handled entirely server-side now (`agent_set_model_request`'s handler persists directly to
+  handled entirely server-side (`agent_set_model_request`'s handler persists directly to
   `record.config` when there's no live session — see `packages/server/AGENTS.md` §
-  `list_agents_request`); the client never needs to know which case it's in, and the swallowed
-  rejection above only ever fires for a genuine failure (unsupported provider, dead process),
-  not for this once-common, previously-silent no-op. **Never pass the pi-studio `AgentClient` id
-  (`"pi"`) as this `provider` argument** — that was a real shipped bug (`agent_set_model_request`
-  always failed server-side with `"Model not found: pi/<modelId>"`, silently reverting to the
-  default model on the next turn since the change never actually applied): Pi's `set_model` RPC's
-  `provider` field is the model's own LLM provider, a completely different namespace from the
-  pi-studio provider id used only to pick which `AgentClient` answers `list_provider_models`.
-  Model discovery goes through the daemon's `list_provider_models` RPC (both bootstraps, backed
-  by `AgentClient.listModels` with no spawned agent — see `packages/server/AGENTS.md` §
-  ProviderRegistry and `packages/client/AGENTS.md` § `PiStudioProviderActions`).
+  `list_agents_request`); the client never needs to know which case it's in. **Never pass the
+  pi-studio `AgentClient` id (`"pi"`) as this `provider` argument** — that was a real shipped bug
+  (`agent_set_model_request` always failed server-side with `"Model not found: pi/<modelId>"`,
+  silently reverting to the default model on the next turn since the change never actually
+  applied): Pi's `set_model` RPC's `provider` field is the model's own LLM provider, a completely
+  different namespace from the pi-studio provider id used only to pick which `AgentClient`
+  answers `list_provider_models`. Model discovery goes through the daemon's
+  `list_provider_models` RPC (both bootstraps, backed by `AgentClient.listModels` with no spawned
+  agent — see `packages/server/AGENTS.md` § ProviderRegistry and `packages/client/AGENTS.md` §
+  `PiStudioProviderActions`).
+
+  **A never-used chat is discarded on close, not left as clutter — but persists across a refresh
+  until then.** Because every "New chat" tab now persists an `AgentRecord` immediately, closing it
+  without ever sending anything (or even just picking a model) would otherwise leave an empty,
+  permanently idle record behind. Every UI close path (`TabStrip.tsx`'s × and middle-click,
+  `use-shortcuts.ts`'s Ctrl/Cmd+W) MUST go through `tab-store.ts`'s exported `closeTab(tabId)`
+  wrapper, never `useTabStore.getState().close` directly: it closes the tab as before, then —
+  only for a `"chat"` tab — fires `materialize.ts`'s `discardIfEmpty(client, sessionId)`, which
+  hard-deletes the agent (`delete_agent`) and removes the local `SessionEntry` when
+  `userMessageCount === 0` AND the timeline has zero rows (awaiting any still-in-flight
+  `ensureMaterialized` first, so the record it's about to create doesn't leak). A session with
+  ANY timeline row — including a queued/optimistic one — is kept; `SessionContextMenu.tsx`'s
+  explicit Archive/Delete actions are untouched (an explicit delete must never depend on
+  emptiness). **`use-session-restore.ts` hydrates every known agent unconditionally, including an
+  idle, still-empty draft** — a materialized-but-untouched "New chat" is a real persisted session
+  the instant `openNewChat` creates it, not a phantom the UI should hide on reconnect; it stays
+  visible (and its tab reopens) across a refresh/reconnect for as long as nobody explicitly closes
+  it or deletes it. Only `closeTab`'s `discardIfEmpty` (above) or an explicit delete ever removes
+  one.
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
   screen, unlike any feature panel), renders six segments for the **active session** in order:
   model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The

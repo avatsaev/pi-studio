@@ -3,9 +3,11 @@
  * server's deferred-spawn draft creation (`agent-service.ts` `handleCreate`/
  * `spawnOrResumeSession`). Opening a "New chat" tab creates only a client-only `SessionEntry`
  * (`session-store.ts` `createSession`, `agentId: null`) — nothing is persisted or spawned
- * server-side until the user actually invests something in it (picks a model, starts typing, or
- * sends), at which point `ensureMaterialized` commits it into a real, restorable `AgentRecord`
- * without spawning a `pi` process (that stays deferred to the first send).
+ * server-side until `tab-store.ts` `openNewChat` eagerly calls `ensureMaterialized` the moment the
+ * tab is created, which commits it into a real, restorable `AgentRecord` without spawning a `pi`
+ * process (that stays deferred to the first send). `ensureMaterialized` also resolves the default
+ * model itself when the entry doesn't have one yet, so callers never need a separate display-only
+ * lookup before materializing.
  */
 
 import type { PiStudioClient } from "@av-pi-studio/client";
@@ -28,10 +30,9 @@ export interface DefaultModel {
 const defaultModelCache = new WeakMap<PiStudioClient, Promise<DefaultModel>>();
 
 /** Resolve the model a brand-new chat would run on with no override — settings' configured
- * default, else the provider's built-in default — WITHOUT spawning anything. Seeds a new
- * session's displayed model (`tab-store.ts` `openNewChat`) purely for display: it is never itself
- * persisted or replayed until `ensureMaterialized` commits whatever model is showing at that
- * point (which may since have been overridden by an explicit pick). */
+ * default, else the provider's built-in default — WITHOUT spawning anything. Called by
+ * `ensureMaterialized` itself when an entry has no model yet; exported separately only because
+ * cache scope (per `PiStudioClient` instance) is useful to assert on directly in tests. */
 export function resolveDefaultModel(client: PiStudioClient, provider = "pi"): Promise<DefaultModel> {
   const cached = defaultModelCache.get(client);
   if (cached) return cached;
@@ -43,8 +44,8 @@ export function resolveDefaultModel(client: PiStudioClient, provider = "pi"): Pr
   return promise;
 }
 
-/** In-flight materializations, keyed by `sessionId` — serializes concurrent callers (a model pick
- * racing a composer keystroke racing Send) onto the same `createAgent` call instead of each
+/** In-flight materializations, keyed by `sessionId` — serializes concurrent callers (eager-open
+ * racing an explicit model pick racing Send) onto the same `createAgent` call instead of each
  * firing its own and racing to `bindAgent`. */
 const materializing = new Map<string, Promise<string>>();
 
@@ -69,12 +70,31 @@ export function ensureMaterialized(client: PiStudioClient, sessionId: string): P
   if (inFlight) return inFlight;
 
   const promise = (async () => {
+    // Seed the default model before building `config` — `spawnOrResumeSession` reads
+    // `record.config.model` at spawn time, so this must land in the SAME `createAgent` call
+    // rather than a follow-up `setModel` (see module header). Skipped once the entry already has
+    // a model, whether from an earlier preselect or an explicit pick — and re-checked against the
+    // CURRENT entry (not the stale `entry` closure) after the lookup resolves, so an explicit
+    // pick that lands while the lookup is in flight always wins over the resolved default.
+    if (!entry.model) {
+      const resolved = await resolveDefaultModel(client);
+      const current = useSessionStore.getState().sessions[sessionId];
+      if (resolved.model && current && !current.model) {
+        useSessionStore.getState().setModel(sessionId, resolved.model, resolved.modelProvider);
+      }
+    }
+    // Re-read: an explicit pick or a `remove` may have landed while the lookup above was in
+    // flight (a no-op re-read when no await happened above, since nothing else runs between two
+    // synchronous statements).
+    const fresh = useSessionStore.getState().sessions[sessionId];
+    if (!fresh) throw new Error(`unknown session: ${sessionId}`);
+
     const config: { provider: string; cwd: string; model?: string; modelProvider?: string } = {
       provider: "pi",
-      cwd: entry.cwd || "~",
+      cwd: fresh.cwd || "~",
     };
-    if (entry.model) config.model = entry.model;
-    if (entry.modelProvider) config.modelProvider = entry.modelProvider;
+    if (fresh.model) config.model = fresh.model;
+    if (fresh.modelProvider) config.modelProvider = fresh.modelProvider;
     const result = await client.createAgent({ config, labels: {} });
     useSessionStore.getState().bindAgent(sessionId, result.agentId);
     return result.agentId;
@@ -83,4 +103,39 @@ export function ensureMaterialized(client: PiStudioClient, sessionId: string): P
   materializing.set(sessionId, promise);
   void promise.finally(() => materializing.delete(sessionId));
   return promise;
+}
+
+/** Discard a chat whose conversation never started: closing its tab throws it away instead of
+ * leaving an empty persisted record behind forever. A record that's never closed persists
+ * indefinitely by design (`use-session-restore.ts` hydrates every known agent unconditionally,
+ * including an untouched draft) — this is the ONLY path that removes one short of an explicit
+ * delete. A chat with any timeline row is kept (closing the tab keeps the session, as before).
+ * Returns whether the session was removed, purely for tests — callers (`tab-store.ts`
+ * `closeTab`) treat this as fire-and-forget. */
+export async function discardIfEmpty(
+  client: PiStudioClient | null,
+  sessionId: string,
+): Promise<boolean> {
+  const entry = useSessionStore.getState().sessions[sessionId];
+  if (!entry) return false;
+  if (entry.userMessageCount > 0 || entry.timeline.rows.length > 0) return false;
+
+  // An eager materialize (`tab-store.ts` `openNewChat`) may still be in flight — await it so the
+  // `agentId` it is about to bind isn't leaked (created, then never deleted because `entry`
+  // was read before the bind landed).
+  await materializing.get(sessionId)?.catch(() => {});
+  const fresh = useSessionStore.getState().sessions[sessionId];
+  if (!fresh) return false;
+
+  if (fresh.agentId && client) {
+    await client
+      .agent(fresh.agentId)
+      .delete()
+      .catch(() => {
+        // Best-effort hard delete: the local entry goes away regardless (mirrors
+        // `SessionContextMenu.remove`'s convention), even if the RPC itself failed.
+      });
+  }
+  useSessionStore.getState().remove(sessionId);
+  return true;
 }

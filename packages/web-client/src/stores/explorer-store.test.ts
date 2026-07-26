@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useExplorerStore } from "./explorer-store.js";
 
 beforeEach(() => {
-  useExplorerStore.setState({ rootPath: "", expanded: new Set(), expandedByRoot: new Map() });
+  useExplorerStore.setState({
+    rootPath: "",
+    expanded: new Set(),
+    expandedByRoot: new Map(),
+    draft: null,
+  });
 });
 
 describe("explorer store — tree expansion", () => {
@@ -48,5 +53,29 @@ describe("explorer store — tree expansion", () => {
     useExplorerStore.getState().toggle("/home/dev/project-a/src");
     useExplorerStore.getState().setRoot("/home/dev/project-c");
     expect(useExplorerStore.getState().expanded).toEqual(new Set(["/home/dev/project-c"]));
+  });
+});
+
+describe("explorer store — draft", () => {
+  it("startDraft sets draft and expands the target directory", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project");
+    useExplorerStore.getState().startDraft("/home/dev/project/src", "directory");
+    const s = useExplorerStore.getState();
+    expect(s.draft).toEqual({ parentPath: "/home/dev/project/src", kind: "directory" });
+    expect(s.expanded.has("/home/dev/project/src")).toBe(true);
+  });
+
+  it("cancelDraft clears the draft", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project");
+    useExplorerStore.getState().startDraft("/home/dev/project/src", "file");
+    useExplorerStore.getState().cancelDraft();
+    expect(useExplorerStore.getState().draft).toBeNull();
+  });
+
+  it("setRoot clears any in-progress draft", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    useExplorerStore.getState().startDraft("/home/dev/project-a/src", "file");
+    useExplorerStore.getState().setRoot("/home/dev/project-b");
+    expect(useExplorerStore.getState().draft).toBeNull();
   });
 });

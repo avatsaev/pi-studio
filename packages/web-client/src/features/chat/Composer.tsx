@@ -24,13 +24,14 @@
  * (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and confirms it in
  * place instead of appending a duplicate.
  *
- * MODEL PRESELECT: a brand-new session shows the model it would actually run on (`tab-store.ts`
- * `openNewChat` seeds it via `resolveDefaultModel`) before anything is materialized. Picking a
- * different model (`StatusBar.tsx`'s `handleSelectModel`, moved there from this file since the
- * model picker now lives in the footer, not the composer) or typing the first character here
- * both materialize the draft immediately, pinning whatever model is CURRENTLY displayed into
- * `config.model`/`config.modelProvider` — replayed by the server on first spawn regardless of
- * whether it's the untouched default or an explicit pick (`spawnOrResumeSession`).
+ * MODEL & MATERIALIZATION: a chat materializes the instant its tab is created
+ * (`tab-store.ts` `openNewChat` calls `ensureMaterialized`, which also resolves and pins the
+ * default model into the record if none was set yet) — long before this composer even mounts, in
+ * the common case. `submit`'s own `ensureMaterialized` call below is the retry path: it only does
+ * real work when the eager materialize failed or never ran (opened while disconnected). Picking a
+ * different model (`StatusBar.tsx`'s `handleSelectModel`) updates the already-materialized
+ * record's `config.model`/`config.modelProvider` directly — replayed by the server on first spawn
+ * regardless of whether it's the resolved default or an explicit pick (`spawnOrResumeSession`).
  *
  * STEERING: while the agent is running, the primary action becomes **Steer** instead of Send
  * (`send_agent_prompt` is only legal when idle — see AGENTS.md "Steering"). Steer reuses the exact
@@ -122,16 +123,8 @@ export function Composer({ sessionId }: ComposerProps) {
   }
 
   function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
-    const wasEmpty = text.length === 0;
     setText(ev.target.value);
     autoResize(ev.target);
-    // First keystroke on a still-client-only draft materializes it — pins whatever model is
-    // currently displayed (the preselected default, or an earlier explicit pick) into the record.
-    if (wasEmpty && ev.target.value.length > 0 && client && session && !session.agentId) {
-      void ensureMaterialized(client, sessionId).catch(() => {
-        // Best-effort: if this fails, `submit`'s own `ensureMaterialized` call retries on send.
-      });
-    }
   }
 
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -180,10 +173,10 @@ export function Composer({ sessionId }: ComposerProps) {
         if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
       } else {
         if (!session.agentId) setCwd(sessionId, session.cwd || "~");
-        // Materializes the still-client-only draft if `handleTextareaChange`/`handleSelectModel`
-        // haven't already (e.g. text arrived by some path other than the tracked keystroke) — a
-        // no-op once bound. `useAgentStream` attaches the instant `agentId` is bound, before this
-        // turn's first event can possibly arrive (see file header), so `send` needs no separate
+        // Retry path (see file header "MODEL & MATERIALIZATION") for a session whose eager
+        // materialize (`tab-store.ts` `openNewChat`) never ran or failed — a no-op once already
+        // bound. `useAgentStream` attaches the instant `agentId` is bound, before this turn's
+        // first event can possibly arrive (see file header), so `send` needs no separate
         // first-turn broadcast path the way a combined create-and-run RPC used to.
         const agentId = await ensureMaterialized(client, sessionId);
         await client.agent(agentId).send(prompt, { clientMessageId, images: rpcImages });

@@ -4,7 +4,7 @@
  */
 
 import { useEffect } from "react";
-import { useTabStore, openNewTerminal } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, openNewTerminal, closeTab } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 
 export function useShortcuts(): void {
@@ -28,12 +28,12 @@ export function useShortcuts(): void {
       }
 
       if (mod && ev.key.toLowerCase() === "w") {
-        const { activeTabId, tabs, close } = useTabStore.getState();
+        const { activeTabId, tabs } = useTabStore.getState();
         if (!activeTabId) return;
         const tab = tabs.find((t) => t.id === activeTabId);
         if (tab?.closable !== false) {
           ev.preventDefault();
-          close(activeTabId);
+          closeTab(activeTabId);
         }
       }
     }

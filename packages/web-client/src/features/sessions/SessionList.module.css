@@ -36,6 +36,7 @@
 }
 .item.active {
   background: var(--pi-color-surfaceSunken, #111);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
 }
 .title {
   display: flex;
@@ -128,4 +129,9 @@
 }
 .workspaceSessions {
   padding-left: 12px;
+}
+.emptyState {
+  padding: 12px 10px;
+  font-size: 12px;
+  color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

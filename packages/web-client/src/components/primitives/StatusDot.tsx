@@ -4,7 +4,11 @@
  */
 
 import styles from "./StatusDot.module.css";
-import { statusDotColor, STATUS_DOT_SIZE, type StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
+import {
+  statusDotColor,
+  STATUS_DOT_SIZE,
+  type StatusDotInput,
+} from "@pi-studio-ui/ui/status-dot.js";
 
 const COLOR_TOKEN_VAR: Record<string, string> = {
   accent: "var(--pi-color-accent)",
@@ -22,14 +26,22 @@ export function StatusDot({ className, ...input }: StatusDotProps) {
   const colorToken = statusDotColor(input);
   if (!colorToken) return null;
 
+  // Running (and not overridden by an attention state) gets a spinning ring instead of a flat
+  // dot — a static "blue circle" reads as just another status color, not as work in progress.
+  const spinning = input.status === "running" && !input.requiresAttention;
+  const color = spinning
+    ? "var(--pi-color-accentBright, #a2b4d7)" // brighter than plain accent — must read clearly
+    : // against the dark surface at the small size this ring renders at.
+      (COLOR_TOKEN_VAR[colorToken] ?? "currentColor");
+
   return (
     <span
-      className={`${styles.dot}${className ? ` ${className}` : ""}`}
-      style={{
-        width: STATUS_DOT_SIZE,
-        height: STATUS_DOT_SIZE,
-        backgroundColor: COLOR_TOKEN_VAR[colorToken] ?? "currentColor",
-      }}
+      className={`${spinning ? styles.spinner : styles.dot}${className ? ` ${className}` : ""}`}
+      style={
+        spinning
+          ? { borderTopColor: color, borderRightColor: color }
+          : { width: STATUS_DOT_SIZE, height: STATUS_DOT_SIZE, backgroundColor: color }
+      }
       role="presentation"
     />
   );

@@ -8,6 +8,7 @@
 import { ChevronRight, Folder, File as FileIcon, MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
 import type { TreeRow } from "./file-tree.js";
+import { TreeDraftRow } from "./TreeDraftRow.js";
 import styles from "./FileExplorer.module.css";
 
 export interface TreeNodeProps {
@@ -15,11 +16,20 @@ export interface TreeNodeProps {
   onToggle(path: string): void;
   onOpenFile(path: string): void;
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
+  onSubmitDraft(parentPath: string, name: string): void;
+  onCancelDraft(): void;
 }
 
 const INDENT_PX = 14;
 
-export function TreeNode({ row, onToggle, onOpenFile, onContextMenu }: TreeNodeProps) {
+export function TreeNode({
+  row,
+  onToggle,
+  onOpenFile,
+  onContextMenu,
+  onSubmitDraft,
+  onCancelDraft,
+}: TreeNodeProps) {
   const indent = { paddingLeft: 8 + row.depth * INDENT_PX };
 
   if (row.kind === "loading") {
@@ -34,6 +44,16 @@ export function TreeNode({ row, onToggle, onOpenFile, onContextMenu }: TreeNodeP
       <div className={clsx(styles.statusRow, styles.statusRowError)} style={indent}>
         {row.message ?? "failed to load"}
       </div>
+    );
+  }
+  if (row.kind === "draft") {
+    return (
+      <TreeDraftRow
+        draftKind={row.draftKind}
+        indentStyle={indent}
+        onSubmit={(name) => onSubmitDraft(row.parentPath, name)}
+        onCancel={onCancelDraft}
+      />
     );
   }
 

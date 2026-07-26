@@ -24,6 +24,7 @@ import {
   useTabStore,
   openNewChat,
   openNewTerminal,
+  closeTab,
   type Tab,
   type TabKind,
 } from "@pi-studio-ui/stores/tab-store.js";
@@ -39,7 +40,6 @@ const ICON_BY_KIND: Record<TabKind, typeof MessageSquare> = {
 function TabItem({ tab }: { tab: Tab }) {
   const activeTabId = useTabStore((s) => s.activeTabId);
   const activate = useTabStore((s) => s.activate);
-  const close = useTabStore((s) => s.close);
   const Icon = ICON_BY_KIND[tab.kind];
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -57,7 +57,7 @@ function TabItem({ tab }: { tab: Tab }) {
       }}
       onClick={() => activate(tab.id)}
       onAuxClick={(ev) => {
-        if (ev.button === 1 && tab.closable) close(tab.id);
+        if (ev.button === 1 && tab.closable) closeTab(tab.id);
       }}
       title={tab.label}
       {...attributes}
@@ -72,7 +72,7 @@ function TabItem({ tab }: { tab: Tab }) {
           className={styles.close}
           onClick={(ev) => {
             ev.stopPropagation();
-            close(tab.id);
+            closeTab(tab.id);
           }}
         >
           <X size={12} />

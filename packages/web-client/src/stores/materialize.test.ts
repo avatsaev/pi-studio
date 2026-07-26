@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiStudioClient, ResolveDefaultModelResponse } from "@av-pi-studio/client";
 import { useSessionStore } from "./session-store.js";
-import { ensureMaterialized, resolveDefaultModel } from "./materialize.js";
+import { ensureMaterialized, resolveDefaultModel, discardIfEmpty } from "./materialize.js";
 
 beforeEach(() => {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
@@ -10,8 +10,13 @@ beforeEach(() => {
 function fakeClient(overrides: {
   resolveDefaultModel?: () => Promise<ResolveDefaultModelResponse>;
   createAgent?: (req: unknown) => Promise<{ agentId: string }>;
-} = {}): { client: PiStudioClient; createAgentCalls: unknown[] } {
+} = {}): {
+  client: PiStudioClient;
+  createAgentCalls: unknown[];
+  deleteCalls: string[];
+} {
   const createAgentCalls: unknown[] = [];
+  const deleteCalls: string[] = [];
   const createAgent =
     overrides.createAgent ??
     (() => Promise.resolve({ agentId: `agent-${createAgentCalls.length + 1}` }));
@@ -32,8 +37,14 @@ function fakeClient(overrides: {
       createAgentCalls.push(req);
       return createAgent(req);
     },
+    agent: (agentId: string) => ({
+      delete: () => {
+        deleteCalls.push(agentId);
+        return Promise.resolve({});
+      },
+    }),
   } as unknown as PiStudioClient;
-  return { client, createAgentCalls };
+  return { client, createAgentCalls, deleteCalls };
 }
 
 describe("resolveDefaultModel", () => {
@@ -144,10 +155,58 @@ describe("ensureMaterialized", () => {
     ]);
   });
 
-  it("materializes without a model when none is set on the entry (untouched draft, no preselect yet)", async () => {
+  it("seeds the default model into the store and into the createAgent config when the entry has none", async () => {
     useSessionStore.getState().createSession("/work");
     const sessionId = useSessionStore.getState().order[0]!;
     const { client, createAgentCalls } = fakeClient();
+
+    await ensureMaterialized(client, sessionId);
+
+    expect(createAgentCalls).toEqual([
+      {
+        config: { provider: "pi", cwd: "/work", model: "claude-sonnet-5", modelProvider: "anthropic" },
+        labels: {},
+      },
+    ]);
+    expect(useSessionStore.getState().sessions[sessionId]?.model).toBe("claude-sonnet-5");
+  });
+
+  it("an explicit pick landing during the default-model lookup wins over the resolved default", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    const { promise: lookupPromise, resolve: resolveLookup } = Promise.withResolvers<{
+      type: "resolve_default_model_response";
+      requestId: string;
+      provider: string;
+      model?: string;
+      modelProvider?: string;
+    }>();
+    const { client, createAgentCalls } = fakeClient({
+      resolveDefaultModel: () => lookupPromise,
+    });
+
+    const materialized = ensureMaterialized(client, sessionId);
+    useSessionStore.getState().setModel(sessionId, "gpt-5", "openai");
+    resolveLookup({
+      type: "resolve_default_model_response",
+      requestId: "r1",
+      provider: "pi",
+      model: "claude-sonnet-5",
+      modelProvider: "anthropic",
+    });
+    await materialized;
+
+    expect(createAgentCalls).toEqual([
+      { config: { provider: "pi", cwd: "/work", model: "gpt-5", modelProvider: "openai" }, labels: {} },
+    ]);
+  });
+
+  it("materializes with no model when the default lookup itself resolves to nothing (cached empty result)", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    const { client, createAgentCalls } = fakeClient({
+      resolveDefaultModel: () => Promise.reject(new Error("boom")),
+    });
 
     await ensureMaterialized(client, sessionId);
 
@@ -184,5 +243,81 @@ describe("ensureMaterialized", () => {
     await ensureMaterialized(client, sessionId);
 
     expect(createAgentCalls).toHaveLength(1);
+  });
+});
+
+describe("discardIfEmpty", () => {
+  it("hard-deletes and removes a never-used, already-bound session", async () => {
+    useSessionStore.getState().hydrate({
+      id: "s1",
+      agentId: "agent-1",
+      title: "New chat",
+      status: "idle",
+      cwd: "/work",
+      timeline: { rows: [] } as never,
+      userMessageCount: 0,
+    });
+    const { client, deleteCalls } = fakeClient();
+
+    await expect(discardIfEmpty(client, "s1")).resolves.toBe(true);
+
+    expect(deleteCalls).toEqual(["agent-1"]);
+    expect(useSessionStore.getState().sessions["s1"]).toBeUndefined();
+    expect(useSessionStore.getState().order).not.toContain("s1");
+  });
+
+  it("keeps a session with any timeline row, even if bound", async () => {
+    useSessionStore.getState().hydrate({
+      id: "s1",
+      agentId: "agent-1",
+      title: "chat",
+      status: "idle",
+      cwd: "/work",
+      timeline: { rows: [{}] } as never,
+      userMessageCount: 0,
+    });
+    const { client, deleteCalls } = fakeClient();
+
+    await expect(discardIfEmpty(client, "s1")).resolves.toBe(false);
+
+    expect(deleteCalls).toHaveLength(0);
+    expect(useSessionStore.getState().sessions["s1"]).toBeDefined();
+  });
+
+  it("removes an offline (never-materialized) draft locally, with no RPC", async () => {
+    useSessionStore.getState().hydrate({
+      id: "s1",
+      agentId: null,
+      title: "New chat",
+      status: "idle",
+      cwd: "/work",
+      timeline: { rows: [] } as never,
+      userMessageCount: 0,
+    });
+    const { client, deleteCalls } = fakeClient();
+
+    await expect(discardIfEmpty(client, "s1")).resolves.toBe(true);
+
+    expect(deleteCalls).toHaveLength(0);
+    expect(useSessionStore.getState().sessions["s1"]).toBeUndefined();
+  });
+
+  it("awaits an in-flight materialize and deletes the agent it just created, leaking nothing", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    const { promise: createPromise, resolve: resolveCreate } = Promise.withResolvers<{
+      agentId: string;
+    }>();
+    const { client, deleteCalls } = fakeClient({
+      createAgent: () => createPromise,
+    });
+
+    void ensureMaterialized(client, sessionId);
+    const discarded = discardIfEmpty(client, sessionId);
+    resolveCreate({ agentId: "agent-eager" });
+
+    await expect(discarded).resolves.toBe(true);
+    expect(deleteCalls).toEqual(["agent-eager"]);
+    expect(useSessionStore.getState().sessions[sessionId]).toBeUndefined();
   });
 });
