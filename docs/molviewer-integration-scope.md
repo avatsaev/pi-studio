@@ -1,12 +1,13 @@
 # Molviewer integration — technical scope
 
-Status: **scoping only, no code written**. Every claim below is grounded in the current source
-(file:line cited); anything not yet decided is marked `[DECISION NEEDED]`, anything not yet
-verified against runtime behavior is marked `[VERIFY]`.
+Status: **decisions resolved, ready to implement — no code written yet.** Every claim below is
+grounded in the current source (file:line cited); §4 records the six resolved decisions and their
+rationale. Anything still unverified against runtime behavior is marked `[VERIFY]` and is an
+implementation-time check, not an open question.
 
 ## 1. What we're building
 
-Four observable behaviors:
+Five observable behaviors:
 
 1. Opening a supported molecular file from the file explorer opens a **molecule viewer** tab
    (built on `@molviewer/core`'s `<MolViewer>`) instead of `TextViewer`.
@@ -18,8 +19,19 @@ Four observable behaviors:
    edits** (`isModified()` / `onModifiedChange`). This requires the daemon to push a live
    file-change notification, which **does not exist today in any form** (confirmed below) — it is
    the one genuinely new subsystem this feature needs.
-4. Reuses the existing file-viewer registry, tab store, and TabStrip infra as-is; no new
-   parallel infrastructure.
+4. **The file tree updates live too.** Today it does not: `useExplorerTree(expanded)` is only
+   refreshed by `invalidateAfterToolCompletion` (`files-changed.ts:34–49`), a client-side 500 ms
+   debounce that fires when an **agent tool** completes — so a file created/deleted by a terminal
+   command, an external editor, `git checkout`, or a build step is invisible until something else
+   invalidates the cache. The same watcher covers it: `FileWatchService` already watches
+   *directories* internally (that is how it survives atomic-rename saves), and the tree already
+   fetches one query per expanded directory keyed `rpcKeys.explorer(path)` — so "subscribe each
+   expanded directory, invalidate exactly its key on push" is a 1:1 fit with existing state, with
+   no tree-diffing and no new data model.
+5. Reuses the existing tab/panel host, lazy-load, and `useFileDownload` infrastructure. The only
+   new web-client surface is one `TabKind` + one panel + one viewer component (§4.3); the only new
+   daemon surface is the file-watch service (§3.2) plus the shared session-cleanup registry that
+   fixes an existing leak on the way past (§4.5). No parallel/duplicate infrastructure anywhere.
 
 ## 2. Current state (grounded)
 
@@ -33,7 +45,9 @@ Four observable behaviors:
   files, then `isBinary` hint, else `"text"`. The registry's own header comment (lines 1–7) states
   the extension point directly: adding a format is "one entry in `EXT_TO_VIEWER`/
   `MIME_PREFIX_TO_VIEWER` plus one entry in `VIEWER_BY_KIND`, no changes to `FilePanel` itself."
-  This is exactly the seam we use — no registry redesign needed, just a `"molecule"` kind.
+  This is the seam behavior (1) uses — with one adjustment, see §2.2 and §4.3: molecule files get
+  their own `TabKind`, so the registry exports the *extension set* rather than gaining a new
+  `ViewerKind`.
 
 ### 2.2 How a file becomes a tab
 
@@ -51,12 +65,20 @@ live in `stores/tab-store.ts`:
   `const viewerKind = detectViewerKind(path); const Viewer = VIEWER_BY_KIND[viewerKind];` then
   `<Viewer path={path} />` (line 77).
 
-**Consequence for this feature**: a molecule file opened from the explorer still becomes a
-`kind: "file"` tab — nothing in the tab-store/panel-registry layer needs to change for behavior
-(1). `detectViewerKind` returning `"molecule"` for `.pdb`/`.mol`/etc. is sufficient; `FilePanel`
-picks up the new `VIEWER_BY_KIND["molecule"]` entry automatically. The File/Diff toggle header
-(`FilePanel.tsx:57–72`) still renders around it, which is correct — a molecule file can still have
-a git diff.
+**Consequence for this feature** (as resolved in §4.3): molecule files get their own
+`kind: "molecule"` tab rather than riding `kind: "file"`, so the routing decision moves to the
+single site that opens file tabs — `FileExplorer.tsx:83–88` — which asks
+`isMoleculeFile(path)` (new export from `viewer-registry.ts`, keeping all format knowledge in the
+one module that already owns it) and picks the kind. `VIEWER_BY_KIND` gains **no** `"molecule"`
+entry: `FilePanel` never renders a molecule viewer, so an unused registry slot would be dead
+weight. Grepped and confirmed `FileExplorer.tsx:83–88` is the **only** site in the web-client that
+opens a `kind: "file"` tab, so this is a one-line-of-logic change with no second opener to keep in
+sync.
+
+Dropping `FilePanel`'s File/Diff toggle (`FilePanel.tsx:57–72`) for molecule tabs costs nothing:
+diff tabs are minted independently by the git Changes panel (`ChangesPanel.tsx:32–37`,
+`kind: "diff"` → `FilePanel` → text diff), so a `.pdb`'s git diff stays reachable exactly as it is
+today — just from the git panel rather than from a toggle inside the molecule tab.
 
 ### 2.3 Content fetching — two existing paths, different size ceilings
 
@@ -72,11 +94,26 @@ a git diff.
   .download(path)`.
 
 **Decision**: molecule files use `useFileDownload`, not `useFileRead`. Rationale: MD trajectory
-files (`.lammpstrj`, multi-frame XYZ/extXYZ) routinely exceed 512 KiB — `molviewer`'s own docs
-describe multi-GB trajectory support via a disk-backed `FrameSource` — so hard-capping at 512 KiB
-would silently break the exact files this viewer exists for. All molviewer-supported formats are
-text, so the new hook decodes the downloaded `Uint8Array` via `TextDecoder` and hands the string to
-molviewer's `sourceFromText(filename, content)` (see `docs/molviewer-core-doc.md`).
+files (`.lammpstrj`, multi-frame XYZ/extXYZ) routinely exceed 512 KiB, so hard-capping at 512 KiB
+would silently break the exact files this viewer exists for. **No decode step is needed**:
+`MolViewerSource` includes a `{ url: string; name?: string }` variant
+(`node_modules/@molviewer/core/dist/types/ui/api.d.ts:20–22`), so the object URL `useFileDownload`
+already produces is handed straight to molviewer, which reads it itself (`name` supplies the
+extension it resolves the format from, api.d.ts:12–13). That also means the hook is reused verbatim
+— no `TextDecoder`, no new fetch hook, and `use-file-download.ts:46–61`'s existing
+revoke-on-supersede lifecycle is exactly what the live-reload path needs.
+
+**Related change folded into this sprint (task-009)**: the inline cap is *also* the reason a 2 MB log
+is unopenable in the text viewer today, so it is raised in the same pass — 512 KiB →
+**5 MiB** (`MAX_INLINE_FILE_READ_BYTES`, a shared constant, since the literal is currently duplicated
+in both bootstraps) — and, more importantly, the handler becomes **async**. `readFileSync` on the
+inline path blocks the daemon's entire event loop (every agent stream, terminal byte and heartbeat)
+for the duration of the read, which is the real constraint that kept the cap low; raising the number
+without fixing that would trade one bad failure mode for a worse one. Above 5 MiB `TextViewer` falls
+back to the same uncapped download path described above, so file size stops being a wall entirely,
+with 30 MiB as a *display* ceiling (CodeMirror + `lineWrapping`, `CodeView.tsx:59`) beyond which it
+offers a download instead of rendering. Net effect: no multi-MB string ever crosses a JSON text
+frame — the relay would otherwise NaCl-box a full-size copy of it too.
 
 ### 2.4 TabStrip "+" menu — `packages/web-client/src/features/workspace/TabStrip.tsx`
 
@@ -241,34 +278,37 @@ mount `<MolViewer />` with no `source` — zero new UI work for the empty case i
 
 | File | Change |
 |---|---|
-| `viewer-registry.ts` | Add `"molecule"` to `ViewerKind`; add extensions to `EXT_TO_VIEWER`: `pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, data*, xsf` (LAMMPS `data` has no fixed extension — `[DECISION NEEDED]`, see §4); register `MoleculeViewer` in `VIEWER_BY_KIND`. |
-| `MoleculeViewer.tsx` (new) | `ViewerProps` → `useFileDownload(path)` → decode to text → `<MolViewer source={{name, text}} sourceMode="update" ref={...} onModifiedChange={...} .../>`. Owns the "reload iff not modified" logic (§3.2). |
-| `tab-store.ts` | Add `"molecule"` to `TabKind`; add `MoleculeTabData { path: string \| null }` (null = empty tab); add `tabIds.molecule`; add `openNewMolecule(workspaceCwd)` mirroring `openNewTerminal`. |
-| `panel-registry.ts` | Map `molecule: MoleculeViewerPanel` (new thin panel, or extend `FilePanel` — `[DECISION NEEDED]`, see §4: does an empty molecule tab go through `FilePanel`'s File/Diff toggle at all, given it has no path yet?). |
+| `viewer-registry.ts` | Export `MOLECULE_EXTENSIONS` (`pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, xsf` — **no** `data`, per §4.1) and `isMoleculeFile(path): boolean`. No new `ViewerKind`, no new `VIEWER_BY_KIND` entry (§4.3). |
+| `MoleculeViewer.tsx` (new) | The shared mount: `{ path: string \| null }` → when `path` is set, `useFileDownload(path)` → decode to text → `<MolViewer source={{name, text}} sourceMode="update" ref onModifiedChange … />`; when `path` is `null`, render `<MolViewer />` bare (built-in empty state, §2.11). Owns the "reload iff not modified" gate (§3.3). |
+| `MoleculeViewerPanel.tsx` (new) | Thin `PanelProps` → `MoleculeViewer` adapter: reads `tab.data.path`, no header, no File/Diff toggle. Both the explorer-opened and the "+"-menu-opened tab render this one panel — one mount path, two data shapes. |
+| `tab-store.ts` | Add `"molecule"` to `TabKind`; `MoleculeTabData { path: string \| null }`; `tabIds.molecule(pathOrSeq)`; `openNewMolecule(workspaceCwd)` for the empty case, mirroring `openNewTerminal` (`tab-store.ts:211–252`). |
+| `panel-registry.ts` | Add `molecule: lazy(() => import("…/MoleculeViewerPanel"))` to `PANEL_BY_KIND`. Compile-enforced: the map is `Record<Tab["kind"], …>`, so adding the `TabKind` forces this entry. |
+| `FileExplorer.tsx` | Line 83–88: pick `kind`/`id`/`data` via `isMoleculeFile(path)` — molecule files open `kind: "molecule"`, everything else unchanged. |
 | `TabStrip.tsx` | Add `molecule: <icon>` to `ICON_BY_KIND`; add a third `DropdownMenu.Item` calling `openNewMolecule(cwd)`. |
-| `FileExplorer.tsx` | No change needed — it already just opens `kind: "file"` tabs; `detectViewerKind` inside `FilePanel` does the routing. |
 | `vite.config.ts` | Add `vendor-molviewer` manualChunks rule. |
 | `packages/web-client/package.json` | Add `@molviewer/core` as a real dependency. |
 | root `package.json` | Remove the misplaced `@molviewer/core` entry. |
 
-### 3.2 Daemon: file-watch subsystem (behavior 3 — the genuinely new piece)
+### 3.2 Daemon: file-watch subsystem (behaviors 3 + 4 — the genuinely new piece)
 
-Mirrors `WorkspaceGitService` (§2.7/2.6) structurally, but keyed by absolute file path instead of
-cwd, and backed by a **real** `fs.watch`, since none exists anywhere today.
+Mirrors `WorkspaceGitService` (§2.7/2.6) structurally, but keyed by absolute path instead of cwd,
+and backed by a **real** `fs.watch`, since none exists anywhere today.
 
 **`FileWatchService`** (new, `packages/server/src/files/file-watch-service.ts`):
-- `subscribe(path: string, listener: (event: {changed: boolean}) => void): () => void` — same
-  shape as `WorkspaceGitService.subscribe`.
+- `subscribe(path: string, listener: () => void): () => void` — same shape as
+  `WorkspaceGitService.subscribe`. `path` may be a **file or a directory**: a file subscriber is
+  filtered by basename, a directory subscriber hears every child create/delete/rename (behavior 4).
+  One service, two subscription flavors, one watcher pool.
 - Internally: one `fs.watch(dirname(path), { persistent: false })` per **directory** (not per
   file) — deliberate, not `fs.watch(path)` directly, because editors/agents commonly save via
   write-to-temp + atomic rename, which unlinks the original inode; watching the file handle directly
   silently stops firing after the first such save on some platforms/filesystems. Filter events by
   `path.basename === basename(watchedPath)` inside the directory watcher's callback.
-- Debounce per path using the `TerminalManager` `coalesceMs` shape (§2.8) — collapse the
-  write+rename event burst into a single push, something like 100–250 ms `[DECISION NEEDED]`
-  (terminal output uses 4 ms because it's UI-latency-sensitive; a file-save burst has no such
-  constraint — closer to `files-changed.ts`'s existing 500 ms client debounce, so the two don't
-  fight each other).
+- Debounce per path at **150 ms** (`FILE_WATCH_COALESCE_MS`), using the `TerminalManager`
+  `coalesceMs` shape (§2.8) — collapses the write+rename event burst into a single push. Chosen
+  over terminal's 4 ms (that value exists for keystroke-latency reasons that don't apply to a file
+  save) and comfortably under `files-changed.ts`'s 500 ms client debounce (§2.5), so a
+  daemon-pushed `file_changed` never races the client's own post-tool invalidation.
 - One directory watcher shared across every subscribed file in that directory (ref-counted); torn
   down when its last subscriber unsubscribes — avoids N duplicate `fs.watch` handles for N files in
   one folder (a real MD project keeps trajectory + topology + log files side by side).
@@ -284,16 +324,23 @@ cwd, and backed by a **real** `fs.watch`, since none exists anywhere today.
   RPC/text-frame channel for potentially multi-MB trajectories — the client re-downloads via the
   existing chunked binary path, §2.3).
 
-**Server wiring** (`packages/server/src/daemon/bootstrap.ts`, alongside the existing
-`file_read_request`/`checkout_*` registrations): new `registerFileWatchHandlers(registry,
-{fileWatchService})`, following `registerGitCheckoutHandlers`'s exact shape (per-session
-`Map<sessionKey:path, unsubscribe>`, push via `session.send(...)` directly — not the global
-`broadcast()` helper, since only sessions that actually subscribed to that path should hear about
-it).
+**Server wiring**: new `registerFileWatchHandlers(registry, { fileWatchService, subscriptions })`
+in `packages/server/src/files/`, registered from `bootstrap.ts` alongside the existing
+`file_read_request`/`checkout_*` handlers. Pushes go to the subscribing `Session` via
+`session.send(...)` directly (not the global `broadcast()` helper) — only sessions that actually
+subscribed to that path should hear about it. Per-session subscription bookkeeping goes through the
+new shared `SessionSubscriptions` registry rather than a module-local `Map`, so disconnect cleanup
+is handled once for every subscription family — see §4.5.
 
-**Web-client**: `hooks/use-file-watch.ts` (new), structurally identical to
-`use-checkout-status.ts` (§2.7 hop 4) — subscribe on `path` change, unsubscribe the previous path,
-local `FileChangedMessage` interface + type guard, calls `client.connection.onSessionMessage(...)`.
+**Web-client**: two consumers of one hook family.
+- `hooks/use-file-watch.ts` (new), structurally identical to `use-checkout-status.ts` (§2.7 hop 4)
+  — subscribe on `path` change, unsubscribe the previous path, local `FileChangedMessage` interface
+  + type guard, `client.connection.onSessionMessage(...)`. Consumed by `MoleculeViewer` (§3.3).
+- `hooks/use-explorer-watch.ts` (new) for behavior 4: diffs `explorer-store`'s `expanded` set across
+  renders (subscribe newly expanded, unsubscribe collapsed, leave the rest alone — never tear down
+  and re-subscribe the whole set), one shared `onSessionMessage` handler, and invalidates exactly
+  `rpcKeys.explorer(path)` per push rather than the whole `["explorer"]` family. Called from
+  `FileExplorer.tsx` next to the existing `useExplorerTree(expanded)` (line 68).
 
 ### 3.3 "Don't clobber user edits" — the actual gating logic
 
@@ -302,12 +349,15 @@ local `FileChangedMessage` interface + type guard, calls `client.connection.onSe
 ```tsx
 const ref = useRef<MolViewerHandle>(null);
 const [modified, setModified] = useState(false);
+// path is null for a "+"-menu tab: no fetch, no watch, bare <MolViewer /> empty state.
 const download = useFileDownload(path);
 const watch = useFileWatch(path); // { changedAt: number | null } — bumps on each file_changed push
 
 useEffect(() => {
   if (!watch.changedAt) return;
-  if (modified) return; // user has unsaved edits — do NOT clobber them
+  // User has unsaved in-viewer edits — do NOT clobber them. Also the reason no echo-suppression
+  // window is needed for a future in-viewer save: see §4.6.
+  if (modified) return;
   void download.refetch().then((r) => {
     if (r.data) ref.current?.update({ name: fileName, text: r.data.text });
   });
@@ -321,53 +371,138 @@ preserves camera/selection — the whole reason that mode exists instead of alwa
 No new molviewer-side capability needed; this is pure composition of what the component already
 exposes.
 
-## 4. Open decisions
+## 4. Resolved decisions
 
-1. **LAMMPS `data` file matching** — no fixed extension (often `data.lammps`, `in.data`, or
-   extensionless). `EXT_TO_VIEWER`'s pure-extension lookup can't distinguish it from an arbitrary
-   text file. Options: (a) skip auto-detection for this one format, require manual "open as
-   molecule" (see #3); (b) content-sniff (`Masses`/`Atoms` section headers) — pushes real logic into
-   `detectViewerKind`, which today is a pure, synchronous, content-free function; (c) accept the
-   gap for v1, cover it via #3. Recommend (c).
-2. **Manual "open as molecule" escape hatch** — should the file explorer's per-row context menu
-   gain an "Open as molecule view" action for files `detectViewerKind` doesn't recognize (covers
-   #1, plus any file extension not yet in the map)? Not required for the stated behaviors, but
-   cheap and consistent with `BinaryFallbackViewer`'s existing manual-action pattern (§2.9-adjacent,
-   `BinaryFallbackViewer.tsx:36–38`).
-3. **Empty molecule tab + `panel-registry.ts`** — does it route through `FilePanel` (which assumes
-   a `path` and renders the File/Diff toggle header) or a dedicated lightweight panel? An empty tab
-   has no path and no diff to show, so reusing `FilePanel` means special-casing its header for
-   `!path`. Recommend a small dedicated `MoleculeViewerPanel` that `FilePanel`-with-molecule-kind
-   *also* renders internally once a path exists (i.e. `FilePanel`'s viewer slot for `"molecule"`
-   kind renders the same underlying `<MolViewer>` wrapper as the empty-tab panel) — avoids
-   duplicating the `<MolViewer>` mount/props logic in two places while keeping the empty case
-   header-free.
-4. **Debounce window for `FileWatchService`** — proposed 100–250 ms; needs a real number picked
-   before implementation (§3.2).
-5. **File-watch subscription lifecycle on tab close/disconnect — confirmed pre-existing gap in the
-   precedent, worth fixing rather than copying.** `git-checkout-rpc.ts:27` (`statusUnsubs`) is
-   **only ever cleared by an explicit `checkout_status_unsubscribe` call or by a same-key
-   `subscribe` replacing it** (lines 33, 47–48) — grepping this file and `packages/server/src/ws`
-   for a session-close hook wired to `statusUnsubs` finds none. If a browser tab disconnects
-   without the client sending `checkout_status_unsubscribe` first (closing the laptop lid, a
-   crashed tab, a network drop), that session's `WorkspaceGitService` listener is never removed —
-   a real, currently-shipping leak this scope should not blindly inherit. Since `TabPanelHost`
-   never unmounts tabs (§2.10), the *only* client-side unsubscribe trigger for a molecule tab in
-   practice is `closeTab` — so the new `FileWatchService`'s per-session `Map` needs its own
-   disconnect-driven sweep (`ws-server.ts`'s socket-close handling — not yet traced in this pass —
-   is the right place to add `for (const unsub of sessionWatchers.get(session)?.values() ?? [])
-   unsub()`), rather than assuming the git-checkout precedent already solved this.
-6. **Should `file_changed` also fire for the *own* MoleculeViewer's own save** — i.e. if
-   `exportFile()`'s result is written back to disk by some future "Save" action, does that
-   round-trip through the same watcher and cause a self-triggered reload attempt? Since
-   `modified` would already be `true` at that point (§3.3 guards on it) this is likely a non-issue,
-   but worth a deliberate note once a "Save" action exists (not in scope for behaviors 1–3 above —
-   no save-to-disk action was requested).
+### 4.1 LAMMPS `data` files — not auto-detected in v1
 
-## 5. Non-goals (explicitly out of scope for this pass)
+`EXT_TO_VIEWER`-style extension matching genuinely cannot identify them (`data.lammps`, `in.data`,
+or no extension at all), and the alternative — content-sniffing for `Masses`/`Atoms` section
+headers — would turn `detectViewerKind`/`isMoleculeFile` from a pure synchronous string function
+into something that has to read file bytes. That is a real architectural cost (async, needs the
+file content before it can pick a tab kind, i.e. before the panel that fetches content even
+mounts) for one format. **Resolution: ship the other ten formats; `data` files open as text.**
+
+### 4.2 Manual "open as molecule" escape hatch — not in v1
+
+Deliberately paired with §4.1: the escape hatch's only real justification was covering the LAMMPS
+`data` gap, and adding a `FileContextMenu` action whose sole purpose is a format nobody in this
+repo has asked for yet means shipping a code path with no exercised use case. **Resolution: skip.**
+Deferring is cheap by construction — `openNewMolecule(cwd)` already accepts the empty case, so a
+later escape hatch is one `FileContextMenu.tsx` item plus an optional `path` argument, with no
+rework of anything decided here. If a LAMMPS user shows up, §4.1 and §4.2 land together as one
+small follow-up.
+
+### 4.3 Dedicated `MoleculeViewerPanel` + own `TabKind` — not `FilePanel`
+
+Molecule tabs are `kind: "molecule"` and render one dedicated panel, with no File/Diff toggle.
+Reasoning:
+
+- The empty "+"-menu tab has **no path at all**. Routing it through `FilePanel` would mean
+  special-casing that component's entire premise (`FilePanel.tsx:49–52` reads a path, detects a
+  viewer kind, and renders a File/Diff header around it) for a tab that has none of those things.
+- Nothing is lost: `.pdb` diffs still come from the git Changes panel (`ChangesPanel.tsx:32–37`),
+  which is a separate `kind: "diff"` tab and completely unaffected (§2.2).
+- Both entry points converge on **one** `MoleculeViewer` mount (§3.1) whose only variable is
+  `path: string | null`, so the file-backed and empty cases share all the `<MolViewer>` wiring —
+  no duplicated props/handle/dirty-tracking logic, which was the thing worth avoiding here.
+- `TabKind`'s two `Record<TabKind, …>` maps (`ICON_BY_KIND` at `TabStrip.tsx:33–37`,
+  `PANEL_BY_KIND` at `panel-registry.ts:20–25`) make the additions compile-enforced — the type
+  checker names every site that needs updating, so there is no discovery risk in this change.
+
+### 4.4 File-watch debounce — 150 ms
+
+`FILE_WATCH_COALESCE_MS = 150`. Rationale in §3.2: above terminal's latency-driven 4 ms, well
+below the client's existing 500 ms invalidation debounce so the two never fight.
+
+### 4.5 Subscription cleanup on disconnect — fixed properly, once, for both families
+
+The leak is real and confirmed: `git-checkout-rpc.ts:27`'s `statusUnsubs` map is only ever cleared
+by an explicit `checkout_status_unsubscribe` or a same-key re-subscribe (lines 33, 47–48), and
+`ws-server.ts:157–159`'s close handler does nothing but `sessions.delete(session)` — there is no
+hook through which a handler module can learn a session died. A dropped connection (lid closed,
+tab crashed, network drop) therefore leaves that session's `WorkspaceGitService` listener alive
+forever. Copying that shape for file watching would be strictly worse than the git case, because a
+leaked file subscription also pins an OS-level `fs.watch` handle.
+
+**Resolution — three small pieces, ~40 lines total:**
+
+1. `packages/server/src/ws/session-subscriptions.ts` (new): `SessionSubscriptions` with
+   `add(session, key, unsub)`, `remove(session, key)`, `disposeSession(session)`. A
+   `WeakMap<Session, Map<string, () => void>>` — nothing more.
+2. `ws-server.ts`: new optional `onSessionClose?: (session: Session) => void` in `WsServerDeps`
+   (next to the existing `onMessage`/`logger`, lines 43–45), invoked from the `ws.on("close")`
+   handler at line 157 alongside `sessions.delete(session)`.
+3. `bootstrap.ts`: construct one `SessionSubscriptions`, pass it to both
+   `registerGitCheckoutHandlers` and the new `registerFileWatchHandlers`, and wire
+   `onSessionClose: (s) => subscriptions.disposeSession(s)`.
+
+This replaces `git-checkout-rpc.ts`'s module-local `statusUnsubs` map with the shared registry —
+i.e. the existing leak is fixed as part of this work, not merely avoided in new code. It is the
+one piece of pre-existing-bug cleanup this feature justifies touching, because the feature would
+otherwise duplicate the bug.
+
+### 4.6 Self-triggered reload after a future in-viewer save — already handled
+
+No extra guard. The §3.3 `modified` check is sufficient by construction: a save can only happen
+while `modified === true`, and the earliest a save could flip it to `false` is after the write
+completes — at which point re-reading the file the viewer just wrote is a no-op that produces the
+content already on screen (and `sourceMode="update"` preserves camera/selection anyway, so even
+the redundant case is invisible). A timestamp/echo-suppression window would be complexity paying
+for nothing. Worth a one-line code comment at the guard, no more.
+
+## 5. Implementation order
+
+Two halves; the web-client half delivers behaviors (1) and (2) with **no daemon changes at all**, so
+it can ship and be smoke-tested first. Behaviors (3) and (4) share the daemon watcher but are
+independent consumers, verified separately.
+
+1. **Dependency hygiene** — move `@molviewer/core` from root `package.json:53–55` into
+   `packages/web-client/package.json`; add the `vendor-molviewer` `manualChunks` rule
+   (`vite.config.ts:37–66`).
+2. **Viewer + panel** — `isMoleculeFile`/`MOLECULE_EXTENSIONS` in `viewer-registry.ts`;
+   `MoleculeViewer.tsx`; `MoleculeViewerPanel.tsx`; `TabKind`/`tabIds`/`openNewMolecule` in
+   `tab-store.ts`; `PANEL_BY_KIND` + `ICON_BY_KIND` entries; `FileExplorer.tsx` kind selection;
+   `TabStrip.tsx` third menu item. **Smoke test:** open a `.pdb` from the explorer, open an empty
+   molecule tab from "+", switch tabs and back (checks the `[VERIFY]` resize concern in §2.10).
+3. **Daemon file-watch** — `SessionSubscriptions` + `ws-server.ts` `onSessionClose` +
+   `git-checkout-rpc.ts` migration (§4.5), then `FileWatchService`, then
+   `registerFileWatchHandlers` + `bootstrap.ts` wiring.
+4. **Live reload wiring** — `use-file-watch.ts`, then the §3.3 gate in `MoleculeViewer.tsx`.
+   **Smoke test:** open a `.pdb`, edit it on disk (`echo`/agent write), confirm the viewer reloads
+   with camera preserved; then make an in-viewer edit, touch the file again, confirm it does *not*
+   reload.
+5. **Live file tree** — `use-explorer-watch.ts` + one call site in `FileExplorer.tsx`.
+   **Smoke test:** with the tree open, `touch`/`mv`/`rm` a file in an expanded directory from an
+   external shell and `git checkout` a branch that adds+deletes files; rows update within ~1 s with
+   no manual refresh, and collapsing a directory releases its watcher.
+
+## 6. Non-goals (explicitly out of scope for this pass)
 
 - A "Save" action that writes viewer edits back to disk (`exportFile()` exists on the handle;
   wiring a save button is a separate, later feature — same status as README's own "Save Changes"
   example, which is host-app-provided, not built into molviewer).
 - Trajectory playback UX beyond what `<MolViewer>` already provides out of the box.
-- Any change to `checkout_status_update`/git infra — cited only as the structural precedent.
+- Auto-detection of LAMMPS `data` files and the manual "open as molecule" action (§4.1, §4.2) —
+  deliberately deferred as a pair.
+- Live refresh of an **open text file's contents** when it changes on disk (`rpcKeys.fileRead`).
+  Same primitive, obvious follow-up — but it needs its own answer to the unsaved-editor-state
+  question that §3.3 answers for the molecule viewer, so it is not smuggled in here.
+- `CheckoutDiffManager`'s subscriptions (`git-checkout-rpc.ts:52–69`). Keyed by a manager-issued
+  `subscriptionId` rather than per session, so they almost certainly share the §4.5 disconnect leak
+  — recorded as a `TODO(verify)`, not fixed, because migrating them is a larger change with its own
+  risk profile.
+- Any *behavioral* change to git checkout/status. The one exception, agreed in §4.5:
+  `git-checkout-rpc.ts`'s per-session subscription bookkeeping is migrated onto the shared
+  `SessionSubscriptions` registry, which fixes its existing disconnect leak. That is a
+  correctness-preserving refactor of cleanup only — no change to what `checkout_status_update`
+  computes, sends, or when.
+
+## 7. Implementation plan
+
+Planned as `clean-room-scope/sprints/sprint-044-molecule-viewer-live-files/` — 10 tasks in
+`backlog/`, indexed in `clean-room-scope/sprints/PLAN.md`. Tasks 001–004 are the web-client
+molecule viewer (no daemon changes), 005–008 the live-update subsystem (005 first fixes the §4.5
+leak), 009 the raised file-read ceiling (§2.3, independent of both halves — parallelizable with
+anything), 010 end-to-end verification + docs sync. This document is the spec those tasks reference;
+it is authoritative for the decisions in §4 and should be updated (not contradicted) if
+implementation forces a change.
