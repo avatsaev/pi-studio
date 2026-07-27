@@ -26,11 +26,14 @@ Verified molviewer API surface (`node_modules/@molviewer/core/dist/types/ui/api.
   `MolViewer.tsx:739`) — the empty tab needs **no** pi-studio UI.
 
 Content is fetched through `useFileDownload` (`packages/web-client/src/hooks/use-file-download.ts`),
-**not** `useFileRead`: `file_read_request` hard-caps at 512 KiB (`bootstrap.ts:472-473`) and MD
-trajectories routinely exceed that; the chunked binary transfer path has no cap. `useFileDownload`
-returns `{ objectUrl, mimeType, fileName }` with `staleTime: Infinity`/`gcTime: 0` and revokes the
-previous object URL when superseded or on unmount (lines 46-61) — which is exactly the lifecycle the
-reload path in task-007 needs.
+**not** `useFileRead`: `file_read_request` caps the inline path (512 KiB today at
+`bootstrap.ts:472-473`, raised to 5 MiB by task-009 — either way below real MD trajectories) and
+returns UTF-8 **text**, while the chunked binary transfer path has no cap and is byte-exact. That
+holds regardless of task-009's ordering, so this decision does not depend on it. Signature verified:
+`useFileDownload(path: string, enabled = true)` (line 22), the second arg feeding TanStack Query's
+own `enabled` (line 39). It returns `{ objectUrl, mimeType, fileName }` with
+`staleTime: Infinity`/`gcTime: 0` and revokes the previous object URL when superseded or on unmount
+(lines 46-61) — exactly the lifecycle the reload path in task-007 needs.
 
 ## Scope references
 - `docs/molviewer-integration-scope.md` § 2.3 (fetch path), § 2.10 (mount lifecycle), § 2.11 (empty
@@ -74,9 +77,11 @@ reload path in task-007 needs.
     (`height: 100%; min-height: 0;` on every flex ancestor) and pass `className`/`style` to
     `<MolViewer>` (both are supported props, api.d.ts:244-245). A WebGL canvas in a zero-height box
     renders nothing — verify visually, not just by reading CSS.
-  - **`[VERIFY]` hidden-tab resize:** `TabPanelHost` never unmounts inactive tabs, it toggles
-    `display:none` (`TabPanelHost.tsx:69`), and a hidden element reports a zero-size layout box.
-    `TerminalPanel.tsx:246-249` handles this with an `isActive`-keyed re-fit. Check whether Mol\*
+  - **`[VERIFY]` hidden-tab resize:** `TabPanelHost` never unmounts inactive tabs — it renders them
+    all and toggles a CSS-module class (`TabPanelHost.tsx:69`, `.panel{display:none}` /
+    `.active{display:flex}` in `TabPanelHost.module.css`), and a hidden element reports a zero-size
+    layout box. `features/terminal/TerminalPanel.tsx:246-249` handles this with an `isActive`-keyed
+    re-fit (`isActive` computed at line 78 as `activeTabId === tab.id`). Check whether Mol\*
     self-corrects on becoming visible (its `RenderEngine` interface exposes no `resize()` — grep
     confirmed). If it does **not**, fix it here with the `isActive`-keyed effect (dispatching a
     `window` resize event is the least invasive lever if Mol\* listens for it) — **never** by
@@ -112,7 +117,7 @@ reload path in task-007 needs.
   Run `npx vitest run packages/web-client/src/features/files/MoleculeViewer.test.ts`.
 - Do **not** mount `<MolViewer>` in Vitest — it is a WebGL/canvas component and jsdom has no WebGL
   context. If a component test is added at all, `vi.mock("@molviewer/core")`.
-- Visual verification is the real proof and is covered end-to-end in task-009 (needs the tab wiring
+- Visual verification is the real proof and is covered end-to-end in task-010 (needs the tab wiring
   from task-004).
 
 ## Notes

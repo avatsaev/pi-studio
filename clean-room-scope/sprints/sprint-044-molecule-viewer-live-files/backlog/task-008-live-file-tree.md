@@ -47,12 +47,18 @@ The fit with task-006 is exact, which is why this is cheap:
     just another target — no new RPC).
   - **Diff the set across renders**: subscribe newly expanded paths, unsubscribe collapsed ones, leave
     unchanged ones alone. Do **not** tear down and re-subscribe the whole set on every render — a
-    single `Set` identity change would otherwise churn every watcher on the daemon. Memoize over a
-    stable key (`Array.from(expanded).sort().join("\0")`) the way `use-explorer-tree.ts:28` derives its
-    stable `paths` array.
+    single `Set` identity change would otherwise churn every watcher on the daemon. Derive a stable
+    key yourself — `Array.from(expanded).sort().join("\0")` — and memoize over it. Note that
+    `use-explorer-tree.ts:28` is **not** a precedent for this: its `Array.from(expanded)` preserves
+    `Set` insertion order and is not sorted, so two logically identical sets can produce different
+    arrays there. Sorting is this hook's own requirement.
   - One `onSessionMessage` handler for the hook (not one per path), matching pushes by `path` against
     the currently-subscribed set and calling
     `queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(path) })`.
+  - Handle task-006's `error: "too_many_watches"` reply (the per-session watcher cap) as a **soft**
+    failure: log once, leave that directory unsubscribed, and let the existing
+    `invalidateAfterToolCompletion` path continue to cover it. A user with a pathologically expanded
+    tree must get a slightly less live tree, never a broken one or a retry loop.
   - Full cleanup on unmount: unsubscribe every path and detach the handler (the leak
     `use-checkout-status.ts`'s header calls out).
 - **`packages/web-client/src/features/files/FileExplorer.tsx`** — call `useExplorerWatch(expanded)`
@@ -95,7 +101,7 @@ The fit with task-006 is exact, which is why this is cheap:
   here), invalidation of exactly `rpcKeys.explorer(path)` on a matching push, ignoring non-matching
   paths, and full cleanup on unmount.
   Run: `npx vitest run packages/web-client/src/hooks/use-explorer-watch.test.ts`.
-- Manual (real proof, also in task-009): production daemon + web-client dev server, tree open on a
+- Manual (real proof, also in task-010): production daemon + web-client dev server, tree open on a
   workspace; from a separate shell run `touch`, `rm`, `mv`, and `git checkout` of a branch that adds
   and deletes files; watch rows update live. Also confirm from the daemon logs that collapsing a
   directory releases its watcher.

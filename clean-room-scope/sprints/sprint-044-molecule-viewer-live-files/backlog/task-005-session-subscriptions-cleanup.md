@@ -15,14 +15,15 @@ Two confirmed defects in today's only per-session subscription implementation
 (`packages/server/src/projects/git-checkout-rpc.ts`):
 
 1. **Never cleaned up on disconnect.** `statusUnsubs` (line 27) is only cleared by an explicit
-   `checkout_status_unsubscribe` (lines 47-48) or a same-key re-subscribe (line 33).
-   `ws-server.ts:157-159`'s close handler does nothing but `sessions.delete(session)`, and
-   `WebSocketServerDeps` (lines 29-46) exposes `onSession`/`onMessage` but **no** close hook — so a
-   handler module cannot learn a session died. A dropped connection (lid closed, crashed tab, network
-   drop) leaks that session's `WorkspaceGitService` listener permanently.
+   `checkout_status_unsubscribe` (the handler is lines 44-50; the `get`/`delete` pair is 46-48) or a
+   same-key re-subscribe (line 33). `ws-server.ts`'s `ws.on("close")` handler (lines 157-172) does
+   nothing for subscriptions — line 159 deletes the session from its own `sessions` map and the rest
+   just logs — and `WebSocketServerDeps` (lines 29-46) exposes `onSession`/`onMessage` but **no**
+   close hook, so a handler module cannot learn a session died. A dropped connection (lid closed,
+   crashed tab, network drop) leaks that session's `WorkspaceGitService` listener permanently.
 2. **Session keys can collide.** `sessionKey(session)` (lines 81-83) is
    `(session as { id?: string }).id ?? String(session)`. `Session` **does** have a real
-   `readonly id: string` (`packages/server/src/ws/session.ts:9-10`), so the fallback is dead — but it
+   `readonly id: string` (`packages/server/src/ws/session.ts:10`), so the fallback is dead — but it
    is also a silent footgun: were `id` ever absent, `String(session)` yields `"[object Object]"` for
    every session and all sessions would share one key, so one client's unsubscribe would kill
    another's. Keying by the `Session` object removes the failure mode entirely.

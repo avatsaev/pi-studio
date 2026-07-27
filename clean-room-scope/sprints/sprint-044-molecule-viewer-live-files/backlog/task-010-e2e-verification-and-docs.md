@@ -10,9 +10,9 @@ Prove the whole sprint works against a real daemon in a browser, then bring ever
 with the code that now exists.
 
 ## Background / why
-Tasks 001-009 each verify their own slice, but three behaviors only exist once everything is wired:
-molecule tab from the explorer, empty molecule tab from the "+" menu, and live updates (viewer reload
-+ file tree) driven by real filesystem events.
+Tasks 001-009 each verify their own slice, but four behaviors only exist once everything is wired:
+molecule tab from the explorer, empty molecule tab from the "+" menu, live updates (viewer reload +
+file tree) driven by real filesystem events, and the three-tier large-file path end to end.
 
 **Daemon choice matters here.** The molecule viewer fetches through the chunked binary download path,
 and `file_download_token_request`/`file_download_request` are registered **only** in the production
@@ -21,7 +21,7 @@ download-token issuer (line 252) and no git-checkout/file-watch handlers. So thi
 against the **production daemon** (`npm start`), not `npm run dev:daemon`.
 
 ## Scope references
-- `docs/molviewer-integration-scope.md` § 1 (the four target behaviors), § 5 (implementation order and
+- `docs/molviewer-integration-scope.md` § 1 (the five target behaviors), § 5 (implementation order and
   its two smoke tests)
 - `clean-room-scope/features/file-explorer-transfer.md`
 - `clean-room-scope/features/workspace-ui.md`
@@ -66,24 +66,26 @@ Production daemon plus the web-client dev server. Prepare a scratch workspace co
 - **`packages/server/AGENTS.md`** — source-layout entries for `files/file-watch-service.ts`,
   `files/file-watch-rpc.ts`, and `ws/session-subscriptions.ts`; the `file_watch_subscribe`/
   `file_watch_unsubscribe`/`file_changed` RPC family; the new `onSessionClose` dep on
-  `createWebSocketServer`; and the fact that the daemon now owns a real `fs.watch`-based watcher (this
-  contradicts nothing less than `workspace-git-service.ts`'s stale "a filesystem watcher calls
-  refresh()" comment — **fix that comment too**, it has been wrong since it was written).
+  `createWebSocketServer`; the `MAX_FILE_WATCHES_PER_SESSION` cap and its `too_many_watches` reply;
+  and the fact that the daemon now owns a real `fs.watch`-based watcher. **Fix
+  `workspace-git-service.ts`'s stale header comment too** — it claims a filesystem watcher calls
+  `refresh()`, which was never true; state what actually drives `refresh()` (the
+  `checkout_refresh_request` RPC plus every mutating git operation via `git-operations.ts`) and that
+  the new watcher is a separate, `file_changed`-only path that does **not** call it.
   Also record the raised read ceiling: `MAX_INLINE_FILE_READ_BYTES` (5 MiB) in
   `files/limits.ts`, that `file_read_request` is now async in both bootstraps, and the optional
   additive `maxBytes` response field.
 - **`packages/web-client/AGENTS.md`** — `features/files/MoleculeViewer.tsx`,
-  `features/files/MoleculeViewerPanel.tsx`, `hooks/use-file-watch.ts`, `hooks/use-explorer-watch.ts`;
-  the new `molecule` tab kind + `openNewMolecule`; `isMoleculeFile`/`MOLECULE_EXTENSIONS` in the viewer
-  registry (and that molecule dispatch happens at **tab-open** time, not in `FilePanel`); the
-  `vendor-molviewer` chunk; and the `@molviewer/core` dependency.
+  `features/files/MoleculeViewerPanel.tsx`, `hooks/use-file-watch.ts`, `hooks/use-explorer-watch.ts`,
+  `hooks/use-file-text.ts`; the new `molecule` tab kind + `openNewMolecule` (and `MoleculeTabData` in
+  the `TabData` union); `isMoleculeFile`/`MOLECULE_EXTENSIONS` in the viewer registry (and that
+  molecule dispatch happens at **tab-open** time inside `handleOpenFile`, not in `FilePanel`); the
+  `vendor-molviewer` chunk; the `@molviewer/core` dependency; and `TextViewer`'s three-tier behavior
+  (inline ≤ 5 MiB / streamed ≤ 30 MiB / download-only above) with its 30 MiB display constant.
 - **root `AGENTS.md`** — the protocol overview section: note the `file_watch_*`/`file_changed` family
   alongside the other passthrough-validated push families. Add `@molviewer/core` to the tech-stack
   table (molecular structure viewer, web-client only). Do **not** touch the dependency graph — no
   workspace dependency changed.
-- **`packages/web-client/AGENTS.md`** (continued) — `hooks/use-file-text.ts` and `TextViewer`'s
-  three-tier behavior (inline ≤ 5 MiB / streamed ≤ 30 MiB / download-only above), including the
-  30 MiB display constant.
 - **`docs/molviewer-integration-scope.md`** — flip the status line from "ready to implement" to
   implemented, and resolve the two `[VERIFY]` markers (§ 2.9 CSS import site, § 2.10 hidden-tab resize)
   with what was actually observed.

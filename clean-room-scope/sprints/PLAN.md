@@ -77,8 +77,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 043 | `sprint-043-model-selector` | web-client: a per-conversation model selector in the chat composer (left of the input) showing the current model, opening an anchored popup with a fuzzy search filter, checkmark on the selected model (sorted first), and rows of `label (id)` with the id in muted text. Unblocks the picker by registering the previously-unserved `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`), types the client SDK response, and reuses the fully-wired `agent_set_model_request` for selection. | 5 |
 | 044 | `sprint-044-molecule-viewer-live-files` | web-client + daemon: a **molecule viewer** tab type built on `@molviewer/core` — molecular files (`.pdb`/`.cif`/`.xyz`/`.mol`/`.mol2`/`.gro`/`.lammpstrj`/`.xsf`/POSCAR) open in a 3D viewer instead of the text viewer, plus an empty "New molecule view" from the TabStrip "+" menu. Adds the daemon's **first real filesystem watcher** (`FileWatchService`, `fs.watch` per directory, ref-counted, 150 ms coalescing) behind a `file_watch_*` subscription family, which powers both an edit-gated live reload of open molecule tabs (`sourceMode="update"` preserves camera/selection; skipped while the user has unsaved in-viewer edits) and a **live file tree** (expanded directories refresh on create/delete/rename from any writer, not just agent tools). Also raises the file-read ceiling — 512 KiB → 5 MiB inline (async, so a big read no longer blocks the event loop), streamed uncapped above that, 30 MiB display cap. Fixes a pre-existing per-session subscription leak on disconnect on the way past. | 10 |
 
-Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
-25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
+Total: **44 sprints, 210 tasks** (summed from the table above). The older accounting this line used
+to carry (26 sprints / 119 tasks) predated sprints 023–044 and was never updated; recompute from the
+table rather than trusting a hand-maintained figure.
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,

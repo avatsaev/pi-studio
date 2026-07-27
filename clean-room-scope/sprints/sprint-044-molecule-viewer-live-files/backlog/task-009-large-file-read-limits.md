@@ -12,7 +12,7 @@ string in a JSON text frame or blocking the daemon's event loop. Three tiers: in
 where the viewer stops trying and offers a download instead.
 
 ## Background / why
-`file_read_request` today (`bootstrap.ts:465-483`, duplicated verbatim in `dev-bootstrap.ts:281-298`)
+`file_read_request` today (`bootstrap.ts:465-491`, duplicated verbatim in `dev-bootstrap.ts:281-303`)
 rejects anything over **512 KiB** with `error: "file_too_large"`, which `use-file-read.ts:32` turns
 into a thrown `Error` and `TextViewer.tsx:23-29` renders as a bare `Error: file_too_large` line. A
 600 KB JSON fixture or a 2 MB log is unopenable, with no path forward offered.
@@ -52,8 +52,8 @@ and yields *unbounded* file size rather than a bigger fixed number.
    *  clients must use the chunked binary download path (`file-transfer.ts`), which is unbounded. */
   export const MAX_INLINE_FILE_READ_BYTES = 5 * 1024 * 1024;
   ```
-- **`packages/server/src/daemon/bootstrap.ts`** (`file_read_request`, lines 465-483) and
-  **`dev-bootstrap.ts`** (lines 281-298) — both handlers:
+- **`packages/server/src/daemon/bootstrap.ts`** (`file_read_request`, lines 465-491) and
+  **`dev-bootstrap.ts`** (lines 281-303) — both handlers:
   - use `MAX_INLINE_FILE_READ_BYTES` instead of the inline `512 * 1024`;
   - become **async**: `statSync`/`readFileSync` → `await stat(...)`/`await readFile(..., "utf8")`
     from `node:fs/promises`. The registry already supports async handlers (sibling handlers such as
@@ -74,6 +74,11 @@ and yields *unbounded* file size rather than a bigger fixed number.
   through `useFileDownload` and decode the blob to text (`await (await fetch(objectUrl)).text()`, or
   a `TextDecoder` over the bytes — whichever reads cleaner against the hook's return shape). This is
   the same primitive the molecule viewer uses for its own (binary-safe) source, so no new transport.
+  **Note the daemon asymmetry**: the download RPCs this depends on are registered **only** in the
+  production bootstrap (`bootstrap.ts:429-434`); `dev-bootstrap.ts` has none (line 252 registers a
+  bare `FileExplorerService`). So under `npm run dev:daemon` a file above the inline cap will fail
+  the streamed fetch rather than render. Surface that as the normal error state — do not add
+  download handlers to the dev bootstrap — and verify tier 2 against `npm start`.
 - **`packages/web-client/src/features/files/TextViewer.tsx`** — three states instead of one error
   line:
   1. under the inline cap → today's `useFileRead` → `CodeView` path, unchanged;

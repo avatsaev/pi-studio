@@ -18,12 +18,18 @@ dedicated panel rather than riding `kind: "file"` through `FilePanel`:
   independently by the git Changes panel (`ChangesPanel.tsx:32-37`, `kind: "diff"`), so a `.pdb`'s
   git diff stays reachable exactly as today.
 
-`FileExplorer.tsx:83-88` is the **only** site in the web-client that opens a `kind: "file"` tab
-(grep-verified), so the routing branch has exactly one home. `openNewTerminal`
-(`tab-store.ts:206-221`) is the template for the counter-based empty-tab opener. Both
-`ICON_BY_KIND` (`TabStrip.tsx:33-37`) and `PANEL_BY_KIND` (`panel-registry.ts:20-25`) are
+`FileExplorer.tsx`'s `handleOpenFile(path)` (lines 82-91) is the **only** site in the web-client that
+opens a `kind: "file"` tab (grep-verified — every other `kind: "file"` hit is an unrelated
+explorer-row/draft field). Note it has **two** callers: the file-row click and `submitDraft` (line
+101, `if (kind === "file") handleOpenFile(created)`, which opens a newly created file). Branch
+**inside `handleOpenFile`**, not at the click site, so creating a new `.pdb` in the tree routes to a
+molecule tab for free.
+
+`openNewTerminal` (`tab-store.ts:211-221`, numbered off the module-level `terminalCount` at line 206)
+is the template for the counter-based empty-tab opener. Both `ICON_BY_KIND` (`TabStrip.tsx:33-38`)
+and `PANEL_BY_KIND` (`panel-registry.ts:20-25`) are exhaustive
 `Record<TabKind, …>`/`Record<Tab["kind"], …>`, so adding the kind makes the compiler name every site
-that must be updated.
+that must be updated — verified there are exactly these two, plus the store itself.
 
 The tab store has **no** persist middleware (`tab-store.ts:89`), so no migration concern for a new
 kind.
@@ -37,10 +43,13 @@ kind.
 ## What to build
 - **`packages/web-client/src/stores/tab-store.ts`**:
   - `TabKind` (line 20) gains `"molecule"`.
-  - `export interface MoleculeTabData { path: string | null }` next to `FileTabData` (lines 22-24).
+  - `export interface MoleculeTabData { path: string | null }` next to `FileTabData` (lines 22-24)
+    — **and add it to the `TabData` union at line 42**, otherwise `Tab.data` rejects
+    `{ path: null }` and the new kind won't typecheck.
   - `tabIds` (lines 199-204) gains `molecule: (key: string | number) => \`mol-${key}\``.
-  - `openNewMolecule(workspaceCwd: string): void` mirroring `openNewTerminal` (lines 206-221): a
-    module-level counter, `id: tabIds.molecule(\`new-${n}\`)`, `label: \`Molecule ${n}\``,
+  - `openNewMolecule(workspaceCwd: string): void` mirroring `openNewTerminal` (lines 211-221, which
+    numbers off the module-level `terminalCount` at line 206): an equivalent module-level counter,
+    `id: tabIds.molecule(\`new-${n}\`)`, `label: \`Molecule ${n}\``,
     `closable: true`, `data: { path: null }`, `workspaceCwd`. Add the same style of doc comment
     explaining that both the "+" menu and any future shortcut mint ids identically.
 - **`packages/web-client/src/features/files/MoleculeViewerPanel.tsx`** (new) — a thin `PanelProps`
@@ -51,13 +60,15 @@ kind.
 - **`packages/web-client/src/features/workspace/panel-registry.ts`** — add
   `molecule: lazy(() => import("../files/MoleculeViewerPanel.js").then((m) => ({ default: m.MoleculeViewerPanel })))`
   following the existing lazy-import style (lines 14-18) and register it in `PANEL_BY_KIND`.
-- **`packages/web-client/src/features/files/FileExplorer.tsx`** (lines 83-88) — branch the file-row
-  click on `isMoleculeFile(path)` (task-002): molecule files open
-  `{ id: tabIds.molecule(path), kind: "molecule", label: <basename>, closable: true, data: { path } }`;
-  every other file keeps today's exact `kind: "file"` behavior. Note the id namespace differs from
-  `tabIds.file(path)`, so a molecule file and a text tab for the same path can't collide.
+- **`packages/web-client/src/features/files/FileExplorer.tsx`** — branch inside `handleOpenFile`
+  (lines 82-91) on `isMoleculeFile(path)` (task-002): molecule files open
+  `{ id: tabIds.molecule(path), kind: "molecule", label: <basename>, closable: true, data: { path } }`
+  with the same `workspaceCwd: activeWorkspaceCwd || "~"` as today; every other file keeps today's
+  exact `kind: "file"` behavior. Both callers (row click, `submitDraft:101`) then route correctly.
+  Note the id namespace differs from `tabIds.file(path)`, so a molecule tab and a text tab for the
+  same path can't collide.
 - **`packages/web-client/src/features/workspace/TabStrip.tsx`**:
-  - `ICON_BY_KIND` (lines 33-37) gains `molecule: Atom` (lucide `Atom`; confirm the export name in
+  - `ICON_BY_KIND` (lines 33-38) gains `molecule: Atom` (lucide `Atom`; confirm the export name in
     the installed `lucide-react` before using it — pick the closest existing molecular/atom glyph if
     absent).
   - `NewTabMenu` (lines 90-118) gains a third `DropdownMenu.Item` **after** "New terminal", matching
@@ -74,6 +85,8 @@ kind.
 ## Acceptance criteria
 - [ ] Clicking a `.pdb`/`.cif`/`.xyz`/… row in the explorer opens a molecule tab that renders the
       structure; clicking a `.ts`/`.md` row still opens the normal file tab with its existing viewer.
+- [ ] Creating a new `.pdb` via the tree's inline new-file draft opens it as a **molecule** tab
+      (`submitDraft`'s `handleOpenFile(created)` call goes through the same branch).
 - [ ] "+" → "New molecule view" opens an empty molecule tab showing molviewer's own empty state, and
       repeated use mints `Molecule 1`, `Molecule 2`, … without id collisions.
 - [ ] Molecule tabs show the atom icon in the strip, are closable, drag-reorder like every other tab,
@@ -83,10 +96,12 @@ kind.
 - [ ] `npm run build:web-client` and `npm run typecheck` pass.
 
 ## Test / verification plan
-- `npx vitest run packages/web-client/src/stores/tab-store.test.ts` (if that file exists — otherwise
-  add a focused case there or alongside): assert `openNewMolecule` opens a tab with
-  `kind: "molecule"`, `data: { path: null }`, an incrementing label, and the `mol-new-<n>` id shape.
-- Manual, against a real daemon (see task-009's setup note — the download path requires the
+- `packages/web-client/src/stores/tab-store.test.ts` **already exists** (8 tests covering
+  open/activate/close/`switchWorkspace` against `session-store`) and needs no client mock — add a
+  case there asserting `openNewMolecule` opens a tab with `kind: "molecule"`, `data: { path: null }`,
+  an incrementing label, and the `mol-new-<n>` id shape.
+  Run: `npx vitest run packages/web-client/src/stores/tab-store.test.ts`.
+- Manual, against a real daemon (see task-010's setup note — the download path requires the
   production daemon): both entry points, tab switching, close, and reorder.
 
 ## Notes

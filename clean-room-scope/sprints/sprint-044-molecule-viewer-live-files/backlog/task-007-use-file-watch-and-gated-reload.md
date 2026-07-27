@@ -13,11 +13,14 @@ user has unsaved in-viewer edits, in which case leave their work alone.
 Client half of task-006's push. The consumer shape is fully precedented by
 `use-checkout-status.ts` (verified end to end):
 - Subscribe with `client.connection.request("checkout_status_subscribe", { cwd })` (line 49).
-- Receive pushes via `client.connection.onSessionMessage(handler)` (line 52) — there is **no**
-  `PiStudioClient` wrapper for this family, and none is needed.
-- Narrow `unknown` with a local interface + type guard (lines 14-32).
-- On dependency change / unmount: unsubscribe **and** detach the message handler (lines 62-67) — its
-  header comment notes the POC leaked subscriptions on cwd change, so this cleanup is the point.
+- Receive pushes via `client.connection.onSessionMessage(handler)` (line 52), which **returns its own
+  unsubscribe function** — there is no separate detach API. Capture it (the precedent names it
+  `unsubscribeMessages`) and call it in cleanup. There is no `PiStudioClient` wrapper for this
+  family, and none is needed.
+- Narrow `unknown` with a local interface + type guard (interface 14-18, guard 20-32).
+- On dependency change / unmount: call that returned unsubscriber **and** send the RPC unsubscribe
+  (cleanup block 62-67) — its header comment (lines 6-7) notes the POC leaked subscriptions on cwd
+  change, so this cleanup is the point.
 
 The gate is pure composition of molviewer's verified API: `onModifiedChange` fires only on the
 clean↔dirty transition (`api.d.ts:272-274`), and `sourceMode="update"` swaps geometry while preserving
@@ -91,8 +94,9 @@ camera, settings, selection (stable atom count), periodic box, and active tool (
 - Unit: `packages/web-client/src/hooks/use-file-watch.test.ts` with a fake client (mock
   `connection.request` + `onSessionMessage`): asserts subscribe on mount, path-change resubscribe
   sends unsubscribe for the **old** path first, `changedAt` bumps only for a matching path, and full
-  cleanup on unmount. Follow whatever fake-client pattern the existing hook tests use.
-- Manual (the real proof, also folded into task-009): open a `.pdb`, `echo` an extra atom line into it
+  cleanup on unmount. Follow the `fakeClient({...})` factory pattern in
+  `packages/web-client/src/stores/materialize.test.ts` (the repo's existing fake-client convention).
+- Manual (the real proof, also folded into task-010): open a `.pdb`, `echo` an extra atom line into it
   from a shell, watch it reload with the camera untouched; then edit in the viewer, touch the file
   again, and confirm no reload plus the stale indicator.
 

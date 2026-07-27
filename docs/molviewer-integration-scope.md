@@ -7,7 +7,7 @@ implementation-time check, not an open question.
 
 ## 1. What we're building
 
-Five observable behaviors:
+Five observable behaviors, plus one architectural constraint:
 
 1. Opening a supported molecular file from the file explorer opens a **molecule viewer** tab
    (built on `@molviewer/core`'s `<MolViewer>`) instead of `TextViewer`.
@@ -28,7 +28,12 @@ Five observable behaviors:
    fetches one query per expanded directory keyed `rpcKeys.explorer(path)` — so "subscribe each
    expanded directory, invalidate exactly its key on push" is a 1:1 fit with existing state, with
    no tree-diffing and no new data model.
-5. Reuses the existing tab/panel host, lazy-load, and `useFileDownload` infrastructure. The only
+5. **Large text files open at all.** `file_read_request`'s 512 KiB inline cap makes a 2 MB log
+   unopenable today (§2.3); it becomes a three-tier path — 5 MiB inline (async, so the read stops
+   blocking the daemon's event loop), the existing *uncapped* chunked download above that, and a
+   30 MiB *display* ceiling where the viewer offers a download instead of rendering. Independent of
+   the molecule viewer, but the same file-size wall motivated both.
+6. Reuses the existing tab/panel host, lazy-load, and `useFileDownload` infrastructure. The only
    new web-client surface is one `TabKind` + one panel + one viewer component (§4.3); the only new
    daemon surface is the file-watch service (§3.2) plus the shared session-cleanup registry that
    fixes an existing leak on the way past (§4.5). No parallel/duplicate infrastructure anywhere.
@@ -140,16 +145,21 @@ client-side half of the "no live file events exist" finding below.
 
 - `grep -rn "chokidar|fs\.watch|watchFile|FSWatcher" packages/server/src packages/cli/src` →
   **zero matches**. No filesystem watcher exists anywhere in the daemon or CLI.
-- `packages/server/src/projects/workspace-git-service.ts:5–7`'s own header comment claims
-  "Recomputation is change-driven (a filesystem watcher calls `refresh()`)" — this is **stale/
-  aspirational**: reading the class body (`workspace-git-service.ts:17–69`), `refresh(cwd)` is a
-  public method with no internal timer or watcher; it is only ever invoked from
-  `checkout_refresh_request`'s handler (`packages/server/src/projects/git-checkout-rpc.ts:73–76`),
-  which is itself only ever called by the client (`files-changed.ts:46`, after a debounced guess
-  that an agent tool touched something). **There is no real disk watcher backing any existing
-  "live" update in the daemon** — every git-status push today is actually "client asks, daemon
-  answers, daemon then pushes if the answer changed since last time," never daemon-initiated from
-  a real OS-level file event.
+- `packages/server/src/projects/workspace-git-service.ts:4–8`'s own header comment claims
+  "Recomputation is change-driven (a filesystem watcher calls `refresh()`)" — the **watcher** half is
+  stale/aspirational: reading the class body (`workspace-git-service.ts:17–69`), `refresh(cwd)` is a
+  public method with no internal timer or watcher. It has two kinds of caller, and the distinction
+  matters for §3.2's design:
+  1. `checkout_refresh_request`'s handler (`git-checkout-rpc.ts:71–78`), fired by the client
+     (`files-changed.ts:46`) after a debounced guess that an agent tool touched something.
+  2. **Every mutating git RPC** — `git-operations.ts` wraps it in a private `refresh(cwd)` (lines
+     252–254) called from ~9 sites after commit/checkout/branch/merge/reset (159, 173, 178, 189,
+     196, 199, 206, 227, 234).
+  So daemon-initiated git mutations *do* push correctly today. What is missing is any reaction to a
+  change the daemon did not itself perform — an external editor, a shell command, a build step,
+  `git` run in a pi-studio terminal. **No OS-level file event reaches the daemon in any form**, which
+  is the gap §3.2 fills. The new watcher is a separate `file_changed` path; it does not call
+  `refresh()` and does not alter git-status behavior.
 - Confirms the user's framing exactly: "file update live events should be handled by the daemon if
   not already implemented" — it is not implemented, in any form, for any file. This scope
   therefore includes building it from scratch (§3.2).
@@ -279,15 +289,15 @@ mount `<MolViewer />` with no `source` — zero new UI work for the empty case i
 | File | Change |
 |---|---|
 | `viewer-registry.ts` | Export `MOLECULE_EXTENSIONS` (`pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, xsf` — **no** `data`, per §4.1) and `isMoleculeFile(path): boolean`. No new `ViewerKind`, no new `VIEWER_BY_KIND` entry (§4.3). |
-| `MoleculeViewer.tsx` (new) | The shared mount: `{ path: string \| null }` → when `path` is set, `useFileDownload(path)` → decode to text → `<MolViewer source={{name, text}} sourceMode="update" ref onModifiedChange … />`; when `path` is `null`, render `<MolViewer />` bare (built-in empty state, §2.11). Owns the "reload iff not modified" gate (§3.3). |
+| `MoleculeViewer.tsx` (new) | The shared mount: `{ path: string \| null }` → when `path` is set, `useFileDownload(path, Boolean(path))` → hand molviewer the object URL directly (`<MolViewer source={{ url, name }} …/>`, no decode step — see §2.3); `sourceMode` is `"replace"` on first load, `"update"` thereafter (§3.3). When `path` is `null`, render `<MolViewer />` bare (built-in empty state, §2.11). Owns the "reload iff not modified" gate (§3.3). |
 | `MoleculeViewerPanel.tsx` (new) | Thin `PanelProps` → `MoleculeViewer` adapter: reads `tab.data.path`, no header, no File/Diff toggle. Both the explorer-opened and the "+"-menu-opened tab render this one panel — one mount path, two data shapes. |
-| `tab-store.ts` | Add `"molecule"` to `TabKind`; `MoleculeTabData { path: string \| null }`; `tabIds.molecule(pathOrSeq)`; `openNewMolecule(workspaceCwd)` for the empty case, mirroring `openNewTerminal` (`tab-store.ts:211–252`). |
+| `tab-store.ts` | Add `"molecule"` to `TabKind` (line 20); `MoleculeTabData { path: string \| null }` **added to the `TabData` union** (line 42, else `Tab.data` rejects `{ path: null }`); `tabIds.molecule(pathOrSeq)`; `openNewMolecule(workspaceCwd)` for the empty case, mirroring `openNewTerminal` (`tab-store.ts:211–221`, numbered off the module-level counter at line 206). |
 | `panel-registry.ts` | Add `molecule: lazy(() => import("…/MoleculeViewerPanel"))` to `PANEL_BY_KIND`. Compile-enforced: the map is `Record<Tab["kind"], …>`, so adding the `TabKind` forces this entry. |
-| `FileExplorer.tsx` | Line 83–88: pick `kind`/`id`/`data` via `isMoleculeFile(path)` — molecule files open `kind: "molecule"`, everything else unchanged. |
+| `FileExplorer.tsx` | Inside `handleOpenFile` (lines 82–91, the only site that opens `kind: "file"` tabs — and called both by the row click and by `submitDraft`'s create-then-open at line 101): pick `kind`/`id`/`data` via `isMoleculeFile(path)` — molecule files open `kind: "molecule"`, everything else unchanged. |
 | `TabStrip.tsx` | Add `molecule: <icon>` to `ICON_BY_KIND`; add a third `DropdownMenu.Item` calling `openNewMolecule(cwd)`. |
 | `vite.config.ts` | Add `vendor-molviewer` manualChunks rule. |
-| `packages/web-client/package.json` | Add `@molviewer/core` as a real dependency. |
-| root `package.json` | Remove the misplaced `@molviewer/core` entry. |
+| `packages/web-client/package.json` | ~~Add `@molviewer/core`~~ — **already done** in commit `6bd8232`; declared at line 27. |
+| root `package.json` | ~~Remove the misplaced entry~~ — **already done**; the root now has no `dependencies` field at all. |
 
 ### 3.2 Daemon: file-watch subsystem (behaviors 3 + 4 — the genuinely new piece)
 
@@ -417,8 +427,9 @@ below the client's existing 500 ms invalidation debounce so the two never fight.
 ### 4.5 Subscription cleanup on disconnect — fixed properly, once, for both families
 
 The leak is real and confirmed: `git-checkout-rpc.ts:27`'s `statusUnsubs` map is only ever cleared
-by an explicit `checkout_status_unsubscribe` or a same-key re-subscribe (lines 33, 47–48), and
-`ws-server.ts:157–159`'s close handler does nothing but `sessions.delete(session)` — there is no
+by an explicit `checkout_status_unsubscribe` (handler at lines 44–50) or a same-key re-subscribe
+(line 33), and `ws-server.ts`'s `ws.on("close")` handler (lines 157–172) does nothing for
+subscriptions — line 159 removes the session from its own map, the rest just logs. There is no
 hook through which a handler module can learn a session died. A dropped connection (lid closed,
 tab crashed, network drop) therefore leaves that session's `WorkspaceGitService` listener alive
 forever. Copying that shape for file watching would be strictly worse than the git case, because a
@@ -456,9 +467,10 @@ Two halves; the web-client half delivers behaviors (1) and (2) with **no daemon 
 it can ship and be smoke-tested first. Behaviors (3) and (4) share the daemon watcher but are
 independent consumers, verified separately.
 
-1. **Dependency hygiene** — move `@molviewer/core` from root `package.json:53–55` into
-   `packages/web-client/package.json`; add the `vendor-molviewer` `manualChunks` rule
-   (`vite.config.ts:37–66`).
+1. **Bundling** — add the `vendor-molviewer` `manualChunks` rule (`vite.config.ts:37–66`). The
+   dependency move this step used to describe (root `package.json` → `packages/web-client`) already
+   landed in commit `6bd8232`; `@molviewer/core` now sits at `packages/web-client/package.json:27`
+   and the root has no `dependencies` field at all.
 2. **Viewer + panel** — `isMoleculeFile`/`MOLECULE_EXTENSIONS` in `viewer-registry.ts`;
    `MoleculeViewer.tsx`; `MoleculeViewerPanel.tsx`; `TabKind`/`tabIds`/`openNewMolecule` in
    `tab-store.ts`; `PANEL_BY_KIND` + `ICON_BY_KIND` entries; `FileExplorer.tsx` kind selection;
@@ -475,6 +487,11 @@ independent consumers, verified separately.
    **Smoke test:** with the tree open, `touch`/`mv`/`rm` a file in an expanded directory from an
    external shell and `git checkout` a branch that adds+deletes files; rows update within ~1 s with
    no manual refresh, and collapsing a directory releases its watcher.
+6. **Large-file ceiling** (independent — implementable in parallel with any of the above):
+   `files/limits.ts`'s `MAX_INLINE_FILE_READ_BYTES`, the async `file_read_request` in both
+   bootstraps, `use-file-text.ts`, and `TextViewer`'s three-state branch. **Smoke test:** open 2 MB,
+   12 MB and 48 MB fixtures — inline, streamed, download-only respectively — and confirm the daemon
+   stays responsive during the 12 MB read.
 
 ## 6. Non-goals (explicitly out of scope for this pass)
 

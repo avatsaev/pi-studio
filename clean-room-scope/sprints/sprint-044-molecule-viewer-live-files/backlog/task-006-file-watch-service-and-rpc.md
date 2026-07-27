@@ -13,11 +13,22 @@ viewer's live reload (task-007) and the live file tree (task-008).
 ## Background / why
 There is **no filesystem watcher anywhere in the daemon or CLI today** — grepping
 `chokidar|fs.watch|watchFile|FSWatcher` across `packages/server/src` and `packages/cli/src` returns
-zero matches. `workspace-git-service.ts:5-7`'s header comment claiming "Recomputation is
-change-driven (a filesystem watcher calls `refresh()`)" is stale: `refresh(cwd)` is only ever called
-from `checkout_refresh_request` (`git-checkout-rpc.ts:73-76`), which is only ever called by the
-client (`files-changed.ts:46`) after a debounced guess that an agent tool touched something. So every
-"live" update in the product today is client-initiated polling in disguise.
+zero matches (re-verified). `workspace-git-service.ts:4-8`'s header comment claiming "Recomputation
+is change-driven (a filesystem watcher calls `refresh()`)" is therefore stale in its *mechanism* — no
+watcher exists — and gets corrected in task-010's docs sync.
+
+Be precise about what already works, because that comment is only half wrong: `refresh(cwd)` has
+**two** kinds of caller, not one.
+1. `checkout_refresh_request` (`git-checkout-rpc.ts:71-78`), which the client fires
+   (`files-changed.ts:46`) after a debounced guess that an agent tool touched something.
+2. **Every mutating git RPC.** `git-operations.ts` wraps it in a private `refresh(cwd)` (lines
+   252-254, calling `this.deps.gitService?.refresh(cwd)`) invoked from ~9 sites after
+   commit/checkout/branch/merge/reset (lines 159, 173, 178, 189, 196, 199, 206, 227, 234).
+
+So a **daemon-initiated** mutation already refreshes and pushes correctly — do not "fix" that path.
+What is missing is exactly this sprint's target: changes the daemon did not itself perform (an
+external editor, a shell command, a build step, `git` run inside a pi-studio terminal). Those
+produce no `refresh()` and no push at all, and no client-side polling interval makes them prompt.
 
 The push mechanism itself is well-precedented — `checkout_status_subscribe`
 (`git-checkout-rpc.ts:29-42`) pushes to the *requesting* session via `session.send({ type: "session",
@@ -26,7 +37,8 @@ union, validating through the `sessionMessageBaseSchema` passthrough (`messages.
 `sessionEnvelopeSchema` at 894-898). This task reuses that shape exactly; **no change to
 `packages/protocol` is required.**
 
-Coalescing precedent: `TerminalManager`'s `coalesceMs` (`terminal-manager.ts:86`, flush at 231-242).
+Coalescing precedent: `TerminalManager`'s `coalesceMs` (`terminal/terminal-manager.ts:77`, default
+resolved at 86; `flush()` at 235, wired through the timer at 232 and the close path at 246-248).
 
 ## Scope references
 - `docs/molviewer-integration-scope.md` § 2.6 (absence, confirmed), § 2.7 (4-hop push precedent),
@@ -49,7 +61,7 @@ Coalescing precedent: `TerminalManager`'s `coalesceMs` (`terminal-manager.ts:86`
   ```
   Implementation requirements:
   - **Resolve `~` server-side** before anything else — root `AGENTS.md` invariant 7; mirror
-    `bootstrap.ts:465-483`'s `path.startsWith("~") ? join(homedir(), …)` handling.
+    `bootstrap.ts:465-491`'s `path.startsWith("~") ? join(homedir(), …)` handling.
   - **Always watch a directory, never a file handle.** For a file target, watch `dirname(path)` and
     filter callbacks by `basename`. This is deliberate: editors and agents commonly save via
     write-temp + atomic rename, which replaces the inode — a watcher bound to the original file stops
@@ -82,10 +94,21 @@ Coalescing precedent: `TerminalManager`'s `coalesceMs` (`terminal-manager.ts:86`
     a string compare.
   - Re-subscribing the same path replaces the previous subscription (that is `SessionSubscriptions.add`'s
     contract from task-005), so a client double-subscribe cannot double-push.
+  - **Bound the subscription count per session** (`MAX_FILE_WATCHES_PER_SESSION`, 128). `fs.watch`
+    consumes an inotify handle per directory and the kernel enforces a global
+    `fs.inotify.max_user_watches`; a client that subscribes in a loop (a bug in a tree-expansion
+    effect is the realistic case, not an attacker) would otherwise exhaust it and break watching for
+    the whole machine, not just this daemon. Over the cap, reply
+    `{ ok: false, error: "too_many_watches" }` and log at `warn` — do not throw, and do not silently
+    succeed without watching. Note that `file_read_request` performs **no** path sandboxing either
+    (`bootstrap.ts:465-491` resolves any absolute path), so watching an arbitrary path is consistent
+    with the existing surface; the difference the cap addresses is that a watch is a *persistent*
+    resource where a read is one-shot.
 - **`packages/server/src/daemon/bootstrap.ts`** — instantiate `FileWatchService` and call
   `registerFileWatchHandlers` in the files section (next to `FileTransferService`/`FileExplorerService`
-  at lines 429-434), passing the `SessionSubscriptions` from task-005. Ensure the service's `close()`
-  runs on daemon shutdown wherever the other services are torn down.
+  at lines 429-434), passing the `SessionSubscriptions` from task-005. Call the service's `close()`
+  from `DaemonHandle.close` (lines 792-797), alongside the existing `relayHandle?.close()` /
+  `await wsHandle.close()` / HTTP-server close — that is the daemon's one teardown path.
 
 ## Out of scope
 - `dev-bootstrap.ts`. It registers neither git-checkout nor file-transfer handlers (verified: only
@@ -112,6 +135,8 @@ Coalescing precedent: `TerminalManager`'s `coalesceMs` (`terminal-manager.ts:86`
       unsubscribe is safe to call.
 - [ ] A `~`-prefixed path is expanded server-side and echoed back resolved.
 - [ ] Closing a socket without unsubscribing releases the watcher (via task-005's `onSessionClose`).
+- [ ] Subscribing past `MAX_FILE_WATCHES_PER_SESSION` replies `error: "too_many_watches"` instead of
+      opening an unbounded number of `fs.watch` handles, and the session keeps working.
 - [ ] `npm run build:server` and `npm run typecheck` pass.
 
 ## Test / verification plan
