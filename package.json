@@ -49,8 +49,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "@molviewer/core": "^0.3.0"
   }
 }
