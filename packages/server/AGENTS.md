@@ -574,10 +574,19 @@ messages are fair game.
 - **The relay's synthetic `Session.sendBinary()` and `Session.send()` share one socket-shaped
   object whose `send(data)` discriminates by argument type** (`string` → `relayReply`/`e2ee_app`,
   `Uint8Array` → `relayReplyBinary`/`e2ee_bin`) — see `bootstrap.ts`'s relay wiring. Both
-  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onMessage`/
-  `onBinaryMessage` callbacks respectively and must be reset (`= null`) alongside
-  `resetRelaySession()` on `onReconnect`, or a stale reply closure from a dead relay socket could
-  be invoked. Terminal I/O and file-transfer chunks ride this binary path — they are real binary
+  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onHandshake` callback
+  (which now hands over the channel's `send`/`sendBinary` directly, the moment the handshake
+  completes), and reset (`= null`) alongside `resetRelaySession()` on `onReconnect`, or a stale
+  reply closure from a dead relay socket could be invoked. They used to be captured lazily from
+  `onMessage`/`onBinaryMessage` instead — fine for `relayReply` (the client's first frame is
+  always the text `hello`), but `relayReplyBinary` stayed `null` until the daemon received a
+  BINARY frame from the client. Terminal I/O sends one immediately (`Input`), masking the bug;
+  file downloads never do — the client only ever sends TEXT
+  (`file_download_token_request`/`file_download_request`) and expects unprompted BINARY
+  `Begin`/`Chunk`/`End` back — so every relay-routed file download silently hung forever with no
+  error on either side. Regression test: `bootstrap.test.ts`'s "file download round-trips
+  Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client
+  first". Terminal I/O and file-transfer chunks ride this binary path — they are real binary
   application data, but they cross the relay wire as base64-wrapped JSON text frames
   (`@av-pi-studio/relay`'s `e2ee_bin`), never raw binary WebSocket frames; see that package's
   AGENTS.md § Wire format for why.

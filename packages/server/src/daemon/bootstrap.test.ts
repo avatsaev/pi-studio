@@ -8,7 +8,11 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { createClientChannel, decodeBase64 } from "@av-pi-studio/relay";
-import { decodeTerminalFrame, encodeTerminalFrame } from "@av-pi-studio/protocol";
+import {
+  decodeFileTransferFrame,
+  decodeTerminalFrame,
+  encodeTerminalFrame,
+} from "@av-pi-studio/protocol";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { silentLogger } from "../logging/logger.js";
@@ -643,6 +647,135 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const output = await outputFrame.promise;
     const decodedOutput = decodeTerminalFrame(output);
     expect(decodedOutput.opcode).toBe("Output");
+
+    channel.close();
+    clientSocket.close();
+    await handle?.close();
+    handle = undefined;
+    await relay.close();
+  }, 15000);
+
+  it("file download round-trips Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client first", async () => {
+    // Regression: `relayReplyBinary` used to stay `null` until the daemon RECEIVED a binary
+    // frame from the client (only `onBinaryMessage` populated it). Terminal I/O always sends a
+    // binary `Input` frame from the client before expecting `Output` back, so it masked this gap;
+    // a file download is entirely unprompted the other way — the client only ever sends TEXT
+    // (`file_download_token_request`/`file_download_request`) and expects BINARY `Begin`/`Chunk`/
+    // `End` frames back — so `sendBinary()` silently no-op'd on every relay-routed download.
+    const relay = await startFakeRelay();
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-relay-download-e2e-"));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        daemon: { relay: { enabled: true, endpoint: `127.0.0.1:${relay.port}`, useTls: false } },
+      }),
+    );
+    const downloadPath = join(home, "download-me.txt");
+    writeFileSync(downloadPath, "relay download regression fixture");
+
+    const port = 6800 + Math.floor(Math.random() * 200);
+    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
+
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
+
+    const sessionId = await waitForSessionId(relay);
+    const clientSocket = await relay.connectClient(sessionId);
+
+    const clientMessageHandlers: Array<(data: string) => void> = [];
+    clientSocket.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary) for (const h of clientMessageHandlers) h(data.toString("utf8"));
+    });
+
+    const ready = Promise.withResolvers<void>();
+    const pendingByRequestId = new Map<string, (msg: Record<string, unknown>) => void>();
+    function waitForResponse(requestId: string): Promise<Record<string, unknown>> {
+      return new Promise((resolve) => pendingByRequestId.set(requestId, resolve));
+    }
+    const receivedFrames: Uint8Array[] = [];
+    const endFrame = Promise.withResolvers<void>();
+
+    const channel = createClientChannel({
+      transport: {
+        send: (data) => clientSocket.send(data),
+        onMessage: (h) => clientMessageHandlers.push(h),
+        onClose: () => {},
+        close: () => clientSocket.close(),
+      },
+      attachment: { sessionId },
+      daemonPublicKey: decodeBase64(daemonPublicKeyB64),
+      events: {
+        onReady: () => ready.resolve(),
+        onMessage: (plaintext) => {
+          const envelope = JSON.parse(plaintext) as Record<string, unknown>;
+          if (envelope.type !== "session") return;
+          const msg = envelope.message as Record<string, unknown>;
+          const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+          const resolve = requestId ? pendingByRequestId.get(requestId) : undefined;
+          if (resolve) {
+            pendingByRequestId.delete(requestId!);
+            resolve(msg);
+          }
+        },
+        // No binary frame is ever sent BY the client in this test — that's the whole point.
+        onBinaryMessage: (bytes) => {
+          receivedFrames.push(bytes);
+          const decoded = decodeFileTransferFrame(bytes);
+          if (decoded.opcode === "End") endFrame.resolve();
+        },
+        onAuthError: (err) => ready.reject(err instanceof Error ? err : new Error(String(err))),
+      },
+    });
+    await ready.promise;
+
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-download-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
+
+    const tokenResponsePromise = waitForResponse("relay-dl-token");
+    channel.send(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_token_request",
+          requestId: "relay-dl-token",
+          path: downloadPath,
+        },
+      }),
+    );
+    const tokenResponse = await tokenResponsePromise;
+    expect(tokenResponse.ok).toBe(true);
+
+    const downloadResponsePromise = waitForResponse("relay-dl-download");
+    channel.send(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_request",
+          requestId: "relay-dl-download",
+          token: tokenResponse.token,
+          stream: 1,
+        },
+      }),
+    );
+    const downloadResponse = await downloadResponsePromise;
+    expect(downloadResponse.ok).toBe(true);
+
+    // Proves the daemon's unprompted BINARY `Begin`/`Chunk`/`End` reply actually reached the
+    // client over the relay — the exact frames `relayReplyBinary` used to drop on the floor.
+    await endFrame.promise;
+    const decodedFrames = receivedFrames.map((f) => decodeFileTransferFrame(f));
+    expect(decodedFrames[0]).toMatchObject({ opcode: "Begin" });
+    const chunk = decodedFrames.find((f) => f.opcode === "Chunk");
+    expect(chunk && "data" in chunk ? Buffer.from(chunk.data).toString("utf8") : null).toBe(
+      "relay download regression fixture",
+    );
+    expect(decodedFrames.at(-1)).toMatchObject({ opcode: "End", ok: true });
 
     channel.close();
     clientSocket.close();

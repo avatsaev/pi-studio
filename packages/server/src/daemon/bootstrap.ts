@@ -662,7 +662,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       config.daemon.relay,
       {
         onMessage: (plaintext, reply) => {
-          relayReply = reply; // always the same underlying channel.send for this connection
+          relayReply = reply; // kept in sync per message too; the real fix is capturing this in onHandshake below
 
           if (relaySession === null) {
             // First frame on this relay connection must be `hello`, exactly like direct WS.
@@ -720,7 +720,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
           void routeTextFrame(relaySession, plaintext, registry);
         },
         onBinaryMessage: (bytes, replyBinary) => {
-          relayReplyBinary = replyBinary; // always the same underlying channel.sendBinary for this connection
+          relayReplyBinary = replyBinary; // kept in sync per message too; the real fix is capturing this in onHandshake below
           if (relaySession === null) return; // binary frames before `hello` have no session to target
           routeBinaryFrame(relaySession, bytes, (s, b) => {
             terminalBinaryHandler(s, b);
@@ -733,11 +733,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         onSessionStart: (sessionId) => {
           logger.info({ sessionId }, "relay connected");
         },
-        onHandshake: () => {
+        onHandshake: (reply, replyBinary) => {
           // A NEW peer just completed the E2EE handshake on this (possibly already-`ready`)
           // channel — browser reload, second tab, or a genuine reconnect all look identical here.
           // Drop any app-level Session tied to whichever peer held the channel before; the next
           // app frame is that new peer's own `hello`, not a continuation of the old one's.
+          //
+          // Capture `reply`/`replyBinary` right here rather than waiting for the first
+          // `onMessage`/`onBinaryMessage` call: a file download's `Begin`/`Chunk`/`End` frames are
+          // sent daemon → client entirely unprompted (the client never sends binary first, unlike
+          // terminal input), so `relayReplyBinary` used to stay `null` until a binary frame
+          // happened to arrive from the client — which never happened for downloads, silently
+          // dropping every relay-routed file download with no error on either side.
+          relayReply = reply;
+          relayReplyBinary = replyBinary;
           if (relaySession) logger.info({ sessionId: relaySession.id }, "relay peer replaced");
           resetRelaySession();
         },

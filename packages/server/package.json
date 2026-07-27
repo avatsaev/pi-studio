@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/server",
-  "version": "0.0.41",
+  "version": "0.0.42",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,9 +22,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/highlight": "^0.0.41",
-    "@av-pi-studio/protocol": "^0.0.41",
-    "@av-pi-studio/relay": "^0.0.41",
+    "@av-pi-studio/highlight": "^0.0.42",
+    "@av-pi-studio/protocol": "^0.0.42",
+    "@av-pi-studio/relay": "^0.0.42",
     "@earendil-works/pi-coding-agent": "^0.82.1",
     "@xterm/headless": "^6.0.0",
     "bcryptjs": "^3.0.3",
