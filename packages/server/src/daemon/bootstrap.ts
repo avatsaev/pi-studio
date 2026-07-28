@@ -20,6 +20,7 @@ import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
 import { Session } from "../ws/session.js";
 import { createInMemoryCapabilityStore } from "../ws/capability-store.js";
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 
@@ -405,12 +406,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   }));
 
   // ── Git: status/diff streaming, operations, GitHub PRs, worktrees ─────────────
+  const subscriptions = new SessionSubscriptions();
   const gitService = new WorkspaceGitService();
   const diffManager = new CheckoutDiffManager();
   registerGitCheckoutHandlers(registry, {
     gitService,
     diffManager,
     checkoutRefreshEnabled: true,
+    subscriptions,
   });
   new GitOperationsService({ gitService }).registerHandlers(registry);
   new GitHubService({
@@ -616,6 +619,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
     },
+    onSessionClose: (session) => subscriptions.disposeSession(session),
     onMessage: (session, frame) => {
       if ("text" in frame) {
         void routeTextFrame(session, frame.text, registry);

@@ -117,3 +117,52 @@ describe("post-handshake routing hook", () => {
     ws.close();
   });
 });
+
+describe("onSessionClose hook", () => {
+  it("is invoked exactly once for a post-handshake session that disconnects", async () => {
+    const closed: Session[] = [];
+    const { promise: closedOnce, resolve } = Promise.withResolvers<void>();
+    const { port } = await startServer({
+      onSessionClose: (s) => {
+        closed.push(s);
+        resolve();
+      },
+    });
+    const ws = await connect(port);
+    ws.send(hello("client-close-1"));
+    await nextMessage(ws);
+    ws.close();
+    await closedOnce;
+    expect(closed).toHaveLength(1);
+  });
+
+  it("never fires for a socket that closes before completing the hello handshake", async () => {
+    const closed: Session[] = [];
+    const { port } = await startServer({ onSessionClose: (s) => closed.push(s) });
+    const ws = await connect(port);
+    const closedClientSide = once(ws, "close");
+    ws.close(); // no hello sent — session is still null server-side, so nothing CAN fire here
+    await closedClientSide;
+    expect(closed).toHaveLength(0);
+  });
+
+  it("a throwing callback does not break socket teardown or sessions bookkeeping", async () => {
+    const { promise: closeHandlerRan, resolve } = Promise.withResolvers<void>();
+    const { port, handle } = await startServer({
+      onSessionClose: () => {
+        // Signal completion BEFORE throwing — resolves once ws-server.ts's close handler has
+        // reached this point, which is after its `sessions.delete(session)` call.
+        resolve();
+        throw new Error("boom");
+      },
+    });
+    const ws = await connect(port);
+    ws.send(hello("client-close-2"));
+    await nextMessage(ws);
+    expect(handle.sessions.size).toBe(1);
+    ws.close();
+    await closeHandlerRan;
+    // Teardown proceeded despite the throwing callback: the session was still removed.
+    expect(handle.sessions.size).toBe(0);
+  });
+});

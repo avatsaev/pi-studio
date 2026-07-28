@@ -39,6 +39,11 @@ export interface WebSocketServerDeps {
   capabilityStore?: CapabilityStore;
   /** Called once a session completes its handshake. */
   onSession?: (session: Session) => void;
+  /** Called when a session's socket closes — the hook a handler module uses to release
+   *  per-session resources (subscriptions, watchers) it would otherwise leak forever on a
+   *  dropped connection. A throwing callback never breaks socket teardown or `sessions`
+   *  bookkeeping (guarded at the call site). */
+  onSessionClose?: (session: Session) => void;
   /** Called for every post-handshake frame. */
   onMessage?: (session: Session, frame: SessionFrame) => void;
   /** Operational logger: upgrade rejections (warn), handshake failures (warn), session close (info). */
@@ -157,6 +162,14 @@ export function createWebSocketServer(
     ws.on("close", (code) => {
       if (session) {
         sessions.delete(session);
+        try {
+          deps.onSessionClose?.(session);
+        } catch (err) {
+          deps.logger?.warn(
+            { err, clientId: session.clientId },
+            "onSessionClose callback threw; session teardown continues",
+          );
+        }
         deps.logger?.info(
           {
             clientId: session.clientId,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
@@ -17,6 +17,7 @@ import {
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
+import { WorkspaceGitService } from "../projects/workspace-git-service.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -353,6 +354,45 @@ describe("broadcast() session envelope", () => {
     expect(bareFrame).toBeUndefined();
 
     ws.close();
+  }, 15000);
+});
+
+describe("session-close subscription cleanup", () => {
+  it("closing a socket without unsubscribing releases the WorkspaceGitService listener it opened", async () => {
+    // Spy on the real WorkspaceGitService.subscribe to observe whether ITS returned unsubscribe
+    // is ever called — the actual regression this fixes. Wrapping (not replacing) the real
+    // implementation keeps checkout_status_subscribe's real behavior intact.
+    const original = WorkspaceGitService.prototype.subscribe;
+    let capturedUnsub: (() => void) | null = null;
+    let unsubCalled = false;
+    const spy = vi
+      .spyOn(WorkspaceGitService.prototype, "subscribe")
+      .mockImplementation(function (this: WorkspaceGitService, cwd, listener) {
+        const unsub = original.call(this, cwd, listener);
+        capturedUnsub = () => {
+          unsubCalled = true;
+          unsub();
+        };
+        return capturedUnsub;
+      });
+
+    try {
+      const booted = boot();
+      handle = booted.handle;
+      const client = await connect(booted.port);
+
+      const response = await client.rpc({ type: "checkout_status_subscribe", cwd: booted.home });
+      expect(response.ok).toBe(true);
+      expect(capturedUnsub).not.toBeNull();
+      expect(unsubCalled).toBe(false);
+
+      // Drop the connection WITHOUT sending checkout_status_unsubscribe — the leak this task
+      // fixes only shows up on an ungraceful/unsubscribed disconnect.
+      client.close();
+      await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
+    } finally {
+      spy.mockRestore();
+    }
   }, 15000);
 });
 
