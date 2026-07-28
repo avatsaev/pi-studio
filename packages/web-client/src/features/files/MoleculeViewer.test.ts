@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { moleculeSource } from "./molecule-source.js";
+import { shouldApplyRefresh } from "./molecule-reload.js";
 
 describe("moleculeSource", () => {
   it("returns null for a null path (empty molecule tab)", () => {
@@ -23,5 +24,35 @@ describe("moleculeSource", () => {
       url: "blob:abc",
       name: "structure.pdb",
     });
+  });
+});
+
+describe("shouldApplyRefresh", () => {
+  it("no change pushed yet -> false", () => {
+    expect(shouldApplyRefresh({ changedAt: null, lastAppliedAt: null, modified: false })).toBe(
+      false,
+    );
+    expect(shouldApplyRefresh({ changedAt: null, lastAppliedAt: null, modified: true })).toBe(
+      false,
+    );
+  });
+
+  it("changed & clean -> true", () => {
+    expect(shouldApplyRefresh({ changedAt: 100, lastAppliedAt: null, modified: false })).toBe(
+      true,
+    );
+    expect(shouldApplyRefresh({ changedAt: 200, lastAppliedAt: 100, modified: false })).toBe(true);
+  });
+
+  it("changed & modified -> false (unsaved edits are never clobbered)", () => {
+    expect(shouldApplyRefresh({ changedAt: 100, lastAppliedAt: null, modified: true })).toBe(
+      false,
+    );
+  });
+
+  it("already-applied changedAt -> false (no reload loop)", () => {
+    expect(shouldApplyRefresh({ changedAt: 100, lastAppliedAt: 100, modified: false })).toBe(
+      false,
+    );
   });
 });
