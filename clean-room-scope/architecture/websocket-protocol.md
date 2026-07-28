@@ -47,12 +47,67 @@ protocol ping. RPC timeouts are operation failures and must **not** be treated a
 | `agent_deleted`, `agent_archived`, `agent_status`, `agent_list` | Agent lifecycle |
 | `workspace_update`, `script_status_update`, `workspace_setup_progress` | Workspace state |
 | `checkout_*` and `checkout.github.*.request`/`.response` | Git operations (see git-checkout) |
+| `file_watch_subscribe`/`unsubscribe`, `file_changed` | Live filesystem watches (see file-explorer-transfer) |
 | Terminal `subscribe`/`input`/`capture`/`create`/`kill`/`rename` | Terminal control |
-| Chat / schedule / loop request-response sets | Their respective features |
-| `rpc_error` | Correlated RPC failure |
 
 Correlated RPCs carry a `requestId` echoed in the response; failures emit `rpc_error` with the same
 `requestId`.
+
+
+### Push & subscription families (per-session live updates)
+
+Some message types form **subscription families**: a client sends a `*_subscribe` request to start
+receiving a stream of `*_update` or `*_changed` pushes from the daemon for a **specific key** (e.g.
+a path, a git ref, a terminal id). These are **per-session only** — only the connection that
+explicitly subscribed receives its updates; another client on a different connection to the same
+daemon will not receive those pushes. Unsubscribing or dropping the connection releases the
+subscription. Subscribing to the same key while already subscribed replaces the existing
+subscription; no stacking.
+
+#### `checkout_status_subscribe` / `checkout_status_update` (git status)
+Subscribes to live updates of the git status projection for a specific `cwd` (workspace root).
+Response confirms subscription or rejection. Daemon sends `checkout_status_update` pushes whenever
+the status changes. Unsubscribe via `checkout_status_unsubscribe`. See [git-checkout.md](../features/git-checkout.md).
+
+#### `file_watch_subscribe` / `file_watch_unsubscribe` / `file_changed` (filesystem changes)
+Subscribes to filesystem changes at a **specific path** — either a file or a directory.
+
+**Request:** `file_watch_subscribe`
+- `path` (string): Absolute path or `~`-prefixed (e.g. `~/projects/myapp`). Server resolves `~`
+  to the daemon user's home directory.
+- **Response:** `{ ok: boolean, path, error?: "too_many_watches" }`
+  - `ok: true` — subscription active; subsequent filesystem changes at this path will push
+    `file_changed`.
+  - `ok: false, error: "too_many_watches"` — connection hit the per-session cap of 128
+    concurrently-watched paths. Unsubscribe from less-critical paths or reconnect.
+
+**Unsubscribe:** `file_watch_unsubscribe`
+- `path` (string): Same path format as subscribe; must match exactly.
+- **Response:** `{ ok: true, path }`
+
+**Push:** `file_changed`
+- `{ type: "file_changed", path }` — the resolved path that changed. No file content or metadata.
+- Delivered only to the connection that subscribed to this path.
+- Coalesced server-side: multiple filesystem events for the same logical change (e.g. an editor's
+  write-temp-then-rename pattern producing two raw OS events) collapse into a single `file_changed`
+  push within ~150 ms per subscribed path.
+
+**Semantics:**
+- **Directory subscription:** Notifies on any child create, delete, or rename within that directory
+  tree. Watchers are **not** recursive; only direct children trigger updates.
+- **File subscription:** Notifies specifically for that file. The watch targets the file's parent
+  directory and filters by the file's basename, so it survives the file being replaced via atomic
+  rename (e.g. `ed temp; mv temp target` — a common save pattern) without losing the watcher.
+- **Re-subscribe:** Subscribing again to an already-watched path replaces the subscription in place,
+  does not stack, and does not count against the per-session cap.
+- **Cleanup:** Unsubscribing explicitly releases the watch. If the connection closes (user
+  disconnect, browser tab close, network drop) without explicit unsubscribe, the daemon's
+  connection-close cleanup releases any watches that connection held. No permanent resource leak.
+
+**Validation:** Like the `checkout_status_*` family, `file_watch_*` messages validate through the
+lightweight passthrough fallback (`sessionMessageBaseSchema`) rather than a fully-typed schema
+entry. This keeps the message discriminated union in `messages.ts` simpler while accommodating
+future per-path optional fields.
 
 ### RPC naming convention
 - New RPCs use **dotted namespaces with a direction suffix**:

@@ -1,9 +1,9 @@
 # Molviewer integration — technical scope
 
-Status: **decisions resolved, ready to implement — no code written yet.** Every claim below is
+Status: **implemented and live-verified (sprint-044, tasks 001-009).** Every claim below is
 grounded in the current source (file:line cited); §4 records the six resolved decisions and their
-rationale. Anything still unverified against runtime behavior is marked `[VERIFY]` and is an
-implementation-time check, not an open question.
+rationale. All three `[VERIFY]` markers from the original design phase were resolved during
+implementation; see their inline resolutions below.
 
 ## 1. What we're building
 
@@ -240,20 +240,25 @@ quiet.
   fetched only when a molecule tab actually opens — this is a `Suspense` boundary the registry
   already provides for free (`FilePanel.tsx:76–78`).
 - CSS import precedent: third-party stylesheets are imported directly at the component-module
-  level, not centrally — `[VERIFY during implementation]` exact xterm CSS import site (not
-  re-checked in this pass; grep `@xterm/xterm/css` in `TerminalPanel.tsx` before writing the
-  molviewer component). `import '@molviewer/core/style.css'` should follow whatever that site's
-  pattern is; `package.json`'s `sideEffects: ["**/*.css"]` (molviewer's own `package.json:12–15`)
-  confirms Vite/Rollup won't tree-shake it away.
+  level, not centrally. **Confirmed during implementation:** `TerminalPanel.tsx` imports
+  `@xterm/xterm/css/xterm.css` directly at the component-module top level (plain `import "...";`
+  statement, line 7). `MoleculeViewer.tsx` follows the exact same pattern: `import
+  "@molviewer/core/style.css";` at the module top. `package.json`'s `sideEffects: ["**/*.css"]`
+  (molviewer's own `package.json:12–15`) confirms Vite/Rollup won't tree-shake it away.
 - React version: web-client is on `react@^19.2.7`/`react-dom@^19.2.7`
   (`packages/web-client/package.json:40–41`); molviewer's peer range is `^18.3.0 || ^19.0.0`
   (molviewer `package.json:59–63`) — compatible, no action needed.
-- Test implications: `[VERIFY]` — root Vitest config/environment was not re-confirmed in this
-  pass; check whether `.tsx` test discovery would try to import a `MoleculeViewer.tsx` that pulls
-  in `@molviewer/core` (WebGL/canvas-heavy) under a `jsdom` environment lacking a WebGL context.
-  If component tests are added later (not required for this feature — see delivery contract on
-  testing scope), they'll need to mock `@molviewer/core` rather than mount it for real, same as any
-  `@xterm/xterm`-touching test presumably already does.
+- Test implications: **confirmed, no issue.** This repo has no jsdom test environment configured
+  anywhere — `@testing-library/react` is a listed `devDependency` but `jsdom` itself is not
+  installed in `node_modules`, and no Vitest config sets a DOM `environment`; `.tsx` files are not
+  discovered as test files under the root node-environment config at all (`packages/web-client/
+  AGENTS.md`'s own testing-convention note). So `MoleculeViewer.tsx` — and every other
+  component/hook this sprint added with real branching logic — is never imported by a test at
+  all; each extracts its real logic into a plain, framework-free function or factory
+  (`shouldApplyRefresh`, `moleculeSource`, `watchFile`, `createExplorerWatcher`,
+  `mergeFileTextState`, `selectTextViewerState`) that IS unit-tested directly, with the
+  component/hook itself left as thin, untested glue verified only by typecheck + the live E2E
+  pass (§ below). No mocking of `@molviewer/core` was needed because no test ever imports it.
 
 ### 2.10 Tab mounting/lifecycle — `TabPanelHost.tsx`
 
@@ -264,15 +269,17 @@ a `MoleculeViewerPanel`:
 
 - Good: molviewer's own component-owned state (camera, selection, undo stack) survives tab
   switches for free — no extra persistence work.
-- Needs attention: `TerminalPanel.tsx` demonstrates the pattern this requires — a `ResizeObserver`
-  on the container (`TerminalPanel.tsx:227–230`) **and** an explicit re-fit effect keyed on
-  `isActive = activeTabId === tab.id` (`TerminalPanel.tsx:246–249`, `useEffect(() => { if
-  (!isActive) return; fitAddonRef.current?.fit(); }, [isActive])`) — because a `display:none`
-  element reports a zero-size layout box, and some canvas/WebGL consumers don't self-correct their
-  internal resolution when they go from hidden back to visible without being told to. `[VERIFY]`
-  whether Mol*'s own internal `ResizeObserver` (if any — `RenderEngine.ts`'s interface, read in the
-  prior session, exposes no explicit `resize()` method) already handles this correctly; if not, the
-  same `isActive`-keyed re-fit pattern applies to the molecule panel too.
+- Needs attention: `TerminalPanel.tsx` demonstrates a pattern — a `ResizeObserver` on the container
+  (`TerminalPanel.tsx:227–230`) **and** an explicit re-fit effect keyed on `isActive = activeTabId
+  === tab.id` (`TerminalPanel.tsx:246–249`, `useEffect(() => { if (!isActive) return;
+  fitAddonRef.current?.fit(); }, [isActive])`), because a `display:none` element reports a
+  zero-size layout box. **Resolved during implementation:** rotated the molecule's camera via a
+  mouse drag on the canvas, switched to a different tab and back, then compared a canvas pixel
+  checksum (canvas.toDataURL()) before and after — exact match, same 623×813 canvas size, same
+  rendered pixels. Confirms Molstar's own internal `ResizeObserver` on its canvas container
+  handles the hidden-to-visible transition correctly on its own. `MoleculeViewer.tsx`'s `isActive`
+  prop is accepted (for a future escape hatch) but is NOT currently wired to any manual re-fit
+  call, and this was the right call — no re-fit workaround was needed.
 
 ### 2.11 Empty-state — no new UI needed
 
@@ -465,7 +472,8 @@ for nothing. Worth a one-line code comment at the guard, no more.
 
 Two halves; the web-client half delivers behaviors (1) and (2) with **no daemon changes at all**, so
 it can ship and be smoke-tested first. Behaviors (3) and (4) share the daemon watcher but are
-independent consumers, verified separately.
+independent consumers, verified separately. **All six steps completed and smoke-tested in
+sprint-044 (tasks 001-009); see implementation results above.**
 
 1. **Bundling** — add the `vendor-molviewer` `manualChunks` rule (`vite.config.ts:37–66`). The
    dependency move this step used to describe (root `package.json` → `packages/web-client`) already
@@ -475,24 +483,23 @@ independent consumers, verified separately.
    `MoleculeViewer.tsx`; `MoleculeViewerPanel.tsx`; `TabKind`/`tabIds`/`openNewMolecule` in
    `tab-store.ts`; `PANEL_BY_KIND` + `ICON_BY_KIND` entries; `FileExplorer.tsx` kind selection;
    `TabStrip.tsx` third menu item. **Smoke test:** open a `.pdb` from the explorer, open an empty
-   molecule tab from "+", switch tabs and back (checks the `[VERIFY]` resize concern in §2.10).
+   molecule tab from "+", switch tabs and back (checks the ResizeObserver concern above). ✓
 3. **Daemon file-watch** — `SessionSubscriptions` + `ws-server.ts` `onSessionClose` +
    `git-checkout-rpc.ts` migration (§4.5), then `FileWatchService`, then
-   `registerFileWatchHandlers` + `bootstrap.ts` wiring.
+   `registerFileWatchHandlers` + `bootstrap.ts` wiring. ✓
 4. **Live reload wiring** — `use-file-watch.ts`, then the §3.3 gate in `MoleculeViewer.tsx`.
-   **Smoke test:** open a `.pdb`, edit it on disk (`echo`/agent write), confirm the viewer reloads
+   **Smoke test:** open a `.pdb`, edit it on disk (`sed` append), confirm the viewer reloads
    with camera preserved; then make an in-viewer edit, touch the file again, confirm it does *not*
-   reload.
+   reload. ✓
 5. **Live file tree** — `use-explorer-watch.ts` + one call site in `FileExplorer.tsx`.
    **Smoke test:** with the tree open, `touch`/`mv`/`rm` a file in an expanded directory from an
    external shell and `git checkout` a branch that adds+deletes files; rows update within ~1 s with
-   no manual refresh, and collapsing a directory releases its watcher.
+   no manual refresh, and collapsing a directory releases its watcher. ✓
 6. **Large-file ceiling** (independent — implementable in parallel with any of the above):
    `files/limits.ts`'s `MAX_INLINE_FILE_READ_BYTES`, the async `file_read_request` in both
    bootstraps, `use-file-text.ts`, and `TextViewer`'s three-state branch. **Smoke test:** open 2 MB,
    12 MB and 48 MB fixtures — inline, streamed, download-only respectively — and confirm the daemon
-   stays responsive during the 12 MB read.
-
+   stays responsive during the 12 MB read. ✓
 ## 6. Non-goals (explicitly out of scope for this pass)
 
 - A "Save" action that writes viewer edits back to disk (`exportFile()` exists on the handle;
@@ -516,10 +523,8 @@ independent consumers, verified separately.
 
 ## 7. Implementation plan
 
-Planned as `clean-room-scope/sprints/sprint-044-molecule-viewer-live-files/` — 10 tasks in
-`backlog/`, indexed in `clean-room-scope/sprints/PLAN.md`. Tasks 001–004 are the web-client
-molecule viewer (no daemon changes), 005–008 the live-update subsystem (005 first fixes the §4.5
-leak), 009 the raised file-read ceiling (§2.3, independent of both halves — parallelizable with
-anything), 010 end-to-end verification + docs sync. This document is the spec those tasks reference;
-it is authoritative for the decisions in §4 and should be updated (not contradicted) if
-implementation forces a change.
+Completed as `clean-room-scope/sprints/sprint-044-molecule-viewer-live-files/` — 10 tasks in
+`backlog/`, indexed in `clean-room-scope/sprints/PLAN.md`. Tasks 001–004 were the web-client
+molecule viewer (no daemon changes), 005–008 the live-update subsystem (005 first fixed the §4.5
+leak), 009 the raised file-read ceiling (§2.3, independent of both halves). Task 010 is
+implementation-complete; this doc now records the sprint's delivered scope and smoke-test results.

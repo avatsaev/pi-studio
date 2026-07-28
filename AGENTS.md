@@ -80,6 +80,7 @@ desktop     ──────► server   (NOT web-client yet — planned for s
 | CLI framework | `commander` |
 | QR codes | `qrcode` |
 | Auth | `bcryptjs` (password hashing), `tweetnacl` (keypair for relay pairing) |
+| Molecular structure viewer | `@molviewer/core` (web-client only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
 
 ---
 
@@ -216,6 +217,13 @@ All communication uses a **single WebSocket connection** per client.
   also registered as an alias (`registry.registerAlias(flatName, dottedName)`) for compatibility.
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
   there's a specific reason to nest.
+- **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough
+  fallback rather than a `messages.ts` discriminated-union entry — `checkout_status_subscribe`/
+  `_unsubscribe` + `checkout_status_update` (git status, per-session `send()`, not broadcast) and
+  `file_watch_subscribe`/`_unsubscribe` + `file_changed` (filesystem changes, same per-session
+  `send()` shape, `packages/server/src/files/file-watch-service.ts`) both follow this pattern. Not
+  every push type needs a protocol-package schema entry — a local TypeScript interface + type guard
+  at the point of use is the established convention for this family.
 
 ---
 

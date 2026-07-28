@@ -3,8 +3,13 @@ import { type CheckoutStatusProjection, projectStatus } from "./status-projectio
 
 /**
  * Workspace git service: live status projections streamed as `checkout_status_update`
- * (features/git-checkout.md § Status & diff). Recomputation is change-driven (a filesystem watcher
- * calls `refresh()`), never polled. `CheckoutRefreshRequest` is gated by `features.checkoutRefresh`.
+ * (features/git-checkout.md § Status & diff). Recomputation is change-driven, never polled —
+ * `refresh(cwd)` is called by `checkout_refresh_request`'s handler (the client's own post-tool
+ * debounce guess, `files-changed.ts`) and by every mutating git RPC (`git-operations.ts`, after
+ * commit/checkout/branch/merge/reset). `CheckoutRefreshRequest` is gated by
+ * `features.checkoutRefresh`. The daemon's `FileWatchService` (`files/file-watch-service.ts`) is a
+ * separate, `file_changed`-only push path for external filesystem changes — it does NOT call
+ * `refresh()` and does not affect git-status computation; see its own module header.
  */
 
 export type StatusListener = (projection: CheckoutStatusProjection) => void;
