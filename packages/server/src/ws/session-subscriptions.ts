@@ -30,6 +30,15 @@ export class SessionSubscriptions {
     subs.set(key, unsub);
   }
 
+  /** Snapshot of every key currently registered for `session` (empty array if none). Callers use
+   *  this to enforce their own per-family limits — e.g. file-watch's per-session cap (task-006) —
+   *  without this registry needing to know what a key "means"; a caller filters by its own key
+   *  prefix (e.g. `key.startsWith("file_watch:")`). */
+  keysOf(session: Session): readonly string[] {
+    const subs = this.bySession.get(session);
+    return subs ? [...subs.keys()] : [];
+  }
+
   /** Dispose and forget one key. Safe when absent. */
   remove(session: Session, key: string): void {
     const subs = this.bySession.get(session);

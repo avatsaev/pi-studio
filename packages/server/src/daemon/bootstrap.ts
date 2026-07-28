@@ -38,6 +38,8 @@ import { saveAgent, loadAllAgents } from "../persistence/entity-stores.js";
 
 import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
+import { FileWatchService } from "../files/file-watch-service.js";
+import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
 import { WorkspaceRegistryService } from "../projects/workspace-registry.js";
@@ -429,13 +431,15 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     getActiveSessions,
   }).registerHandlers(registry, getActiveSessions);
 
-  // ── Files: explorer (with download tokens) + transfer ─────────────────────────
+  // ── Files: explorer (with download tokens) + transfer + filesystem watch ──────
   const fileTransfer = new FileTransferService();
   new FileExplorerService({ issueDownloadToken: fileTransfer.issueDownloadToken }).registerHandlers(
     registry,
   );
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();
+  const fileWatchService = new FileWatchService({ logger });
+  registerFileWatchHandlers(registry, { fileWatchService, subscriptions, logger });
 
   // Simple file diff RPC for the POC UI (returns unified diff for a single file). Untracked
   // (brand-new) files have no git-tracked "before" state, so a plain `git diff` against them is
@@ -795,6 +799,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
     close: async () => {
       logger.info("daemon shutting down");
+      fileWatchService.close();
       relayHandle?.close();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

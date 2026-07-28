@@ -18,6 +18,7 @@ import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
 import { WorkspaceGitService } from "../projects/workspace-git-service.js";
+import { FileWatchService } from "../files/file-watch-service.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -388,6 +389,92 @@ describe("session-close subscription cleanup", () => {
 
       // Drop the connection WITHOUT sending checkout_status_unsubscribe — the leak this task
       // fixes only shows up on an ungraceful/unsubscribed disconnect.
+      client.close();
+      await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
+    } finally {
+      spy.mockRestore();
+    }
+  }, 15000);
+});
+
+describe("file_watch RPC", () => {
+  it("subscribing to a file and writing to it pushes a matching file_changed message", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "watched.txt");
+    writeFileSync(file, "v1");
+
+    const pushes: Record<string, unknown>[] = [];
+    client.ws.on("message", (data: Buffer) => {
+      const env = JSON.parse(data.toString("utf8"));
+      if (env.type === "session" && env.message?.type === "file_changed") pushes.push(env.message);
+    });
+
+    const response = await client.rpc({ type: "file_watch_subscribe", path: file });
+    expect(response.ok).toBe(true);
+    expect(response.path).toBe(file);
+
+    writeFileSync(file, "v2");
+    await vi.waitFor(
+      () => expect(pushes.some((p) => p.path === file)).toBe(true),
+      { timeout: 2000 },
+    );
+  }, 15000);
+
+  it("replies too_many_watches over the per-session cap instead of opening unbounded watches", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    // Subscribing to the same already-existing directory repeatedly replaces in place
+    // (SessionSubscriptions.add's contract) and must never count against the cap — so exceed it
+    // with distinct nonexistent file targets under the same watched directory instead, each of
+    // which still allocates its own SessionSubscriptions entry.
+    let lastResponse: Record<string, unknown> = {};
+    for (let i = 0; i < 129; i++) {
+      lastResponse = await client.rpc({
+        type: "file_watch_subscribe",
+        path: join(booted.home, `nonexistent-${i}.txt`),
+      });
+    }
+    expect(lastResponse.ok).toBe(false);
+    expect(lastResponse.error).toBe("too_many_watches");
+  }, 15000);
+});
+
+describe("file_watch session-close cleanup", () => {
+  it("closing a socket without unsubscribing releases the FileWatchService subscription it opened", async () => {
+    // Same shape as the checkout_status regression above, but for file_watch — spies on the real
+    // FileWatchService.subscribe to observe whether ITS returned unsubscribe is ever called.
+    const original = FileWatchService.prototype.subscribe;
+    let capturedUnsub: (() => void) | null = null;
+    let unsubCalled = false;
+    const spy = vi
+      .spyOn(FileWatchService.prototype, "subscribe")
+      .mockImplementation(function (this: FileWatchService, path, listener) {
+        const unsub = original.call(this, path, listener);
+        capturedUnsub = () => {
+          unsubCalled = true;
+          unsub();
+        };
+        return capturedUnsub;
+      });
+
+    try {
+      const booted = boot();
+      handle = booted.handle;
+      const client = await connect(booted.port);
+      const file = join(booted.home, "watched.txt");
+      writeFileSync(file, "v1");
+
+      const response = await client.rpc({ type: "file_watch_subscribe", path: file });
+      expect(response.ok).toBe(true);
+      expect(capturedUnsub).not.toBeNull();
+      expect(unsubCalled).toBe(false);
+
+      // Drop the connection WITHOUT sending file_watch_unsubscribe — the leak this pairs with
+      // task-005 to fix only shows up on an ungraceful/unsubscribed disconnect.
       client.close();
       await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
     } finally {

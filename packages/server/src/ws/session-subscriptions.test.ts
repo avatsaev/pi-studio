@@ -109,4 +109,17 @@ describe("SessionSubscriptions", () => {
     expect(unsubA).toHaveBeenCalledTimes(1);
     expect(unsubB).not.toHaveBeenCalled();
   });
+
+  it("keysOf snapshots the registered keys for a session, empty for an unknown session", () => {
+    const subs = new SessionSubscriptions();
+    const session = fakeSession();
+    expect(subs.keysOf(session)).toEqual([]);
+
+    subs.add(session, "checkout_status:/repo", vi.fn());
+    subs.add(session, "file_watch:/repo/a.pdb", vi.fn());
+    expect(subs.keysOf(session).toSorted()).toEqual(["checkout_status:/repo", "file_watch:/repo/a.pdb"]);
+
+    subs.remove(session, "checkout_status:/repo");
+    expect(subs.keysOf(session)).toEqual(["file_watch:/repo/a.pdb"]);
+  });
 });
