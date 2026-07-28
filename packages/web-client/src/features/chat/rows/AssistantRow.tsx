@@ -11,11 +11,14 @@ import styles from "./rows.module.css";
 
 export interface AssistantRowProps {
   row: AssistantRowModel;
+  assetBase?: string | null;
 }
 
-export function AssistantRow({ row }: AssistantRowProps) {
+export function AssistantRow({ row, assetBase = null }: AssistantRowProps) {
   return (
-    <div className={`${styles.row} ${styles.assistant}${row.streaming ? ` ${styles.streaming}` : ""}`}>
+    <div
+      className={`${styles.row} ${styles.assistant}${row.streaming ? ` ${styles.streaming}` : ""}`}
+    >
       <span className={styles.who}>assistant</span>
       {row.streaming ? (
         <span className={styles.streamingText}>
@@ -23,7 +26,7 @@ export function AssistantRow({ row }: AssistantRowProps) {
           <span className={styles.cursor}>▍</span>
         </span>
       ) : (
-        <Markdown text={row.text} />
+        <Markdown text={row.text} assetBase={assetBase} />
       )}
     </div>
   );

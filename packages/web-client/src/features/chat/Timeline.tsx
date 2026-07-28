@@ -12,6 +12,8 @@
 import { useEffect, useRef } from "react";
 import { measureElement as measureElementDefault, useVirtualizer } from "@tanstack/react-virtual";
 import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
+import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
 import { AssistantRow } from "./rows/AssistantRow.js";
 import { ReasoningRow } from "./rows/ReasoningRow.js";
@@ -27,12 +29,12 @@ export interface TimelineProps {
 
 const STICK_THRESHOLD_PX = 40;
 
-function renderRow(row: TimelineRow) {
+function renderRow(row: TimelineRow, assetBase: string | null) {
   switch (row.kind) {
     case "user":
       return <UserRow row={row} />;
     case "assistant":
-      return <AssistantRow row={row} />;
+      return <AssistantRow row={row} assetBase={assetBase} />;
     case "reasoning":
       return <ReasoningRow row={row} />;
     case "tool":
@@ -47,6 +49,8 @@ function renderRow(row: TimelineRow) {
 export function Timeline({ session }: TimelineProps) {
   const rows = session.timeline.rows;
   const running = session.status === "running";
+  const homeDir = useHomeDir();
+  const assetBase = normalizeCwd(session.cwd, homeDir);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   // Init to 0 (not `rows.length`) so a freshly-mounted tab with existing history — a brand-new
@@ -69,7 +73,8 @@ export function Timeline({ session }: TimelineProps) {
     // because content grows back). Skip the measurement while hidden and keep whatever size is
     // already cached (or the `estimateSize` default on first mount) instead.
     measureElement: (element, entry, instance) => {
-      if ((element as HTMLElement).offsetParent !== null) return measureElementDefault(element, entry, instance);
+      if ((element as HTMLElement).offsetParent !== null)
+        return measureElementDefault(element, entry, instance);
       const index = instance.indexFromElement(element);
       const key = instance.options.getItemKey(index);
       return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(index);
@@ -137,7 +142,7 @@ export function Timeline({ session }: TimelineProps) {
               className={styles.rowWrap}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
-              {renderRow(row)}
+              {renderRow(row, assetBase)}
             </div>
           );
         })}

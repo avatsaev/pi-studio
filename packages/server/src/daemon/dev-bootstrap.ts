@@ -9,9 +9,8 @@
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
+import { expandHome } from "../files/resolve-path.js";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
@@ -261,7 +260,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     const filePath = String(ctx.message.path ?? "");
     const cwd = String(ctx.message.cwd ?? "");
     const staged = Boolean(ctx.message.staged);
-    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : cwd || undefined;
+    const resolvedCwd = cwd.startsWith("~") ? expandHome(cwd) : cwd || undefined;
     const runGitDiff = (args: string[]) =>
       new Promise<string>((resolve) => {
         execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
@@ -284,7 +283,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // multi-MB read/decode never blocks the event loop.
   registry.register("file_read_request", async (ctx) => {
     const filePath = String(ctx.message.path ?? "");
-    const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
+    const resolved = expandHome(filePath);
     try {
       const st = await stat(resolved);
       if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };

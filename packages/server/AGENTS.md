@@ -36,6 +36,11 @@ src/
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
     agent-service.ts              AgentService — RPC handler wiring for agent operations.
+    inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
+                                   `handleCreate` appends to `config.systemPrompt` when the
+                                   creating connection advertised `inline_image_markdown`
+                                   (task-006, sprint-045); bound at spawn time only (see its own
+                                   header comment for the accepted limitation).
     provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral).
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id.
     provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
@@ -134,6 +139,10 @@ src/
                                    RPCs, file_changed push.
     limits.ts                     MAX_INLINE_FILE_READ_BYTES (5 MiB) — file_read_request ceiling.
     download-token-store.ts       Short-lived download token registry (in-memory, LRU).
+    resolve-path.ts               expandHome — the package's single `~`/`~/` expansion helper
+                                   (task-001, sprint-045); every file-path RPC + `file-watch-
+                                   service.ts`/`agent/providers/pi/rpc-transport.ts` (re-export)
+                                   route through this instead of a per-call-site inline check.
     index.ts
 
   proxy/
@@ -250,6 +259,20 @@ src/
   which is a `createSession`, not a resume. No protocol schema exists for
   `list_agents_request`/`response` at all — it is, and remains, an untyped ad hoc RPC on both
   server and client.
+- **Inline-image capability composes the system prompt at create time** (`handleCreate`,
+  task-006 sprint-045): `registerHandlers` passes the RPC's own `ctx.session` into `handleCreate`
+  as `wsSession` (named to avoid colliding with the function's existing `session: AgentSession`
+  local for the spawned provider session). When `wsSession?.supports(CLIENT_CAPS.
+  inline_image_markdown)`, `handleCreate` builds an `effectiveConfig` — a NEW object, never a
+  mutation of the incoming `msg.config` — whose `systemPrompt` is `[callerPrompt,
+  INLINE_IMAGE_INSTRUCTIONS].filter(Boolean).join("\n\n")`: a caller-supplied prompt is always
+  preserved verbatim and always comes first, the instruction is always appended after, separated
+  by a blank line. `effectiveConfig` (not the raw `config`) is what both the persisted
+  `AgentRecord.config` AND the eager-spawn path's `client.createSession(...)` call use, so a
+  same-turn immediate spawn and a later `spawnOrResumeSession` replay both see the composed
+  value. No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at
+  hand) → `effectiveConfig === config`, untouched. Task-005 (below) is what makes the composed
+  value survive a daemon restart: `resumeSession` reads it back via `overrides.systemPrompt`.
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.
@@ -367,6 +390,19 @@ creation" above.
   from `agents/**.json`), so the UI looked fine right up until the next prompt, which then got no
   prior context at all — after a daemon restart or `/import`, the live `pi` process had amnesia
   even though the chat history on screen looked intact.
+- **`createSession`/`resumeSession` must stay in agreement on `systemPrompt` handling** (task-005,
+  sprint-045 — a pre-existing defect this fixed): `resumeSession` used to build its spawn args
+  with `appendSystemPrompt: this.deps.appendSystemPrompt` unconditionally, ignoring
+  `overrides?.systemPrompt` even though `overrides` is exactly `record.config` passed down from
+  `spawnOrResumeSession`/`SessionOperationsService.handleResume` — so every daemon restart (and
+  the first spawn of a deferred draft that happens to resume rather than create) silently dropped
+  the session's own per-session system prompt back to the daemon-wide default. Both methods now
+  read `config.systemPrompt ?? this.deps.appendSystemPrompt` /
+  `overrides?.systemPrompt ?? this.deps.appendSystemPrompt` — identical fallback shape, each with
+  a `NOTE:` comment pointing at the other so a future edit to one is not made in isolation.
+  `importSession` shares `resumeSession`'s code path and inherited the fix for free. This is what
+  makes the inline-image capability's composed system prompt (`handleCreate`'s `effectiveConfig`
+  above) survive a restart-then-resume instead of reverting on the very next process spawn.
 - **`getRuntimeInfo().model` is cached, not live** — Pi has no synchronous way to report its
   current model, and the contract method `getRuntimeInfo()` cannot itself make an RPC call.
   `discoverState()` (also renamed from `discoverSessionFile()`, sprint-042) issues ONE `get_state`
@@ -464,7 +500,7 @@ Terminal RPC handlers (`terminal-rpc.ts`):
 **File watch RPC family** (`file-watch-rpc.ts`, validated via `sessionMessageBaseSchema`
 passthrough fallback, NOT a `messages.ts` discriminated union):
 - `file_watch_subscribe { path }` → `{ type, path, ok, [error: "too_many_watches"] }` — open a
-  live watch on `path` (file or directory, `~` expanded to `homedir()`).
+  live watch on `path` (file or directory, `~`/`~/` expanded via `resolve-path.ts`'s `expandHome`).
 - `file_watch_unsubscribe { path }` → `{ type, path, ok }` — close the watch.
 - `file_changed { path }` (push) — daemon → client, sent when a watched `path` changes.
 
@@ -500,12 +536,19 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - **Additive optional `maxBytes` field** in the `file_too_large` response: lets clients render an
   accurate cap without hardcoding the server's number. The `error` code and `size` field are
   unchanged (append-only wire contract).
-- `~` expansion (mirrors existing `bootstrap.ts`/`dev-bootstrap.ts` convention — not factored into
-  a shared helper, consistent with other path-handling RPCs).
+- `~`/`~/` expansion via the shared `expandHome` helper (`resolve-path.ts`, task-001 sprint-045 —
+  previously six duplicated inline checks across this file, `dev-bootstrap.ts`, `file-watch-
+  rpc.ts`, and `file-watch-service.ts`; now one implementation).
 
-**`file_transfer.ts`** (no changes this sprint):
+**`file_transfer.ts`** (task-001, sprint-045 — closed the tilde/MIME gaps below):
 - Issued download tokens (`file-transfer.ts`, `FileTransferService`) are short-lived and stored in
   a registrar (`download-token-store.ts`).
+- `file_download_token_request` now expands `~`/`~/` via `expandHome` before `realpath()` —
+  previously the one file-path RPC with no tilde expansion at all, which is what blocked a
+  `~`-prefixed inline-image download (features/inline-image-rendering.md).
+- `startDownload`'s `Begin` frame now carries `meta.mimeType` (via `file-explorer.ts`'s exported
+  `mimeHintForFile`), so `FileTransferClient` no longer relies on browser blob-URL sniffing for a
+  known extension; an unknown extension still falls back to `application/octet-stream`.
 - File downloads happen over the WebSocket via binary frames, not HTTP.
 - Unbounded file size (no inline ceiling like `file_read_request`).
 

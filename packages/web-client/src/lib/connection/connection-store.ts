@@ -15,7 +15,9 @@ import {
   type Transport,
 } from "@av-pi-studio/client";
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
+import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { resolveConnectTarget } from "./resolve-connect-target.js";
+import { clearInlineImageCache } from "../inline-image-cache.js";
 
 export interface ConnectOptions {
   /**
@@ -81,7 +83,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       url: target.url,
       clientId: opts.clientId ?? generateClientId(),
       clientType: "browser",
-      capabilities: {},
+      capabilities: { [CLIENT_CAPS.inline_image_markdown]: true },
       transport,
       // The PiStudioClient facade has no per-call timeout override for
       // createAgent/send/interrupt, and agent turns can run far longer than a
@@ -114,6 +116,9 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     const { daemon, reconnection } = get();
     reconnection?.stop();
     daemon?.close();
+    // A reconnect must not leak object URLs pointing at a now-dead transfer instance
+    // (`transferFor` is per-daemon-instance; this cache is global — see its module header).
+    clearInlineImageCache();
     set({
       status: "idle",
       serverInfo: null,

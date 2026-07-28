@@ -82,6 +82,13 @@ src/
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
                            (cache-invalidation signaling)
   lib/protocol/            events.ts (protocol event helpers)
+  lib/paths.ts             resolveWorkspacePath — shared relative-path + base joiner (moved out
+                           of use-file-live-refresh.ts, task-002 sprint-045; also used by
+                           timeline/image-src.ts's relative-path branch)
+  lib/inline-image-cache.ts ref-counted, LRU-bounded (32-entry) object-URL cache for inline chat
+                           images (task-003 sprint-045); revokes only on LRU eviction or
+                           connection teardown, never on row unmount — deliberately NOT
+                           use-file-download's single-consumer/revoke-on-unmount policy
   stores/                  Zustand slices: ui-store, tab-store (openNewChat materializes eagerly;
                            closeTab wraps the store's close action + materialize.ts's
                            discardIfEmpty), session-store (SessionEntry.model/modelProvider,
@@ -90,8 +97,15 @@ src/
                            test), git-store (branch/ahead/behind/detached/upstream/conflictCount
                            alongside changes[]), stats-store (per-sessionId context/tokens/cost/
                            model — sprint-042), explorer-store (+ test)
-  timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown,
-                           highlight (+ tests)
+  timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
+                           (react-markdown wrapper; `img` node → InlineImage), InlineImage
+                           (task-004 sprint-045 — the `![alt](src)` renderer: remote passthrough,
+                           local fetch via use-inline-image, click-to-open a file tab),
+                           inline-image-view (selectInlineImageView — pure render-decision
+                           selector InlineImage switches on, extracted per the no-jsdom
+                           convention below), highlight, image-src (classifyImageSrc — pure
+                           markdown image-source classification: remote/local/unresolvable,
+                           task-002 sprint-045) (+ tests)
   hooks/                   use-connection (boot), use-session-restore (session directory restore
                            + a connection-lifetime `agent_update` listener that keeps
                            session-store.model live on an explicit `/model` set), use-session-stats
@@ -112,7 +126,10 @@ src/
                            sprint-044, see AGENTS.md § Invariants "Live file watching"),
                            use-file-text (tier-2 streamed-text fallback for TextViewer, files
                            over the inline read cap, decode query keyed on the download's
-                           object URL so it follows a live refetch automatically),
+                           object URL so it follows a live refetch automatically), use-inline-image
+                           (loadInlineImage — the framework-free effect core, per the jsdom-less
+                           testing convention below — over inline-image-cache, task-003 sprint-045;
+                           consumed by timeline/InlineImage.tsx, task-004)
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
                            query), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
@@ -309,15 +326,17 @@ entered at runtime, never baked into the image.
   debounce (`files-changed.ts`). `useFileLiveRefresh(path, cwd, viewerKind)` (`FilePanel.tsx`,
   sprint-044) is the third consumer: it watches a `kind:"file"`/`kind:"diff"` tab's own file —
   resolving a diff tab's git-relative `path` against its workspace `cwd` via the pure
-  `watchTargetPath` helper — for `text`/`markdown`/`image` `ViewerKind`s only
-  (`LIVE_REFRESH_KINDS`; `video` is excluded because a refetch would restart playback from zero,
+  `resolveWorkspacePath` helper (`lib/paths.ts` — lifted out of this hook, task-002 sprint-045,
+  now shared with `timeline/image-src.ts`'s `classifyImageSrc`) — for `text`/`markdown`/`image`
+  `ViewerKind`s only (`LIVE_REFRESH_KINDS`; `video` is excluded because a refetch would restart
+  playback from zero,
   `binary` fetches nothing eagerly so there is nothing to refresh), and unconditionally
   invalidates that path's `fileRead`/`fileDownload`/`fileDiffByPath` queries on each push — a
   watched tab's File/Diff toggle can show any of them, and invalidating a key with no live query
   is a no-op. Molecule tabs are NOT covered by this hook — `MoleculeViewer`'s own
   `shouldApplyRefresh` unsaved-edits gate stays the only reload path for molecule tabs. All three
   hooks' subscribe/diff/route/dispose core is framework-free (`watchFile`, `createExplorerWatcher`,
-  `watchTargetPath`) for the same jsdom-less reason below.
+  `resolveWorkspacePath`) for the same jsdom-less reason below.
 - **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
   size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
   limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
@@ -337,11 +356,50 @@ entered at runtime, never baked into the image.
   DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config
   only discovers `.test.ts`, not `.test.tsx`, under a node environment). Hooks and components with
   real branching logic extract their logic into plain functions/factories (`watchFile`,
-  `watchTargetPath`, `createExplorerWatcher`,
+  `resolveWorkspacePath`, `createExplorerWatcher`, `loadInlineImage`,
   `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`) that
   are unit-tested directly rather than via `renderHook` or mounting. This is now an established
   convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —
   existing precedent since sprint-043).
+- **Inline image rendering (sprint-045, tasks 1-6 — fully wired).**
+  `timeline/image-src.ts`'s `classifyImageSrc(src, base, homeDir)` is the pure gate for a markdown
+  `![alt](src)`: `http:`/`https:`/`data:`/`blob:` → `remote`; any other `scheme:` (incl. `file:`)
+  → `unresolvable`; `/…` → `local` as-is; `~`/`~/…` → expanded via `normalizeCwd` (unresolvable if
+  `homeDir` unknown); `./…`/`../…`/bare relative → joined via `lib/paths.ts`'s
+  `resolveWorkspacePath` against `base` (unresolvable with no base); final gate —
+  `detectViewerKind(candidate) !== "image"` → unresolvable (so `.pdf`/`.txt` etc. never trigger a
+  download; `.webp`/`.svg` both admit per `viewer-registry.ts`'s `EXT_TO_VIEWER`).
+  `lib/inline-image-cache.ts` + `hooks/use-inline-image.ts`'s `useInlineImage`/`loadInlineImage`
+  fetch over the same `transferFor(daemon).download(path)` primitive `use-file-download.ts` uses,
+  but with a DIFFERENT retention policy: a module-scoped, ref-counted, ~32-entry LRU cache that
+  revokes an object URL only on eviction or `clearInlineImageCache()` (wired into
+  `connection-store.ts#disconnect()`) — never on row unmount, since the chat timeline virtualizes
+  rows and `use-file-download.ts`'s revoke-on-unmount policy would re-download on every scroll
+  past. **Deliberately not TanStack Query**, despite this package using it everywhere else for
+  server data (`lib/connection/query-client.ts`): Query's retention model is "cache while
+  observed, garbage-collect on `gcTime` after the last observer unmounts" — it has no notion of
+  "keep this alive because a *different*, currently-unmounted row still refers to it," which is
+  exactly the virtualization case above. Query also has no eviction hook to revoke an object URL
+  at the moment an entry actually leaves cache; without that, unmounting the last observer would
+  either revoke too early (URL dies while a sibling row still needs it) or never (`gcTime:
+  Infinity`, permanent leak). Do not migrate this cache onto Query — re-implementing ref-counted,
+  LRU-bounded, revoke-on-evict retention on top of Query's own cache is strictly more code than
+  the ~130-line hand-rolled module it would replace, for a policy Query cannot express natively.
+  **Render layer (task-004):** `timeline/InlineImage.tsx` is `markdown.tsx`'s `img` node
+  override, threaded an `assetBase: string | null` prop from `Markdown` → `AssistantRow` →
+  `Timeline`'s `renderRow` (computed once per render as `normalizeCwd(session.cwd, homeDir)`) —
+  the ONLY row kind that gets one; `ReasoningRow`/`MarkdownFileViewer`'s `<Markdown>` calls omit
+  it, so every relative image path there classifies `unresolvable` and is never fetched. The
+  actual remote/loading/ready/error render decision is extracted into a pure
+  `timeline/inline-image-view.ts#selectInlineImageView` (this package's no-jsdom convention below)
+  rather than tested by rendering `InlineImage.tsx` itself. A `ready` image is clickable → opens
+  the file in a tab via `useTabStore`'s `open` (same shape as `FileExplorer.tsx`'s
+  `handleOpenFile`), `workspaceCwd: assetBase || "~"`. **Capability gate (task-006):**
+  `connection-store.ts` advertises `CLIENT_CAPS.inline_image_markdown` in every `hello` frame
+  unconditionally (not feature-detected) — the daemon composes an image-rendering instruction into
+  a NEW agent's system prompt only when it sees this flag on the creating connection
+  (`packages/server/AGENTS.md` § Agent subsystem); the web-client side of this feature is just
+  "always tell the daemon we can render `![](path)`," nothing here reads the flag back.
 - **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current

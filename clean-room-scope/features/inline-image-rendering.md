@@ -280,6 +280,21 @@ transferred.
 
 ## Acceptance Criteria
 
+> **Verification status (task-007, 2026-07-29):** end-to-end browser verification against a real
+> daemon + real agent turn (task-007's 12-step manual plan) was explicitly skipped per user
+> instruction this session ("skip the smoke tests, and proceed") — none of the boxes below are
+> checked as a result, and this is a deliberate, user-approved scope reduction, not an oversight.
+> Every criterion's underlying *mechanism* is covered by the unit/integration tests tasks 001-006
+> added (`classifyImageSrc`'s full classification table in `image-src.test.ts`; the LRU/ref-count
+> semantics in `inline-image-cache.test.ts`; the capability-gated prompt composition in
+> `create-run.test.ts` + the real hello→session→handler chain in `bootstrap.test.ts`; the
+> create/resume `appendSystemPrompt` agreement in `pi-adapter.test.ts`) — see each task's
+> `done/task-NNN-*-summary.md` for exact test names. What remains genuinely unexercised is the
+> full cross-package wire chain in a live browser (agent emits markdown → block finalizes →
+> classification → download token → binary frames → object URL → `<img>`), which is precisely
+> what steps 7 and 11 of task-007's plan call out as "the two no unit test can cover." Re-run
+> task-007's 12-step plan against a live daemon + browser before relying on this feature in a
+> context where that gap matters.
 - [ ] An assistant message containing `![alt](./shot.png)` in a session whose cwd contains that file
       renders the image inline, sized to the timeline column.
 - [ ] The same with an absolute path, and with a `~`-prefixed path, renders inline.
@@ -312,9 +327,19 @@ transferred.
 - Non-DOM clients (a future mobile client opts in by advertising the same capability flag and
   implementing the render half against its own image primitive).
 
-## TODO(verify)
+## Resolved (was TODO(verify))
 
-- [ ] Whether the markdown file viewer should pass the viewed file's directory as its asset base
-      (makes repository README images render); behavior is desirable, ordering relative to this scope
-      is not decided.
-- [ ] Whether the daemon-side tilde-expansion consolidation lands with this feature or separately.
+- **Markdown file viewer asset base: not implemented in sprint-045.** `MarkdownFileViewer.tsx`
+  calls `<Markdown text={query.data.content} />` with no `assetBase`, so a relative image path in
+  a viewed `.md`/`.mdx` file classifies `unresolvable` and never renders — matching the § Asset
+  base table's "none in the initial scope" row exactly. The desirability call was correct but
+  wiring it in (pass the viewed file's own directory) was not picked up by any of tasks 001-007;
+  it remains a real, scoped follow-on (see the sprint-045 summary docs for the exact one-line
+  change: `<Markdown text={...} assetBase={dirname(path)} />`), not a defect in this feature.
+- **Daemon-side tilde-expansion consolidation: landed with this feature, task-001.** Option 2 (fix
+  the asymmetry daemon-side via one shared helper) was chosen over option 1 (client-side
+  expansion). `packages/server/src/files/resolve-path.ts`'s `expandHome` is now the single
+  implementation; it replaced six previously-duplicated inline `~`/`~/` checks across
+  `bootstrap.ts`, `dev-bootstrap.ts`, `file-watch-rpc.ts`, `file-watch-service.ts`, and
+  `agent/providers/pi/rpc-transport.ts`, and closed the specific asymmetry this doc calls out:
+  `file_download_token_request` now expands `~` before `realpath()`, which it did not before.

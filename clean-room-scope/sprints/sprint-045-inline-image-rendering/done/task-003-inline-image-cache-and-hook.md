@@ -1,7 +1,7 @@
 # Task 003 — Ref-counted inline-image object-URL cache + `useInlineImage`
 
 - **Sprint:** sprint-045-inline-image-rendering
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** none (task-001 makes `~`-derived paths resolvable; this hook takes an already-absolute path)
 

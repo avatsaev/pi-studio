@@ -1,7 +1,7 @@
 # Task 001 — Shared daemon path resolution (`~` expansion) + `mimeType` in transfer `Begin`
 
 - **Sprint:** sprint-045-inline-image-rendering
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** none
 

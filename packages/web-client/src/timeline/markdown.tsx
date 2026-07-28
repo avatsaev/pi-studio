@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { highlightToHtml } from "./highlight.js";
 import styles from "./markdown.module.css";
+import { InlineImage } from "./InlineImage.js";
 
 interface CodeBlockProps {
   language: string;
@@ -58,13 +59,20 @@ function CodeRenderer({ className, children, ...rest }: MarkdownCodeProps) {
 
 export interface MarkdownProps {
   text: string;
+  assetBase?: string | null;
 }
 
 /** Renders assistant/tool markdown text. Memoized — text is immutable once a turn finalizes. */
-export const Markdown = memo(function Markdown({ text }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, assetBase = null }: MarkdownProps) {
   return (
     <div className={styles.prose}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeRenderer }}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code: CodeRenderer,
+          img: (props) => <InlineImage {...props} assetBase={assetBase} />,
+        }}
+      >
         {text}
       </ReactMarkdown>
     </div>

@@ -1,5 +1,4 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { expandHome } from "./resolve-path.js";
 
 import type { Logger } from "../logging/logger.js";
 import type { HandlerRegistry } from "../ws/router.js";
@@ -39,7 +38,7 @@ export function registerFileWatchHandlers(registry: HandlerRegistry, deps: FileW
 
   registry.register("file_watch_subscribe", (ctx) => {
     const rawPath = String(ctx.message.path ?? "");
-    const resolved = rawPath.startsWith("~") ? join(homedir(), rawPath.slice(1)) : rawPath;
+    const resolved = expandHome(rawPath);
     const session = ctx.session;
     const key = `${FILE_WATCH_KEY_PREFIX}${resolved}`;
 
@@ -70,7 +69,7 @@ export function registerFileWatchHandlers(registry: HandlerRegistry, deps: FileW
 
   registry.register("file_watch_unsubscribe", (ctx) => {
     const rawPath = String(ctx.message.path ?? "");
-    const resolved = rawPath.startsWith("~") ? join(homedir(), rawPath.slice(1)) : rawPath;
+    const resolved = expandHome(rawPath);
     subscriptions.remove(ctx.session, `${FILE_WATCH_KEY_PREFIX}${resolved}`);
     return { type: "file_watch_unsubscribe_response", path: resolved, ok: true };
   });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService, getTimeline } from "./agent-service.js";
+import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
@@ -130,5 +132,59 @@ describe("create_agent_request", () => {
     // The raw client config still lands on the record so a later first-spawn (`handleSendPrompt`/
     // `handleResume`) can use it — including the pinned model for replay.
     expect(managed?.record.config?.model).toBe("picked-model");
+  });
+});
+
+function fakeSession(supportsInlineImages: boolean): { supports: (flag: string) => boolean } {
+  return { supports: (flag) => supportsInlineImages && flag === CLIENT_CAPS.inline_image_markdown };
+}
+
+describe("inline_image_markdown capability composes the system prompt (task-006)", () => {
+  it("appends the instruction when the creating connection advertised the capability", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-cap", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession(true) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
+  });
+
+  it("leaves systemPrompt absent when the connection did not advertise the capability", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-nocap", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession(false) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBeUndefined();
+  });
+
+  it("leaves systemPrompt untouched when no session is passed at all (e.g. CLI-created)", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-cli", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBeUndefined();
+  });
+
+  it("appends after a caller-supplied prompt, separated by a blank line — never replaces or reorders it", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      {
+        requestId: "req-caller-prompt",
+        config: { provider: "mock", cwd: "/w", systemPrompt: "be terse" },
+      },
+      () => [],
+      fakeSession(true) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(
+      `be terse\n\n${INLINE_IMAGE_INSTRUCTIONS}`,
+    );
   });
 });

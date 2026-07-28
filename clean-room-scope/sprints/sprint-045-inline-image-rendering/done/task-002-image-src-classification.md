@@ -1,7 +1,7 @@
 # Task 002 — Shared workspace-path resolver + `classifyImageSrc` (pure, no UI)
 
 - **Sprint:** sprint-045-inline-image-rendering
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** none
 

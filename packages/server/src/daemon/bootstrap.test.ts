@@ -13,12 +13,14 @@ import {
   decodeTerminalFrame,
   encodeTerminalFrame,
 } from "@av-pi-studio/protocol";
+import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
 import { WorkspaceGitService } from "../projects/workspace-git-service.js";
 import { FileWatchService } from "../files/file-watch-service.js";
+import { INLINE_IMAGE_INSTRUCTIONS } from "../agent/inline-image-instructions.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 
 /**
@@ -40,14 +42,20 @@ interface Client {
   close: () => void;
 }
 
-async function connect(port: number): Promise<Client> {
+async function connect(port: number, capabilities?: Record<string, boolean>): Promise<Client> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   const pending = new Map<string, (msg: Record<string, unknown>) => void>();
 
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => {
       ws.send(
-        JSON.stringify({ type: "hello", clientId: "test", clientType: "cli", protocolVersion: 1 }),
+        JSON.stringify({
+          type: "hello",
+          clientId: "test",
+          clientType: "cli",
+          protocolVersion: 1,
+          ...(capabilities ? { capabilities } : {}),
+        }),
       );
     });
     ws.on("message", (data: Buffer) => {
@@ -179,6 +187,47 @@ describe("production daemon bootstrap", () => {
     // It persisted to disk under the temp home.
     const onDisk = await loadAllAgents(booted.home);
     expect(onDisk.some((a) => a.id === agentId)).toBe(true);
+
+    client.close();
+  }, 15000);
+
+  it("composes the inline-image instruction into a persisted record's systemPrompt when the connecting client advertised inline_image_markdown (task-006) — proves the hello -> session -> handleCreate chain", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port, { [CLIENT_CAPS.inline_image_markdown]: true });
+
+    const cwd = booted.home;
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
+    expect(created.type).toBe("create_agent_response");
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const onDisk = await loadAllAgents(booted.home);
+    const record = onDisk.find((a) => a.id === agentId);
+    expect(record?.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
+
+    client.close();
+  }, 15000);
+
+  it("leaves a persisted record's systemPrompt untouched when the connecting client did not advertise inline_image_markdown (task-006)", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port); // no capabilities advertised (the default CLI hello)
+
+    const cwd = booted.home;
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const onDisk = await loadAllAgents(booted.home);
+    const record = onDisk.find((a) => a.id === agentId);
+    expect(record?.config?.systemPrompt).toBeUndefined();
 
     client.close();
   }, 15000);
@@ -422,6 +471,22 @@ describe("file_watch RPC", () => {
     });
   }, 15000);
 
+  it("resolves a ~-prefixed path and echoes the expanded path", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const marker = `pi-studio-file-watch-tilde-${Math.random().toString(36).slice(2)}.txt`;
+    const absolute = join(homedir(), marker);
+    writeFileSync(absolute, "v1");
+    try {
+      const response = await client.rpc({ type: "file_watch_subscribe", path: `~/${marker}` });
+      expect(response.ok).toBe(true);
+      expect(response.path).toBe(absolute);
+    } finally {
+      rmSync(absolute, { force: true });
+    }
+  }, 15000);
+
   it("replies too_many_watches over the per-session cap instead of opening unbounded watches", async () => {
     const booted = boot();
     handle = booted.handle;
@@ -495,6 +560,37 @@ describe("file_read RPC", () => {
     } finally {
       rmSync(absolute, { force: true });
     }
+  }, 15000);
+
+  it("issues a download token for a ~-prefixed path", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const marker = `pi-studio-file-download-tilde-${Math.random().toString(36).slice(2)}.png`;
+    const absolute = join(homedir(), marker);
+    writeFileSync(absolute, "tilde-resolved-bytes");
+    try {
+      const response = await client.rpc({
+        type: "file_download_token_request",
+        path: `~/${marker}`,
+      });
+      expect(response.ok).toBe(true);
+      expect(typeof response.token).toBe("string");
+    } finally {
+      rmSync(absolute, { force: true });
+    }
+  }, 15000);
+
+  it("passes ~otheruser/x through unexpanded rather than rewriting to $HOME/otheruser/x", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const response = await client.rpc({
+      type: "file_download_token_request",
+      path: "~otheruser/x",
+    });
+    expect(response.ok).toBe(false);
+    expect(response.error).toBe("not_found");
   }, 15000);
 
   it("does not block a concurrent cheap RPC on the same connection while reading a multi-MB file", async () => {

@@ -299,7 +299,11 @@ function iconHintForFile(name: string): string {
   return ext || "file";
 }
 
-function mimeHintForFile(path: string): string {
+/** Extension → MIME-type lookup used to stamp downloaded files' `Begin` frame (task-001,
+ *  features/inline-image-rendering.md § MIME type) as well as file-explorer previews. Unknown
+ *  extensions fall back to `application/octet-stream`; browsers still sniff `<img>` blob URLs
+ *  correctly in that case. */
+export function mimeHintForFile(path: string): string {
   const ext = extname(path).slice(1).toLowerCase();
   const map: Record<string, string> = {
     png: "image/png",

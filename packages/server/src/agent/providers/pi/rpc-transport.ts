@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import treeKill from "tree-kill";
 import which from "which";
+
+import { expandHome } from "../../../files/resolve-path.js";
 
 import type { Unsubscribe } from "../../provider-contract.js";
 
@@ -49,12 +50,10 @@ export function resolveBinaryOnPath(
   return which.sync(bin, { nothrow: true, path: env.PATH ?? env.Path }) !== null;
 }
 
-/** Expand a leading `~` / `~/` to the user's home directory (clients sometimes send a literal `~`). */
-export function expandHome(dir: string): string {
-  if (dir === "~") return homedir();
-  if (dir.startsWith("~/")) return join(homedir(), dir.slice(2));
-  return dir;
-}
+/** Expand a leading `~` / `~/` to the user's home directory (clients sometimes send a literal `~`).
+ *  Re-exported from `files/resolve-path.ts`, the package's single implementation, so existing
+ *  imports of `expandHome` from this module (via `agent/index.ts`'s barrel) keep working. */
+export { expandHome };
 
 /**
  * Resolve the `pi` CLI **bundled inside the `@earendil-works/pi-coding-agent` dependency** (its

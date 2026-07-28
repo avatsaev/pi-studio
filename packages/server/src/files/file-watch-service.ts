@@ -1,7 +1,7 @@
 import { statSync, watch as fsWatch, type FSWatcher, type Stats } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname } from "node:path";
 
+import { expandHome } from "./resolve-path.js";
 import type { Logger } from "../logging/logger.js";
 
 /**
@@ -59,11 +59,9 @@ export class FileWatchService {
    * function that is always safe to call, even for a path that could not be watched.
    */
   subscribe(rawPath: string, listener: () => void): () => void {
-    // Resolve `~` server-side before anything else (root `AGENTS.md` invariant 7), mirroring
-    // `bootstrap.ts`'s own `path.startsWith("~") ? join(homedir(), path.slice(1)) : path`
-    // expansion — duplicated inline per that file's own convention (already duplicated verbatim
-    // across `bootstrap.ts` and `dev-bootstrap.ts`) rather than factored into a shared helper.
-    const resolved = rawPath.startsWith("~") ? join(homedir(), rawPath.slice(1)) : rawPath;
+    // Resolve `~` server-side before anything else (root `AGENTS.md` invariant 7) through the
+    // package's single `expandHome` helper (`files/resolve-path.ts`).
+    const resolved = expandHome(rawPath);
     const isDirectory = statSafe(resolved)?.isDirectory() ?? false;
     // A file target (including one that does not exist yet) watches its *parent* directory and
     // filters by basename — never a direct file handle. Editors and agents commonly save via

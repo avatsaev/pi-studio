@@ -484,6 +484,7 @@ export class PiAgentClient implements AgentClient {
     return { ...this.deps.env, ...launchContext?.env, ...options?.env };
   }
 
+  // NOTE: create and resume must stay in agreement on how systemPrompt is handled; see task-005.
   async createSession(
     config: AgentSessionConfig,
     launchContext?: LaunchContext,
@@ -518,6 +519,7 @@ export class PiAgentClient implements AgentClient {
    * `agents/**.json`/the timeline store), which is what made this bug easy to miss: the UI looked
    * fine right up until the next prompt, which then got no prior context at all. `importSession`
    * shares this exact path and was equally affected.
+   * NOTE: create and resume must stay in agreement on how systemPrompt is handled; see task-005.
    */
   async resumeSession(
     handle: PersistenceHandle,
@@ -528,7 +530,9 @@ export class PiAgentClient implements AgentClient {
     const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
     const cwd = launchContext?.cwd ?? overrides?.cwd ?? ".";
     const transport = this.factory({
-      args: buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt }),
+      args: buildPiArgs(this.command, {
+        appendSystemPrompt: overrides?.systemPrompt ?? this.deps.appendSystemPrompt,
+      }),
       cwd,
       env: this.buildEnv(launchContext),
       sessionFile,

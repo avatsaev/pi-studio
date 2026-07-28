@@ -16,24 +16,11 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
 import type { ViewerKind } from "@pi-studio-ui/features/files/viewer-registry.js";
 import { useFileWatch } from "./use-file-watch.js";
 
 export const LIVE_REFRESH_KINDS: ReadonlySet<ViewerKind> = new Set(["text", "markdown", "image"]);
-
-/**
- * Absolute watch target for a tab path. A `kind:"file"` tab already carries an absolute path
- * (the explorer root is tilde-resolved via `resolveTildePath`, `FileExplorer.tsx:67`); a
- * `kind:"diff"` tab carries git's REPO-RELATIVE path plus the workspace cwd
- * (`features/git/ChangesPanel.tsx:37`), so it must be joined here. A leading `~` is left alone —
- * the daemon expands it and `watchFile`'s resolved-path matching (task-007/step 1) covers it.
- */
-export function watchTargetPath(path: string, cwd: string): string | null {
-  if (!path) return null;
-  if (path.startsWith("/") || path.startsWith("~")) return path;
-  if (!cwd) return null;
-  return `${cwd.replace(/\/+$/, "")}/${path}`;
-}
 
 /**
  * Invalidates `path`'s `fileRead`/`fileDownload`/`fileDiffByPath` queries on every `file_changed`
@@ -53,7 +40,7 @@ export function useFileLiveRefresh(path: string, cwd: string, viewerKind: Viewer
   const queryClient = useQueryClient();
   // A `null` target subscribes nothing (`useFileWatch`'s documented no-op), so an excluded kind
   // costs zero daemon watches rather than watching and then discarding the push.
-  const target = LIVE_REFRESH_KINDS.has(viewerKind) ? watchTargetPath(path, cwd) : null;
+  const target = LIVE_REFRESH_KINDS.has(viewerKind) ? resolveWorkspacePath(path, cwd) : null;
   const { changedAt } = useFileWatch(target);
 
   useEffect(() => {
