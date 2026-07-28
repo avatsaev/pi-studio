@@ -67,8 +67,18 @@ export interface RelayTransportEvents {
    * ignoring it, so a NEW peer taking over an already-`ready` channel fires this again. Consumers
    * should treat it as "forget any app-level session state tied to the previous peer" — the next
    * app frame is a new peer's `hello`, not a continuation of the old peer's session.
+   *
+   * Hands over `reply`/`replyBinary` directly (the same stable `channel.send`/`channel.sendBinary`
+   * `onMessage`/`onBinaryMessage` pass on every call) so a consumer can send unprompted — a file
+   * download's `Begin`/`Chunk`/`End` binary frames flow daemon → client with no inbound binary
+   * frame ever arriving first, unlike terminal I/O. Capturing the reply functions only inside
+   * `onMessage`/`onBinaryMessage` (as this used to do) left `replyBinary` `null` until the client
+   * happened to send binary first, silently dropping every relay-routed file download.
    */
-  onHandshake?: () => void;
+  onHandshake?: (
+    reply: (message: string) => void,
+    replyBinary: (bytes: Uint8Array) => void,
+  ) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -150,9 +160,11 @@ export function connectRelay(
         attachment: { sessionId },
         daemonKeypair: keypair,
         events: {
-          onMessage: (plaintext) => events.onMessage?.(plaintext, (message) => channel.send(message)),
-          onBinaryMessage: (bytes) => events.onBinaryMessage?.(bytes, (reply) => channel.sendBinary(reply)),
-          onReady: () => events.onHandshake?.(),
+          onMessage: (plaintext) =>
+            events.onMessage?.(plaintext, (message) => channel.send(message)),
+          onBinaryMessage: (bytes) =>
+            events.onBinaryMessage?.(bytes, (reply) => channel.sendBinary(reply)),
+          onReady: () => events.onHandshake?.(channel.send, channel.sendBinary),
           onAuthError: (err) => events.onError?.(err),
         },
       });

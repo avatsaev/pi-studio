@@ -62,6 +62,7 @@ export default defineConfig(() => {
             ) {
               return "vendor-react";
             }
+            if (id.includes("@molviewer/core") || id.includes("molstar")) return "vendor-molviewer";
             return "vendor";
           },
         },

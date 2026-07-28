@@ -17,7 +17,7 @@ import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { ensureMaterialized, discardIfEmpty } from "@pi-studio-ui/stores/materialize.js";
 
-export type TabKind = "chat" | "file" | "diff" | "terminal";
+export type TabKind = "chat" | "file" | "diff" | "terminal" | "molecule";
 
 export interface FileTabData {
   path: string;
@@ -39,7 +39,12 @@ export interface TerminalTabData {
   cwd: string;
 }
 
-export type TabData = ChatTabData | FileTabData | DiffTabData | TerminalTabData;
+/** `path: null` is the empty ("+"-menu) molecule tab — molviewer's own drag-drop empty state. */
+export interface MoleculeTabData {
+  path: string | null;
+}
+
+export type TabData = ChatTabData | FileTabData | DiffTabData | TerminalTabData | MoleculeTabData;
 
 export interface Tab {
   id: string;
@@ -201,6 +206,7 @@ export const tabIds = {
   file: (path: string) => `file-${path}`,
   diff: (path: string, staged: boolean) => `diff-${path}${staged ? "-staged" : ""}`,
   terminal: (slotOrToken: number | string) => `term-${slotOrToken}`,
+  molecule: (key: string | number) => `mol-${key}`,
 };
 
 let terminalCount = 0;
@@ -216,6 +222,23 @@ export function openNewTerminal(workspaceCwd: string): void {
     label: `Terminal ${terminalCount}`,
     closable: true,
     data: { slot: null, cwd: workspaceCwd },
+    workspaceCwd,
+  });
+}
+
+let moleculeCount = 0;
+
+/** Open a brand-new empty molecule tab (no path — molviewer's own drag-drop empty state). Shared
+ * by the "+" menu so it mints tab ids/labels identically wherever a future shortcut adds another
+ * entry point. */
+export function openNewMolecule(workspaceCwd: string): void {
+  moleculeCount += 1;
+  useTabStore.getState().open({
+    id: tabIds.molecule(`new-${moleculeCount}`),
+    kind: "molecule",
+    label: `Molecule ${moleculeCount}`,
+    closable: true,
+    data: { path: null },
     workspaceCwd,
   });
 }

@@ -104,6 +104,10 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
                            FileTransferClient via file-transfer-instance), use-checkout-status,
+                           use-file-watch (live `file_changed` subscription for molecule viewer's
+                           reload gate), use-explorer-watch (live file-tree subscription, one per
+                           expanded directory), use-file-text (tier-2 streamed-text fallback for
+                           TextViewer, files over the inline read cap),
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
                            query), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
@@ -137,7 +141,11 @@ src/
                             caller + error-code messages, used by FileExplorer's tree draft and
                             OpenWorkspaceDialog's "new folder" affordance), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
-                            BinaryFallbackViewer, TextViewer, viewer-registry
+                            BinaryFallbackViewer, TextViewer, viewer-registry,
+                            MoleculeViewer (molstar WebGL canvas for structure files), MoleculeViewerPanel
+                            (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
+                            molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
+                            chrome color override), text-viewer-state.ts (pure state selection), + tests
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
                             "Status bar" for why it no longer owns its own checkout-status
                             subscription)
@@ -245,6 +253,69 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
+- **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
+  `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
+  molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at
+  **tab-open time** in `FileExplorer.tsx`'s `handleOpenFile` via `isMoleculeFile(path)`
+  (`viewer-registry.ts`) — NOT inside `FilePanel` or as a new `ViewerKind` entry. Supported
+  formats: `MOLECULE_EXTENSIONS` (pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, xsf —
+  10 formats) + `MOLECULE_FILENAMES` (poscar, contcar — extension-less, matched by basename);
+  LAMMPS `data` files are deliberately excluded (no fixed extension, would require async
+  content-sniffing). `openNewMolecule(workspaceCwd)` (tab-store.ts) mints a new empty tab,
+  numbered off a module-level `moleculeCount` counter. `MoleculeViewerPanel.tsx` is the thin
+  `PanelProps` adapter; the actual viewer is `MoleculeViewer.tsx` (`@molviewer/core`'s
+  `<MolViewer>` component, imported at module scope to enable CSS import), with live reload
+  (`useFileWatch` on `path`, triggering `download.refetch()` when file changes, gated by unsaved
+  in-viewer edits via `shouldApplyRefresh` in `molecule-reload.ts`). The `vite.config.ts`
+  `manualChunks` rule isolates `@molviewer/core` + `molstar` into a `vendor-molviewer` chunk
+  (~3.25 MB JS + CSS) absent from the initial page load — fetched only when a molecule tab first
+  renders (lazy import via `panel-registry.ts`). `theme={MOLVIEWER_THEME}` (`molecule-theme.ts`)
+  remaps molviewer's base panel background (`--canvas`/`--well`/`--recess`/`--chrome`), its
+  button/control surfaces (`--control`/`--control-hover`/`--control-strong-hover`,
+  `--border-control`/`--border-input`), its dropdown/menu surfaces
+  (`--popover`/`--popover-item-hover`/`--row-hover`/`--border-popover`), and primary text
+  (`--text-primary`/`--text-on-control`) CSS vars to `var(--pi-color-*)` references so its chrome
+  blends into pi-studio's shell and tracks live theme/appearance changes via ordinary CSS
+  cascade — deliberately narrow scope, mapping only onto pi-studio tokens that already have a
+  direct equivalent and leaving molviewer's own accent/selection/danger/success/warning colors
+  and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
+  scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
+  here. `@molviewer/core` is declared in this package's own `package.json` (not root).
+- **Live file watching (`use-file-watch`/`use-explorer-watch`).** Both subscribe to the daemon's
+  `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family (`packages/server/AGENTS.md`
+  § File watching). `useFileWatch(path)` (used by `MoleculeViewer` above) returns
+  `{ changedAt: number | null }`, bumped on each matching push. `useExplorerWatch(expanded:
+  Set<string>)` backs the live file tree: it diffs the `expanded` directory set across renders
+  (subscribes newly-expanded paths, unsubscribes collapsed ones, never tears down and
+  re-subscribes the whole set on an unchanged `Set` identity) through one shared
+  `onSessionMessage` handler for the hook's whole lifetime, and invalidates exactly the changed
+  directory's `rpcKeys.explorer(path)` query — never the whole `["explorer"]` family. A
+  `too_many_watches` reply (the server's 128-per-session cap) is a soft failure: logs once via
+  `console.warn`, leaves that directory unwatched, and falls back to the pre-existing
+  `invalidateAfterToolCompletion` 500 ms post-tool debounce (`files-changed.ts`) for that
+  directory. Both hooks' subscribe/diff/route/dispose core is a framework-free factory
+  (`watchFile`, `createExplorerWatcher`) for the same jsdom-less reason below.
+- **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
+  size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
+  limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
+  `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB local constant in `TextViewer.tsx`) — transparently
+  refetch via the uncapped chunked binary `useFileText` (wraps `useFileDownload` + decodes blob
+  to text) and render `CodeView` with a muted **"N.N MB file streamed"** note; (3)
+  `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why/download action
+  (reusing `BinaryFallbackViewer`'s pattern). The pure state-selection logic `selectTextViewerState`
+  lives in `text-viewer-state.ts` (framework-free, unit-tested directly). When `useFileRead`
+  throws `FileTooLargeError` (thrown by `parseFileReadResponse` when the server returns
+  `error: "file_too_large"`), it carries `size` and optional `maxBytes` (new additive RPC field),
+  replacing string-code matching for a caller to decide whether to stream or show the terminal
+  state.
+- **Framework-free testing convention: no jsdom.** This package has no jsdom/React-Testing-Library
+  DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config
+  only discovers `.test.ts`, not `.test.tsx`, under a node environment). Hooks and components with
+  real branching logic extract their logic into plain functions/factories (`watchFile`, `createExplorerWatcher`,
+  `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`) that
+  are unit-tested directly rather than via `renderHook` or mounting. This is now an established
+  convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —
+  existing precedent since sprint-043).
 - **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
@@ -409,7 +480,6 @@ entered at runtime, never baked into the image.
     `~/.pi/agent/trust.json`, `defaultProjectTrust`) — an untrusted directory silently returns zero
     project-scoped commands from `get_commands`, not an error. This is a Pi-side gate this feature
     does not (and should not) work around.
-
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
   screen, unlike any feature panel), renders six segments for the **active session** in order:
   model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The

@@ -75,9 +75,11 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 041 | `sprint-041-agent-turn-settlement` | Fix premature turn termination: the Pi adapter declares a turn terminal on the first `agent_end`, but Pi emits one `agent_end` per low-level run (with `willRetry`) and a single `agent_settled` at the true end — retried/compaction/continued turns appear finished mid-flight, lose post-retry stream rows, flip status to idle early, and can auto-archive a live agent. Make the event-mapper settlement-driven (honour `willRetry`, derive terminal kind from the settled run's `stopReason`), wire it per-session, add a fake-transport `agent_settled` + retry-subscription regression, and sync scope/AGENTS docs | 3 |
 | 042 | `sprint-042-workspace-status-bar` | web-client: a full-width ~75px bottom powerline status bar for the active session — icon-prefixed segments (model · cwd · git branch+ahead/behind/dirty/conflict · context % · token total · cost), fully swapping on session switch with live branch and per-session-cached stats. UI-primary: adds optional `model`/`provider` to `list_agents_response` and a poll-reconciled `model` to `agent_session_stats` (append-only); retains git branch meta in git-store, adds `SessionEntry.model` + a per-session stats-store, a `use-session-stats` poll, pure formatters, the `StatusBar` component, and docs | 7 |
 | 043 | `sprint-043-model-selector` | web-client: a per-conversation model selector in the chat composer (left of the input) showing the current model, opening an anchored popup with a fuzzy search filter, checkmark on the selected model (sorted first), and rows of `label (id)` with the id in muted text. Unblocks the picker by registering the previously-unserved `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`), types the client SDK response, and reuses the fully-wired `agent_set_model_request` for selection. | 5 |
+| 044 | `sprint-044-molecule-viewer-live-files` | web-client + daemon: a **molecule viewer** tab type built on `@molviewer/core` — molecular files (`.pdb`/`.cif`/`.xyz`/`.mol`/`.mol2`/`.gro`/`.lammpstrj`/`.xsf`/POSCAR) open in a 3D viewer instead of the text viewer, plus an empty "New molecule view" from the TabStrip "+" menu. Adds the daemon's **first real filesystem watcher** (`FileWatchService`, `fs.watch` per directory, ref-counted, 150 ms coalescing) behind a `file_watch_*` subscription family, which powers both an edit-gated live reload of open molecule tabs (`sourceMode="update"` preserves camera/selection; skipped while the user has unsaved in-viewer edits) and a **live file tree** (expanded directories refresh on create/delete/rename from any writer, not just agent tools). Also raises the file-read ceiling — 512 KiB → 5 MiB inline (async, so a big read no longer blocks the event loop), streamed uncapped above that, 30 MiB display cap. Fixes a pre-existing per-session subscription leak on disconnect on the way past. | 10 |
 
-Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sprints 017–022 add the
-25-task React+Vite DOM render layer; sprints 023–025 are the former 017–019, renumbered.)
+Total: **44 sprints, 210 tasks** (summed from the table above). The older accounting this line used
+to carry (26 sprints / 119 tasks) predated sprints 023–044 and was never updated; recompute from the
+table rather than trusting a hand-maintained figure.
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,
@@ -458,6 +460,58 @@ Total: **26 sprints, 119 tasks.** (Sprints 001–016 = 91 tasks done/planned; sp
 | task-003 | `ModelMenu` component: trigger button + anchored searchable picker with checkmark + muted `(id)` rows | task-002 | packages/web-client (features/chat/ModelMenu); features/composer-ui, provider-usage; architecture/design-system |
 | task-004 | Mount `ModelMenu` in Composer + wire optimistic `setModel` | task-003 | packages/web-client (features/chat/Composer); features/composer-ui, provider-usage |
 | task-005 | E2E verification + docs sync (server/client/web-client AGENTS.md) | task-001..004 | AGENTS.md (server, client, web-client); features/composer-ui, provider-usage |
+
+### sprint-044-molecule-viewer-live-files
+> Two coupled halves, planned so the first ships and smoke-tests without touching the daemon.
+> **Molecule viewer (tasks 001-004, web-client only):** molecular files open a dedicated 3D viewer
+> tab built on `@molviewer/core` (10 formats from its own reader registry, plus VASP
+> POSCAR/CONTCAR by basename), and the TabStrip "+" menu gains "New molecule view" for an empty
+> viewer. Molecule tabs get their **own `TabKind` + panel** rather than riding `FilePanel`: the
+> empty tab has no path at all, and `FilePanel` is built entirely around one. Nothing is lost —
+> `.pdb` diffs still come from the git Changes panel's independent `kind: "diff"` tabs. Format
+> dispatch therefore happens at **tab-open** time (`isMoleculeFile` in the viewer registry, called
+> from the single site that opens file tabs) rather than inside `FilePanel`. Content is fetched via
+> the **chunked binary download** path, not `file_read_request`, whose 512 KiB cap would break the
+> MD trajectories this viewer exists for; molviewer takes the resulting object URL directly as a
+> `{ url, name }` source, so there is no decode step. The 4.3 MB bundle is split into a lazy
+> `vendor-molviewer` chunk.
+> **Live file updates (tasks 005-008, daemon + client):** the daemon has **no filesystem watcher
+> today** — every "live" update in the product is client-initiated polling in disguise
+> (`workspace-git-service.ts`'s "a filesystem watcher calls refresh()" comment is stale, and the
+> file tree only refreshes on a debounced guess after an *agent tool* completes). This sprint adds
+> the real thing: `FileWatchService` (always watches the *directory* so atomic-rename saves keep
+> firing, one ref-counted `fs.watch` per directory, 150 ms coalescing) behind a `file_watch_*`
+> per-session subscription family that follows `checkout_status_subscribe`'s 4-hop precedent
+> exactly — including validating through `messages.ts`'s passthrough fallback, so **no protocol
+> package change**. It powers two consumers: an **edit-gated reload** of open molecule tabs
+> (`sourceMode="update"` preserves camera/selection; skipped entirely while `onModifiedChange`
+> reports unsaved in-viewer edits, with a stale indicator instead of a silent clobber) and a **live
+> file tree** (each expanded directory subscribes and invalidates only its own listing query — a
+> 1:1 fit with the existing one-query-per-expanded-directory model). Task 005 first fixes a
+> confirmed pre-existing leak: per-session subscriptions are never disposed on disconnect because
+> `ws-server` exposes no close hook, so a dropped connection leaks a listener forever — worse for
+> file watching, which would also pin an OS handle.
+> **Large-file ceiling (task-009, independent of both halves):** `file_read_request` rejects anything
+> over 512 KiB, so a 2 MB log is unopenable. Raised to a shared 5 MiB `MAX_INLINE_FILE_READ_BYTES`
+> constant — *and* made **async**, because `readFileSync` on the inline path blocks the daemon's
+> whole event loop (agent streams, terminals, heartbeats) for the duration of the read, which is the
+> real reason the old cap was low. Above 5 MiB `TextViewer` transparently falls back to the existing
+> **uncapped** chunked download path, so files of any size open; 30 MiB is a *display* ceiling
+> (CodeMirror + `lineWrapping`) above which the viewer offers a download instead of rendering. Net
+> effect: no multi-MB string ever crosses a JSON text frame, and file size stops being a wall.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Move `@molviewer/core` into web-client + lazy `vendor-molviewer` chunk | none | packages/web-client (package.json, vite.config); docs/molviewer-integration-scope §2.9 |
+| task-002 | `isMoleculeFile`/`MOLECULE_EXTENSIONS` format detection in the viewer registry | none | packages/web-client (features/files/viewer-registry); features/file-explorer-transfer |
+| task-003 | `MoleculeViewer` component: download → `<MolViewer>` mount, replace-then-update source modes, empty state | task-001 | packages/web-client (features/files/MoleculeViewer); features/file-explorer-transfer; architecture/design-system |
+| task-004 | `molecule` tab kind + `MoleculeViewerPanel` + explorer routing + "+"-menu item | task-002, task-003 | packages/web-client (stores/tab-store, features/workspace/{panel-registry,TabStrip}, features/files); features/workspace-ui |
+| task-005 | `SessionSubscriptions` + `onSessionClose` hook; migrate git-checkout subs (fixes disconnect leak) | none | packages/server (ws/session-subscriptions, ws/ws-server, projects/git-checkout-rpc, daemon/bootstrap); architecture/websocket-protocol; features/git-checkout |
+| task-006 | `FileWatchService` (file + directory, ref-counted, 150 ms coalescing) + `file_watch_*` RPCs | task-005 | packages/server (files/file-watch-service, files/file-watch-rpc, daemon/bootstrap); architecture/websocket-protocol; features/file-explorer-transfer |
+| task-007 | `use-file-watch` hook + edit-gated live reload of molecule tabs | task-003, task-006 | packages/web-client (hooks/use-file-watch, features/files/MoleculeViewer); architecture/websocket-protocol |
+| task-008 | Live file tree: `use-explorer-watch` subscribes expanded dirs, invalidates per-directory | task-006 | packages/web-client (hooks/use-explorer-watch, features/files/FileExplorer); features/file-explorer-transfer, workspace-ui |
+| task-009 | Raise file-read ceiling: 5 MiB inline (async read, shared constant), streamed above that, 30 MiB display cap | none | packages/server (files/limits, daemon/{bootstrap,dev-bootstrap}); packages/web-client (hooks/{use-file-read,use-file-text}, features/files/TextViewer); features/file-explorer-transfer; architecture/websocket-protocol |
+| task-010 | E2E browser verification + docs sync (server/web-client/root AGENTS.md, scope docs) | task-001..009 | AGENTS.md (root, server, web-client); features/file-explorer-transfer, workspace-ui; architecture/websocket-protocol |
 
 ## Coverage check
 

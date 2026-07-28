@@ -4,6 +4,10 @@
  * `path` (extension) and the explorer's binary `mimeHint` (for extension-less/ambiguous files),
  * then looks up the viewer here — adding a new file type is one entry in `EXT_TO_VIEWER`/
  * `MIME_PREFIX_TO_VIEWER` plus one entry in `VIEWER_BY_KIND`, no changes to `FilePanel` itself.
+ *
+ * Second dispatch path: the file explorer calls `isMoleculeFile` (below) to pick a tab's *kind*
+ * (`"molecule"` vs `"file"`) before any panel mounts — molecule files never go through
+ * `detectViewerKind`/`VIEWER_BY_KIND`/`FilePanel` at all (they get their own dedicated panel).
  */
 
 import { lazy, type ComponentType } from "react";
@@ -78,6 +82,34 @@ function extOf(path: string): string {
   const name = path.split("/").pop() ?? path;
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/** Extensions molviewer's built-in readers handle (its `readers/index.ts` registration list). */
+export const MOLECULE_EXTENSIONS: Readonly<Record<string, true>> = {
+  pdb: true,
+  cif: true,
+  mmcif: true,
+  mol: true,
+  mol2: true,
+  xyz: true,
+  extxyz: true,
+  gro: true,
+  lammpstrj: true,
+  xsf: true,
+};
+
+/** Extension-less VASP structure files, matched by exact (case-insensitive) basename. */
+export const MOLECULE_FILENAMES: Readonly<Record<string, true>> = { poscar: true, contcar: true };
+
+/**
+ * True when `path` is a molecular structure file molviewer can render. Pure and synchronous — no
+ * file reads. LAMMPS `data` files are deliberately excluded (no fixed extension; content-sniffing
+ * would make this async) and keep opening as plain text.
+ */
+export function isMoleculeFile(path: string): boolean {
+  if (MOLECULE_EXTENSIONS[extOf(path)]) return true;
+  const name = path.split("/").pop() ?? path;
+  return Boolean(MOLECULE_FILENAMES[name.toLowerCase()]);
 }
 
 /**

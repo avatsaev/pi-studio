@@ -71,6 +71,8 @@ src/
     ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions.
     session.ts                    Session — per-connection state, send(), capability checks.
     router.ts                     HandlerRegistry + frame router (dispatch session messages).
+    session-subscriptions.ts      SessionSubscriptions — per-session subscription registry,
+                                   disposes all subscriptions on socket close.
     capability-store.ts           CapabilityStore — persist client capability flags by clientId.
     index.ts
 
@@ -126,6 +128,11 @@ src/
   files/
     file-explorer.ts              Directory listing + text/binary file preview.
     file-transfer.ts              Download token issuance + chunked binary transfer.
+    file-watch-service.ts         FileWatchService — ref-counted fs.watch filesystem watcher,
+                                   watches files or directories, debounced per-subscription.
+    file-watch-rpc.ts             registerFileWatchHandlers — file_watch_subscribe/_unsubscribe
+                                   RPCs, file_changed push.
+    limits.ts                     MAX_INLINE_FILE_READ_BYTES (5 MiB) — file_read_request ceiling.
     download-token-store.ts       Short-lived download token registry (in-memory, LRU).
     index.ts
 
@@ -434,6 +441,77 @@ Terminal RPC handlers (`terminal-rpc.ts`):
 - `close_terminal` — kill PTY.
 - Binary `Input` frames → write to PTY stdin.
 
+
+### File watching (`files/`)
+
+**`FileWatchService`** (the daemon's first real filesystem watcher):
+- `subscribe(path, listener): () => void` — watch one file **or** one directory.
+- **File watch strategy**: if `path` is a file, watches its *parent directory* with a filename
+  filter. This survives atomic-rename saves (write temp file, then `rename(tmp, target)` — the
+  original inode unlinks, but a directory watcher sees both the unlink and the rename as separate
+  events). Direct inode watches don't detect this pattern, so directory-level watching is
+  intentional and correct for the molecule viewer's MD trajectory editing workflows and general
+  text-editor integration.
+- **Per-directory ref-counting**: maintains a `WeakMap<string, DirWatch>` keyed by directory path.
+  One `fs.watch` handle per directory, shared by all subscribers (file + directory) targeting that
+  directory. Torn down when the last subscriber unsubscribes.
+- **Per-subscription debounce** (`FILE_WATCH_COALESCE_MS = 150` ms): collapses a write+rename
+  burst (e.g., an editor save + git apply) into one push, chosen above `TerminalManager`'s 4 ms
+  window but safely below the client's own 500 ms post-tool debounce.
+- **Watcher errors** (e.g., permission denied, watched file deleted): snapshot and notify each
+  affected subscription synchronously (bypassing the debounce), then dispose the directory watch.
+
+**File watch RPC family** (`file-watch-rpc.ts`, validated via `sessionMessageBaseSchema`
+passthrough fallback, NOT a `messages.ts` discriminated union):
+- `file_watch_subscribe { path }` → `{ type, path, ok, [error: "too_many_watches"] }` — open a
+  live watch on `path` (file or directory, `~` expanded to `homedir()`).
+- `file_watch_unsubscribe { path }` → `{ type, path, ok }` — close the watch.
+- `file_changed { path }` (push) — daemon → client, sent when a watched `path` changes.
+
+**Per-session cap** (`MAX_FILE_WATCHES_PER_SESSION = 128`):
+- Each session has a hard limit of 128 concurrent file watches (per-session, not global). Exists
+  because `fs.watch` consumes an inotify handle per directory and the kernel enforces a global
+  `fs.inotify.max_user_watches` limit (typically 8192 system-wide); a buggy tree-expansion effect
+  (or an attacker) subscribing in a loop would otherwise exhaust it and break file watching
+  across the entire machine. A same-path resubscribe replaces in place and never counts against
+  the cap (via `SessionSubscriptions.add`'s contract).
+- **`too_many_watches` reply**: when a new subscription would exceed the cap, the server replies
+  with `{ ok: false, error: "too_many_watches" }` and logs a warning.
+
+**Session subscriptions cleanup** (`SessionSubscriptions` in `ws/session-subscriptions.ts`):
+- `ws-server.ts` gained an optional `onSessionClose` hook, called from the `ws.on("close")`
+  handler (guarded with try-catch to prevent a callback failure from breaking socket teardown).
+- `bootstrap.ts` wires `onSessionClose: (s) => subscriptions.disposeSession(s)`, disposing every
+  file-watch and git-checkout subscription the moment a client disconnects, releasing OS-level
+  file handles without waiting for the browser to unsubscribe first. Fixes a pre-existing leak:
+  `git_checkout_subscribe` never released its `WorkspaceGitService` listener on a dropped
+  connection, and this now covers both subscription families.
+
+### File operations (`files/`)
+
+**`file_read_request`** (`bootstrap.ts`/`dev-bootstrap.ts`, now `async`):
+- Reads a file synchronously into the WS response — **now uses `async` `stat` / `readFile` from
+  `node:fs/promises`** instead of the prior synchronous `statSync`/`readFileSync`. Before: a
+  multi-MB UTF-8 decode blocked the entire event loop (all agent streams, terminal bytes,
+  heartbeats shared this thread). After: long reads yield back to the event loop between chunks.
+- Size check: if `size > MAX_INLINE_FILE_READ_BYTES` (5 MiB in `files/limits.ts`, raised from a
+  512 KiB literal previously duplicated in both bootstrap files), returns
+  `{ ok: false, error: "file_too_large", size, maxBytes: MAX_INLINE_FILE_READ_BYTES }`.
+- **Additive optional `maxBytes` field** in the `file_too_large` response: lets clients render an
+  accurate cap without hardcoding the server's number. The `error` code and `size` field are
+  unchanged (append-only wire contract).
+- `~` expansion (mirrors existing `bootstrap.ts`/`dev-bootstrap.ts` convention — not factored into
+  a shared helper, consistent with other path-handling RPCs).
+
+**`file_transfer.ts`** (no changes this sprint):
+- Issued download tokens (`file-transfer.ts`, `FileTransferService`) are short-lived and stored in
+  a registrar (`download-token-store.ts`).
+- File downloads happen over the WebSocket via binary frames, not HTTP.
+- Unbounded file size (no inline ceiling like `file_read_request`).
+
+**`file-explorer.ts`** (directory listing + preview):
+- Scans directories, reports stat metadata + MIME types + inline text/binary previews (inlined,
+  unlike download tokens, so no temp storage needed for small files).
 ### Projects / Git subsystem (`projects/`)
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.
@@ -574,10 +652,19 @@ messages are fair game.
 - **The relay's synthetic `Session.sendBinary()` and `Session.send()` share one socket-shaped
   object whose `send(data)` discriminates by argument type** (`string` → `relayReply`/`e2ee_app`,
   `Uint8Array` → `relayReplyBinary`/`e2ee_bin`) — see `bootstrap.ts`'s relay wiring. Both
-  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onMessage`/
-  `onBinaryMessage` callbacks respectively and must be reset (`= null`) alongside
-  `resetRelaySession()` on `onReconnect`, or a stale reply closure from a dead relay socket could
-  be invoked. Terminal I/O and file-transfer chunks ride this binary path — they are real binary
+  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onHandshake` callback
+  (which now hands over the channel's `send`/`sendBinary` directly, the moment the handshake
+  completes), and reset (`= null`) alongside `resetRelaySession()` on `onReconnect`, or a stale
+  reply closure from a dead relay socket could be invoked. They used to be captured lazily from
+  `onMessage`/`onBinaryMessage` instead — fine for `relayReply` (the client's first frame is
+  always the text `hello`), but `relayReplyBinary` stayed `null` until the daemon received a
+  BINARY frame from the client. Terminal I/O sends one immediately (`Input`), masking the bug;
+  file downloads never do — the client only ever sends TEXT
+  (`file_download_token_request`/`file_download_request`) and expects unprompted BINARY
+  `Begin`/`Chunk`/`End` back — so every relay-routed file download silently hung forever with no
+  error on either side. Regression test: `bootstrap.test.ts`'s "file download round-trips
+  Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client
+  first". Terminal I/O and file-transfer chunks ride this binary path — they are real binary
   application data, but they cross the relay wire as base64-wrapped JSON text frames
   (`@av-pi-studio/relay`'s `e2ee_bin`), never raw binary WebSocket frames; see that package's
   AGENTS.md § Wire format for why.
