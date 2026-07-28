@@ -16,10 +16,14 @@ const FilePanel = lazy(() => import("../files/FilePanel.js").then((m) => ({ defa
 const TerminalPanel = lazy(() =>
   import("../terminal/TerminalPanel.js").then((m) => ({ default: m.TerminalPanel })),
 );
+const MoleculeViewerPanel = lazy(() =>
+  import("../files/MoleculeViewerPanel.js").then((m) => ({ default: m.MoleculeViewerPanel })),
+);
 
 export const PANEL_BY_KIND: Record<Tab["kind"], ComponentType<PanelProps>> = {
   chat: ChatPanel,
   file: FilePanel,
   diff: FilePanel, // FilePanel handles both file/diff view toggle internally (POC §4.5)
   terminal: TerminalPanel,
+  molecule: MoleculeViewerPanel,
 };

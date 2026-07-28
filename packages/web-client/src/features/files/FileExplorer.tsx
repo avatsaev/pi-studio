@@ -22,6 +22,7 @@ import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { isMoleculeFile } from "./viewer-registry.js";
 import { flattenTree } from "./file-tree.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
@@ -80,6 +81,17 @@ export function FileExplorer() {
   });
 
   function handleOpenFile(path: string) {
+    if (isMoleculeFile(path)) {
+      openTab({
+        id: tabIds.molecule(path),
+        kind: "molecule",
+        label: path.split("/").pop() || path,
+        closable: true,
+        data: { path },
+        workspaceCwd: activeWorkspaceCwd || "~",
+      });
+      return;
+    }
     openTab({
       id: tabIds.file(path),
       kind: "file",
