@@ -123,6 +123,7 @@ Default action (no subcommand):
 | `model <agentId> --provider <p> --model <m>` | `agent_set_model_request` | Switch to a specific provider model — `/model` |
 | `cycle-model <agentId>` | `agent_cycle_model_request` | Cycle to the next available model — `/model` |
 | `last-message <agentId>` | `agent_last_assistant_text_request` | Print the last assistant message — `/copy` |
+| `commands <agentId>` | `agent_list_commands_request` | List discoverable commands: extensions, prompt templates, skills (sprint-040, no Pi built-in equivalent) |
 
 `formatStreamEvent(event)` — renders an `AgentStreamEvent` as a single human-readable line.
 

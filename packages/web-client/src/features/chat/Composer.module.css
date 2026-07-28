@@ -29,6 +29,68 @@
   flex-shrink: 0;
 }
 
+.slashBtn {
+  flex-shrink: 0;
+  /* A visible, neutral border turns the plain ghost icon button into a rounded-rectangle
+     "keycap" around the slash glyph — reuses `.btn`'s own `border-radius` (Button.module.css),
+     just makes the (default-transparent) border visible, rather than switching to the
+     `outline` variant, whose accent-colored border reads louder than this toolbar's other
+     plain icon buttons (attach/send) call for. */
+  border-color: var(--pi-color-border, #3f3f46);
+}
+
+.textareaWrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.textareaWrap .textarea {
+  position: relative;
+}
+.highlightLayer {
+  position: absolute;
+  inset: 0;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  font-size: var(--pi-font-size-base, 16px);
+  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  color: transparent;
+  pointer-events: none;
+}
+.commandMark {
+  /* Same translucent-wash + tinted-outline recipe as `StatusBadge.tsx`/the CommandMenu kind
+   * badges (`ModelMenu.module.css` `.commandKindExtension` etc.) — derived from the live
+   * `--pi-color-accent` CSS variable via `color-mix`, not a hardcoded rgba, so a custom brand
+   * theme's accent color is respected here too. `color: transparent` keeps the mark's own
+   * glyphs invisible; the real text renders from the `.textarea` layer underneath.
+   *
+   * Breathing room comes ENTIRELY from `box-shadow` spread, not padding/margin: a plain
+   * `background` fills only the mark's own tight glyph-hugging box (any padding here would add
+   * real width/height to that box, shifting where the NEXT character in this layer sits relative
+   * to the real, invisible text in `.textarea` underneath it — the two must stay pixel-identical).
+   * `box-shadow` paints outside the layout box entirely, so a zero-blur, positive-spread shadow
+   * can extend the same wash color a few px past the glyphs on every side — like real chip
+   * padding — without ever touching the box model. Two shadows: a crisp 1px outline right at
+   * the edge, then the same translucent wash again 3px further out.
+   */
+  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 24%, transparent);
+  color: transparent;
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 24%, transparent);
+}
+/* Only while a mark is showing does the textarea itself go transparent so the mark shows
+   through from behind — an ordinary draft keeps the primitive's own surface color. */
+.textareaOverlaid {
+  background: transparent !important;
+}
+
 .hiddenFileInput {
   display: none;
 }

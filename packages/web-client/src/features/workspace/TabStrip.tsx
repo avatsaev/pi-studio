@@ -3,7 +3,7 @@
  * Adds drag reorder (the POC couldn't reorder) + Radix Tooltip on truncated labels.
  */
 
-import { MessageSquare, FileText, GitCompare, TerminalSquare, X, Plus } from "lucide-react";
+import { MessageSquare, FileText, GitCompare, TerminalSquare, Atom, X, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -24,6 +24,7 @@ import {
   useTabStore,
   openNewChat,
   openNewTerminal,
+  openNewMolecule,
   closeTab,
   type Tab,
   type TabKind,
@@ -35,6 +36,7 @@ const ICON_BY_KIND: Record<TabKind, typeof MessageSquare> = {
   file: FileText,
   diff: GitCompare,
   terminal: TerminalSquare,
+  molecule: Atom,
 };
 
 function TabItem({ tab }: { tab: Tab }) {
@@ -110,6 +112,10 @@ function NewTabMenu({ workspaceCwd }: { workspaceCwd: string | null }) {
           <DropdownMenu.Item className={styles.item} onSelect={() => openNewTerminal(cwd)}>
             <TerminalSquare size={13} className={styles.itemIcon} />
             New terminal
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={styles.item} onSelect={() => openNewMolecule(cwd)}>
+            <Atom size={13} className={styles.itemIcon} />
+            New molecule view
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

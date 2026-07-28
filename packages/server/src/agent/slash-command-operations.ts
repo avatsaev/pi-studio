@@ -1,6 +1,9 @@
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
+import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
+import { spawnOrResumeSession } from "./agent-service.js";
+import type { AgentClient } from "./provider-contract.js";
 
 /**
  * Slash-command operations (sprint-037): Pi built-in commands that have a real Pi RPC equivalent
@@ -9,6 +12,10 @@ import type { AgentManager } from "./agent-manager.js";
  * provider-contract.ts; each is implemented for the `pi` provider (providers/pi/agent.ts) and
  * absent by default elsewhere.
  *
+ * Also hosts command *discovery* (sprint-040): `agent_list_commands_request` surfaces Pi's
+ * `get_commands` (extension commands, prompt templates, skills) for a live session — a disjoint
+ * set from the built-in slash commands above.
+ *
  * Pi's own RPC contract is explicit that TUI-only built-ins (/settings, /hotkeys, etc.) have no
  * RPC equivalent and would not execute if sent via `prompt` — those are intentionally NOT
  * represented here or on the wire (see clean-room-scope/sprints/sprint-037-agent-slash-commands).
@@ -16,7 +23,9 @@ import type { AgentManager } from "./agent-manager.js";
 
 export interface SlashCommandOpsDeps {
   manager: AgentManager;
+  resolveClient: (provider: string) => AgentClient;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
+  logger?: Logger;
 }
 
 /** Resolve the live session for `agentId`, or throw an error the router turns into `rpc_error`. */
@@ -71,6 +80,9 @@ export class SlashCommandOperationsService {
     );
     registry.register("agent_last_assistant_text_request", (ctx) =>
       this.handleLastAssistantText(ctx.message as Record<string, unknown>),
+    );
+    registry.register("agent_list_commands_request", (ctx) =>
+      this.handleListCommands(ctx.message as Record<string, unknown>),
     );
   }
 
@@ -276,5 +288,23 @@ export class SlashCommandOperationsService {
     if (!session.getLastAssistantText) throw unsupported(agentId, "get_last_assistant_text");
     const text = await session.getLastAssistantText();
     return { type: "agent_last_assistant_text_response", payload: { text } };
+  }
+
+  /**
+   * Command discovery (sprint-040) — surfaces Pi's `get_commands`; read-only, no broadcast.
+   * Unlike every other handler in this file, this one must work on a not-yet-spawned draft
+   * (deferred-draft creation, `agent-service.ts` `handleCreate`) or a post-restart record —
+   * both leave `managed.session` `null`, which the picker's whole "list commands before you've
+   * sent anything" flow needs to succeed rather than throw `has no live session`. Spawn/resume
+   * exactly as `AgentService.handleSendPrompt` does.
+   */
+  async handleListCommands(msg: Record<string, unknown>): Promise<unknown> {
+    const agentId = msg.agentId as string;
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    if (!session.listCommands) throw unsupported(agentId, "get_commands");
+    const commands = await session.listCommands();
+    return { type: "agent_list_commands_response", payload: { commands } };
   }
 }

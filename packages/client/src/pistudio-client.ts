@@ -6,6 +6,7 @@ import type {
   AgentForkMessagesResponse,
   AgentForkResponse,
   AgentLastAssistantTextResponse,
+  AgentListCommandsResponse,
   AgentNewSessionResponse,
   AgentSessionStatsResponse,
   AgentSetModelResponse,
@@ -31,7 +32,7 @@ import type { DaemonClient } from "./daemon-client.js";
  * `agent_new_session_request`, `agent_switch_session_request`, `agent_fork_request`,
  * `agent_fork_messages_request`, `agent_clone_request`, `agent_set_session_name_request`,
  * `agent_export_html_request`, `agent_set_model_request`, `agent_cycle_model_request`,
- * `agent_last_assistant_text_request`).
+ * `agent_last_assistant_text_request`), plus command discovery `agent_list_commands_request`.
  *
  * Out of scope: app runtime controller (sprint-012), terminal router (task-003).
  */
@@ -134,6 +135,12 @@ export interface PiStudioAgentActions {
   cycleModel(): Promise<AgentCycleModelResponse["payload"]>;
   /** `/copy` — the text content of the last assistant message. */
   lastAssistantText(): Promise<AgentLastAssistantTextResponse["payload"]>;
+
+  // Command discovery (sprint-040): user/project-authored commands — extension commands,
+  // prompt templates, and skills — surfaced from Pi's `get_commands`. Disjoint from the
+  // built-in slash commands above.
+  /** List the session's discoverable commands (extensions, prompt templates, skills). */
+  listCommands(): Promise<AgentListCommandsResponse["payload"]>;
 }
 
 export interface PiStudioWorkspaceActions {
@@ -423,6 +430,11 @@ class AgentHandle implements PiStudioAgentActions {
 
   lastAssistantText(): Promise<AgentLastAssistantTextResponse["payload"]> {
     return this.daemon.request("agent_last_assistant_text_request", { agentId: this.agentId });
+  }
+
+  /** Command discovery (sprint-040) — Pi `get_commands` via the daemon. */
+  listCommands(): Promise<AgentListCommandsResponse["payload"]> {
+    return this.daemon.request("agent_list_commands_request", { agentId: this.agentId });
   }
 }
 

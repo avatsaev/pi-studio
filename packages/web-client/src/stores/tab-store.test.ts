@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useTabStore, type Tab } from "./tab-store.js";
+import { useTabStore, openNewMolecule, tabIds, type Tab } from "./tab-store.js";
 import { useSessionStore } from "./session-store.js";
 
 beforeEach(() => {
@@ -82,5 +82,27 @@ describe("tab store — sidebar/session sync", () => {
     useTabStore.getState().switchWorkspace("/work-a");
     expect(useTabStore.getState().activeTabId).toBe("chat-s1");
     expect(useSessionStore.getState().activeSessionId).toBe("s1");
+  });
+});
+
+describe("openNewMolecule", () => {
+  it("opens an empty molecule tab with an incrementing label and the mol-new-<n> id shape", () => {
+    openNewMolecule("/work");
+    const tabs = useTabStore.getState().tabs;
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toMatchObject({
+      id: tabIds.molecule("new-1"),
+      kind: "molecule",
+      label: "Molecule 1",
+      closable: true,
+      data: { path: null },
+      workspaceCwd: "/work",
+    });
+
+    openNewMolecule("/work");
+    const tabs2 = useTabStore.getState().tabs;
+    expect(tabs2).toHaveLength(2);
+    expect(tabs2[1]?.label).toBe("Molecule 2");
+    expect(tabs2[1]?.id).not.toBe(tabs[0]?.id);
   });
 });

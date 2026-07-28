@@ -104,7 +104,14 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
                            FileTransferClient via file-transfer-instance), use-checkout-status,
-                           use-agent-stream (+ agent-stream-events), use-home-dir
+                           use-file-watch (live `file_changed` subscription for molecule viewer's
+                           reload gate), use-explorer-watch (live file-tree subscription, one per
+                           expanded directory), use-file-text (tier-2 streamed-text fallback for
+                           TextViewer, files over the inline read cap),
+  use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
+                           query), use-agent-commands (composer `/` picker RPC query — cached
+                           identically to use-provider-models, see AGENTS.md § Invariants
+                           "Slash-command picker")
   features/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
@@ -116,8 +123,6 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     chat/                   ChatPanel, Timeline, Composer, ModelMenu (status bar's model-selector
                             searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
-                            selector"), Attachments, rows/ (Assistant/User/System/Error/Reasoning
-                            rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -132,7 +137,11 @@ src/
                             caller + error-code messages, used by FileExplorer's tree draft and
                             OpenWorkspaceDialog's "new folder" affordance), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
-                            BinaryFallbackViewer, TextViewer, viewer-registry
+                            BinaryFallbackViewer, TextViewer, viewer-registry,
+                            MoleculeViewer (molstar WebGL canvas for structure files), MoleculeViewerPanel
+                            (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
+                            molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
+                            chrome color override), text-viewer-state.ts (pure state selection), + tests
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
                             "Status bar" for why it no longer owns its own checkout-status
                             subscription)
@@ -240,6 +249,69 @@ entered at runtime, never baked into the image.
   *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
+- **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
+  `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
+  molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at
+  **tab-open time** in `FileExplorer.tsx`'s `handleOpenFile` via `isMoleculeFile(path)`
+  (`viewer-registry.ts`) — NOT inside `FilePanel` or as a new `ViewerKind` entry. Supported
+  formats: `MOLECULE_EXTENSIONS` (pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, xsf —
+  10 formats) + `MOLECULE_FILENAMES` (poscar, contcar — extension-less, matched by basename);
+  LAMMPS `data` files are deliberately excluded (no fixed extension, would require async
+  content-sniffing). `openNewMolecule(workspaceCwd)` (tab-store.ts) mints a new empty tab,
+  numbered off a module-level `moleculeCount` counter. `MoleculeViewerPanel.tsx` is the thin
+  `PanelProps` adapter; the actual viewer is `MoleculeViewer.tsx` (`@molviewer/core`'s
+  `<MolViewer>` component, imported at module scope to enable CSS import), with live reload
+  (`useFileWatch` on `path`, triggering `download.refetch()` when file changes, gated by unsaved
+  in-viewer edits via `shouldApplyRefresh` in `molecule-reload.ts`). The `vite.config.ts`
+  `manualChunks` rule isolates `@molviewer/core` + `molstar` into a `vendor-molviewer` chunk
+  (~3.25 MB JS + CSS) absent from the initial page load — fetched only when a molecule tab first
+  renders (lazy import via `panel-registry.ts`). `theme={MOLVIEWER_THEME}` (`molecule-theme.ts`)
+  remaps molviewer's base panel background (`--canvas`/`--well`/`--recess`/`--chrome`), its
+  button/control surfaces (`--control`/`--control-hover`/`--control-strong-hover`,
+  `--border-control`/`--border-input`), its dropdown/menu surfaces
+  (`--popover`/`--popover-item-hover`/`--row-hover`/`--border-popover`), and primary text
+  (`--text-primary`/`--text-on-control`) CSS vars to `var(--pi-color-*)` references so its chrome
+  blends into pi-studio's shell and tracks live theme/appearance changes via ordinary CSS
+  cascade — deliberately narrow scope, mapping only onto pi-studio tokens that already have a
+  direct equivalent and leaving molviewer's own accent/selection/danger/success/warning colors
+  and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
+  scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
+  here. `@molviewer/core` is declared in this package's own `package.json` (not root).
+- **Live file watching (`use-file-watch`/`use-explorer-watch`).** Both subscribe to the daemon's
+  `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family (`packages/server/AGENTS.md`
+  § File watching). `useFileWatch(path)` (used by `MoleculeViewer` above) returns
+  `{ changedAt: number | null }`, bumped on each matching push. `useExplorerWatch(expanded:
+  Set<string>)` backs the live file tree: it diffs the `expanded` directory set across renders
+  (subscribes newly-expanded paths, unsubscribes collapsed ones, never tears down and
+  re-subscribes the whole set on an unchanged `Set` identity) through one shared
+  `onSessionMessage` handler for the hook's whole lifetime, and invalidates exactly the changed
+  directory's `rpcKeys.explorer(path)` query — never the whole `["explorer"]` family. A
+  `too_many_watches` reply (the server's 128-per-session cap) is a soft failure: logs once via
+  `console.warn`, leaves that directory unwatched, and falls back to the pre-existing
+  `invalidateAfterToolCompletion` 500 ms post-tool debounce (`files-changed.ts`) for that
+  directory. Both hooks' subscribe/diff/route/dispose core is a framework-free factory
+  (`watchFile`, `createExplorerWatcher`) for the same jsdom-less reason below.
+- **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
+  size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
+  limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
+  `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB local constant in `TextViewer.tsx`) — transparently
+  refetch via the uncapped chunked binary `useFileText` (wraps `useFileDownload` + decodes blob
+  to text) and render `CodeView` with a muted **"N.N MB file streamed"** note; (3)
+  `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why/download action
+  (reusing `BinaryFallbackViewer`'s pattern). The pure state-selection logic `selectTextViewerState`
+  lives in `text-viewer-state.ts` (framework-free, unit-tested directly). When `useFileRead`
+  throws `FileTooLargeError` (thrown by `parseFileReadResponse` when the server returns
+  `error: "file_too_large"`), it carries `size` and optional `maxBytes` (new additive RPC field),
+  replacing string-code matching for a caller to decide whether to stream or show the terminal
+  state.
+- **Framework-free testing convention: no jsdom.** This package has no jsdom/React-Testing-Library
+  DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config
+  only discovers `.test.ts`, not `.test.tsx`, under a node environment). Hooks and components with
+  real branching logic extract their logic into plain functions/factories (`watchFile`, `createExplorerWatcher`,
+  `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`) that
+  are unit-tested directly rather than via `renderHook` or mounting. This is now an established
+  convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —
+  existing precedent since sprint-043).
 - **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
@@ -324,6 +396,86 @@ entered at runtime, never baked into the image.
   visible (and its tab reopens) across a refresh/reconnect for as long as nobody explicitly closes
   it or deletes it. Only `closeTab`'s `discardIfEmpty` (above) or an explicit delete ever removes
   one.
+
+- **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
+  `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
+  `use-agent-commands.ts`, cached IDENTICALLY to `use-provider-models.ts` — same `useQuery` shape,
+  no `staleTime`/`gcTime`/`retry` override, keyed by `["agents","commands",sessionId]` (session id,
+  not agent id, so a draft that materializes mid-open doesn't orphan its cache entry). This is
+  deliberate, not an oversight: reopening the menu (including the auto-open on every `/` keystroke)
+  renders the cached rows immediately with no spinner while a background refetch keeps the list
+  current, exactly like the model picker.
+  - **`CommandMenu.tsx` reuses `ModelMenu.module.css`'s chrome, not `ModelMenu.tsx`'s code.**
+    `ModelMenu` owns its `open`/`query` state privately and renders its own search `<input>`;
+    neither fits a menu whose open state and filter query are driven entirely by the composer's
+    textarea. `CommandMenu` takes `open`/`onOpenChange`/`options`/`highlightedIndex` as props and
+    renders rows as `<div role="option">`, not `DropdownMenu.Item` — `Item` brings Radix roving
+    focus/typeahead, which would fight the textarea for keyboard focus.
+  - **Both `onOpenAutoFocus` AND `onCloseAutoFocus` on `DropdownMenu.Content` must be prevented.**
+    Preventing only the open side (so typing `/` doesn't yank focus into the menu) is not enough:
+    Radix's default is to return focus to the trigger element whenever `open` flips to `false`,
+    which fires AFTER `applySelectedCommand`'s own `el.focus()` on the textarea and silently undoes
+    it — a real, live-caught bug (every close, not just Escape, routes through this: apply,
+    Escape, and click-away all flip `open` to `false` the same way). The `/` trigger button must
+    never end up focused after any close.
+  - **`Composer.tsx`'s `submit()` must close the menu itself**, not just `applyCommand`'s
+    trailing-space path (`shouldOpenMenu(" …")` → false). A bare Enter or a Send/Steer button click
+    can fire while the menu is still open over a draft with zero filter matches (`filtered.length
+    === 0`, so `handleKeyDown`'s accept branch never ran) — without an explicit `setMenuOpen(false)`
+    in `submit()`, sending clears the draft to `""` but leaves the menu open, which then renders
+    the full unfiltered list (empty `text` → `parseSlashToken` → `null` → unfiltered `options`)
+    right after the send. Another real, live-caught bug.
+  - **The highlight is `applyCommand`'s contract, not decoration.** `knownCommandSpan(text, names)`
+    (`slash-commands.ts`) only marks the leading token when it exactly, case-sensitively matches a
+    name from the same `get_commands` payload — the identical test Pi's own `agent-session.js`
+    applies before executing a command — so a highlighted token is a live "Pi will recognize this"
+    guarantee, not styling. Rendered via a transparent-text mirror `<div>` behind the `<textarea>`
+    (`.highlightLayer`/`.commandMark` in `Composer.module.css`), NOT a rich editor — swapping the
+    textarea for CodeMirror/contenteditable would rewrite paste, attachment, and autosize behavior
+    the composer already handles.
+  - **The mark's chip padding comes from `box-shadow` spread, never `padding`/`margin` on the
+    horizontal axis.** `.highlightLayer` is a transparent-text mirror that must stay
+    pixel-identical to the real `<textarea>` underneath it, character for character — any
+    horizontal padding on `.commandMark` would add real width to that inline span, shifting every
+    character after it in the mirror layer out of alignment with the real text. `box-shadow`
+    paints outside the layout box entirely, so a zero-blur, positive-spread shadow extends the
+    same wash color a few px past the glyphs without changing the box's width at all — real chip
+    breathing room, zero risk to the alignment invariant.
+  - **Mouse hover and keyboard selection are two independent, differently-styled states, not one
+    shared `highlightedIndex`.** Native CSS `:hover` (`.commandItem:hover` in
+    `ModelMenu.module.css`) drives mouse feedback — the browser's own hit-testing, always
+    accurate, never missing a fast pointer move. `.commandItem.itemActive` (accent-tinted fill +
+    left bar, overriding the shared `.item.itemActive` rule's plain surface-color fill, which was
+    too close in luminance to `.commandContent`'s own background to read as "selected") is driven
+    only by `highlightedIndex`, which only `ArrowUp`/`ArrowDown` ever write — mouse hover no
+    longer syncs into it via `onMouseEnter`. An earlier version routed hover through that same
+    state so both states could share one look; that added a React render round-trip to something
+    the browser already tracks for free, and could miss fast pointer movement (the old highlight
+    staying stuck on a row the mouse had already left). Because the two states now render
+    differently, they can safely coexist when arrow-key nav scrolls the list under a mouse
+    pointer that never moved: the stale hover on whatever's now underneath reads as a subtle,
+    clearly-secondary cue next to the real accent-marked selection, never a confusing duplicate.
+  - **`onOpenAutoFocus` on `DropdownMenu.Content` is real but not in Radix's public prop type.**
+    `MenuContentImpl` (`@radix-ui/react-menu`) destructures and forwards it at runtime, but the
+    public `DropdownMenuContentProps` type deliberately omits it (`MenuContentImplPrivateProps`,
+    internal-API-only) — passing it as a plain JSX attribute fails typecheck with "did you mean
+    onCloseAutoFocus". `CommandMenu.tsx`'s `preventOpenAutoFocus` constant is typed separately and
+    spread in (`{...preventOpenAutoFocus}`), which is honest about the gap without widening
+    `DropdownMenu.Content`'s props as a whole. This was a real, unnoticed break because
+    `packages/web-client` isn't in the root `tsconfig.json`'s project references — `npm run
+    typecheck` never covers it; only the full `npm run build` (which runs `vite build`'s own
+    `tsc -b`) catches it.
+  - **Extension-sourced commands are hidden, not disabled, while a turn is running**
+    (`commandOptions(commands, { running })` in `slash-commands.ts`): Pi rejects extension commands
+    on `steer`/`follow_up` (`_throwIfExtensionCommand`), the only send path while a turn is in
+    flight, and that rejection is a silently-dropped `notify` response at the transport layer — so
+    offering them here would fail invisibly. Prompt templates and skills are unaffected; they still
+    expand into a normal turn either way.
+  - **Live-verified against a real spawned `pi` process, not just the mock provider**: Pi only
+    scans a project's `.pi/prompts/`/`.pi/extensions/` when the CWD is a trusted project (Pi's own
+    `~/.pi/agent/trust.json`, `defaultProjectTrust`) — an untrusted directory silently returns zero
+    project-scoped commands from `get_commands`, not an error. This is a Pi-side gate this feature
+    does not (and should not) work around.
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
   screen, unlike any feature panel), renders six segments for the **active session** in order:
   model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The

@@ -9,7 +9,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
@@ -20,6 +21,7 @@ import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
 import { Session } from "../ws/session.js";
 import { createInMemoryCapabilityStore } from "../ws/capability-store.js";
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 
@@ -37,6 +39,9 @@ import { saveAgent, loadAllAgents } from "../persistence/entity-stores.js";
 
 import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
+import { FileWatchService } from "../files/file-watch-service.js";
+import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
+import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
 import { WorkspaceRegistryService } from "../projects/workspace-registry.js";
@@ -247,7 +252,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
   sessionOps.registerHandlers(registry, getActiveSessions);
 
-  const slashCommandOps = new SlashCommandOperationsService({ manager, broadcast });
+  const slashCommandOps = new SlashCommandOperationsService({
+    manager,
+    resolveClient,
+    broadcast,
+    logger,
+  });
   slashCommandOps.registerHandlers(registry, getActiveSessions);
 
   registerTimelineHandler(registry, { manager, resolveClient });
@@ -400,12 +410,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   }));
 
   // ── Git: status/diff streaming, operations, GitHub PRs, worktrees ─────────────
+  const subscriptions = new SessionSubscriptions();
   const gitService = new WorkspaceGitService();
   const diffManager = new CheckoutDiffManager();
   registerGitCheckoutHandlers(registry, {
     gitService,
     diffManager,
     checkoutRefreshEnabled: true,
+    subscriptions,
   });
   new GitOperationsService({ gitService }).registerHandlers(registry);
   new GitHubService({
@@ -421,13 +433,15 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     getActiveSessions,
   }).registerHandlers(registry, getActiveSessions);
 
-  // ── Files: explorer (with download tokens) + transfer ─────────────────────────
+  // ── Files: explorer (with download tokens) + transfer + filesystem watch ──────
   const fileTransfer = new FileTransferService();
   new FileExplorerService({ issueDownloadToken: fileTransfer.issueDownloadToken }).registerHandlers(
     registry,
   );
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();
+  const fileWatchService = new FileWatchService({ logger });
+  registerFileWatchHandlers(registry, { fileWatchService, subscriptions, logger });
 
   // Simple file diff RPC for the POC UI (returns unified diff for a single file). Untracked
   // (brand-new) files have no git-tracked "before" state, so a plain `git diff` against them is
@@ -456,18 +470,26 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     return { type: "file_diff_response", ok: true, path: filePath, patch };
   });
 
-  // Simple text file read RPC for the POC UI (returns up to 512KB of UTF-8 text).
-  registry.register("file_read_request", (ctx) => {
+  // Simple text file read RPC for the POC UI (returns up to `MAX_INLINE_FILE_READ_BYTES` of
+  // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
+  // multi-MB read/decode never blocks the event loop — every other session (agent streams,
+  // terminal output, heartbeats) shares this thread.
+  registry.register("file_read_request", async (ctx) => {
     const filePath = String(ctx.message.path ?? "");
     const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
     try {
-      const stat = statSync(resolved);
-      if (stat.isDirectory())
-        return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (stat.size > 512 * 1024)
-        return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
-      const content = readFileSync(resolved, "utf8");
-      return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
+      const st = await stat(resolved);
+      if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (st.size > MAX_INLINE_FILE_READ_BYTES)
+        return {
+          type: "file_read_response",
+          ok: false,
+          error: "file_too_large",
+          size: st.size,
+          maxBytes: MAX_INLINE_FILE_READ_BYTES,
+        };
+      const content = await readFile(resolved, "utf8");
+      return { type: "file_read_response", ok: true, path: resolved, content, size: st.size };
     } catch (e: unknown) {
       return {
         type: "file_read_response",
@@ -611,6 +633,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
     },
+    onSessionClose: (session) => subscriptions.disposeSession(session),
     onMessage: (session, frame) => {
       if ("text" in frame) {
         void routeTextFrame(session, frame.text, registry);
@@ -657,7 +680,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       config.daemon.relay,
       {
         onMessage: (plaintext, reply) => {
-          relayReply = reply; // always the same underlying channel.send for this connection
+          relayReply = reply; // kept in sync per message too; the real fix is capturing this in onHandshake below
 
           if (relaySession === null) {
             // First frame on this relay connection must be `hello`, exactly like direct WS.
@@ -715,7 +738,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
           void routeTextFrame(relaySession, plaintext, registry);
         },
         onBinaryMessage: (bytes, replyBinary) => {
-          relayReplyBinary = replyBinary; // always the same underlying channel.sendBinary for this connection
+          relayReplyBinary = replyBinary; // kept in sync per message too; the real fix is capturing this in onHandshake below
           if (relaySession === null) return; // binary frames before `hello` have no session to target
           routeBinaryFrame(relaySession, bytes, (s, b) => {
             terminalBinaryHandler(s, b);
@@ -728,11 +751,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         onSessionStart: (sessionId) => {
           logger.info({ sessionId }, "relay connected");
         },
-        onHandshake: () => {
+        onHandshake: (reply, replyBinary) => {
           // A NEW peer just completed the E2EE handshake on this (possibly already-`ready`)
           // channel — browser reload, second tab, or a genuine reconnect all look identical here.
           // Drop any app-level Session tied to whichever peer held the channel before; the next
           // app frame is that new peer's own `hello`, not a continuation of the old one's.
+          //
+          // Capture `reply`/`replyBinary` right here rather than waiting for the first
+          // `onMessage`/`onBinaryMessage` call: a file download's `Begin`/`Chunk`/`End` frames are
+          // sent daemon → client entirely unprompted (the client never sends binary first, unlike
+          // terminal input), so `relayReplyBinary` used to stay `null` until a binary frame
+          // happened to arrive from the client — which never happened for downloads, silently
+          // dropping every relay-routed file download with no error on either side.
+          relayReply = reply;
+          relayReplyBinary = replyBinary;
           if (relaySession) logger.info({ sessionId: relaySession.id }, "relay peer replaced");
           resetRelaySession();
         },
@@ -777,6 +809,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
     close: async () => {
       logger.info("daemon shutting down");
+      fileWatchService.close();
       relayHandle?.close();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

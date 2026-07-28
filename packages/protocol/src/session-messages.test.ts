@@ -15,6 +15,8 @@ import {
   agentForkResponseSchema,
   agentLastAssistantTextRequestSchema,
   agentLastAssistantTextResponseSchema,
+  agentListCommandsRequestSchema,
+  agentListCommandsResponseSchema,
   agentNewSessionRequestSchema,
   agentNewSessionResponseSchema,
   agentSessionStatsRequestSchema,
@@ -165,7 +167,9 @@ describe("AgentStreamEvent + ToolCallDetail discrimination", () => {
 
   it("accepts an optional output field on every tool-call kind", () => {
     for (const kind of ["shell", "read", "edit", "write", "search", "fetch", "task"]) {
-      expect(toolCallDetailSchema.safeParse({ kind, output: "some result text" }).success).toBe(true);
+      expect(toolCallDetailSchema.safeParse({ kind, output: "some result text" }).success).toBe(
+        true,
+      );
     }
   });
 });
@@ -455,10 +459,63 @@ describe("slash-command operations (sprint-037)", () => {
       agent_cycle_model_response: { payload: {} },
       agent_last_assistant_text_request: { agentId: "a1" },
       agent_last_assistant_text_response: { payload: { text: null } },
+      agent_list_commands_request: { agentId: "a1" },
+      agent_list_commands_response: { payload: { commands: [] } },
     };
     for (const [type, extra] of Object.entries(messages)) {
       const result = sessionMessageSchema.safeParse({ type, requestId: "r1", ...extra });
       expect(result.success, `${type} should parse`).toBe(true);
     }
+  });
+});
+
+describe("command discovery (sprint-040)", () => {
+  it("requires agentId on agent_list_commands_request", () => {
+    expect(
+      agentListCommandsRequestSchema.safeParse({
+        type: "agent_list_commands_request",
+        requestId: "r1",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentListCommandsRequestSchema.safeParse({
+        type: "agent_list_commands_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a populated commands array covering every field kind", () => {
+    const result = agentListCommandsResponseSchema.safeParse({
+      type: "agent_list_commands_response",
+      requestId: "r1",
+      payload: {
+        commands: [
+          {
+            name: "review",
+            id: "review",
+            description: "Run a code review extension command",
+            source: "extension",
+            scope: "project",
+            path: ".pi/agent/extensions/review.ts",
+          },
+          { name: "standup" },
+        ],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("tolerates unknown extra fields on command entries and the payload (passthrough)", () => {
+    const result = agentListCommandsResponseSchema.safeParse({
+      type: "agent_list_commands_response",
+      requestId: "r1",
+      payload: {
+        commands: [{ name: "ship", fromTheFuture: true }],
+        fromTheFutureToo: 1,
+      },
+    });
+    expect(result.success).toBe(true);
   });
 });

@@ -36,6 +36,7 @@ function makeSetup(): {
   });
   const ops = new SlashCommandOperationsService({
     manager,
+    resolveClient: () => client,
     broadcast: (_, m) => broadcasts.push(m),
   });
   return { manager, service, ops, broadcasts, saved };
@@ -373,5 +374,51 @@ describe("delegation to optional AgentSession methods", () => {
     );
     const result = (await ops.handleLastAssistantText({ agentId })) as Record<string, unknown>;
     expect(result).toEqual({ type: "agent_last_assistant_text_response", payload: { text: null } });
+  });
+
+  it("agent_list_commands_request delegates to session.listCommands() (sprint-040)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    const commands = [
+      { id: "review", name: "review", description: "Run a review", source: "extension" as const },
+      { id: "fix-tests", name: "fix-tests", source: "prompt" as const, scope: "project" as const },
+    ];
+    manager.attachSession(agentId, sessionStub({ listCommands: () => Promise.resolve(commands) }));
+    const result = (await ops.handleListCommands({ agentId })) as Record<string, unknown>;
+    expect(result).toEqual({ type: "agent_list_commands_response", payload: { commands } });
+  });
+
+  it("agent_list_commands_request throws a clear unsupported error when listCommands is absent (sprint-040)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(agentId, sessionStub());
+    await expect(ops.handleListCommands({ agentId })).rejects.toThrow(/does not support/);
+  });
+
+  it("agent_list_commands_request on a still-unspawned deferred draft lazily spawns and returns the mock's command list, instead of throwing 'has no live session' (web-client slash commands)", async () => {
+    const { service, ops, manager } = makeSetup();
+    // Deferred-draft creation: no `initialPrompt` means `handleCreate` persists the record but
+    // never spawns a provider process (`agent-service.ts` `handleCreate`'s deferred branch) —
+    // `managed.session` stays `null` exactly like a real "New chat" tab before anything is sent,
+    // which is exactly the flow the `/` picker's first open needs to work in.
+    const created = (await service.handleCreate(
+      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.session).toBeNull();
+
+    const result = (await ops.handleListCommands({ agentId })) as Record<string, unknown>;
+
+    const commands = (result.payload as Record<string, unknown>).commands as Array<{
+      name: string;
+    }>;
+    expect(commands.map((c) => c.name)).toEqual([
+      "session-name",
+      "fix-tests",
+      "skill:brave-search",
+    ]);
+    // The lazy spawn attaches a real session going forward, just like the first real send would.
+    expect(manager.get(agentId)?.session).not.toBeNull();
   });
 });

@@ -79,6 +79,9 @@ src/
 | `followUpAgentRequestSchema` / `FollowUpAgentRequest` | schema + type | `follow_up_agent_request` — queue a message delivered after the agent stops (Pi `follow_up`) |
 | `followUpAgentResponseSchema` / `FollowUpAgentResponse` | schema + type | Response `{ agentId, ok }` |
 | `agentSessionStatsResponseSchema` / `AgentSessionStatsResponse` | schema + type | `/session` response payload — tokens/cost/contextUsage, plus optional `model` (sprint-042: back-filled server-side from runtime info when the provider's own stats omit it, so a poll-driven client has a self-correcting model source) |
+| `agentCommandDescriptorSchema` / `AgentCommandDescriptor` | schema + type | Discoverable command entry (sprint-040): `name` (required) + optional `id`/`description`/`source` (`extension`\|`prompt`\|`skill`)/`scope` (`user`\|`project`\|`temporary`)/`path` |
+| `agentListCommandsRequestSchema` / `AgentListCommandsRequest` | schema + type | `agent_list_commands_request` — surfaces Pi's `get_commands` (extension commands, prompt templates, skills) for a live session; `{ agentId }` |
+| `agentListCommandsResponseSchema` / `AgentListCommandsResponse` | schema + type | Response `{ payload: { commands: AgentCommandDescriptor[] } }` |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |

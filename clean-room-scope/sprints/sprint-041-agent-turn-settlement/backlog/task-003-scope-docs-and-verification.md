@@ -23,6 +23,11 @@ the terminal turn event is derived from `agent_settled` (with disposition from t
   settlement, so auto-archive/idle happen once at settle, not on an interim retried run)
 - `packages/server/AGENTS.md` (§ Agent provider model — add that the Pi adapter maps `agent_end`
   (non-terminal, honouring `willRetry`) + `agent_settled` (terminal) → the turn-closer stream event)
+- `packages/server/docs/gateway-architecture.md` (§ Step-by-step item 7 `:263-265` asserts "When
+  `agent_end` (→ `turn_completed`) is seen, the `run()` promise resolves" — false after task-001;
+  also the `mapPiEvent` prose `:259-262` and the two mermaid mapper nodes `:311-322` / `:440-441`)
+- `packages/server/docs/rpc-communication.md` (Hop 3 mapping bullets `:223-224` — `agent_end` →
+  terminal by `stopReason`, plus the `null`-returning ignore list)
 - `clean-room-scope/sprints/sprint-040-agent-command-discovery/backlog/task-001-protocol-schemas.md`
   (the "deferred audit gaps" note — leave as-is; this sprint is the closure, no edit required)
 
@@ -35,7 +40,14 @@ the terminal turn event is derived from `agent_settled` (with disposition from t
    settlement, so status→idle and auto-archive fire once at settle, never on an interim retried run.
 3. `packages/server/AGENTS.md` — one line under the Pi provider notes: `agent_end` is per-run
    (honours `willRetry`), `agent_settled` is the terminal signal that drives the turn-closer event.
-4. Run the full gate.
+4. `packages/server/docs/gateway-architecture.md` — rewrite Step-by-step item 7 so the turn
+   completes at `agent_settled`, noting that an `agent_end` with `willRetry` (or with further runs to
+   come) is a per-run boundary and non-terminal; update the `mapPiEvent` prose and both mermaid
+   mapper node labels to the stateful `createPiEventMapper()`.
+5. `packages/server/docs/rpc-communication.md` — Hop 3: split the `agent_end` bullet into
+   `agent_end` (per-run; latches the disposition from `stopReason`; returns `null`) and
+   `agent_settled` (emits the latched terminal).
+6. Run the full gate.
 
 ## Out of scope
 - Any code change (tasks 001–002). SDK/CLI/UI surfaces (unaffected — same terminal kinds).
@@ -44,6 +56,8 @@ the terminal turn event is derived from `agent_settled` (with disposition from t
 - [ ] `agent-sessions.md` and `agent-lifecycle.md` describe settlement-driven terminal semantics
       truthfully; no aspirational or code-level detail added.
 - [ ] `packages/server/AGENTS.md` Pi-provider note updated.
+- [ ] `packages/server/docs/gateway-architecture.md` and `packages/server/docs/rpc-communication.md`
+      no longer state that the turn's terminal event comes from `agent_end`.
 - [ ] `npm run build`, `npm run typecheck`, and `npm test` (or at minimum
       `npx vitest run packages/server packages/protocol`) pass.
 

@@ -43,7 +43,16 @@ A tab = `{ tabId, target, createdAt }`. The UI works with a descriptor `{ key, t
 | `terminal` | `{ terminalId }` | terminal | `terminal_${terminalId}` | "Terminal" |
 | `browser` | `{ browserId }` | browser | `browser_${browserId}` | "Browser" |
 | `file` | `{ path, lineStart?, lineEnd? }` | file preview | `file_${path}` | filename(path) |
+| `molecule` | `{ path: string \| null }` | molecule viewer | `molecule_${path}` (file-backed) or a counter-based id (empty tab) | "Molecule" or "Molecule N" |
 | `setup` | `{ workspaceId }` | setup | `setup_${workspaceId}` | "Setup" |
+- **Molecule tab** (`path: string | null`) — Two paths to opening: (1) automatic when a user opens a
+  supported molecular structure file from the file explorer (instead of the normal file-preview tab),
+  or (2) via the trailing "+" menu's **"New molecule view"** item, which opens an empty tab with no
+  file yet loaded. An empty tab shows molviewer's own built-in drag-and-drop empty state ("Open a
+  structure", format list, drag area, file-open button) — zero custom UI required. The deterministic
+  tabId for a file-backed tab is `molecule_${path}`, allowing re-opening the same file to focus the
+  existing tab; empty tabs are numbered off a module-local counter (each "New molecule view" gets a
+  unique id like `molecule_1`, `molecule_2`).
 
 - **Deterministic ids** mean re-opening the same target re-focuses the existing tab instead of duplicating.
 - A `draft` tab **mutates in place into an `agent` tab** once the agent is created (they share one panel
@@ -57,6 +66,23 @@ A tab = `{ tabId, target, createdAt }`. The UI works with a descriptor `{ key, t
   closeCurrentTab, retargetCurrentTab, openFileInWorkspace, openImportSheet`) and a **pane focus context**
   (`isWorkspaceFocused, isPaneFocused, isInteractive = both, focusPane`).
 
+
+### Molecule viewer behavior
+- **Formats:** pdb, cif, mmcif, mol, mol2, xyz, extxyz, gro, lammpstrj, xsf (10 extension-based formats),
+  and two extension-less VASP structure files matched by exact basename: POSCAR, CONTCAR.
+- **Panel:** unlike `file` and `diff` tabs which share one panel with a view-mode toggle, a molecule tab
+  has its own dedicated panel — no File/Diff toggle. A molecular file's git diff (if needed) is still
+  available through the separate git Changes panel, not through the molecule tab.
+- **3D rendering:** shows an interactive 3D structure with camera controls (rotate/pan/zoom), atom/bond
+  visualization, selection, and measurement tools — all provided by molviewer's own UI, not custom code.
+- **Live reload:** when the backing file changes on disk (detected via the daemon's filesystem watcher,
+  e.g. from an external editor, terminal command, or agent tool run), the viewer reloads the new
+  structure. If the user has made unsaved edits in the viewer itself (geometry modifications via the
+  viewer's own edit mode), reload is gated: instead of overwriting, a small **"File changed on disk"**
+  indicator appears. Once the user resolves the conflict (by discarding their edits or undoing them),
+  the catch-up happens automatically. **Camera angle and selection state are preserved** across reloads.
+- **Content fetch:** file bytes are streamed uncapped (not subject to the inline text-read byte limit),
+  allowing molecular trajectory files and other large structures to load without truncation.
 ## Behavior & Algorithms
 
 ### Top-level layout (center column, top→bottom)
@@ -132,9 +158,9 @@ active tab is always first. Applied per pane (web) and for the focused pane (mob
 - Each chip: icon (+ status dot), label, close button (always when policy = all), wrapped in a context menu
   + tooltip; active tab shows the accent indicator. Reorder via a sortable inline list with a drag handle
   (the split container's shared drag context owns cross-pane drags).
-- Trailing actions cluster: New agent tab, New terminal tab (disabled while creating), New browser tab
-  (Electron only), and — when splits are supported — Split right / Split down. Keyboard chords shown in
-  tooltips.
+- Trailing actions cluster: New agent tab, New terminal tab (disabled while creating), New molecule view,
+  New browser tab (Electron only), and — when splits are supported — Split right / Split down. Keyboard
+  chords shown in tooltips.
 
 ### Mobile (compact) tab UI
 No tab strip. A single switcher trigger shows the active tab's icon + label + chevron; tapping opens a list

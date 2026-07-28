@@ -1,7 +1,7 @@
 # Task 004 — Mock support, end-to-end verification, docs sync
 
 - **Sprint:** sprint-040-agent-command-discovery
-- **Status:** backlog
+- **Status:** in_progress
 - **Estimated size:** S
 - **Depends on:** task-002, task-003
 

@@ -1,18 +1,25 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { createClientChannel, decodeBase64 } from "@av-pi-studio/relay";
-import { decodeTerminalFrame, encodeTerminalFrame } from "@av-pi-studio/protocol";
+import {
+  decodeFileTransferFrame,
+  decodeTerminalFrame,
+  encodeTerminalFrame,
+} from "@av-pi-studio/protocol";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
+import { WorkspaceGitService } from "../projects/workspace-git-service.js";
+import { FileWatchService } from "../files/file-watch-service.js";
+import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -39,7 +46,9 @@ async function connect(port: number): Promise<Client> {
 
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => {
-      ws.send(JSON.stringify({ type: "hello", clientId: "test", clientType: "cli", protocolVersion: 1 }));
+      ws.send(
+        JSON.stringify({ type: "hello", clientId: "test", clientType: "cli", protocolVersion: 1 }),
+      );
     });
     ws.on("message", (data: Buffer) => {
       const env = JSON.parse(data.toString("utf8"));
@@ -126,6 +135,7 @@ describe("production daemon bootstrap", () => {
       { type: "agent_set_model_request", agentId: "missing", provider: "anthropic", modelId: "m1" },
       { type: "agent_cycle_model_request", agentId: "missing" },
       { type: "agent_last_assistant_text_request", agentId: "missing" },
+      { type: "agent_list_commands_request", agentId: "missing" },
     ];
     for (const probe of slashCommandProbes) {
       const res = await client.rpc(probe);
@@ -179,7 +189,10 @@ describe("production daemon bootstrap", () => {
     const client = await connect(booted.port);
 
     const cwd = booted.home;
-    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
     const agentId = (created.payload as { agentId?: string })?.agentId as string;
     expect(agentId).toBeTruthy();
 
@@ -223,7 +236,10 @@ describe("production daemon bootstrap", () => {
     const client = await connect(booted.port);
 
     const cwd = booted.home;
-    const created = await client.rpc({ type: "create_agent_request", config: { provider: "mock", cwd } });
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
     const agentId = (created.payload as { agentId?: string })?.agentId as string;
     expect(agentId).toBeTruthy();
 
@@ -283,7 +299,14 @@ describe("broadcast() session envelope", () => {
 
     const opened = Promise.withResolvers<void>();
     ws.once("open", () => {
-      ws.send(JSON.stringify({ type: "hello", clientId: "test-2", clientType: "cli", protocolVersion: 1 }));
+      ws.send(
+        JSON.stringify({
+          type: "hello",
+          clientId: "test-2",
+          clientType: "cli",
+          protocolVersion: 1,
+        }),
+      );
     });
     ws.on("message", (data: Buffer) => {
       const env = JSON.parse(data.toString("utf8"));
@@ -333,6 +356,212 @@ describe("broadcast() session envelope", () => {
     expect(bareFrame).toBeUndefined();
 
     ws.close();
+  }, 15000);
+});
+
+describe("session-close subscription cleanup", () => {
+  it("closing a socket without unsubscribing releases the WorkspaceGitService listener it opened", async () => {
+    // Spy on the real WorkspaceGitService.subscribe to observe whether ITS returned unsubscribe
+    // is ever called — the actual regression this fixes. Wrapping (not replacing) the real
+    // implementation keeps checkout_status_subscribe's real behavior intact.
+    const original = WorkspaceGitService.prototype.subscribe;
+    let capturedUnsub: (() => void) | null = null;
+    let unsubCalled = false;
+    const spy = vi
+      .spyOn(WorkspaceGitService.prototype, "subscribe")
+      .mockImplementation(function (this: WorkspaceGitService, cwd, listener) {
+        const unsub = original.call(this, cwd, listener);
+        capturedUnsub = () => {
+          unsubCalled = true;
+          unsub();
+        };
+        return capturedUnsub;
+      });
+
+    try {
+      const booted = boot();
+      handle = booted.handle;
+      const client = await connect(booted.port);
+
+      const response = await client.rpc({ type: "checkout_status_subscribe", cwd: booted.home });
+      expect(response.ok).toBe(true);
+      expect(capturedUnsub).not.toBeNull();
+      expect(unsubCalled).toBe(false);
+
+      // Drop the connection WITHOUT sending checkout_status_unsubscribe — the leak this task
+      // fixes only shows up on an ungraceful/unsubscribed disconnect.
+      client.close();
+      await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
+    } finally {
+      spy.mockRestore();
+    }
+  }, 15000);
+});
+
+describe("file_watch RPC", () => {
+  it("subscribing to a file and writing to it pushes a matching file_changed message", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "watched.txt");
+    writeFileSync(file, "v1");
+
+    const pushes: Record<string, unknown>[] = [];
+    client.ws.on("message", (data: Buffer) => {
+      const env = JSON.parse(data.toString("utf8"));
+      if (env.type === "session" && env.message?.type === "file_changed") pushes.push(env.message);
+    });
+
+    const response = await client.rpc({ type: "file_watch_subscribe", path: file });
+    expect(response.ok).toBe(true);
+    expect(response.path).toBe(file);
+
+    writeFileSync(file, "v2");
+    await vi.waitFor(() => expect(pushes.some((p) => p.path === file)).toBe(true), {
+      timeout: 2000,
+    });
+  }, 15000);
+
+  it("replies too_many_watches over the per-session cap instead of opening unbounded watches", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    // Subscribing to the same already-existing directory repeatedly replaces in place
+    // (SessionSubscriptions.add's contract) and must never count against the cap — so exceed it
+    // with distinct nonexistent file targets under the same watched directory instead, each of
+    // which still allocates its own SessionSubscriptions entry.
+    let lastResponse: Record<string, unknown> = {};
+    for (let i = 0; i < 129; i++) {
+      lastResponse = await client.rpc({
+        type: "file_watch_subscribe",
+        path: join(booted.home, `nonexistent-${i}.txt`),
+      });
+    }
+    expect(lastResponse.ok).toBe(false);
+    expect(lastResponse.error).toBe("too_many_watches");
+  }, 15000);
+});
+
+describe("file_read RPC", () => {
+  it("reads a file under the inline cap and returns its content and size", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "small.txt");
+    writeFileSync(file, "hello world");
+
+    const response = await client.rpc({ type: "file_read_request", path: file });
+    expect(response.ok).toBe(true);
+    expect(response.content).toBe("hello world");
+    expect(response.size).toBe(11);
+  }, 15000);
+
+  it("rejects a file over the inline cap with file_too_large, size, and maxBytes", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "big.txt");
+    writeFileSync(file, "x".repeat(MAX_INLINE_FILE_READ_BYTES + 1));
+
+    const response = await client.rpc({ type: "file_read_request", path: file });
+    expect(response.ok).toBe(false);
+    expect(response.error).toBe("file_too_large");
+    expect(response.size).toBe(MAX_INLINE_FILE_READ_BYTES + 1);
+    expect(response.maxBytes).toBe(MAX_INLINE_FILE_READ_BYTES);
+  }, 15000);
+
+  it("rejects a directory path with is_directory", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const response = await client.rpc({ type: "file_read_request", path: booted.home });
+    expect(response.ok).toBe(false);
+    expect(response.error).toBe("is_directory");
+  }, 15000);
+
+  it("resolves a ~-prefixed path against the real home directory", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const marker = `pi-studio-file-read-tilde-${Math.random().toString(36).slice(2)}.txt`;
+    const absolute = join(homedir(), marker);
+    writeFileSync(absolute, "tilde-resolved");
+    try {
+      const response = await client.rpc({ type: "file_read_request", path: `~/${marker}` });
+      expect(response.ok).toBe(true);
+      expect(response.content).toBe("tilde-resolved");
+    } finally {
+      rmSync(absolute, { force: true });
+    }
+  }, 15000);
+
+  it("does not block a concurrent cheap RPC on the same connection while reading a multi-MB file", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "large.txt");
+    // Just under the inline cap — large enough that a synchronous readFileSync's decode would be
+    // observable, without inflating the test's own runtime.
+    writeFileSync(file, "y".repeat(4 * 1024 * 1024));
+
+    const largeReadStarted = performance.now();
+    const largeRead = client.rpc({ type: "file_read_request", path: file });
+    const cheapRead = client
+      .rpc({ type: "file_read_request", path: join(booted.home, "..") })
+      .catch(() => ({}));
+    // A cheap request issued right after the large one must not be forced to wait for the large
+    // read to finish — it should settle (successfully or not; only its *timing* is asserted here)
+    // within a small bound rather than being serialized behind the large read on a blocked event
+    // loop. Race a short timer against it as the bound.
+    const raceResult = await Promise.race([
+      cheapRead.then(() => "cheap"),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 300)),
+    ]);
+    expect(raceResult).toBe("cheap");
+    await largeRead;
+    void largeReadStarted;
+  }, 15000);
+});
+
+describe("file_watch session-close cleanup", () => {
+  it("closing a socket without unsubscribing releases the FileWatchService subscription it opened", async () => {
+    // Same shape as the checkout_status regression above, but for file_watch — spies on the real
+    // FileWatchService.subscribe to observe whether ITS returned unsubscribe is ever called.
+    const original = FileWatchService.prototype.subscribe;
+    let capturedUnsub: (() => void) | null = null;
+    let unsubCalled = false;
+    const spy = vi
+      .spyOn(FileWatchService.prototype, "subscribe")
+      .mockImplementation(function (this: FileWatchService, path, listener) {
+        const unsub = original.call(this, path, listener);
+        capturedUnsub = () => {
+          unsubCalled = true;
+          unsub();
+        };
+        return capturedUnsub;
+      });
+
+    try {
+      const booted = boot();
+      handle = booted.handle;
+      const client = await connect(booted.port);
+      const file = join(booted.home, "watched.txt");
+      writeFileSync(file, "v1");
+
+      const response = await client.rpc({ type: "file_watch_subscribe", path: file });
+      expect(response.ok).toBe(true);
+      expect(capturedUnsub).not.toBeNull();
+      expect(unsubCalled).toBe(false);
+
+      // Drop the connection WITHOUT sending file_watch_unsubscribe — the leak this pairs with
+      // task-005 to fix only shows up on an ungraceful/unsubscribed disconnect.
+      client.close();
+      await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
+    } finally {
+      spy.mockRestore();
+    }
   }, 15000);
 });
 
@@ -429,9 +658,8 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
     // The daemon writes its persistent keypair to disk on first boot, before it dials the relay.
-    const daemonPublicKeyB64 = JSON.parse(
-      readFileSync(join(home, "daemon-keypair.json"), "utf8"),
-    ).publicKeyB64 as string;
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
 
     const sessionId = await waitForSessionId(relay);
     const clientSocket = await relay.connectClient(sessionId);
@@ -472,7 +700,14 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     // end-to-end through an actual relay bridge — not a mock of the crypto.
     await ready.promise;
 
-    channel.send(JSON.stringify({ type: "hello", clientId: "relay-e2e-test", clientType: "cli", protocolVersion: 1 }));
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
     const info = await serverInfo.promise;
     // This is the real regression this test guards: over the relay, `hello` must reach the SAME
     // handshake path the direct WS listener runs (validate → session → `status`/`server_info`),
@@ -520,9 +755,8 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
-    const daemonPublicKeyB64 = JSON.parse(
-      readFileSync(join(home, "daemon-keypair.json"), "utf8"),
-    ).publicKeyB64 as string;
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
 
     const sessionId = await waitForSessionId(relay);
     const clientSocket = await relay.connectClient(sessionId);
@@ -574,13 +808,24 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     });
     await ready.promise;
 
-    channel.send(JSON.stringify({ type: "hello", clientId: "relay-bin-e2e-test", clientType: "cli", protocolVersion: 1 }));
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-bin-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
 
     const createResponsePromise = waitForResponse("relay-bin-create");
     channel.send(
       JSON.stringify({
         type: "session",
-        message: { type: "create_terminal_request", requestId: "relay-bin-create", workspaceId: "" },
+        message: {
+          type: "create_terminal_request",
+          requestId: "relay-bin-create",
+          workspaceId: "",
+        },
       }),
     );
     const createResponse = await createResponsePromise;
@@ -611,6 +856,135 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const output = await outputFrame.promise;
     const decodedOutput = decodeTerminalFrame(output);
     expect(decodedOutput.opcode).toBe("Output");
+
+    channel.close();
+    clientSocket.close();
+    await handle?.close();
+    handle = undefined;
+    await relay.close();
+  }, 15000);
+
+  it("file download round-trips Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client first", async () => {
+    // Regression: `relayReplyBinary` used to stay `null` until the daemon RECEIVED a binary
+    // frame from the client (only `onBinaryMessage` populated it). Terminal I/O always sends a
+    // binary `Input` frame from the client before expecting `Output` back, so it masked this gap;
+    // a file download is entirely unprompted the other way — the client only ever sends TEXT
+    // (`file_download_token_request`/`file_download_request`) and expects BINARY `Begin`/`Chunk`/
+    // `End` frames back — so `sendBinary()` silently no-op'd on every relay-routed download.
+    const relay = await startFakeRelay();
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-relay-download-e2e-"));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        daemon: { relay: { enabled: true, endpoint: `127.0.0.1:${relay.port}`, useTls: false } },
+      }),
+    );
+    const downloadPath = join(home, "download-me.txt");
+    writeFileSync(downloadPath, "relay download regression fixture");
+
+    const port = 6800 + Math.floor(Math.random() * 200);
+    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
+
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+      .publicKeyB64 as string;
+
+    const sessionId = await waitForSessionId(relay);
+    const clientSocket = await relay.connectClient(sessionId);
+
+    const clientMessageHandlers: Array<(data: string) => void> = [];
+    clientSocket.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary) for (const h of clientMessageHandlers) h(data.toString("utf8"));
+    });
+
+    const ready = Promise.withResolvers<void>();
+    const pendingByRequestId = new Map<string, (msg: Record<string, unknown>) => void>();
+    function waitForResponse(requestId: string): Promise<Record<string, unknown>> {
+      return new Promise((resolve) => pendingByRequestId.set(requestId, resolve));
+    }
+    const receivedFrames: Uint8Array[] = [];
+    const endFrame = Promise.withResolvers<void>();
+
+    const channel = createClientChannel({
+      transport: {
+        send: (data) => clientSocket.send(data),
+        onMessage: (h) => clientMessageHandlers.push(h),
+        onClose: () => {},
+        close: () => clientSocket.close(),
+      },
+      attachment: { sessionId },
+      daemonPublicKey: decodeBase64(daemonPublicKeyB64),
+      events: {
+        onReady: () => ready.resolve(),
+        onMessage: (plaintext) => {
+          const envelope = JSON.parse(plaintext) as Record<string, unknown>;
+          if (envelope.type !== "session") return;
+          const msg = envelope.message as Record<string, unknown>;
+          const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+          const resolve = requestId ? pendingByRequestId.get(requestId) : undefined;
+          if (resolve) {
+            pendingByRequestId.delete(requestId!);
+            resolve(msg);
+          }
+        },
+        // No binary frame is ever sent BY the client in this test — that's the whole point.
+        onBinaryMessage: (bytes) => {
+          receivedFrames.push(bytes);
+          const decoded = decodeFileTransferFrame(bytes);
+          if (decoded.opcode === "End") endFrame.resolve();
+        },
+        onAuthError: (err) => ready.reject(err instanceof Error ? err : new Error(String(err))),
+      },
+    });
+    await ready.promise;
+
+    channel.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "relay-download-e2e-test",
+        clientType: "cli",
+        protocolVersion: 1,
+      }),
+    );
+
+    const tokenResponsePromise = waitForResponse("relay-dl-token");
+    channel.send(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_token_request",
+          requestId: "relay-dl-token",
+          path: downloadPath,
+        },
+      }),
+    );
+    const tokenResponse = await tokenResponsePromise;
+    expect(tokenResponse.ok).toBe(true);
+
+    const downloadResponsePromise = waitForResponse("relay-dl-download");
+    channel.send(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_request",
+          requestId: "relay-dl-download",
+          token: tokenResponse.token,
+          stream: 1,
+        },
+      }),
+    );
+    const downloadResponse = await downloadResponsePromise;
+    expect(downloadResponse.ok).toBe(true);
+
+    // Proves the daemon's unprompted BINARY `Begin`/`Chunk`/`End` reply actually reached the
+    // client over the relay — the exact frames `relayReplyBinary` used to drop on the floor.
+    await endFrame.promise;
+    const decodedFrames = receivedFrames.map((f) => decodeFileTransferFrame(f));
+    expect(decodedFrames[0]).toMatchObject({ opcode: "Begin" });
+    const chunk = decodedFrames.find((f) => f.opcode === "Chunk");
+    expect(chunk && "data" in chunk ? Buffer.from(chunk.data).toString("utf8") : null).toBe(
+      "relay download regression fixture",
+    );
+    expect(decodedFrames.at(-1)).toMatchObject({ opcode: "End", ok: true });
 
     channel.close();
     clientSocket.close();

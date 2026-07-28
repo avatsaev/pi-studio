@@ -47,10 +47,24 @@ export interface AgentModeDefinition {
   description?: string;
 }
 
+/**
+ * Provider-neutral shape for a discoverable session command (sprint-040: command discovery, e.g.
+ * Pi `get_commands`). `id`/`label`/`description` predate discovery and stay put for backward
+ * compatibility; `name`/`source`/`scope`/`path` carry the metadata `get_commands` actually returns
+ * (append-only — no existing field narrowed or removed).
+ */
 export interface AgentCommandDefinition {
   id: string;
   label?: string;
   description?: string;
+  /** Invoke token without the leading `/` (e.g. `"review"` for `/review`). */
+  name: string;
+  /** Origin kind: an extension-registered command, a prompt template, or a skill. */
+  source?: "extension" | "prompt" | "skill";
+  /** Where the command/template/skill is defined. */
+  scope?: "user" | "project" | "temporary";
+  /** Filesystem path to the defining file, when known. */
+  path?: string;
 }
 
 /** Result shapes for the slash-command operations (sprint-037), mirroring Pi RPC response data. */

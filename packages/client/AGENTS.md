@@ -216,6 +216,7 @@ method on this facade.
 | `setModel(provider, modelId)` | `agent_set_model_request` (`/model` set) |
 | `cycleModel()` | `agent_cycle_model_request` (`/model` cycle) |
 | `lastAssistantText()` | `agent_last_assistant_text_request` (`/copy`) |
+| `listCommands()` | `agent_list_commands_request` (sprint-040 — command discovery: extension commands, prompt templates, skills from Pi's `get_commands`; disjoint from the sprint-037 slash commands above, no Pi built-in equivalent) |
 
 ### `PiStudioProviderActions` (from `providers`)
 

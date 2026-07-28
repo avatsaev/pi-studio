@@ -22,10 +22,12 @@ end-to-end regression proving the daemon now stays subscribed across a retry/con
 exactly once.
 
 ## Scope references
-- `packages/server/src/agent/providers/pi/pi-adapter.test.ts` (`FakeTransport.notify` prompt/abort
-  arms; the createSession stream test `:255-261`; the interrupt test `:296-303`)
-- `packages/server/src/agent/agent-service.ts` (`runTurn` `:182-292` — subscription lifetime,
-  status flip, `autoArchive` hook; the terminal-detection at `:270-291`)
+- `packages/server/src/agent/providers/pi/pi-adapter.test.ts` (`FakeTransport.notify` `:93-120` —
+  the `prompt` arm's closing `agent_end` at `:115`, the `abort` arm's bare `agent_end` at `:117`;
+  the createSession stream test's expected-kinds array `:330-339`; the interrupt test `:400-407`)
+- `packages/server/src/agent/agent-service.ts` (`runTurn` `:243-353` — subscription lifetime, status
+  flip, `autoArchive` hook; `unsubscribe()` `:328`, `newStatus` `:333-334`, terminal-gated
+  `archiveAgent` `:343-352`)
 - `packages/server/src/agent/providers/mock/mock-provider.ts` (already emits a single terminal per
   turn — reference the scripted-turn shape for a fake session that emits an interim non-terminal
   `agent_end` then more rows then `agent_settled`)
