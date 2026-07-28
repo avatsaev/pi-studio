@@ -4,6 +4,17 @@
  * ~line 1070-1092, POC_TO_APP_PLAN_UI.md §4.3/§4.5/§5). Debounced ~500ms to coalesce a burst of
  * tool completions (POC used `setTimeout(...,600)`/`400`).
  *
+ * As of task-006/008, the daemon ALSO pushes `file_changed` directly for any expanded directory
+ * (`use-explorer-watch.ts`, a real `fs.watch`-backed daemon push) — covering non-agent filesystem
+ * changes (an external editor, a shell command run outside the tool-call path, `git` in a
+ * pi-studio terminal) that this debounced post-tool invalidation cannot see at all, since it only
+ * fires from the timeline reducer's own `tool_call` completions. This module remains as the
+ * belt-and-braces path for two things directory watching does NOT cover: it also invalidates
+ * `["file"]` *content* queries (an open text tab's read cache), and it covers a tool completion
+ * even when the affected directory happens not to be expanded in the tree right now. The daemon's
+ * 150ms coalescing (task-006) sits well under this module's 500ms debounce, so the two paths
+ * cannot thrash each other.
+ *
  * The daemon does NOT push a `checkout_status_update` automatically after a git-affecting tool
  * completion, so this module also fires an explicit `checkout_refresh_request` for the active
  * cwd — `ChangesPanel`/`FileExplorer` then pick up the resulting push/refetch reactively, since
