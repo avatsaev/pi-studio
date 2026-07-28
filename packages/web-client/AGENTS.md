@@ -140,8 +140,8 @@ src/
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files), MoleculeViewerPanel
                             (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
-                            molecule-reload.ts (pure reload-gate logic), text-viewer-state.ts
-                            (pure state selection), + tests
+                            molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
+                            chrome color override), text-viewer-state.ts (pure state selection), + tests
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
                             "Status bar" for why it no longer owns its own checkout-status
                             subscription)
@@ -265,8 +265,18 @@ entered at runtime, never baked into the image.
   in-viewer edits via `shouldApplyRefresh` in `molecule-reload.ts`). The `vite.config.ts`
   `manualChunks` rule isolates `@molviewer/core` + `molstar` into a `vendor-molviewer` chunk
   (~3.25 MB JS + CSS) absent from the initial page load — fetched only when a molecule tab first
-  renders (lazy import via `panel-registry.ts`). `@molviewer/core` is declared in this package's
-  own `package.json` (not root).
+  renders (lazy import via `panel-registry.ts`). `theme={MOLVIEWER_THEME}` (`molecule-theme.ts`)
+  remaps molviewer's base panel background (`--canvas`/`--well`/`--recess`/`--chrome`), its
+  button/control surfaces (`--control`/`--control-hover`/`--control-strong-hover`,
+  `--border-control`/`--border-input`), its dropdown/menu surfaces
+  (`--popover`/`--popover-item-hover`/`--row-hover`/`--border-popover`), and primary text
+  (`--text-primary`/`--text-on-control`) CSS vars to `var(--pi-color-*)` references so its chrome
+  blends into pi-studio's shell and tracks live theme/appearance changes via ordinary CSS
+  cascade — deliberately narrow scope, mapping only onto pi-studio tokens that already have a
+  direct equivalent and leaving molviewer's own accent/selection/danger/success/warning colors
+  and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
+  scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
+  here. `@molviewer/core` is declared in this package's own `package.json` (not root).
 - **Live file watching (`use-file-watch`/`use-explorer-watch`).** Both subscribe to the daemon's
   `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family (`packages/server/AGENTS.md`
   § File watching). `useFileWatch(path)` (used by `MoleculeViewer` above) returns

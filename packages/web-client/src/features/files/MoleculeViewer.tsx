@@ -25,6 +25,7 @@ import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import { useFileWatch } from "@pi-studio-ui/hooks/use-file-watch.js";
 import { moleculeSource } from "./molecule-source.js";
 import { shouldApplyRefresh } from "./molecule-reload.js";
+import { MOLVIEWER_THEME } from "./molecule-theme.js";
 import styles from "./MoleculeViewer.module.css";
 
 export interface MoleculeViewerProps {
@@ -72,7 +73,8 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
   // A push arrived but couldn't be applied because of unsaved edits — surface that rather than
   // silently diverging. Reading the ref during render is safe here: it only ever changes inside
   // the effect above, which always runs before the next paint that could observe a stale value.
-  const hasUnappliedChange = changedAt !== null && changedAt !== lastAppliedAtRef.current && modified;
+  const hasUnappliedChange =
+    changedAt !== null && changedAt !== lastAppliedAtRef.current && modified;
 
   const downloadErrorMessage = download.isError
     ? download.error instanceof Error
@@ -101,15 +103,12 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
   return (
     <div className={styles.wrap} data-molecule-active={isActive ? "true" : "false"}>
       {hasUnappliedChange && (
-        <StatusBadge
-          label="File changed on disk"
-          variant="muted"
-          className={styles.staleBadge}
-        />
+        <StatusBadge label="File changed on disk" variant="muted" className={styles.staleBadge} />
       )}
       <MolViewer
         ref={handleRef}
         className={styles.molViewer}
+        theme={MOLVIEWER_THEME}
         source={source}
         sourceMode={hasLoadedRef.current ? "update" : "replace"}
         onLoad={() => {
