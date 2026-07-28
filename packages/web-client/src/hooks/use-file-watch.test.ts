@@ -5,7 +5,7 @@ import { watchFile } from "./use-file-watch.js";
 /** Mirrors the `fakeClient({...})` factory pattern in `stores/materialize.test.ts` (the repo's
  *  existing fake-client convention), scoped to the one surface `watchFile` touches:
  *  `client.connection.request` + `client.connection.onSessionMessage`. */
-function fakeClient(): {
+function fakeClient(subscribeResponse: Record<string, unknown> = { ok: true }): {
   client: Pick<PiStudioClient, "connection">;
   requests: Record<string, unknown>[];
   emit: (msg: unknown) => void;
@@ -16,7 +16,7 @@ function fakeClient(): {
     connection: {
       request: (type: string, payload: Record<string, unknown>) => {
         requests.push({ type, ...payload });
-        return Promise.resolve({ ok: true });
+        return Promise.resolve(type === "file_watch_subscribe" ? subscribeResponse : { ok: true });
       },
       onSessionMessage: (handler: (msg: unknown) => void) => {
         handlers.add(handler);
@@ -92,5 +92,52 @@ describe("watchFile", () => {
     cleanup();
     cleanup();
     expect(requests.filter((r) => r.type === "file_watch_unsubscribe")).toHaveLength(1);
+  });
+
+  it("two watchFile calls for the same path share exactly one daemon subscription", () => {
+    const { client, requests, emit } = fakeClient();
+    const onChangedA = vi.fn();
+    const onChangedB = vi.fn();
+    const cleanupA = watchFile(client, "/repo/a.ts", onChangedA);
+    watchFile(client, "/repo/a.ts", onChangedB);
+
+    expect(requests.filter((r) => r.type === "file_watch_subscribe")).toHaveLength(1);
+
+    cleanupA();
+    expect(requests.filter((r) => r.type === "file_watch_unsubscribe")).toHaveLength(0);
+
+    emit({ type: "file_changed", path: "/repo/a.ts" });
+    expect(onChangedA).not.toHaveBeenCalled();
+    expect(onChangedB).toHaveBeenCalledTimes(1);
+  });
+
+  it("the second subscriber's cleanup sends exactly one file_watch_unsubscribe", () => {
+    const { client, requests } = fakeClient();
+    const cleanupA = watchFile(client, "/repo/a.ts", vi.fn());
+    const cleanupB = watchFile(client, "/repo/a.ts", vi.fn());
+
+    cleanupA();
+    cleanupB();
+    expect(requests.filter((r) => r.type === "file_watch_unsubscribe")).toHaveLength(1);
+  });
+
+  it("matches a push against the resolved path echoed by the subscribe response", async () => {
+    const { client, emit } = fakeClient({ ok: true, path: "/home/u/p/a.ts" });
+    const onChanged = vi.fn();
+    watchFile(client, "~/p/a.ts", onChanged);
+
+    await Promise.resolve(); // flushes the pending microtask that reads the subscribe response
+
+    emit({ type: "file_changed", path: "/home/u/p/a.ts" });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed subscribe (too_many_watches) does not throw and leaves cleanup callable", async () => {
+    const { client } = fakeClient({ ok: false, error: "too_many_watches" });
+    const cleanup = watchFile(client, "/repo/a.ts", vi.fn());
+
+    await Promise.resolve(); // flushes the pending microtask that reads the subscribe response
+
+    expect(() => cleanup()).not.toThrow();
   });
 });

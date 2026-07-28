@@ -104,10 +104,15 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
                            FileTransferClient via file-transfer-instance), use-checkout-status,
-                           use-file-watch (live `file_changed` subscription for molecule viewer's
-                           reload gate), use-explorer-watch (live file-tree subscription, one per
-                           expanded directory), use-file-text (tier-2 streamed-text fallback for
-                           TextViewer, files over the inline read cap),
+                           use-file-watch (ref-counted, resolved-path-aware `file_changed`
+                           subscription shared by the molecule viewer's reload gate and
+                           use-file-live-refresh below), use-explorer-watch (live file-tree
+                           subscription, one per expanded directory), use-file-live-refresh
+                           (drives live refetch for text/markdown/image FilePanel tabs —
+                           sprint-044, see AGENTS.md § Invariants "Live file watching"),
+                           use-file-text (tier-2 streamed-text fallback for TextViewer, files
+                           over the inline read cap, decode query keyed on the download's
+                           object URL so it follows a live refetch automatically),
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
                            query), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
@@ -281,26 +286,46 @@ entered at runtime, never baked into the image.
   and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
   scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
   here. `@molviewer/core` is declared in this package's own `package.json` (not root).
-- **Live file watching (`use-file-watch`/`use-explorer-watch`).** Both subscribe to the daemon's
-  `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family (`packages/server/AGENTS.md`
-  § File watching). `useFileWatch(path)` (used by `MoleculeViewer` above) returns
-  `{ changedAt: number | null }`, bumped on each matching push. `useExplorerWatch(expanded:
-  Set<string>)` backs the live file tree: it diffs the `expanded` directory set across renders
-  (subscribes newly-expanded paths, unsubscribes collapsed ones, never tears down and
-  re-subscribes the whole set on an unchanged `Set` identity) through one shared
-  `onSessionMessage` handler for the hook's whole lifetime, and invalidates exactly the changed
-  directory's `rpcKeys.explorer(path)` query — never the whole `["explorer"]` family. A
-  `too_many_watches` reply (the server's 128-per-session cap) is a soft failure: logs once via
-  `console.warn`, leaves that directory unwatched, and falls back to the pre-existing
-  `invalidateAfterToolCompletion` 500 ms post-tool debounce (`files-changed.ts`) for that
-  directory. Both hooks' subscribe/diff/route/dispose core is a framework-free factory
-  (`watchFile`, `createExplorerWatcher`) for the same jsdom-less reason below.
+- **Live file watching (`use-file-watch`/`use-explorer-watch`/`use-file-live-refresh`).** All three
+  subscribe to the daemon's `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family
+  (`packages/server/AGENTS.md` § File watching). `watchFile` (the framework-free core behind
+  `useFileWatch`) ref-counts subscriptions per `(client, path)` in a module-level `WeakMap`
+  registry (mirrors `file-transfer-instance.ts`'s shared-instance convention): a file tab and a
+  diff tab open on the same path share ONE daemon watch and one `onSessionMessage` handler,
+  instead of the second `file_watch_unsubscribe` killing it for both — the daemon's
+  `SessionSubscriptions.add` disposes any existing entry for the same resolved-path key. It also
+  remembers the RESOLVED path echoed back by `file_watch_subscribe_response.path` (the daemon
+  expands a leading `~` server-side before pushing `file_changed`) and matches a push against
+  either spelling. `useFileWatch(path)` (used by `MoleculeViewer` above, and by
+  `useFileLiveRefresh` below) returns `{ changedAt: number | null }`, bumped on each matching
+  push. `useExplorerWatch(expanded: Set<string>)` backs the live file tree: it diffs the
+  `expanded` directory set across renders (subscribes newly-expanded paths, unsubscribes
+  collapsed ones, never tears down and re-subscribes the whole set on an unchanged `Set`
+  identity) through one shared `onSessionMessage` handler for the hook's whole lifetime, and
+  invalidates exactly the changed directory's `rpcKeys.explorer(path)` query — never the whole
+  `["explorer"]` family. A `too_many_watches` reply (the server's 128-per-session cap) is a soft
+  failure: logs once via `console.warn`, leaves that directory (or, for `watchFile`, that path)
+  unwatched, and falls back to the pre-existing `invalidateAfterToolCompletion` 500 ms post-tool
+  debounce (`files-changed.ts`). `useFileLiveRefresh(path, cwd, viewerKind)` (`FilePanel.tsx`,
+  sprint-044) is the third consumer: it watches a `kind:"file"`/`kind:"diff"` tab's own file —
+  resolving a diff tab's git-relative `path` against its workspace `cwd` via the pure
+  `watchTargetPath` helper — for `text`/`markdown`/`image` `ViewerKind`s only
+  (`LIVE_REFRESH_KINDS`; `video` is excluded because a refetch would restart playback from zero,
+  `binary` fetches nothing eagerly so there is nothing to refresh), and unconditionally
+  invalidates that path's `fileRead`/`fileDownload`/`fileDiffByPath` queries on each push — a
+  watched tab's File/Diff toggle can show any of them, and invalidating a key with no live query
+  is a no-op. Molecule tabs are NOT covered by this hook — `MoleculeViewer`'s own
+  `shouldApplyRefresh` unsaved-edits gate stays the only reload path for molecule tabs. All three
+  hooks' subscribe/diff/route/dispose core is framework-free (`watchFile`, `createExplorerWatcher`,
+  `watchTargetPath`) for the same jsdom-less reason below.
 - **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
   size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
   limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
   `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB local constant in `TextViewer.tsx`) — transparently
   refetch via the uncapped chunked binary `useFileText` (wraps `useFileDownload` + decodes blob
-  to text) and render `CodeView` with a muted **"N.N MB file streamed"** note; (3)
+  to text; the decode query is keyed on `(path, objectUrl)` so a `fileDownload` invalidation's new
+  object URL is picked up automatically) and render `CodeView` with a muted **"N.N MB file
+  streamed"** note; (3)
   `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why/download action
   (reusing `BinaryFallbackViewer`'s pattern). The pure state-selection logic `selectTextViewerState`
   lives in `text-viewer-state.ts` (framework-free, unit-tested directly). When `useFileRead`
@@ -311,7 +336,8 @@ entered at runtime, never baked into the image.
 - **Framework-free testing convention: no jsdom.** This package has no jsdom/React-Testing-Library
   DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config
   only discovers `.test.ts`, not `.test.tsx`, under a node environment). Hooks and components with
-  real branching logic extract their logic into plain functions/factories (`watchFile`, `createExplorerWatcher`,
+  real branching logic extract their logic into plain functions/factories (`watchFile`,
+  `watchTargetPath`, `createExplorerWatcher`,
   `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`) that
   are unit-tested directly rather than via `renderHook` or mounting. This is now an established
   convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —

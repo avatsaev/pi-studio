@@ -28,7 +28,7 @@ export function useFileText(path: string, enabled = true) {
   const objectUrl = download.data?.objectUrl;
 
   const decode = useQuery({
-    queryKey: rpcKeys.fileText(path),
+    queryKey: rpcKeys.fileText(path, objectUrl ?? null),
     queryFn: async (): Promise<FileTextResult> => {
       const content = await (await fetch(objectUrl as string)).text();
       return { content };
