@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 
@@ -19,6 +19,7 @@ import { silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
 import { WorkspaceGitService } from "../projects/workspace-git-service.js";
 import { FileWatchService } from "../files/file-watch-service.js";
+import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -416,10 +417,9 @@ describe("file_watch RPC", () => {
     expect(response.path).toBe(file);
 
     writeFileSync(file, "v2");
-    await vi.waitFor(
-      () => expect(pushes.some((p) => p.path === file)).toBe(true),
-      { timeout: 2000 },
-    );
+    await vi.waitFor(() => expect(pushes.some((p) => p.path === file)).toBe(true), {
+      timeout: 2000,
+    });
   }, 15000);
 
   it("replies too_many_watches over the per-session cap instead of opening unbounded watches", async () => {
@@ -440,6 +440,88 @@ describe("file_watch RPC", () => {
     }
     expect(lastResponse.ok).toBe(false);
     expect(lastResponse.error).toBe("too_many_watches");
+  }, 15000);
+});
+
+describe("file_read RPC", () => {
+  it("reads a file under the inline cap and returns its content and size", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "small.txt");
+    writeFileSync(file, "hello world");
+
+    const response = await client.rpc({ type: "file_read_request", path: file });
+    expect(response.ok).toBe(true);
+    expect(response.content).toBe("hello world");
+    expect(response.size).toBe(11);
+  }, 15000);
+
+  it("rejects a file over the inline cap with file_too_large, size, and maxBytes", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "big.txt");
+    writeFileSync(file, "x".repeat(MAX_INLINE_FILE_READ_BYTES + 1));
+
+    const response = await client.rpc({ type: "file_read_request", path: file });
+    expect(response.ok).toBe(false);
+    expect(response.error).toBe("file_too_large");
+    expect(response.size).toBe(MAX_INLINE_FILE_READ_BYTES + 1);
+    expect(response.maxBytes).toBe(MAX_INLINE_FILE_READ_BYTES);
+  }, 15000);
+
+  it("rejects a directory path with is_directory", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const response = await client.rpc({ type: "file_read_request", path: booted.home });
+    expect(response.ok).toBe(false);
+    expect(response.error).toBe("is_directory");
+  }, 15000);
+
+  it("resolves a ~-prefixed path against the real home directory", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const marker = `pi-studio-file-read-tilde-${Math.random().toString(36).slice(2)}.txt`;
+    const absolute = join(homedir(), marker);
+    writeFileSync(absolute, "tilde-resolved");
+    try {
+      const response = await client.rpc({ type: "file_read_request", path: `~/${marker}` });
+      expect(response.ok).toBe(true);
+      expect(response.content).toBe("tilde-resolved");
+    } finally {
+      rmSync(absolute, { force: true });
+    }
+  }, 15000);
+
+  it("does not block a concurrent cheap RPC on the same connection while reading a multi-MB file", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const file = join(booted.home, "large.txt");
+    // Just under the inline cap — large enough that a synchronous readFileSync's decode would be
+    // observable, without inflating the test's own runtime.
+    writeFileSync(file, "y".repeat(4 * 1024 * 1024));
+
+    const largeReadStarted = performance.now();
+    const largeRead = client.rpc({ type: "file_read_request", path: file });
+    const cheapRead = client
+      .rpc({ type: "file_read_request", path: join(booted.home, "..") })
+      .catch(() => ({}));
+    // A cheap request issued right after the large one must not be forced to wait for the large
+    // read to finish — it should settle (successfully or not; only its *timing* is asserted here)
+    // within a small bound rather than being serialized behind the large read on a blocked event
+    // loop. Race a short timer against it as the bound.
+    const raceResult = await Promise.race([
+      cheapRead.then(() => "cheap"),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 300)),
+    ]);
+    expect(raceResult).toBe("cheap");
+    await largeRead;
+    void largeReadStarted;
   }, 15000);
 });
 

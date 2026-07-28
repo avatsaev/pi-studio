@@ -2,3 +2,4 @@
 export * from "./file-explorer.js";
 export * from "./download-token-store.js";
 export * from "./file-transfer.js";
+export * from "./limits.js";

@@ -9,7 +9,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
@@ -40,6 +41,7 @@ import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
 import { FileWatchService } from "../files/file-watch-service.js";
 import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
+import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
 import { WorkspaceRegistryService } from "../projects/workspace-registry.js";
@@ -468,18 +470,26 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     return { type: "file_diff_response", ok: true, path: filePath, patch };
   });
 
-  // Simple text file read RPC for the POC UI (returns up to 512KB of UTF-8 text).
-  registry.register("file_read_request", (ctx) => {
+  // Simple text file read RPC for the POC UI (returns up to `MAX_INLINE_FILE_READ_BYTES` of
+  // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
+  // multi-MB read/decode never blocks the event loop — every other session (agent streams,
+  // terminal output, heartbeats) shares this thread.
+  registry.register("file_read_request", async (ctx) => {
     const filePath = String(ctx.message.path ?? "");
     const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
     try {
-      const stat = statSync(resolved);
-      if (stat.isDirectory())
-        return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (stat.size > 512 * 1024)
-        return { type: "file_read_response", ok: false, error: "file_too_large", size: stat.size };
-      const content = readFileSync(resolved, "utf8");
-      return { type: "file_read_response", ok: true, path: resolved, content, size: stat.size };
+      const st = await stat(resolved);
+      if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
+      if (st.size > MAX_INLINE_FILE_READ_BYTES)
+        return {
+          type: "file_read_response",
+          ok: false,
+          error: "file_too_large",
+          size: st.size,
+          maxBytes: MAX_INLINE_FILE_READ_BYTES,
+        };
+      const content = await readFile(resolved, "utf8");
+      return { type: "file_read_response", ok: true, path: resolved, content, size: st.size };
     } catch (e: unknown) {
       return {
         type: "file_read_response",
