@@ -3,6 +3,7 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [timeline-streaming.md](timeline-streaming.md),
 > [tool-permissions.md](tool-permissions.md), [composer-ui.md](composer-ui.md), [rewind.md](rewind.md),
+> [inline-image-rendering.md](inline-image-rendering.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),
 > [../architecture/design-system.md](../architecture/design-system.md)
 
@@ -215,7 +216,7 @@ copy button with a brief "Copied" confirmation.
 |-----------|-------------------|
 | Tool call failed | Alert icon + Error section with `errorText` |
 | Tool detail still loading | Shimmer skeleton in the expanded body |
-| Assistant image fails to resolve | Error-text fallback in place of the image |
+| Assistant image fails to resolve | Text fallback in place of the image — see [inline-image-rendering.md](inline-image-rendering.md) |
 | iOS nested plain `<Text>` in a paragraph | Use text spans; otherwise the text is silently dropped |
 | Long history (web) | Partial virtualization with user-message-aligned mounted window |
 | User scrolls up | Detach from bottom; show scroll-to-bottom button; keep streaming |
@@ -241,7 +242,8 @@ copy button with a brief "Copied" confirmation.
       scroll-to-bottom button; a stale heartbeat never hides rows.
 
 ## TODO(verify)
-- [ ] Exact assistant-image resolution + caching path.
+- [x] Exact assistant-image resolution + caching path — specified in
+      [inline-image-rendering.md](inline-image-rendering.md).
 - [ ] Whether any provider emits live terminal-stream rows directly into the timeline (vs. only shell tool
       output).
 - [ ] Attachment lightbox interaction details.

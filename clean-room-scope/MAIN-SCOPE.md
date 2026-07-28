@@ -267,6 +267,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/timeline-rendering.md](features/timeline-rendering.md)         | feature (UI) | Per-row rendering, tool-call cards, diffs, markdown, autoscroll, footers      |
+| [features/inline-image-rendering.md](features/inline-image-rendering.md) | feature (UI) | Markdown images in chat resolved from local paths + capability-gated agent instruction |
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |

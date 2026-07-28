@@ -76,8 +76,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 042 | `sprint-042-workspace-status-bar` | web-client: a full-width ~75px bottom powerline status bar for the active session — icon-prefixed segments (model · cwd · git branch+ahead/behind/dirty/conflict · context % · token total · cost), fully swapping on session switch with live branch and per-session-cached stats. UI-primary: adds optional `model`/`provider` to `list_agents_response` and a poll-reconciled `model` to `agent_session_stats` (append-only); retains git branch meta in git-store, adds `SessionEntry.model` + a per-session stats-store, a `use-session-stats` poll, pure formatters, the `StatusBar` component, and docs | 7 |
 | 043 | `sprint-043-model-selector` | web-client: a per-conversation model selector in the chat composer (left of the input) showing the current model, opening an anchored popup with a fuzzy search filter, checkmark on the selected model (sorted first), and rows of `label (id)` with the id in muted text. Unblocks the picker by registering the previously-unserved `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`), types the client SDK response, and reuses the fully-wired `agent_set_model_request` for selection. | 5 |
 | 044 | `sprint-044-molecule-viewer-live-files` | web-client + daemon: a **molecule viewer** tab type built on `@molviewer/core` — molecular files (`.pdb`/`.cif`/`.xyz`/`.mol`/`.mol2`/`.gro`/`.lammpstrj`/`.xsf`/POSCAR) open in a 3D viewer instead of the text viewer, plus an empty "New molecule view" from the TabStrip "+" menu. Adds the daemon's **first real filesystem watcher** (`FileWatchService`, `fs.watch` per directory, ref-counted, 150 ms coalescing) behind a `file_watch_*` subscription family, which powers both an edit-gated live reload of open molecule tabs (`sourceMode="update"` preserves camera/selection; skipped while the user has unsaved in-viewer edits) and a **live file tree** (expanded directories refresh on create/delete/rename from any writer, not just agent tools). Also raises the file-read ceiling — 512 KiB → 5 MiB inline (async, so a big read no longer blocks the event loop), streamed uncapped above that, 30 MiB display cap. Fixes a pre-existing per-session subscription leak on disconnect on the way past. | 10 |
+| 045 | `sprint-045-inline-image-rendering` | web-client + daemon + protocol: **inline images in the chat timeline**. `![alt](path)` in a finalized assistant message renders the real image, with bytes streamed over the existing chunked binary file-transfer path — workspace-relative, absolute, and `~` paths all resolve; remote URLs pass through untouched; non-image extensions and missing files degrade to readable text, never a broken-image glyph. Reuses the seam that already exists (`react-markdown`'s per-tag override map, currently holding only `code`) plus a new ref-counted LRU object-URL cache, because the file-viewer download hook's revoke-on-unmount ownership is wrong under timeline virtualization. Second half: a new client→daemon `inline_image_markdown` capability advertised in `hello` (web-client currently advertises none) that makes the daemon append a short image-rendering instruction to the session's system prompt at create time, so only surfaces that can render images are told to emit them. Also closes two pre-existing defects the feature trips over: `file_download_token_request` never expanded `~` (unlike `file_read_request`), and session **resume** dropped the per-session `systemPrompt`. | 7 |
 
-Total: **44 sprints, 210 tasks** (summed from the table above). The older accounting this line used
+Total: **45 sprints, 217 tasks** (summed from the table above). The older accounting this line used
 to carry (26 sprints / 119 tasks) predated sprints 023–044 and was never updated; recompute from the
 table rather than trusting a hand-maintained figure.
 
@@ -513,14 +514,65 @@ table rather than trusting a hand-maintained figure.
 | task-009 | Raise file-read ceiling: 5 MiB inline (async read, shared constant), streamed above that, 30 MiB display cap | none | packages/server (files/limits, daemon/{bootstrap,dev-bootstrap}); packages/web-client (hooks/{use-file-read,use-file-text}, features/files/TextViewer); features/file-explorer-transfer; architecture/websocket-protocol |
 | task-010 | E2E browser verification + docs sync (server/web-client/root AGENTS.md, scope docs) | task-001..009 | AGENTS.md (root, server, web-client); features/file-explorer-transfer, workspace-ui; architecture/websocket-protocol |
 
+### sprint-045-inline-image-rendering
+> Two independent halves, ordered so the render half ships and smoke-tests on its own.
+> **Render half (tasks 001-004):** `![alt](path)` in a **finalized** assistant markdown block renders
+> the real image inline. The seam already exists — `timeline/markdown.tsx` passes react-markdown a
+> per-tag override map currently holding only `code` — so this is one added `img` entry plus a decision
+> layer and a fetch layer. The decision layer (`classifyImageSrc`) is pure and exhaustively tested
+> before any component touches it: remote/`data:`/`blob:` URLs pass straight through, `file:` and
+> unknown schemes fall back, `/`+`~`+relative paths resolve, and the **existing** viewer-registry
+> extension detection is the "is this an image" gate, so `![](notes.pdf)` never issues a download and
+> registering a new image extension extends inline rendering with no second list. Bytes come from the
+> already-shipping chunked binary download path (token → `Begin/Chunk/End` → blob → object URL) that
+> `ImageViewer` uses — but **not** through `useFileDownload`, whose `gcTime: 0` + revoke-on-unmount
+> ownership is single-exclusive-consumer by design and would re-download on every virtualized
+> scroll-back; inline images get a sibling hook over a ref-counted LRU object-URL cache instead.
+> Timeline virtualization supplies laziness for free (only near-viewport rows mount), and the
+> already-existing "render raw text while streaming" behavior keeps a half-typed `![](scr` from
+> firing requests. A missing or hallucinated path degrades to **readable text**, never a broken-image
+> glyph — the non-negotiable UX rule, since agents do emit paths that don't exist.
+> **Instruction half (tasks 005-006):** the agent has to be told to use the syntax, but only when the
+> connected surface can render it. Every piece of plumbing exists except one link: `CLIENT_CAPS` is the
+> client→daemon flag registry, `Session.supports(flag)` is the gate, `RpcHandlerContext` carries the
+> session on every dispatch — and `AgentService.registerHandlers` throws it away, passing only
+> `ctx.message`. So: a new `inline_image_markdown` capability, advertised by the web-client (which
+> currently advertises **none**), threaded into `handleCreate`, which appends a short instruction to
+> `config.systemPrompt` — already on the wire, already persisted, already reaching
+> `--append-system-prompt`. Gated on the capability rather than `clientType` because "renders inline
+> images" is a property of the rendering surface, not a client identity (and a future mobile client
+> then flips one flag). The instruction is bound at **spawn time**; a CLI-created session later opened
+> in the browser won't have it. That limitation is accepted — the degradation is benign both ways, and
+> per-turn injection doesn't exist today because a turn's `prompt` string is dual-purpose (provider
+> message text *and* the timeline's visible `user_message.text`).
+> **Two pre-existing defects the feature trips over, both fixed here:** `file_download_token_request`
+> calls `realpath()` with **no** `~` expansion while `file_read_request` expands it — so `~/shot.png`
+> works in one and 404s in the other; the expansion itself is copy-pasted inline in six places, with
+> `file-watch-service.ts` carrying a comment that explicitly declines to factor it out and a correct
+> helper already sitting in the wrong package (`providers/pi/rpc-transport.ts`). And `resumeSession`
+> builds its spawn args from the daemon-wide default only, silently dropping the record's per-session
+> `systemPrompt` — so *any* per-session prompt vanishes on daemon restart or on a deferred draft's
+> first spawn, which would have made the instruction half quietly non-persistent.
+> No new RPC, no new binary opcode, no HTTP route, no protocol message schema — one capability string.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Shared daemon `~` expansion (`files/resolve-path.ts`, replaces 6 inline copies + fixes download-token) + `mimeType` in transfer `Begin` | none | packages/server (files/{resolve-path,file-transfer,file-explorer,file-watch-service,file-watch-rpc}, daemon/{bootstrap,dev-bootstrap}); features/inline-image-rendering, file-explorer-transfer |
+| task-002 | `lib/paths.ts` `resolveWorkspacePath` (lifted from `watchTargetPath`) + pure `classifyImageSrc` | none | packages/web-client (lib/paths, timeline/image-src, hooks/use-file-live-refresh); features/inline-image-rendering |
+| task-003 | Ref-counted LRU inline-image object-URL cache + `useInlineImage` hook | none | packages/web-client (lib/inline-image-cache, hooks/use-inline-image, lib/connection/connection-store); features/inline-image-rendering, file-explorer-transfer |
+| task-004 | `InlineImage` component, `img` markdown override, `assetBase` threading, click-to-open | task-002, task-003 | packages/web-client (timeline/{InlineImage,markdown,markdown.module.css}, features/chat/{Timeline,rows/AssistantRow}); features/inline-image-rendering, timeline-rendering |
+| task-005 | `resumeSession` honors the persisted per-session `systemPrompt` (pre-existing defect) | none | packages/server (agent/providers/pi/agent); features/agent-providers; architecture/agent-lifecycle |
+| task-006 | `CLIENT_CAPS.inline_image_markdown` + web-client advertisement + daemon-composed instruction at create time | task-005 | packages/protocol (client-capabilities); packages/web-client (lib/connection/connection-store); packages/server (agent/{agent-service,inline-image-instructions}); features/inline-image-rendering, agent-sessions; architecture/websocket-protocol |
+| task-007 | E2E browser verification (12 steps) + docs sync (protocol/server/web-client/root AGENTS.md + scope doc) | task-001..006 | AGENTS.md (root, protocol, server, web-client); features/inline-image-rendering |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
 
 | Scope file | Covered by |
 |------------|-----------|
-| features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002 |
-| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind) |
+| features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition) |
+| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt) |
 | features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001 |
 | features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004 |
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
@@ -532,13 +584,14 @@ Every feature and architecture scope is covered by at least one task.
 | features/loops.md | s010/t004, s011/t004 |
 | features/mcp-server.md | s010/t001 |
 | features/service-proxy.md | s003/t003, s009/t003, s016/t005 |
-| features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002 |
+| features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002, s045/t001,t003 (shared `~` resolution, `Begin` mimeType, inline-image reuse of the download path) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
 | features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render) |
-| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render) |
+| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render); s045/t004 (`img` markdown override) |
+| features/inline-image-rendering.md | s045/t001-007 |
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
 | features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
@@ -548,11 +601,11 @@ Every feature and architecture scope is covered by at least one task.
 | features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005 |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004 |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
-| architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001 |
+| architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
 | architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003 |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
@@ -596,3 +649,9 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Highlight package: highlighter library/grammar set (no dedicated scope file) — s009/t006.
 - [ ] `Pi-StudioClient` exact method/signature surface per handle; reconnection backoff parameters — s007/t002, s013/t001.
 - [ ] UI gaps carried from the new UI scope docs (own task in parens): theme appearance storage key (s012/t001); `?open=` workspace intent vocabulary (s014/t004); turn-footer metadata fields + full tool-type catalog (s015/t002-003); list-virtualization pin threshold + highlighter grammar set (s015/t001,t005); proxy-URL resolution for the browser pane (s016/t005). UI library choices are pinned in design-system § UI technology stack (mirror of the original's stack).
+- [ ] Which extensions the web-client's viewer registry actually classifies as `image` (notably `.svg`,
+      `.webp`, `.avif`) — this is the gate that decides what inline chat images will fetch, and the
+      daemon's `mimeHintForFile` table covers a narrower set than the registry does — s045/t001-002.
+- [ ] Whether the markdown *file* viewer should pass the viewed file's directory as its asset base
+      (would make repository README images render inline for free). Behavior is desirable; whether it
+      lands with this sprint is open — s045/t004.
