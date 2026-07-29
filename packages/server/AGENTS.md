@@ -482,6 +482,9 @@ creation" above.
 - **Size ownership**: last-interacting-client-wins. The manager only resizes when a client
   explicitly sends a `Resize` frame; it never resizes on subscribe.
 - `subscribe(slot, sink)` — attach a raw-binary-frame sink; replays the snapshot first.
+- `killAll()` — kill every live terminal and clear its pending flush timer; called from
+  `startDaemon(...).close()` so a stray PTY can't emit output after the transports it would
+  flush through (relay/WS) have already been torn down on shutdown.
 
 Terminal RPC handlers (`terminal-rpc.ts`):
 - `create_terminal` — spawn PTY, return slot + entry.

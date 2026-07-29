@@ -219,6 +219,16 @@ export class TerminalManager {
     return true;
   }
 
+  /** Kill every live terminal and clear its pending flush timer. Call on daemon shutdown so no
+   * PTY can emit output after the transports/sinks it would flush through have been torn down
+   * (a stray coalesce timer firing post-shutdown used to throw "cannot send after close()" from
+   * inside a bare `setTimeout` callback, crashing the process). */
+  killAll(): void {
+    for (const slot of Array.from(this.terminals.keys())) {
+      this.kill(slot);
+    }
+  }
+
   // ─── Internals ───────────────────────────────────────────────────────────
 
   private onOutput(managed: ManagedTerminal, data: Uint8Array): void {

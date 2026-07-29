@@ -810,6 +810,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
     close: async () => {
       logger.info("daemon shutting down");
+      terminalManager.killAll();
       fileWatchService.close();
       relayHandle?.close();
       await wsHandle.close();
