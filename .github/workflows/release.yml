@@ -1,0 +1,84 @@
+name: Release
+
+# Runs the exact same pipeline as `npm run release` locally: bump + publish npm packages, build +
+# push Docker images tagged to match, then pin + deploy relay/web-client to production on Dokploy.
+# See scripts/release.sh (and AGENTS.md's "Release & production deployment" section) for what each
+# step actually does — this workflow adds no new logic, it just runs those scripts on a runner.
+#
+# Triggers ONLY on a push (including a merged PR, which GitHub delivers as a push) to `main`.
+# The version-bump commit this workflow pushes back includes `[skip ci]`, which GitHub itself
+# recognizes and skips creating a workflow run for — no manual re-trigger guard needed.
+on:
+  push:
+    branches: [main]
+
+# Serialize releases if two pushes land close together (e.g. two PRs merged back-to-back) rather
+# than letting two version bumps race each other.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # Not secret — already documented in this repo's AGENTS.md / docker/README.md.
+      DOKPLOY_URL: https://infra.molagent.ai
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Docker Hub login
+        run: echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Install + authenticate dokploy CLI
+        run: |
+          npm install -g @dokploy/cli
+          dokploy auth --url "$DOKPLOY_URL" --token "$DOKPLOY_TOKEN"
+        env:
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+
+      - name: Configure git identity (for the version-bump commit)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Release (npm publish -> docker publish -> dokploy deploy)
+        run: npm run release
+
+      - name: Commit + push version bump
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            VERSION="$(node -e "console.log(require('./packages/protocol/package.json').version)")"
+            git add -A
+            git commit -m "chore: release $VERSION [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "no version-bump changes to commit (--no-bump path or nothing changed)"
+          fi
+
+      - name: Verify production
+        run: |
+          curl -sf https://relay.molagent.ai/health && echo
+          curl -sf -o /dev/null -w "app.molagent.ai: HTTP %{http_code}\n" https://app.molagent.ai/
