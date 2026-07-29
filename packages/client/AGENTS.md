@@ -72,8 +72,17 @@ interface Transport {
 `createWebSocketTransport(factory?: WsFactory)` — default direct-WebSocket implementation.
 `factory` is an injectable `(url, protocols?) => AnyWebSocket` (tests, or a custom factory carrying
 a bearer-password subprotocol — see `web-client`'s `connection-store.ts` for that pattern). With no
-factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). Handles Node `ws`'s `Buffer` message
-type and the browser's default `Blob` `binaryType` in addition to `string`/`ArrayBuffer`.
+factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). `connect()` forces
+`ws.binaryType = "arraybuffer"` on the created socket (browsers/RN default to `"blob"`, which would
+otherwise route every binary frame through `DaemonClient.handleIncoming`'s async `Blob.arrayBuffer()`
+path — independent Blob decodes across messages have no guaranteed resolution order relative to
+wire order, so a straggler could finish decoding after a later frame's, and for a chunked
+file-transfer download that reordering let `FileTransferClient.dispatch()`'s `End`-frame handling
+delete the stream's pending state before a late `Chunk` arrived, silently dropping it — real bug,
+truncated downloaded/inline images with the bottom rows missing). Node `ws` always delivers
+`Buffer`/`ArrayBuffer` synchronously regardless of this property. The `Blob` branch in `onmessage`
+is dead in normal operation now; kept only as a defensive fallback for a `WebSocket`-like object
+that ignores `binaryType`.
 
 `createRelayTransport({ sessionId?, daemonPublicKey, factory? })` (`relay-transport.ts`) —
 implements the identical `Transport` interface over an E2EE relay: dials the relay's own WebSocket

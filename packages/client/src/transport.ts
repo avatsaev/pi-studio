@@ -34,6 +34,9 @@ export type AnyWebSocket = {
   onclose: ((ev: { code: number; reason: string }) => void) | null;
   onerror: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
+  /** Browsers/RN default this to `"blob"`; Node's `ws` ignores it (always delivers `Buffer`).
+   * `connect()` forces `"arraybuffer"` where the property exists — see its comment for why. */
+  binaryType?: string;
 };
 
 export type WsFactory = (url: string, protocols?: string[]) => AnyWebSocket;
@@ -63,6 +66,17 @@ export function createWebSocketTransport(factory?: WsFactory): Transport {
         const create = factory ?? (() => new WebSocket(url) as unknown as AnyWebSocket);
         try {
           ws = factory ? create(url) : (new WebSocket(url) as unknown as AnyWebSocket);
+          // Force synchronous `ArrayBuffer` delivery. Browsers/RN default `binaryType` to
+          // `"blob"`, which forces `DaemonClient.handleIncoming` onto an async
+          // `Blob.arrayBuffer()` decode per message — and that decode's resolution order across
+          // independent Blobs is NOT guaranteed to match wire order. For a multi-frame binary
+          // transfer (file-transfer chunks, terminal frames) that race can let a later frame's
+          // decode finish before an earlier one's, reordering what `FileTransferClient.dispatch()`
+          // sees and silently dropping chunks once `End` deletes the stream's pending state before
+          // a straggling `Chunk` arrives (real bug: truncated downloaded images, bottom rows
+          // missing). `ws` (Node) always delivers `Buffer`/`ArrayBuffer` synchronously regardless
+          // of this property; setting it there is a harmless no-op.
+          ws.binaryType = "arraybuffer";
         } catch (err) {
           reject(err);
           return;
@@ -84,9 +98,10 @@ export function createWebSocketTransport(factory?: WsFactory): Transport {
           } else if (typeof data === "string") {
             self.onMessage?.(data);
           } else if (typeof Blob !== "undefined" && data instanceof Blob) {
-            // Browser default `binaryType` is "blob" — DaemonClient.handleIncoming already
-            // reads Blob payloads asynchronously via `.arrayBuffer()`, so forward it as-is
-            // instead of silently dropping every binary (terminal/file-transfer) frame.
+            // Unreachable once `binaryType = "arraybuffer"` takes effect (set above) — kept as a
+            // defensive fallback for a WebSocket-like object that ignores the property, so binary
+            // frames still decode (via `DaemonClient.handleIncoming`'s async `Blob.arrayBuffer()`
+            // path) instead of being silently dropped, rather than as the expected delivery mode.
             self.onMessage?.(data);
           } else if (Buffer.isBuffer(data)) {
             // Node `ws` may deliver Buffer
