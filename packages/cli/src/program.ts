@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { registerAgentCommands } from "./agent-commands.js";
 import { registerDaemonCommands, ensureLocalDaemonAndPair } from "./daemon-commands.js";
 import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
+import { registerPiCommands } from "./pi-commands.js";
 import { registerRelayCommands } from "./relay-commands.js";
 import { registerWebCommands } from "./web-commands.js";
 import { registerUpdateCommands } from "./update-commands.js";
@@ -66,6 +67,7 @@ function registerCommands(
   registerAgentCommands(program, ctx, setExit);
   registerDaemonCommands(program, ctx, setExit);
   registerFeatureCommands(program, ctx, setExit);
+  registerPiCommands(program, ctx, setExit);
   registerRelayCommands(program, ctx, setExit);
   registerWebCommands(program, ctx, setExit);
   registerUpdateCommands(program, ctx, setExit);

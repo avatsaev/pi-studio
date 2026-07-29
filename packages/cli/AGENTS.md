@@ -12,6 +12,7 @@ bin: pi-studio  →  dist/cli.js
 ```
 
 After `npm run build`, invoke via:
+
 ```bash
 node packages/cli/dist/cli.js [options] [command] [args]
 ```
@@ -47,6 +48,9 @@ src/
   relay-commands.test.ts
   relay-control.ts        RelayRuntime — probe/start/stop/waitForRelay (spawns relay process); mirrors daemon-control.ts.
 
+  pi-commands.ts         `pi` pass-through command — proxies argv/exit-code to the embedded Pi CLI.
+  pi-commands.test.ts
+
   web-commands.ts        `web` command — serve the prebuilt web-client SPA as a static site.
   web-commands.test.ts
   web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
@@ -75,16 +79,17 @@ src/
 
 Registered on the root Commander program:
 
-| Flag | Description |
-|------|-------------|
-| `-H, --host <host>` | Daemon/host target (e.g. `workstation.local:6767` or `ws://…`) |
-| `--password <password>` | Password for password-protected daemons |
-| `--home <dir>` | Override `$PI_STUDIO_HOME` (client-id store) |
-| `--pi-home <dir>` | Override `$PI_STUDIO_PI_HOME`, forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) — redirects the bundled Pi CLI's own `.pi` config dir |
-| `--json` | Render output as JSON instead of a table |
-| `-v, --version` | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0 |
+| Flag                    | Description                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-H, --host <host>`     | Daemon/host target (e.g. `workstation.local:6767` or `ws://…`)                                                                                                                                |
+| `--password <password>` | Password for password-protected daemons                                                                                                                                                       |
+| `--home <dir>`          | Override `$PI_STUDIO_HOME` (client-id store)                                                                                                                                                  |
+| `--pi-home <dir>`       | Override `$PI_STUDIO_PI_HOME` — forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) and to `pi-studio pi` — redirects the bundled Pi CLI's own `.pi` config dir |
+| `--json`                | Render output as JSON instead of a table                                                                                                                                                      |
+| `-v, --version`         | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0                                                            |
 
 Default action (no subcommand):
+
 - `pi-studio <path>` → `open_project` on the daemon at that path.
 - `pi-studio` (bare) → ensure a local daemon is running, then print the pairing QR code.
 
@@ -94,36 +99,36 @@ Default action (no subcommand):
 
 ### `agent` group (`agent-commands.ts`)
 
-| Command | RPC | Description |
-|---------|-----|-------------|
-| `run --provider pi/<model> "prompt"` | `create_agent_request` | Create an agent and run first turn |
-| `ls` | `list_agents_request` | List all agents |
-| `attach <agentId>` | subscribe `agent_stream` | Stream live events from an agent |
-| `send <agentId> "prompt"` | `send_agent_prompt` | Send a follow-up prompt |
-| `stop <agentId>` | `interrupt_agent` | Interrupt the current turn |
-| `steer <agentId> "message"` | `steer_agent_request` | Steer a running turn (after current tool calls) |
-| `follow-up <agentId> "message"` | `follow_up_agent_request` | Queue a message for after the agent stops |
-| `wait <agentId>` | `wait_for_agent` | Block until idle/closed |
-| `logs <agentId> [-n <limit>]` | `fetch_agent_timeline_request` | Print paged timeline history |
-| `inspect <agentId>` | `inspect_agent_request` | Print agent record |
-| `archive <agentId>` | `archive_agent` | Soft-delete |
-| `delete <agentId>` | `delete_agent` | Hard delete |
-| `update <agentId>` | `update_agent` | Update model/mode/features/title/labels |
-| `reload <agentId>` | `resume_agent` | Resume/reload a closed session |
-| `import <sessionRef>` | `import_agent_session` | Import a provider-native session by its handle |
-| `session <agentId>` | `agent_session_stats_request` | Session stats (tokens/cost/context usage) — `/session` |
-| `compact <agentId> [-i <text>]` | `agent_compact_request` | Manually compact context — `/compact` |
-| `new-session <agentId>` | `agent_new_session_request` | Start a fresh session in place — `/new` |
-| `resume-session <agentId> -p <path>` | `agent_switch_session_request` | Load a different session file in place — `/resume` |
-| `fork <agentId> -e <entryId>` | `agent_fork_request` | Fork a new branch from a previous message — `/fork` |
-| `fork-messages <agentId>` | `agent_fork_messages_request` | List messages available to fork from |
-| `clone <agentId>` | `agent_clone_request` | Duplicate the session at the current position — `/clone` |
-| `name <agentId> <name>` | `agent_set_session_name_request` | Set the session display name — `/name` |
-| `export <agentId> [-o <path>]` | `agent_export_html_request` | Export the session to an HTML file — `/export` |
-| `model <agentId> --provider <p> --model <m>` | `agent_set_model_request` | Switch to a specific provider model — `/model` |
-| `cycle-model <agentId>` | `agent_cycle_model_request` | Cycle to the next available model — `/model` |
-| `last-message <agentId>` | `agent_last_assistant_text_request` | Print the last assistant message — `/copy` |
-| `commands <agentId>` | `agent_list_commands_request` | List discoverable commands: extensions, prompt templates, skills (sprint-040, no Pi built-in equivalent) |
+| Command                                      | RPC                                 | Description                                                                                              |
+| -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `run --provider pi/<model> "prompt"`         | `create_agent_request`              | Create an agent and run first turn                                                                       |
+| `ls`                                         | `list_agents_request`               | List all agents                                                                                          |
+| `attach <agentId>`                           | subscribe `agent_stream`            | Stream live events from an agent                                                                         |
+| `send <agentId> "prompt"`                    | `send_agent_prompt`                 | Send a follow-up prompt                                                                                  |
+| `stop <agentId>`                             | `interrupt_agent`                   | Interrupt the current turn                                                                               |
+| `steer <agentId> "message"`                  | `steer_agent_request`               | Steer a running turn (after current tool calls)                                                          |
+| `follow-up <agentId> "message"`              | `follow_up_agent_request`           | Queue a message for after the agent stops                                                                |
+| `wait <agentId>`                             | `wait_for_agent`                    | Block until idle/closed                                                                                  |
+| `logs <agentId> [-n <limit>]`                | `fetch_agent_timeline_request`      | Print paged timeline history                                                                             |
+| `inspect <agentId>`                          | `inspect_agent_request`             | Print agent record                                                                                       |
+| `archive <agentId>`                          | `archive_agent`                     | Soft-delete                                                                                              |
+| `delete <agentId>`                           | `delete_agent`                      | Hard delete                                                                                              |
+| `update <agentId>`                           | `update_agent`                      | Update model/mode/features/title/labels                                                                  |
+| `reload <agentId>`                           | `resume_agent`                      | Resume/reload a closed session                                                                           |
+| `import <sessionRef>`                        | `import_agent_session`              | Import a provider-native session by its handle                                                           |
+| `session <agentId>`                          | `agent_session_stats_request`       | Session stats (tokens/cost/context usage) — `/session`                                                   |
+| `compact <agentId> [-i <text>]`              | `agent_compact_request`             | Manually compact context — `/compact`                                                                    |
+| `new-session <agentId>`                      | `agent_new_session_request`         | Start a fresh session in place — `/new`                                                                  |
+| `resume-session <agentId> -p <path>`         | `agent_switch_session_request`      | Load a different session file in place — `/resume`                                                       |
+| `fork <agentId> -e <entryId>`                | `agent_fork_request`                | Fork a new branch from a previous message — `/fork`                                                      |
+| `fork-messages <agentId>`                    | `agent_fork_messages_request`       | List messages available to fork from                                                                     |
+| `clone <agentId>`                            | `agent_clone_request`               | Duplicate the session at the current position — `/clone`                                                 |
+| `name <agentId> <name>`                      | `agent_set_session_name_request`    | Set the session display name — `/name`                                                                   |
+| `export <agentId> [-o <path>]`               | `agent_export_html_request`         | Export the session to an HTML file — `/export`                                                           |
+| `model <agentId> --provider <p> --model <m>` | `agent_set_model_request`           | Switch to a specific provider model — `/model`                                                           |
+| `cycle-model <agentId>`                      | `agent_cycle_model_request`         | Cycle to the next available model — `/model`                                                             |
+| `last-message <agentId>`                     | `agent_last_assistant_text_request` | Print the last assistant message — `/copy`                                                               |
+| `commands <agentId>`                         | `agent_list_commands_request`       | List discoverable commands: extensions, prompt templates, skills (sprint-040, no Pi built-in equivalent) |
 
 `formatStreamEvent(event)` — renders an `AgentStreamEvent` as a single human-readable line.
 
@@ -134,28 +139,30 @@ that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `
 TUI-only per Pi's own RPC docs and have no CLI command here — see `packages/server/AGENTS.md`'s
 Agent subsystem section for the full rationale. (Naming note: Pi's own TUI-only `/reload` in that
 excluded list is unrelated to this CLI's `reload <agentId>` command above — the latter is a
-`resume_agent` RPC call, named for reloading a closed *daemon* session, not Pi's
+`resume_agent` RPC call, named for reloading a closed _daemon_ session, not Pi's
 extensions/skills/keybindings reload.)
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
+
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`
 - `mock` → `{ provider: "mock" }`
 - bare `pi` → `{ provider: "pi" }`
 
 ### `daemon` group (`daemon-commands.ts`)
 
-| Command | Description |
-|---------|-------------|
-| `daemon start` | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
-| `daemon stop` | Send SIGTERM to the local daemon |
-| `daemon restart` | Stop then start the local daemon |
-| `daemon status` | Print health + PID |
-| `daemon set-password <pw>` | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json` |
-| `daemon pair` | Print the pairing URL / QR for an already-running daemon |
-| `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR |
+| Command                                   | Description                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `daemon start`                            | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
+| `daemon stop`                             | Send SIGTERM to the local daemon                                                                                             |
+| `daemon restart`                          | Stop then start the local daemon                                                                                             |
+| `daemon status`                           | Print health + PID                                                                                                           |
+| `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
+| `daemon pair`                             | Print the pairing URL / QR for an already-running daemon                                                                     |
+| `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR                                 |
 
 `ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
 start`, and `onboard`:
+
 1. `persistRelayEnvOverrides(home)` — see below.
 2. Probe `host:port` with `DaemonRuntime.probe()`.
 3. If not running: call `DaemonRuntime.start({ home, listen })`.
@@ -163,6 +170,7 @@ start`, and `onboard`:
 5. Print pairing QR via `buildPairingUrl()` + `renderQrToTerminal()`.
 
 `DaemonRuntime` (`daemon-control.ts`):
+
 - `probe(host, port)` — HTTP GET `/api/health`, returns true if 200.
 - `start(opts)` — spawn `node <server>/dist/daemon/main.js` as a detached child.
 - `stop(home)` — read PID from `pi-studio.pid`, send SIGTERM.
@@ -188,24 +196,24 @@ and `worktree` as sibling top-level command groups (no `feature` wrapper), plus 
 `open <path>` command. Each subcommand maps to a canonical RPC name in `FEATURE_RPC`; several are
 flagged `TODO(verify)` in source for wire names not yet confirmed against the real daemon.
 
-| Group | Commands | RPC |
-|-------|----------|-----|
-| `chat` | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>` | `chat_create_request`, `chat_list_request`, `chat_inspect_request`, `chat_post_request`, `chat_read_request`, `chat_wait_request`, `chat_delete_request` |
-| `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>` | `list_terminals_request`, `create_terminal_request`, `capture_terminal_request`, `terminal_input`, `kill_terminal_request` |
-| `loop` | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>` | `loop_run_request`, `loop_list_request`, `loop_inspect_request`, `loop_logs_request`, `loop_stop_request` |
-| `schedule` | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` | `schedule_create_request`, `schedule_list_request`, `schedule_inspect_request`, `schedule_update_request`, `schedule_pause_request`, `schedule_resume_request`, `schedule_run_once_request`, `schedule_logs_request`, `schedule_delete_request` |
-| `permit` | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>` | `list_permissions_request`, `respond_to_permission` (both allow/deny) |
-| `provider` | `ls`, `models <providerId>` | `list_providers`, `list_models` |
-| `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>` | `create_pistudio_worktree_request`, `pistudio_worktree_list_request`, `pistudio_worktree_archive_request` |
-| _(top-level)_ | `open <path>` | `open_project_request` (same path as the bare `pi-studio <path>` default action) |
+| Group         | Commands                                                                                                                                                    | RPC                                                                                                                                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat`        | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>`         | `chat_create_request`, `chat_list_request`, `chat_inspect_request`, `chat_post_request`, `chat_read_request`, `chat_wait_request`, `chat_delete_request`                                                                                        |
+| `terminal`    | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>`                                                            | `list_terminals_request`, `create_terminal_request`, `capture_terminal_request`, `terminal_input`, `kill_terminal_request`                                                                                                                      |
+| `loop`        | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>`                                                                          | `loop_run_request`, `loop_list_request`, `loop_inspect_request`, `loop_logs_request`, `loop_stop_request`                                                                                                                                       |
+| `schedule`    | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` | `schedule_create_request`, `schedule_list_request`, `schedule_inspect_request`, `schedule_update_request`, `schedule_pause_request`, `schedule_resume_request`, `schedule_run_once_request`, `schedule_logs_request`, `schedule_delete_request` |
+| `permit`      | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>`                                                                                           | `list_permissions_request`, `respond_to_permission` (both allow/deny)                                                                                                                                                                           |
+| `provider`    | `ls`, `models <providerId>`                                                                                                                                 | `list_providers`, `list_models`                                                                                                                                                                                                                 |
+| `worktree`    | `create <name> [--workspace]`, `ls`, `archive <name>`                                                                                                       | `create_pistudio_worktree_request`, `pistudio_worktree_list_request`, `pistudio_worktree_archive_request`                                                                                                                                       |
+| _(top-level)_ | `open <path>`                                                                                                                                               | `open_project_request` (same path as the bare `pi-studio <path>` default action)                                                                                                                                                                |
 
 ### `relay` group (`relay-commands.ts`)
 
-| Command | Description |
-|---------|-------------|
-| `relay start [--listen <host:port>]` | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
-| `relay stop` | Send SIGTERM to the local relay |
-| `relay status [--listen <host:port>]` | Print up/down for the relay at that address |
+| Command                               | Description                                                          |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `relay start [--listen <host:port>]`  | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
+| `relay stop`                          | Send SIGTERM to the local relay                                      |
+| `relay status [--listen <host:port>]` | Print up/down for the relay at that address                          |
 
 A self-hosted deployment of `@av-pi-studio/relay`'s standalone `startRelayServer()`
 (`packages/relay/src/relay-server.ts` — a `ws` `WebSocketServer` wired to `RelaySessionBridge`, plus
@@ -216,6 +224,7 @@ with a client's, keyed by session id (architecture/relay-e2ee.md § Purpose). Ty
 separate publicly-reachable host from the daemon it relays for.
 
 `RelayRuntime` (`relay-control.ts`, mirrors `DaemonRuntime` exactly):
+
 - `probe(host, port)` — HTTP GET `/health`, returns true if 200.
 - `start(opts)` — resolve `@av-pi-studio/relay/server` via `import.meta.resolve` (same pattern
   `subprocessStarter` uses for `@av-pi-studio/server`), spawn a detached `node -e` script calling
@@ -229,6 +238,41 @@ separate publicly-reachable host from the daemon it relays for.
 The package is also directly runnable standalone (no CLI needed) via its own `bin`:
 `pi-studio-relay [--listen host:port]` (or `PI_STUDIO_RELAY_LISTEN` env), e.g.
 `npx @av-pi-studio/relay` on a bare VM.
+
+---
+
+### `pi` command (`pi-commands.ts`)
+
+`pi-studio pi [args...]` — pure pass-through proxy to the embedded Pi coding-agent CLI (the exact
+binary `@earendil-works/pi-coding-agent` ships and the one the daemon spawns for `pi --mode rpc`),
+so `pi-studio pi ...` is a drop-in replacement for a globally-installed `pi` with zero re-implemented
+flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
+
+- `.allowUnknownOption().passThroughOptions().allowExcessArguments().helpOption(false)` on the
+  Commander subcommand — Commander must not parse, validate, or intercept any of Pi's own flags
+  (`--model`, `-p`, `--session`, subcommands like `install`/`config`, …). `helpOption(false)` in
+  particular lets `--help`/`-h` reach Pi's own help instead of pi-studio's (pi-studio's help for
+  this command is still available via `pi-studio --help`).
+- `stdio: "inherit"` — required for Pi's interactive TUI (default when run with no `-p`/`--print`),
+  spinners, and prompts to behave exactly as native `pi`.
+- The child's exit code is forwarded unchanged as the CLI's own exit code.
+
+`PiRuntime` (`pi-commands.ts`, injectable via `CliContext.pi` for tests):
+
+- `resolveBundled()` — `resolveBundledPiCli()` from `@av-pi-studio/server` (re-exported from the
+  same `agent/providers/pi/rpc-transport.ts` the daemon uses to spawn `pi --mode rpc`): resolves
+  `@earendil-works/pi-coding-agent`'s `dist/cli.js` via `import.meta.resolve`, falling back to a
+  `node_modules` walk-up. Returns `null` if the dependency isn't installed.
+- `onPath(bin)` — `resolveBinaryOnPath()` (same package): probes a bare binary on `$PATH`.
+- `piProxyCommand(runtime, args)` — prefers the bundled CLI launched via `process.execPath`; falls
+  back to a global `pi` on `$PATH` when the dependency is absent (mirrors the daemon's own
+  `defaultPiCommand()` fallback); returns `null` when neither is found (reported as `EXIT_ERROR`).
+- `piProxyEnv(opts, env)` — derives `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from
+  `--pi-home`/`PI_STUDIO_PI_HOME` (same derivation as the server's `provider-registry.ts`
+  `piHomeEnv()`, kept as a separate implementation here since the CLI has no daemon config context
+  when run standalone), so `pi-studio pi` talks to the same Pi config tree the daemon's agents use.
+- `spawn({ command, env })` — default implementation forwards signals via shared process-group
+  membership and maps a signal-killed child's exit to the conventional `128 + signal` status.
 
 ---
 
@@ -264,13 +308,14 @@ proxies) and stays in sync with whatever `npm install -g` itself does.
 either way — "already up to date" is not a failure).
 
 `UpdateRuntime` (`update-control.ts`):
+
 - `getLatestVersion(pkg)` — `npm view <pkg> version`; returns `null` on any failure (registry
   unreachable, offline, etc.) rather than throwing, so `runUpdate` can render one clean error line.
 - `installGlobal(pkg, version)` — `npm install -g <pkg>@<version>`; throws on failure (surfaced via
   the child's stderr, falling back to the error message). Self-heals npm's own `ENOTEMPTY`
   rename-collision bug: npm's arborist stages each install swap under a directory name hashed
   from the install path (`@npmcli/arborist`'s `retire-path.js`) and only deletes it after a
-  *successful* install, so an interrupted/killed/concurrent prior update leaves that exact
+  _successful_ install, so an interrupted/killed/concurrent prior update leaves that exact
   directory behind non-empty — colliding with every subsequent install forever until removed by
   hand. `installWithStaleStagingRetry` detects that specific error via `staleStagingDirFrom`,
   `rm -rf`s the directory npm itself reported, and retries (bounded, default 3 attempts) before
@@ -289,13 +334,14 @@ either way — "already up to date" is not a failure).
 
 ```ts
 interface CliContext {
-  connect(opts: ConnectOptions): ReturnType<typeof connectDaemon>;  // injectable in tests
-  sink: OutputSink;               // write() / error() (stdout/stderr abstraction)
-  rpcTimeoutMs?: number;          // default RPC timeout override
-  connectOverrides?: Pick<ConnectOptions, "transport" | "clientId" | "home">;  // test hooks
-  daemon?: DaemonRuntime;        // local daemon control override for tests
-  relay?: RelayRuntime;          // local relay-server control override for tests
-  update?: UpdateRuntime;        // self-update control override for tests
+  connect(opts: ConnectOptions): ReturnType<typeof connectDaemon>; // injectable in tests
+  sink: OutputSink; // write() / error() (stdout/stderr abstraction)
+  rpcTimeoutMs?: number; // default RPC timeout override
+  connectOverrides?: Pick<ConnectOptions, "transport" | "clientId" | "home">; // test hooks
+  daemon?: DaemonRuntime; // local daemon control override for tests
+  relay?: RelayRuntime; // local relay-server control override for tests
+  update?: UpdateRuntime; // self-update control override for tests
+  pi?: PiRuntime; // embedded Pi CLI proxy runtime override for tests
 }
 ```
 
@@ -304,6 +350,7 @@ interface CliContext {
 connection errors with clean stderr output and non-zero exit codes.
 
 Exit codes (`cli-core.ts`):
+
 - `EXIT_OK = 0`
 - `EXIT_ERROR = 1`
 - `EXIT_CONNECTION = 2`

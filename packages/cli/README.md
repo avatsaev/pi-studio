@@ -42,13 +42,13 @@ Run `pi-studio --help` (or `<command> --help`) for the full command tree.
 
 ## Global options
 
-| Flag | Description |
-|---|---|
-| `-H, --host <host>` | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`) |
-| `--password <password>` | Password for a password-protected daemon |
-| `--home <dir>` | Override `$PI_STUDIO_HOME` (used for the client-id store) |
-| `--json` | Render command output as JSON instead of a table |
-| `-v, --version` | Print the installed CLI version and exit |
+| Flag                    | Description                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-H, --host <host>`     | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`) |
+| `--password <password>` | Password for a password-protected daemon                                                                                                                    |
+| `--home <dir>`          | Override `$PI_STUDIO_HOME` (used for the client-id store)                                                                                                   |
+| `--json`                | Render command output as JSON instead of a table                                                                                                            |
+| `-v, --version`         | Print the installed CLI version and exit                                                                                                                    |
 
 **Connection resolution**: `--host host:port` → `ws://host:port`; a `ws://`/`wss://` URL is used
 as-is; `http://`/`https://` are accepted for familiarity and mapped to `ws://`/`wss://` (the daemon
@@ -56,6 +56,7 @@ is an HTTP server that upgrades to WebSocket on the same port); `wss://`/`https:
 no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 **Default action** (no subcommand):
+
 - `pi-studio <path>` — open that path as a project on the daemon.
 - `pi-studio` (bare) — ensure a local daemon is running, then print a pairing QR code.
 
@@ -63,42 +64,42 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 ### `agent`
 
-| Command | Description |
-|---|---|
-| `agent run --provider pi/<model> "prompt"` | Create an agent and run the first turn |
-| `agent ls` | List all agents |
-| `agent attach <agentId>` | Stream an agent's live events |
-| `agent send <agentId> "prompt"` | Send a follow-up prompt |
-| `agent stop <agentId>` | Interrupt the current turn |
-| `agent wait <agentId>` | Block until the agent goes idle or closes |
-| `agent timeline <agentId>` | Print paged timeline history |
-| `agent inspect <agentId>` | Print the full agent record |
-| `agent archive <agentId>` | Soft-delete |
-| `agent delete <agentId>` | Hard delete |
-| `agent update <agentId>` | Update model/mode/features/title/labels |
-| `agent resume <agentId>` | Resume a closed session |
-| `agent import --provider pi --cwd /path --handle <h>` | Import a provider-native session |
+| Command                                               | Description                               |
+| ----------------------------------------------------- | ----------------------------------------- |
+| `agent run --provider pi/<model> "prompt"`            | Create an agent and run the first turn    |
+| `agent ls`                                            | List all agents                           |
+| `agent attach <agentId>`                              | Stream an agent's live events             |
+| `agent send <agentId> "prompt"`                       | Send a follow-up prompt                   |
+| `agent stop <agentId>`                                | Interrupt the current turn                |
+| `agent wait <agentId>`                                | Block until the agent goes idle or closes |
+| `agent timeline <agentId>`                            | Print paged timeline history              |
+| `agent inspect <agentId>`                             | Print the full agent record               |
+| `agent archive <agentId>`                             | Soft-delete                               |
+| `agent delete <agentId>`                              | Hard delete                               |
+| `agent update <agentId>`                              | Update model/mode/features/title/labels   |
+| `agent resume <agentId>`                              | Resume a closed session                   |
+| `agent import --provider pi --cwd /path --handle <h>` | Import a provider-native session          |
 
 Provider spec parsing (`--provider`): `pi/claude-3-5-sonnet` → provider `pi`, model
 `claude-3-5-sonnet`; bare `pi` → provider only; `mock` → the credential-free mock provider.
 
 ### `daemon`
 
-| Command | Description |
-|---|---|
-| `daemon start` | Spawn a local daemon if one isn't already running, then print a pairing QR |
-| `daemon stop` | Send SIGTERM to the local daemon |
-| `daemon status` | Print health + PID |
-| `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json` |
-| `daemon pair` | Print the pairing URL/QR for an already-running daemon |
+| Command                    | Description                                                                |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `daemon start`             | Spawn a local daemon if one isn't already running, then print a pairing QR |
+| `daemon stop`              | Send SIGTERM to the local daemon                                           |
+| `daemon status`            | Print health + PID                                                         |
+| `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json`                  |
+| `daemon pair`              | Print the pairing URL/QR for an already-running daemon                     |
 
 ### `relay`
 
-| Command | Description |
-|---|---|
-| `relay start [--listen <host:port>]` | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
-| `relay stop` | Send SIGTERM to the local relay |
-| `relay status [--listen <host:port>]` | Print up/down for the relay at that address |
+| Command                               | Description                                                          |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `relay start [--listen <host:port>]`  | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
+| `relay stop`                          | Send SIGTERM to the local relay                                      |
+| `relay status [--listen <host:port>]` | Print up/down for the relay at that address                          |
 
 A self-hosted, zero-knowledge relay (`@av-pi-studio/relay`) that lets a client reach a daemon
 behind a firewall/NAT — the daemon dials out to it; see that package's README for the full
@@ -106,10 +107,25 @@ picture. Runs as its own managed process, entirely decoupled from daemon lifecyc
 daemon at it via `daemon.relay.endpoint` in `config.json` (`PI_STUDIO_RELAY_ENDPOINT` env), not
 through this command.
 
+### `pi`
+
+| Command        | Description                                                              |
+| -------------- | ------------------------------------------------------------------------ |
+| `pi [args...]` | Run the embedded Pi coding-agent CLI, forwarding every argument verbatim |
+
+A pure pass-through proxy to the exact `pi` binary bundled inside
+`@earendil-works/pi-coding-agent` (the same one the daemon spawns) — so `pi-studio pi ...` is a
+drop-in replacement for a globally-installed `pi`, with none of its flags, subcommands, or
+interactive TUI reimplemented. `pi-studio pi` alone launches the interactive TUI, exactly like
+bare `pi`; `pi-studio pi -p "prompt"` runs non-interactively. `--pi-home` (global option, must
+come before `pi` on the command line) redirects the bundled CLI's `.pi` config dir, same as it
+does for a locally-spawned daemon. Falls back to a global `pi` on `$PATH` if the bundled
+dependency isn't installed. Never touches the daemon or the wire protocol.
+
 ### `web`
 
-| Command | Description |
-|---|---|
+| Command                                                              | Description                                        |
+| -------------------------------------------------------------------- | -------------------------------------------------- |
 | `web [--web-host <host>] [--web-port <port>] [--daemon-host <host>]` | Serve the prebuilt web-client SPA as a static site |
 
 Serves the built `@av-pi-studio/web-client` UI (`dist/web`) via a minimal static file server with
@@ -120,8 +136,8 @@ tab auto-connects; the command never itself probes or starts a daemon. Blocks un
 
 ### `update`
 
-| Command | Description |
-|---|---|
+| Command            | Description                                                            |
+| ------------------ | ---------------------------------------------------------------------- |
 | `update [--check]` | Self-update to the latest `@av-pi-studio/cli` version published on npm |
 
 Shells out to the same `npm install -g @av-pi-studio/cli@<version>` path used to install the CLI
@@ -135,15 +151,15 @@ available without installing anything.
 command groups (there is no `feature` wrapper, and no `project` group — opening a project is the
 top-level `open <path>` command shown above):
 
-| Group | Commands |
-|---|---|
-| `chat` | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>` |
-| `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>` |
-| `loop` | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>` |
+| Group      | Commands                                                                                                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat`     | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>`         |
+| `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>`                                                            |
+| `loop`     | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>`                                                                          |
 | `schedule` | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` |
-| `permit` | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>` |
-| `provider` | `ls`, `models <providerId>` |
-| `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>` |
+| `permit`   | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>`                                                                                           |
+| `provider` | `ls`, `models <providerId>`                                                                                                                                 |
+| `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>`                                                                                                       |
 
 ## Using it as a library
 
