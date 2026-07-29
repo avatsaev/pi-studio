@@ -78,7 +78,12 @@ jobs:
             echo "no version-bump changes to commit (--no-bump path or nothing changed)"
           fi
 
+      # Retry against the propagation window: Dokploy reports "deployed successfully" once the
+      # new container is healthy, but the reverse proxy in front of it can take a few seconds to
+      # start routing to it — a single immediate curl can catch a stale/404 response even though
+      # the deploy itself succeeded (observed 2026-07-29, run #30467116815).
       - name: Verify production
         run: |
           curl -sf https://relay.molagent.ai/health && echo
-          curl -sf -o /dev/null -w "app.molagent.ai: HTTP %{http_code}\n" https://app.molagent.ai/
+          curl -sf --retry 5 --retry-all-errors --retry-delay 3 -o /dev/null \
+            -w "app.molagent.ai: HTTP %{http_code}\n" https://app.molagent.ai/
