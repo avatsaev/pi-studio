@@ -64,6 +64,9 @@ describe("FileTransferService download", () => {
 
     const frames = binary.map((b) => decodeFileTransferFrame(b));
     expect(frames[0]!.opcode).toBe("Begin");
+    if (frames[0]!.opcode === "Begin") {
+      expect(frames[0]!.meta.mimeType).toBe("application/octet-stream"); // unknown extension
+    }
     expect(frames.at(-1)!.opcode).toBe("End");
     const chunks = frames.filter((f) => f.opcode === "Chunk");
     expect(chunks.length).toBeGreaterThan(1); // bounded chunks
@@ -73,6 +76,23 @@ describe("FileTransferService download", () => {
     expect(assembled).toBe(content);
     if (frames.at(-1)!.opcode === "End") {
       expect((frames.at(-1) as { ok: boolean }).ok).toBe(true);
+    }
+  });
+
+  it("stamps the Begin frame with a known extension's MIME type", async () => {
+    const file = join(dir, "shot.png");
+    await writeFile(file, "not-really-png-bytes");
+
+    const svc = new FileTransferService();
+    const token = svc.issueDownloadToken(file);
+
+    const { binary } = fakeSession();
+    await svc.startDownload(token, 1, (f) => binary.push(f));
+
+    const begin = decodeFileTransferFrame(binary[0]!);
+    expect(begin.opcode).toBe("Begin");
+    if (begin.opcode === "Begin") {
+      expect(begin.meta.mimeType).toBe("image/png");
     }
   });
 

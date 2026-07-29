@@ -24,6 +24,7 @@ import { createInMemoryCapabilityStore } from "../ws/capability-store.js";
 import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
+import { expandHome } from "../files/resolve-path.js";
 
 import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
@@ -453,7 +454,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     const filePath = String(ctx.message.path ?? "");
     const cwd = String(ctx.message.cwd ?? "");
     const staged = Boolean(ctx.message.staged);
-    const resolvedCwd = cwd.startsWith("~") ? join(homedir(), cwd.slice(1)) : cwd || undefined;
+    const resolvedCwd = cwd.startsWith("~") ? expandHome(cwd) : cwd || undefined;
     const runGitDiff = (args: string[]) =>
       new Promise<string>((resolve) => {
         execFile("git", args, { cwd: resolvedCwd, maxBuffer: 1024 * 1024 }, (_err, stdout) => {
@@ -476,7 +477,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // terminal output, heartbeats) shares this thread.
   registry.register("file_read_request", async (ctx) => {
     const filePath = String(ctx.message.path ?? "");
-    const resolved = filePath.startsWith("~") ? join(homedir(), filePath.slice(1)) : filePath;
+    const resolved = expandHome(filePath);
     try {
       const st = await stat(resolved);
       if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };

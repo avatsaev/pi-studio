@@ -1,14 +1,21 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
+import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { AgentManager, PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
-import type { AgentClient, AgentSession, PersistenceHandle, RunOptions } from "./provider-contract.js";
+import type {
+  AgentClient,
+  AgentSession,
+  PersistenceHandle,
+  RunOptions,
+} from "./provider-contract.js";
 import { AgentTimelineStore } from "./timeline-store.js";
+import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
 
 /**
  * AgentService wires `create_agent_request` + run/turn loop + `agent_stream` broadcast
@@ -45,7 +52,10 @@ export function getTimeline(agentId: string): AgentTimelineStore | undefined {
  * from externally rehydrated rows — see `timeline-rpc.ts`'s fallback to a provider's
  * `hydrateTimeline()`. No-op if a timeline already exists (never overwrites live/streamed rows).
  */
-export function seedTimeline(agentId: string, rows: import("./timeline-store.js").TimelineRow[]): void {
+export function seedTimeline(
+  agentId: string,
+  rows: import("./timeline-store.js").TimelineRow[],
+): void {
   if (timelinesByAgentId.has(agentId)) return;
   timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows }));
 }
@@ -110,7 +120,7 @@ export class AgentService {
 
   registerHandlers(registry: HandlerRegistry, getActiveSessions: () => Iterable<Session>): void {
     registry.register("create_agent_request", (ctx) =>
-      this.handleCreate(ctx.message, getActiveSessions),
+      this.handleCreate(ctx.message, getActiveSessions, ctx.session),
     );
     registry.register("send_agent_prompt", (ctx) =>
       this.handleSendPrompt(ctx.message, getActiveSessions),
@@ -124,6 +134,7 @@ export class AgentService {
   async handleCreate(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
+    wsSession?: Session,
   ): Promise<unknown> {
     const requestId = (msg.requestId as string) ?? randomUUID();
     const config = msg.config as Record<string, unknown> | undefined;
@@ -137,6 +148,20 @@ export class AgentService {
     const clientMessageId = msg.clientMessageId as string | undefined;
     const autoArchive = Boolean(msg.autoArchive);
 
+    // When the creating connection advertised `inline_image_markdown` (task-006, sprint-045),
+    // append the image-rendering instruction to the persisted system prompt — never mutating the
+    // caller's `config`, and never reordering/replacing a caller-supplied prompt: it always comes
+    // first, the instruction always after, separated by a blank line. Absent stays absent when
+    // the capability isn't advertised (e.g. every CLI-created session).
+    const effectiveConfig = wsSession?.supports(CLIENT_CAPS.inline_image_markdown)
+      ? {
+          ...config,
+          systemPrompt: [config.systemPrompt as string | undefined, INLINE_IMAGE_INSTRUCTIONS]
+            .filter(Boolean)
+            .join("\n\n"),
+        }
+      : config;
+
     // 1. Create the agent record at status "initializing". `config` is persisted verbatim
     // (`AgentRecord.config`) so a deferred draft (no `initialPrompt`, see step 2) can still spawn
     // with it later, and so a materialized model pick (`config.model`/`config.modelProvider`)
@@ -149,7 +174,7 @@ export class AgentService {
       updatedAt: this.now(),
       labels,
       lastStatus: "initializing",
-      config: config as AgentRecord["config"],
+      config: effectiveConfig as AgentRecord["config"],
       timeline: [],
     };
 
@@ -186,12 +211,18 @@ export class AgentService {
     let session: AgentSession;
     try {
       session = await client.createSession(
-        { provider, cwd, ...config } as Parameters<AgentClient["createSession"]>[0],
+        { provider, cwd, ...effectiveConfig } as Parameters<AgentClient["createSession"]>[0],
         { cwd },
       );
     } catch (error) {
       this.deps.logger?.error(
-        { agentId, provider, model: config.model, cwd, err: (error as Error)?.message ?? String(error) },
+        {
+          agentId,
+          provider,
+          model: config.model,
+          cwd,
+          err: (error as Error)?.message ?? String(error),
+        },
         "agent provider session failed",
       );
       throw error;

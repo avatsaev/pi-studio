@@ -23,6 +23,8 @@ export const CLIENT_CAPS = {
   reasoning_merge_enum: "reasoning_merge_enum",
   /** Client can consume a reflowable terminal snapshot payload. */
   terminal_reflowable_snapshot: "terminal_reflowable_snapshot",
+  /** Client renders markdown images (`![alt](path)`) whose target is a local filesystem path. */
+  inline_image_markdown: "inline_image_markdown",
 } as const;
 
 export type ClientCapabilityKey = keyof typeof CLIENT_CAPS;

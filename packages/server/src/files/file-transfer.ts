@@ -11,6 +11,8 @@ import {
 import type { Session } from "../ws/session.js";
 import type { BinaryHandler, HandlerRegistry } from "../ws/router.js";
 import { DownloadTokenStore } from "./download-token-store.js";
+import { mimeHintForFile } from "./file-explorer.js";
+import { expandHome } from "./resolve-path.js";
 
 /**
  * Chunked file download (token-authorized) + upload over the file-transfer binary frame format
@@ -54,7 +56,7 @@ export class FileTransferService {
       const path = String(ctx.message.path ?? "");
       let resolved: string;
       try {
-        resolved = await realpath(path);
+        resolved = await realpath(expandHome(path));
       } catch {
         return { type: "file_download_token_response", ok: false, error: "not_found" };
       }
@@ -105,7 +107,7 @@ export class FileTransferService {
       encodeFileTransferFrame({
         opcode: "Begin",
         stream,
-        meta: { transferId, fileName: basename(path) },
+        meta: { transferId, fileName: basename(path), mimeType: mimeHintForFile(path) },
       }),
     );
 

@@ -465,6 +465,45 @@ describe("import & resume", () => {
     expect(session.getRuntimeInfo().model).toBe("claude-opus-4");
   });
 
+  it("resumeSession honors per-session systemPrompt from overrides (task-005)", async () => {
+    const { client, spawns } = clientWithFake();
+    await client.resumeSession(
+      { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
+      { cwd: "/work", systemPrompt: "be concise" },
+      { cwd: "/work" },
+    );
+    const args = spawns[0]?.spawnArgs.args ?? [];
+    expect(args).toContain("--append-system-prompt");
+    expect(args).toContain("be concise");
+  });
+
+  it("resumeSession falls back to deps.appendSystemPrompt when overrides has no systemPrompt (task-005)", async () => {
+    const { client, spawns } = clientWithFake({
+      appendSystemPrompt: "default behavior",
+    });
+    await client.resumeSession(
+      { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
+      { cwd: "/work" },
+      { cwd: "/work" },
+    );
+    const args = spawns[0]?.spawnArgs.args ?? [];
+    expect(args).toContain("--append-system-prompt");
+    expect(args).toContain("default behavior");
+  });
+
+  it("resumeSession passes no --append-system-prompt when neither overrides nor deps has systemPrompt (task-005)", async () => {
+    const { client, spawns } = clientWithFake();
+    await client.resumeSession(
+      { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
+      { cwd: "/work" },
+      { cwd: "/work" },
+    );
+    const args = spawns[0]?.spawnArgs.args ?? [];
+    // When both are falsy, buildPiArgs should not include --append-system-prompt at all
+    const appendIdx = args.indexOf("--append-system-prompt");
+    expect(appendIdx).toBe(-1);
+  });
+
   it("createSession (a brand-new, non-resumed session) never sends switch_session", async () => {
     const { client, spawns } = clientWithFake();
     await client.createSession({ provider: "pi", cwd: "/work" });
