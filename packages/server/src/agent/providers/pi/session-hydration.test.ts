@@ -12,7 +12,13 @@ function makeSessionManager(): SessionManager {
   return SessionManager.create("/work", dir);
 }
 
-const USAGE = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+const USAGE = {
+  input: 1,
+  output: 1,
+  cacheRead: 0,
+  cacheWrite: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
 
 describe("hydrateTimelineFromSessionFile", () => {
   it("returns [] for a missing file (never throws)", () => {
@@ -49,6 +55,61 @@ describe("hydrateTimelineFromSessionFile", () => {
     // Real per-entry timestamps carried through, not a single "now" stamp.
     expect(rows[0]?.timestamp).toBe(new Date(1000).toISOString());
     expect(rows[2]?.timestamp).toBe(new Date(2000).toISOString());
+  });
+
+  it("carries a user message's attached images through rehydration (restart/resume regression)", () => {
+    const sm = makeSessionManager();
+    sm.appendMessage({
+      role: "user",
+      content: [
+        { type: "text", text: "what is this?" },
+        { type: "image", data: "Zm9v", mimeType: "image/png" },
+      ],
+      timestamp: 1000,
+    });
+    // The session file is only flushed once an assistant reply lands (SessionManager's
+    // lazy-write optimization) — a bare user message never hits disk on its own.
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "a foo image" }],
+      api: "x",
+      provider: "p",
+      model: "m",
+      usage: USAGE,
+      stopReason: "stop",
+      timestamp: 2000,
+    });
+
+    const rows = hydrateTimelineFromSessionFile(sm.getSessionFile() as string);
+    const userRow = rows[0];
+    expect(userRow?.event.kind).toBe("user_message");
+    expect(userRow?.event.kind === "user_message" ? userRow.event.text : null).toBe(
+      "what is this?",
+    );
+    expect(userRow?.event.kind === "user_message" ? userRow.event.images : null).toEqual([
+      { mimeType: "image/png", data: "Zm9v" },
+    ]);
+  });
+
+  it("omits `images` (not `[]`) for a user message with no image blocks", () => {
+    const sm = makeSessionManager();
+    sm.appendMessage({ role: "user", content: "hello", timestamp: 1000 });
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      api: "x",
+      provider: "p",
+      model: "m",
+      usage: USAGE,
+      stopReason: "stop",
+      timestamp: 2000,
+    });
+
+    const rows = hydrateTimelineFromSessionFile(sm.getSessionFile() as string);
+    const userRow = rows[0];
+    expect(
+      userRow?.event.kind === "user_message" ? userRow.event.images : "missing",
+    ).toBeUndefined();
   });
 
   it("replays tool calls with the edit diff and result output merged from the toolResult entry", () => {

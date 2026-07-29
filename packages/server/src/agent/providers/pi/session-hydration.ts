@@ -31,6 +31,23 @@ function textOf(content: unknown): string {
     .join("");
 }
 
+/** Extract `ImageContent` blocks (`{type:"image", data, mimeType}`, session-format.md) from a
+ * persisted user message's `content` array back into the client's `ImageAttachment` shape
+ * (`{mimeType, data}`, protocol `imageAttachmentSchema`) — the inverse of `toPiImages()`
+ * (`agent.ts`), which is how they got written into Pi's session file in the first place. Returns
+ * `undefined` (not `[]`) when there are none, matching the live `user_message` event's shape
+ * (`opts.images` is `undefined` for a text-only prompt — `session-operations.ts`). */
+function imagesOf(content: unknown): { mimeType?: string; data?: string }[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images = content
+    .filter(
+      (block): block is { type: string; data?: string; mimeType?: string } =>
+        asRecord(block).type === "image",
+    )
+    .map((block) => ({ mimeType: block.mimeType, data: block.data }));
+  return images.length > 0 ? images : undefined;
+}
+
 /** ISO timestamp for an entry: session entries use ISO strings; message timestamps are epoch-ms. */
 function timestampOf(entry: SessionEntry): string {
   if (entry.type === "message") {
@@ -45,7 +62,7 @@ function mapMessage(message: unknown): AgentStreamEvent[] {
   const m = asRecord(message);
   switch (m.role) {
     case "user":
-      return [{ kind: "user_message", text: textOf(m.content) }];
+      return [{ kind: "user_message", text: textOf(m.content), images: imagesOf(m.content) }];
 
     case "assistant": {
       const events: AgentStreamEvent[] = [];

@@ -403,6 +403,19 @@ creation" above.
   `importSession` shares `resumeSession`'s code path and inherited the fix for free. This is what
   makes the inline-image capability's composed system prompt (`handleCreate`'s `effectiveConfig`
   above) survive a restart-then-resume instead of reverting on the very next process spawn.
+- **`hydrateTimelineFromSessionFile`'s user-message mapping used to drop attached images on
+  restart+resume** (`session-hydration.ts`'s `mapMessage()`, `case "user"` — a real bug, not a
+  documented limitation): it only ever extracted `type === "text"` blocks from a persisted
+  message's `content` array via `textOf()`, with no code path reconstructing an `images` field —
+  so a user's attached-image thumbnail (durably written into Pi's own session JSONL as an
+  `ImageContent` block by `toPiImages()`, `providers/pi/agent.ts`) rendered fine right up until a
+  daemon restart, then silently vanished from the chat timeline on resume even though the
+  original file/bytes were never touched — indistinguishable from data loss, but purely a
+  rehydration-adapter gap. Fixed by `imagesOf()`, the inverse of `toPiImages()`, extracting
+  `type === "image"` blocks back into the protocol's `ImageAttachment` shape (`{mimeType, data}`)
+  and attaching them to the rehydrated `user_message` event — mirroring how the assistant-message
+  branch already preserved `text`/`thinking`/`toolCall` blocks verbatim. Returns `undefined` (not
+  `[]`) when there are none, matching the live `user_message` event's shape.
 - **`getRuntimeInfo().model` is cached, not live** — Pi has no synchronous way to report its
   current model, and the contract method `getRuntimeInfo()` cannot itself make an RPC call.
   `discoverState()` (also renamed from `discoverSessionFile()`, sprint-042) issues ONE `get_state`
