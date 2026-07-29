@@ -2,6 +2,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  min-height: 33px;
   padding: 4px 6px 0;
   overflow-x: auto;
   flex-shrink: 0;

@@ -61,11 +61,12 @@ export function SessionList() {
           size="xs"
           variant="ghost"
           iconOnly
+          className={styles.openBtn}
           title={status !== "open" ? "Connect to open a workspace" : "Open a workspace folder"}
           disabled={status !== "open"}
           onClick={() => openCwdPicker()}
         >
-          <FolderOpen size={14} />
+          <FolderOpen size={13} />
         </Button>
       </div>
       <div className={styles.list}>
