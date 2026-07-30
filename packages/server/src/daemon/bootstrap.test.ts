@@ -115,6 +115,7 @@ describe("production daemon bootstrap", () => {
       { type: "loop_list_request" },
       { type: "list_terminals_request" },
       { type: "file_explorer_request", path: booted.home },
+      { type: "file_move_request", path: "", destination: "" },
       { type: "checkout_status_subscribe", cwd: booted.home },
     ];
     for (const probe of probes) {

@@ -59,9 +59,13 @@ export function OpenWorkspaceDialog() {
     setCreateError(null);
   }
 
+  /** Normalizes away a trailing slash so every join site (`${path}/${entry.name}`) can assume
+   *  `path` never ends in "/" — otherwise typing (or `Go`-ing) e.g. "/tmp/" produces a
+   *  doubled-slash child path ("/tmp//pi-move-test") the moment a subfolder is clicked. */
   function navigate(next: string) {
-    setPathState(next);
-    setInputValue(next);
+    const normalized = next.length > 1 ? next.replace(/\/+$/, "") || "/" : next;
+    setPathState(normalized);
+    setInputValue(normalized);
     resetCreate();
   }
 

@@ -22,27 +22,18 @@ export type SpacingKey = keyof Spacing;
 
 // fontSize keys — values deliberately typed as `number` (not literals) so the appearance
 // updater can patch them at runtime. `baseFontSize` holds the documented defaults.
-export type FontSizeKey =
-  | "xs"
-  | "code"
-  | "sm"
-  | "base"
-  | "lg"
-  | "xl"
-  | "2xl"
-  | "3xl"
-  | "4xl";
+export type FontSizeKey = "xs" | "code" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
 
 export const baseFontSize: Readonly<Record<FontSizeKey, number>> = {
-  xs: 12,
-  code: 12,
-  sm: 14,
-  base: 16,
-  lg: 18,
-  xl: 20,
-  "2xl": 22,
-  "3xl": 26,
-  "4xl": 34,
+  xs: 15,
+  code: 15,
+  sm: 17,
+  base: 20,
+  lg: 23,
+  xl: 25,
+  "2xl": 27,
+  "3xl": 33,
+  "4xl": 43,
 };
 
 // fontWeight — RN-style string weights.

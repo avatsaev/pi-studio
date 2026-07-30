@@ -1,5 +1,5 @@
 .diffView {
-  font-size: 12px;
+  font-size: 1.0625rem;
   line-height: 1.6;
   font-family: var(--pi-font-mono, ui-monospace, monospace);
   overflow-x: auto;
@@ -8,7 +8,7 @@
   background: var(--pi-color-surfaceSunken, #111);
   color: var(--pi-color-accentBright, #a2b4d7);
   padding: 4px 14px;
-  font-size: 11px;
+  font-size: 1rem;
   border-bottom: 1px solid var(--pi-color-border, #353b46);
 }
 .line {
@@ -34,5 +34,5 @@
   padding-right: 10px;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   user-select: none;
-  font-size: 11px;
+  font-size: 1rem;
 }

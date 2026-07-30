@@ -128,7 +128,9 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
         if (!isMountedRef.current) {
           // A real close happened with no remount after it — kill the PTY that finished
           // spawning after the tab was already gone, instead of leaking it.
-          void client.connection.request("kill_terminal_request", { slot: created }).catch(() => {});
+          void client.connection
+            .request("kill_terminal_request", { slot: created })
+            .catch(() => {});
           return;
         }
         slotRef.current = created;
@@ -189,8 +191,8 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-      fontSize: 13,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 16,
       scrollback: 5000,
       theme: TERMINAL_THEME,
       allowProposedApi: true,

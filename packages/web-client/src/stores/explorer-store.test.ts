@@ -97,3 +97,98 @@ describe("explorer store — selected", () => {
     expect(useExplorerStore.getState().selected).toBeNull();
   });
 });
+
+describe("explorer store — repathAfterMove", () => {
+  it("carries a moved expanded directory and its expanded descendants to the new prefix", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj", "/proj/a", "/proj/a/b", "/proj/a/b/c"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    const { expanded } = useExplorerStore.getState();
+    expect(expanded).toEqual(
+      new Set(["/proj", "/proj/x", "/proj/x/a", "/proj/x/a/b", "/proj/x/a/b/c"]),
+    );
+  });
+
+  it("leaves an expanded path unrelated to the move byte-identical", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj", "/proj/notes", "/proj/notes-old"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/notes", "/proj/x/notes", "/proj/x");
+    const { expanded } = useExplorerStore.getState();
+    expect(expanded.has("/proj/notes-old")).toBe(true);
+  });
+
+  it("follows selected when it points at the moved item, keeping isDirectory", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: { path: "/proj/a/file.ts", isDirectory: false },
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    expect(useExplorerStore.getState().selected).toEqual({
+      path: "/proj/x/a/file.ts",
+      isDirectory: false,
+    });
+  });
+
+  it("leaves a null selection null", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    expect(useExplorerStore.getState().selected).toBeNull();
+  });
+
+  it("expands toParent even if it was collapsed before", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    expect(useExplorerStore.getState().expanded.has("/proj/x")).toBe(true);
+  });
+
+  it("keeps expandedByRoot for the current rootPath in sync with the new expanded set", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj", "/proj/a"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    const s = useExplorerStore.getState();
+    expect(s.expandedByRoot.get(s.rootPath)).toEqual(s.expanded);
+  });
+
+  it("leaves draft unchanged", () => {
+    const draft = { parentPath: "/proj/a", kind: "file" as const };
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj"]),
+      expandedByRoot: new Map(),
+      draft,
+      selected: null,
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    expect(useExplorerStore.getState().draft).toBe(draft);
+  });
+});

@@ -7,7 +7,7 @@
   border-radius: var(--pi-radius-base, 4px);
   padding: 8px 32px 8px 10px;
   font-family: var(--pi-font-ui, system-ui);
-  font-size: var(--pi-font-size-sm, 14px);
+  font-size: var(--pi-font-size-sm, 1.0625rem);
   color: var(--pi-color-foreground, #fafafa);
   width: 100%;
   outline: none;
@@ -40,7 +40,7 @@
   border-radius: var(--pi-radius-base, 4px);
   padding: 8px 10px;
   font-family: var(--pi-font-ui, system-ui);
-  font-size: var(--pi-font-size-sm, 14px);
+  font-size: var(--pi-font-size-sm, 1.0625rem);
   color: var(--pi-color-foreground, #fafafa);
   outline: none;
   box-sizing: border-box;
@@ -63,13 +63,13 @@
   border-radius: var(--pi-radius-base, 4px);
   margin-top: 4px;
   padding: 4px;
-  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0,0,0,0.4));
+  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.4));
 }
 
 .comboboxOption {
   padding: 6px 8px;
   border-radius: var(--pi-radius-sm, 3px);
-  font-size: var(--pi-font-size-sm, 14px);
+  font-size: var(--pi-font-size-sm, 1.0625rem);
   font-family: var(--pi-font-ui, system-ui);
   color: var(--pi-color-foreground, #fafafa);
   cursor: pointer;
@@ -79,6 +79,7 @@
   text-align: left;
 }
 
-.comboboxOption:hover, .comboboxOptionHighlighted {
+.comboboxOption:hover,
+.comboboxOptionHighlighted {
   background-color: var(--pi-color-surface2, #27272a);
 }

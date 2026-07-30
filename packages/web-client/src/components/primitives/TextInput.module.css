@@ -7,7 +7,7 @@
   border: 1px solid var(--pi-color-border, #3f3f46);
   background-color: var(--pi-color-surface2, #27272a);
   color: var(--pi-color-foreground, #fafafa);
-  font-size: var(--pi-font-size-base, 16px);
+  font-size: var(--pi-font-size-base, 1.25rem);
   font-family: var(--pi-font-ui, system-ui, sans-serif);
   outline: none;
   transition: border-color 120ms ease;

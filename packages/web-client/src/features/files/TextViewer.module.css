@@ -6,7 +6,7 @@
 }
 .note {
   padding: 4px 14px;
-  font-size: 11px;
+  font-size: 1rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   background: var(--pi-color-surface, #16181a);
   border-bottom: 1px solid var(--pi-color-border, #353b46);

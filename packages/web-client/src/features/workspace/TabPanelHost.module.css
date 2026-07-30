@@ -20,7 +20,7 @@
   justify-content: center;
   height: 100%;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 13px;
+  font-size: 1.0625rem;
 }
 .emptyStack {
   display: flex;
@@ -33,10 +33,10 @@
   text-align: center;
 }
 .emptyTitle {
-  font-size: 13px;
+  font-size: 1.0625rem;
   color: var(--pi-color-foreground, #e6e6e6);
 }
 .emptyHint {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

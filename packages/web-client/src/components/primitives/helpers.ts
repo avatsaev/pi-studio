@@ -39,11 +39,7 @@ export {
  *   visible = isHovered || isNative || isCompact
  * On Pi-Studio (web-only), isNative is always false.
  */
-export function hoverVisible(
-  isHovered: boolean,
-  isNative: boolean,
-  isCompact: boolean,
-): boolean {
+export function hoverVisible(isHovered: boolean, isNative: boolean, isCompact: boolean): boolean {
   return isHovered || isNative || isCompact;
 }
 
@@ -61,10 +57,7 @@ export type ButtonAriaAttrs = {
 /**
  * Derive accessible DOM attributes for a button from its logical state.
  */
-export function buttonAriaAttrs(opts: {
-  disabled: boolean;
-  loading: boolean;
-}): ButtonAriaAttrs {
+export function buttonAriaAttrs(opts: { disabled: boolean; loading: boolean }): ButtonAriaAttrs {
   const { disabled, loading } = opts;
   const isDisabled = disabled || loading;
   return {
@@ -83,7 +76,7 @@ export type ButtonInlineStyle = {
   minHeight: number;
   paddingLeft: number;
   paddingRight: number;
-  fontSize: number;
+  fontSize: string;
   opacity: number;
 };
 

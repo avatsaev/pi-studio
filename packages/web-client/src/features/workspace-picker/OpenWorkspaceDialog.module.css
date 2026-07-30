@@ -8,7 +8,7 @@
 }
 .pathInput {
   flex: 1;
-  font-size: 12px;
+  font-size: 1rem;
 }
 .createRow {
   padding: 6px 14px;
@@ -20,11 +20,11 @@
 }
 .createInput {
   flex: 1;
-  font-size: 12px;
+  font-size: 1rem;
 }
 .createError {
   padding: 4px 14px 6px;
-  font-size: 11px;
+  font-size: 0.9375rem;
   color: var(--pi-color-danger, #e5534b);
 }
 .list {
@@ -40,7 +40,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--pi-color-foreground, #fafafa);
 }
 .item:hover {
@@ -53,7 +53,7 @@
 }
 .emptyState {
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1rem;
   text-align: center;
   padding: 20px;
 }

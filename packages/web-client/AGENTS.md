@@ -63,7 +63,8 @@ tsconfig.node.json         config for vite.config.ts
 src/
   main.tsx                 createRoot → <StrictMode><App/></StrictMode>
   app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → WorkspacePage
-  global.css               resets + scrollbar; colors come from theme --pi-* vars
+  global.css               resets + scrollbar; colors and font sizes come from theme --pi-*
+                             vars (font-size scale lives in theme/tokens.ts, see Invariants)
   css-modules.d.ts          ambient CSS-module typings
   vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
                              package.json version, shown in Toolbar.tsx after the brand title)
@@ -108,7 +109,10 @@ src/
                            detached/upstream/conflictCount alongside changes[]), stats-store
                            (per-sessionId context/tokens/cost/model — sprint-042), explorer-store
                            (`selected` — the last-clicked row, target directory for "New File"/
-                           "New Folder" — file-explorer quick-wins-1) (+ test)
+                           "New Folder" — file-explorer quick-wins-1; `repathAfterMove` — rewrites
+                           `expanded`/`selected` after a move so tree state follows the moved
+                           subtree to its new prefix instead of pointing at dead paths —
+                           sprint-046) (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `img` node → InlineImage), InlineImage
                            (task-004 sprint-045 — the `![alt](src)` renderer: remote passthrough,
@@ -171,16 +175,28 @@ src/
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
-                            @tanstack/react-virtual; upload button/drag-and-drop resolved to the
-                            drop-target directory; per-row "⋮" context-menu trigger; header +
+                            @tanstack/react-virtual; upload button targets the workspace root
+                            (OS-file drag-and-drop upload was removed — it made the whole panel
+                            an ambiguous drop zone; internal row drag-and-drop, below, is
+                            unrelated and still supported); per-row "⋮" context-menu trigger; header +
                             context-menu "New File"/"New Folder" target the selected directory
                             (`explorer-store.selected`) instead of always the workspace root — file-
                             explorer quick-wins-1; insert an inline TreeDraftRow under the target
-                            directory, named in place and created on Enter), TreeNode
+                            directory, named in place and created on Enter; internal row
+                            drag-and-drop move — sprint-046: rows are HTML5 drag sources tagged
+                            with a custom `application/x-pi-studio-path` MIME (discriminates from
+                            an OS-file drag, whose `dataTransfer` exposes the type *list* but not
+                            the *value* during `dragover`); hover resolves the legal drop target via
+                            move-target.ts's `resolveMoveTarget`, auto-expands a hovered collapsed
+                            directory after 700ms, and on drop calls move-entry.ts's `moveEntry`,
+                            invalidates both affected `rpcKeys.explorer(...)` listings, repaths
+                            `explorer-store` state, and reopens/closes the moved item's tab), TreeNode
                             (presentational row: chevron/icon/name + actions button, delegates
                             draft rows to TreeDraftRow; `title` tooltip shows the full path; `active`
-                            (open in the current tab) and `selected` (last-clicked) rows get a CSS
-                            highlight — file-explorer quick-wins-1), TreeDraftRow (owns the draft
+                            (open in the current tab), `selected` (last-clicked), and `dropTarget`
+                            (internal-drag hover target — sprint-046) rows each get a CSS
+                            highlight; row is `draggable` and fires `onDragStartRow`/`onDragEndRow`
+                            — file-explorer quick-wins-1), TreeDraftRow (owns the draft
                             input's local text state), FileContextMenu (row menu: Open (files) /
                             New File/New Folder (directories) / Copy Absolute Path / Copy Relative
                             Path / Download (files) / Delete; empty-space variant
@@ -192,11 +208,18 @@ src/
                             kind — file-explorer quick-wins-1), create-entry.ts (shared
                             `file_create_request` caller + error-code messages, used by
                             FileExplorer's tree draft and OpenWorkspaceDialog's "new folder"
-                            affordance), RightSidebar, DiffView,
+                            affordance), move-entry.ts (shared `file_move_request` caller +
+                            error-code messages, same shape as create-entry.ts — sprint-046),
+                            move-target.ts (pure `resolveMoveTarget` — drop-legality decision +
+                            landing path for a row drag, no React/DOM dependency so it's
+                            unit-testable without jsdom — sprint-046), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
-                            MoleculeViewer (molstar WebGL canvas for structure files), MoleculeViewerPanel
+                            MoleculeViewer (molstar WebGL canvas for structure files, wires
+                            `@molviewer/core@0.4.0`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
                             (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
+                            write-file.ts (shared `file_write_request` caller + error-code messages,
+                            mirrors move-entry.ts — used by MoleculeViewer's Save button),
                             molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
                             chrome color override), text-viewer-state.ts (pure state selection), + tests
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
@@ -252,9 +275,9 @@ entered at runtime, never baked into the image.
   a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
   `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
   `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
-  store.ts#connect()` routes between the two via `resolveConnectTarget()`
+store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
-  client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
+client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
@@ -285,6 +308,21 @@ entered at runtime, never baked into the image.
   still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
   Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
   page cap, which would reintroduce silent truncation.
+- **Font sizes are authored in `rem`, never `px`, and enlarged text is baked into the actual
+  scale values — never a root-level CSS percentage multiplier.** Every CSS-module `font-size`
+  (including `var(--pi-font-size-*, …)` fallbacks) is a `rem` value against a 16px base;
+  `theme/css-bridge.ts`'s `pxToRem()` emits the `--pi-font-size-*` tokens as `rem` too. `html`'s
+  font-size is left at the browser default (100%/16px) so `rem` tracks the user's own zoom /
+  accessibility text-size setting untouched — there is no separate app-level multiplier on top
+  of it. `theme/tokens.ts`'s `baseFontSize` (and every per-component `font-size` literal in the
+  CSS modules, and `BUTTON_FONT_SIZE` in `ui/button.ts`, and the xterm `fontSize` in
+  `TerminalPanel.tsx`) IS the one lever for the app's text size — an earlier attempt used a
+  `html { font-size: 125% }` global multiplier instead and was reverted: layering a runtime
+  percentage scale on top of already-authored rem values means paddings/icon-sizes/row-heights
+  (still px) don't grow with the text, and it duplicates the one true scale (`tokens.ts`) with a
+  second, harder-to-reason-about lever. Don't reintroduce a root-percentage override; if text
+  needs to be bigger again, change the numbers in `tokens.ts` (and the matching CSS-module
+  literals) directly.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
@@ -305,16 +343,16 @@ entered at runtime, never baked into the image.
 - **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
   action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
   routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
-  images})`. Steer reuses the exact optimistic-echo + reconciliation path Send uses
+images})`. Steer reuses the exact optimistic-echo + reconciliation path Send uses
   (`addOptimisticUserMessage`/`onUserMessage` in `timeline/reducer.ts`), just with a `queued: true`
   flag on the inserted `UserRow`. A `queue_update` stream event (`{steering: string[], followUp:
-  string[]}`, no ids — best-effort text correlation) clears `queued` once the row's exact text is no
+string[]}`, no ids — best-effort text correlation) clears `queued` once the row's exact text is no
   longer listed (`reducer.ts`'s `onQueueUpdate`, wired into `applyStreamEvent`'s `queue_update`
   case); `UserRow.tsx` renders a small "queued" pill while it's set. Follow-up (`.followUp(...)`,
   delivered only once the turn fully stops) is SDK/CLI-only — intentionally not surfaced in this UI.
   `Composer.tsx` tracks **two independent busy flags** (`sending` for Send/create-agent, `steering`
   for Steer) rather than one shared flag: the Send/create-agent RPC blocks server-side for the
-  *entire* turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
+  _entire_ turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`).
 - **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
@@ -345,6 +383,22 @@ entered at runtime, never baked into the image.
   and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
   scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
   here. `@molviewer/core` is declared in this package's own `package.json` (not root).
+- **Molecule viewer save (`onSave`, `@molviewer/core@0.4.0`).** `MoleculeViewer.tsx` passes
+  `onSave` to `<MolViewer>` only when the tab is file-backed (`path` non-null — the empty
+  "+"-menu tab has nowhere to write and gets no Save button at all, since passing the prop is
+  what draws it). The handler writes `e.text()` (the viewer's own current-frame serialization)
+  straight back to the absolute `path` already in scope via `write-file.ts`'s `file_write_request`
+  caller — NOT `e.fileName`, which is only molviewer's load-time basename (`moleculeSource`'s
+  `name`, no directory) and unusable as a write target. `e.saved()` is called only after the
+  daemon confirms the write; that is what greys the button out and flips `onModifiedChange` back
+  to clean. A failed write (`saveError` state, rendered as an `error`-variant `StatusBadge`
+  alongside the existing "File changed on disk" one, both inside a shared `.badges` absolute
+  corner stack) deliberately does NOT call `e.saved()`, so the structure stays marked dirty and
+  the button stays live for a retry — matches `write-file.ts`'s daemon error codes (`not_found`,
+  `too_large`, `not_a_file`, …), all overwrite-only: the daemon 404s a missing target rather than
+  creating one. `packages/server/src/files/file-explorer.ts`'s `file_write_request` handler is
+  unvalidated (no protocol-package schema entry), matching every other file RPC in this surface —
+  see root AGENTS.md's per-path-subscription passthrough convention.
 - **Live file watching (`use-file-watch`/`use-explorer-watch`/`use-file-live-refresh`).** All three
   subscribe to the daemon's `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family
   (`packages/server/AGENTS.md` § File watching). `watchFile` (the framework-free core behind
@@ -381,7 +435,7 @@ entered at runtime, never baked into the image.
   `resolveWorkspacePath`) for the same jsdom-less reason below.
 - **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
   size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
-  limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
+limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
   `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB local constant in `TextViewer.tsx`) — transparently
   refetch via the uncapped chunked binary `useFileText` (wraps `useFileDownload` + decodes blob
   to text; the decode query is keyed on `(path, objectUrl)` so a `fileDownload` invalidation's new
@@ -420,11 +474,11 @@ entered at runtime, never baked into the image.
   past. **Deliberately not TanStack Query**, despite this package using it everywhere else for
   server data (`lib/connection/query-client.ts`): Query's retention model is "cache while
   observed, garbage-collect on `gcTime` after the last observer unmounts" — it has no notion of
-  "keep this alive because a *different*, currently-unmounted row still refers to it," which is
+  "keep this alive because a _different_, currently-unmounted row still refers to it," which is
   exactly the virtualization case above. Query also has no eviction hook to revoke an object URL
   at the moment an entry actually leaves cache; without that, unmounting the last observer would
   either revoke too early (URL dies while a sibling row still needs it) or never (`gcTime:
-  Infinity`, permanent leak). Do not migrate this cache onto Query — re-implementing ref-counted,
+Infinity`, permanent leak). Do not migrate this cache onto Query — re-implementing ref-counted,
   LRU-bounded, revoke-on-evict retention on top of Query's own cache is strictly more code than
   the ~130-line hand-rolled module it would replace, for a policy Query cannot express natively.
   **Render layer (task-004):** `timeline/InlineImage.tsx` is `markdown.tsx`'s `img` node
@@ -551,7 +605,7 @@ entered at runtime, never baked into the image.
   - **`Composer.tsx`'s `submit()` must close the menu itself**, not just `applyCommand`'s
     trailing-space path (`shouldOpenMenu(" …")` → false). A bare Enter or a Send/Steer button click
     can fire while the menu is still open over a draft with zero filter matches (`filtered.length
-    === 0`, so `handleKeyDown`'s accept branch never ran) — without an explicit `setMenuOpen(false)`
+=== 0`, so `handleKeyDown`'s accept branch never ran) — without an explicit `setMenuOpen(false)`
     in `submit()`, sending clears the draft to `""` but leaves the menu open, which then renders
     the full unfiltered list (empty `text` → `parseSlashToken` → `null` → unfiltered `options`)
     right after the send. Another real, live-caught bug.
@@ -593,7 +647,7 @@ entered at runtime, never baked into the image.
     spread in (`{...preventOpenAutoFocus}`), which is honest about the gap without widening
     `DropdownMenu.Content`'s props as a whole. This was a real, unnoticed break because
     `packages/web-client` isn't in the root `tsconfig.json`'s project references — `npm run
-    typecheck` never covers it; only the full `npm run build` (which runs `vite build`'s own
+typecheck` never covers it; only the full `npm run build` (which runs `vite build`'s own
     `tsc -b`) catches it.
   - **Extension-sourced commands are hidden, not disabled, while a turn is running**
     (`commandOptions(commands, { running })` in `slash-commands.ts`): Pi rejects extension commands
@@ -614,7 +668,7 @@ entered at runtime, never baked into the image.
   `"Model"` placeholder), unlike the other five which are plain icon+text and only render when
   their underlying value exists (`gitAvailable`, `session`, …). Its leading chevron is therefore
   driven separately from the generic segment loop's `i > 0` check — see the render's `Boolean(session)
-  || i > 0` condition — since it sits outside the `segments` array those five build. Reads
+|| i > 0` condition — since it sits outside the `segments` array those five build. Reads
   `session-store`/`git-store`/`stats-store` (all reactive selectors); polls via
   `useSessionStats(activeSessionId)`. Two subtleties that matter if you touch this area:
   - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
@@ -631,7 +685,7 @@ entered at runtime, never baked into the image.
     `client.agent(id).sessionStats()` on mount/session-switch, on a ~12s interval, and immediately
     when the session's `status` transitions away from `"running"`. Its `applySessionStats` also
     writes a poll-returned `model` back into `session-store` (not just `stats-store`) — the model
-    *segment* reads `SessionEntry.model`, so skipping this write-through leaves the segment
+    _segment_ reads `SessionEntry.model`, so skipping this write-through leaves the segment
     permanently blank even though the poll succeeded (a real bug this sprint's live smoke test
     caught before it shipped).
 - **Timeline auto-scroll's mount-time "grew" ref must revert on cleanup.** `Timeline.tsx`'s
@@ -641,7 +695,7 @@ entered at runtime, never baked into the image.
   React StrictMode's dev-only double-invoke (mount → phantom cleanup → mount, same instance, no
   actual teardown — see `TerminalPanel.tsx`'s own doc comment for the established pattern): the
   phantom first invocation already flips the ref, so the real second invocation sees `grew ===
-  false` and skips the scroll — right as `@tanstack/react-virtual`'s OWN scroll-element
+false` and skips the scroll — right as `@tanstack/react-virtual`'s OWN scroll-element
   re-attachment (which correctly redoes itself across that same phantom cycle) resets the DOM
   `scrollTop` back to `0`. Net effect (a real, live-verified bug, not theoretical): every
   freshly-opened or freshly-restored chat tab with existing history opened at the TOP instead of

@@ -17,6 +17,10 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Distinct from the main content area (--pi-color-background) — was unset, so the whole
+     sidebar (and everything in it, e.g. workspace-group headers) silently matched the page
+     background instead of reading as its own panel. */
+  background: var(--pi-color-surfaceSidebar, #141716);
 }
 .leftHandle {
   right: -3px;

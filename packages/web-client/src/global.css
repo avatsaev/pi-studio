@@ -1,6 +1,12 @@
 /* Global reset — zero the browser default body margin and make the app fill the viewport.
    Color/type tokens are injected as `--pi-*` CSS variables at runtime by the theme
    system (see src/theme/css-bridge.ts, applied via ThemeBoundary). */
+/* Root font-size is left at the browser default (100% / 16px) so `rem` tracks the user's own
+   zoom / accessibility text-size setting untouched — no app-level multiplier layered on top.
+   Every font-size in the app is authored in `rem` against that 16px base (see
+   theme/css-bridge.ts's `pxToRem`), and the actual sizes live in theme/tokens.ts's
+   `baseFontSize` scale — that scale IS the one lever for enlarging text; there is no separate
+   root-percentage override to keep in sync with it. */
 html,
 body {
   margin: 0;

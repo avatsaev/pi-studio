@@ -8,6 +8,7 @@
 import { ChevronRight, Folder, File as FileIcon, MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
 import type { TreeRow } from "./file-tree.js";
+import type { DragEvent } from "react";
 import { TreeDraftRow } from "./TreeDraftRow.js";
 import styles from "./FileExplorer.module.css";
 
@@ -19,11 +20,15 @@ export interface TreeNodeProps {
   /** True when this row is the last-clicked row (`explorer-store.ts`'s `selected`) — the target
    * directory for "New File"/"New Folder". */
   selected?: boolean;
+  /** True while an internal drag would land in this row (`FileExplorer.tsx`'s hovered target). */
+  dropTarget?: boolean;
   onToggle(path: string): void;
   onOpenFile(path: string): void;
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
   onSubmitDraft(parentPath: string, name: string): void;
   onCancelDraft(): void;
+  onDragStartRow(path: string, e: DragEvent): void;
+  onDragEndRow(): void;
 }
 
 const INDENT_PX = 14;
@@ -32,11 +37,14 @@ export function TreeNode({
   row,
   active,
   selected,
+  dropTarget,
   onToggle,
   onOpenFile,
   onContextMenu,
   onSubmitDraft,
   onCancelDraft,
+  onDragStartRow,
+  onDragEndRow,
 }: TreeNodeProps) {
   const indent = { paddingLeft: 8 + row.depth * INDENT_PX };
 
@@ -68,9 +76,17 @@ export function TreeNode({
   const isDirectory = row.kind === "directory";
   return (
     <div
-      className={clsx(styles.item, active && styles.active, selected && styles.selected)}
+      className={clsx(
+        styles.item,
+        active && styles.active,
+        selected && styles.selected,
+        dropTarget && styles.dropTarget,
+      )}
       style={indent}
       title={row.path}
+      draggable
+      onDragStart={(e) => onDragStartRow(row.path, e)}
+      onDragEnd={onDragEndRow}
       onClick={() => (isDirectory ? onToggle(row.path) : onOpenFile(row.path))}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -81,13 +97,13 @@ export function TreeNode({
       <span className={styles.chevronSlot}>
         {isDirectory && (
           <ChevronRight
-            size={12}
+            size={14}
             className={clsx(styles.chevron, row.expanded && styles.chevronOpen)}
           />
         )}
       </span>
       <span className={styles.icon}>
-        {isDirectory ? <Folder size={14} /> : <FileIcon size={14} />}
+        {isDirectory ? <Folder size={16} /> : <FileIcon size={16} />}
       </span>
       <span className={isDirectory ? styles.dirName : styles.name}>{row.name}</span>
       <button
@@ -100,7 +116,7 @@ export function TreeNode({
           onContextMenu(row.path, isDirectory, rect.left, rect.bottom);
         }}
       >
-        <MoreVertical size={12} />
+        <MoreVertical size={14} />
       </button>
     </div>
   );

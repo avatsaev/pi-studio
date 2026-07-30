@@ -25,7 +25,7 @@
     "@av-pi-studio/highlight": "^0.0.51",
     "@av-pi-studio/protocol": "^0.0.51",
     "@av-pi-studio/relay": "^0.0.51",
-    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
     "@xterm/headless": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "lru-cache": "^11.5.1",

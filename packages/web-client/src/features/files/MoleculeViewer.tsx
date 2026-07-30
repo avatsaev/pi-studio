@@ -14,17 +14,28 @@
  * clears, `download.refetch()` mints a fresh object URL, the `source` prop changes, and
  * `MolViewer` reloads with `sourceMode="update"` — camera/selection survive. When it's gated by
  * unsaved edits, a small stale-file indicator surfaces instead of silently diverging.
+ *
+ * Save (`onSave`, `@molviewer/core@0.4.0`): only wired when `path` is non-null — a file-backed
+ * tab writes the viewer's current serialization straight back to that same absolute path via
+ * `file_write_request` (`write-file.ts`); the empty ("+"-menu) tab has nowhere to write and gets
+ * no Save button at all (passing `onSave` is what draws it). `e.saved()` is called only after the
+ * daemon confirms the write, which is what greys the button out and flips the viewer back to
+ * clean — a failed write leaves it live so the user can retry. Note `e.fileName` is molviewer's
+ * own load-time basename (`moleculeSource`'s `name`, extension only, no directory), not a usable
+ * write target — the absolute `path` prop already in scope is what gets written.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { MolViewer, type MolViewerHandle } from "@molviewer/core";
+import { MolViewer, type MolViewerHandle, type SaveEvent } from "@molviewer/core";
 import "@molviewer/core/style.css";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { StatusBadge } from "@pi-studio-ui/components/primitives/StatusBadge.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import { useFileWatch } from "@pi-studio-ui/hooks/use-file-watch.js";
 import { moleculeSource } from "./molecule-source.js";
 import { shouldApplyRefresh } from "./molecule-reload.js";
+import { writeFile } from "./write-file.js";
 import { MOLVIEWER_THEME } from "./molecule-theme.js";
 import styles from "./MoleculeViewer.module.css";
 
@@ -43,6 +54,7 @@ export interface MoleculeViewerProps {
 }
 
 export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeViewerProps) {
+  const client = useConnectionStore((s) => s.client);
   const download = useFileDownload(path ?? "", Boolean(path));
   const { changedAt } = useFileWatch(path);
   const handleRef = useRef<MolViewerHandle>(null);
@@ -53,6 +65,7 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
   const hasLoadedRef = useRef(false);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [modified, setModified] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Ref, not state: recording "which push we last acted on" doesn't need its own render — it's
   // read by the same effect that writes it, and by the stale-indicator check below.
   const lastAppliedAtRef = useRef<number | null>(null);
@@ -75,6 +88,21 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
   // the effect above, which always runs before the next paint that could observe a stale value.
   const hasUnappliedChange =
     changedAt !== null && changedAt !== lastAppliedAtRef.current && modified;
+
+  async function handleSave(e: SaveEvent) {
+    if (!path) return;
+    if (!client) {
+      setSaveError("Not connected — cannot save.");
+      return;
+    }
+    setSaveError(null);
+    try {
+      await writeFile(client, path, e.text());
+      e.saved();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
 
   const downloadErrorMessage = download.isError
     ? download.error instanceof Error
@@ -102,9 +130,10 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
 
   return (
     <div className={styles.wrap} data-molecule-active={isActive ? "true" : "false"}>
-      {hasUnappliedChange && (
-        <StatusBadge label="File changed on disk" variant="muted" className={styles.staleBadge} />
-      )}
+      <div className={styles.badges}>
+        {hasUnappliedChange && <StatusBadge label="File changed on disk" variant="muted" />}
+        {saveError && <StatusBadge label={`Save failed: ${saveError}`} variant="error" />}
+      </div>
       <MolViewer
         ref={handleRef}
         className={styles.molViewer}
@@ -120,6 +149,7 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
           setModified(m);
           onModifiedChange?.(m);
         }}
+        onSave={path ? handleSave : undefined}
       />
     </div>
   );

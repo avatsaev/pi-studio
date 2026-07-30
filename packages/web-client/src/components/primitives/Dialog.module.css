@@ -34,7 +34,7 @@
   flex-shrink: 0;
 }
 .title {
-  font-size: 13px;
+  font-size: 1.0625rem;
   margin: 0;
   flex: 1;
   color: var(--pi-color-foreground, #fafafa);

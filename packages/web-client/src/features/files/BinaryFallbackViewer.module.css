@@ -7,10 +7,10 @@
   height: 100%;
   min-height: 0;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1.0625rem;
 }
 .name {
   color: var(--pi-color-foreground, #fafafa);
-  font-size: 13px;
+  font-size: 1.1875rem;
   font-weight: 600;
 }
