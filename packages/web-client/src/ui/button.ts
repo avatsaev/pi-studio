@@ -28,12 +28,13 @@ export const BUTTON_PADDING_H: Record<ButtonSize, number> = {
   lg: 16,
 };
 
-// Font size per size (px).
-export const BUTTON_FONT_SIZE: Record<ButtonSize, number> = {
-  xs: 12,
-  sm: 13,
-  md: 14,
-  lg: 15,
+// Font size per size, in rem (relative to the root font-size — see global.css) so button labels
+// scale consistently with the rest of the app's text instead of staying pinned in absolute px.
+export const BUTTON_FONT_SIZE: Record<ButtonSize, string> = {
+  xs: "0.9375rem",
+  sm: "1rem",
+  md: "1.0625rem",
+  lg: "1.1875rem",
 };
 
 export type ButtonStateStyle = {

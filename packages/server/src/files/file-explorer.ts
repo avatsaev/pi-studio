@@ -1,6 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readdir, realpath, rm, stat } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile as writeFileFs,
+} from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
+
+import { MAX_INLINE_FILE_READ_BYTES } from "./limits.js";
 
 import type { HandlerRegistry } from "../ws/router.js";
 
@@ -78,12 +90,25 @@ export class FileExplorerService {
       ...(await this.deleteFile(String(ctx.message.path ?? ""))),
     }));
 
+    registry.register("file_write_request", async (ctx) => ({
+      type: "file_write_response",
+      ...(await this.writeFile(String(ctx.message.path ?? ""), String(ctx.message.content ?? ""))),
+    }));
+
     registry.register("file_create_request", async (ctx) => ({
       type: "file_create_response",
       ...(await this.createEntry(
         String(ctx.message.path ?? ""),
         String(ctx.message.name ?? ""),
         ctx.message.kind === "directory" ? "directory" : "file",
+      )),
+    }));
+
+    registry.register("file_move_request", async (ctx) => ({
+      type: "file_move_response",
+      ...(await this.moveEntry(
+        String(ctx.message.path ?? ""),
+        String(ctx.message.destination ?? ""),
       )),
     }));
   }
@@ -135,6 +160,132 @@ export class FileExplorerService {
       }
       return { ok: false, error: err instanceof Error ? err.message : "create_failed" };
     }
+  }
+
+  /**
+   * Move or rename `inputPath` to `inputDestination` (`fs.rename`-shaped). Every rejection is
+   * decided here so the client never has to duplicate a legality rule (features/file-explorer-
+   * move.md § Behavior & Algorithms). Only the *parent* of each path is `realpath`-resolved and
+   * the basename re-joined — resolving the full source would follow a symlink to its target
+   * instead of moving the link itself, which is not `mv` semantics. The existence check
+   * (`lstat(destination)`) and the `rename` below race under concurrent callers (TOCTOU); this is
+   * accepted for a single-user local daemon rather than adding a lock.
+   */
+  async moveEntry(
+    inputPath: string,
+    inputDestination: string,
+  ): Promise<{ ok: true; path: string; destination: string } | { ok: false; error: string }> {
+    if (!inputPath || !inputDestination) return { ok: false, error: "empty_path" };
+
+    let source: string;
+    try {
+      source = join(await realpath(resolve(dirname(inputPath))), basename(inputPath));
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+    let destination: string;
+    let destinationParent: string;
+    try {
+      destinationParent = await realpath(resolve(dirname(inputDestination)));
+      destination = join(destinationParent, basename(inputDestination));
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+
+    const destName = basename(inputDestination).trim();
+    if (
+      !destName ||
+      destName === "." ||
+      destName === ".." ||
+      destName.includes("/") ||
+      destName.includes("\0")
+    ) {
+      return { ok: false, error: "invalid_name" };
+    }
+
+    let sourceInfo;
+    try {
+      sourceInfo = await lstat(source);
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+
+    let destinationParentInfo;
+    try {
+      destinationParentInfo = await stat(destinationParent);
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+    if (!destinationParentInfo.isDirectory()) return { ok: false, error: "not_a_directory" };
+
+    if (source === destination) return { ok: false, error: "same_path" };
+    if (sourceInfo.isDirectory() && destination.startsWith(`${source}/`)) {
+      return { ok: false, error: "into_descendant" };
+    }
+
+    try {
+      await lstat(destination);
+      return { ok: false, error: "exists" };
+    } catch {
+      // Destination absent — good, proceed.
+    }
+
+    try {
+      await rename(source, destination);
+      return { ok: true, path: source, destination };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EXDEV")
+        return { ok: false, error: "cross_device" };
+      return { ok: false, error: err instanceof Error ? err.message : "move_failed" };
+    }
+  }
+
+  /**
+   * Overwrite an existing regular file's full content, atomically. Unlike `createEntry`'s
+   * create-exclusive semantics, this requires the target to already exist — creating a new file
+   * is `file_create_request`'s job, and a write against a missing path is `not_found`, not a
+   * silent create. The write itself goes to a sibling temp file first, then `rename`s over the
+   * resolved target, so a crash mid-write (or a concurrent reader/preview) never observes a
+   * partially-written file. Capped at `MAX_INLINE_FILE_READ_BYTES` — the same ceiling
+   * `previewFile` reads under, since a save that round-trips a preview truncated by that cap
+   * would otherwise silently discard the tail of the file.
+   */
+  async writeFile(
+    inputPath: string,
+    content: string,
+  ): Promise<
+    { ok: true; path: string; size: number; mtimeMs: number } | { ok: false; error: string }
+  > {
+    if (!inputPath) return { ok: false, error: "empty_path" };
+    if (Buffer.byteLength(content, "utf8") > MAX_INLINE_FILE_READ_BYTES) {
+      return { ok: false, error: "too_large" };
+    }
+
+    let resolvedPath: string;
+    try {
+      resolvedPath = await realpath(resolve(inputPath));
+    } catch {
+      return { ok: false, error: "not_found" };
+    }
+    let info;
+    try {
+      info = await stat(resolvedPath);
+    } catch {
+      return { ok: false, error: "unreadable" };
+    }
+    if (!info.isFile()) return { ok: false, error: "not_a_file" };
+
+    const tmpPath = join(dirname(resolvedPath), `.${basename(resolvedPath)}.tmp-${randomUUID()}`);
+    try {
+      await writeFileFs(tmpPath, content, "utf8");
+      await rename(tmpPath, resolvedPath);
+    } catch (err) {
+      await rm(tmpPath, { force: true }).catch(() => {});
+      return { ok: false, error: err instanceof Error ? err.message : "write_failed" };
+    }
+
+    const updated = await stat(resolvedPath);
+    return { ok: true, path: resolvedPath, size: updated.size, mtimeMs: updated.mtimeMs };
   }
 
   /** Normalize + resolve a path (symlinks), then list a directory or preview a file. */

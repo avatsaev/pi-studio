@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
 .dot {

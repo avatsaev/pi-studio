@@ -41,6 +41,10 @@ interface ExplorerStoreState {
    * selected file's parent directory. `null` (nothing selected yet) falls back to `rootPath`. */
   selected: { path: string; isDirectory: boolean } | null;
   setSelected(selected: { path: string; isDirectory: boolean } | null): void;
+  /** Rewrite tree state after a move: any expanded path equal to `from` or nested under it
+   * becomes the same path under `to`, and `selected` follows the same rewrite. Also expands
+   * `toParent` so the moved item is visible where it landed. */
+  repathAfterMove(from: string, to: string, toParent: string): void;
 }
 
 export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
@@ -83,6 +87,23 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
   cancelDraft: () => set({ draft: null }),
 
   setSelected: (selected) => set({ selected }),
+
+  repathAfterMove: (from, to, toParent) =>
+    set((s) => {
+      const rewrite = (p: string) =>
+        p === from ? to : p.startsWith(`${from}/`) ? to + p.slice(from.length) : p;
+
+      const expanded = new Set([...s.expanded].map(rewrite));
+      expanded.add(toParent);
+      const expandedByRoot = new Map(s.expandedByRoot);
+      if (s.rootPath) expandedByRoot.set(s.rootPath, expanded);
+
+      const selected = s.selected
+        ? { path: rewrite(s.selected.path), isDirectory: s.selected.isDirectory }
+        : null;
+
+      return { expanded, expandedByRoot, selected };
+    }),
 }));
 interface ExplorerEntry {
   name?: string;

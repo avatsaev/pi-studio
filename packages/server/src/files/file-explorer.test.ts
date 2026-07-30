@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -208,5 +218,215 @@ describe("FileExplorerService.createEntry", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.error).toBe("empty_path");
+  });
+});
+
+describe("FileExplorerService.writeFile", () => {
+  it("overwrites an existing file's content atomically", async () => {
+    const target = join(dir, "doc.md");
+    await writeFile(target, "old content");
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(target, "new content");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.size).toBe(Buffer.byteLength("new content"));
+    await expect(readFile(target, "utf8")).resolves.toBe("new content");
+  });
+
+  it("returns not_found when the target does not exist (write never creates)", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(join(dir, "does-not-exist.txt"), "x");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("not_found");
+  });
+
+  it("returns not_a_file when the target is a directory", async () => {
+    const target = join(dir, "sub");
+    await mkdir(target);
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(target, "x");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("not_a_file");
+  });
+
+  it("returns empty_path for an empty path", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile("", "x");
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("empty_path");
+  });
+
+  it("returns too_large when content exceeds the inline cap", async () => {
+    const target = join(dir, "big.txt");
+    await writeFile(target, "small");
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(target, "x".repeat(5 * 1024 * 1024 + 1));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("too_large");
+    // Rejected write must not touch the existing file.
+    await expect(readFile(target, "utf8")).resolves.toBe("small");
+  });
+
+  it("resolves a symlinked target before writing", async () => {
+    const real = join(dir, "real.txt");
+    const link = join(dir, "link.txt");
+    await writeFile(real, "old");
+    await symlink(real, link);
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(link, "updated");
+    expect(result.ok).toBe(true);
+    await expect(readFile(real, "utf8")).resolves.toBe("updated");
+  });
+
+  it("does not leave a temp file behind on success", async () => {
+    const target = join(dir, "clean.txt");
+    await writeFile(target, "old");
+    const svc = new FileExplorerService();
+    await svc.writeFile(target, "new");
+    const entries = await readdir(dir);
+    expect(entries).toEqual(["clean.txt"]);
+  });
+});
+
+describe("FileExplorerService.moveEntry", () => {
+  it("moves a file into a sibling directory", async () => {
+    const sub = join(dir, "sub");
+    await mkdir(sub);
+    const source = join(dir, "note.txt");
+    await writeFile(source, "hello");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(sub, "note.txt"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.destination).toBe(join(sub, "note.txt"));
+    await expect(readFile(join(sub, "note.txt"), "utf8")).resolves.toBe("hello");
+    await expect(stat(source)).rejects.toThrow();
+  });
+
+  it("renames within the same parent", async () => {
+    const source = join(dir, "old.txt");
+    await writeFile(source, "hi");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(dir, "new.txt"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    await expect(readFile(join(dir, "new.txt"), "utf8")).resolves.toBe("hi");
+  });
+
+  it("moves a directory carrying its nested contents", async () => {
+    const source = join(dir, "src");
+    await mkdir(join(source, "sub"), { recursive: true });
+    await writeFile(join(source, "sub", "deep.txt"), "deep");
+    const dest = join(dir, "dst");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, dest);
+    expect(result.ok).toBe(true);
+    await expect(readFile(join(dest, "sub", "deep.txt"), "utf8")).resolves.toBe("deep");
+  });
+
+  it("returns exists for a colliding destination and leaves both paths untouched", async () => {
+    const source = join(dir, "a.txt");
+    const dest = join(dir, "b.txt");
+    await writeFile(source, "a");
+    await writeFile(dest, "b");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, dest);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("exists");
+    await expect(readFile(source, "utf8")).resolves.toBe("a");
+    await expect(readFile(dest, "utf8")).resolves.toBe("b");
+  });
+
+  it("returns into_descendant when a directory is moved into its own subtree", async () => {
+    const source = join(dir, "parent");
+    await mkdir(join(source, "child"), { recursive: true });
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(source, "child", "parent"));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("into_descendant");
+  });
+
+  it("returns same_path for identical source and destination", async () => {
+    const source = join(dir, "same.txt");
+    await writeFile(source, "x");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, source);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("same_path");
+  });
+
+  it("returns not_found for a missing source or missing destination parent", async () => {
+    const svc = new FileExplorerService();
+    const missingSource = await svc.moveEntry(
+      join(dir, "does-not-exist.txt"),
+      join(dir, "dest.txt"),
+    );
+    expect(missingSource.ok).toBe(false);
+    if (missingSource.ok) throw new Error("unreachable");
+    expect(missingSource.error).toBe("not_found");
+
+    const source = join(dir, "real.txt");
+    await writeFile(source, "x");
+    const missingDestParent = await svc.moveEntry(source, join(dir, "does-not-exist", "dest.txt"));
+    expect(missingDestParent.ok).toBe(false);
+    if (missingDestParent.ok) throw new Error("unreachable");
+    expect(missingDestParent.error).toBe("not_found");
+  });
+
+  it("returns not_a_directory when the destination parent is a regular file", async () => {
+    const source = join(dir, "s.txt");
+    await writeFile(source, "x");
+    const notADir = join(dir, "not-a-dir.txt");
+    await writeFile(notADir, "x");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(notADir, "dest.txt"));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("not_a_directory");
+  });
+
+  it("returns invalid_name for a '..' destination basename", async () => {
+    const source = join(dir, "s2.txt");
+    await writeFile(source, "x");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, `${dir}/..`);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("invalid_name");
+  });
+
+  it("returns empty_path when either path is empty", async () => {
+    const svc = new FileExplorerService();
+    const a = await svc.moveEntry("", join(dir, "x"));
+    expect(a.ok).toBe(false);
+    if (a.ok) throw new Error("unreachable");
+    expect(a.error).toBe("empty_path");
+
+    const b = await svc.moveEntry(join(dir, "x"), "");
+    expect(b.ok).toBe(false);
+    if (b.ok) throw new Error("unreachable");
+    expect(b.error).toBe("empty_path");
+  });
+
+  it("moves a symlink itself, not its target", async () => {
+    const real = join(dir, "real-target.txt");
+    await writeFile(real, "content");
+    const link = join(dir, "the-link");
+    await symlink(real, link);
+    const sub = join(dir, "sub");
+    await mkdir(sub);
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(link, join(sub, "the-link"));
+    expect(result.ok).toBe(true);
+    const movedInfo = await lstat(join(sub, "the-link"));
+    expect(movedInfo.isSymbolicLink()).toBe(true);
+    await expect(readFile(real, "utf8")).resolves.toBe("content");
   });
 });

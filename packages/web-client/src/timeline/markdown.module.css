@@ -1,5 +1,5 @@
 .prose {
-  font-size: var(--pi-fontSize-base, 14px);
+  font-size: var(--pi-font-size-sm, 1.0625rem);
   line-height: 1.5;
   color: var(--pi-color-foreground, #fafafa);
   word-break: break-word;
@@ -25,7 +25,7 @@
 }
 .prose pre code {
   font-family: var(--pi-font-mono, ui-monospace, monospace);
-  font-size: var(--pi-fontSize-code, 13px);
+  font-size: 1rem;
   background: none;
   padding: 0;
 }
@@ -70,7 +70,7 @@
   justify-content: center;
   gap: 8px;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1rem;
   padding: 20px;
   min-height: 200px;
   margin: 0.5em 0;

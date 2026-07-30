@@ -261,6 +261,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/mcp-server.md](features/mcp-server.md)                         | feature      | MCP tools exposing the daemon to agents                                       |
 | [features/service-proxy.md](features/service-proxy.md)                   | feature      | HTTP proxy to workspace dev services with generated hostnames                 |
 | [features/file-explorer-transfer.md](features/file-explorer-transfer.md) | feature      | File browser + download/upload binary streams                                 |
+| [features/file-explorer-move.md](features/file-explorer-move.md)         | feature      | Move/rename files and directories, explorer drag-and-drop                     |
 | [features/subagents.md](features/subagents.md)                           | feature      | Parent/child agents, subagents track, cascade archive                         |
 | [features/cli.md](features/cli.md)                                       | feature      | Commander.js CLI command surface                                              |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |

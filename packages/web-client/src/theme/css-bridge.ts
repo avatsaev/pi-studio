@@ -11,6 +11,17 @@ import { type ThemeColors, type SyntaxColors, type TerminalTheme } from "./color
 // Token → variable-name map
 // ---------------------------------------------------------------------------
 
+// Root `html` font-size is left at the browser/OS default (see global.css) — 1rem tracks the
+// user's own zoom / accessibility text-size setting. `REM_BASE_PX` is only the conversion
+// constant for our px-authored design scale (tokens.ts `baseFontSize`), not a CSS override.
+const REM_BASE_PX = 16;
+
+function pxToRem(px: number): string {
+  const rem = px / REM_BASE_PX;
+  // Trim trailing zeros (e.g. 0.7500 -> 0.75) without reintroducing exponent notation.
+  return `${Number(rem.toFixed(4))}rem`;
+}
+
 /**
  * Given a Theme, produces a flat Record<`--pi-${path}`, value> map
  * suitable for setting on `document.documentElement.style`.
@@ -26,9 +37,10 @@ export function flattenThemeToVars(theme: Theme): Record<string, string> {
     vars[`--pi-spacing-${key}`] = `${val}px`;
   }
 
-  // Font size
+  // Font size — rem, not px, so it scales with the user's browser/OS text-size
+  // preference instead of rendering visually smaller/larger across screens.
   for (const [key, val] of Object.entries(theme.fontSize)) {
-    vars[`--pi-font-size-${key}`] = `${val}px`;
+    vars[`--pi-font-size-${key}`] = pxToRem(val);
   }
 
   // Font family
@@ -81,12 +93,7 @@ export function flattenThemeToVars(theme: Theme): Record<string, string> {
 
 function flattenColors(colors: ThemeColors, vars: Record<string, string>): void {
   // Top-level semantic color tokens
-  const {
-    palette: _palette,
-    syntax: _syntax,
-    terminal: _terminal,
-    ...semanticColors
-  } = colors;
+  const { palette: _palette, syntax: _syntax, terminal: _terminal, ...semanticColors } = colors;
 
   // Emit color tokens VERBATIM (camelCase), e.g. `--pi-color-surfaceSidebar`,
   // `--pi-color-foregroundMuted`, `--pi-color-statusDanger`. This matches how

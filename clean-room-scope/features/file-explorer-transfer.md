@@ -3,7 +3,7 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [../architecture/auth-security.md](../architecture/auth-security.md),
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
-> [projects-workspaces.md](projects-workspaces.md)
+> [projects-workspaces.md](projects-workspaces.md), [file-explorer-move.md](file-explorer-move.md)
 
 ## Purpose
 
@@ -14,6 +14,7 @@ previews, attachments, and project/path pickers.
 ## Public Contract
 
 ### RPCs
+
 | Operation | Message |
 |-----------|---------|
 | List/preview a path | `FileExplorerRequest` |
@@ -21,6 +22,7 @@ previews, attachments, and project/path pickers.
 | Request a download token | `FileDownloadTokenRequest` |
 | Upload a file | `FileUploadRequest` |
 | Project icon | `ProjectIconRequest` |
+| Move/rename a path | `FileMoveRequest` (see [file-explorer-move.md](file-explorer-move.md)) |
 
 ### Binary transfer frames
 - A file-transfer binary frame format (separate from terminal frames) streams download/upload bytes

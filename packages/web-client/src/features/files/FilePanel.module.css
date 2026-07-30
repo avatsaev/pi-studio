@@ -11,7 +11,7 @@
   padding: 8px 14px;
   background: var(--pi-color-surface, #16181a);
   border-bottom: 1px solid var(--pi-color-border, #353b46);
-  font-size: 12px;
+  font-size: 1.0625rem;
   flex-shrink: 0;
 }
 .path {
@@ -23,7 +23,7 @@
 }
 .size {
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 11px;
+  font-size: 1rem;
   flex-shrink: 0;
 }
 .viewToggle {
@@ -42,12 +42,12 @@
   justify-content: center;
   gap: 8px;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1.0625rem;
   padding: 20px;
 }
 .diffEmpty {
   padding: 30px;
   text-align: center;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1.0625rem;
 }

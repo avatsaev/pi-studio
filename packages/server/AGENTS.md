@@ -131,7 +131,10 @@ src/
     index.ts
 
   files/
-    file-explorer.ts              Directory listing + text/binary file preview.
+    file-explorer.ts              Directory listing + text/binary file preview + create/write/
+                                   delete/move (`moveEntry`, sprint-046 — `fs.rename`-shaped,
+                                   parent-only path resolution so a symlink move relocates the
+                                   link itself, not its target).
     file-transfer.ts              Download token issuance + chunked binary transfer.
     file-watch-service.ts         FileWatchService — ref-counted fs.watch filesystem watcher,
                                    watches files or directories, debounced per-subscription.
@@ -582,6 +585,13 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 **`file-explorer.ts`** (directory listing + preview):
 - Scans directories, reports stat metadata + MIME types + inline text/binary previews (inlined,
   unlike download tokens, so no temp storage needed for small files).
+- `moveEntry` / `file_move_request` (sprint-046): `fs.rename`-shaped move-or-rename (a same-parent
+  destination renames). Every rejection is decided server-side — `empty_path`, `invalid_name`,
+  `not_found`, `not_a_directory`, `same_path`, `into_descendant` (dropping a directory into its
+  own subtree), `exists` (never silently overwrites), `cross_device` (no copy+delete fallback
+  across filesystems). Resolves only the *parent* of each path via `realpath`, then re-joins the
+  basename — resolving the full source would follow a symlink to its target instead of moving the
+  link itself.
 ### Projects / Git subsystem (`projects/`)
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.

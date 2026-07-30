@@ -77,9 +77,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 043 | `sprint-043-model-selector` | web-client: a per-conversation model selector in the chat composer (left of the input) showing the current model, opening an anchored popup with a fuzzy search filter, checkmark on the selected model (sorted first), and rows of `label (id)` with the id in muted text. Unblocks the picker by registering the previously-unserved `list_provider_models` daemon RPC (both bootstraps, via `AgentClient.listModels`), types the client SDK response, and reuses the fully-wired `agent_set_model_request` for selection. | 5 |
 | 044 | `sprint-044-molecule-viewer-live-files` | web-client + daemon: a **molecule viewer** tab type built on `@molviewer/core` — molecular files (`.pdb`/`.cif`/`.xyz`/`.mol`/`.mol2`/`.gro`/`.lammpstrj`/`.xsf`/POSCAR) open in a 3D viewer instead of the text viewer, plus an empty "New molecule view" from the TabStrip "+" menu. Adds the daemon's **first real filesystem watcher** (`FileWatchService`, `fs.watch` per directory, ref-counted, 150 ms coalescing) behind a `file_watch_*` subscription family, which powers both an edit-gated live reload of open molecule tabs (`sourceMode="update"` preserves camera/selection; skipped while the user has unsaved in-viewer edits) and a **live file tree** (expanded directories refresh on create/delete/rename from any writer, not just agent tools). Also raises the file-read ceiling — 512 KiB → 5 MiB inline (async, so a big read no longer blocks the event loop), streamed uncapped above that, 30 MiB display cap. Fixes a pre-existing per-session subscription leak on disconnect on the way past. | 10 |
 | 045 | `sprint-045-inline-image-rendering` | web-client + daemon + protocol: **inline images in the chat timeline**. `![alt](path)` in a finalized assistant message renders the real image, with bytes streamed over the existing chunked binary file-transfer path — workspace-relative, absolute, and `~` paths all resolve; remote URLs pass through untouched; non-image extensions and missing files degrade to readable text, never a broken-image glyph. Reuses the seam that already exists (`react-markdown`'s per-tag override map, currently holding only `code`) plus a new ref-counted LRU object-URL cache, because the file-viewer download hook's revoke-on-unmount ownership is wrong under timeline virtualization. Second half: a new client→daemon `inline_image_markdown` capability advertised in `hello` (web-client currently advertises none) that makes the daemon append a short image-rendering instruction to the session's system prompt at create time, so only surfaces that can render images are told to emit them. Also closes two pre-existing defects the feature trips over: `file_download_token_request` never expanded `~` (unlike `file_read_request`), and session **resume** dropped the per-session `systemPrompt`. | 7 |
+| 046 | `sprint-046-file-explorer-move` | web-client + daemon: **drag-and-drop move/rename in the file explorer**. Adds the file surface's first mutation of this kind — a `fs.rename`-shaped `file_move_request` on `FileExplorerService` with all eight rejections decided server-side (`empty_path`, `invalid_name`, `not_found`, `not_a_directory`, `same_path`, `into_descendant`, `exists`, `cross_device`), and **parent-only** symlink resolution so a symlink row moves as the link, not its target. A same-parent destination is a rename, so no second RPC is ever needed for that. Collision is a hard error — never overwrite, never merge. On the client it extends the **native HTML5** drop zone already serving OS-file uploads with an `application/x-pi-studio-path` MIME type (dnd-kit is deliberately not used: it fits `TabStrip`'s flat reordering, not re-parenting into a virtualized tree), puts every legality rule in one pure `resolveMoveTarget`, carries expanded paths + selection to the new prefix via `repathAfterMove`, invalidates exactly the two affected listings, and reopens an open tab at its new path. | 6 |
 
-Total: **45 sprints, 217 tasks** (summed from the table above). The older accounting this line used
-to carry (26 sprints / 119 tasks) predated sprints 023–044 and was never updated; recompute from the
+Total: **46 sprints, 223 tasks** (summed from the table above). The older accounting this line used
+to carry (26 sprints / 119 tasks) predated sprints 023–046 and was never updated; recompute from the
 table rather than trusting a hand-maintained figure.
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
@@ -565,6 +566,43 @@ table rather than trusting a hand-maintained figure.
 | task-006 | `CLIENT_CAPS.inline_image_markdown` + web-client advertisement + daemon-composed instruction at create time | task-005 | packages/protocol (client-capabilities); packages/web-client (lib/connection/connection-store); packages/server (agent/{agent-service,inline-image-instructions}); features/inline-image-rendering, agent-sessions; architecture/websocket-protocol |
 | task-007 | E2E browser verification (12 steps) + docs sync (protocol/server/web-client/root AGENTS.md + scope doc) | task-001..006 | AGENTS.md (root, protocol, server, web-client); features/inline-image-rendering |
 
+### sprint-046-file-explorer-move
+> Drag-and-drop **move/rename** for the file explorer — the one mutation the file surface never had.
+> The daemon has no move, rename, or copy operation at all today (`FileExplorerService` exposes only
+> `listOrPreview`, `deleteFile`, `createEntry`, `writeFile`, `directorySuggestions`), so task-001 adds
+> a single `fs.rename`-shaped primitive that also serves a future Rename affordance for free: a
+> same-parent destination *is* a rename. Its one deliberate divergence from its four siblings is
+> **parent-only symlink resolution** — they `realpath()` the full path, which for a move would relocate
+> a symlink's target instead of the link, so the parent is resolved and the basename re-joined
+> (`mv` semantics), keeping ancestors normalized server-side. Collision is a hard `exists` error: no
+> overwrite, no merge, no auto-dedup, matching `createEntry`'s fail-loudly posture, and cross-filesystem
+> moves are rejected rather than emulated with copy+delete (drags are confined to one workspace subtree,
+> so `EXDEV` is effectively unreachable from the UI).
+> On the client this reuses the **native HTML5** drop zone `FileExplorer.tsx` already runs for OS-file
+> uploads, discriminated by a new `application/x-pi-studio-path` MIME type — *not* dnd-kit, which is
+> right for `TabStrip`'s flat-list reordering but wrong for re-parenting into a virtualized tree, and
+> which would not interoperate with the OS-file drag living on the same handlers. Because
+> `dataTransfer.getData()` returns `""` during `dragover` (protected mode), the dragged path is held in
+> a ref for hover validation. Every legality rule lives in one pure `resolveMoveTarget` (task-003) since
+> the web-client has no jsdom environment — dropping onto a *file* row means "into its parent folder",
+> which also fixes the pre-existing upload behavior where a file row fell through to the tree root.
+> Post-move state: exactly the two affected listings are invalidated (not the broad `["explorer"]` key
+> delete uses), `repathAfterMove` carries expanded paths and the selection to the new prefix, and an open
+> tab is **reopened** at the new path rather than repathed, because tab ids embed the path. No optimistic
+> tree update — `useExplorerWatch` already refetches both sides from the daemon's `file_changed` pushes,
+> and TanStack Query dedupes the overlap.
+> No protocol schema: the four existing file RPCs have none either.
+> Scope doc `features/file-explorer-move.md` was written ahead of this sprint and needs no task.
+
+| Task | Title | Depends on | Covers |
+|------|-------|------------|--------|
+| task-001 | Daemon `FileExplorerService.moveEntry` (parent-only symlink resolution, 8 ordered rejections) + `file_move_request` handler + tests + bootstrap RPC probe | none | packages/server (files/file-explorer, files/file-explorer.test, daemon/bootstrap.test); features/file-explorer-move, file-explorer-transfer |
+| task-002 | Client `move-entry.ts` wire helper + user-facing error-string map | task-001 | packages/web-client (features/files/move-entry); features/file-explorer-move |
+| task-003 | Pure `resolveMoveTarget` drop-legality decision + unit tests | none | packages/web-client (features/files/{move-target,move-target.test}); features/file-explorer-move |
+| task-004 | `explorer-store.repathAfterMove` (expanded/selected follow the moved subtree) + tests | none | packages/web-client (stores/{explorer-store,explorer-store.test}); features/file-explorer-move, file-explorer-transfer |
+| task-005 | Draggable rows: `MOVE_MIME` drag source, `dragSourceRef`, `.item.dropTarget` style | none | packages/web-client (features/files/{TreeNode,FileExplorer,FileExplorer.module.css}); features/file-explorer-move |
+| task-006 | Accept the drop: hover targeting, 700 ms auto-expand, move + two-directory invalidation + tab reopen + status line, E2E browser verification | task-002, task-003, task-004, task-005 | packages/web-client (features/files/FileExplorer, stores/tab-store consumers); features/file-explorer-move, file-explorer-transfer |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
@@ -584,7 +622,8 @@ Every feature and architecture scope is covered by at least one task.
 | features/loops.md | s010/t004, s011/t004 |
 | features/mcp-server.md | s010/t001 |
 | features/service-proxy.md | s003/t003, s009/t003, s016/t005 |
-| features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002, s045/t001,t003 (shared `~` resolution, `Begin` mimeType, inline-image reuse of the download path) |
+| features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002, s045/t001,t003 (shared `~` resolution, `Begin` mimeType, inline-image reuse of the download path), s046/t001,t004,t006 (move RPC on the same service, watch-driven refresh of both affected directories) |
+| features/file-explorer-move.md | s046/t001-006 |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |

@@ -15,12 +15,16 @@
   justify-content: center;
   gap: 8px;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1.0625rem;
   padding: 20px;
 }
-.staleBadge {
+.badges {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }

@@ -15,7 +15,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 1rem;
   padding: 3px 8px;
   border-radius: 4px;
   border: 1px solid var(--pi-color-border, #353b46);
@@ -35,7 +35,7 @@
 }
 .status,
 .statusError {
-  font-size: 11px;
+  font-size: 1rem;
   padding: 4px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -65,20 +65,6 @@
 .item:hover .rowAction {
   display: inline-flex;
 }
-.dropOverlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  color: var(--pi-color-accentBright, #a2b4d7);
-  background: color-mix(in srgb, var(--pi-color-surface, #1e2124) 80%, transparent);
-  border: 2px dashed var(--pi-color-accentBright, #a2b4d7);
-  border-radius: 6px;
-  pointer-events: none;
-  z-index: 2;
-}
 
 .list {
   padding: 4px 0;
@@ -87,14 +73,18 @@
   position: relative;
 }
 .item {
-  height: 24px;
+  height: 28px;
   padding-right: 8px;
-  font-size: 12px;
+  font-size: 1.0625rem;
   border-radius: 3px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Rows are drag sources (task-006) — without this, Firefox can hijack the gesture as a text
+     selection drag instead of firing our dragstart, since row content is plain text nodes. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .item:hover {
   background: var(--pi-color-surfaceHover, #1e2124);
@@ -108,11 +98,16 @@
   background: var(--pi-color-surfaceSunken, #111);
   border-radius: 0;
 }
+.item.dropTarget {
+  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--pi-color-accent, #2e5cb8);
+  border-radius: 3px;
+}
 .chevronSlot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
@@ -141,11 +136,11 @@
   color: var(--pi-color-accentBright, #a2b4d7);
 }
 .statusRow {
-  height: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   padding-right: 8px;
-  font-size: 11px;
+  font-size: 1rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -156,16 +151,16 @@
 }
 .emptyState {
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 12px;
+  font-size: 1.0625rem;
   text-align: center;
   padding: 20px;
 }
 .draftInput {
   flex: 1;
   min-width: 0;
-  height: 18px;
+  height: 20px;
   font: inherit;
-  font-size: 12px;
+  font-size: 1.0625rem;
   padding: 0 4px;
   color: var(--pi-color-foreground, #e4e6eb);
   background: var(--pi-color-surfaceSunken, #111);

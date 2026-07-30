@@ -5,10 +5,13 @@
  * own listing (`useExplorerTree`, one `file_explorer_request` per expanded path); `file-tree.ts`
  * flattens root + expansion set + per-path listings into the ordered row list rendered here
  * through `@tanstack/react-virtual` (same virtualizer pattern as `Timeline.tsx`). Directory click
- * toggles expand/collapse in place; file click opens a file tab. A header row uploads local files
- * into the current directory (button or drag-and-drop, resolved from the row dropped onto, or the
- * workspace root otherwise); each row can be saved back to disk via its "⋮" menu. Uploads and
- * downloads ride the binary file-transfer frames (features/file-explorer-transfer.md).
+ * toggles expand/collapse in place; file click opens a file tab. Rows are drag sources for an
+ * internal move/rename (`file_move_request`, sprint-046) — dragging a row onto a directory (or
+ * file, which targets its parent) moves it there; OS-file drag-and-drop upload was removed (it
+ * made the entire panel a drop zone with no visible per-folder target) in favor of the header's
+ * explicit "Upload" button, which always targets the workspace root. Each row can be saved back
+ * to disk via its "⋮" menu. Downloads ride the binary file-transfer frames
+ * (features/file-explorer-transfer.md).
  */
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
@@ -25,6 +28,8 @@ import type { FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-stor
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { dirOf } from "@pi-studio-ui/lib/paths.js";
+import { resolveMoveTarget } from "./move-target.js";
+import { moveEntry } from "./move-entry.js";
 import { flattenTree } from "./file-tree.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
@@ -32,7 +37,11 @@ import { createEntry } from "./create-entry.js";
 import { openFileTab } from "./open-file-tab.js";
 import styles from "./FileExplorer.module.css";
 
-const ROW_HEIGHT_PX = 24;
+const ROW_HEIGHT_PX = 28;
+/** MIME type discriminating an internal row drag from an OS-file drag — `dataTransfer` exposes
+ *  the type *list* during `dragover` but not the *value* (protected mode), so this is the only
+ *  signal available before drop. */
+const MOVE_MIME = "application/x-pi-studio-path";
 
 export function FileExplorer() {
   const client = useConnectionStore((s) => s.client);
@@ -54,10 +63,16 @@ export function FileExplorer() {
   const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [dropTargetDir, setDropTargetDir] = useState<string | null>(null);
+  // The row currently highlighted as the drop target.
+  const [dropTargetRowPath, setDropTargetRowPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Path of the row currently being dragged — `dataTransfer.getData()` returns "" during
+  // dragover/dragenter in every browser (only dragstart/drop can read it), so target validation
+  // needs the source path held in a ref instead.
+  const dragSourceRef = useRef<string | null>(null);
+  // Pending "expand this collapsed directory after 700ms of hover" timer, mid-drag.
+  const autoExpandRef = useRef<{ path: string; timer: number } | null>(null);
 
   // The path of the file/molecule tab currently in view, for the active-row highlight (item 6) —
   // null for chat/terminal/diff tabs, or when nothing's active.
@@ -107,6 +122,65 @@ export function FileExplorer() {
     openFileTab(path, activeWorkspaceCwd || "~");
   }
 
+  function handleDragStartRow(path: string, e: DragEvent) {
+    e.dataTransfer.setData(MOVE_MIME, path);
+    e.dataTransfer.effectAllowed = "move";
+    dragSourceRef.current = path;
+  }
+
+  function handleDragEndRow() {
+    dragSourceRef.current = null;
+  }
+
+  function clearDropState() {
+    setDropTargetRowPath(null);
+    if (autoExpandRef.current) {
+      clearTimeout(autoExpandRef.current.timer);
+      autoExpandRef.current = null;
+    }
+  }
+
+  function scheduleAutoExpand(row: { kind: string; path: string; expanded?: boolean }) {
+    if (autoExpandRef.current?.path === row.path) return;
+    if (autoExpandRef.current) clearTimeout(autoExpandRef.current.timer);
+    autoExpandRef.current = null;
+    if (row.kind !== "directory" || row.expanded) return;
+    const timer = window.setTimeout(() => toggle(row.path), 700);
+    autoExpandRef.current = { path: row.path, timer };
+  }
+
+  async function moveDropped(source: string, row: { kind: string; path: string }) {
+    const target = resolveMoveTarget(source, row, rootPath);
+    if (!target || !client) return;
+    const basename = source.split("/").pop() ?? source;
+    setStatus({ text: `Moving ${basename}…`, error: false });
+    try {
+      await moveEntry(client, source, target.destination);
+      await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(dirOf(source)) });
+      await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(target.destinationDir) });
+      useExplorerStore
+        .getState()
+        .repathAfterMove(source, target.destination, target.destinationDir);
+
+      const hadTab = useTabStore
+        .getState()
+        .tabs.some(
+          (t) =>
+            (t.kind === "file" || t.kind === "molecule") &&
+            (t.data as FileTabData | MoleculeTabData).path === source,
+        );
+      useTabStore.getState().closeByPathPrefix(source);
+      if (hadTab) handleOpenFile(target.destination);
+
+      setStatus({
+        text: `Moved to ${target.destinationDir.split("/").pop() || "/"}`,
+        error: false,
+      });
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : "Failed to move", error: true });
+    }
+  }
+
   async function submitDraft(parentPath: string, name: string) {
     const kind = draft?.kind ?? "file";
     cancelDraft();
@@ -153,19 +227,24 @@ export function FileExplorer() {
     }
   }
 
-  function handleDrop(e: DragEvent) {
+  function handleDrop(e: DragEvent, row?: { kind: string; path: string }) {
     e.preventDefault();
-    setDragging(false);
-    const dir = dropTargetDir ?? rootPath;
-    setDropTargetDir(null);
-    const files = Array.from(e.dataTransfer.files);
-    void uploadFiles(dir, files);
+    // Only trust `dragSourceRef` when the browser itself reports this drag as an internal move —
+    // `dataTransfer.types` is the one signal fully owned by the browser for the CURRENT drag, so
+    // it can't go stale the way an app-managed ref could (e.g. a `dragend` that never fired for a
+    // prior attempt).
+    const source = e.dataTransfer.types.includes(MOVE_MIME)
+      ? e.dataTransfer.getData(MOVE_MIME) || dragSourceRef.current
+      : null;
+    clearDropState();
+    if (source) void moveDropped(source, row ?? { kind: "directory", path: rootPath });
+    // Not an internal move — OS-file drag-and-drop upload was removed; ignore the drop.
   }
 
   function handleDragOver(e: DragEvent) {
-    if (!e.dataTransfer.types.includes("Files")) return;
+    if (!e.dataTransfer.types.includes(MOVE_MIME)) return;
     e.preventDefault();
-    setDragging(true);
+    e.dataTransfer.dropEffect = "move";
   }
 
   if (!client) {
@@ -176,8 +255,17 @@ export function FileExplorer() {
     <div
       className={styles.container}
       onDragOver={handleDragOver}
-      onDragLeave={() => setDragging(false)}
-      onDrop={handleDrop}
+      onDragLeave={(e) => {
+        // `dragleave` mirrors `mouseout`, not `mouseleave` — it bubbles and refires on every
+        // child-element boundary crossing, including moving between two spans inside the SAME
+        // row. Without this guard, every such micro-crossing bubbles here and wipes the
+        // just-set highlight a tick after `onDragEnter` set it — the "flashes once, then goes
+        // dark" symptom. Only clear when the drag is actually leaving the whole panel, i.e. the
+        // element being entered next is outside this container.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        clearDropState();
+      }}
+      onDrop={(e) => handleDrop(e)}
     >
       <div className={styles.header}>
         <button
@@ -191,7 +279,7 @@ export function FileExplorer() {
               : "New file in workspace root"
           }
         >
-          <FilePlus size={12} />
+          <FilePlus size={14} />
         </button>
         <button
           type="button"
@@ -204,7 +292,7 @@ export function FileExplorer() {
               : "New folder in workspace root"
           }
         >
-          <FolderPlus size={12} />
+          <FolderPlus size={14} />
         </button>
         <button
           type="button"
@@ -213,7 +301,7 @@ export function FileExplorer() {
           disabled={!rootPath}
           title="Upload files to the workspace root"
         >
-          <Upload size={12} />
+          <Upload size={14} />
           <span>Upload</span>
         </button>
         <input
@@ -257,8 +345,19 @@ export function FileExplorer() {
                   height: virtualRow.size,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                onDragEnter={() => {
-                  if (row.kind === "directory") setDropTargetDir(row.path);
+                onDragEnter={(e) => {
+                  // Gate on `dataTransfer.types`, not just the ref — see `handleDrop`'s comment.
+                  const source = e.dataTransfer.types.includes(MOVE_MIME)
+                    ? dragSourceRef.current
+                    : null;
+                  if (!source) return;
+                  const target = resolveMoveTarget(source, row, rootPath);
+                  setDropTargetRowPath(target ? row.path : null);
+                  scheduleAutoExpand(row);
+                }}
+                onDrop={(e) => {
+                  e.stopPropagation();
+                  handleDrop(e, row);
                 }}
               >
                 <TreeNode
@@ -280,6 +379,12 @@ export function FileExplorer() {
                   onContextMenu={(path, isDirectory, x, y) => openFileMenu(path, isDirectory, x, y)}
                   onSubmitDraft={(parentPath, name) => void submitDraft(parentPath, name)}
                   onCancelDraft={cancelDraft}
+                  onDragStartRow={handleDragStartRow}
+                  onDragEndRow={handleDragEndRow}
+                  dropTarget={
+                    (row.kind === "file" || row.kind === "directory") &&
+                    row.path === dropTargetRowPath
+                  }
                 />
               </div>
             );
@@ -287,7 +392,6 @@ export function FileExplorer() {
         </div>
       </div>
 
-      {dragging && <div className={styles.dropOverlay}>Drop to upload</div>}
       <FileContextMenu />
     </div>
   );

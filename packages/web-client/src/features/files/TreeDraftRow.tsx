@@ -23,7 +23,7 @@ export function TreeDraftRow({ draftKind, indentStyle, onSubmit, onCancel }: Tre
     <div className={styles.item} style={indentStyle} onClick={(e) => e.stopPropagation()}>
       <span className={styles.chevronSlot} />
       <span className={styles.icon}>
-        {draftKind === "directory" ? <Folder size={14} /> : <FileIcon size={14} />}
+        {draftKind === "directory" ? <Folder size={16} /> : <FileIcon size={16} />}
       </span>
       <input
         className={styles.draftInput}

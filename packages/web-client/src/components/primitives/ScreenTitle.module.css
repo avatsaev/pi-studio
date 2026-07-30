@@ -7,7 +7,7 @@
   min-width: 0;
   margin: 0;
   font-family: var(--pi-font-ui, system-ui);
-  font-size: var(--pi-font-size-base, 16px);
+  font-size: var(--pi-font-size-base, 1.25rem);
   font-weight: 400;
   color: var(--pi-color-foreground);
   overflow: hidden;

@@ -9,7 +9,7 @@
   overflow-x: auto;
   border-top: 1px solid var(--pi-color-border, #353b46);
   background: var(--pi-color-surface, #16181a);
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--pi-color-foreground, #e4e6eb);
   white-space: nowrap;
 }

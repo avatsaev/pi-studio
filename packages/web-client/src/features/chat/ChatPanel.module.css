@@ -11,5 +11,5 @@
   justify-content: center;
   height: 100%;
   color: var(--pi-color-foregroundMuted, #7a8394);
-  font-size: 13px;
+  font-size: 1.0625rem;
 }

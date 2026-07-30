@@ -18,7 +18,7 @@
 }
 .header h3 {
   margin: 0;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   text-transform: uppercase;
@@ -46,14 +46,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 1.0625rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .meta {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 0.9375rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -86,12 +86,24 @@
   gap: 6px;
   padding: 7px 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--pi-color-foreground, #e6e6e6);
+  /* Distinct from the sidebar background (surfaceSidebar) so the group header reads as a
+     header rather than blending into the row list below it. */
+  background: var(--pi-color-surfaceWorkspace, #1e2120);
 }
 .workspaceHeader:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  /* `--pi-color-surfaceHover` isn't a real emitted token (no such key exists in ThemeColors —
+     this always silently used the literal fallback); with an explicit rest background above,
+     that literal read as nearly identical to it and hover became invisible. Mixing in
+     `foreground` instead of a second hardcoded literal keeps the hover lift theme-adaptive:
+     foreground is light on dark themes (lightens) and dark on the light theme (darkens). */
+  background: color-mix(
+    in srgb,
+    var(--pi-color-surfaceWorkspace, #1e2120) 85%,
+    var(--pi-color-foreground, #fafafa) 15%
+  );
 }
 .workspaceChevron {
   display: flex;
@@ -115,7 +127,7 @@
   white-space: nowrap;
 }
 .workspaceCount {
-  font-size: 11px;
+  font-size: 0.9375rem;
   font-weight: 400;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
@@ -144,6 +156,6 @@
 }
 .emptyState {
   padding: 12px 10px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
