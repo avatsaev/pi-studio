@@ -26,7 +26,7 @@ Ctrl+C twice to exit the TUI once provider is connected and tested
 
 ## Start the pi-studio server in relay mode
 
-- `PI_STUDIO_RELAY_ENABLED=true PI_STUDIO_RELAY_ENDPOINT=[relay.molagent.ai](http://relay.molagent.ai) PI_STUDIO_RELAY_USE_TLS=true pi-studio daemon start`
+- `PI_STUDIO_RELAY_ENABLED=true PI_STUDIO_RELAY_ENDPOINT=relay.molagent.ai PI_STUDIO_RELAY_USE_TLS=true pi-studio daemon start`
 
 this will intialize the server in relay mode so you can access the server via the UI from anywhere, relay settings are saved so next time you start the server you don't need to specify the relay config:
 
