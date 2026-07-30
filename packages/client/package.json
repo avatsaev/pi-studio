@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/client",
-  "version": "0.0.49",
+  "version": "0.0.50",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,7 +18,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/protocol": "^0.0.49",
-    "@av-pi-studio/relay": "^0.0.49"
+    "@av-pi-studio/protocol": "^0.0.50",
+    "@av-pi-studio/relay": "^0.0.50"
   }
 }
