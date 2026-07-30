@@ -390,6 +390,17 @@ creation" above.
   from `agents/**.json`), so the UI looked fine right up until the next prompt, which then got no
   prior context at all — after a daemon restart or `/import`, the live `pi` process had amnesia
   even though the chat history on screen looked intact.
+- **`new_session`/`switch_session`/`fork`/`clone` REBIND the process to a different JSONL session
+  file, so both the session's `sessionFile` and the record's `persistence` handle must follow.**
+  Pi builds a fresh `SessionManager` for each of those commands, so the file learned at spawn
+  (`discoverState`) is stale the instant one succeeds. `PiAgentSession` re-reads `get_state`
+  (`refreshSessionFile()`, which deliberately overwrites the known file, unlike `discoverState`)
+  after each non-cancelled op, and `slash-command-operations.ts`'s `/new`, `/resume`, `/fork`,
+  `/clone` handlers then call `AgentManager.persistSessionHandle` so the record follows. Without
+  this, the next daemon start rehydrated the timeline from — and resumed the process into — the
+  *pre-operation* conversation: restored history stopped at the moment of the `/new`//fork//clone,
+  while the live agent (reading Pi's actual current file) remembered the newer turns. A cancelled
+  op rebinds nothing, so it neither re-reads `get_state` nor re-saves the record.
 - **`createSession`/`resumeSession` must stay in agreement on `systemPrompt` handling** (task-005,
   sprint-045 — a pre-existing defect this fixed): `resumeSession` used to build its spawn args
   with `appendSystemPrompt: this.deps.appendSystemPrompt` unconditionally, ignoring

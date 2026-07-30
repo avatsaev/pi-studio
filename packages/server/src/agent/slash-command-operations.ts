@@ -123,7 +123,15 @@ export class SlashCommandOperationsService {
     return { type: "agent_compact_response", payload };
   }
 
-  /** `/new` — starts a fresh session in place; broadcast. */
+  /**
+   * `/new` — starts a fresh session in place; broadcast.
+   *
+   * `/new`, `/resume`, `/fork` and `/clone` all move the provider onto a DIFFERENT native session
+   * file, so the record's persistence handle has to follow: it is what a restarted daemon
+   * rehydrates the timeline from and resumes into (`timeline-rpc.ts`, `spawnOrResumeSession`).
+   * Leaving the pre-operation handle in place makes the next daemon start silently restore — and
+   * continue — the pre-operation conversation.
+   */
   async handleNewSession(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -132,7 +140,10 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.newSession) throw unsupported(agentId, "new_session");
     const payload = await session.newSession();
-    if (!payload.cancelled) this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+    if (!payload.cancelled) {
+      await this.deps.manager.persistSessionHandle(agentId);
+      this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+    }
     return { type: "agent_new_session_response", payload };
   }
 
@@ -147,7 +158,10 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.switchSession) throw unsupported(agentId, "switch_session");
     const payload = await session.switchSession(sessionPath);
-    if (!payload.cancelled) this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+    if (!payload.cancelled) {
+      await this.deps.manager.persistSessionHandle(agentId);
+      this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+    }
     return { type: "agent_switch_session_response", payload };
   }
 
@@ -159,6 +173,7 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.fork) throw unsupported(agentId, "fork");
     const payload = await session.fork(entryId);
+    if (!payload.cancelled) await this.deps.manager.persistSessionHandle(agentId);
     return { type: "agent_fork_response", payload };
   }
 
@@ -180,7 +195,10 @@ export class SlashCommandOperationsService {
     const session = requireSession(this.deps.manager, agentId);
     if (!session.clone) throw unsupported(agentId, "clone");
     const payload = await session.clone();
-    if (!payload.cancelled) this.broadcastAgentUpdate(getSessions, agentId);
+    if (!payload.cancelled) {
+      await this.deps.manager.persistSessionHandle(agentId);
+      this.broadcastAgentUpdate(getSessions, agentId);
+    }
     return { type: "agent_clone_response", payload };
   }
 

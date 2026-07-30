@@ -359,16 +359,38 @@ class PiAgentSession implements AgentSession {
     return data ?? {};
   }
 
+  /**
+   * Re-read the JSONL file Pi is writing to now. `new_session`/`switch_session`/`fork`/`clone` all
+   * REBIND the process to a different session file (Pi's `agent-session-runtime` builds a fresh
+   * `SessionManager` for each), so the file learned at spawn is stale the instant one succeeds.
+   * That matters beyond bookkeeping: `describePersistence()`'s `nativeHandle` is what a restarted
+   * daemon rehydrates the timeline from (`session-hydration.ts`) and resumes the process into — a
+   * stale one silently restores the pre-operation conversation while the live agent remembers the
+   * newer one. Unlike `discoverState()`, this deliberately overwrites the known file.
+   */
+  private async refreshSessionFile(): Promise<void> {
+    try {
+      const state = (await this.transport.request("get_state")) as Record<string, unknown>;
+      if (typeof state.sessionFile === "string") this.sessionFile = state.sessionFile;
+    } catch {
+      /* best-effort: keep the previous handle rather than dropping it */
+    }
+  }
+
   async newSession(): Promise<{ cancelled: boolean }> {
     const data = (await this.transport.request("new_session")) as { cancelled?: boolean };
-    return { cancelled: data?.cancelled ?? false };
+    const cancelled = data?.cancelled ?? false;
+    if (!cancelled) await this.refreshSessionFile();
+    return { cancelled };
   }
 
   async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
     const data = (await this.transport.request("switch_session", { sessionPath })) as {
       cancelled?: boolean;
     };
-    return { cancelled: data?.cancelled ?? false };
+    const cancelled = data?.cancelled ?? false;
+    if (!cancelled) await this.refreshSessionFile();
+    return { cancelled };
   }
 
   async fork(entryId: string): Promise<{ text: string; cancelled: boolean }> {
@@ -376,7 +398,9 @@ class PiAgentSession implements AgentSession {
       text?: string;
       cancelled?: boolean;
     };
-    return { text: data?.text ?? "", cancelled: data?.cancelled ?? false };
+    const cancelled = data?.cancelled ?? false;
+    if (!cancelled) await this.refreshSessionFile();
+    return { text: data?.text ?? "", cancelled };
   }
 
   async getForkMessages(): Promise<AgentForkMessage[]> {
@@ -388,7 +412,9 @@ class PiAgentSession implements AgentSession {
 
   async clone(): Promise<{ cancelled: boolean }> {
     const data = (await this.transport.request("clone")) as { cancelled?: boolean };
-    return { cancelled: data?.cancelled ?? false };
+    const cancelled = data?.cancelled ?? false;
+    if (!cancelled) await this.refreshSessionFile();
+    return { cancelled };
   }
 
   async setSessionName(name: string): Promise<void> {

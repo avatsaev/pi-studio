@@ -9,20 +9,28 @@ import { PiAgentClient } from "./agent.js";
 import { mapPiEvent, mapToolCall } from "./event-mapper.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./rpc-transport.js";
 
-/** A fake transport: records commands and scripts real Pi RPC events on `prompt`. */
+/**
+ * A fake transport: records commands and scripts real Pi RPC events on `prompt`.
+ *
+ * `sessionFile` models Pi's real rebinding behaviour (verified against a live `pi --mode rpc`):
+ * `switch_session` moves the process onto the requested file, `new_session`/`fork`/`clone` onto a
+ * freshly created one, and `get_state` reports whichever file the process is writing to NOW.
+ */
 class FakeTransport implements PiRpcTransport {
   readonly requests: string[] = [];
   readonly notifies: string[] = [];
+  sessionFile = "/tmp/fake-pi-session.jsonl";
   private readonly eventCbs = new Set<(e: unknown) => void>();
 
   constructor(public readonly spawnArgs: PiTransportSpawnArgs) {}
 
   request(command: string, params?: Record<string, unknown>): Promise<unknown> {
     this.requests.push(command);
+    this.rebind(command, params);
     switch (command) {
       case "get_state":
         return Promise.resolve({
-          sessionFile: "/tmp/fake-pi-session.jsonl",
+          sessionFile: this.sessionFile,
           model: { id: "claude-opus-4", name: "Opus 4" },
         });
       case "get_available_models":
@@ -87,6 +95,15 @@ class FakeTransport implements PiRpcTransport {
         });
       default:
         return Promise.resolve({});
+    }
+  }
+
+  /** Move the "process" onto whichever session file the command rebinds it to. */
+  private rebind(command: string, params?: Record<string, unknown>): void {
+    if (command === "switch_session" && typeof params?.sessionPath === "string") {
+      this.sessionFile = params.sessionPath;
+    } else if (command === "new_session" || command === "fork" || command === "clone") {
+      this.sessionFile = `/tmp/rebound-${command}.jsonl`;
     }
   }
 
@@ -534,6 +551,66 @@ describe("slash-command operations (sprint-037)", () => {
     expect(await session.newSession?.()).toEqual({ cancelled: false });
     expect(await session.clone?.()).toEqual({ cancelled: false });
     expect(await session.switchSession?.("/tmp/other.jsonl")).toEqual({ cancelled: false });
+  });
+
+  /**
+   * Pi's `new_session`/`switch_session`/`fork`/`clone` rebind the process to a DIFFERENT JSONL
+   * session file (`agent-session-runtime.js` builds a fresh `SessionManager` for each). The handle
+   * has to follow, or a restarted daemon rehydrates the timeline from — and resumes into — the
+   * pre-operation conversation while the live agent is on the new one.
+   */
+  it.each([
+    ["newSession", "/tmp/rebound-new_session.jsonl"],
+    ["clone", "/tmp/rebound-clone.jsonl"],
+  ] as const)(
+    "%s re-reads the rebound session file into the persistence handle",
+    async (op, file) => {
+      const { client } = clientWithFake();
+      const session = await client.createSession({ provider: "pi", cwd: "/work" });
+      expect(session.describePersistence()?.nativeHandle).toBe("/tmp/fake-pi-session.jsonl");
+      await session[op]?.();
+      expect(session.describePersistence()?.nativeHandle).toBe(file);
+    },
+  );
+
+  it("switchSession points the persistence handle at the loaded session file", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    await session.switchSession?.("/tmp/other.jsonl");
+    expect(session.describePersistence()?.nativeHandle).toBe("/tmp/other.jsonl");
+  });
+
+  it("fork points the persistence handle at the branched session file", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    await session.fork?.("e1");
+    expect(session.describePersistence()?.nativeHandle).toBe("/tmp/rebound-fork.jsonl");
+  });
+
+  it("keeps the previous handle when a rebinding op is cancelled", async () => {
+    const spawns: FakeTransport[] = [];
+    class CancellingTransport extends FakeTransport {
+      override request(command: string, params?: Record<string, unknown>): Promise<unknown> {
+        // Cancelled ops never rebind, so `get_state` would still report the old file anyway; the
+        // point is that no re-read happens at all.
+        if (command === "new_session") return Promise.resolve({ cancelled: true });
+        return super.request(command, params);
+      }
+    }
+    const client = new PiAgentClient({
+      command: ["pi", "--mode", "rpc"],
+      transportFactory: (args) => {
+        const t = new CancellingTransport(args);
+        spawns.push(t);
+        return t;
+      },
+      binaryResolver: () => true,
+    });
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.newSession?.()).toEqual({ cancelled: true });
+    expect(session.describePersistence()?.nativeHandle).toBe("/tmp/fake-pi-session.jsonl");
+    // Only `createSession`'s own spawn-time probe — none for an op that changed nothing.
+    expect(spawns[0]?.requests.filter((r) => r === "get_state")).toHaveLength(1);
   });
 
   it("fork returns text+cancelled; getForkMessages lists entries", async () => {

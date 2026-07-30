@@ -211,7 +211,7 @@ method on this facade.
 | `archive()` | `archive_agent` (soft-delete — keeps the record, can resume) |
 | `delete()` | `delete_agent` (hard delete — no trace, cannot resume) |
 | `onUpdate(handler)` | Subscribe to `agent_update` for this agent only |
-| `timeline.fetch(opts?)` | `fetch_agent_timeline_request` |
+| `timeline.fetch(opts?)` | `fetch_agent_timeline_request` — **one bounded page** (≤ `limit`, server default 200); refetch from `endCursor` while `hasNewer` to get the whole history |
 | `timeline.subscribe(handler)` | Subscribe to `agent_stream` for this agent only |
 | `sessionStats()` | `agent_session_stats_request` (`/session` — tokens/cost/context-window usage) |
 | `compact(customInstructions?)` | `agent_compact_request` (`/compact`) |
