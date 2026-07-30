@@ -24,7 +24,7 @@ import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
 import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
 import { EMPTY_TIMELINE, applyStreamEvent } from "@pi-studio-ui/timeline/reducer.js";
-import { flattenTimelineItems } from "@pi-studio-ui/lib/protocol/events.js";
+import { fetchTimelineEvents } from "@pi-studio-ui/lib/protocol/timeline-paging.js";
 import type { AgentStatus } from "@av-pi-studio/protocol";
 
 interface RestoredAgent {
@@ -85,11 +85,15 @@ export function useSessionRestore(): void {
 
         let timeline = EMPTY_TIMELINE;
         try {
-          const page = await client.agent(agent.agentId).timeline.fetch({
-            direction: "after",
-            limit: 200,
-          });
-          const events = flattenTimelineItems(page.items);
+          // Page to completion: one fetch returns only the OLDEST `limit` items and the newest
+          // messages of a long conversation would be missing from restored history.
+          const events = await fetchTimelineEvents((cursor) =>
+            client.agent(agent.agentId).timeline.fetch({
+              direction: "after",
+              cursor: cursor ?? undefined,
+              limit: 200,
+            }),
+          );
           timeline = events.reduce(applyStreamEvent, EMPTY_TIMELINE);
         } catch {
           // Best-effort: an unreadable timeline still gets an (empty) restored session.
@@ -104,9 +108,7 @@ export function useSessionRestore(): void {
           id: `s-${agent.agentId.slice(0, 12)}`,
           agentId: agent.agentId,
           title:
-            agent.title ||
-            (isEmptyDraft ? "New chat" : agent.cwd?.split("/").pop()) ||
-            "Restored",
+            agent.title || (isEmptyDraft ? "New chat" : agent.cwd?.split("/").pop()) || "Restored",
           status: (agent.status as AgentStatus | undefined) ?? "idle",
           cwd: agent.cwd || "~",
           timeline,

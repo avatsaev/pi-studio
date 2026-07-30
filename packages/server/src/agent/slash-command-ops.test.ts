@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import type { AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -231,6 +232,78 @@ describe("delegation to optional AgentSession methods", () => {
     );
     await ops.handleClone({ agentId }, () => []);
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId });
+  });
+
+  /**
+   * `/new`, `/resume`, `/fork` and `/clone` move the provider onto a different native session
+   * file. The record's `persistence` handle is what a restarted daemon rehydrates the timeline
+   * from and resumes into (`timeline-rpc.ts`, `spawnOrResumeSession`), so it has to follow — a
+   * stale handle silently restores and continues the pre-operation conversation.
+   */
+  function reboundStub(op: string, body: Record<string, unknown>): AgentSession {
+    let handle = { provider: "mock", sessionId: "s0", nativeHandle: "/sessions/before.jsonl" };
+    return sessionStub({
+      describePersistence: () => handle,
+      [op]: () => {
+        handle = { provider: "mock", sessionId: "s1", nativeHandle: "/sessions/after.jsonl" };
+        return Promise.resolve(body);
+      },
+    });
+  }
+
+  it.each([
+    [
+      "newSession",
+      {},
+      (ops: SlashCommandOperationsService, agentId: string) =>
+        ops.handleNewSession({ agentId }, () => []),
+    ],
+    [
+      "switchSession",
+      {},
+      (ops: SlashCommandOperationsService, agentId: string) =>
+        ops.handleSwitchSession({ agentId, sessionPath: "/sessions/after.jsonl" }, () => []),
+    ],
+    [
+      "fork",
+      { text: "" },
+      (ops: SlashCommandOperationsService, agentId: string) =>
+        ops.handleFork({ agentId, entryId: "e1" }),
+    ],
+    [
+      "clone",
+      {},
+      (ops: SlashCommandOperationsService, agentId: string) =>
+        ops.handleClone({ agentId }, () => []),
+    ],
+  ] as const)("%s persists the rebound session handle onto the record", async (op, extra, call) => {
+    const { service, ops, manager, saved } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(agentId, reboundStub(op, { cancelled: false, ...extra }));
+    saved.length = 0;
+    await call(ops, agentId);
+    expect(manager.get(agentId)?.record.persistence?.nativeHandle).toBe("/sessions/after.jsonl");
+    expect(saved.at(-1)?.persistence?.nativeHandle).toBe("/sessions/after.jsonl");
+  });
+
+  it("leaves the record's handle alone when a rebinding op is cancelled", async () => {
+    const { service, ops, manager, saved } = makeSetup();
+    const agentId = await createAgent(service);
+    // `handleCreate` already persisted the spawned mock session's handle; a cancelled `/new` must
+    // neither overwrite it with the stub's nor re-save the record at all.
+    const before = manager.get(agentId)?.record.persistence;
+    expect(before?.nativeHandle).toMatch(/^mock:/);
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        describePersistence: () => ({ provider: "mock", nativeHandle: "/sessions/after.jsonl" }),
+        newSession: () => Promise.resolve({ cancelled: true }),
+      }),
+    );
+    saved.length = 0;
+    await ops.handleNewSession({ agentId }, () => []);
+    expect(manager.get(agentId)?.record.persistence).toEqual(before);
+    expect(saved).toHaveLength(0);
   });
 
   it("agent_set_session_name_request requires name, broadcasts the new title, and persists the record", async () => {

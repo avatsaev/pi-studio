@@ -81,7 +81,9 @@ src/
                            normalize-url (accepts ws/wss/http/https/bare-host, maps http→ws /
                            https→wss), query-client (TanStack Query), rpc-keys, files-changed
                            (cache-invalidation signaling)
-  lib/protocol/            events.ts (protocol event helpers)
+  lib/protocol/            events.ts (protocol event helpers), timeline-paging.ts
+                           (fetchTimelineEvents — drains every `fetch_agent_timeline_request` page
+                           into one ordered event list; see Invariants "Restored history") (+ test)
   lib/paths.ts             resolveWorkspacePath — shared relative-path + base joiner (moved out
                            of use-file-live-refresh.ts, task-002 sprint-045; also used by
                            timeline/image-src.ts's relative-path branch)
@@ -106,7 +108,8 @@ src/
                            convention below), highlight, image-src (classifyImageSrc — pure
                            markdown image-source classification: remote/local/unresolvable,
                            task-002 sprint-045) (+ tests)
-  hooks/                   use-connection (boot), use-session-restore (session directory restore
+  hooks/                   use-connection (boot), use-session-restore (session directory restore —
+                           pages each agent's timeline to completion via lib/protocol/timeline-paging
                            + a connection-lifetime `agent_update` listener that keeps
                            session-store.model live on an explicit `/model` set), use-session-stats
                            (per-session context/token/cost/model poll — sprint-042, see AGENTS.md
@@ -243,6 +246,17 @@ entered at runtime, never baked into the image.
   above) is no longer write-only in this state: `OpenWorkspaceDialog` seeds its picker from
   `activeWorkspaceCwd || ui-store.cwd || "~"`, so the deep-link param (or the last workspace
   opened) still does something useful even with no workspace in view.
+- **Restored history is paged to completion, never a single fetch.** `fetch_agent_timeline_request`
+  is bounded — the daemon returns at most `limit` projected items (server default 200,
+  `timeline-store.ts` `DEFAULT_PAGE_SIZE`) and sets `hasNewer:true` when rows remain past the page;
+  the contract (`timeline-rpc.ts`) is that clients keep fetching until `hasNewer:false`. So
+  `use-session-restore.ts` drives `lib/protocol/timeline-paging.ts`'s `fetchTimelineEvents`, which
+  refetches from each page's `endCursor` and concatenates. A single `direction:"after"` fetch
+  returns the OLDEST page only: it silently truncated every conversation longer than the cap, so
+  restored history stopped partway and the newest messages were missing (while the agent itself
+  still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
+  Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
+  page cap, which would reintroduce silent truncation.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
