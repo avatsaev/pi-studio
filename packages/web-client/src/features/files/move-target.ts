@@ -36,3 +36,18 @@ export function resolveMoveTarget(
   const basename = sourcePath.split("/").pop();
   return { destinationDir, destination: `${destinationDir}/${basename}` };
 }
+
+/**
+ * Directory an OS-file drop on `row` uploads into — a directory row is the target itself, a file
+ * row's parent is (files aren't drop containers). `loading`/`error`/`draft` rows have no listing
+ * to upload into and are rejected, same as an out-of-workspace resolution.
+ */
+export function resolveUploadTarget(
+  row: { kind: string; path: string },
+  rootPath: string,
+): string | null {
+  if (row.kind !== "file" && row.kind !== "directory") return null;
+  const dir = row.kind === "directory" ? row.path : dirOf(row.path);
+  if (dir !== rootPath && !dir.startsWith(`${rootPath}/`)) return null;
+  return dir;
+}

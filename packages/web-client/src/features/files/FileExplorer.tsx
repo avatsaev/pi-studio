@@ -7,11 +7,14 @@
  * through `@tanstack/react-virtual` (same virtualizer pattern as `Timeline.tsx`). Directory click
  * toggles expand/collapse in place; file click opens a file tab. Rows are drag sources for an
  * internal move/rename (`file_move_request`, sprint-046) — dragging a row onto a directory (or
- * file, which targets its parent) moves it there; OS-file drag-and-drop upload was removed (it
- * made the entire panel a drop zone with no visible per-folder target) in favor of the header's
- * explicit "Upload" button, which always targets the workspace root. Each row can be saved back
- * to disk via its "⋮" menu. Downloads ride the binary file-transfer frames
- * (features/file-explorer-transfer.md).
+ * file, which targets its parent) moves it there. Dragging files in from the OS uploads them into
+ * the hovered row's directory (same highlight + 700ms auto-expand as an internal move,
+ * `resolveUploadTarget` in move-target.ts) or the workspace root when dropped on empty space or
+ * the header's "Upload" button; `dataTransfer.types` — `"Files"` vs the internal
+ * `application/x-pi-studio-path` MIME — discriminates the two drag kinds before any per-row state
+ * is touched, so a stale internal-drag ref can never hijack an OS-file drop into the wrong
+ * directory (or vice versa). Each row can be saved back to disk via its "⋮" menu. Downloads ride
+ * the binary file-transfer frames (features/file-explorer-transfer.md).
  */
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
@@ -28,7 +31,7 @@ import type { FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-stor
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { dirOf } from "@pi-studio-ui/lib/paths.js";
-import { resolveMoveTarget } from "./move-target.js";
+import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
 import { flattenTree } from "./file-tree.js";
 import { TreeNode } from "./TreeNode.js";
@@ -42,6 +45,10 @@ const ROW_HEIGHT_PX = 28;
  *  the type *list* during `dragover` but not the *value* (protected mode), so this is the only
  *  signal available before drop. */
 const MOVE_MIME = "application/x-pi-studio-path";
+/** Standard `dataTransfer.types` entry present whenever the OS drag payload includes files —
+ *  browsers populate `types` with this during dragenter/dragover but only expose the actual
+ *  `dataTransfer.files` list at drop. */
+const OS_FILE_TYPE = "Files";
 
 export function FileExplorer() {
   const client = useConnectionStore((s) => s.client);
@@ -229,22 +236,28 @@ export function FileExplorer() {
 
   function handleDrop(e: DragEvent, row?: { kind: string; path: string }) {
     e.preventDefault();
-    // Only trust `dragSourceRef` when the browser itself reports this drag as an internal move —
-    // `dataTransfer.types` is the one signal fully owned by the browser for the CURRENT drag, so
+    // `dataTransfer.types` is the one signal fully owned by the browser for the CURRENT drag —
     // it can't go stale the way an app-managed ref could (e.g. a `dragend` that never fired for a
-    // prior attempt).
-    const source = e.dataTransfer.types.includes(MOVE_MIME)
-      ? e.dataTransfer.getData(MOVE_MIME) || dragSourceRef.current
-      : null;
+    // prior attempt) — so it alone decides which branch below runs, never `dragSourceRef` first.
+    if (e.dataTransfer.types.includes(MOVE_MIME)) {
+      const source = e.dataTransfer.getData(MOVE_MIME) || dragSourceRef.current;
+      clearDropState();
+      if (source) void moveDropped(source, row ?? { kind: "directory", path: rootPath });
+      return;
+    }
     clearDropState();
-    if (source) void moveDropped(source, row ?? { kind: "directory", path: rootPath });
-    // Not an internal move — OS-file drag-and-drop upload was removed; ignore the drop.
+    if (!e.dataTransfer.types.includes(OS_FILE_TYPE)) return;
+    const dir = row ? resolveUploadTarget(row, rootPath) : rootPath;
+    if (!dir) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) void uploadFiles(dir, files);
   }
 
   function handleDragOver(e: DragEvent) {
-    if (!e.dataTransfer.types.includes(MOVE_MIME)) return;
+    const isInternalMove = e.dataTransfer.types.includes(MOVE_MIME);
+    if (!isInternalMove && !e.dataTransfer.types.includes(OS_FILE_TYPE)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = isInternalMove ? "move" : "copy";
   }
 
   if (!client) {
@@ -347,11 +360,16 @@ export function FileExplorer() {
                 }}
                 onDragEnter={(e) => {
                   // Gate on `dataTransfer.types`, not just the ref — see `handleDrop`'s comment.
-                  const source = e.dataTransfer.types.includes(MOVE_MIME)
-                    ? dragSourceRef.current
-                    : null;
-                  if (!source) return;
-                  const target = resolveMoveTarget(source, row, rootPath);
+                  if (e.dataTransfer.types.includes(MOVE_MIME)) {
+                    const source = dragSourceRef.current;
+                    if (!source) return;
+                    const target = resolveMoveTarget(source, row, rootPath);
+                    setDropTargetRowPath(target ? row.path : null);
+                    scheduleAutoExpand(row);
+                    return;
+                  }
+                  if (!e.dataTransfer.types.includes(OS_FILE_TYPE)) return;
+                  const target = resolveUploadTarget(row, rootPath);
                   setDropTargetRowPath(target ? row.path : null);
                   scheduleAutoExpand(row);
                 }}

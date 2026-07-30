@@ -175,10 +175,14 @@ src/
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
-                            @tanstack/react-virtual; upload button targets the workspace root
-                            (OS-file drag-and-drop upload was removed — it made the whole panel
-                            an ambiguous drop zone; internal row drag-and-drop, below, is
-                            unrelated and still supported); per-row "⋮" context-menu trigger; header +
+                            @tanstack/react-virtual; upload button targets the workspace root;
+                            dragging files in from the OS uploads into the hovered row's
+                            directory (or the root when dropped on empty space) — restored after
+                            an earlier removal (it briefly made the whole panel an ambiguous drop
+                            zone) by discriminating the drag kind up front via `dataTransfer.types`
+                            (`"Files"` vs the internal move MIME below) before touching any
+                            per-row state, so an OS drop can no longer be misrouted by a stale
+                            internal-drag ref; per-row "⋮" context-menu trigger; header +
                             context-menu "New File"/"New Folder" target the selected directory
                             (`explorer-store.selected`) instead of always the workspace root — file-
                             explorer quick-wins-1; insert an inline TreeDraftRow under the target
@@ -187,15 +191,18 @@ src/
                             with a custom `application/x-pi-studio-path` MIME (discriminates from
                             an OS-file drag, whose `dataTransfer` exposes the type *list* but not
                             the *value* during `dragover`); hover resolves the legal drop target via
-                            move-target.ts's `resolveMoveTarget`, auto-expands a hovered collapsed
-                            directory after 700ms, and on drop calls move-entry.ts's `moveEntry`,
+                            move-target.ts's `resolveMoveTarget` (internal move) or
+                            `resolveUploadTarget` (OS-file drag), auto-expands a hovered collapsed
+                            directory after 700ms either way, and on drop calls move-entry.ts's
+                            `moveEntry` or uploads via `useFileTransfer`'s `upload`,
                             invalidates both affected `rpcKeys.explorer(...)` listings, repaths
                             `explorer-store` state, and reopens/closes the moved item's tab), TreeNode
                             (presentational row: chevron/icon/name + actions button, delegates
                             draft rows to TreeDraftRow; `title` tooltip shows the full path; `active`
                             (open in the current tab), `selected` (last-clicked), and `dropTarget`
-                            (internal-drag hover target — sprint-046) rows each get a CSS
-                            highlight; row is `draggable` and fires `onDragStartRow`/`onDragEndRow`
+                            (hover target for an internal move OR an OS-file drag — sprint-046)
+                            rows each get a CSS highlight; row is `draggable` and fires
+                            `onDragStartRow`/`onDragEndRow`
                             — file-explorer quick-wins-1), TreeDraftRow (owns the draft
                             input's local text state), FileContextMenu (row menu: Open (files) /
                             New File/New Folder (directories) / Copy Absolute Path / Copy Relative
