@@ -47,6 +47,12 @@ export default defineConfig(() => {
             ) {
               return "vendor-markdown";
             }
+            // @shikijs/langs and @shikijs/themes are pure dynamic-import registries (634
+            // languages / 110 themes, ~11MB source) — each language/theme is its own
+            // `() => import(...)` loaded on demand by highlight.ts's `loadLanguage()`. Excluding
+            // them here lets Rollup's default per-dynamic-import chunking split each into its
+            // own tiny lazy chunk instead of forcing all 744 of them into one eager bundle.
+            if (id.includes("@shikijs/langs") || id.includes("@shikijs/themes")) return undefined;
             if (id.includes("shiki") || id.includes("@shikijs")) return "vendor-highlight";
             if (id.includes("@xterm")) return "vendor-terminal";
             if (id.includes("framer-motion")) return "vendor-motion";
