@@ -2,11 +2,13 @@
  * Left sidebar session list (POC `#session-list`/`renderSessions`, POC_TO_APP_PLAN_UI.md §4.3).
  * Sessions are grouped into a collapsible tree by workspace (project `cwd`): clicking a workspace
  * header toggles that workspace's collapsed state; clicking a nested session opens that session.
+ * New conversation / Delete workspace live behind the header's "⋮" button
+ * (`WorkspaceContextMenu.tsx`) rather than always-visible icon buttons.
  */
 
 import { FolderOpen } from "lucide-react";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
@@ -14,6 +16,7 @@ import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
+import { WorkspaceContextMenu } from "./WorkspaceContextMenu.js";
 import { groupSessionsByWorkspace, normalizeCwd, workspaceLabel } from "./workspace-grouping.js";
 import styles from "./SessionList.module.css";
 
@@ -25,16 +28,12 @@ export function SessionList() {
   const openTab = useTabStore((s) => s.open);
   const status = useConnectionStore((s) => s.status);
   const openSessionMenu = useUiStore((s) => s.openSessionMenu);
+  const openWorkspaceMenu = useUiStore((s) => s.openWorkspaceMenu);
   const setCwd = useUiStore((s) => s.setCwd);
   const openCwdPicker = useUiStore((s) => s.openCwdPicker);
   const collapsedWorkspaces = useUiStore((s) => s.collapsedWorkspaces);
   const toggleWorkspaceCollapsed = useUiStore((s) => s.toggleWorkspaceCollapsed);
   const homeDir = useHomeDir();
-
-  function handleNewSession(targetWorkspaceCwd: string) {
-    const targetCwd = normalizeCwd(targetWorkspaceCwd || "~", homeDir);
-    openNewChat(targetCwd);
-  }
 
   function handleSelect(sessionId: string) {
     activate(sessionId);
@@ -85,7 +84,7 @@ export function SessionList() {
                 sessionCount={group.sessions.length}
                 collapsed={collapsed}
                 onToggleCollapsed={() => toggleWorkspaceCollapsed(group.cwd)}
-                onNewSession={() => handleNewSession(group.cwd)}
+                onOpenMenu={(x, y) => openWorkspaceMenu(group.cwd, x, y)}
               />
               {!collapsed && (
                 <div className={styles.workspaceSessions}>
@@ -105,6 +104,7 @@ export function SessionList() {
         })}
       </div>
       <SessionContextMenu />
+      <WorkspaceContextMenu />
     </div>
   );
 }

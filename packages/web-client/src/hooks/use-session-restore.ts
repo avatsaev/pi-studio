@@ -22,7 +22,11 @@ import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import {
+  collapseInactiveWorkspaces,
+  groupSessionsByWorkspace,
+  normalizeCwd,
+} from "@pi-studio-ui/features/sessions/workspace-grouping.js";
 import { EMPTY_TIMELINE, applyStreamEvent } from "@pi-studio-ui/timeline/reducer.js";
 import { fetchTimelineEvents } from "@pi-studio-ui/lib/protocol/timeline-paging.js";
 import type { AgentStatus } from "@av-pi-studio/protocol";
@@ -127,6 +131,10 @@ export function useSessionRestore(): void {
 
       const homeDir = await resolveHome(client).catch(() => null);
       const targetCwd = normalizeCwd(first.cwd || "~", homeDir);
+      const workspaceGroups = groupSessionsByWorkspace(order, sessions, homeDir);
+      useUiStore
+        .getState()
+        .setCollapsedWorkspaces(collapseInactiveWorkspaces(workspaceGroups, targetCwd));
       useSessionStore.getState().activate(first.id);
       useUiStore.getState().setCwd(first.cwd);
       useTabStore.getState().open({

@@ -76,6 +76,10 @@ interface TabStoreState {
   reorder(fromId: string, toId: string): void;
   updateLabel(id: string, label: string): void;
   updateData(id: string, data: Partial<TabData>): void;
+  /** Close every file/diff/molecule tab whose path is `prefix` or nested under it (e.g. a
+   * directory delete closing every open tab underneath — `FileContextMenu.tsx`'s `remove()`).
+   * No-op for chat/terminal tabs, which have no filesystem path. */
+  closeByPathPrefix(prefix: string): void;
 }
 
 function tabsInWorkspace(tabs: Tab[], cwd: string): Tab[] {
@@ -196,6 +200,15 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, data: { ...t.data, ...data } } : t)),
     }));
+  },
+
+  closeByPathPrefix(prefix) {
+    const matches = get().tabs.filter((t) => {
+      if (t.kind !== "file" && t.kind !== "diff" && t.kind !== "molecule") return false;
+      const path = (t.data as FileTabData | DiffTabData | MoleculeTabData).path;
+      return path === prefix || (path?.startsWith(`${prefix}/`) ?? false);
+    });
+    for (const t of matches) get().close(t.id);
   },
 }));
 

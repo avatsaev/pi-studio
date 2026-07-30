@@ -50,3 +50,12 @@ export function workspaceLabel(cwd: string): string {
   if (!cwd || cwd === "~") return "~";
   return cwd.split("/").filter(Boolean).pop() || cwd;
 }
+
+/** Every workspace's cwd except `activeCwd` — used to seed the sidebar's collapsed set on a
+ * fresh connect (`use-session-restore.ts`) so only the just-restored workspace starts expanded. */
+export function collapseInactiveWorkspaces(
+  groups: WorkspaceGroup[],
+  activeCwd: string,
+): Set<string> {
+  return new Set(groups.filter((g) => g.cwd !== activeCwd).map((g) => g.cwd));
+}

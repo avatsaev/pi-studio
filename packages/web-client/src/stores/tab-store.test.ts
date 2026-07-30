@@ -27,6 +27,17 @@ function terminalTab(id: string, workspaceCwd = "/work"): Tab {
   };
 }
 
+function fileTab(path: string, workspaceCwd = "/work"): Tab {
+  return {
+    id: `file-${path}`,
+    kind: "file",
+    label: path,
+    closable: true,
+    data: { path },
+    workspaceCwd,
+  };
+}
+
 describe("tab store — sidebar/session sync", () => {
   it("open()'ing a new chat tab activates its session, mirroring a sidebar click", () => {
     useTabStore.getState().open(chatTab("chat-s1", "s1"));
@@ -104,5 +115,34 @@ describe("openNewMolecule", () => {
     expect(tabs2).toHaveLength(2);
     expect(tabs2[1]?.label).toBe("Molecule 2");
     expect(tabs2[1]?.id).not.toBe(tabs[0]?.id);
+  });
+});
+
+describe("closeByPathPrefix", () => {
+  it("closes a file tab matching the exact path", () => {
+    useTabStore.getState().open(fileTab("/work/a.ts"));
+    useTabStore.getState().closeByPathPrefix("/work/a.ts");
+    expect(useTabStore.getState().tabs).toHaveLength(0);
+  });
+
+  it("closes every tab nested under a deleted directory", () => {
+    useTabStore.getState().open(fileTab("/work/src/a.ts"));
+    useTabStore.getState().open(fileTab("/work/src/b.ts"));
+    useTabStore.getState().open(fileTab("/work/other.ts"));
+    useTabStore.getState().closeByPathPrefix("/work/src");
+    expect(useTabStore.getState().tabs.map((t) => t.id)).toEqual(["file-/work/other.ts"]);
+  });
+
+  it("does not close a sibling file whose name merely starts with the prefix", () => {
+    useTabStore.getState().open(fileTab("/work/src.ts"));
+    useTabStore.getState().closeByPathPrefix("/work/src");
+    expect(useTabStore.getState().tabs).toHaveLength(1);
+  });
+
+  it("leaves chat/terminal tabs untouched", () => {
+    useTabStore.getState().open(chatTab("chat-s1", "s1"));
+    useTabStore.getState().open(terminalTab("term-1"));
+    useTabStore.getState().closeByPathPrefix("/work");
+    expect(useTabStore.getState().tabs).toHaveLength(2);
   });
 });

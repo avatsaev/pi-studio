@@ -99,6 +99,15 @@
 .item:hover {
   background: var(--pi-color-surfaceHover, #1e2124);
 }
+.item.active {
+  background: var(--pi-color-surfaceSunken, #111);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
+  border-radius: 0;
+}
+.item.selected {
+  background: var(--pi-color-surfaceSunken, #111);
+  border-radius: 0;
+}
 .chevronSlot {
   display: flex;
   align-items: center;

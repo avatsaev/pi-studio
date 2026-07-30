@@ -20,14 +20,16 @@ import { useExplorerStore, resolveTildePath } from "@pi-studio-ui/stores/explore
 import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
 import { useExplorerWatch } from "@pi-studio-ui/hooks/use-explorer-watch.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import type { FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { isMoleculeFile } from "./viewer-registry.js";
+import { dirOf } from "@pi-studio-ui/lib/paths.js";
 import { flattenTree } from "./file-tree.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
 import { createEntry } from "./create-entry.js";
+import { openFileTab } from "./open-file-tab.js";
 import styles from "./FileExplorer.module.css";
 
 const ROW_HEIGHT_PX = 24;
@@ -41,10 +43,12 @@ export function FileExplorer() {
   const draft = useExplorerStore((s) => s.draft);
   const startDraft = useExplorerStore((s) => s.startDraft);
   const cancelDraft = useExplorerStore((s) => s.cancelDraft);
+  const selected = useExplorerStore((s) => s.selected);
+  const setSelected = useExplorerStore((s) => s.setSelected);
   // The workspace currently in view in the tab strip drives what Files/Changes browse — same
   // authoritative signal every tab creation site uses (§4.7 follow-up: workspace-scoped tabs).
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
-  const openTab = useTabStore((s) => s.open);
+  const activeTab = useTabStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const { upload } = useFileTransfer();
   const openFileMenu = useUiStore((s) => s.openFileMenu);
   const queryClient = useQueryClient();
@@ -54,6 +58,23 @@ export function FileExplorer() {
   const [dropTargetDir, setDropTargetDir] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The path of the file/molecule tab currently in view, for the active-row highlight (item 6) —
+  // null for chat/terminal/diff tabs, or when nothing's active.
+  const activeFilePath =
+    activeTab?.kind === "file" || activeTab?.kind === "molecule"
+      ? (activeTab.data as FileTabData | MoleculeTabData).path
+      : null;
+
+  // Where the header's "New File"/"New Folder" buttons create their entry: the selected
+  // directory, or the selected file's parent — falls back to `rootPath`. The empty-space
+  // context menu deliberately does NOT use this — it always targets `rootPath` (right-clicking
+  // below the last row means "here, at the root", regardless of what's still selected above).
+  const createTargetDir = selected
+    ? selected.isDirectory
+      ? selected.path
+      : dirOf(selected.path)
+    : rootPath;
 
   // Re-root whenever the active workspace changes, and seed it once on first connect.
   // `lastSeededCwd` distinguishes "the active workspace changed" from a re-render — only the
@@ -83,25 +104,7 @@ export function FileExplorer() {
   });
 
   function handleOpenFile(path: string) {
-    if (isMoleculeFile(path)) {
-      openTab({
-        id: tabIds.molecule(path),
-        kind: "molecule",
-        label: path.split("/").pop() || path,
-        closable: true,
-        data: { path },
-        workspaceCwd: activeWorkspaceCwd || "~",
-      });
-      return;
-    }
-    openTab({
-      id: tabIds.file(path),
-      kind: "file",
-      label: path.split("/").pop() || path,
-      closable: true,
-      data: { path },
-      workspaceCwd: activeWorkspaceCwd || "~",
-    });
+    openFileTab(path, activeWorkspaceCwd || "~");
   }
 
   async function submitDraft(parentPath: string, name: string) {
@@ -180,18 +183,26 @@ export function FileExplorer() {
         <button
           type="button"
           className={styles.uploadButton}
-          onClick={() => startDraft(rootPath, "file")}
+          onClick={() => startDraft(createTargetDir, "file")}
           disabled={!rootPath}
-          title="New file in workspace root"
+          title={
+            selected
+              ? `New file in ${createTargetDir.split("/").pop() || "/"}`
+              : "New file in workspace root"
+          }
         >
           <FilePlus size={12} />
         </button>
         <button
           type="button"
           className={styles.uploadButton}
-          onClick={() => startDraft(rootPath, "directory")}
+          onClick={() => startDraft(createTargetDir, "directory")}
           disabled={!rootPath}
-          title="New folder in workspace root"
+          title={
+            selected
+              ? `New folder in ${createTargetDir.split("/").pop() || "/"}`
+              : "New folder in workspace root"
+          }
         >
           <FolderPlus size={12} />
         </button>
@@ -221,7 +232,14 @@ export function FileExplorer() {
         <div className={status.error ? styles.statusError : styles.status}>{status.text}</div>
       )}
 
-      <div className={styles.list} ref={scrollRef}>
+      <div
+        className={styles.list}
+        ref={scrollRef}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openFileMenu(rootPath, true, e.clientX, e.clientY, true);
+        }}
+      >
         {rows.length === 0 && <div className={styles.emptyState}>No files loaded</div>}
         <div style={{ position: "relative", height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -245,8 +263,20 @@ export function FileExplorer() {
               >
                 <TreeNode
                   row={row}
-                  onToggle={toggle}
-                  onOpenFile={handleOpenFile}
+                  active={
+                    (row.kind === "file" || row.kind === "directory") && row.path === activeFilePath
+                  }
+                  selected={
+                    (row.kind === "file" || row.kind === "directory") && row.path === selected?.path
+                  }
+                  onToggle={(path) => {
+                    setSelected({ path, isDirectory: true });
+                    toggle(path);
+                  }}
+                  onOpenFile={(path) => {
+                    setSelected({ path, isDirectory: false });
+                    handleOpenFile(path);
+                  }}
                   onContextMenu={(path, isDirectory, x, y) => openFileMenu(path, isDirectory, x, y)}
                   onSubmitDraft={(parentPath, name) => void submitDraft(parentPath, name)}
                   onCancelDraft={cancelDraft}

@@ -7,6 +7,7 @@ beforeEach(() => {
     expanded: new Set(),
     expandedByRoot: new Map(),
     draft: null,
+    selected: null,
   });
 });
 
@@ -77,5 +78,22 @@ describe("explorer store — draft", () => {
     useExplorerStore.getState().startDraft("/home/dev/project-a/src", "file");
     useExplorerStore.getState().setRoot("/home/dev/project-b");
     expect(useExplorerStore.getState().draft).toBeNull();
+  });
+});
+
+describe("explorer store — selected", () => {
+  it("setSelected records the last-clicked row", () => {
+    useExplorerStore.getState().setSelected({ path: "/home/dev/project/src", isDirectory: true });
+    expect(useExplorerStore.getState().selected).toEqual({
+      path: "/home/dev/project/src",
+      isDirectory: true,
+    });
+  });
+
+  it("setRoot clears the selection", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    useExplorerStore.getState().setSelected({ path: "/home/dev/project-a/src", isDirectory: true });
+    useExplorerStore.getState().setRoot("/home/dev/project-b");
+    expect(useExplorerStore.getState().selected).toBeNull();
   });
 });

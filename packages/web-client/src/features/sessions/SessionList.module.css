@@ -119,15 +119,23 @@
   font-weight: 400;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
-.newSessionBtn {
+.workspaceMenuBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   opacity: 0;
+  padding: 3px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
-.workspaceHeader:hover .newSessionBtn {
+.workspaceHeader:hover .workspaceMenuBtn {
   opacity: 1;
 }
-.newSessionBtn:hover {
+.workspaceMenuBtn:hover {
   background: var(--pi-color-surfaceHover, #1e2124);
   color: var(--pi-color-foreground, #e6e6e6);
 }

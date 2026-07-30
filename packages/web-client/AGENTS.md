@@ -86,19 +86,29 @@ src/
                            into one ordered event list; see Invariants "Restored history") (+ test)
   lib/paths.ts             resolveWorkspacePath — shared relative-path + base joiner (moved out
                            of use-file-live-refresh.ts, task-002 sprint-045; also used by
-                           timeline/image-src.ts's relative-path branch)
+                           timeline/image-src.ts's relative-path branch); dirOf (parent directory
+                           of an absolute path) and relativeToRoot (strip a workspace root prefix)
+                           — file-explorer quick-wins-1, used by FileContextMenu.tsx's Copy Path
+                           actions and FileExplorer.tsx's selected-directory targeting
+  lib/clipboard.ts         copyText — Clipboard-API write with an execCommand("copy") fallback
+                           for non-secure-context LAN access (file-explorer quick-wins-1)
   lib/inline-image-cache.ts ref-counted, LRU-bounded (32-entry) object-URL cache for inline chat
                            images (task-003 sprint-045); revokes only on LRU eviction or
                            connection teardown, never on row unmount — deliberately NOT
                            use-file-download's single-consumer/revoke-on-unmount policy
-  stores/                  Zustand slices: ui-store, tab-store (openNewChat materializes eagerly;
-                           closeTab wraps the store's close action + materialize.ts's
-                           discardIfEmpty), session-store (SessionEntry.model/modelProvider,
-                           poll-reconciled + live-updated by agent_update), materialize (eager
-                           draft materialization + default-model resolution + discardIfEmpty, +
-                           test), git-store (branch/ahead/behind/detached/upstream/conflictCount
-                           alongside changes[]), stats-store (per-sessionId context/tokens/cost/
-                           model — sprint-042), explorer-store (+ test)
+  stores/                  Zustand slices: ui-store (fileMenu carries a `background` flag for the
+                           Files tree's empty-space context menu; `collapsedWorkspaces` seeded in
+                           bulk via setCollapsedWorkspaces, not just toggled one at a time),
+                           tab-store (openNewChat materializes eagerly; closeTab wraps the store's
+                           close action + materialize.ts's discardIfEmpty; closeByPathPrefix closes
+                           every file/diff/molecule tab nested under a deleted path), session-store
+                           (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
+                           agent_update), materialize (eager draft materialization + default-model
+                           resolution + discardIfEmpty, + test), git-store (branch/ahead/behind/
+                           detached/upstream/conflictCount alongside changes[]), stats-store
+                           (per-sessionId context/tokens/cost/model — sprint-042), explorer-store
+                           (`selected` — the last-clicked row, target directory for "New File"/
+                           "New Folder" — file-explorer quick-wins-1) (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `img` node → InlineImage), InlineImage
                            (task-004 sprint-045 — the `![alt](src)` renderer: remote passthrough,
@@ -139,8 +149,14 @@ src/
                            "Slash-command picker")
   features/
     connection/            Toolbar, ConnectionStatus
-    sessions/               SessionList, SessionItem, SessionContextMenu, WorkspaceGroupHeader,
-                            open-workspace, status-map, workspace-grouping
+    sessions/               SessionList (handleDeleteWorkspace — loops `client.agent(id).delete()`
+                            over a workspace's sessions, confirms conversations-only/files-
+                            untouched, closes their tabs — file-explorer quick-wins-1), SessionItem,
+                            SessionContextMenu, WorkspaceGroupHeader (per-workspace delete button
+                            alongside "New conversation"), open-workspace, status-map,
+                            workspace-grouping (+ collapseInactiveWorkspaces, used by
+                            use-session-restore.ts to seed the sidebar's collapsed set on connect
+                            — file-explorer quick-wins-1) (+ test)
     workspace/              TabStrip (tabs + trailing "+" menu: New chat / New terminal, scoped
                             to the active workspace — GitHub issue #8), TabPanelHost, panel-registry,
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
@@ -157,14 +173,26 @@ src/
                             flattened by file-tree.ts and rendered through
                             @tanstack/react-virtual; upload button/drag-and-drop resolved to the
                             drop-target directory; per-row "⋮" context-menu trigger; header +
-                            context-menu "New File"/"New Folder" actions insert an inline
-                            TreeDraftRow under the target directory, named in place and created
-                            on Enter), TreeNode (presentational row: chevron/icon/name + actions
-                            button, delegates draft rows to TreeDraftRow), TreeDraftRow (owns the
-                            draft input's local text state), FileContextMenu (New File/New
-                            Folder/download/delete), create-entry.ts (shared `file_create_request`
-                            caller + error-code messages, used by FileExplorer's tree draft and
-                            OpenWorkspaceDialog's "new folder" affordance), RightSidebar, DiffView,
+                            context-menu "New File"/"New Folder" target the selected directory
+                            (`explorer-store.selected`) instead of always the workspace root — file-
+                            explorer quick-wins-1; insert an inline TreeDraftRow under the target
+                            directory, named in place and created on Enter), TreeNode
+                            (presentational row: chevron/icon/name + actions button, delegates
+                            draft rows to TreeDraftRow; `title` tooltip shows the full path; `active`
+                            (open in the current tab) and `selected` (last-clicked) rows get a CSS
+                            highlight — file-explorer quick-wins-1), TreeDraftRow (owns the draft
+                            input's local text state), FileContextMenu (row menu: Open (files) /
+                            New File/New Folder (directories) / Copy Absolute Path / Copy Relative
+                            Path / Download (files) / Delete; empty-space variant
+                            (`ui-store.fileMenu.background`, right-click below the last row): New
+                            File/New Folder/Copy Current Directory Path/Copy Current Directory
+                            Relative Path — file-explorer quick-wins-1), open-file-tab.ts (shared
+                            "open a path as a tab" dispatch used by FileExplorer's row click and
+                            FileContextMenu's Open action, so both agree on the molecule-vs-file
+                            kind — file-explorer quick-wins-1), create-entry.ts (shared
+                            `file_create_request` caller + error-code messages, used by
+                            FileExplorer's tree draft and OpenWorkspaceDialog's "new folder"
+                            affordance), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files), MoleculeViewerPanel
