@@ -275,9 +275,9 @@ entered at runtime, never baked into the image.
   a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
   `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
   `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
-store.ts#connect()` routes between the two via `resolveConnectTarget()`
+  store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
-client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
+  client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
