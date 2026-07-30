@@ -11,6 +11,9 @@
   flex-shrink: 0;
 }
 .tabBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-size: 12px;
   padding: 8px 12px;

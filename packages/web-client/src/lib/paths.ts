@@ -19,3 +19,16 @@ export function resolveWorkspacePath(path: string, base: string): string | null 
   if (!base) return null;
   return `${base.replace(/\/+$/, "")}/${path}`;
 }
+
+/** Parent directory of an absolute path — `"/foo/bar"` → `"/foo"`, `"/foo"` → `"/"`. */
+export function dirOf(path: string): string {
+  const idx = path.lastIndexOf("/");
+  return idx > 0 ? path.slice(0, idx) : "/";
+}
+
+/** `path` relative to `root` (both absolute) — strips the root prefix and any leading slash.
+ * Returns `path` unchanged if it isn't nested under `root`. */
+export function relativeToRoot(path: string, root: string): string {
+  if (!root || !path.startsWith(root)) return path;
+  return path.slice(root.length).replace(/^\/+/, "");
+}

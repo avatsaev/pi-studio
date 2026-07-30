@@ -13,6 +13,12 @@ import styles from "./FileExplorer.module.css";
 
 export interface TreeNodeProps {
   row: TreeRow;
+  /** True when this row's path is the active tab's file (`FileExplorer.tsx`'s `activeFilePath`) —
+   * highlighted like the sidebar's active session row. */
+  active?: boolean;
+  /** True when this row is the last-clicked row (`explorer-store.ts`'s `selected`) — the target
+   * directory for "New File"/"New Folder". */
+  selected?: boolean;
   onToggle(path: string): void;
   onOpenFile(path: string): void;
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
@@ -24,6 +30,8 @@ const INDENT_PX = 14;
 
 export function TreeNode({
   row,
+  active,
+  selected,
   onToggle,
   onOpenFile,
   onContextMenu,
@@ -60,11 +68,13 @@ export function TreeNode({
   const isDirectory = row.kind === "directory";
   return (
     <div
-      className={styles.item}
+      className={clsx(styles.item, active && styles.active, selected && styles.selected)}
       style={indent}
+      title={row.path}
       onClick={() => (isDirectory ? onToggle(row.path) : onOpenFile(row.path))}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         onContextMenu(row.path, isDirectory, e.clientX, e.clientY);
       }}
     >

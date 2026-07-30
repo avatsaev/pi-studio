@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Pencil, Square, Archive as ArchiveIcon, Trash2 } from "lucide-react";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
@@ -44,13 +45,21 @@ export function SessionContextMenu() {
       const title = next.trim();
       useSessionStore.getState().setTitle(session.id, title);
       useTabStore.getState().updateLabel(tabIds.chat(session.id), title);
-      if (session.agentId) void client?.agent(session.agentId).update({ title }).catch(() => {});
+      if (session.agentId)
+        void client
+          ?.agent(session.agentId)
+          .update({ title })
+          .catch(() => {});
     }
     closeSessionMenu();
   }
 
   function stop() {
-    if (session?.agentId) void client?.agent(session.agentId).interrupt().catch(() => {});
+    if (session?.agentId)
+      void client
+        ?.agent(session.agentId)
+        .interrupt()
+        .catch(() => {});
     closeSessionMenu();
   }
 
@@ -118,16 +127,20 @@ export function SessionContextMenu() {
       <DropdownMenu.Portal>
         <DropdownMenu.Content className={styles.content} align="start" sideOffset={2}>
           <DropdownMenu.Item className={styles.item} onSelect={rename}>
+            <Pencil size={13} />
             Rename
           </DropdownMenu.Item>
           <DropdownMenu.Item className={styles.item} disabled={!canStop} onSelect={stop}>
+            <Square size={13} />
             Stop agent
           </DropdownMenu.Item>
           <DropdownMenu.Separator className={styles.sep} />
           <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={archive}>
+            <ArchiveIcon size={13} />
             Archive
           </DropdownMenu.Item>
           <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={remove}>
+            <Trash2 size={13} />
             Delete permanently
           </DropdownMenu.Item>
         </DropdownMenu.Content>

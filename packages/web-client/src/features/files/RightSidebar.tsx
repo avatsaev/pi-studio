@@ -6,7 +6,7 @@
  * the sidebar entry redundant (GitHub issue #8 follow-up).
  */
 
-import { RotateCw } from "lucide-react";
+import { RotateCw, Folder, GitCompare } from "lucide-react";
 import { clsx } from "clsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
@@ -45,6 +45,7 @@ export function RightSidebar() {
           className={clsx(styles.tabBtn, rightSidebarTab === "files" && styles.active)}
           onClick={() => setRightSidebarTab("files")}
         >
+          <Folder size={13} />
           Files
         </button>
         <button
@@ -52,6 +53,7 @@ export function RightSidebar() {
           className={clsx(styles.tabBtn, rightSidebarTab === "changes" && styles.active)}
           onClick={() => setRightSidebarTab("changes")}
         >
+          <GitCompare size={13} />
           Changes
         </button>
         <Button

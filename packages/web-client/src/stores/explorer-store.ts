@@ -36,6 +36,11 @@ interface ExplorerStoreState {
   /** Begin an inline draft under `parentPath`, expanding it so the draft row is visible. */
   startDraft(parentPath: string, kind: "file" | "directory"): void;
   cancelDraft(): void;
+  /** Last-clicked row (directory or file) — where "New File"/"New Folder" (header toolbar and
+   * the empty-space context menu) create their new entry: the selected directory itself, or the
+   * selected file's parent directory. `null` (nothing selected yet) falls back to `rootPath`. */
+  selected: { path: string; isDirectory: boolean } | null;
+  setSelected(selected: { path: string; isDirectory: boolean } | null): void;
 }
 
 export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
@@ -43,6 +48,7 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
   expanded: new Set(),
   expandedByRoot: new Map(),
   draft: null,
+  selected: null,
 
   setRoot: (path) =>
     set((s) => {
@@ -51,7 +57,7 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
       const remembered = expandedByRoot.get(path);
       const expanded = new Set(remembered);
       expanded.add(path);
-      return { rootPath: path, expanded, expandedByRoot, draft: null };
+      return { rootPath: path, expanded, expandedByRoot, draft: null, selected: null };
     }),
 
   toggle: (path) =>
@@ -75,6 +81,8 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
     }),
 
   cancelDraft: () => set({ draft: null }),
+
+  setSelected: (selected) => set({ selected }),
 }));
 interface ExplorerEntry {
   name?: string;
