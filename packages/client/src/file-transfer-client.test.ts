@@ -72,6 +72,41 @@ function lastRequestId(sentText: string[]): string {
   return sent.message.requestId;
 }
 
+/** The session message body of the client's most recent send. */
+interface SentMessage {
+  type: string;
+  requestId: string;
+  token?: string;
+  stream: number;
+}
+function lastSent(fake: { sentText: string[] }): SentMessage {
+  const envelope = JSON.parse(fake.sentText.at(-1)!) as { message: SentMessage };
+  return envelope.message;
+}
+
+/** Answer the pending `file_download_token_request` with `token`. */
+function respondToken(
+  fake: { sentText: string[]; push: (d: string) => void },
+  token: string,
+): void {
+  fake.push(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "file_download_token_response",
+        requestId: lastRequestId(fake.sentText),
+        ok: true,
+        token,
+      },
+    }),
+  );
+}
+
+/** Drain queued microtasks — the client's RPC plumbing is promise-based, never timer-based. */
+async function drain(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
 describe("FileTransferClient — download", () => {
   it("requests a token, requests the download, and assembles Begin→Chunk*→End into one buffer", async () => {
     const fake = makeFakeTransport();
@@ -87,7 +122,12 @@ describe("FileTransferClient — download", () => {
     fake.push(
       JSON.stringify({
         type: "session",
-        message: { type: "file_download_token_response", requestId: tokenRequestId, ok: true, token: "tok-1" },
+        message: {
+          type: "file_download_token_response",
+          requestId: tokenRequestId,
+          ok: true,
+          token: "tok-1",
+        },
       }),
     );
     await Promise.resolve();
@@ -98,7 +138,12 @@ describe("FileTransferClient — download", () => {
     fake.push(
       JSON.stringify({
         type: "session",
-        message: { type: "file_download_response", requestId: downloadRequestId, ok: true, stream: 1 },
+        message: {
+          type: "file_download_response",
+          requestId: downloadRequestId,
+          ok: true,
+          stream: 1,
+        },
       }),
     );
     await Promise.resolve();
@@ -138,7 +183,12 @@ describe("FileTransferClient — download", () => {
     fake.push(
       JSON.stringify({
         type: "session",
-        message: { type: "file_download_token_response", requestId: tokenRequestId, ok: true, token: "tok-2" },
+        message: {
+          type: "file_download_token_response",
+          requestId: tokenRequestId,
+          ok: true,
+          token: "tok-2",
+        },
       }),
     );
     await Promise.resolve();
@@ -148,12 +198,19 @@ describe("FileTransferClient — download", () => {
     fake.push(
       JSON.stringify({
         type: "session",
-        message: { type: "file_download_response", requestId: downloadRequestId, ok: true, stream: 1 },
+        message: {
+          type: "file_download_response",
+          requestId: downloadRequestId,
+          ok: true,
+          stream: 1,
+        },
       }),
     );
     await Promise.resolve();
 
-    fake.pushBinary(encodeFileTransferFrame({ opcode: "Error", stream: 1, message: "expired token" }));
+    fake.pushBinary(
+      encodeFileTransferFrame({ opcode: "Error", stream: 1, message: "expired token" }),
+    );
 
     await expect(downloadPromise).rejects.toThrow("expired token");
   });
@@ -180,6 +237,161 @@ describe("FileTransferClient — download", () => {
     );
 
     await expect(downloadPromise).rejects.toThrow("not_found");
+  });
+
+  it("retries once with a fresh token when the daemon reports an expired one", async () => {
+    // The daemon's TTL runs from issue time, but the token only becomes usable once its response
+    // has crossed a socket that may be saturated by an in-flight transfer's Chunk frames — so a
+    // token can arrive already dead. The backlog has drained by the time we learn that, which is
+    // exactly why one clean retry is enough.
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    const downloadPromise = transfer.download("/tmp/photo.png");
+    await drain();
+    respondToken(fake, "tok-stale");
+    await drain();
+
+    const staleAttempt = lastSent(fake);
+    expect(staleAttempt).toMatchObject({ type: "file_download_request", token: "tok-stale" });
+    fake.push(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_response",
+          requestId: staleAttempt.requestId,
+          ok: false,
+          error: "invalid_or_expired_token",
+        },
+      }),
+    );
+    await drain();
+
+    expect(lastSent(fake).type).toBe("file_download_token_request");
+    respondToken(fake, "tok-fresh");
+    await drain();
+
+    const retry = lastSent(fake);
+    expect(retry).toMatchObject({ type: "file_download_request", token: "tok-fresh" });
+    fake.push(
+      JSON.stringify({
+        type: "session",
+        message: { type: "file_download_response", requestId: retry.requestId, ok: true },
+      }),
+    );
+    await drain();
+    fake.pushBinary(
+      encodeFileTransferFrame({
+        opcode: "Begin",
+        stream: retry.stream,
+        meta: { transferId: "dl-retry" },
+      }),
+    );
+    fake.pushBinary(
+      encodeFileTransferFrame({ opcode: "Chunk", stream: retry.stream, data: new Uint8Array([9]) }),
+    );
+    fake.pushBinary(encodeFileTransferFrame({ opcode: "End", stream: retry.stream, ok: true }));
+
+    expect(Array.from((await downloadPromise).bytes)).toEqual([9]);
+  });
+
+  it("does not retry a rejection that a fresh token cannot fix", async () => {
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    const downloadPromise = transfer.download("/tmp/photo.png");
+    await drain();
+    respondToken(fake, "tok-1");
+    await drain();
+
+    const attempt = lastSent(fake);
+    fake.push(
+      JSON.stringify({
+        type: "session",
+        message: {
+          type: "file_download_response",
+          requestId: attempt.requestId,
+          ok: false,
+          error: "read_failed",
+        },
+      }),
+    );
+
+    await expect(downloadPromise).rejects.toThrow("read_failed");
+    expect(fake.sentText.filter((t) => t.includes("file_download_token_request"))).toHaveLength(1);
+  });
+
+  it("recycles stream ids so a long-lived connection never emits one past 255", async () => {
+    // The stream id is a single frame-header byte. `nextStream++` handed out 256 on the 256th
+    // download of a session and every download after that died in the codec.
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    for (let i = 0; i < 300; i++) {
+      const downloadPromise = transfer.download(`/tmp/f-${i}.bin`);
+      await drain();
+      respondToken(fake, `tok-${i}`);
+      await drain();
+
+      const attempt = lastSent(fake);
+      expect(attempt.stream).toBeGreaterThanOrEqual(0);
+      expect(attempt.stream).toBeLessThan(256);
+      fake.push(
+        JSON.stringify({
+          type: "session",
+          message: { type: "file_download_response", requestId: attempt.requestId, ok: true },
+        }),
+      );
+      await drain();
+      fake.pushBinary(
+        encodeFileTransferFrame({
+          opcode: "Begin",
+          stream: attempt.stream,
+          meta: { transferId: `dl-${i}` },
+        }),
+      );
+      fake.pushBinary(encodeFileTransferFrame({ opcode: "End", stream: attempt.stream, ok: true }));
+      await downloadPromise;
+    }
+  });
+
+  it("releases the stream id when the download request never completes", async () => {
+    // A rejected request streams no `End`, so nothing else frees the id — without an explicit
+    // release, 256 failures would exhaust the pool for the life of the connection.
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const transfer = new FileTransferClient(client);
+    transfer.start();
+
+    for (let i = 0; i < 300; i++) {
+      const downloadPromise = transfer.download(`/tmp/f-${i}.bin`);
+      await drain();
+      respondToken(fake, `tok-${i}`);
+      await drain();
+      const attempt = lastSent(fake);
+      fake.push(
+        JSON.stringify({
+          type: "session",
+          message: {
+            type: "rpc_error",
+            requestId: attempt.requestId,
+            code: "handler_error",
+            message: "boom",
+          },
+        }),
+      );
+      await expect(downloadPromise).rejects.toThrow("boom");
+    }
   });
 });
 

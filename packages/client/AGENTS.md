@@ -310,6 +310,16 @@ await files.upload(path, bytes);
 files.stop();                                     // stop routing; pending downloads are rejected
 ```
 
+- **Stream ids come from the protocol's shared pool** (`nextFreeSlot`/`SLOT_SPACE`) and are
+  recycled when a transfer ends — including when its request rejects, which streams no `End`.
+  The frame header spends one byte on the id, so the old `nextStream++` emitted 256 on the 256th
+  download of a connection and every download after that died in the codec.
+- **`download()` retries exactly once on `invalid_or_expired_token`.** The daemon's TTL runs from
+  the moment it issues a token, but the token is only usable once its response has crossed a
+  socket shared with every in-flight `Chunk` frame — a large transfer ahead of it can deliver a
+  token that is already dead (routine over relay). By the time the rejection arrives that backlog
+  has drained, so one clean attempt suffices; further looping would only spin on a broken link.
+
 ---
 
 ## Invariants

@@ -5,6 +5,8 @@ import { basename, dirname } from "node:path";
 import {
   encodeFileTransferFrame,
   type FileTransferFrame,
+  nextFreeSlot,
+  SLOT_SPACE,
   tryDecodeFileTransferFrame,
 } from "@av-pi-studio/protocol";
 
@@ -39,9 +41,10 @@ interface PendingUpload {
 export class FileTransferService {
   readonly tokenStore: DownloadTokenStore;
   private readonly chunkBytes: number;
-  /** Pending uploads keyed by stream number. */
+  /** Pending uploads keyed by stream id. */
   private readonly uploads = new Map<number, PendingUpload>();
-  private nextStream = 1;
+  /** Rotating hand-out point in the one-byte stream id space (see `nextFreeSlot`). */
+  private streamCursor = 1;
 
   constructor(deps: FileTransferDeps = {}) {
     this.tokenStore = deps.tokenStore ?? new DownloadTokenStore();
@@ -66,7 +69,14 @@ export class FileTransferService {
 
     registry.register("file_download_request", async (ctx) => {
       const token = String(ctx.message.token ?? "");
-      const stream = Number(ctx.message.stream ?? this.nextStream++);
+      const stream =
+        ctx.message.stream === undefined ? this.takeStream() : Number(ctx.message.stream);
+      // Range-checked BEFORE the token is consumed: an out-of-range stream used to burn the
+      // single-use token and only then throw out of `encodeFileTransferFrame`, leaving the
+      // client's retry nothing to redeem.
+      if (!Number.isInteger(stream) || stream < 0 || stream >= SLOT_SPACE) {
+        return { type: "file_download_response", stream, ok: false, error: "invalid_stream" };
+      }
       const result = await this.startDownload(token, stream, (frame) =>
         ctx.session.sendBinary(frame),
       );
@@ -79,7 +89,11 @@ export class FileTransferService {
       if (!targetPath || !transferId) {
         return { type: "file_upload_response", ok: false, error: "missing_fields" };
       }
-      const stream = this.nextStream++;
+      const stream = nextFreeSlot(this.uploads, this.streamCursor);
+      if (stream === null) {
+        return { type: "file_upload_response", ok: false, error: "no_free_stream" };
+      }
+      this.streamCursor = (stream + 1) % SLOT_SPACE;
       this.uploads.set(stream, {
         transferId,
         targetPath,
@@ -89,6 +103,15 @@ export class FileTransferService {
       });
       return { type: "file_upload_response", ok: true, stream };
     });
+  }
+
+  /** Hand out the next stream id for a transfer this service does not track (a download the
+   *  client didn't number itself). Rotates through the one-byte space instead of counting past
+   *  255, which `encodeFileTransferFrame` rejects outright. */
+  private takeStream(): number {
+    const stream = this.streamCursor;
+    this.streamCursor = (stream + 1) % SLOT_SPACE;
+    return stream;
   }
 
   /**

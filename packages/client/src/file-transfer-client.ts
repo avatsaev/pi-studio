@@ -1,4 +1,9 @@
-import { encodeFileTransferFrame, type FileTransferFrame } from "@av-pi-studio/protocol";
+import {
+  encodeFileTransferFrame,
+  type FileTransferFrame,
+  nextFreeSlot,
+  SLOT_SPACE,
+} from "@av-pi-studio/protocol";
 
 import { randomId, type DaemonClient } from "./daemon-client.js";
 
@@ -13,6 +18,9 @@ import { randomId, type DaemonClient } from "./daemon-client.js";
 
 /** Matches the server's default chunk size (`FileTransferService` DEFAULT_CHUNK_BYTES). */
 const UPLOAD_CHUNK_BYTES = 32 * 1024;
+
+/** The daemon's `startDownload` rejection when a token is unknown, spent, or past its TTL. */
+const EXPIRED_TOKEN = "invalid_or_expired_token";
 
 export interface DownloadedFile {
   bytes: Uint8Array;
@@ -57,7 +65,8 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 
 export class FileTransferClient {
   private readonly pending = new Map<number, PendingDownload>();
-  private nextStream = 1;
+  /** Rotating hand-out point in the one-byte stream id space — ids are a pool, not a counter. */
+  private streamCursor = 1;
   private detach: (() => void) | null = null;
 
   constructor(private readonly daemon: DaemonClient) {}
@@ -81,25 +90,53 @@ export class FileTransferClient {
   /**
    * Download the file at `path`: requests a single-use token, then requests the chunked
    * transfer, assembling `Begin → Chunk* → End` frames into one buffer.
+   *
+   * Retries exactly once on an expired token. The daemon's TTL runs from the moment it ISSUES a
+   * token, but the token only becomes usable once its response reaches us — queued behind every
+   * `Chunk` frame already in flight on this one socket. A large transfer ahead of it can hand us
+   * a token that is dead on arrival (relay makes this routine: base64-inflated frames, extra
+   * hop). By the time we see the rejection that backlog has drained, so a second attempt lands on
+   * a quiet socket; looping further would only spin on a genuinely broken link.
    */
   async download(path: string): Promise<DownloadedFile> {
-    const tokenResponse = await this.daemon.request<TokenResponse>(
-      "file_download_token_request",
-      { path },
-    );
+    try {
+      return await this.attemptDownload(path);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== EXPIRED_TOKEN) throw error;
+      return await this.attemptDownload(path);
+    }
+  }
+
+  private async attemptDownload(path: string): Promise<DownloadedFile> {
+    const tokenResponse = await this.daemon.request<TokenResponse>("file_download_token_request", {
+      path,
+    });
     if (!tokenResponse.ok || !tokenResponse.token) {
       throw new Error(tokenResponse.error ?? "failed to issue download token");
     }
 
-    const stream = this.nextStream++;
+    // Stream ids live in a single frame-header byte, so they are recycled as transfers finish;
+    // an ever-incrementing counter would emit 256 and be rejected by the codec from then on.
+    const stream = nextFreeSlot(this.pending, this.streamCursor);
+    if (stream === null) throw new Error("no free download stream");
+    this.streamCursor = (stream + 1) % SLOT_SPACE;
+
     const result = new Promise<DownloadedFile>((resolve, reject) => {
       this.pending.set(stream, { chunks: [], meta: {}, resolve, reject });
     });
 
-    const requestResponse = await this.daemon.request<DownloadRequestResponse>(
-      "file_download_request",
-      { token: tokenResponse.token, stream },
-    );
+    let requestResponse: DownloadRequestResponse;
+    try {
+      requestResponse = await this.daemon.request<DownloadRequestResponse>(
+        "file_download_request",
+        { token: tokenResponse.token, stream },
+      );
+    } catch (error) {
+      // A timed-out or socket-killed request never streams `End`, so release the id here or it
+      // stays claimed for the life of the connection and eats the pool.
+      this.pending.delete(stream);
+      throw error;
+    }
     if (!requestResponse.ok) {
       this.pending.delete(stream);
       throw new Error(requestResponse.error ?? "download request failed");
@@ -125,7 +162,9 @@ export class FileTransferClient {
     }
     const stream = response.stream;
 
-    this.daemon.sendBinary(encodeFileTransferFrame({ opcode: "Begin", stream, meta: { transferId } }));
+    this.daemon.sendBinary(
+      encodeFileTransferFrame({ opcode: "Begin", stream, meta: { transferId } }),
+    );
     for (let offset = 0; offset < bytes.length; offset += UPLOAD_CHUNK_BYTES) {
       const data = bytes.subarray(offset, offset + UPLOAD_CHUNK_BYTES);
       this.daemon.sendBinary(encodeFileTransferFrame({ opcode: "Chunk", stream, data }));

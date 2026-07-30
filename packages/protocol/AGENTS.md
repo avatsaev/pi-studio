@@ -24,11 +24,13 @@ src/
   endpoint.ts                             Daemon endpoint / host string parser.
   validation.ts                           Shared base primitives: uuidSchema, isoTimestampSchema, COMPAT().
   binary-frames/
-    index.ts                              Re-exports both binary codecs.
+    index.ts                              Re-exports both binary codecs + the slot allocator.
     terminal-stream-protocol.ts           Terminal binary frame codec (opcode+slot framing).
     terminal-stream-protocol.test.ts
     file-transfer-protocol.ts             File download/upload binary frame codec.
     file-transfer-protocol.test.ts
+    slots.ts                              Shared 0–255 slot/stream id allocation for both codecs.
+    slots.test.ts
   messages.envelopes.test.ts              Envelope round-trip tests.
   client-capabilities.test.ts
   endpoint.test.ts
@@ -117,7 +119,21 @@ Binary frame layout: `[1-byte opcode][1-byte slot][payload]`.
 
 ### `binary-frames/file-transfer-protocol.ts`
 
-Binary framing for file download/upload operations.
+Binary framing for file download/upload operations. Frame layout `[1-byte opcode][1-byte stream][payload]`;
+`stream` (0–255) multiplexes concurrent transfers on one socket.
+
+### `binary-frames/slots.ts`
+
+| Export | Description |
+|--------|-------------|
+| `SLOT_SPACE` | `256` — the one-byte slot/stream id space both binary codecs share |
+| `nextFreeSlot(inUse, cursor?)` | Lowest free id at or after `cursor` (wrapping), or `null` when all 256 are live. `inUse` is any `Map`/`Set` of live ids |
+
+Slot/stream ids are a **pool, not a counter**: every allocator must recycle the ids of finished
+terminals/transfers. A bare `next++` emits `256` on the 256th hand-out and every `encode*Frame`
+call throws from then on. Allocation walks forward from a caller-held cursor rather than always
+returning the lowest free id, so a just-released id is the last one reused — a stale peer-side
+subscription is not immediately re-pointed at a new transfer.
 
 ### `endpoint.ts`
 

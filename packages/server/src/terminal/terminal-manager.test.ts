@@ -150,11 +150,17 @@ describe("TerminalManager", () => {
   it("logs open, kill and exit lifecycle to the injected logger", () => {
     const records: Array<{ level: string; msg?: string; [k: string]: unknown }> = [];
     const capture = (level: string) => (obj: unknown, msg?: string) => {
-      records.push(typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg });
+      records.push(
+        typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg },
+      );
     };
     const logger = {
-      trace: capture("trace"), debug: capture("debug"), info: capture("info"),
-      warn: capture("warn"), error: capture("error"), fatal: capture("fatal"),
+      trace: capture("trace"),
+      debug: capture("debug"),
+      info: capture("info"),
+      warn: capture("warn"),
+      error: capture("error"),
+      fatal: capture("fatal"),
       child: () => logger,
     };
     const backend = new FakePtyBackend();
@@ -164,28 +170,75 @@ describe("TerminalManager", () => {
 
     const opened = records.find((r) => r.msg === "terminal opened");
     expect(opened).toMatchObject({ level: "info", slot: 1, workspaceId: "ws1", cwd: "/work" });
-    expect(records.find((r) => r.msg === "terminal kill requested")).toMatchObject({ level: "info", slot: 1 });
-    expect(records.find((r) => r.msg === "terminal exited")).toMatchObject({ level: "info", slot: 1 });
+    expect(records.find((r) => r.msg === "terminal kill requested")).toMatchObject({
+      level: "info",
+      slot: 1,
+    });
+    expect(records.find((r) => r.msg === "terminal exited")).toMatchObject({
+      level: "info",
+      slot: 1,
+    });
   });
 
   it("logs spawn failures at error and rethrows", () => {
     const records: Array<{ level: string; msg?: string; [k: string]: unknown }> = [];
     const capture = (level: string) => (obj: unknown, msg?: string) => {
-      records.push(typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg });
+      records.push(
+        typeof obj === "string" ? { level, msg: obj } : { level, ...(obj as object), msg },
+      );
     };
     const logger = {
-      trace: capture("trace"), debug: capture("debug"), info: capture("info"),
-      warn: capture("warn"), error: capture("error"), fatal: capture("fatal"),
+      trace: capture("trace"),
+      debug: capture("debug"),
+      info: capture("info"),
+      warn: capture("warn"),
+      error: capture("error"),
+      fatal: capture("fatal"),
       child: () => logger,
     };
     const failingBackend: PtyBackend = {
-      spawn: () => { throw new Error("pty unavailable"); },
+      spawn: () => {
+        throw new Error("pty unavailable");
+      },
     };
     const mgr = new TerminalManager({ backend: failingBackend, coalesceMs: 0, logger });
-    expect(() => mgr.createTerminal({ workspaceId: "ws1", shell: "/bin/sh" })).toThrow("pty unavailable");
+    expect(() => mgr.createTerminal({ workspaceId: "ws1", shell: "/bin/sh" })).toThrow(
+      "pty unavailable",
+    );
     expect(records.find((r) => r.msg === "terminal spawn failed")).toMatchObject({
-      level: "error", shell: "/bin/sh", err: "pty unavailable",
+      level: "error",
+      shell: "/bin/sh",
+      err: "pty unavailable",
     });
+  });
+
+  it("recycles the slots of exited terminals instead of counting past the one-byte space", () => {
+    // The terminal frame header spends one byte on the slot, so `nextSlot++` handed the 256th
+    // terminal ever opened a slot of 256 and `encodeTerminalFrame` threw on every frame for it —
+    // terminals stayed broken until the daemon restarted.
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+
+    for (let i = 0; i < 300; i++) {
+      const entry = mgr.createTerminal({ workspaceId: "ws1" });
+      expect(entry.slot).toBeGreaterThanOrEqual(0);
+      expect(entry.slot).toBeLessThan(256);
+      // Encoding a frame for the assigned slot is the exact operation that used to throw.
+      expect(() =>
+        encodeTerminalFrame({ opcode: "Output", slot: entry.slot, data: new Uint8Array([1]) }),
+      ).not.toThrow();
+      mgr.kill(entry.slot);
+    }
+    expect(mgr.list()).toHaveLength(0);
+  });
+
+  it("keeps concurrently live terminals on distinct slots", () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    const slots = new Set<number>();
+    for (let i = 0; i < 256; i++) slots.add(mgr.createTerminal({ workspaceId: "ws1" }).slot);
+    expect(slots.size).toBe(256);
+    expect(() => mgr.createTerminal({ workspaceId: "ws1" })).toThrow("no free terminal slot");
   });
 });
 
