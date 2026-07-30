@@ -1,4 +1,4 @@
-import { encodeTerminalFrame } from "@av-pi-studio/protocol";
+import { encodeTerminalFrame, nextFreeSlot, SLOT_SPACE } from "@av-pi-studio/protocol";
 
 import type { Logger } from "../logging/logger.js";
 import {
@@ -79,7 +79,8 @@ export class TerminalManager {
   private readonly defaultShell: string;
   private readonly terminals = new Map<number, ManagedTerminal>();
   private readonly logger?: Logger;
-  private nextSlot = 1;
+  /** Rotating hand-out point in the one-byte slot space (see `nextFreeSlot`). */
+  private slotCursor = 1;
 
   constructor(options: TerminalManagerOptions = {}) {
     this.backend = options.backend ?? createDefaultPtyBackend();
@@ -98,9 +99,18 @@ export class TerminalManager {
     return this.terminals.get(slot)?.entry;
   }
 
-  /** Spawn a PTY in the backend, assign a slot, and track the runtime entry. */
+  /**
+   * Spawn a PTY in the backend, assign a slot, and track the runtime entry.
+   *
+   * Slots are a pool, not a counter: the terminal frame header spends one byte on the slot, so
+   * the 256th terminal ever opened by a long-lived daemon used to be handed slot 256 and every
+   * `encodeTerminalFrame` for it threw, killing terminals until restart. Ids of exited terminals
+   * are reused (rotating, so a just-closed slot is the last one handed back out).
+   */
   createTerminal(options: CreateTerminalOptions): TerminalRuntimeEntry {
-    const slot = this.nextSlot++;
+    const slot = nextFreeSlot(this.terminals, this.slotCursor);
+    if (slot === null) throw new Error("no free terminal slot (256 terminals already open)");
+    this.slotCursor = (slot + 1) % SLOT_SPACE;
     const cols = options.cols ?? 80;
     const rows = options.rows ?? 24;
     const shell = options.shell ?? this.defaultShell;
@@ -117,13 +127,27 @@ export class TerminalManager {
       });
     } catch (error) {
       this.logger?.error(
-        { slot, workspaceId: options.workspaceId, shell, cwd: options.cwd, err: (error as Error)?.message ?? String(error) },
+        {
+          slot,
+          workspaceId: options.workspaceId,
+          shell,
+          cwd: options.cwd,
+          err: (error as Error)?.message ?? String(error),
+        },
         "terminal spawn failed",
       );
       throw error;
     }
     this.logger?.info(
-      { slot, workspaceId: options.workspaceId, shell, cwd: options.cwd, cols, rows, service: options.service === true ? true : undefined },
+      {
+        slot,
+        workspaceId: options.workspaceId,
+        shell,
+        cwd: options.cwd,
+        cols,
+        rows,
+        service: options.service === true ? true : undefined,
+      },
       "terminal opened",
     );
 

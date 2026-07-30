@@ -489,7 +489,12 @@ creation" above.
 
 **`TerminalManager`**:
 - Creates PTY processes via `PtyBackend` (`node-pty` by default).
-- Assigns a `slot` (0–255) to each terminal for binary frame multiplexing.
+- Assigns a `slot` (0–255) to each terminal for binary frame multiplexing, allocated from the
+  protocol's shared pool (`nextFreeSlot`/`SLOT_SPACE`). Slots of exited terminals are **recycled**
+  (rotating, so a just-closed slot is the last one handed back out): the frame header spends one
+  byte on the slot, so the old ever-incrementing counter handed the 256th terminal ever opened a
+  slot of 256 and every `encodeTerminalFrame` for it threw, killing terminals until restart.
+  With all 256 concurrently live, `createTerminal` throws rather than emitting an unencodable id.
 - **Output coalescing**: batches PTY output into 4 ms windows before broadcasting.
 - **Screen snapshot**: `ScreenBuffer` (xterm/headless) retains the last ≤64 KiB of output as a
   snapshot for new subscribers (so they see the current screen state).
@@ -571,8 +576,22 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   rpc.ts`, and `file-watch-service.ts`; now one implementation).
 
 **`file_transfer.ts`** (task-001, sprint-045 — closed the tilde/MIME gaps below):
-- Issued download tokens (`file-transfer.ts`, `FileTransferService`) are short-lived and stored in
-  a registrar (`download-token-store.ts`).
+- Issued download tokens (`file-transfer.ts`, `FileTransferService`) are stored in a registrar
+  (`download-token-store.ts`): single-use, LRU-capped at 10 000, **10-minute TTL**.
+- The TTL is a cleanup device, not an authorization control — a token never leaves the
+  authenticated session, and the LRU cap is what bounds memory. It was raised from 60 s because
+  the clock starts when the daemon ISSUES a token while the client cannot redeem it until the
+  response has crossed a socket shared with every in-flight download's `Chunk` frames: opening a
+  second file behind a large transfer on a slow link (routine over relay — base64-inflated frames
+  plus an extra hop) delivered a token that was already expired, and the download failed with
+  `invalid_or_expired_token`. Do not tighten this back. `FileTransferClient` also retries once on
+  that error, which covers LRU eviction that no TTL can fix.
+- `file_download_request` **range-checks `stream` before consuming the token** (rejects with
+  `invalid_stream`); it previously spent the single-use token and only then threw out of
+  `encodeFileTransferFrame`, leaving a retry nothing to redeem.
+- Stream ids are allocated from the protocol's shared pool (`nextFreeSlot`/`SLOT_SPACE`) and
+  recycled as uploads finish — the one-byte frame header cannot carry an ever-incrementing
+  counter. An exhausted pool yields `no_free_stream` rather than a codec throw.
 - `file_download_token_request` now expands `~`/`~/` via `expandHome` before `realpath()` —
   previously the one file-path RPC with no tilde expansion at all, which is what blocked a
   `~`-prefixed inline-image download (features/inline-image-rendering.md).

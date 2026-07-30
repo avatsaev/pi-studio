@@ -161,4 +161,13 @@ corresponds to the practical interactive limit of the code renderer, not any wir
 
 ## TODO(verify)
 - [ ] File-transfer frame layout (opcodes, chunk size, completion marker).
-- [ ] Download-token TTL and single-use semantics.
+- [x] Download-token TTL and single-use semantics — **resolved**: single-use, consumed on first
+      redemption, LRU-capped at 10 000 outstanding tokens, 10-minute TTL. The TTL is a cleanup
+      device rather than an authorization control (the token never leaves the authenticated
+      session), and it must stay generous: the clock starts when the daemon issues the token,
+      while the client cannot redeem it until the response has crossed a socket shared with every
+      in-flight `Chunk` frame. A 60 s TTL made opening a second file behind a large transfer on a
+      slow link fail with `invalid_or_expired_token`. The client additionally re-issues and
+      retries once on that error, covering LRU eviction.
+- [x] Stream/slot id allocation — **resolved**: ids are a 0–255 pool (one frame-header byte),
+      recycled as transfers finish, never a monotonic counter.
