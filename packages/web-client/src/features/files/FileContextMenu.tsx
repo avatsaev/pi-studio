@@ -2,8 +2,9 @@
  * File row context menu — Radix DropdownMenu anchored at cursor/button coordinates, mirroring
  * `SessionContextMenu.tsx`'s pattern. Two variants share this one component/menu instance
  * (`ui-store.ts`'s `fileMenu.background` flag):
- *  - Row menu (background: false): Open (files only) / New File / New Folder (directories only) /
- *    Copy Absolute Path / Copy Relative Path / Download (files only) / Delete.
+ *  - Row menu (background: false): Open / Open in MolViewer (files only) / New File /
+ *    New Folder (directories only) / Copy Absolute Path / Copy Relative Path / Download
+ *    (files only) / Delete.
  *  - Empty-space menu (background: true, opened by right-clicking below the last row): New File /
  *    New Folder / Copy Current Directory Path / Copy Current Directory Relative Path — no
  *    Open/Download/Delete, since there's no specific row under the cursor.
@@ -12,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  Atom,
   ExternalLink,
   FilePlus,
   FolderPlus,
@@ -27,7 +29,7 @@ import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { copyText } from "@pi-studio-ui/lib/clipboard.js";
 import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
-import { openFileTab } from "./open-file-tab.js";
+import { openFileTab, openMoleculeTab } from "./open-file-tab.js";
 import styles from "./FileContextMenu.module.css";
 
 export function FileContextMenu() {
@@ -58,6 +60,12 @@ export function FileContextMenu() {
     if (!menu) return;
     closeFileMenu();
     openFileTab(menu.path, activeWorkspaceCwd || "~");
+  }
+
+  function openInMolviewer() {
+    if (!menu) return;
+    closeFileMenu();
+    openMoleculeTab(menu.path, activeWorkspaceCwd || "~");
   }
 
   async function copyAbsolutePath() {
@@ -162,6 +170,10 @@ export function FileContextMenu() {
                   <DropdownMenu.Item className={styles.item} onSelect={openFile}>
                     <ExternalLink size={13} />
                     Open
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className={styles.item} onSelect={openInMolviewer}>
+                    <Atom size={13} />
+                    Open in MolViewer
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator className={styles.sep} />
                 </>
