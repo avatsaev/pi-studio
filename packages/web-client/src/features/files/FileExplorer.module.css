@@ -7,24 +7,24 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border-bottom: 1px solid var(--pi-color-border);
 }
 .uploadButton {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--pi-spacing-5);
   font-size: var(--pi-font-size-2xs);
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--pi-color-border, #353b46);
-  background: var(--pi-color-surface, #1e2124);
-  color: var(--pi-color-foreground, #e4e6eb);
+  padding: var(--pi-spacing-3) var(--pi-spacing-8);
+  border-radius: var(--pi-radius-base);
+  border: 1px solid var(--pi-color-border);
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foreground);
   cursor: pointer;
 }
 .uploadButton:hover:not(:disabled) {
-  background: var(--pi-color-surfaceHover, #2a2e33);
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
 }
 .uploadButton:disabled {
   opacity: 0.5;
@@ -36,80 +36,71 @@
 .status,
 .statusError {
   font-size: var(--pi-font-size-2xs);
-  padding: 4px 8px;
+  padding: var(--pi-spacing-4) var(--pi-spacing-8);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .status {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .statusError {
-  color: var(--pi-color-danger, #e5534b);
+  color: var(--pi-color-statusDanger);
 }
 .rowAction {
   margin-left: auto;
-  display: none;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  background: transparent;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  cursor: pointer;
-  border-radius: 3px;
 }
-.rowAction:hover {
-  color: var(--pi-color-foreground, #e4e6eb);
-  background: var(--pi-color-surface, #1e2124);
+.item .rowAction {
+  display: none;
 }
 .item:hover .rowAction {
   display: inline-flex;
 }
 
 .list {
-  padding: 4px 0;
+  padding: var(--pi-spacing-4) 0;
   flex: 1;
   overflow-y: auto;
   position: relative;
 }
 .item {
   height: 28px;
-  padding-right: 8px;
+  padding-right: var(--pi-spacing-8);
   font-size: var(--pi-font-size-xs);
-  border-radius: 3px;
+  border-radius: var(--pi-radius-base);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   /* Rows are drag sources (task-006) — without this, Firefox can hijack the gesture as a text
      selection drag instead of firing our dragstart, since row content is plain text nodes. */
   user-select: none;
   -webkit-user-select: none;
 }
 .item:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
 }
 .item.active {
-  background: var(--pi-color-surfaceSunken, #111);
-  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
-  border-radius: 0;
+  background: var(--pi-color-surface0);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent);
+  border-radius: var(--pi-radius-none);
 }
 .item.selected {
-  background: var(--pi-color-surfaceSunken, #111);
-  border-radius: 0;
+  background: var(--pi-color-surface0);
+  border-radius: var(--pi-radius-none);
 }
 .item.dropTarget {
-  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 22%, transparent);
-  box-shadow: inset 0 0 0 1px var(--pi-color-accent, #2e5cb8);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--pi-color-accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--pi-color-accent);
+  border-radius: var(--pi-radius-base);
 }
 .chevronSlot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
+  width: var(--pi-icon-size-sm);
   flex-shrink: 0;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .chevron {
   transition: transform 0.1s ease;
@@ -120,9 +111,9 @@
 .icon {
   display: flex;
   align-items: center;
-  width: 16px;
+  width: var(--pi-icon-size-md);
   flex-shrink: 0;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .name {
   white-space: nowrap;
@@ -133,27 +124,56 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--pi-color-accentBright, #a2b4d7);
+  color: var(--pi-color-accentBright);
+}
+/* Git-status tinting (`git-status-index.ts`) — same added/modified/deleted colour convention as
+   the Changes tab's badges. Tints the icon + label rather than the row background, which is
+   already spoken for by the active/selected/drop-target states. `.dirName` sets its own colour,
+   so these need the extra `.item` specificity to win. */
+.item.gitAdded .icon,
+.item.gitAdded .name,
+.item.gitAdded .dirName {
+  color: var(--pi-color-statusSuccess);
+}
+.item.gitModified .icon,
+.item.gitModified .name,
+.item.gitModified .dirName {
+  color: var(--pi-color-statusWarning);
+}
+.item.gitDeleted .icon,
+.item.gitDeleted .name,
+.item.gitDeleted .dirName {
+  color: var(--pi-color-statusDanger);
+}
+.item.gitDeleted .name {
+  text-decoration: line-through;
+}
+/* Dotfiles/dot-folders are hidden from `ls` and most OS file browsers — ghost them so it's
+   obvious the tree is showing more than a normal listing would. Opacity rather than a colour
+   so it composes with the git tint above instead of overriding it; full opacity back on hover
+   and while the row is the active/selected one, where dimming would just read as broken. */
+.item.hiddenEntry {
+  opacity: 0.45;
+}
+.item.hiddenEntry:hover,
+.item.hiddenEntry.active,
+.item.hiddenEntry.selected,
+.item.hiddenEntry.dropTarget {
+  opacity: 1;
 }
 .statusRow {
   height: 28px;
   display: flex;
   align-items: center;
-  padding-right: 8px;
+  padding-right: var(--pi-spacing-8);
   font-size: var(--pi-font-size-2xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .statusRowError {
-  color: var(--pi-color-danger, #e5534b);
-}
-.emptyState {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: var(--pi-font-size-xs);
-  text-align: center;
-  padding: 20px;
+  color: var(--pi-color-statusDanger);
 }
 .draftInput {
   flex: 1;
@@ -161,10 +181,10 @@
   height: 20px;
   font: inherit;
   font-size: var(--pi-font-size-xs);
-  padding: 0 4px;
-  color: var(--pi-color-foreground, #e4e6eb);
-  background: var(--pi-color-surfaceSunken, #111);
-  border: 1px solid var(--pi-color-accent, #2e5cb8);
-  border-radius: 3px;
+  padding: 0 var(--pi-spacing-4);
+  color: var(--pi-color-foreground);
+  background: var(--pi-color-surface0);
+  border: 1px solid var(--pi-color-accent);
+  border-radius: var(--pi-radius-base);
   outline: none;
 }

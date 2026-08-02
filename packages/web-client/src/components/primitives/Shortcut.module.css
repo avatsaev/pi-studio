@@ -3,7 +3,7 @@
 .row {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
   flex-wrap: wrap;
 }
 
@@ -11,13 +11,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 5px;
-  border-radius: var(--pi-radius-base, 4px);
-  background-color: var(--pi-color-surface2, #27272a);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  padding: var(--pi-spacing-1) var(--pi-spacing-5);
+  border-radius: var(--pi-radius-base);
+  background-color: var(--pi-color-surface2);
+  border: 1px solid var(--pi-color-border);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-xs);
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  font-family: var(--pi-font-mono);
   line-height: 1.4;
   white-space: nowrap;
   user-select: none;

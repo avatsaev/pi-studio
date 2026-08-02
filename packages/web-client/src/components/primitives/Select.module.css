@@ -2,13 +2,13 @@
 
 .select {
   appearance: none;
-  background-color: var(--pi-color-surface1, #18181b);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  border-radius: var(--pi-radius-base, 4px);
-  padding: 8px 32px 8px 10px;
-  font-family: var(--pi-font-ui, system-ui);
+  background-color: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
+  padding: var(--pi-spacing-8) var(--pi-spacing-32) var(--pi-spacing-8) var(--pi-spacing-10);
+  font-family: var(--pi-font-ui);
   font-size: var(--pi-font-size-md);
-  color: var(--pi-color-foreground, #fafafa);
+  color: var(--pi-color-foreground);
   width: 100%;
   outline: none;
   transition: border-color 100ms;
@@ -19,7 +19,7 @@
 }
 
 .select:focus {
-  border-color: var(--pi-color-accent, #2e5cb8);
+  border-color: var(--pi-color-accent);
 }
 
 .select:disabled {
@@ -35,19 +35,19 @@
 
 .comboboxInput {
   width: 100%;
-  background-color: var(--pi-color-surface1, #18181b);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  border-radius: var(--pi-radius-base, 4px);
-  padding: 8px 10px;
-  font-family: var(--pi-font-ui, system-ui);
+  background-color: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  font-family: var(--pi-font-ui);
   font-size: var(--pi-font-size-md);
-  color: var(--pi-color-foreground, #fafafa);
+  color: var(--pi-color-foreground);
   outline: none;
   box-sizing: border-box;
 }
 
 .comboboxInput:focus {
-  border-color: var(--pi-color-accent, #2e5cb8);
+  border-color: var(--pi-color-accent);
 }
 
 .comboboxList {
@@ -58,20 +58,20 @@
   z-index: 80;
   max-height: 200px;
   overflow-y: auto;
-  background-color: var(--pi-color-surface1, #18181b);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  border-radius: var(--pi-radius-base, 4px);
-  margin-top: 4px;
-  padding: 4px;
-  box-shadow: var(--pi-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.4));
+  background-color: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
+  margin-top: var(--pi-spacing-4);
+  padding: var(--pi-spacing-4);
+  box-shadow: var(--pi-shadow-md);
 }
 
 .comboboxOption {
-  padding: 6px 8px;
-  border-radius: var(--pi-radius-sm, 3px);
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border-radius: var(--pi-radius-sm);
   font-size: var(--pi-font-size-md);
-  font-family: var(--pi-font-ui, system-ui);
-  color: var(--pi-color-foreground, #fafafa);
+  font-family: var(--pi-font-ui);
+  color: var(--pi-color-foreground);
   cursor: pointer;
   background: none;
   border: none;
@@ -81,5 +81,5 @@
 
 .comboboxOption:hover,
 .comboboxOptionHighlighted {
-  background-color: var(--pi-color-surface2, #27272a);
+  background-color: var(--pi-color-surface2);
 }

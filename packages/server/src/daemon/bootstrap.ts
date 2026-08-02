@@ -538,7 +538,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     const rows = getTimeline(agentId)?.allRows() ?? [];
     for (let i = rows.length - 1; i >= 0; i--) {
       const ev = rows[i]!.event as { kind?: string; text?: string };
-      if (ev.kind === "assistant_message") return ev.text;
+      // Skip textless `final` block-close markers (`assistant_message.final`) — they carry no
+      // text and would otherwise mask the real last reply.
+      if (ev.kind === "assistant_message" && ev.text) return ev.text;
     }
     return undefined;
   };

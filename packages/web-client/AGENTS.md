@@ -11,6 +11,10 @@ modular, typed, performant app.
 > scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
 
+> **Design system reference:** `DESIGN_SYSTEM.md` (this directory) documents the full token
+> pipeline, color system, theme variants, brand/white-label injection, breakpoints, and every
+> shared primitive — read it before adding a new component or hardcoding a style value.
+
 ---
 
 ## Purpose
@@ -67,6 +71,15 @@ src/
                              vars (font-size scale lives in theme/tokens.ts, see Invariants)
   theme/font-scale.test.ts guards the one-lever font invariant: no hardcoded font-size literal
                              in any CSS module, no dangling --pi-font-size-* rung
+  theme/token-integrity.test.ts generalizes the same guard to every --pi-*/--syntax-* custom
+                             property across every source file (not just font-size): every
+                             var(--pi-*) reference must resolve to a key theme/css-bridge.ts
+                             actually emits, AND every emitted key must be a syntactically legal
+                             CSS custom-property identifier (no literal `.` — a fractional
+                             spacing key like "1.5" silently emits an invalid `--pi-spacing-1.5`
+                             that no browser resolves, collapsing that padding/margin/gap to 0
+                             app-wide with no error; this shipped once, see theme/tokens.ts's
+                             spacing comment)
   css-modules.d.ts          ambient CSS-module typings
   vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
                              package.json version, shown in Toolbar.tsx after the brand title)
@@ -75,9 +88,16 @@ src/
   brand/                   brand config (zod-validated), brand-logo, theme-injection
   ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar tokens)
   platform/                breakpoints (window-chrome metrics)
-  components/primitives/   36 React design-system components (Button, Select, Dialog, Surface,
-                            TextInput, Switch, Checkbox, Avatar, ScrollArea, ResizeHandle,
-                            StatusBadge/Dot, Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
+  components/primitives/   React design-system components (Button, IconButton — compact
+                            chromeless icon affordance for row actions/menu triggers, distinct
+                            from Button's ≥28px iconOnly mode —, Select, Dialog, Surface,
+                            Panel — full-height flex-column shell —, EmptyState — centered
+                            muted placeholder text —, Menu — shared Radix DropdownMenu chrome
+                            (MenuCursorTrigger/MenuContent/MenuItem/MenuSeparator), used by
+                            every right-click context menu plus TabStrip's "+" menu and
+                            ModelMenu/CommandMenu's outer chrome —, TextInput, Switch,
+                            Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
+                            Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
                            relay-transport pairing-link connections), resolve-connect-target
                            (pure routing: plain address vs. pairing link, direct vs. relay + tests),
@@ -108,7 +128,10 @@ src/
                            (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
                            agent_update), materialize (eager draft materialization + default-model
                            resolution + discardIfEmpty, + test), git-store (branch/ahead/behind/
-                           detached/upstream/conflictCount alongside changes[]), stats-store
+                           detached/upstream/conflictCount alongside changes[]; plus `ignored[]`,
+                           the projection's gitignored paths — kept OUT of `changes[]` so it can
+                           never inflate the Changes tab or the status bar's dirty count, and read
+                           only by the Files tree), stats-store
                            (per-sessionId context/tokens/cost/model — sprint-042), explorer-store
                            (`selected` — the last-clicked row, target directory for "New File"/
                            "New Folder" — file-explorer quick-wins-1; `repathAfterMove` — rewrites
@@ -198,12 +221,21 @@ src/
                             directory after 700ms either way, and on drop calls move-entry.ts's
                             `moveEntry` or uploads via `useFileTransfer`'s `upload`,
                             invalidates both affected `rpcKeys.explorer(...)` listings, repaths
-                            `explorer-store` state, and reopens/closes the moved item's tab), TreeNode
+                            `explorer-store` state, and reopens/closes the moved item's tab; tints
+                            every row by git status and ghosts dotfile/gitignored rows from the
+                            live `git-store` — see git-status-index.ts below), TreeNode
                             (presentational row: chevron/icon/name + actions button, delegates
                             draft rows to TreeDraftRow; `title` tooltip shows the full path; `active`
                             (open in the current tab), `selected` (last-clicked), and `dropTarget`
                             (hover target for an internal move OR an OS-file drag — sprint-046)
-                            rows each get a CSS highlight; row is `draggable` and fires
+                            rows each get a CSS highlight; `gitStatus` tints the icon + label
+                            green/amber/red (`.gitAdded`/`.gitModified`/`.gitDeleted`, same colour
+                            convention as the Changes tab's A/M/D badges); `hidden` ghosts the row
+                            to 45% opacity (`.hiddenEntry` — dotfiles and gitignored entries, which
+                            a plain listing wouldn't show at all), using opacity rather than a
+                            colour so it composes with the git tint instead of overriding it, and
+                            snapping back to full opacity on hover/active/selected where dimming
+                            would just read as broken; row is `draggable` and fires
                             `onDragStartRow`/`onDragEndRow`
                             — file-explorer quick-wins-1), TreeDraftRow (owns the draft
                             input's local text state), FileContextMenu (row menu: Open / Open in
@@ -224,12 +256,31 @@ src/
                             error-code messages, same shape as create-entry.ts — sprint-046),
                             move-target.ts (pure `resolveMoveTarget` — drop-legality decision +
                             landing path for a row drag, no React/DOM dependency so it's
-                            unit-testable without jsdom — sprint-046), RightSidebar, DiffView,
+                            unit-testable without jsdom — sprint-046),
+                            git-status-index.ts (pure `buildGitStatusLookup(rootPath, changes)` —
+                            derives the tree's per-row git tint from `git-store.changes`, which
+                            `StatusBar`'s subscription already keeps live, so this costs no extra
+                            RPC. Bridges two mismatches: change paths are workspace-relative while
+                            tree rows are absolute, and porcelain v2's default `-unormal` collapses
+                            a wholly untracked directory into one `dir/` entry, so its descendants
+                            need a prefix match. Rolls every change up its ancestor directories —
+                            a folder is green only while everything changed beneath it is new,
+                            amber if anything under it is edited or deleted — so a collapsed folder
+                            still shows that something inside it changed. Also exports
+                            `buildIgnoredMatcher(rootPath, ignored)`, the same join +
+                            collapsed-directory prefix logic for `git-store.ignored`, which is what
+                            ghosts `node_modules/`, `dist/` and friends. NOTE: ignored entries only
+                            arrive from a daemon new enough to send `--ignored=traditional` `!`
+                            lines — against an older daemon the list is simply empty and only
+                            dotfiles ghost, which looks exactly like "ignored folders aren't
+                            dimming"), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
                             `@molviewer/core@0.4.0`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
-                            (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
+                            (PanelProps adapter, styled via the shared `Panel` primitive plus a
+                            local `.wrap`/`.badges` override for its absolute-positioned status
+                            badges), molecule-source.ts,
                             write-file.ts (shared `file_write_request` caller + error-code messages,
                             mirrors move-entry.ts — used by MoleculeViewer's Save button),
                             molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
@@ -320,6 +371,20 @@ entered at runtime, never baked into the image.
   still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
   Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
   page cap, which would reintroduce silent truncation.
+- **A row's `streaming` flag must never outlive the block it describes.** `AssistantRow`/
+  `ReasoningRow` render `row.text` as plain text with a cursor while `streaming` is true and only
+  route through `<Markdown>` once it clears — deliberate, since re-parsing markdown + Shiki on
+  every token delta is wasteful. That makes `streaming: false` the *only* thing standing between
+  the user and rendered markdown, so `reducer.ts` clears it the moment the row can no longer grow:
+  on `assistant_message.final`/`reasoning.final` (the daemon's mapping of Pi's `text_end`/
+  `thinking_end`), on the next `tool_call`, on an assistant↔reasoning switch, and on any turn
+  boundary. `finalizeRow`/`finalizeStreamingRows` are the single implementation — use them rather
+  than nulling `streamingAssistantIndex`/`streamingReasoningIndex` by hand. Clearing the *index*
+  alone (what `onToolCall` used to do) strands the row: `turn_completed` only finalizes the index
+  it still holds, so every message followed by a tool call rendered as raw markdown source
+  forever, including after a reload — `use-session-restore.ts` replays through this same reducer.
+  Note the deliberate exception: `user_message` does **not** finalize, because a steering message
+  arrives mid-block and splitting there would tear one reply into two bubbles.
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
@@ -697,12 +762,14 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
     keyed off `tab-store.activeWorkspaceCwd` — NOT `session.cwd` (a per-session field), and NOT a
     per-panel subscription. `ChangesPanel.tsx` used to own this subscription itself, opening it
-    only while the Changes tab was visible; it is now a pure `git-store` reader. The daemon's
+    only while the Changes tab was visible; it is now a pure `git-store` reader, as is
+    `FileExplorer.tsx` (whose row tinting/ghosting goes through `git-status-index.ts`). The daemon's
     `checkout_status_subscribe`/`_unsubscribe` handlers key on a flat, non-reference-counted
     `session:cwd` map (`packages/server/src/projects/git-checkout-rpc.ts`) — a SECOND independent
     subscriber to the same cwd is not additive, it's a race: whichever one unmounts first silently
     kills the live feed for the other too. Never add a second `useCheckoutStatus(cwd)` call
-    anywhere in this app for the same cwd `StatusBar` is already watching.
+    anywhere in this app for the same cwd `StatusBar` is already watching — read `git-store`
+    instead, which is what makes the Files tree's tinting free.
   - **The context/token/cost/model fields are pull-only** — no `AgentStreamEvent` kind carries
     them (see `agentStreamEventSchema` in `@av-pi-studio/protocol`). `use-session-stats.ts` polls
     `client.agent(id).sessionStats()` on mount/session-switch, on a ~12s interval, and immediately

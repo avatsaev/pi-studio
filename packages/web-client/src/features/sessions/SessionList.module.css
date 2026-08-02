@@ -1,15 +1,9 @@
-.wrap {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-}
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-bottom: 1px solid var(--pi-color-border);
   flex-shrink: 0;
 }
 .openBtn {
@@ -20,7 +14,7 @@
   margin: 0;
   font-size: var(--pi-font-size-xs);
   font-weight: 600;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -31,30 +25,34 @@
 }
 .item {
   position: relative;
-  padding: 8px 10px;
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
   cursor: pointer;
   border-bottom: 1px solid transparent;
 }
 .item:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  background: color-mix(
+    in srgb,
+    var(--pi-color-surfaceSidebar) 85%,
+    var(--pi-color-foreground) 15%
+  );
 }
 .item.active {
-  background: var(--pi-color-surfaceSunken, #111);
-  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
+  background: var(--pi-color-surface0);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent);
 }
 .title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   font-size: var(--pi-font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .meta {
-  margin-top: 2px;
+  margin-top: var(--pi-spacing-2);
   font-size: var(--pi-font-size-2xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,34 +62,25 @@
   top: 6px;
   right: 6px;
   opacity: 0;
-  padding: 2px 4px;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
 .item:hover .menuBtn {
   opacity: 1;
 }
-.menuBtn:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
-}
 .workspaceGroup {
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  border-bottom: 1px solid var(--pi-color-border);
 }
 .workspaceHeader {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-7) var(--pi-spacing-10);
   cursor: pointer;
   font-size: var(--pi-font-size-xs);
   font-weight: 600;
-  color: var(--pi-color-foreground, #e6e6e6);
+  color: var(--pi-color-foreground);
   /* Distinct from the sidebar background (surfaceSidebar) so the group header reads as a
      header rather than blending into the row list below it. */
-  background: var(--pi-color-surfaceWorkspace, #1e2120);
+  background: var(--pi-color-surfaceWorkspace);
 }
 .workspaceHeader:hover {
   /* `--pi-color-surfaceHover` isn't a real emitted token (no such key exists in ThemeColors —
@@ -101,23 +90,20 @@
      foreground is light on dark themes (lightens) and dark on the light theme (darkens). */
   background: color-mix(
     in srgb,
-    var(--pi-color-surfaceWorkspace, #1e2120) 85%,
-    var(--pi-color-foreground, #fafafa) 15%
+    var(--pi-color-surfaceWorkspace) 85%,
+    var(--pi-color-foreground) 15%
   );
 }
 .workspaceChevron {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
   flex-shrink: 0;
 }
+/* Deliberately no hover background — `.workspaceHeader:hover` above already lifts the whole
+   row; a second box just on the chevron would read as a double affordance. */
+.workspaceHeader .workspaceChevron:hover {
+  background: transparent;
+}
 .workspaceIcon {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   flex-shrink: 0;
 }
 .workspaceLabel {
@@ -129,33 +115,15 @@
 .workspaceCount {
   font-size: var(--pi-font-size-2xs);
   font-weight: 400;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .workspaceMenuBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
   opacity: 0;
-  padding: 3px;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
 .workspaceHeader:hover .workspaceMenuBtn {
   opacity: 1;
 }
-.workspaceMenuBtn:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
-  color: var(--pi-color-foreground, #e6e6e6);
-}
 .workspaceSessions {
-  padding-left: 12px;
-}
-.emptyState {
-  padding: 12px 10px;
-  font-size: var(--pi-font-size-xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  padding-left: var(--pi-spacing-12);
 }

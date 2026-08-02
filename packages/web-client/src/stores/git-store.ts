@@ -27,6 +27,11 @@ export interface CheckoutStatusProjection {
   staged: CheckoutFileEntry[];
   unstaged: CheckoutFileEntry[];
   untracked: string[];
+  /** Gitignored paths (server's `--ignored=traditional` `!` lines). Optional — a daemon older
+   * than this field simply omits it. Deliberately NOT folded into `changes`, which drive the
+   * Changes tab and the status bar's dirty count; only the Files tree reads this, to ghost
+   * ignored rows (`git-status-index.ts`). */
+  ignored?: string[];
   conflicted: string[];
   hasConflicts: boolean;
   unavailableReason?: string;
@@ -59,6 +64,8 @@ interface GitStoreState {
   behind: number;
   detached: boolean;
   conflictCount: number;
+  /** Workspace-relative gitignored paths; a wholly ignored directory arrives as one `dir/` entry. */
+  ignored: string[];
 
   setSubscribedCwd(cwd: string | null): void;
   /** Map a `checkout_status_update` projection into flat change rows (POC `handleCheckoutStatusUpdate`)
@@ -69,13 +76,14 @@ interface GitStoreState {
 export const useGitStore = create<GitStoreState>()((set) => ({
   subscribedCwd: null,
   changes: [],
+  ignored: [],
   ...EMPTY_BRANCH_META,
 
   setSubscribedCwd: (cwd) => set({ subscribedCwd: cwd }),
 
   applyProjection: (projection) => {
     if (!projection || !projection.available) {
-      set({ changes: [], ...EMPTY_BRANCH_META });
+      set({ changes: [], ignored: [], ...EMPTY_BRANCH_META });
       return;
     }
 
@@ -99,6 +107,7 @@ export const useGitStore = create<GitStoreState>()((set) => ({
     }
     set({
       changes,
+      ignored: projection.ignored ?? [],
       available: true,
       branch: projection.branch,
       upstream: projection.upstream,

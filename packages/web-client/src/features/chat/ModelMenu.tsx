@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
+import { MenuContent } from "@pi-studio-ui/components/primitives/Menu.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
 import { filterOptions, type ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
@@ -76,44 +77,42 @@ export function ModelMenu({ currentModel, provider, onSelect, renderTrigger }: M
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenu.Trigger asChild>{renderTrigger(currentModel)}</DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className={styles.content} align="start" sideOffset={4}>
-          <input
-            ref={searchRef}
-            className={styles.search}
-            placeholder="Search models…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-          />
-          {isLoading && (
-            <div className={styles.state}>
-              <Spinner size="sm" />
-            </div>
-          )}
-          {!isLoading && isError && <div className={styles.stateError}>{errorMessage}</div>}
-          {!isLoading && !isError && filtered.length === 0 && (
-            <div className={styles.state}>No models found</div>
-          )}
-          {!isLoading && !isError && filtered.length > 0 && (
-            <div className={styles.list}>
-              {filtered.map((opt) => (
-                <DropdownMenu.Item
-                  key={opt.value}
-                  className={styles.item}
-                  onSelect={() => onSelect(opt.value, providerById.get(opt.value))}
-                >
-                  <span className={styles.checkSlot} aria-hidden>
-                    {opt.value === currentModel && <Check size={14} />}
-                  </span>
-                  <span className={styles.label}>{opt.label}</span>
-                  <span className={styles.modelId}>({opt.value})</span>
-                </DropdownMenu.Item>
-              ))}
-            </div>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      <MenuContent minWidth={240} sideOffset={4} className={styles.picker}>
+        <input
+          ref={searchRef}
+          className={styles.search}
+          placeholder="Search models…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
+        />
+        {isLoading && (
+          <div className={styles.state}>
+            <Spinner size="sm" />
+          </div>
+        )}
+        {!isLoading && isError && <div className={styles.stateError}>{errorMessage}</div>}
+        {!isLoading && !isError && filtered.length === 0 && (
+          <div className={styles.state}>No models found</div>
+        )}
+        {!isLoading && !isError && filtered.length > 0 && (
+          <div className={styles.list}>
+            {filtered.map((opt) => (
+              <DropdownMenu.Item
+                key={opt.value}
+                className={styles.item}
+                onSelect={() => onSelect(opt.value, providerById.get(opt.value))}
+              >
+                <span className={styles.checkSlot} aria-hidden>
+                  {opt.value === currentModel && <Check size={14} />}
+                </span>
+                <span className={styles.label}>{opt.label}</span>
+                <span className={styles.modelId}>({opt.value})</span>
+              </DropdownMenu.Item>
+            ))}
+          </div>
+        )}
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }

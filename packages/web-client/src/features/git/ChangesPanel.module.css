@@ -1,52 +1,46 @@
 .list {
-  padding: 4px 0;
+  padding: var(--pi-spacing-4) 0;
 }
 .summary {
-  padding: 4px 8px;
+  padding: var(--pi-spacing-4) var(--pi-spacing-8);
   font-size: var(--pi-font-size-2xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
-  margin-bottom: 4px;
+  color: var(--pi-color-foregroundMuted);
+  border-bottom: 1px solid var(--pi-color-border);
+  margin-bottom: var(--pi-spacing-4);
 }
 .item {
-  padding: 4px 8px;
+  padding: var(--pi-spacing-4) var(--pi-spacing-8);
   font-size: var(--pi-font-size-xs);
-  border-radius: 3px;
+  border-radius: var(--pi-radius-base);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
 }
 .item:hover {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
 }
 .badge {
   font-size: var(--pi-font-size-3xs);
-  padding: 0 4px;
-  border-radius: 3px;
+  padding: 0 var(--pi-spacing-4);
+  border-radius: var(--pi-radius-base);
   font-weight: 600;
   flex-shrink: 0;
 }
 .added {
-  background: color-mix(in srgb, var(--pi-color-statusSuccess, #4ade80) 20%, transparent);
-  color: var(--pi-color-statusSuccess, #4ade80);
+  background: color-mix(in srgb, var(--pi-color-statusSuccess) 20%, transparent);
+  color: var(--pi-color-statusSuccess);
 }
 .modified {
-  background: color-mix(in srgb, var(--pi-color-statusWarning, #facc15) 20%, transparent);
-  color: var(--pi-color-statusWarning, #facc15);
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 20%, transparent);
+  color: var(--pi-color-statusWarning);
 }
 .deleted {
-  background: color-mix(in srgb, var(--pi-color-statusDanger, #ff8a80) 20%, transparent);
-  color: var(--pi-color-statusDanger, #ff8a80);
+  background: color-mix(in srgb, var(--pi-color-statusDanger) 20%, transparent);
+  color: var(--pi-color-statusDanger);
 }
 .name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.emptyState {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: var(--pi-font-size-xs);
-  text-align: center;
-  padding: 20px;
 }

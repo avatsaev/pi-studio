@@ -1,35 +1,28 @@
 /* ModelMenu — model-selector trigger + anchored searchable picker (sprint-043; the trigger
    element itself is now rendered by the caller, e.g. StatusBar.module.css's .modelSegment). */
 
-.content {
-  min-width: 240px;
-  padding: 4px;
-  border-radius: var(--pi-borderRadius-md, 6px);
-  background: var(--pi-color-surface, #16181a);
-  border: 1px solid var(--pi-color-border, #353b46);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+.picker {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
 }
 
 .search {
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
-  border-radius: var(--pi-radius-md, 6px);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  background: var(--pi-color-surface2, #27272a);
-  color: var(--pi-color-foreground, #fafafa);
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border-radius: var(--pi-radius-md);
+  border: 1px solid var(--pi-color-border);
+  background: var(--pi-color-surface2);
+  color: var(--pi-color-foreground);
   font-size: var(--pi-font-size-xs);
   outline: none;
 }
 .search::placeholder {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .search:focus {
-  border-color: var(--pi-color-accent, #2e5cb8);
+  border-color: var(--pi-color-accent);
 }
 
 .list {
@@ -40,28 +33,28 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 4px;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border-radius: var(--pi-radius-base);
   font-size: var(--pi-font-size-sm);
   cursor: pointer;
   outline: none;
 }
 .item:hover,
 .item[data-highlighted] {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
 }
 .item.itemActive {
-  background: var(--pi-color-surfaceHover, #1e2124);
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
 }
 
 .checkSlot {
-  width: 16px;
+  width: var(--pi-icon-size-md);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--pi-color-foreground, #fafafa);
+  color: var(--pi-color-foreground);
 }
 
 .label {
@@ -71,8 +64,8 @@
 }
 
 .modelId {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  margin-left: 4px;
+  color: var(--pi-color-foregroundMuted);
+  margin-left: var(--pi-spacing-4);
   font-size: var(--pi-font-size-xs);
   white-space: nowrap;
 }
@@ -81,14 +74,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  padding: var(--pi-spacing-12);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-xs);
 }
 
 .stateError {
-  padding: 8px;
-  color: var(--pi-color-danger, #e5534b);
+  padding: var(--pi-spacing-8);
+  color: var(--pi-color-statusDanger);
   font-size: var(--pi-font-size-xs);
 }
 
@@ -102,13 +95,13 @@
 .commandList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--pi-spacing-2);
 }
 .commandItem {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
-  padding: 8px 10px;
+  gap: var(--pi-spacing-4);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
 }
 /* Command rows use TWO independent, differently-styled states instead of forcing hover and
    keyboard-selection to share one look:
@@ -117,9 +110,8 @@
      var(--pi-color-accent)`, with `border-radius: 0` since that recipe is a full-width,
      square-cornered row treatment, unlike this popup's own rounded rows — driven only by
      `highlightedIndex`, which only `ArrowUp`/`ArrowDown` ever write. It overrides the shared
-     `.item.itemActive` rule above (same specificity, later wins): that shared rule's plain
-     `--pi-color-surfaceHover` fill sits only ~8/255 luminance steps above `.commandContent`'s
-     own `--pi-color-surface` backdrop — real but too subtle to read as "selected" at a glance.
+     `--pi-color-surface2` hover fill sits only one rung above `.commandContent`'s own
+     `--pi-color-surface1` backdrop — real but too subtle to read as "selected" at a glance.
    - Native `:hover` is "the mouse is over this" — the browser's own hit-testing, not a JS copy
      of it. An earlier version routed mouse feedback through `onMouseEnter` into the same
      `highlightedIndex` state so it could reuse the active look; that added a React render
@@ -130,18 +122,18 @@
    the stale hover on whatever's now underneath reads as a subtle secondary cue next to the real,
    accent-marked keyboard selection — never mistaken for a second selection. */
 .commandItem:hover {
-  background: color-mix(in srgb, var(--pi-color-surfaceHover, #1e2124) 55%, transparent);
+  background: color-mix(in srgb, var(--pi-color-foreground) 10%, transparent);
 }
 .commandItem.itemActive {
-  background: var(--pi-color-surfaceSunken, #111);
-  box-shadow: inset 2px 0 0 var(--pi-color-accent, #2e5cb8);
-  border-radius: 0;
+  background: var(--pi-color-surface0);
+  box-shadow: inset 2px 0 0 var(--pi-color-accent);
+  border-radius: var(--pi-radius-none);
 }
 .commandItemHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--pi-spacing-8);
   width: 100%;
 }
 .commandItemHeader .label {
@@ -149,17 +141,17 @@
   min-width: 0;
   font-size: var(--pi-font-size-sm);
   font-weight: 600;
-  color: var(--pi-color-foreground, #fafafa);
+  color: var(--pi-color-foreground);
 }
 .commandKindBadge {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  padding: 0 4px;
-  border-radius: 9999px;
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  background: var(--pi-color-surface2, #27272a);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  padding: 0 var(--pi-spacing-4);
+  border-radius: var(--pi-radius-full);
+  border: 1px solid var(--pi-color-border);
+  background: var(--pi-color-surface2);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-4xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -171,19 +163,19 @@
    tinted-border + tinted-text recipe `StatusBadge.tsx` builds at runtime via `color-mix`, just
    hardcoded per variant here since these three are fixed, not data-driven like status colors. */
 .commandKindExtension {
-  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 18%, transparent);
-  border-color: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 45%, transparent);
-  color: var(--pi-color-accent, #2e5cb8);
+  background: color-mix(in srgb, var(--pi-color-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-accent) 45%, transparent);
+  color: var(--pi-color-accent);
 }
 .commandKindPrompt {
-  background: color-mix(in srgb, var(--pi-color-statusSuccess, #16a34a) 18%, transparent);
-  border-color: color-mix(in srgb, var(--pi-color-statusSuccess, #16a34a) 45%, transparent);
-  color: var(--pi-color-statusSuccess, #16a34a);
+  background: color-mix(in srgb, var(--pi-color-statusSuccess) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-statusSuccess) 45%, transparent);
+  color: var(--pi-color-statusSuccess);
 }
 .commandKindSkill {
-  background: color-mix(in srgb, var(--pi-color-statusMerged, #9333ea) 18%, transparent);
-  border-color: color-mix(in srgb, var(--pi-color-statusMerged, #9333ea) 45%, transparent);
-  color: var(--pi-color-statusMerged, #9333ea);
+  background: color-mix(in srgb, var(--pi-color-statusMerged) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pi-color-statusMerged) 45%, transparent);
+  color: var(--pi-color-statusMerged);
 }
 .commandDescription {
   display: -webkit-box;
@@ -195,5 +187,5 @@
   white-space: normal;
   line-height: 1.4;
   font-size: var(--pi-font-size-xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }

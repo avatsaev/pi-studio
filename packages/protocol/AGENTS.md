@@ -63,7 +63,7 @@ src/
 | `agentDeletedSchema` | schema | Broadcast: agent hard-deleted |
 | `agentArchivedSchema` | schema | Broadcast: agent archived (soft delete) |
 | `agentStreamSchema` | schema | Broadcast: live agent turn event |
-| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message, reasoning, tool_call, turn_started/completed/failed/canceled, error, `queue_update` (`steering[]`/`followUp[]` — pending steering/follow-up queue changed) |
+| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message (optional `final` — see below), reasoning (same optional `final`), tool_call, turn_started/completed/failed/canceled, error, `queue_update` (`steering[]`/`followUp[]` — pending steering/follow-up queue changed) |
 | `imageAttachmentSchema` / `ImageAttachment` | schema + type | User-message image attachment wire shape `{ mimeType?, data? }` (base64); provider adapters convert to their native prompt-image format |
 | `toolCallDetailSchema` / `ToolCallDetail` | discriminated union | Tool detail normalized across providers (shell/read/edit/write/search/fetch/task) |
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
@@ -92,6 +92,17 @@ src/
 | `rpcName(domain, sub, op, dir)` | function | Build a canonical dotted RPC name |
 | `agentStatusEnum` / `AgentStatus` | enum | `initializing \| idle \| running \| error \| closed` |
 | `wireTimestampSchema` / `WireTimestamp` | schema | `number \| ISO-8601 string` (never narrowed) |
+
+**`assistant_message.final` / `reasoning.final` — block-close markers.** `assistant_message` and
+`reasoning` are *deltas*: the daemon emits one per Pi `text_delta`/`thinking_delta` and the client
+concatenates them into one row. `final: true` marks the event that closes the block (mapped from
+Pi's `text_end`/`thinking_end` in `packages/server/src/agent/providers/pi/event-mapper.ts`), which
+is the only in-band signal that the text will not grow. Live markers carry no `text` of their own;
+restored history (`session-hydration.ts`) sets `final` alongside the block's full text, since a
+persisted block is complete by definition. Renderers use it to leave their cheap streaming tier
+(the web client swaps plain text for markdown here) instead of waiting for `turn_completed`, which
+is one `agent_end` — an entire tool loop — away. Append-only-safe: a client that ignores `final`
+sees a textless `assistant_message` and no-ops on it.
 
 ### `client-capabilities.ts`
 

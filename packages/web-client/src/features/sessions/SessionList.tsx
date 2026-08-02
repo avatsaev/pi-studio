@@ -12,6 +12,8 @@ import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
@@ -51,9 +53,8 @@ export function SessionList() {
   }
 
   const groups = groupSessionsByWorkspace(order, sessions, homeDir);
-
   return (
-    <div className={styles.wrap}>
+    <Panel>
       <div className={styles.header}>
         <h3>Workspaces</h3>
         <Button
@@ -70,9 +71,9 @@ export function SessionList() {
       </div>
       <div className={styles.list}>
         {groups.length === 0 && (
-          <div className={styles.emptyState}>
+          <EmptyState style={{ padding: "var(--pi-spacing-12) var(--pi-spacing-10)" }}>
             {status !== "open" ? "Not connected" : "No workspaces — open a folder to start"}
-          </div>
+          </EmptyState>
         )}
         {groups.map((group) => {
           const collapsed = collapsedWorkspaces.has(group.cwd);
@@ -105,6 +106,6 @@ export function SessionList() {
       </div>
       <SessionContextMenu />
       <WorkspaceContextMenu />
-    </div>
+    </Panel>
   );
 }

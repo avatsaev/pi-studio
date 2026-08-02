@@ -4,6 +4,7 @@
 
 import { MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
+import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
 import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
 import { toDotStatus } from "./status-map.js";
@@ -34,9 +35,9 @@ export function SessionItem({ session, active, onSelect, onOpenMenu }: SessionIt
         {session.cwd || "~"} · {session.agentId ? session.agentId.slice(0, 8) : "new"} ·{" "}
         {session.userMessageCount} msgs
       </div>
-      <button
-        type="button"
+      <IconButton
         className={styles.menuBtn}
+        hoverBase="var(--pi-color-surfaceSidebar)"
         title="Actions"
         onClick={(ev) => {
           ev.stopPropagation();
@@ -45,7 +46,7 @@ export function SessionItem({ session, active, onSelect, onOpenMenu }: SessionIt
         }}
       >
         <MoreVertical size={14} />
-      </button>
+      </IconButton>
     </div>
   );
 }

@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--pi-radius-md);
   flex-shrink: 0;
   user-select: none;
 }
@@ -20,6 +20,6 @@
 .avatarFallback {
   font-weight: 600;
   color: #ffffff;
-  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  font-family: var(--pi-font-ui);
   line-height: 1;
 }

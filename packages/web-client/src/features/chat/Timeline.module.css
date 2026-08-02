@@ -4,7 +4,7 @@
   flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
-  padding: 16px 20px;
+  padding: var(--pi-spacing-16) var(--pi-spacing-20);
 }
 
 .inner {
@@ -19,7 +19,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  padding-bottom: 4px;
+  padding-bottom: var(--pi-spacing-4);
 }
 
 .empty {
@@ -27,29 +27,29 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }
 
 .working {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 2px 4px;
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-8) var(--pi-spacing-2) var(--pi-spacing-4);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }
 
 .workingDots {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
 }
 
 .workingDots span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pi-color-accentBright, #a2b4d7);
+  background: var(--pi-color-accentBright);
   animation: workingBounce 1.2s ease-in-out infinite;
 }
 

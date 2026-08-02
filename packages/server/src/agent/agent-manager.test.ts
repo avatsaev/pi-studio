@@ -71,6 +71,21 @@ describe("transitions", () => {
       InvalidAgentTransitionError,
     );
   });
+
+  // Regression: a provider failure (bad API key, quota exhausted, 403/429) parks the agent at
+  // "error", and the user's way out is to fix the cause and send again — `runTurn` opens with
+  // `setStatus(running)`. While `error` had no edge to `running`, that threw before the turn even
+  // started, so every later message in the conversation came straight back as "failed to send".
+  it("allows a retry straight out of error, so a failed turn never wedges the conversation", async () => {
+    const { mgr } = makeManager();
+    const agent = await mgr.add(record({ lastStatus: "idle" }));
+    await mgr.setStatus(agent.record.id, "running");
+    await mgr.setStatus(agent.record.id, "error");
+
+    const retried = await mgr.setStatus(agent.record.id, "running");
+    expect(retried.record.lastStatus).toBe("running");
+    expect((await mgr.setStatus(agent.record.id, "idle")).record.lastStatus).toBe("idle");
+  });
 });
 
 describe("updateRecord", () => {

@@ -266,8 +266,22 @@ export const agentStreamEventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("assistant_message"),
     messageId: z.string().optional(),
     text: z.string().optional(),
+    /**
+     * Set on the marker event that closes an assistant text block (Pi's `text_end` delta). The
+     * text is complete and will not grow, so a renderer can switch from its cheap streaming tier
+     * to full markdown immediately instead of waiting for `turn_completed`, which is one
+     * `agent_end` — potentially minutes of tool execution — away. Carries no `text` of its own
+     * when emitted as a standalone marker; hydrated history sets it alongside the block's full
+     * text. Older clients see an empty `assistant_message` and no-op.
+     */
+    final: z.boolean().optional(),
   }),
-  z.object({ kind: z.literal("reasoning"), text: z.string().optional() }),
+  z.object({
+    kind: z.literal("reasoning"),
+    text: z.string().optional(),
+    /** Closes a thinking block (Pi's `thinking_end` delta) — see `assistant_message.final`. */
+    final: z.boolean().optional(),
+  }),
   z.object({
     kind: z.literal("tool_call"),
     callId: z.string().optional(),

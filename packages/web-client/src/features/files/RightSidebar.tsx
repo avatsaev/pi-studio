@@ -10,6 +10,7 @@ import { RotateCw, Folder, GitCompare } from "lucide-react";
 import { clsx } from "clsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
@@ -38,7 +39,7 @@ export function RightSidebar() {
     }
   }
   return (
-    <div className={styles.wrap}>
+    <Panel>
       <div className={styles.tabBar}>
         <button
           type="button"
@@ -70,6 +71,6 @@ export function RightSidebar() {
       <div className={styles.content}>
         {rightSidebarTab === "files" ? <FileExplorer /> : <ChangesPanel />}
       </div>
-    </div>
+    </Panel>
   );
 }

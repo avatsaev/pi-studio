@@ -1,15 +1,8 @@
-.panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
 .empty {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }

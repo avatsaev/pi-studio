@@ -4,7 +4,7 @@
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 9999px;
+  border-radius: var(--pi-radius-full);
   flex-shrink: 0;
 }
 
@@ -17,8 +17,8 @@
   display: inline-block;
   width: 12px;
   height: 12px;
-  border-radius: 9999px;
-  border: 2px solid var(--pi-color-border, #353b46);
+  border-radius: var(--pi-radius-full);
+  border: 2px solid var(--pi-color-border);
   flex-shrink: 0;
   animation: statusSpin 0.7s linear infinite;
 }

@@ -230,6 +230,48 @@ describe("send prompt", () => {
     expect(manager.get(agentId)?.session).not.toBeNull();
   });
 
+  // Regression (real repro): a provider auth failure (403 "Authentication failed: Please make sure
+  // your API Key is valid.") ended the turn at status "error". Every later send in that same
+  // conversation was then rejected before the turn even started — `runTurn` opens with
+  // `setStatus(running)`, and `error → running` was not an allowed transition — so the UI rendered
+  // "failed to send" instantly and forever, even after the user fixed the key.
+  it("accepts a new prompt after a turn failed, so a provider error does not wedge the conversation", async () => {
+    const { service, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    await manager.setStatus(agentId, "error");
+
+    const result = (await service.handleSendPrompt(
+      { agentId, prompt: "retry after fixing the api key" },
+      () => [],
+    )) as Record<string, unknown>;
+
+    expect(result.status).toBe("idle");
+    expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
+  });
+
+  // Regression: `session.run` can reject instead of ending with a terminal event (a Pi ack rejected
+  // at preflight — bad credentials, provider 403/429). The status update used to sit after the
+  // await on the happy path only, so the rejection skipped it and pinned the agent at "running"
+  // forever: the composer then offers Steer instead of Send, steering with no live turn answers
+  // `{ok:false}`, and every later message rendered "failed to send".
+  it("settles status to error (not a stuck running) when the provider run rejects outright", async () => {
+    const { service, manager } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const managed = manager.get(agentId)!;
+    const boom = new Error("403 Authentication failed: Please make sure your API Key is valid.");
+    managed.session = {
+      ...managed.session!,
+      subscribe: () => () => {},
+      run: () => Promise.reject(boom),
+    } as unknown as AgentSession;
+
+    await expect(service.handleSendPrompt({ agentId, prompt: "go" }, () => [])).rejects.toBe(boom);
+
+    expect(manager.get(agentId)?.record.lastStatus).toBe("error");
+    // …and the conversation is still usable: the next send is accepted rather than rejected.
+    await manager.setStatus(agentId, "running");
+  });
+
   it("replays a materialized draft's pinned model on first spawn", async () => {
     const { manager } = makeSetup();
     const setProviderModelCalls: Array<[string, string]> = [];
@@ -336,7 +378,11 @@ describe("steer / follow-up", () => {
 
     expect(result.type).toBe("follow_up_agent_response");
     expect(result.ok).toBe(true);
-    expect(events).toContainEqual({ kind: "queue_update", steering: [], followUp: ["then summarize"] });
+    expect(events).toContainEqual({
+      kind: "queue_update",
+      steering: [],
+      followUp: ["then summarize"],
+    });
   });
 
   it("broadcasts the injected text as a user_message timeline row", async () => {
@@ -358,11 +404,10 @@ describe("steer / follow-up", () => {
     const { service, ops, manager } = makeSetup();
     const agentId = await createAgent(service, "first");
     manager.get(agentId)!.session = null;
-    const result = (await ops.handleSteer(
-      { agentId, message: "x" },
-      () => [],
-      "steer",
-    )) as Record<string, unknown>;
+    const result = (await ops.handleSteer({ agentId, message: "x" }, () => [], "steer")) as Record<
+      string,
+      unknown
+    >;
     expect(result.ok).toBe(false);
   });
 

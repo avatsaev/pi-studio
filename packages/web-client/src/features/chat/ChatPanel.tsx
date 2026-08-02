@@ -7,6 +7,7 @@
 import { useAgentStream } from "@pi-studio-ui/hooks/use-agent-stream.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import type { Tab, ChatTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { Timeline } from "./Timeline.js";
 import { Composer } from "./Composer.js";
 import styles from "./ChatPanel.module.css";
@@ -25,16 +26,16 @@ export function ChatPanel({ tab }: ChatPanelProps) {
 
   if (!session) {
     return (
-      <div className={styles.panel}>
+      <Panel>
         <div className={styles.empty}>Session not found.</div>
-      </div>
+      </Panel>
     );
   }
 
   return (
-    <div className={styles.panel}>
+    <Panel>
       <Timeline session={session} />
       <Composer sessionId={session.id} />
-    </div>
+    </Panel>
   );
 }

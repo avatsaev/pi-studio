@@ -3,18 +3,18 @@
 
 .strip {
   display: flex;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   flex-wrap: wrap;
-  padding: 6px 0 0;
+  padding: var(--pi-spacing-6) 0 0;
 }
 
 .thumb {
   position: relative;
   width: 48px;
   height: 48px;
-  border-radius: 4px;
+  border-radius: var(--pi-radius-base);
   overflow: hidden;
-  border: 1px solid var(--pi-color-border, #2c313b);
+  border: 1px solid var(--pi-color-border);
   flex-shrink: 0;
 }
 
@@ -31,7 +31,7 @@
   right: -2px;
   width: 16px;
   height: 16px;
-  background: var(--pi-color-statusDanger, #c0392b);
+  background: var(--pi-color-statusDanger);
   color: #fff;
   border: none;
   border-radius: 50%;

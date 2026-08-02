@@ -9,12 +9,12 @@
   z-index: 1;
   display: flex;
   justify-content: flex-end;
-  gap: 2px;
-  padding: 6px 10px;
-  background: var(--pi-color-surface, #16181a);
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  gap: var(--pi-spacing-2);
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  background: var(--pi-color-surface1);
+  border-bottom: 1px solid var(--pi-color-border);
 }
 .rendered {
-  padding: 16px 20px;
+  padding: var(--pi-spacing-16) var(--pi-spacing-20);
   max-width: 860px;
 }

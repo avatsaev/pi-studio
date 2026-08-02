@@ -7,8 +7,8 @@
 
 import { useTabStore, type MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
 import type { PanelProps } from "@pi-studio-ui/features/workspace/panel-registry.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { MoleculeViewer } from "./MoleculeViewer.js";
-import styles from "./MoleculeViewerPanel.module.css";
 
 export function MoleculeViewerPanel({ tab }: PanelProps) {
   const { path } = tab.data as MoleculeTabData;
@@ -16,8 +16,8 @@ export function MoleculeViewerPanel({ tab }: PanelProps) {
   const isActive = activeTabId === tab.id;
 
   return (
-    <div className={styles.panel}>
+    <Panel>
       <MoleculeViewer path={path} isActive={isActive} />
-    </div>
+    </Panel>
   );
 }

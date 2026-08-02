@@ -13,14 +13,14 @@
 .sidebarLeft {
   position: relative;
   flex-shrink: 0;
-  border-right: 1px solid var(--pi-color-border, #353b46);
+  border-right: 1px solid var(--pi-color-border);
   display: flex;
   flex-direction: column;
   min-width: 0;
   /* Distinct from the main content area (--pi-color-background) — was unset, so the whole
      sidebar (and everything in it, e.g. workspace-group headers) silently matched the page
      background instead of reading as its own panel. */
-  background: var(--pi-color-surfaceSidebar, #141716);
+  background: var(--pi-color-surfaceSidebar);
 }
 .leftHandle {
   right: -3px;
@@ -35,7 +35,7 @@
 .sidebarRight {
   position: relative;
   flex-shrink: 0;
-  border-left: 1px solid var(--pi-color-border, #353b46);
+  border-left: 1px solid var(--pi-color-border);
   display: flex;
   flex-direction: column;
   min-width: 0;

@@ -5,9 +5,9 @@
  */
 
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
-import panelStyles from "./FilePanel.module.css";
 import styles from "./VideoViewer.module.css";
 
 export function VideoViewer({ path }: ViewerProps) {
@@ -15,16 +15,16 @@ export function VideoViewer({ path }: ViewerProps) {
 
   if (query.isLoading) {
     return (
-      <div className={panelStyles.emptyState}>
+      <EmptyState>
         <Spinner size="sm" /> Loading video...
-      </div>
+      </EmptyState>
     );
   }
   if (query.isError) {
     return (
-      <div className={panelStyles.emptyState}>
+      <EmptyState>
         Error: {query.error instanceof Error ? query.error.message : "unknown error"}
-      </div>
+      </EmptyState>
     );
   }
   if (!query.data) return null;

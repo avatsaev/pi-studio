@@ -4,7 +4,7 @@
   overflow: auto;
   /* Themed custom scrollbar (web only). */
   scrollbar-width: thin;
-  scrollbar-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15)) transparent;
+  scrollbar-color: var(--pi-color-scrollbarHandle) transparent;
 }
 
 .scrollArea::-webkit-scrollbar {
@@ -17,9 +17,15 @@
 }
 
 .scrollArea::-webkit-scrollbar-thumb {
-  background-color: var(--pi-color-scrollbarHandle, rgba(255,255,255,0.15));
-  border-radius: 9999px;
+  background-color: var(--pi-color-scrollbarHandle);
+  border-radius: var(--pi-radius-full);
 }
 
-.x { overflow-x: auto; overflow-y: hidden; }
-.y { overflow-y: auto; overflow-x: hidden; }
+.x {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.y {
+  overflow-y: auto;
+  overflow-x: hidden;
+}

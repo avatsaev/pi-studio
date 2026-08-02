@@ -50,7 +50,12 @@ export interface AssistantRow {
   kind: "assistant";
   id: string;
   text: string;
-  /** True while more `assistant_message` deltas for this turn may still arrive. */
+  /**
+   * True while more `assistant_message` deltas may still land in *this* row. Cleared as soon as
+   * the block closes (`assistant_message.final`, a following tool call, or a turn boundary) —
+   * that is the flag `AssistantRow` reads to switch from plain text to rendered markdown, so it
+   * must never outlive the block it describes.
+   */
   streaming: boolean;
 }
 
@@ -58,6 +63,7 @@ export interface ReasoningRow {
   kind: "reasoning";
   id: string;
   text: string;
+  /** Same contract as `AssistantRow.streaming`. */
   streaming: boolean;
 }
 

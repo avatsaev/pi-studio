@@ -1,3 +1,5 @@
+/* Panel — full-height flex-column shell. ui-components.md § Surfaces */
+
 .panel {
   display: flex;
   flex-direction: column;

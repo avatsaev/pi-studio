@@ -1,21 +1,36 @@
 // Theme scale tokens (theme-invariant unless patched by Appearance settings).
 // Exact values per design-system.md § Scales.
 
-// spacing: 4px base grid.
+// spacing: key = literal px value (dot-free by construction — a CSS custom-property name
+// cannot contain a literal `.`; an earlier "key = px / 4" scheme used fractional keys like
+// "1.5"/"7.5", which silently emitted INVALID custom properties `--pi-spacing-1.5` that no
+// browser ever resolves, so every padding/margin/gap using one collapsed to nothing app-wide.
+// Covers every value actually in use across the app — analogous to fontSize's "dense ladder
+// covering the rungs the UI actually uses" rather than forcing existing, deliberately-tuned
+// spacing onto a sparser grid and visibly nudging it.
 export const spacing = {
   "0": 0,
-  "1": 4,
-  "1.5": 6,
-  "2": 8,
-  "3": 12,
-  "4": 16,
-  "6": 24,
-  "8": 32,
-  "12": 48,
-  "16": 64,
-  "20": 80,
-  "24": 96,
-  "32": 128,
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+  "7": 7,
+  "8": 8,
+  "10": 10,
+  "12": 12,
+  "14": 14,
+  "16": 16,
+  "20": 20,
+  "24": 24,
+  "30": 30,
+  "32": 32,
+  "48": 48,
+  "64": 64,
+  "80": 80,
+  "96": 96,
+  "128": 128,
 } as const;
 export type Spacing = typeof spacing;
 export type SpacingKey = keyof Spacing;

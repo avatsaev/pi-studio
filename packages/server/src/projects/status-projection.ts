@@ -24,6 +24,10 @@ export interface CheckoutStatusProjection {
   staged: CheckoutFileEntry[];
   unstaged: CheckoutFileEntry[];
   untracked: string[];
+  /** Gitignored paths, from the `!` lines of `--ignored=traditional`. A wholly ignored directory
+   * collapses to a single entry with a trailing `/` (same shape as `untracked`), so clients must
+   * prefix-match to classify its descendants. */
+  ignored: string[];
   conflicted: string[];
   hasConflicts: boolean;
   /** Reason when `available` is false (e.g. "not_a_git_repository"). */
@@ -41,6 +45,7 @@ function emptyProjection(reason: string): CheckoutStatusProjection {
     staged: [],
     unstaged: [],
     untracked: [],
+    ignored: [],
     conflicted: [],
     hasConflicts: false,
     unavailableReason: reason,
@@ -59,6 +64,7 @@ export function parsePorcelainV2(output: string): CheckoutStatusProjection {
     staged: [],
     unstaged: [],
     untracked: [],
+    ignored: [],
     conflicted: [],
     hasConflicts: false,
   };
@@ -99,6 +105,8 @@ export function parsePorcelainV2(output: string): CheckoutStatusProjection {
       if (path) projection.conflicted.push(path);
     } else if (line.startsWith("? ")) {
       projection.untracked.push(line.slice(2).trim());
+    } else if (line.startsWith("! ")) {
+      projection.ignored.push(line.slice(2).trim());
     }
   }
 
@@ -115,7 +123,13 @@ export async function projectStatus(
   if (inside.code !== 0 || inside.stdout.trim() !== "true") {
     return emptyProjection("not_a_git_repository");
   }
-  const status = await runner(["status", "--porcelain=v2", "--branch"], cwd);
+  // `--ignored=traditional` collapses a wholly ignored directory (node_modules/, dist/) into one
+  // `!` line instead of walking it — `=matching` would emit every file inside and turn a status
+  // read on a normal JS repo into six figures of output.
+  const status = await runner(
+    ["status", "--porcelain=v2", "--branch", "--ignored=traditional"],
+    cwd,
+  );
   if (status.code !== 0) return emptyProjection("git_status_failed");
   return parsePorcelainV2(status.stdout);
 }

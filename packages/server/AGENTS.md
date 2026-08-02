@@ -119,7 +119,11 @@ src/
     git-checkout-rpc.ts           Git checkout RPC handlers.
     github-service.ts             GitHub API integration (PRs, issues).
     checkout-diff-manager.ts      Manages diff snapshots for checkout review.
-    status-projection.ts          Derives workspace status from agent + git state.
+    status-projection.ts          Derives workspace status from agent + git state. Runs
+                                  `git status --porcelain=v2 --branch --ignored=traditional`;
+                                  `!` lines populate the projection's `ignored[]` (a wholly
+                                  ignored directory collapses to one `dir/` entry — `=matching`
+                                  would walk node_modules and emit six figures of output).
     reconciliation.ts             Project/workspace reconciliation on startup.
     index.ts
 
@@ -446,6 +450,13 @@ creation" above.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.
+- **`text_end`/`thinking_end` map to textless `final: true` markers** (`assistant_message`/
+  `reasoning`). They used to fall through to `null`, which left `agent_end → turn_completed` as
+  the only signal a message had finished — an entire tool loop after the model actually stopped
+  writing. Clients use `final` to finalize a row (the web client swaps its plain-text streaming
+  tier for rendered markdown there); see `assistant_message.final` in `packages/protocol/
+  AGENTS.md`. `session-hydration.ts` sets the same flag on each whole text/thinking block it
+  replays out of Pi's JSONL, so restored history finalizes identically.
 - **`agent_end`'s `messages` array is the only place a live turn's real outcome is decided** — it
   used to unconditionally map to `turn_completed`, ignoring the payload entirely. `session-
   hydration.ts` (restore-from-JSONL) always correctly read the closing assistant message's

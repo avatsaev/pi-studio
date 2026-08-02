@@ -87,7 +87,12 @@ class MockAgentSession implements AgentSession {
 
     this.completionTimer = setTimeout(() => {
       if (this.activeTurn !== turnId) return;
-      this.emit({ kind: "assistant_message", messageId: randomUUID(), text: `echo: ${prompt}` });
+      this.emit({
+        kind: "assistant_message",
+        messageId: randomUUID(),
+        text: `echo: ${prompt}`,
+        final: true,
+      });
       this.emit({ kind: "turn_completed", turnId });
       this.activeTurn = null;
       this.completionTimer = null;

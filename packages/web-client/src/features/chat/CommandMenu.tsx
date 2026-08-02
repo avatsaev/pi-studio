@@ -23,6 +23,7 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { clsx } from "clsx";
 import { useEffect, useRef, type ReactNode } from "react";
+import { MenuContent } from "@pi-studio-ui/components/primitives/Menu.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import type { ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
 import styles from "./ModelMenu.module.css";
@@ -100,75 +101,72 @@ export function CommandMenu({
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>{renderTrigger()}</DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          className={clsx(styles.content, styles.commandContent)}
-          align="start"
-          side="top"
-          sideOffset={4}
-          {...preventOpenAutoFocus}
-          // Radix returns focus to the trigger button when the menu closes by default — that
-          // would undo `applySelectedCommand`'s explicit `el.focus()` back onto the textarea
-          // (Escape-to-close and click-away-to-close both go through this same path too), so the
-          // textarea must own focus after ANY close, not just the apply path.
-          onCloseAutoFocus={(e) => e.preventDefault()}
-        >
-          {isLoading && (
-            <div className={styles.state}>
-              <Spinner size="sm" />
-            </div>
-          )}
-          {!isLoading && isError && (
-            <div className={styles.stateError}>{errorMessage ?? "Failed to load commands"}</div>
-          )}
-          {!isLoading && !isError && options.length === 0 && (
-            <div className={styles.state}>No commands found</div>
-          )}
-          {!isLoading && !isError && options.length > 0 && (
-            <div ref={listRef} className={clsx(styles.list, styles.commandList)}>
-              {options.map((opt, i) => (
-                <div
-                  key={opt.value}
-                  role="option"
-                  aria-selected={i === highlightedIndex}
-                  className={clsx(
-                    styles.item,
-                    styles.commandItem,
-                    i === highlightedIndex && styles.itemActive,
-                  )}
-                  // Native title tooltip (the app's established hover-text convention, e.g.
-                  // Composer.tsx's icon buttons) shows the FULL description on hover — the row
-                  // itself only ever renders a 2-line clamp.
-                  title={opt.description}
-                  onMouseDown={(e) => {
-                    // Keep the textarea's focus/caret through the click — this menu never takes
-                    // keyboard focus, so a default mousedown would blur the textarea for nothing.
-                    e.preventDefault();
-                    onSelect(opt.value);
-                  }}
-                >
-                  <div className={styles.commandItemHeader}>
-                    <span className={styles.label}>{opt.label}</span>
-                    {opt.kind && (
-                      <span className={clsx(styles.commandKindBadge, kindBadgeClass(opt.kind))}>
-                        {opt.kind}
-                      </span>
-                    )}
-                  </div>
-                  {opt.description && (
-                    <div className={styles.commandDescription}>{opt.description}</div>
+      <MenuContent
+        className={clsx(styles.picker, styles.commandContent)}
+        side="top"
+        sideOffset={4}
+        {...preventOpenAutoFocus}
+        // Radix returns focus to the trigger button when the menu closes by default — that
+        // would undo `applySelectedCommand`'s explicit `el.focus()` back onto the textarea
+        // (Escape-to-close and click-away-to-close both go through this same path too), so the
+        // textarea must own focus after ANY close, not just the apply path.
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {isLoading && (
+          <div className={styles.state}>
+            <Spinner size="sm" />
+          </div>
+        )}
+        {!isLoading && isError && (
+          <div className={styles.stateError}>{errorMessage ?? "Failed to load commands"}</div>
+        )}
+        {!isLoading && !isError && options.length === 0 && (
+          <div className={styles.state}>No commands found</div>
+        )}
+        {!isLoading && !isError && options.length > 0 && (
+          <div ref={listRef} className={clsx(styles.list, styles.commandList)}>
+            {options.map((opt, i) => (
+              <div
+                key={opt.value}
+                role="option"
+                aria-selected={i === highlightedIndex}
+                className={clsx(
+                  styles.item,
+                  styles.commandItem,
+                  i === highlightedIndex && styles.itemActive,
+                )}
+                // Native title tooltip (the app's established hover-text convention, e.g.
+                // Composer.tsx's icon buttons) shows the FULL description on hover — the row
+                // itself only ever renders a 2-line clamp.
+                title={opt.description}
+                onMouseDown={(e) => {
+                  // Keep the textarea's focus/caret through the click — this menu never takes
+                  // keyboard focus, so a default mousedown would blur the textarea for nothing.
+                  e.preventDefault();
+                  onSelect(opt.value);
+                }}
+              >
+                <div className={styles.commandItemHeader}>
+                  <span className={styles.label}>{opt.label}</span>
+                  {opt.kind && (
+                    <span className={clsx(styles.commandKindBadge, kindBadgeClass(opt.kind))}>
+                      {opt.kind}
+                    </span>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-          {!isLoading && !isError && hiddenExtensionCount > 0 && (
-            <div className={styles.state}>
-              {hiddenExtensionCount} extension command(s) unavailable while the agent is running
-            </div>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+                {opt.description && (
+                  <div className={styles.commandDescription}>{opt.description}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoading && !isError && hiddenExtensionCount > 0 && (
+          <div className={styles.state}>
+            {hiddenExtensionCount} extension command(s) unavailable while the agent is running
+          </div>
+        )}
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }
