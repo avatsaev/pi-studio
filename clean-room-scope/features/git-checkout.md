@@ -46,7 +46,12 @@ clients show live git state.
 
 ```
 function statusProjection(cwd):
-    read git status (branch, ahead/behind, staged/unstaged/untracked, conflicts)
+    read git status (branch, ahead/behind, staged/unstaged/untracked, ignored, conflicts)
+      - ignored paths are read with the "traditional" mode, which collapses a wholly ignored
+        directory into one entry with a trailing "/" rather than walking it; consumers therefore
+        prefix-match to classify its descendants (same shape as an untracked directory)
+      - ignored paths stay a separate list; they are not changes and must never reach the
+        change-count / Changes-list consumers
     project to a stable client shape
     stream checkout_status_update on changes (watch-driven)
 
