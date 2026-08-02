@@ -267,6 +267,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
+| [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
 | [features/timeline-rendering.md](features/timeline-rendering.md)         | feature (UI) | Per-row rendering, tool-call cards, diffs, markdown, autoscroll, footers      |
 | [features/inline-image-rendering.md](features/inline-image-rendering.md) | feature (UI) | Markdown images in chat resolved from local paths + capability-gated agent instruction |
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |

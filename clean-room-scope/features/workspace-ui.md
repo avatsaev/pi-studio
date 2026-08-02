@@ -2,6 +2,7 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [app-navigation-screens.md](app-navigation-screens.md),
+> [workspace-split-panes.md](workspace-split-panes.md),
 > [composer-ui.md](composer-ui.md), [timeline-rendering.md](timeline-rendering.md),
 > [feature-panels-ui.md](feature-panels-ui.md), [subagents.md](subagents.md),
 > [../architecture/agent-lifecycle.md](../architecture/agent-lifecycle.md)
@@ -135,6 +136,12 @@ pointer-events-none) so switching back is instant and background tabs (terminals
 active tab is always first. Applied per pane (web) and for the focused pane (mobile/non-web desktop).
 
 ### Pane / split model
+
+> The drag-to-split gesture (drop-region resolution, tree mutation, divider resize, per-workspace
+> layout persistence, and the panel-continuity invariant that keeps live terminals and streaming
+> conversations alive across a rearrangement) is specified in detail in
+> [workspace-split-panes.md](workspace-split-panes.md). The summary below is the overview.
+
 - Data: `SplitPane { id, tabIds, focusedTabId }`, `SplitGroup { id, direction, children, sizes }`, a node
   tree, with `focusedPaneId` and a `parentTabId` map. Default = single pane `"main"`. Max tree depth 4.
 - **Active-tab derivation per pane:** order by the pane's `tabIds`, normalize/dedup, choose active with
