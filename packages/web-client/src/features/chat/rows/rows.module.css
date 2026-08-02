@@ -7,12 +7,12 @@
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
 }
 
 .who {
   display: block;
-  font-size: 0.875rem;
+  font-size: var(--pi-font-size-3xs);
   color: var(--pi-color-foregroundMuted, #7a8394);
   margin-bottom: 3px;
   text-transform: uppercase;
@@ -26,7 +26,7 @@
   margin-left: 6px;
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 0.8125rem;
+  font-size: var(--pi-font-size-4xs);
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
@@ -122,7 +122,7 @@
   background: var(--pi-color-background, #0f1115);
   color: var(--pi-color-foregroundMuted, #7a8394);
   font-style: italic;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   align-self: flex-start;
 }
 
@@ -132,7 +132,7 @@
   background: var(--pi-color-surface, #1c1f26);
   border: 1px solid var(--pi-color-border, #2c313b);
   align-self: flex-start;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   max-width: 90%;
   padding: 0;
   overflow: hidden;
@@ -186,7 +186,7 @@
   margin: 0;
   padding: 8px 12px;
   font-family: var(--pi-font-mono, ui-monospace, monospace);
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;

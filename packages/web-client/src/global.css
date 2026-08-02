@@ -3,10 +3,10 @@
    system (see src/theme/css-bridge.ts, applied via ThemeBoundary). */
 /* Root font-size is left at the browser default (100% / 16px) so `rem` tracks the user's own
    zoom / accessibility text-size setting untouched — no app-level multiplier layered on top.
-   Every font-size in the app is authored in `rem` against that 16px base (see
-   theme/css-bridge.ts's `pxToRem`), and the actual sizes live in theme/tokens.ts's
-   `baseFontSize` scale — that scale IS the one lever for enlarging text; there is no separate
-   root-percentage override to keep in sync with it. */
+   No CSS module hardcodes a font-size: every one is `var(--pi-font-size-<rung>)`, emitted as rem
+   by theme/css-bridge.ts's `pxToRem` from theme/tokens.ts's `baseFontSize`. That table is the one
+   lever for the app's text size; there is no root-percentage override to keep in sync with it,
+   and theme/font-scale.test.ts fails the build if a literal or a dangling rung creeps back in. */
 html,
 body {
   margin: 0;

@@ -65,6 +65,8 @@ src/
   app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → WorkspacePage
   global.css               resets + scrollbar; colors and font sizes come from theme --pi-*
                              vars (font-size scale lives in theme/tokens.ts, see Invariants)
+  theme/font-scale.test.ts guards the one-lever font invariant: no hardcoded font-size literal
+                             in any CSS module, no dangling --pi-font-size-* rung
   css-modules.d.ts          ambient CSS-module typings
   vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
                              package.json version, shown in Toolbar.tsx after the brand title)
@@ -204,15 +206,18 @@ src/
                             rows each get a CSS highlight; row is `draggable` and fires
                             `onDragStartRow`/`onDragEndRow`
                             — file-explorer quick-wins-1), TreeDraftRow (owns the draft
-                            input's local text state), FileContextMenu (row menu: Open (files) /
-                            New File/New Folder (directories) / Copy Absolute Path / Copy Relative
-                            Path / Download (files) / Delete; empty-space variant
+                            input's local text state), FileContextMenu (row menu: Open / Open in
+                            MolViewer (files only) / New File/New Folder (directories) / Copy Absolute
+                            Path / Copy Relative Path / Download (files) / Delete; empty-space variant
                             (`ui-store.fileMenu.background`, right-click below the last row): New
                             File/New Folder/Copy Current Directory Path/Copy Current Directory
                             Relative Path — file-explorer quick-wins-1), open-file-tab.ts (shared
                             "open a path as a tab" dispatch used by FileExplorer's row click and
                             FileContextMenu's Open action, so both agree on the molecule-vs-file
-                            kind — file-explorer quick-wins-1), create-entry.ts (shared
+                            kind — file-explorer quick-wins-1; also exports `openMoleculeTab`,
+                            the forced-molecule variant used by FileContextMenu's "Open in
+                            MolViewer" action (files only) to hand any file to molviewer
+                            regardless of `isMoleculeFile`), create-entry.ts (shared
                             `file_create_request` caller + error-code messages, used by
                             FileExplorer's tree draft and OpenWorkspaceDialog's "new folder"
                             affordance), move-entry.ts (shared `file_move_request` caller +
@@ -315,21 +320,32 @@ entered at runtime, never baked into the image.
   still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
   Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
   page cap, which would reintroduce silent truncation.
-- **Font sizes are authored in `rem`, never `px`, and enlarged text is baked into the actual
-  scale values — never a root-level CSS percentage multiplier.** Every CSS-module `font-size`
-  (including `var(--pi-font-size-*, …)` fallbacks) is a `rem` value against a 16px base;
-  `theme/css-bridge.ts`'s `pxToRem()` emits the `--pi-font-size-*` tokens as `rem` too. `html`'s
-  font-size is left at the browser default (100%/16px) so `rem` tracks the user's own zoom /
-  accessibility text-size setting untouched — there is no separate app-level multiplier on top
-  of it. `theme/tokens.ts`'s `baseFontSize` (and every per-component `font-size` literal in the
-  CSS modules, and `BUTTON_FONT_SIZE` in `ui/button.ts`, and the xterm `fontSize` in
-  `TerminalPanel.tsx`) IS the one lever for the app's text size — an earlier attempt used a
-  `html { font-size: 125% }` global multiplier instead and was reverted: layering a runtime
-  percentage scale on top of already-authored rem values means paddings/icon-sizes/row-heights
-  (still px) don't grow with the text, and it duplicates the one true scale (`tokens.ts`) with a
-  second, harder-to-reason-about lever. Don't reintroduce a root-percentage override; if text
-  needs to be bigger again, change the numbers in `tokens.ts` (and the matching CSS-module
-  literals) directly.
+- **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
+  ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
+  `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
+  css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px root, so text
+  also tracks the user's own browser/OS zoom. `ThemeBoundary` applies the vars synchronously
+  during first render, before paint, which is why the fallbacks are gone: a `var(--x, 13px)`
+  fallback is a second, silently-stale copy of the scale (`markdown.module.css` shipped mistyped
+  var names for months, quietly rendering its hardcoded fallbacks instead). `ui/button.ts`'s
+  `BUTTON_FONT_SIZE` holds `var(…)` references too; only `TerminalPanel.tsx`'s xterm config reads
+  a raw number (`baseFontSize.sm`), because xterm rasterises to canvas and cannot take a CSS var.
+  `theme/font-scale.test.ts` enforces both halves — every referenced rung exists, and no CSS
+  module reintroduces a px/rem literal (relative `em`/`%` is fine).
+  The rungs are a dense, mostly 1px-step ladder (`4xs`→`4xl` plus `code`) matching what the UI
+  actually renders; `base` is the document base, and `theme/theme.ts`'s `FONT_SIZE_BASE` is
+  derived from it (`baseFontSize.base`, not a literal) because the Appearance `fontSize` setting
+  scales the whole table by `clamp(10..24)/FONT_SIZE_BASE` and silently miscalibrates if the two
+  drift apart — which they did the first time `base` was retuned. `applyAppearance` likewise
+  derives its key list from `Object.keys(baseFontSize)`, so adding a rung needs no edit there.
+  History worth not repeating: the original scale read too small; a fix converted px→rem *and*
+  enlarged everything ~1.25x in one commit, which overshot; that enlargement was rolled back, and
+  the scale then settled at ~1.06x over the original (`4xs`=10 … `base`=17) via ~1.125x. Each of
+  those passes before the rewiring was a 77-line shotgun edit purely because the literals were
+  unwired; retuning now means editing the one table. An even earlier attempt used
+  `html { font-size: 125% }`; don't reintroduce a root-percentage override, since px paddings /
+  icon sizes / row heights don't grow with it and it duplicates the scale with a second lever.
+  For per-user sizing, point people at the Appearance setting rather than editing the table.
 - **File upload/download/delete run only against a daemon that wires `FileTransferService` +
   `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
   `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,

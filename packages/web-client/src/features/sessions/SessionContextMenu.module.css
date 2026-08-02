@@ -24,7 +24,7 @@
   gap: 8px;
   padding: 6px 10px;
   border-radius: 4px;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
   cursor: pointer;
   outline: none;
 }

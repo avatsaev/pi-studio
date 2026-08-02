@@ -22,6 +22,7 @@ import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-stor
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import type { Tab, TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { baseFontSize } from "@pi-studio-ui/theme/tokens.js";
 import styles from "./TerminalPanel.module.css";
 
 export interface TerminalPanelProps {
@@ -192,7 +193,9 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      fontSize: 16,
+      // xterm renders to canvas, so it needs an absolute px number rather than a CSS var; the
+      // root font-size is left at the browser default, so a rung's px value renders 1:1.
+      fontSize: baseFontSize.sm,
       scrollback: 5000,
       theme: TERMINAL_THEME,
       allowProposedApi: true,

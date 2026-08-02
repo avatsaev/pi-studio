@@ -18,7 +18,7 @@
 }
 .header h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   font-weight: 600;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   text-transform: uppercase;
@@ -46,14 +46,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .meta {
   margin-top: 2px;
-  font-size: 0.9375rem;
+  font-size: var(--pi-font-size-2xs);
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -86,7 +86,7 @@
   gap: 6px;
   padding: 7px 10px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   font-weight: 600;
   color: var(--pi-color-foreground, #e6e6e6);
   /* Distinct from the sidebar background (surfaceSidebar) so the group header reads as a
@@ -127,7 +127,7 @@
   white-space: nowrap;
 }
 .workspaceCount {
-  font-size: 0.9375rem;
+  font-size: var(--pi-font-size-2xs);
   font-weight: 400;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }
@@ -156,6 +156,6 @@
 }
 .emptyState {
   padding: 12px 10px;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

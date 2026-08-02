@@ -28,13 +28,14 @@ export const BUTTON_PADDING_H: Record<ButtonSize, number> = {
   lg: 16,
 };
 
-// Font size per size, in rem (relative to the root font-size — see global.css) so button labels
-// scale consistently with the rest of the app's text instead of staying pinned in absolute px.
+// Font size per size — CSS var references rather than literals, so buttons ride theme/tokens.ts's
+// scale (and the Appearance font-size setting) with nothing to keep in sync here. `lg` maps to the
+// document base; there is no 15px rung and nothing renders a `lg` button today.
 export const BUTTON_FONT_SIZE: Record<ButtonSize, string> = {
-  xs: "0.9375rem",
-  sm: "1rem",
-  md: "1.0625rem",
-  lg: "1.1875rem",
+  xs: "var(--pi-font-size-xs)",
+  sm: "var(--pi-font-size-sm)",
+  md: "var(--pi-font-size-md)",
+  lg: "var(--pi-font-size-base)",
 };
 
 export type ButtonStateStyle = {

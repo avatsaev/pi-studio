@@ -22,7 +22,7 @@
   border: 1px solid var(--pi-color-border, #3f3f46);
   background: var(--pi-color-surface2, #27272a);
   color: var(--pi-color-foreground, #fafafa);
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   outline: none;
 }
 .search::placeholder {
@@ -43,7 +43,7 @@
   gap: 6px;
   padding: 6px 8px;
   border-radius: 4px;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
   cursor: pointer;
   outline: none;
 }
@@ -73,7 +73,7 @@
 .modelId {
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   margin-left: 4px;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   white-space: nowrap;
 }
 
@@ -83,13 +83,13 @@
   justify-content: center;
   padding: 12px;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
 }
 
 .stateError {
   padding: 8px;
   color: var(--pi-color-danger, #e5534b);
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
 }
 
 /* CommandMenu-only additions (web-client slash commands) — command descriptions run far longer
@@ -147,7 +147,7 @@
 .commandItemHeader .label {
   flex: 1;
   min-width: 0;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-sm);
   font-weight: 600;
   color: var(--pi-color-foreground, #fafafa);
 }
@@ -160,7 +160,7 @@
   border: 1px solid var(--pi-color-border, #3f3f46);
   background: var(--pi-color-surface2, #27272a);
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 0.8125rem;
+  font-size: var(--pi-font-size-4xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -194,6 +194,6 @@
   text-overflow: ellipsis;
   white-space: normal;
   line-height: 1.4;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   color: var(--pi-color-foregroundMuted, #9aa0a6);
 }

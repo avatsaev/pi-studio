@@ -10,5 +10,5 @@
      `body`'s — the app's prose default, not appropriate for a dense monospace editor.
      `code` is the dedicated token for exactly this (theme/tokens.ts, theme.ts's
      applyAppearance comment on why `code` tracks its own base, not `base`'s prose scale). */
-  font-size: var(--pi-font-size-code, 0.9375rem);
+  font-size: var(--pi-font-size-code);
 }

@@ -20,20 +20,45 @@ export const spacing = {
 export type Spacing = typeof spacing;
 export type SpacingKey = keyof Spacing;
 
-// fontSize keys — values deliberately typed as `number` (not literals) so the appearance
-// updater can patch them at runtime. `baseFontSize` holds the documented defaults.
-export type FontSizeKey = "xs" | "code" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
+// fontSize — a dense, mostly 1px-step ladder covering the rungs the UI actually uses, plus the
+// document base and the display sizes above it. Every `font-size` in the app resolves to one of
+// these rungs through `var(--pi-font-size-*)`; CSS modules never hardcode a literal, so this
+// table is the ONE lever for the app's text size (packages/web-client/AGENTS.md § Invariants).
+// Values are px and are typed as `number` (not literals) so `applyAppearance` can patch them at
+// runtime; `theme/css-bridge.ts` emits them as rem against the untouched 16px root.
+export type FontSizeKey =
+  | "4xs"
+  | "3xs"
+  | "2xs"
+  | "xs"
+  | "code"
+  | "sm"
+  | "md"
+  | "base"
+  | "lg"
+  | "xl"
+  | "2xl"
+  | "3xl"
+  | "4xl";
 
+// Tuning history, so nobody re-walks it: the original ladder (9/10/11/12/13/14/16) read too small,
+// a ~1.25x pass overshot, ~1.125x still ran slightly large. This is ~1.06x — the micro rungs stay
+// where 1.125x put them (below `4xs`=10 the badges stop being legible at all), and everything from
+// `xs` up steps back down by 1px. Retuning the app's text size means editing THIS TABLE ONLY.
 export const baseFontSize: Readonly<Record<FontSizeKey, number>> = {
-  xs: 15,
-  code: 15,
-  sm: 17,
-  base: 20,
-  lg: 23,
-  xl: 25,
-  "2xl": 27,
-  "3xl": 33,
-  "4xl": 43,
+  "4xs": 10, // micro badges (queued, command-kind)
+  "3xs": 11, // micro meta (author label, git status badge)
+  "2xs": 12, // secondary meta (versions, counts, line numbers, hunk headers)
+  xs: 13, // dense UI text — the most common rung
+  code: 13, // code/diff surfaces; tracks its own base, not the prose one
+  sm: 14, // primary UI text, row titles, tab labels
+  md: 15, // prose and form controls
+  base: 17, // document base — inputs, screen titles, composer (FONT_SIZE_BASE anchor)
+  lg: 19,
+  xl: 21,
+  "2xl": 23,
+  "3xl": 28,
+  "4xl": 36,
 };
 
 // fontWeight — RN-style string weights.

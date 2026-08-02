@@ -77,13 +77,15 @@ export type AppearanceSettings = {
   /** Custom mono font family string; empty/undefined → platform default. */
   monoFont?: string;
   /**
-   * Desired base font size (px). All fontSize tokens are scaled relative to the
-   * documented base of 16px. Clamped 10–24.
+   * Desired base font size (px). Every fontSize rung is scaled relative to `baseFontSize.base`,
+   * so passing that value through is a no-op. Clamped 10–24.
    */
   fontSize?: number;
 };
 
-const FONT_SIZE_BASE = 16;
+// Derived, never a literal: a hardcoded copy silently miscalibrates the whole setting the moment
+// tokens.ts's `base` rung is retuned (it has been, twice).
+const FONT_SIZE_BASE = baseFontSize.base;
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 24;
 
@@ -102,16 +104,15 @@ export function applyAppearance(base: Theme, settings: AppearanceSettings): Them
   const monoFont =
     settings.monoFont && settings.monoFont.trim() !== "" ? settings.monoFont : DEFAULT_MONO_FONT;
 
-  let fontSize = { ...baseTheme.fontSize };
+  const fontSize = { ...baseTheme.fontSize };
   if (settings.fontSize != null) {
     const clamped = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, settings.fontSize));
     const scale = clamped / FONT_SIZE_BASE;
-    const key: FontSizeKey[] = ["xs", "code", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl"];
-    for (const k of key) {
-      const base = baseFontSize[k];
-      // `code` always tracks the xs/code document base, not the prose base, to avoid
-      // code surfaces growing disproportionately.
-      fontSize[k] = Math.round(base * scale);
+    // Every rung scales, including `code` — it keeps its own base (which is not the prose
+    // `base`) so code surfaces don't grow disproportionately, but it still follows the setting.
+    // Keys come from the table itself; a new rung in tokens.ts is picked up with no edit here.
+    for (const k of Object.keys(baseFontSize) as FontSizeKey[]) {
+      fontSize[k] = Math.round(baseFontSize[k] * scale);
     }
   }
 

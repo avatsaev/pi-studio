@@ -60,7 +60,7 @@ hex/px except for raw palette signal colors taken from `colors.palette`.
 | Scale | Values |
 |-------|--------|
 | `spacing` | `0,1=4,1.5=6,2=8,3=12,4=16,6=24,8=32,12=48,16=64,20=80,24=96,32=128` (px; 4px base) |
-| `fontSize` | `xs=12, code=12, sm=14, base=16, lg=18, xl=20, 2xl=22, 3xl=26, 4xl=34` |
+| `fontSize` | `4xs=10, 3xs=11, 2xs=12, xs=13, code=13, sm=14, md=15, base=17, lg=19, xl=21, 2xl=23, 3xl=28, 4xl=36` (px; emitted as `rem` against an untouched 16px root) |
 | `fontWeight` | `normal, medium=500, semibold=600, bold` |
 | `borderRadius` | `none=0, sm=2, base=4, md=6, lg=8, xl=12, 2xl=16, full=9999` |
 | `borderWidth` | `0, 1, 2` |
@@ -73,6 +73,12 @@ hex/px except for raw palette signal colors taken from `colors.palette`.
 - **`fontSize`, `fontFamily`, and `lineHeight` are deliberately widened to plain `number`/`string`**
   (not narrowed literals) so the Appearance settings updater can patch them at runtime (custom UI font,
   mono font, font size) across all themes. All other tokens keep literal types.
+- **`fontSize` is a dense, mostly 1px-step ladder covering every size the UI renders**, so no component
+  needs a literal: `4xs` micro badges, `3xs` micro meta, `2xs` secondary meta, `xs` dense UI text (the
+  most common rung), `code` code/diff surfaces (its own base, decoupled from prose), `sm` primary UI
+  text and row titles, `md` prose and form controls, `base` the document base (inputs, screen titles,
+  composer), `lg`+ display sizes. `base` doubles as the Appearance font-size anchor: that setting
+  rescales the whole table by `clamp(10..24)/base`.
 - Default UI font stack: system UI per platform (`system-ui` / `-apple-system` / Segoe / Roboto …).
   Default mono stack: `ui-monospace` / `SFMono-Regular` / Menlo / Monaco / Consolas / monospace.
 

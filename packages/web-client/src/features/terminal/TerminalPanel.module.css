@@ -22,5 +22,5 @@
   gap: 8px;
   height: 100%;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
 }

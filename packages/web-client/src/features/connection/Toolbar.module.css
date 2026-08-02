@@ -9,12 +9,12 @@
 }
 .brand {
   font-weight: 600;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 .version {
-  font-size: 0.9375rem;
+  font-size: var(--pi-font-size-2xs);
   color: var(--pi-color-foregroundMuted, #7a8394);
   white-space: nowrap;
   margin-left: -4px; /* sits close to .brand — the flex gap alone reads as too much space here */

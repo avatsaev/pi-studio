@@ -14,7 +14,7 @@
   gap: 6px;
   padding: 6px 8px;
   border-radius: var(--pi-borderRadius-md, 6px) var(--pi-borderRadius-md, 6px) 0 0;
-  font-size: 1rem;
+  font-size: var(--pi-font-size-xs);
   cursor: pointer;
   color: var(--pi-color-foregroundMuted, #9aa0a6);
   white-space: nowrap;
@@ -86,7 +86,7 @@
   gap: 8px;
   padding: 6px 10px;
   border-radius: 4px;
-  font-size: 1.0625rem;
+  font-size: var(--pi-font-size-sm);
   cursor: pointer;
   outline: none;
 }
