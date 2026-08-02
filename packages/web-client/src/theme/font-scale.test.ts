@@ -24,7 +24,7 @@ function cssFiles(dir: string): string[] {
 const declarations = cssFiles(SRC).flatMap((file) =>
   [...readFileSync(file, "utf8").matchAll(/font-size:\s*([^;]+);/g)].map((match) => ({
     file: file.slice(SRC.length + 1),
-    value: match[1].trim(),
+    value: match[1]!.trim(),
   })),
 );
 
@@ -36,7 +36,7 @@ describe("font-size scale wiring", () => {
   it("resolves every --pi-font-size-* reference to a real rung", () => {
     const dangling = declarations
       .flatMap(({ file, value }) =>
-        [...value.matchAll(/var\(\s*--pi-font-size-([\w-]+)/g)].map((m) => ({ file, rung: m[1] })),
+        [...value.matchAll(/var\(\s*--pi-font-size-([\w-]+)/g)].map((m) => ({ file, rung: m[1]! })),
       )
       .filter(({ rung }) => !(rung in baseFontSize));
 
