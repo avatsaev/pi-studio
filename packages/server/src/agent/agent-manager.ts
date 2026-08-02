@@ -60,18 +60,27 @@ export class InvalidAgentTransitionError extends Error {
   }
 }
 
-// initializing → idle ⇄ running ; idle/running → error → closed (closed is terminal).
-const ALLOWED_TRANSITIONS: Record<AgentStatus, ReadonlySet<AgentStatus>> = {
-  initializing: new Set<AgentStatus>(["idle", "error", "closed"]),
-  idle: new Set<AgentStatus>(["running", "error", "closed"]),
-  running: new Set<AgentStatus>(["idle", "error", "closed"]),
-  error: new Set<AgentStatus>(["idle", "closed"]),
-  closed: new Set<AgentStatus>(),
+// initializing → idle ⇄ running ; idle/running → error → idle|running|closed (closed is terminal).
+//
+// `error` is recoverable, not terminal: it means "the last turn failed, session still attached"
+// (architecture/agent-lifecycle.md § States), and sending another prompt is precisely how a user
+// recovers — fix the upstream cause (bad API key, exhausted quota, provider 403/429) and retry the
+// same conversation. Without the `error → running` edge, `runTurn`'s opening `setStatus(running)`
+// threw `InvalidAgentTransitionError` for every subsequent send, so one provider error wedged the
+// conversation permanently: each later message was rejected in ~1ms and rendered "failed to send",
+// with no way back short of closing the agent. The edge also guarded nothing — `error → idle →
+// running` was already reachable in two hops.
+const ALLOWED_TRANSITIONS: Record<AgentStatus, Partial<Record<AgentStatus, true>>> = {
+  initializing: { idle: true, error: true, closed: true },
+  idle: { running: true, error: true, closed: true },
+  running: { idle: true, error: true, closed: true },
+  error: { idle: true, running: true, closed: true },
+  closed: {},
 };
 
 export function canTransition(from: AgentStatus, to: AgentStatus): boolean {
   if (from === to) return true;
-  return ALLOWED_TRANSITIONS[from].has(to);
+  return ALLOWED_TRANSITIONS[from][to] === true;
 }
 
 export interface AgentManagerDeps {

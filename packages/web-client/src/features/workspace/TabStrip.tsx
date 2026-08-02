@@ -14,11 +14,9 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
+import { MenuContent, MenuItem } from "@pi-studio-ui/components/primitives/Menu.js";
+import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
+import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   useTabStore,
@@ -94,31 +92,30 @@ function NewTabMenu({ workspaceCwd }: { workspaceCwd: string | null }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
+        <IconButton
           className={styles.newTab}
+          hoverBase="var(--pi-color-background)"
+          style={{ borderRadius: "var(--pi-radius-sm)" }}
           title="New tab"
           disabled={!workspaceCwd}
         >
           <Plus size={14} />
-        </button>
+        </IconButton>
       </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className={styles.content} align="start" sideOffset={4}>
-          <DropdownMenu.Item className={styles.item} onSelect={() => openNewChat(cwd)}>
-            <MessageSquare size={13} className={styles.itemIcon} />
-            New chat
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={styles.item} onSelect={() => openNewTerminal(cwd)}>
-            <TerminalSquare size={13} className={styles.itemIcon} />
-            New terminal
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={styles.item} onSelect={() => openNewMolecule(cwd)}>
-            <Atom size={13} className={styles.itemIcon} />
-            New molecule view
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      <MenuContent minWidth={160} sideOffset={4}>
+        <MenuItem onSelect={() => openNewChat(cwd)}>
+          <MessageSquare size={13} className={styles.itemIcon} />
+          New chat
+        </MenuItem>
+        <MenuItem onSelect={() => openNewTerminal(cwd)}>
+          <TerminalSquare size={13} className={styles.itemIcon} />
+          New terminal
+        </MenuItem>
+        <MenuItem onSelect={() => openNewMolecule(cwd)}>
+          <Atom size={13} className={styles.itemIcon} />
+          New molecule view
+        </MenuItem>
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }

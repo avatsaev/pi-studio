@@ -9,6 +9,7 @@
 
 import { ChevronDown, ChevronRight, FolderClosed, MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
+import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import styles from "./SessionList.module.css";
 
 export interface WorkspaceGroupHeaderProps {
@@ -30,8 +31,7 @@ export function WorkspaceGroupHeader({
 }: WorkspaceGroupHeaderProps) {
   return (
     <div className={styles.workspaceHeader} onClick={onToggleCollapsed} title={cwd}>
-      <button
-        type="button"
+      <IconButton
         className={styles.workspaceChevron}
         aria-label={collapsed ? "Expand workspace" : "Collapse workspace"}
         onClick={(ev) => {
@@ -40,13 +40,13 @@ export function WorkspaceGroupHeader({
         }}
       >
         {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-      </button>
+      </IconButton>
       <FolderClosed size={13} className={clsx(styles.workspaceIcon)} />
       <span className={styles.workspaceLabel}>{label}</span>
       <span className={styles.workspaceCount}>{sessionCount}</span>
-      <button
-        type="button"
+      <IconButton
         className={styles.workspaceMenuBtn}
+        hoverBase="var(--pi-color-surfaceSidebar)"
         title="Workspace actions"
         onClick={(ev) => {
           ev.stopPropagation();
@@ -55,7 +55,7 @@ export function WorkspaceGroupHeader({
         }}
       >
         <MoreVertical size={13} />
-      </button>
+      </IconButton>
     </div>
   );
 }

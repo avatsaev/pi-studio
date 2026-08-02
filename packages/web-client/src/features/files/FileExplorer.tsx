@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, FilePlus, FolderPlus } from "lucide-react";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useExplorerStore, resolveTildePath } from "@pi-studio-ui/stores/explorer-store.js";
 import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
@@ -261,7 +262,7 @@ export function FileExplorer() {
   }
 
   if (!client) {
-    return <div className={styles.emptyState}>Connect to browse files</div>;
+    return <EmptyState>Connect to browse files</EmptyState>;
   }
 
   return (
@@ -341,7 +342,7 @@ export function FileExplorer() {
           openFileMenu(rootPath, true, e.clientX, e.clientY, true);
         }}
       >
-        {rows.length === 0 && <div className={styles.emptyState}>No files loaded</div>}
+        {rows.length === 0 && <EmptyState>No files loaded</EmptyState>}
         <div style={{ position: "relative", height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index];

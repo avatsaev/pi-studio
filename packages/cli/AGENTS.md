@@ -130,7 +130,10 @@ Default action (no subcommand):
 | `last-message <agentId>`                     | `agent_last_assistant_text_request` | Print the last assistant message — `/copy`                                                               |
 | `commands <agentId>`                         | `agent_list_commands_request`       | List discoverable commands: extensions, prompt templates, skills (sprint-040, no Pi built-in equivalent) |
 
-`formatStreamEvent(event)` — renders an `AgentStreamEvent` as a single human-readable line.
+`formatStreamEvent(event)` — renders an `AgentStreamEvent` as a single human-readable line, or `""`
+for events with nothing to show (textless `assistant_message.final` block-close markers, empty
+deltas). `logs` and `attach` skip empty renders rather than printing a blank line; `--json` mode
+dumps every event verbatim, markers included.
 
 `session` through `last-message` (sprint-037) are CLI equivalents of Pi built-in slash commands
 that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`,

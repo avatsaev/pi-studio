@@ -1,38 +1,38 @@
 .diffView {
   font-size: var(--pi-font-size-xs);
   line-height: 1.6;
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  font-family: var(--pi-font-mono);
   overflow-x: auto;
 }
 .hunkHeader {
-  background: var(--pi-color-surfaceSunken, #111);
-  color: var(--pi-color-accentBright, #a2b4d7);
-  padding: 4px 14px;
+  background: var(--pi-color-surface0);
+  color: var(--pi-color-accentBright);
+  padding: var(--pi-spacing-4) var(--pi-spacing-14);
   font-size: var(--pi-font-size-2xs);
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
+  border-bottom: 1px solid var(--pi-color-border);
 }
 .line {
-  padding: 0 14px;
+  padding: 0 var(--pi-spacing-14);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .add {
-  background: color-mix(in srgb, var(--pi-color-diffAddition, #4ade80) 15%, transparent);
-  color: var(--pi-color-diffAddition, #4ade80);
+  background: color-mix(in srgb, var(--pi-color-diffAddition) 15%, transparent);
+  color: var(--pi-color-diffAddition);
 }
 .del {
-  background: color-mix(in srgb, var(--pi-color-diffDeletion, #ff8a80) 15%, transparent);
-  color: var(--pi-color-diffDeletion, #ff8a80);
+  background: color-mix(in srgb, var(--pi-color-diffDeletion) 15%, transparent);
+  color: var(--pi-color-diffDeletion);
 }
 .ctx {
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .ln {
   display: inline-block;
   width: 50px;
   text-align: right;
-  padding-right: 10px;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  padding-right: var(--pi-spacing-10);
+  color: var(--pi-color-foregroundMuted);
   user-select: none;
   font-size: var(--pi-font-size-2xs);
 }

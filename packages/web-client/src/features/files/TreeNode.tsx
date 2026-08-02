@@ -9,6 +9,7 @@ import { ChevronRight, Folder, File as FileIcon, MoreVertical } from "lucide-rea
 import { clsx } from "clsx";
 import type { TreeRow } from "./file-tree.js";
 import type { DragEvent } from "react";
+import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { TreeDraftRow } from "./TreeDraftRow.js";
 import styles from "./FileExplorer.module.css";
 
@@ -106,8 +107,7 @@ export function TreeNode({
         {isDirectory ? <Folder size={16} /> : <FileIcon size={16} />}
       </span>
       <span className={isDirectory ? styles.dirName : styles.name}>{row.name}</span>
-      <button
-        type="button"
+      <IconButton
         className={styles.rowAction}
         title="Actions"
         onClick={(e) => {
@@ -117,7 +117,7 @@ export function TreeNode({
         }}
       >
         <MoreVertical size={14} />
-      </button>
+      </IconButton>
     </div>
   );
 }

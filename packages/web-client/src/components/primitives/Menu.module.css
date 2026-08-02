@@ -1,0 +1,52 @@
+/* Menu — shared Radix DropdownMenu chrome. ui-components.md § Menus & popovers */
+
+.trigger {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  appearance: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.content {
+  min-width: 140px;
+  padding: var(--pi-spacing-4);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-radius: var(--pi-radius-base);
+  font-size: var(--pi-font-size-sm);
+  cursor: pointer;
+  outline: none;
+}
+.item:hover,
+.item[data-highlighted] {
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
+}
+.item[data-disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.danger {
+  color: var(--pi-color-statusDanger);
+}
+
+.sep {
+  height: 1px;
+  margin: var(--pi-spacing-4) 0;
+  background: var(--pi-color-border);
+}

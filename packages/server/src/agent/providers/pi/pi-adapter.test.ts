@@ -292,6 +292,23 @@ describe("event mapper", () => {
     expect(mapPiEvent({ type: "turn_end" })).toBeNull();
   });
 
+  it("maps text_end/thinking_end to textless final block-close markers", () => {
+    // These used to fall through to `null`, so the only signal a message was finished was
+    // `agent_end` — an entire tool loop later. Clients render markdown off `final`.
+    expect(
+      mapPiEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_end", contentIndex: 0, content: "Hello world" },
+      }),
+    ).toEqual({ kind: "assistant_message", final: true });
+    expect(
+      mapPiEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_end", contentIndex: 0 },
+      }),
+    ).toEqual({ kind: "reasoning", final: true });
+  });
+
   it("maps agent_end with a failed final assistant message to turn_failed (real repro: provider 429)", () => {
     // Regression: `agent_end` used to unconditionally report `turn_completed`, so a live turn
     // that failed with an immediate provider error (e.g. a 429 quota-exceeded rejection) was

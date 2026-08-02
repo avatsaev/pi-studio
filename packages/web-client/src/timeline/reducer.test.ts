@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { addOptimisticUserMessage, applyStreamEvent, markUserMessageFailed, EMPTY_TIMELINE } from "./reducer.js";
+import {
+  addOptimisticUserMessage,
+  applyStreamEvent,
+  markUserMessageFailed,
+  EMPTY_TIMELINE,
+} from "./reducer.js";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 
 /**
@@ -31,7 +36,8 @@ describe("timeline reducer — tool-call detail merge", () => {
   });
 
   it("merges the start path with the end diff into a single edit row", () => {
-    const patch = "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n";
+    const patch =
+      "--- demo.txt\n+++ demo.txt\n@@ -1,3 +1,3 @@\n line1\n-CHANGED\n+CHANGED3\n line3\n";
     let s = EMPTY_TIMELINE;
     s = applyStreamEvent(s, toolCall("c2", { kind: "edit", path: "demo.txt" }, "running"));
     s = applyStreamEvent(s, toolCall("c2", { kind: "edit", diff: patch }, "completed"));
@@ -44,17 +50,128 @@ describe("timeline reducer — tool-call detail merge", () => {
   });
 });
 
+/**
+ * `streaming` is what `AssistantRow` reads to decide plain text vs rendered markdown. The reducer
+ * used to clear only the streaming *index* on `tool_call`, leaving the row's flag set — so any
+ * message followed by a tool call rendered as raw markdown source forever, including after
+ * reload (`use-session-restore` replays through this same reducer).
+ */
+describe("timeline reducer — streaming finalization", () => {
+  it("finalizes a mid-turn assistant row when a tool call follows it", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "turn_started" });
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "# Plan\n\nreading " });
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "the file." });
+    expect(s.rows[0]).toMatchObject({ kind: "assistant", streaming: true });
+
+    s = applyStreamEvent(s, toolCall("c1", { kind: "read", path: "a.ts" }, "running"));
+
+    expect(s.rows[0]).toMatchObject({
+      kind: "assistant",
+      text: "# Plan\n\nreading the file.",
+      streaming: false,
+    });
+  });
+
+  it("finalizes on the `final` block-close marker, before any tool call arrives", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "done" });
+    s = applyStreamEvent(s, { kind: "assistant_message", final: true });
+
+    expect(s.rows).toHaveLength(1); // the marker closes the row, it does not open a new one
+    expect(s.rows[0]).toMatchObject({ kind: "assistant", text: "done", streaming: false });
+    expect(s.streamingAssistantIndex).toBeNull();
+  });
+
+  it("never opens an empty row for a stray marker with nothing to close", () => {
+    const s = applyStreamEvent(EMPTY_TIMELINE, { kind: "assistant_message", final: true });
+    expect(s.rows).toHaveLength(0);
+  });
+
+  it("starts a new row for the next block after a finalized one", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "first" });
+    s = applyStreamEvent(s, { kind: "assistant_message", final: true });
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "second" });
+
+    expect(s.rows).toHaveLength(2);
+    expect(s.rows[0]).toMatchObject({ text: "first", streaming: false });
+    expect(s.rows[1]).toMatchObject({ text: "second", streaming: true });
+  });
+
+  it("finalizes reasoning when assistant text follows, and vice versa", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "reasoning", text: "hmm" });
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "answer" });
+
+    expect(s.rows[0]).toMatchObject({ kind: "reasoning", streaming: false });
+    expect(s.rows[1]).toMatchObject({ kind: "assistant", streaming: true });
+
+    s = applyStreamEvent(s, { kind: "reasoning", text: "more" });
+
+    expect(s.rows[1]).toMatchObject({ kind: "assistant", streaming: false });
+    expect(s.rows[2]).toMatchObject({ kind: "reasoning", streaming: true });
+  });
+
+  it("leaves no row streaming after a full multi-block turn", () => {
+    const events: AgentStreamEvent[] = [
+      { kind: "turn_started" },
+      { kind: "assistant_message", text: "**plan**" },
+      { kind: "assistant_message", final: true },
+      toolCall("c1", { kind: "read", path: "a.ts" }, "running"),
+      toolCall("c1", { kind: "read", path: "a.ts" }, "completed"),
+      { kind: "assistant_message", text: "`done`" },
+      { kind: "assistant_message", final: true },
+      { kind: "turn_completed" },
+    ];
+    const s = events.reduce(applyStreamEvent, EMPTY_TIMELINE);
+
+    const stillStreaming = s.rows.filter((r) => "streaming" in r && r.streaming);
+    expect(stillStreaming).toEqual([]);
+  });
+
+  it("still finalizes a trailing row when the provider emits no `final` marker", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "no marker" });
+    s = applyStreamEvent(s, { kind: "turn_completed" });
+
+    expect(s.rows[0]).toMatchObject({ streaming: false });
+  });
+
+  it("does not finalize the streaming row on a steering user_message mid-block", () => {
+    // Steering injects a user row while the assistant is still writing — splitting the row there
+    // would tear one message into two bubbles.
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "partial " });
+    s = applyStreamEvent(s, { kind: "user_message", text: "actually, wait" });
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "continued" });
+
+    expect(s.rows.filter((r) => r.kind === "assistant")).toHaveLength(1);
+    expect(s.rows[0]).toMatchObject({ kind: "assistant", text: "partial continued" });
+  });
+});
+
 describe("timeline reducer — optimistic user-message echo", () => {
   it("reconciles the pending optimistic row in place instead of appending a duplicate", () => {
     let s = EMPTY_TIMELINE;
     s = addOptimisticUserMessage(s, "cm-1", "hello");
     expect(s.rows).toHaveLength(1);
-    expect(s.rows[0]).toMatchObject({ kind: "user", text: "hello", pending: true, clientMessageId: "cm-1" });
+    expect(s.rows[0]).toMatchObject({
+      kind: "user",
+      text: "hello",
+      pending: true,
+      clientMessageId: "cm-1",
+    });
 
     s = applyStreamEvent(s, { kind: "user_message", messageId: "cm-1", text: "hello" });
 
     expect(s.rows).toHaveLength(1); // still one row — reconciled, not duplicated
-    expect(s.rows[0]).toMatchObject({ kind: "user", text: "hello", pending: false, clientMessageId: "cm-1" });
+    expect(s.rows[0]).toMatchObject({
+      kind: "user",
+      text: "hello",
+      pending: false,
+      clientMessageId: "cm-1",
+    });
   });
 
   it("appends a fresh confirmed row when no pending optimistic row matches (session-restore replay)", () => {
@@ -110,7 +227,11 @@ describe("timeline reducer — steering (queued flag + queue_update)", () => {
     s = addOptimisticUserMessage(s, "cm-steer-1", "focus on tests", undefined, true);
     expect(s.rows[0]).toMatchObject({ kind: "user", pending: true, queued: true });
 
-    s = applyStreamEvent(s, { kind: "user_message", messageId: "cm-steer-1", text: "focus on tests" });
+    s = applyStreamEvent(s, {
+      kind: "user_message",
+      messageId: "cm-steer-1",
+      text: "focus on tests",
+    });
 
     expect(s.rows).toHaveLength(1); // reconciled, not duplicated
     expect(s.rows[0]).toMatchObject({ kind: "user", pending: false, queued: true });

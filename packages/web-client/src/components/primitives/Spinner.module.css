@@ -2,7 +2,7 @@
 
 .spinner {
   display: inline-block;
-  border-radius: 9999px;
+  border-radius: var(--pi-radius-full);
   border-style: solid;
   border-color: currentColor transparent transparent transparent;
   animation: piSpinnerRotate 0.7s linear infinite;
@@ -10,6 +10,10 @@
 }
 
 @keyframes piSpinnerRotate {
-  0%   { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }

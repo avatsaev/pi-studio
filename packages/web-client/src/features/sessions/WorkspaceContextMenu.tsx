@@ -9,13 +9,18 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Plus, Trash2 } from "lucide-react";
+import {
+  MenuCursorTrigger,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+} from "@pi-studio-ui/components/primitives/Menu.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import { normalizeCwd, workspaceLabel } from "./workspace-grouping.js";
-import styles from "./SessionContextMenu.module.css";
 
 export function WorkspaceContextMenu() {
   const menu = useUiStore((s) => s.workspaceMenu);
@@ -76,31 +81,19 @@ export function WorkspaceContextMenu() {
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={styles.trigger}
-          style={{ left: menu.x, top: menu.y }}
-          aria-hidden
-          tabIndex={-1}
-        />
+        <MenuCursorTrigger ref={triggerRef} x={menu.x} y={menu.y} />
       </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className={styles.content} align="start" sideOffset={2}>
-          <DropdownMenu.Item className={styles.item} onSelect={newConversation}>
-            <Plus size={13} />
-            New conversation
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className={styles.sep} />
-          <DropdownMenu.Item
-            className={`${styles.item} ${styles.danger}`}
-            onSelect={deleteWorkspace}
-          >
-            <Trash2 size={13} />
-            Delete workspace (all conversations)
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      <MenuContent minWidth={160}>
+        <MenuItem onSelect={newConversation}>
+          <Plus size={13} />
+          New conversation
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem danger onSelect={deleteWorkspace}>
+          <Trash2 size={13} />
+          Delete workspace (all conversations)
+        </MenuItem>
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }

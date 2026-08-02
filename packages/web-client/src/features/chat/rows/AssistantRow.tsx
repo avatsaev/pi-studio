@@ -1,8 +1,9 @@
 /**
  * Assistant message row (POC `.msg.assistant`, POC_TO_APP_PLAN_UI.md §4.3). While streaming,
  * renders plain text with a blinking cursor — re-parsing markdown on every token would be
- * wasteful (§6 Performance strategy). Once `turn_completed` finalizes the row (`streaming:
- * false`), it renders through `<Markdown>`.
+ * wasteful (§6 Performance strategy). The reducer flips `streaming: false` as soon as the text
+ * can no longer grow (Pi's `text_end` block-close marker, or the next tool call / turn boundary),
+ * at which point it renders through `<Markdown>` — not at the end of the whole turn.
  */
 
 import type { AssistantRow as AssistantRowModel } from "@pi-studio-ui/timeline/row-model.js";

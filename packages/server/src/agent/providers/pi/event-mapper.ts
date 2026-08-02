@@ -126,6 +126,11 @@ export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
       const dtype = str(delta.type);
       if (dtype === "text_delta") return { kind: "assistant_message", text: str(delta.delta) };
       if (dtype === "thinking_delta") return { kind: "reasoning", text: str(delta.delta) };
+      // Block-close markers. Emitted the instant the model stops writing prose — before it
+      // streams whatever comes next (a large tool-call payload can take seconds) and long before
+      // `agent_end`. Clients use these to finalize the row; see `assistant_message.final`.
+      if (dtype === "text_end") return { kind: "assistant_message", final: true };
+      if (dtype === "thinking_end") return { kind: "reasoning", final: true };
       if (dtype === "toolcall_end") {
         const tc = asRecord(delta.toolCall);
         return {

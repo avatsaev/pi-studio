@@ -23,6 +23,8 @@ import { Suspense, useState } from "react";
 import { clsx } from "clsx";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useFileDiff } from "@pi-studio-ui/hooks/use-file-diff.js";
 import { useFileLiveRefresh } from "@pi-studio-ui/hooks/use-file-live-refresh.js";
 import type { Tab, FileTabData, DiffTabData } from "@pi-studio-ui/stores/tab-store.js";
@@ -60,10 +62,12 @@ export function FilePanel({ tab }: FilePanelProps) {
   const Viewer = VIEWER_BY_KIND[viewerKind];
 
   return (
-    <div className={styles.panel}>
+    <Panel>
       <div className={styles.header}>
         <span className={styles.path}>{path}</span>
-        <span className={styles.size}>{viewMode === "diff" ? (staged ? "staged" : "unstaged") : null}</span>
+        <span className={styles.size}>
+          {viewMode === "diff" ? (staged ? "staged" : "unstaged") : null}
+        </span>
         <div className={styles.viewToggle}>
           <Button
             size="xs"
@@ -83,23 +87,31 @@ export function FilePanel({ tab }: FilePanelProps) {
       </div>
       <div className={clsx(styles.body, "file-body")}>
         {viewMode === "file" ? (
-          <Suspense fallback={<div className={styles.emptyState}><Spinner size="sm" /> Loading...</div>}>
+          <Suspense
+            fallback={
+              <EmptyState>
+                <Spinner size="sm" /> Loading...
+              </EmptyState>
+            }
+          >
             <Viewer path={path} />
           </Suspense>
         ) : diffQuery.isLoading ? (
-          <div className={styles.emptyState}>
+          <EmptyState>
             <Spinner size="sm" /> Loading diff...
-          </div>
+          </EmptyState>
         ) : diffQuery.isError ? (
-          <div className={styles.emptyState}>
+          <EmptyState>
             Error: {diffQuery.error instanceof Error ? diffQuery.error.message : "unknown error"}
-          </div>
+          </EmptyState>
         ) : diffQuery.data?.patch ? (
           <DiffView patch={diffQuery.data.patch} />
         ) : (
-          <div className={styles.diffEmpty}>No changes (file matches HEAD)</div>
+          <EmptyState style={{ padding: "var(--pi-spacing-30)" }}>
+            No changes (file matches HEAD)
+          </EmptyState>
         )}
       </div>
-    </div>
+    </Panel>
   );
 }

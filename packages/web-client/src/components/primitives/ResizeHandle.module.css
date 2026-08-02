@@ -10,5 +10,5 @@
 }
 .handle:hover,
 .handle:active {
-  background: var(--pi-color-accent, #2e5cb8);
+  background: var(--pi-color-accent);
 }

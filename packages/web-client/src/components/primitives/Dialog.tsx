@@ -10,6 +10,7 @@ import { type ReactNode } from "react";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { clsx } from "clsx";
+import { IconButton } from "./IconButton.js";
 import styles from "./Dialog.module.css";
 
 export interface DialogProps {
@@ -62,18 +63,27 @@ export function Dialog({
               <div className={styles.header}>
                 <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>
                 <RadixDialog.Close asChild>
-                  <button type="button" className={styles.closeBtn} aria-label="Close">
+                  <IconButton size="sm" aria-label="Close">
                     <X size={16} />
-                  </button>
+                  </IconButton>
                 </RadixDialog.Close>
               </div>
             )}
             <div className={clsx(styles.body, bare && styles.bareBody)}>{children}</div>
             {bare && (
               <RadixDialog.Close asChild>
-                <button type="button" className={styles.bareCloseBtn} aria-label="Close">
+                <IconButton
+                  size="sm"
+                  aria-label="Close"
+                  className={styles.bareCloseBtn}
+                  style={{
+                    background: "var(--pi-color-surface1)",
+                    border: "1px solid var(--pi-color-border)",
+                    borderRadius: "50%",
+                  }}
+                >
                   <X size={16} />
-                </button>
+                </IconButton>
               </RadixDialog.Close>
             )}
             {footer && <div className={styles.footer}>{footer}</div>}

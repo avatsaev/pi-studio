@@ -353,8 +353,21 @@ export class AgentService {
       });
     }
 
+    // A turn MUST always leave the agent in a recoverable state, on every exit path. `session.run`
+    // can reject outright rather than ending with a terminal event: a Pi ack rejected at preflight
+    // (missing/invalid credentials, provider 403/429, "Agent is already processing") propagates
+    // straight out of `run`/`runSlashPrompt`. Finalizing only on the happy path pinned the agent at
+    // "running" forever — the composer then offers Steer instead of Send, steering an agent with no
+    // live turn answers `{ok:false}`, and every later message in that conversation rendered
+    // "failed to send" with no way back. The rejection is still rethrown below, after the status is
+    // settled, so the caller's RPC fails as before.
+    let runError: unknown;
+    let runRejected = false;
     try {
       await session.run(prompt, opts);
+    } catch (err) {
+      runError = err;
+      runRejected = true;
     } finally {
       unsubscribe();
     }
@@ -362,7 +375,9 @@ export class AgentService {
     const finalManaged = this.deps.manager.get(agentId);
     const lastEvent = timeline.allRows().at(-1)?.event;
     const newStatus =
-      lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error" ? "error" : "idle";
+      runRejected || lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error"
+        ? "error"
+        : "idle";
     this.deps.logger?.info(
       { agentId, outcome: newStatus, durationMs: Date.now() - turnStartedAt },
       newStatus === "error" ? "turn failed" : "turn finished",
@@ -381,5 +396,8 @@ export class AgentService {
     ) {
       await this.deps.manager.archiveAgent(agentId);
     }
+
+    // Status is settled and broadcast; surface the original failure to the caller unchanged.
+    if (runRejected) throw runError;
   }
 }

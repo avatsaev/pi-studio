@@ -3,11 +3,11 @@
 .wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--pi-spacing-8);
   cursor: pointer;
-  font-family: var(--pi-font-ui, system-ui);
+  font-family: var(--pi-font-ui);
   font-size: var(--pi-font-size-md);
-  color: var(--pi-color-foreground, #fafafa);
+  color: var(--pi-color-foreground);
 }
 
 .wrapper[data-disabled="true"] {
@@ -18,8 +18,8 @@
 .box {
   width: 16px;
   height: 16px;
-  border-radius: var(--pi-radius-sm, 3px);
-  border: 1.5px solid var(--pi-color-border, #3f3f46);
+  border-radius: var(--pi-radius-sm);
+  border: 1.5px solid var(--pi-color-border);
   background-color: transparent;
   display: flex;
   align-items: center;
@@ -31,12 +31,12 @@
 }
 
 .box[data-checked="true"] {
-  background-color: var(--pi-color-accent, #2e5cb8);
-  border-color: var(--pi-color-accent, #2e5cb8);
+  background-color: var(--pi-color-accent);
+  border-color: var(--pi-color-accent);
 }
 
 .checkmark {
-  color: var(--pi-color-accentForeground, #ffffff);
+  color: var(--pi-color-accentForeground);
 }
 
 /* Hidden native input for accessibility */

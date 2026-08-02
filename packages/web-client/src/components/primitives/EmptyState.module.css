@@ -1,0 +1,12 @@
+/* EmptyState — centered, muted placeholder. ui-components.md § Feedback */
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-8);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-xs);
+  padding: var(--pi-spacing-20);
+  text-align: center;
+}

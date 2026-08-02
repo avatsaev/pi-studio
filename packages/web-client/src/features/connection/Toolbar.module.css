@@ -1,10 +1,10 @@
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--pi-color-border, #353b46);
-  background: var(--pi-color-surface, #16181a);
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-bottom: 1px solid var(--pi-color-border);
+  background: var(--pi-color-surface1);
   flex-shrink: 0;
 }
 .brand {
@@ -15,14 +15,14 @@
 }
 .version {
   font-size: var(--pi-font-size-2xs);
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  color: var(--pi-color-foregroundMuted);
   white-space: nowrap;
   margin-left: -4px; /* sits close to .brand — the flex gap alone reads as too much space here */
 }
 .sep {
   width: 1px;
   height: 18px;
-  background: var(--pi-color-border, #353b46);
+  background: var(--pi-color-border);
   flex-shrink: 0;
 }
 .host {
@@ -34,6 +34,6 @@
 .sidebarToggles {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
   margin-left: auto;
 }

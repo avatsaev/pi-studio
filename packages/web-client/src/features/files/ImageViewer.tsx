@@ -5,9 +5,9 @@
  */
 
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
-import panelStyles from "./FilePanel.module.css";
 import styles from "./ImageViewer.module.css";
 
 export function ImageViewer({ path }: ViewerProps) {
@@ -15,23 +15,27 @@ export function ImageViewer({ path }: ViewerProps) {
 
   if (query.isLoading) {
     return (
-      <div className={panelStyles.emptyState}>
+      <EmptyState>
         <Spinner size="sm" /> Loading image...
-      </div>
+      </EmptyState>
     );
   }
   if (query.isError) {
     return (
-      <div className={panelStyles.emptyState}>
+      <EmptyState>
         Error: {query.error instanceof Error ? query.error.message : "unknown error"}
-      </div>
+      </EmptyState>
     );
   }
   if (!query.data) return null;
 
   return (
     <div className={styles.wrap}>
-      <img className={styles.image} src={query.data.objectUrl} alt={path.split("/").pop() || path} />
+      <img
+        className={styles.image}
+        src={query.data.objectUrl}
+        alt={path.split("/").pop() || path}
+      />
     </div>
   );
 }

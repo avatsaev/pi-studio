@@ -22,6 +22,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  MenuCursorTrigger,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+} from "@pi-studio-ui/components/primitives/Menu.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
@@ -30,7 +36,6 @@ import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { copyText } from "@pi-studio-ui/lib/clipboard.js";
 import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
 import { openFileTab, openMoleculeTab } from "./open-file-tab.js";
-import styles from "./FileContextMenu.module.css";
 
 export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);
@@ -132,91 +137,82 @@ export function FileContextMenu() {
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={styles.trigger}
-          style={{ left: menu.x, top: menu.y }}
-          aria-hidden
-          tabIndex={-1}
-        />
+        <MenuCursorTrigger ref={triggerRef} x={menu.x} y={menu.y} />
       </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className={styles.content} align="start" sideOffset={2}>
-          {menu.background ? (
-            <>
-              <DropdownMenu.Item className={styles.item} onSelect={() => startNew("file")}>
-                <FilePlus size={13} />
-                New File
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className={styles.item} onSelect={() => startNew("directory")}>
-                <FolderPlus size={13} />
-                New Folder
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className={styles.sep} />
-              <DropdownMenu.Item className={styles.item} onSelect={copyAbsolutePath}>
-                <Copy size={13} />
-                Copy Current Directory Path
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className={styles.item} onSelect={copyRelativePath}>
-                <Copy size={13} />
-                Copy Current Directory Relative Path
-              </DropdownMenu.Item>
-            </>
-          ) : (
-            <>
-              {!menu.isDirectory && (
-                <>
-                  <DropdownMenu.Item className={styles.item} onSelect={openFile}>
-                    <ExternalLink size={13} />
-                    Open
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={styles.item} onSelect={openInMolviewer}>
-                    <Atom size={13} />
-                    Open in MolViewer
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator className={styles.sep} />
-                </>
-              )}
-              {menu.isDirectory && (
-                <>
-                  <DropdownMenu.Item className={styles.item} onSelect={() => startNew("file")}>
-                    <FilePlus size={13} />
-                    New File
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={styles.item} onSelect={() => startNew("directory")}>
-                    <FolderPlus size={13} />
-                    New Folder
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator className={styles.sep} />
-                </>
-              )}
-              <DropdownMenu.Item className={styles.item} onSelect={copyAbsolutePath}>
-                <Copy size={13} />
-                Copy Absolute Path
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className={styles.item} onSelect={copyRelativePath}>
-                <Copy size={13} />
-                Copy Relative Path
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className={styles.sep} />
-              {!menu.isDirectory && (
-                <>
-                  <DropdownMenu.Item className={styles.item} onSelect={download}>
-                    <DownloadIcon size={13} />
-                    Download
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator className={styles.sep} />
-                </>
-              )}
-              <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={remove}>
-                <Trash2 size={13} />
-                Delete
-              </DropdownMenu.Item>
-            </>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      <MenuContent minWidth={140}>
+        {menu.background ? (
+          <>
+            <MenuItem onSelect={() => startNew("file")}>
+              <FilePlus size={13} />
+              New File
+            </MenuItem>
+            <MenuItem onSelect={() => startNew("directory")}>
+              <FolderPlus size={13} />
+              New Folder
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem onSelect={copyAbsolutePath}>
+              <Copy size={13} />
+              Copy Current Directory Path
+            </MenuItem>
+            <MenuItem onSelect={copyRelativePath}>
+              <Copy size={13} />
+              Copy Current Directory Relative Path
+            </MenuItem>
+          </>
+        ) : (
+          <>
+            {!menu.isDirectory && (
+              <>
+                <MenuItem onSelect={openFile}>
+                  <ExternalLink size={13} />
+                  Open
+                </MenuItem>
+                <MenuItem onSelect={openInMolviewer}>
+                  <Atom size={13} />
+                  Open in MolViewer
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            )}
+            {menu.isDirectory && (
+              <>
+                <MenuItem onSelect={() => startNew("file")}>
+                  <FilePlus size={13} />
+                  New File
+                </MenuItem>
+                <MenuItem onSelect={() => startNew("directory")}>
+                  <FolderPlus size={13} />
+                  New Folder
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            )}
+            <MenuItem onSelect={copyAbsolutePath}>
+              <Copy size={13} />
+              Copy Absolute Path
+            </MenuItem>
+            <MenuItem onSelect={copyRelativePath}>
+              <Copy size={13} />
+              Copy Relative Path
+            </MenuItem>
+            <MenuSeparator />
+            {!menu.isDirectory && (
+              <>
+                <MenuItem onSelect={download}>
+                  <DownloadIcon size={13} />
+                  Download
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            )}
+            <MenuItem danger onSelect={remove}>
+              <Trash2 size={13} />
+              Delete
+            </MenuItem>
+          </>
+        )}
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }

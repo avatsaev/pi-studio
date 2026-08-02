@@ -35,14 +35,14 @@ export const MOLVIEWER_THEME: Record<string, string> = {
   "--chrome": "var(--pi-color-surface1)",
   // Buttons and other controls.
   "--control": "var(--pi-color-surface2)",
-  "--control-hover": "var(--pi-color-surfaceHover)",
-  "--control-strong-hover": "var(--pi-color-surfaceHover)",
+  "--control-hover": "var(--pi-color-surface3)",
+  "--control-strong-hover": "var(--pi-color-surface4)",
   "--border-control": "var(--pi-color-border)",
   "--border-input": "var(--pi-color-border)",
   // Dropdowns / menus.
   "--popover": "var(--pi-color-surface1)",
-  "--popover-item-hover": "var(--pi-color-surfaceHover)",
-  "--row-hover": "var(--pi-color-surfaceHover)",
+  "--popover-item-hover": "var(--pi-color-surface2)",
+  "--row-hover": "var(--pi-color-surface2)",
   "--border-popover": "var(--pi-color-border)",
   // Text.
   "--text-primary": "var(--pi-color-foreground)",

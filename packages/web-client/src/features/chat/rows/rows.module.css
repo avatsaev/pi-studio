@@ -1,8 +1,8 @@
 /* Shared timeline row styles (POC `.msg` family, POC_TO_APP_PLAN_UI.md §4.3). */
 
 .row {
-  padding: 8px 12px;
-  border-radius: var(--pi-borderRadius-md, 6px);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  border-radius: var(--pi-radius-md);
   max-width: 85%;
   white-space: pre-wrap;
   word-break: break-word;
@@ -13,8 +13,8 @@
 .who {
   display: block;
   font-size: var(--pi-font-size-3xs);
-  color: var(--pi-color-foregroundMuted, #7a8394);
-  margin-bottom: 3px;
+  color: var(--pi-color-foregroundMuted);
+  margin-bottom: var(--pi-spacing-3);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -22,10 +22,10 @@
 .queuedBadge {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-left: 6px;
-  padding: 0 4px;
-  border-radius: 3px;
+  gap: var(--pi-spacing-2);
+  margin-left: var(--pi-spacing-6);
+  padding: 0 var(--pi-spacing-4);
+  border-radius: var(--pi-radius-base);
   font-size: var(--pi-font-size-4xs);
   font-weight: 600;
   text-transform: none;
@@ -38,8 +38,8 @@
 /* ─── User ─────────────────────────────────────────────────────────────── */
 
 .user {
-  background: var(--pi-color-accentMuted, #1e3a5f);
-  color: var(--pi-color-foreground, #dbe9ff);
+  background: color-mix(in srgb, var(--pi-color-accent) 35%, var(--pi-color-surface1) 65%);
+  color: var(--pi-color-foreground);
   align-self: flex-end;
   border-bottom-right-radius: 2px;
 }
@@ -53,22 +53,22 @@
 }
 
 .userFailed {
-  background: var(--pi-color-destructive, #3a1515);
-  color: var(--pi-color-destructiveForeground, #ff8a80);
+  background: var(--pi-color-destructive);
+  color: var(--pi-color-destructiveForeground);
   opacity: 1;
 }
 
 .userImages {
   display: flex;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: var(--pi-spacing-6);
 }
 
 .userImage {
   max-width: 200px;
   max-height: 150px;
-  border-radius: 4px;
+  border-radius: var(--pi-radius-base);
   display: block;
   object-fit: cover;
   cursor: pointer;
@@ -88,14 +88,14 @@
 /* ─── Assistant ────────────────────────────────────────────────────────── */
 
 .assistant {
-  background: var(--pi-color-surface, #1c1f26);
-  color: var(--pi-color-foreground, #d6dae0);
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foreground);
   align-self: flex-start;
   border-bottom-left-radius: 2px;
 }
 
 .assistant.streaming {
-  border-left: 2px solid var(--pi-color-accent, #2e5cb8);
+  border-left: 2px solid var(--pi-color-accent);
 }
 
 .streamingText {
@@ -105,9 +105,9 @@
 
 .cursor {
   display: inline-block;
-  margin-left: 1px;
+  margin-left: var(--pi-spacing-1);
   animation: blink 1s step-start infinite;
-  color: var(--pi-color-accentBright, #a2b4d7);
+  color: var(--pi-color-accentBright);
 }
 
 @keyframes blink {
@@ -119,8 +119,8 @@
 /* ─── Reasoning ────────────────────────────────────────────────────────── */
 
 .reasoning {
-  background: var(--pi-color-background, #0f1115);
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  background: var(--pi-color-background);
+  color: var(--pi-color-foregroundMuted);
   font-style: italic;
   font-size: var(--pi-font-size-xs);
   align-self: flex-start;
@@ -129,8 +129,8 @@
 /* ─── Tool ─────────────────────────────────────────────────────────────── */
 
 .tool {
-  background: var(--pi-color-surface, #1c1f26);
-  border: 1px solid var(--pi-color-border, #2c313b);
+  background: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
   align-self: flex-start;
   font-size: var(--pi-font-size-xs);
   max-width: 90%;
@@ -141,9 +141,9 @@
 .toolHeader {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
   background: none;
   border: none;
   color: inherit;
@@ -158,7 +158,7 @@
 
 .toolChevron {
   flex-shrink: 0;
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  color: var(--pi-color-foregroundMuted);
   transition: transform 120ms ease;
 }
 
@@ -170,27 +170,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  color: var(--pi-color-foregroundMuted);
+  font-family: var(--pi-font-mono);
   min-width: 0;
   flex: 1;
 }
 
 .toolBody {
-  border-top: 1px solid var(--pi-color-border, #2c313b);
+  border-top: 1px solid var(--pi-color-border);
   max-height: 420px;
   overflow: auto;
 }
 
 .toolCode {
   margin: 0;
-  padding: 8px 12px;
-  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  font-family: var(--pi-font-mono);
   font-size: var(--pi-font-size-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--pi-color-foreground, #dbe3f0);
+  color: var(--pi-color-foreground);
 }
 
 .toolIcon {
@@ -200,16 +200,16 @@
 }
 
 .toolIcon.running {
-  color: var(--pi-color-accentBright, #a2b4d7);
+  color: var(--pi-color-accentBright);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
 .toolIcon.completed {
-  color: var(--pi-color-statusSuccess, #27ae60);
+  color: var(--pi-color-statusSuccess);
 }
 
 .toolIcon.error {
-  color: var(--pi-color-statusDanger, #c0392b);
+  color: var(--pi-color-statusDanger);
 }
 
 @keyframes pulse {
@@ -230,15 +230,15 @@
 /* ─── Error / System ───────────────────────────────────────────────────── */
 
 .error {
-  background: var(--pi-color-destructive, #3a1515);
-  color: var(--pi-color-destructiveForeground, #ff8a80);
+  background: var(--pi-color-destructive);
+  color: var(--pi-color-destructiveForeground);
   align-self: flex-start;
 }
 
 .system {
   background: transparent;
-  color: var(--pi-color-foregroundMuted, #7a8394);
+  color: var(--pi-color-foregroundMuted);
   font-style: italic;
   align-self: flex-start;
-  padding: 4px 12px;
+  padding: var(--pi-spacing-4) var(--pi-spacing-12);
 }

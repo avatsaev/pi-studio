@@ -1,0 +1,39 @@
+/* IconButton — compact, chromeless icon affordance. ui-components.md § Pressables */
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--pi-radius-base);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.iconBtn:hover {
+  color: var(--pi-color-foreground);
+  background: color-mix(
+    in srgb,
+    var(--icon-btn-hover-base, var(--pi-color-surface1)) 85%,
+    var(--pi-color-foreground) 15%
+  );
+}
+.iconBtn:focus-visible {
+  outline: 2px solid var(--pi-color-accent);
+  outline-offset: 2px;
+}
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.xs {
+  width: 20px;
+  height: 20px;
+}
+.sm {
+  width: 28px;
+  height: 28px;
+}

@@ -4,11 +4,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 6px;
-  border-radius: 9999px;
+  padding: var(--pi-spacing-1) var(--pi-spacing-6);
+  border-radius: var(--pi-radius-full);
   border: 1px solid;
   font-size: var(--pi-font-size-xs);
-  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  font-family: var(--pi-font-ui);
   font-weight: 500;
   white-space: nowrap;
   line-height: 1.5;

@@ -1,22 +1,9 @@
 .wrap {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
   position: relative;
 }
 .molViewer {
   flex: 1;
   min-height: 0;
-}
-.emptyState {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
-  font-size: var(--pi-font-size-xs);
-  padding: 20px;
 }
 .badges {
   position: absolute;
@@ -26,5 +13,5 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
 }

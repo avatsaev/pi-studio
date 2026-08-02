@@ -30,6 +30,8 @@ import { MolViewer, type MolViewerHandle, type SaveEvent } from "@molviewer/core
 import "@molviewer/core/style.css";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { StatusBadge } from "@pi-studio-ui/components/primitives/StatusBadge.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import { useFileWatch } from "@pi-studio-ui/hooks/use-file-watch.js";
@@ -113,23 +115,23 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
 
   if (path && download.isPending) {
     return (
-      <div className={styles.wrap}>
-        <div className={styles.emptyState}>
+      <Panel>
+        <EmptyState>
           <Spinner size="sm" /> Loading...
-        </div>
-      </div>
+        </EmptyState>
+      </Panel>
     );
   }
   if (errorMessage) {
     return (
-      <div className={styles.wrap}>
-        <div className={styles.emptyState}>Error: {errorMessage}</div>
-      </div>
+      <Panel>
+        <EmptyState>Error: {errorMessage}</EmptyState>
+      </Panel>
     );
   }
 
   return (
-    <div className={styles.wrap} data-molecule-active={isActive ? "true" : "false"}>
+    <Panel className={styles.wrap} data-molecule-active={isActive ? "true" : "false"}>
       <div className={styles.badges}>
         {hasUnappliedChange && <StatusBadge label="File changed on disk" variant="muted" />}
         {saveError && <StatusBadge label={`Save failed: ${saveError}`} variant="error" />}
@@ -151,6 +153,6 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
         }}
         onSave={path ? handleSave : undefined}
       />
-    </div>
+    </Panel>
   );
 }

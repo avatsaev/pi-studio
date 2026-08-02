@@ -16,9 +16,9 @@ body {
 body {
   min-height: 100vh;
   overflow: hidden;
-  background: var(--pi-color-background, #0a0a0a);
-  color: var(--pi-color-foreground, #fafafa);
-  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  background: var(--pi-color-background);
+  color: var(--pi-color-foreground);
+  font-family: var(--pi-font-ui);
 }
 
 #root {
@@ -42,6 +42,6 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--pi-color-border, #353b46);
-  border-radius: 3px;
+  background: var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
 }

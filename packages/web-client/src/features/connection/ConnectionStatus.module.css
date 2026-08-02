@@ -1,25 +1,25 @@
 .wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pi-spacing-6);
   font-size: var(--pi-font-size-xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--pi-color-foregroundMuted, #9aa0a6);
+  background: var(--pi-color-foregroundMuted);
   flex-shrink: 0;
 }
 .dot.open {
-  background: var(--pi-color-statusSuccess, #3ecf8e);
+  background: var(--pi-color-statusSuccess);
 }
 .dot.connecting {
-  background: var(--pi-color-statusWarning, #e0a030);
+  background: var(--pi-color-statusWarning);
 }
 .dot.closed,
 .dot.idle,
 .dot.closing {
-  background: var(--pi-color-statusDanger, #e5484d);
+  background: var(--pi-color-statusDanger);
 }

@@ -19,13 +19,14 @@
 import { useState } from "react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useFileRead, FileTooLargeError } from "@pi-studio-ui/hooks/use-file-read.js";
 import { useFileText } from "@pi-studio-ui/hooks/use-file-text.js";
 import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import { CodeView } from "./CodeView.js";
 import { selectTextViewerState } from "./text-viewer-state.js";
 import type { ViewerProps } from "./viewer-registry.js";
-import styles from "./FilePanel.module.css";
 import textStyles from "./TextViewer.module.css";
 
 /** Display ceiling above the inline cap. `CodeView`'s CodeMirror instance enables
@@ -73,33 +74,33 @@ export function TextViewer({ path }: ViewerProps) {
   switch (state.kind) {
     case "loading":
       return (
-        <div className={styles.emptyState}>
+        <EmptyState>
           <Spinner size="sm" /> Loading...
-        </div>
+        </EmptyState>
       );
     case "inline":
       return <CodeView path={path} content={state.content} />;
     case "streaming":
       return (
-        <div className={styles.emptyState}>
+        <EmptyState>
           <Spinner size="sm" /> Streaming {formatMegabytes(state.size)} file...
-        </div>
+        </EmptyState>
       );
     case "stream-error":
-      return <div className={styles.emptyState}>Error: {state.message}</div>;
+      return <EmptyState>Error: {state.message}</EmptyState>;
     case "streamed":
       return (
-        <div className={textStyles.wrap}>
+        <Panel>
           <div className={textStyles.note}>{formatMegabytes(state.size)} file streamed</div>
           <div className={textStyles.body}>
             <CodeView path={path} content={state.content} />
           </div>
-        </div>
+        </Panel>
       );
     case "too-large": {
       const name = path.split("/").pop() || path;
       return (
-        <div className={styles.emptyState}>
+        <EmptyState>
           <div className={textStyles.tooLarge}>
             <div>
               {formatMegabytes(state.size)} — too large to display (display ceiling is{" "}
@@ -117,10 +118,10 @@ export function TextViewer({ path }: ViewerProps) {
               </Button>
             )}
           </div>
-        </div>
+        </EmptyState>
       );
     }
     case "error":
-      return <div className={styles.emptyState}>Error: {state.message}</div>;
+      return <EmptyState>Error: {state.message}</EmptyState>;
   }
 }

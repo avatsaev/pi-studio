@@ -2,6 +2,7 @@
 // ui-components.md § Pressables, Inputs, Icons, Surfaces, Feedback, Status, Scroll
 
 export { Button, type ButtonProps } from "./Button.js";
+export { IconButton, type IconButtonProps, type IconButtonSize } from "./IconButton.js";
 export { Icon, type IconProps, type IconSizeToken, ICON_SIZE_PX } from "./Icon.js";
 export { StatusDot, type StatusDotProps } from "./StatusDot.js";
 export { StatusBadge, type StatusBadgeProps } from "./StatusBadge.js";
@@ -11,12 +12,23 @@ export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner.js";
 export { Divider, type DividerProps } from "./Divider.js";
 export { Switch, type SwitchProps } from "./Switch.js";
 export { Surface, type SurfaceProps } from "./Surface.js";
+export { Panel, type PanelProps } from "./Panel.js";
+export { EmptyState, type EmptyStateProps } from "./EmptyState.js";
 export { TextInput, TextArea, type TextInputProps, type TextAreaProps } from "./TextInput.js";
 export { ScrollArea, type ScrollAreaProps } from "./ScrollArea.js";
 export { Checkbox, type CheckboxProps } from "./Checkbox.js";
 export { Select, Combobox, type SelectProps, type ComboboxProps } from "./Select.js";
 export { Dialog, DialogClose, type DialogProps } from "./Dialog.js";
 export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle.js";
+export {
+  MenuCursorTrigger,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  type MenuCursorTriggerProps,
+  type MenuContentProps,
+  type MenuItemProps,
+} from "./Menu.js";
 export { useHover, type UseHoverReturn } from "./useHover.js";
 
 // Helpers (testable pure functions)

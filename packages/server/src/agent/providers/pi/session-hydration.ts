@@ -70,9 +70,11 @@ function mapMessage(message: unknown): AgentStreamEvent[] {
       for (const raw of blocks) {
         const block = asRecord(raw);
         if (block.type === "text" && typeof block.text === "string" && block.text) {
-          events.push({ kind: "assistant_message", text: block.text });
+          // Whole block, already complete — `final` so a replaying client renders it as finished
+          // markdown rather than a perpetually "streaming" row.
+          events.push({ kind: "assistant_message", text: block.text, final: true });
         } else if (block.type === "thinking" && typeof block.thinking === "string") {
-          events.push({ kind: "reasoning", text: block.thinking });
+          events.push({ kind: "reasoning", text: block.thinking, final: true });
         } else if (block.type === "toolCall") {
           events.push({
             kind: "tool_call",

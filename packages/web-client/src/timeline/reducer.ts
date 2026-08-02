@@ -13,53 +13,95 @@ import {
   type TimelineState,
 } from "./row-model.js";
 
-/** Reset streaming refs for a new turn (POC: `turn_started` clears `currentBubble`/`currentReasoning`/`toolEls`). */
-function onTurnStarted(state: TimelineState): TimelineState {
-  return {
-    ...state,
-    streamingAssistantIndex: null,
-    streamingReasoningIndex: null,
-    // toolIndexByCallId intentionally persists across turns — POC only clears `st.toolEls` on
-    // `turn_started`, but tool rows themselves remain in the DOM; dedupe-by-callId is scoped to
-    // the whole session, not the turn, and callIds are unique per invocation anyway.
-  };
+/**
+ * Flip a still-streaming assistant/reasoning row to its finalized form, in place on an already
+ * copied `rows` array.
+ *
+ * This is the switch that swaps `AssistantRow`'s cheap plain-text streaming tier for the full
+ * `<Markdown>` render, so it must fire the moment a row can no longer grow. Clearing the
+ * streaming *index* without clearing the row's `streaming` flag (what this reducer used to do on
+ * `tool_call`) strands the row in plain text forever — `turn_completed` only ever finalizes the
+ * index it still holds, which is `null` by then.
+ */
+function finalizeRow(rows: TimelineRow[], index: number | null): void {
+  if (index === null) return;
+  const row = rows[index];
+  if (!row) return;
+  if (row.kind !== "assistant" && row.kind !== "reasoning") return;
+  if (!row.streaming) return;
+  rows[index] = { ...row, streaming: false };
 }
 
-function onAssistantMessage(state: TimelineState, text: string): TimelineState {
+/** Close both streaming rows — the stream has moved on to something that is neither. */
+function finalizeStreamingRows(state: TimelineState): TimelineState {
+  if (state.streamingAssistantIndex === null && state.streamingReasoningIndex === null) {
+    return state;
+  }
   const rows = state.rows.slice();
+  finalizeRow(rows, state.streamingAssistantIndex);
+  finalizeRow(rows, state.streamingReasoningIndex);
+  return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
+}
+
+/**
+ * Reset streaming refs for a new turn (POC: `turn_started` clears `currentBubble`/
+ * `currentReasoning`/`toolEls`).
+ *
+ * `toolIndexByCallId` intentionally persists across turns — the POC only cleared `st.toolEls` on
+ * `turn_started`, but tool rows themselves remain in the DOM; dedupe-by-callId is scoped to the
+ * whole session, not the turn, and callIds are unique per invocation anyway.
+ */
+function onTurnStarted(state: TimelineState): TimelineState {
+  return finalizeStreamingRows(state);
+}
+
+/**
+ * `final` marks a block-close marker (Pi's `text_end`, mapped in the daemon's `event-mapper.ts`)
+ * or a whole hydrated block — either way the text will not grow, so the row finalizes now rather
+ * than at `turn_completed`, which is a whole tool loop away.
+ */
+function onAssistantMessage(state: TimelineState, text: string, final: boolean): TimelineState {
+  const rows = state.rows.slice();
+  finalizeRow(rows, state.streamingReasoningIndex); // POC: assistant_message clears currentReasoning
   let index = state.streamingAssistantIndex;
   if (index === null || rows[index]?.kind !== "assistant") {
+    // A textless `final` marker with no open row has nothing to close — never open an empty row.
+    if (!text)
+      return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
     const row: TimelineRow = { kind: "assistant", id: nextRowId(), text: "", streaming: true };
     rows.push(row);
     index = rows.length - 1;
   }
   const row = rows[index];
   if (!row || row.kind !== "assistant") return state; // unreachable given the guard above
-  rows[index] = { ...row, text: row.text + text };
+  rows[index] = { ...row, text: row.text + text, streaming: !final };
   return {
     ...state,
     rows,
-    streamingAssistantIndex: index,
-    streamingReasoningIndex: null, // POC: assistant_message clears currentReasoning
+    streamingAssistantIndex: final ? null : index,
+    streamingReasoningIndex: null,
   };
 }
 
-function onReasoning(state: TimelineState, text: string): TimelineState {
+function onReasoning(state: TimelineState, text: string, final: boolean): TimelineState {
   const rows = state.rows.slice();
+  finalizeRow(rows, state.streamingAssistantIndex); // POC: reasoning clears currentBubble
   let index = state.streamingReasoningIndex;
   if (index === null || rows[index]?.kind !== "reasoning") {
+    if (!text)
+      return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
     const row: TimelineRow = { kind: "reasoning", id: nextRowId(), text: "", streaming: true };
     rows.push(row);
     index = rows.length - 1;
   }
   const row = rows[index];
   if (!row || row.kind !== "reasoning") return state;
-  rows[index] = { ...row, text: row.text + text };
+  rows[index] = { ...row, text: row.text + text, streaming: !final };
   return {
     ...state,
     rows,
-    streamingReasoningIndex: index,
-    streamingAssistantIndex: null, // POC: reasoning clears currentBubble
+    streamingReasoningIndex: final ? null : index,
+    streamingAssistantIndex: null,
   };
 }
 
@@ -85,9 +127,14 @@ function onToolCall(
   event: Extract<AgentStreamEvent, { kind: "tool_call" }>,
 ): TimelineState {
   const key = toolCallKey(event.callId, event.tool);
-  const status = event.status === "completed" || event.status === "error" ? event.status : "running";
+  const status =
+    event.status === "completed" || event.status === "error" ? event.status : "running";
   const existingIndex = state.toolIndexByCallId[key];
   const rows = state.rows.slice();
+  // A tool call means the prose that preceded it is done — finalize it now instead of leaving it
+  // in the plain-text streaming tier until the whole turn ends.
+  finalizeRow(rows, state.streamingAssistantIndex);
+  finalizeRow(rows, state.streamingReasoningIndex);
 
   if (existingIndex !== undefined && rows[existingIndex]?.kind === "tool") {
     const row = rows[existingIndex];
@@ -113,16 +160,7 @@ function onToolCall(
 }
 
 function onTurnCompleted(state: TimelineState): TimelineState {
-  const rows = state.rows.slice();
-  if (state.streamingAssistantIndex !== null) {
-    const row = rows[state.streamingAssistantIndex];
-    if (row?.kind === "assistant") rows[state.streamingAssistantIndex] = { ...row, streaming: false };
-  }
-  if (state.streamingReasoningIndex !== null) {
-    const row = rows[state.streamingReasoningIndex];
-    if (row?.kind === "reasoning") rows[state.streamingReasoningIndex] = { ...row, streaming: false };
-  }
-  return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
+  return finalizeStreamingRows(state);
 }
 
 function onTurnFailed(state: TimelineState, error: string | undefined): TimelineState {
@@ -166,7 +204,13 @@ function onUserMessage(
       }
     }
   }
-  const row: TimelineRow = { kind: "user", id: nextRowId(), text, images, clientMessageId: messageId };
+  const row: TimelineRow = {
+    kind: "user",
+    id: nextRowId(),
+    text,
+    images,
+    clientMessageId: messageId,
+  };
   return { ...state, rows: [...state.rows, row] };
 }
 
@@ -195,9 +239,9 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
     case "user_message":
       return onUserMessage(state, event.text ?? "", event.images, event.messageId);
     case "assistant_message":
-      return onAssistantMessage(state, event.text ?? "");
+      return onAssistantMessage(state, event.text ?? "", event.final ?? false);
     case "reasoning":
-      return onReasoning(state, event.text ?? "");
+      return onReasoning(state, event.text ?? "", event.final ?? false);
     case "tool_call":
       return onToolCall(state, event);
     case "turn_completed":
@@ -255,7 +299,10 @@ export function addOptimisticUserMessage(
  * can still reject later from a failure elsewhere in that same turn; the row is already correct
  * by then and must not be clobbered back into a failed state).
  */
-export function markUserMessageFailed(state: TimelineState, clientMessageId: string): TimelineState {
+export function markUserMessageFailed(
+  state: TimelineState,
+  clientMessageId: string,
+): TimelineState {
   const idx = state.rows.findIndex(
     (r) => r.kind === "user" && r.pending && r.clientMessageId === clientMessageId,
   );

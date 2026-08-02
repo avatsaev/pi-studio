@@ -1,11 +1,11 @@
 /* Composer — textarea + attach/send/stop actions (POC `.composer`, POC_TO_APP_PLAN_UI.md §4.4). */
 
 .composer {
-  padding: 10px 16px;
-  border-top: 1px solid var(--pi-color-border, #2c313b);
-  background: var(--pi-color-surface, #14161a);
+  padding: var(--pi-spacing-10) var(--pi-spacing-16);
+  border-top: 1px solid var(--pi-color-border);
+  background: var(--pi-color-surface1);
   display: flex;
-  gap: 8px;
+  gap: var(--pi-spacing-8);
   align-items: center;
   flex-shrink: 0;
 }
@@ -23,6 +23,7 @@
   min-height: 38px;
   max-height: 160px;
   overflow-y: auto;
+  font-size: var(--pi-font-size-md);
 }
 
 .attachBtn {
@@ -36,7 +37,7 @@
      just makes the (default-transparent) border visible, rather than switching to the
      `outline` variant, whose accent-colored border reads louder than this toolbar's other
      plain icon buttons (attach/send) call for. */
-  border-color: var(--pi-color-border, #3f3f46);
+  border-color: var(--pi-color-border);
 }
 
 .textareaWrap {
@@ -50,11 +51,11 @@
 .highlightLayer {
   position: absolute;
   inset: 0;
-  padding: 8px 12px;
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
   border: 1px solid transparent;
   box-sizing: border-box;
-  font-size: var(--pi-font-size-base);
-  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  font-size: var(--pi-font-size-md);
+  font-family: var(--pi-font-ui);
   line-height: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -78,12 +79,12 @@
    * padding — without ever touching the box model. Two shadows: a crisp 1px outline right at
    * the edge, then the same translucent wash again 3px further out.
    */
-  background: color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 24%, transparent);
+  background: color-mix(in srgb, var(--pi-color-accent) 24%, transparent);
   color: transparent;
-  border-radius: 4px;
+  border-radius: var(--pi-radius-base);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 55%, transparent),
-    0 0 0 3px color-mix(in srgb, var(--pi-color-accent, #2e5cb8) 24%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--pi-color-accent) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--pi-color-accent) 24%, transparent);
 }
 /* Only while a mark is showing does the textarea itself go transparent so the mark shows
    through from behind — an ordinary draft keeps the primitive's own surface color. */
@@ -98,6 +99,6 @@
 .actions {
   display: flex;
   flex-direction: row;
-  gap: 4px;
+  gap: var(--pi-spacing-4);
   flex-shrink: 0;
 }

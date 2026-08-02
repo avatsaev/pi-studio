@@ -2,25 +2,25 @@
 
 .input {
   width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--pi-radius-md, 6px);
-  border: 1px solid var(--pi-color-border, #3f3f46);
-  background-color: var(--pi-color-surface2, #27272a);
-  color: var(--pi-color-foreground, #fafafa);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  border-radius: var(--pi-radius-md);
+  border: 1px solid var(--pi-color-border);
+  background-color: var(--pi-color-surface2);
+  color: var(--pi-color-foreground);
   font-size: var(--pi-font-size-base);
-  font-family: var(--pi-font-ui, system-ui, sans-serif);
+  font-family: var(--pi-font-ui);
   outline: none;
   transition: border-color 120ms ease;
   box-sizing: border-box;
 }
 
 .input::placeholder {
-  color: var(--pi-color-foregroundMuted, #a1a1aa);
+  color: var(--pi-color-foregroundMuted);
 }
 
 .input:focus {
-  border-color: var(--pi-color-accent, #2e5cb8);
-  outline: 2px solid var(--pi-color-accent, #2e5cb8);
+  border-color: var(--pi-color-accent);
+  outline: 2px solid var(--pi-color-accent);
   outline-offset: -1px;
 }
 

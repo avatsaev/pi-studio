@@ -67,6 +67,15 @@ src/
                              vars (font-size scale lives in theme/tokens.ts, see Invariants)
   theme/font-scale.test.ts guards the one-lever font invariant: no hardcoded font-size literal
                              in any CSS module, no dangling --pi-font-size-* rung
+  theme/token-integrity.test.ts generalizes the same guard to every --pi-*/--syntax-* custom
+                             property across every source file (not just font-size): every
+                             var(--pi-*) reference must resolve to a key theme/css-bridge.ts
+                             actually emits, AND every emitted key must be a syntactically legal
+                             CSS custom-property identifier (no literal `.` — a fractional
+                             spacing key like "1.5" silently emits an invalid `--pi-spacing-1.5`
+                             that no browser resolves, collapsing that padding/margin/gap to 0
+                             app-wide with no error; this shipped once, see theme/tokens.ts's
+                             spacing comment)
   css-modules.d.ts          ambient CSS-module typings
   vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
                              package.json version, shown in Toolbar.tsx after the brand title)
@@ -75,9 +84,16 @@ src/
   brand/                   brand config (zod-validated), brand-logo, theme-injection
   ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar tokens)
   platform/                breakpoints (window-chrome metrics)
-  components/primitives/   36 React design-system components (Button, Select, Dialog, Surface,
-                            TextInput, Switch, Checkbox, Avatar, ScrollArea, ResizeHandle,
-                            StatusBadge/Dot, Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
+  components/primitives/   React design-system components (Button, IconButton — compact
+                            chromeless icon affordance for row actions/menu triggers, distinct
+                            from Button's ≥28px iconOnly mode —, Select, Dialog, Surface,
+                            Panel — full-height flex-column shell —, EmptyState — centered
+                            muted placeholder text —, Menu — shared Radix DropdownMenu chrome
+                            (MenuCursorTrigger/MenuContent/MenuItem/MenuSeparator), used by
+                            every right-click context menu plus TabStrip's "+" menu and
+                            ModelMenu/CommandMenu's outer chrome —, TextInput, Switch,
+                            Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
+                            Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
                            relay-transport pairing-link connections), resolve-connect-target
                            (pure routing: plain address vs. pairing link, direct vs. relay + tests),
@@ -229,7 +245,9 @@ src/
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
                             `@molviewer/core@0.4.0`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
-                            (PanelProps adapter), MoleculeViewerPanel.module.css, molecule-source.ts,
+                            (PanelProps adapter, styled via the shared `Panel` primitive plus a
+                            local `.wrap`/`.badges` override for its absolute-positioned status
+                            badges), molecule-source.ts,
                             write-file.ts (shared `file_write_request` caller + error-code messages,
                             mirrors move-entry.ts — used by MoleculeViewer's Save button),
                             molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
@@ -320,6 +338,20 @@ entered at runtime, never baked into the image.
   still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
   Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
   page cap, which would reintroduce silent truncation.
+- **A row's `streaming` flag must never outlive the block it describes.** `AssistantRow`/
+  `ReasoningRow` render `row.text` as plain text with a cursor while `streaming` is true and only
+  route through `<Markdown>` once it clears — deliberate, since re-parsing markdown + Shiki on
+  every token delta is wasteful. That makes `streaming: false` the *only* thing standing between
+  the user and rendered markdown, so `reducer.ts` clears it the moment the row can no longer grow:
+  on `assistant_message.final`/`reasoning.final` (the daemon's mapping of Pi's `text_end`/
+  `thinking_end`), on the next `tool_call`, on an assistant↔reasoning switch, and on any turn
+  boundary. `finalizeRow`/`finalizeStreamingRows` are the single implementation — use them rather
+  than nulling `streamingAssistantIndex`/`streamingReasoningIndex` by hand. Clearing the *index*
+  alone (what `onToolCall` used to do) strands the row: `turn_completed` only finalizes the index
+  it still holds, so every message followed by a tool call rendered as raw markdown source
+  forever, including after a reload — `use-session-restore.ts` replays through this same reducer.
+  Note the deliberate exception: `user_message` does **not** finalize, because a steering message
+  arrives mid-block and splitting there would tear one reply into two bubbles.
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/

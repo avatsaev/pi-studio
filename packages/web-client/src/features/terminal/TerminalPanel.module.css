@@ -6,21 +6,21 @@
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--pi-terminal-bg, #181b1a);
+  background: var(--pi-terminal-bg);
 }
 .terminal {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  padding: 6px 8px;
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
 }
 .status {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--pi-spacing-8);
   height: 100%;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }

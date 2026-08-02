@@ -13,6 +13,7 @@ import { ArrowUp, Folder, FolderPlus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Dialog, DialogClose } from "@pi-studio-ui/components/primitives/index.js";
 import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
@@ -187,13 +188,11 @@ export function OpenWorkspaceDialog() {
       )}
       <div className={styles.list}>
         {isLoading ? (
-          <div className={styles.emptyState}>Loading...</div>
+          <EmptyState>Loading...</EmptyState>
         ) : isError ? (
-          <div className={styles.emptyState}>
-            Error: {error instanceof Error ? error.message : "unknown error"}
-          </div>
+          <EmptyState>Error: {error instanceof Error ? error.message : "unknown error"}</EmptyState>
         ) : dirEntries.length === 0 ? (
-          <div className={styles.emptyState}>No subdirectories</div>
+          <EmptyState>No subdirectories</EmptyState>
         ) : (
           dirEntries.map((entry) => (
             <div

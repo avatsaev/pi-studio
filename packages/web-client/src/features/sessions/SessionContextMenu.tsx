@@ -11,11 +11,16 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Pencil, Square, Archive as ArchiveIcon, Trash2 } from "lucide-react";
+import {
+  MenuCursorTrigger,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+} from "@pi-studio-ui/components/primitives/Menu.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import styles from "./SessionContextMenu.module.css";
 
 export function SessionContextMenu() {
   const menu = useUiStore((s) => s.sessionMenu);
@@ -115,36 +120,27 @@ export function SessionContextMenu() {
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={styles.trigger}
-          style={{ left: menu.x, top: menu.y }}
-          aria-hidden
-          tabIndex={-1}
-        />
+        <MenuCursorTrigger ref={triggerRef} x={menu.x} y={menu.y} />
       </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className={styles.content} align="start" sideOffset={2}>
-          <DropdownMenu.Item className={styles.item} onSelect={rename}>
-            <Pencil size={13} />
-            Rename
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={styles.item} disabled={!canStop} onSelect={stop}>
-            <Square size={13} />
-            Stop agent
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className={styles.sep} />
-          <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={archive}>
-            <ArchiveIcon size={13} />
-            Archive
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={`${styles.item} ${styles.danger}`} onSelect={remove}>
-            <Trash2 size={13} />
-            Delete permanently
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+      <MenuContent minWidth={160}>
+        <MenuItem onSelect={rename}>
+          <Pencil size={13} />
+          Rename
+        </MenuItem>
+        <MenuItem disabled={!canStop} onSelect={stop}>
+          <Square size={13} />
+          Stop agent
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem danger onSelect={archive}>
+          <ArchiveIcon size={13} />
+          Archive
+        </MenuItem>
+        <MenuItem danger onSelect={remove}>
+          <Trash2 size={13} />
+          Delete permanently
+        </MenuItem>
+      </MenuContent>
     </DropdownMenu.Root>
   );
 }

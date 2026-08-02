@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }
 .emptyStack {
@@ -27,16 +27,16 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--pi-spacing-10);
   height: 100%;
-  padding: 0 16px;
+  padding: 0 var(--pi-spacing-16);
   text-align: center;
 }
 .emptyTitle {
   font-size: var(--pi-font-size-sm);
-  color: var(--pi-color-foreground, #e6e6e6);
+  color: var(--pi-color-foreground);
 }
 .emptyHint {
   font-size: var(--pi-font-size-xs);
-  color: var(--pi-color-foregroundMuted, #9aa0a6);
+  color: var(--pi-color-foregroundMuted);
 }

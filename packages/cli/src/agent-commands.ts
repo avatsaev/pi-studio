@@ -265,7 +265,10 @@ export async function logsAgent(
   }
   for (const item of payload.items ?? []) {
     const event = (item as { event?: AgentStreamEvent }).event ?? (item as AgentStreamEvent);
-    ctx.sink.write(formatStreamEvent(event));
+    const line = formatStreamEvent(event);
+    // Textless events (`assistant_message.final` block-close markers, empty deltas) render to
+    // nothing — don't punch a blank line into the log.
+    if (line) ctx.sink.write(line);
   }
   return EXIT_OK;
 }
@@ -288,7 +291,12 @@ export function attachAgent(
     const unsubscribe = client.onSessionMessage((msg) => {
       const m = msg as unknown as { type?: string; agentId?: string; event?: AgentStreamEvent };
       if (m.type !== "agent_stream" || m.agentId !== agentId || !m.event) return;
-      ctx.sink.write(opts.json ? renderJson(m.event) : formatStreamEvent(m.event));
+      if (opts.json) {
+        ctx.sink.write(renderJson(m.event));
+      } else {
+        const line = formatStreamEvent(m.event);
+        if (line) ctx.sink.write(line);
+      }
       if (opts.untilTurnEnd && isTerminalEvent(m.event)) {
         unsubscribe();
         resolve(EXIT_OK);

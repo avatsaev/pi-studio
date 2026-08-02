@@ -11,6 +11,7 @@
  */
 
 import { clsx } from "clsx";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import styles from "./ChangesPanel.module.css";
@@ -40,7 +41,7 @@ export function ChangesPanel() {
   }
 
   if (changes.length === 0) {
-    return <div className={styles.emptyState}>No changes detected</div>;
+    return <EmptyState>No changes detected</EmptyState>;
   }
 
   return (
