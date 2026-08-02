@@ -124,7 +124,10 @@ src/
                            (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
                            agent_update), materialize (eager draft materialization + default-model
                            resolution + discardIfEmpty, + test), git-store (branch/ahead/behind/
-                           detached/upstream/conflictCount alongside changes[]), stats-store
+                           detached/upstream/conflictCount alongside changes[]; plus `ignored[]`,
+                           the projection's gitignored paths — kept OUT of `changes[]` so it can
+                           never inflate the Changes tab or the status bar's dirty count, and read
+                           only by the Files tree), stats-store
                            (per-sessionId context/tokens/cost/model — sprint-042), explorer-store
                            (`selected` — the last-clicked row, target directory for "New File"/
                            "New Folder" — file-explorer quick-wins-1; `repathAfterMove` — rewrites
@@ -214,12 +217,21 @@ src/
                             directory after 700ms either way, and on drop calls move-entry.ts's
                             `moveEntry` or uploads via `useFileTransfer`'s `upload`,
                             invalidates both affected `rpcKeys.explorer(...)` listings, repaths
-                            `explorer-store` state, and reopens/closes the moved item's tab), TreeNode
+                            `explorer-store` state, and reopens/closes the moved item's tab; tints
+                            every row by git status and ghosts dotfile/gitignored rows from the
+                            live `git-store` — see git-status-index.ts below), TreeNode
                             (presentational row: chevron/icon/name + actions button, delegates
                             draft rows to TreeDraftRow; `title` tooltip shows the full path; `active`
                             (open in the current tab), `selected` (last-clicked), and `dropTarget`
                             (hover target for an internal move OR an OS-file drag — sprint-046)
-                            rows each get a CSS highlight; row is `draggable` and fires
+                            rows each get a CSS highlight; `gitStatus` tints the icon + label
+                            green/amber/red (`.gitAdded`/`.gitModified`/`.gitDeleted`, same colour
+                            convention as the Changes tab's A/M/D badges); `hidden` ghosts the row
+                            to 45% opacity (`.hiddenEntry` — dotfiles and gitignored entries, which
+                            a plain listing wouldn't show at all), using opacity rather than a
+                            colour so it composes with the git tint instead of overriding it, and
+                            snapping back to full opacity on hover/active/selected where dimming
+                            would just read as broken; row is `draggable` and fires
                             `onDragStartRow`/`onDragEndRow`
                             — file-explorer quick-wins-1), TreeDraftRow (owns the draft
                             input's local text state), FileContextMenu (row menu: Open / Open in
@@ -240,7 +252,24 @@ src/
                             error-code messages, same shape as create-entry.ts — sprint-046),
                             move-target.ts (pure `resolveMoveTarget` — drop-legality decision +
                             landing path for a row drag, no React/DOM dependency so it's
-                            unit-testable without jsdom — sprint-046), RightSidebar, DiffView,
+                            unit-testable without jsdom — sprint-046),
+                            git-status-index.ts (pure `buildGitStatusLookup(rootPath, changes)` —
+                            derives the tree's per-row git tint from `git-store.changes`, which
+                            `StatusBar`'s subscription already keeps live, so this costs no extra
+                            RPC. Bridges two mismatches: change paths are workspace-relative while
+                            tree rows are absolute, and porcelain v2's default `-unormal` collapses
+                            a wholly untracked directory into one `dir/` entry, so its descendants
+                            need a prefix match. Rolls every change up its ancestor directories —
+                            a folder is green only while everything changed beneath it is new,
+                            amber if anything under it is edited or deleted — so a collapsed folder
+                            still shows that something inside it changed. Also exports
+                            `buildIgnoredMatcher(rootPath, ignored)`, the same join +
+                            collapsed-directory prefix logic for `git-store.ignored`, which is what
+                            ghosts `node_modules/`, `dist/` and friends. NOTE: ignored entries only
+                            arrive from a daemon new enough to send `--ignored=traditional` `!`
+                            lines — against an older daemon the list is simply empty and only
+                            dotfiles ghost, which looks exactly like "ignored folders aren't
+                            dimming"), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
@@ -729,12 +758,14 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
     keyed off `tab-store.activeWorkspaceCwd` — NOT `session.cwd` (a per-session field), and NOT a
     per-panel subscription. `ChangesPanel.tsx` used to own this subscription itself, opening it
-    only while the Changes tab was visible; it is now a pure `git-store` reader. The daemon's
+    only while the Changes tab was visible; it is now a pure `git-store` reader, as is
+    `FileExplorer.tsx` (whose row tinting/ghosting goes through `git-status-index.ts`). The daemon's
     `checkout_status_subscribe`/`_unsubscribe` handlers key on a flat, non-reference-counted
     `session:cwd` map (`packages/server/src/projects/git-checkout-rpc.ts`) — a SECOND independent
     subscriber to the same cwd is not additive, it's a race: whichever one unmounts first silently
     kills the live feed for the other too. Never add a second `useCheckoutStatus(cwd)` call
-    anywhere in this app for the same cwd `StatusBar` is already watching.
+    anywhere in this app for the same cwd `StatusBar` is already watching — read `git-store`
+    instead, which is what makes the Files tree's tinting free.
   - **The context/token/cost/model fields are pull-only** — no `AgentStreamEvent` kind carries
     them (see `agentStreamEventSchema` in `@av-pi-studio/protocol`). `use-session-stats.ts` polls
     `client.agent(id).sessionStats()` on mount/session-switch, on a ~12s interval, and immediately

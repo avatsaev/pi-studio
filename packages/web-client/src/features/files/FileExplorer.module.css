@@ -126,6 +126,41 @@
   text-overflow: ellipsis;
   color: var(--pi-color-accentBright);
 }
+/* Git-status tinting (`git-status-index.ts`) — same added/modified/deleted colour convention as
+   the Changes tab's badges. Tints the icon + label rather than the row background, which is
+   already spoken for by the active/selected/drop-target states. `.dirName` sets its own colour,
+   so these need the extra `.item` specificity to win. */
+.item.gitAdded .icon,
+.item.gitAdded .name,
+.item.gitAdded .dirName {
+  color: var(--pi-color-statusSuccess);
+}
+.item.gitModified .icon,
+.item.gitModified .name,
+.item.gitModified .dirName {
+  color: var(--pi-color-statusWarning);
+}
+.item.gitDeleted .icon,
+.item.gitDeleted .name,
+.item.gitDeleted .dirName {
+  color: var(--pi-color-statusDanger);
+}
+.item.gitDeleted .name {
+  text-decoration: line-through;
+}
+/* Dotfiles/dot-folders are hidden from `ls` and most OS file browsers — ghost them so it's
+   obvious the tree is showing more than a normal listing would. Opacity rather than a colour
+   so it composes with the git tint above instead of overriding it; full opacity back on hover
+   and while the row is the active/selected one, where dimming would just read as broken. */
+.item.hiddenEntry {
+  opacity: 0.45;
+}
+.item.hiddenEntry:hover,
+.item.hiddenEntry.active,
+.item.hiddenEntry.selected,
+.item.hiddenEntry.dropTarget {
+  opacity: 1;
+}
 .statusRow {
   height: 28px;
   display: flex;

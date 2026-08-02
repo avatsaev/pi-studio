@@ -30,11 +30,13 @@ import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import type { FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { dirOf } from "@pi-studio-ui/lib/paths.js";
 import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
 import { flattenTree } from "./file-tree.js";
+import { buildGitStatusLookup, buildIgnoredMatcher } from "./git-status-index.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
 import { createEntry } from "./create-entry.js";
@@ -66,6 +68,10 @@ export function FileExplorer() {
   // authoritative signal every tab creation site uses (§4.7 follow-up: workspace-scoped tabs).
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
   const activeTab = useTabStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  // Live checkout status for the active workspace — `StatusBar` owns the subscription, so this is
+  // a pure read; the tree tints rows from it and ghosts ignored ones (no extra RPC).
+  const changes = useGitStore((s) => s.changes);
+  const ignored = useGitStore((s) => s.ignored);
   const { upload } = useFileTransfer();
   const openFileMenu = useUiStore((s) => s.openFileMenu);
   const queryClient = useQueryClient();
@@ -117,6 +123,8 @@ export function FileExplorer() {
     () => flattenTree(rootPath, expanded, tree, draft),
     [rootPath, expanded, tree, draft],
   );
+  const gitStatusOf = useMemo(() => buildGitStatusLookup(rootPath, changes), [rootPath, changes]);
+  const isIgnored = useMemo(() => buildIgnoredMatcher(rootPath, ignored), [rootPath, ignored]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -386,6 +394,15 @@ export function FileExplorer() {
                   }
                   selected={
                     (row.kind === "file" || row.kind === "directory") && row.path === selected?.path
+                  }
+                  gitStatus={
+                    row.kind === "file" || row.kind === "directory"
+                      ? gitStatusOf(row.path)
+                      : undefined
+                  }
+                  hidden={
+                    (row.kind === "file" || row.kind === "directory") &&
+                    (row.name.startsWith(".") || isIgnored(row.path))
                   }
                   onToggle={(path) => {
                     setSelected({ path, isDirectory: true });

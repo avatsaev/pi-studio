@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +54,24 @@ describe("projectStatus", () => {
     const status = await projectStatus(repo);
     expect(status.unstaged.map((e) => e.path)).toContain("a.txt");
     expect(status.staged.map((e) => e.path)).toContain("b.txt");
+  });
+
+  it("reports gitignored paths, collapsing a wholly ignored directory to one entry", async () => {
+    await writeFile(join(repo, ".gitignore"), "secret.env\nbuild/\n");
+    await commitAll(repo, "ignore rules");
+    await writeFile(join(repo, "secret.env"), "TOKEN=1\n");
+    await mkdir(join(repo, "build", "nested"), { recursive: true });
+    await writeFile(join(repo, "build", "nested", "out.js"), "//\n");
+
+    const status = await projectStatus(repo);
+    expect(status.ignored).toContain("secret.env");
+    // Collapsed — the walk stops at the directory rather than listing out.js.
+    expect(status.ignored).toContain("build/");
+    expect(status.ignored).not.toContain("build/nested/out.js");
+    // Ignored paths must never leak into the change lists that drive the Changes tab.
+    expect(status.untracked).toHaveLength(0);
+    expect(status.staged).toHaveLength(0);
+    expect(status.unstaged).toHaveLength(0);
   });
 
   it("surfaces merge conflicts in the projection", async () => {

@@ -119,7 +119,11 @@ src/
     git-checkout-rpc.ts           Git checkout RPC handlers.
     github-service.ts             GitHub API integration (PRs, issues).
     checkout-diff-manager.ts      Manages diff snapshots for checkout review.
-    status-projection.ts          Derives workspace status from agent + git state.
+    status-projection.ts          Derives workspace status from agent + git state. Runs
+                                  `git status --porcelain=v2 --branch --ignored=traditional`;
+                                  `!` lines populate the projection's `ignored[]` (a wholly
+                                  ignored directory collapses to one `dir/` entry — `=matching`
+                                  would walk node_modules and emit six figures of output).
     reconciliation.ts             Project/workspace reconciliation on startup.
     index.ts
 

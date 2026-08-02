@@ -76,7 +76,10 @@ export function buildGitStatusLookup(rootPath: string, changes: ChangeEntry[]): 
     let dir = dirOf(absolute);
     while (dir.length > base.length && dir.startsWith(base)) {
       const previous = ancestors.get(dir);
-      ancestors.set(dir, previous === undefined || previous === contribution ? contribution : "modified");
+      ancestors.set(
+        dir,
+        previous === undefined || previous === contribution ? contribution : "modified",
+      );
       const parent = dirOf(dir);
       if (parent === dir) break;
       dir = parent;
@@ -90,5 +93,40 @@ export function buildGitStatusLookup(rootPath: string, changes: ChangeEntry[]): 
       if (path.startsWith(`${dir}/`)) return "added";
     }
     return undefined;
+  };
+}
+
+/** Whether a tree row is gitignored. */
+export type IgnoredMatcher = (path: string) => boolean;
+
+const NOTHING_IGNORED: IgnoredMatcher = () => false;
+
+/**
+ * Build the "is this row gitignored?" predicate from `git-store.ignored`. Same two-shape input as
+ * the status lookup: plain files match exactly, while a wholly ignored directory arrives collapsed
+ * as `dir/` (git stops walking there) and therefore also claims everything beneath it — which is
+ * the case that matters, since `node_modules/` and `dist/` are exactly what users want ghosted.
+ */
+export function buildIgnoredMatcher(rootPath: string, ignored: string[]): IgnoredMatcher {
+  if (!rootPath || ignored.length === 0) return NOTHING_IGNORED;
+  const base = rootPath.replace(/\/+$/, "");
+
+  const exact = new Set<string>();
+  const dirs: string[] = [];
+  for (const entry of ignored) {
+    const isDir = entry.endsWith("/");
+    const relative = isDir ? entry.slice(0, -1) : entry;
+    if (!relative) continue;
+    const absolute = `${base}/${relative}`;
+    exact.add(absolute);
+    if (isDir) dirs.push(`${absolute}/`);
+  }
+
+  return (path) => {
+    if (exact.has(path)) return true;
+    for (const prefix of dirs) {
+      if (path.startsWith(prefix)) return true;
+    }
+    return false;
   };
 }

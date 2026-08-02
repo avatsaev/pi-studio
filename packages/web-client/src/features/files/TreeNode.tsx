@@ -8,6 +8,7 @@
 import { ChevronRight, Folder, File as FileIcon, MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
 import type { TreeRow } from "./file-tree.js";
+import type { GitRowStatus } from "./git-status-index.js";
 import type { DragEvent } from "react";
 import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { TreeDraftRow } from "./TreeDraftRow.js";
@@ -23,6 +24,14 @@ export interface TreeNodeProps {
   selected?: boolean;
   /** True while an internal drag would land in this row (`FileExplorer.tsx`'s hovered target). */
   dropTarget?: boolean;
+  /** Git status of this row's path (`git-status-index.ts`) — tints the icon + label, with
+   * directories inheriting the status of anything changed beneath them. Undefined when clean,
+   * ignored, or outside a repo. */
+  gitStatus?: GitRowStatus;
+  /** True when the entry wouldn't show in a plain listing — a dotfile, or gitignored
+   * (`FileExplorer.tsx` computes both). Ghosts the row so it reads as present-but-not-normally-
+   * visible; still fully interactive, and full opacity on hover/active/selected. */
+  hidden?: boolean;
   onToggle(path: string): void;
   onOpenFile(path: string): void;
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
@@ -34,11 +43,20 @@ export interface TreeNodeProps {
 
 const INDENT_PX = 14;
 
+/** Same colour convention as the Changes tab's A/M/D badges (`ChangesPanel.module.css`). */
+const GIT_STATUS_CLASS: Record<GitRowStatus, string | undefined> = {
+  added: styles.gitAdded,
+  modified: styles.gitModified,
+  deleted: styles.gitDeleted,
+};
+
 export function TreeNode({
   row,
   active,
   selected,
   dropTarget,
+  gitStatus,
+  hidden,
   onToggle,
   onOpenFile,
   onContextMenu,
@@ -82,6 +100,8 @@ export function TreeNode({
         active && styles.active,
         selected && styles.selected,
         dropTarget && styles.dropTarget,
+        gitStatus && GIT_STATUS_CLASS[gitStatus],
+        hidden && styles.hiddenEntry,
       )}
       style={indent}
       title={row.path}
