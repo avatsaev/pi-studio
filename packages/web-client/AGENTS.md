@@ -11,6 +11,10 @@ modular, typed, performant app.
 > scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
 
+> **Design system reference:** `DESIGN_SYSTEM.md` (this directory) documents the full token
+> pipeline, color system, theme variants, brand/white-label injection, breakpoints, and every
+> shared primitive — read it before adding a new component or hardcoding a style value.
+
 ---
 
 ## Purpose
