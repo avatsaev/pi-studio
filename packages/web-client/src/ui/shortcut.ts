@@ -62,10 +62,36 @@ export function formatCombo(combo: string, os: OsFamily): string {
       const mapped = symbols[part];
       if (mapped !== undefined) return mapped;
       // Special key names stay as-is (capitalized).
-      const special = ["enter", "return", "tab", "escape", "esc", "backspace",
-                       "delete", "space", "arrowup", "arrowdown", "arrowleft", "arrowright",
-                       "home", "end", "pageup", "pagedown", "f1","f2","f3","f4","f5","f6",
-                       "f7","f8","f9","f10","f11","f12"];
+      const special = [
+        "enter",
+        "return",
+        "tab",
+        "escape",
+        "esc",
+        "backspace",
+        "delete",
+        "space",
+        "arrowup",
+        "arrowdown",
+        "arrowleft",
+        "arrowright",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+      ];
       if (special.includes(part)) return part.charAt(0).toUpperCase() + part.slice(1);
       // Single character — uppercase.
       if (part.length === 1) return part.toUpperCase();

@@ -3,32 +3,57 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  /* One pane = strip row + panel body. Matches TabStrip.module.css's 33px row (border-box), and is
+     the offset pane-layout-view.ts's calc()s use. */
+  --pane-strip-height: 33px;
 }
 .panel {
   position: absolute;
-  inset: 0;
+  /* Overridden per pane by TabPanelHost's inline percentage rect; a tab with no pane in the
+     workspace in view (another workspace's, always hidden) keeps the full box. */
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
   display: none;
   flex-direction: column;
   min-height: 0;
+  /* A pane is narrower than the host: content wider than its box must be clipped, not painted over
+     the neighbouring pane (molecule/code viewers have wide minimum content). */
+  overflow: hidden;
+}
+/* Drop target for a pane body — a measured box only; it must not swallow clicks into the panel. */
+.dropZone {
+  position: absolute;
+  pointer-events: none;
 }
 .active {
   display: flex;
 }
+/* Both empty states sit BELOW the pane strip row, which is now inside this container. */
 .empty {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--pane-strip-height);
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
   color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }
 .emptyStack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--pane-strip-height);
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--pi-spacing-10);
-  height: 100%;
   padding: 0 var(--pi-spacing-16);
   text-align: center;
 }

@@ -11,8 +11,12 @@ export interface PanelProps {
   tab: Tab;
 }
 
-const ChatPanel = lazy(() => import("../chat/ChatPanel.js").then((m) => ({ default: m.ChatPanel })));
-const FilePanel = lazy(() => import("../files/FilePanel.js").then((m) => ({ default: m.FilePanel })));
+const ChatPanel = lazy(() =>
+  import("../chat/ChatPanel.js").then((m) => ({ default: m.ChatPanel })),
+);
+const FilePanel = lazy(() =>
+  import("../files/FilePanel.js").then((m) => ({ default: m.FilePanel })),
+);
 const TerminalPanel = lazy(() =>
   import("../terminal/TerminalPanel.js").then((m) => ({ default: m.TerminalPanel })),
 );

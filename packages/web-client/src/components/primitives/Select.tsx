@@ -33,24 +33,25 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   placeholder?: string;
 }
 
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  function Select({ options, placeholder, className, ...rest }, ref) {
-    return (
-      <select ref={ref} className={clsx(styles.select, className)} {...rest}>
-        {placeholder && (
-          <option value="" disabled>
-            {placeholder}
-          </option>
-        )}
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    );
-  },
-);
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { options, placeholder, className, ...rest },
+  ref,
+) {
+  return (
+    <select ref={ref} className={clsx(styles.select, className)} {...rest}>
+      {placeholder && (
+        <option value="" disabled>
+          {placeholder}
+        </option>
+      )}
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Combobox
@@ -71,9 +72,7 @@ export function Combobox({
   placeholder = "Search…",
   className,
 }: ComboboxProps) {
-  const [state, setState] = useState<ComboboxState<string>>(() =>
-    initialComboboxState(options),
-  );
+  const [state, setState] = useState<ComboboxState<string>>(() => initialComboboxState(options));
   const inputRef = useRef<HTMLInputElement>(null);
 
   function dispatch(action: ComboboxAction) {

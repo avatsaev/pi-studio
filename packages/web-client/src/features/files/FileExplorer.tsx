@@ -42,6 +42,7 @@ import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
 import { createEntry } from "./create-entry.js";
 import { openFileTab } from "./open-file-tab.js";
+import { EXTERNAL_DRAG_MIME } from "@pi-studio-ui/features/workspace/external-drag.js";
 import styles from "./FileExplorer.module.css";
 
 const ROW_HEIGHT_PX = 28;
@@ -141,9 +142,19 @@ export function FileExplorer() {
     openFileTab(path, activeWorkspaceCwd || "~");
   }
 
-  function handleDragStartRow(path: string, e: DragEvent) {
+  /**
+   * A row carries up to two payloads and *where* it is dropped picks the meaning: another row is a
+   * move (`MOVE_MIME`, handled here), a pane body is an open (`EXTERNAL_DRAG_MIME.path`, handled by
+   * `use-external-pane-drop.ts`). A directory offers no open payload — there is no directory tab —
+   * so dragging one over a pane previews nothing rather than previewing a split that would be refused.
+   *
+   * `effectAllowed` must cover both outcomes: this tree sets `dropEffect = "move"` for its own rows
+   * and a pane sets `"copy"`, and a `dropEffect` outside `effectAllowed` is a rejected drop.
+   */
+  function handleDragStartRow(path: string, isDirectory: boolean, e: DragEvent) {
     e.dataTransfer.setData(MOVE_MIME, path);
-    e.dataTransfer.effectAllowed = "move";
+    if (!isDirectory) e.dataTransfer.setData(EXTERNAL_DRAG_MIME.path, path);
+    e.dataTransfer.effectAllowed = isDirectory ? "move" : "copyMove";
     dragSourceRef.current = path;
   }
 

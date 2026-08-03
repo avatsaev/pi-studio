@@ -57,8 +57,7 @@ export function createAppearanceController(
   function resolveThemeName(mode: AppearanceMode): ThemeName {
     if (mode === "system") {
       const prefersDark =
-        typeof window !== "undefined" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
+        typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
       return prefersDark ? "dark" : "light";
     }
     return mode;

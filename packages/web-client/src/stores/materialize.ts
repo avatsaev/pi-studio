@@ -33,7 +33,10 @@ const defaultModelCache = new WeakMap<PiStudioClient, Promise<DefaultModel>>();
  * default, else the provider's built-in default — WITHOUT spawning anything. Called by
  * `ensureMaterialized` itself when an entry has no model yet; exported separately only because
  * cache scope (per `PiStudioClient` instance) is useful to assert on directly in tests. */
-export function resolveDefaultModel(client: PiStudioClient, provider = "pi"): Promise<DefaultModel> {
+export function resolveDefaultModel(
+  client: PiStudioClient,
+  provider = "pi",
+): Promise<DefaultModel> {
   const cached = defaultModelCache.get(client);
   if (cached) return cached;
   const promise = client.providers

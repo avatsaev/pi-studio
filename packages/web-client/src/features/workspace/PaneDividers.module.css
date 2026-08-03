@@ -1,0 +1,54 @@
+/* Centred ON the boundary with a hit area either side, and taking no layout space — see
+   PaneDividers.tsx's doc comment.
+
+   The hit target itself is transparent; the *visible* boundary is a 1px `::before` hairline in the
+   border token. Panes are flush against each other (their rects tile the host exactly), so without
+   this line there is nothing to see at rest and the only cue that a boundary is draggable is
+   stumbling onto the cursor — a resize affordance nobody can find. Hover/drag thickens the same
+   line to 3px and switches it to the accent, matching primitives/ResizeHandle. */
+.divider {
+  position: absolute;
+  z-index: 2;
+}
+.divider::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--pi-color-border);
+  transition:
+    background 120ms ease,
+    inset 120ms ease;
+}
+.divider:hover::before,
+.divider:active::before {
+  background: var(--pi-color-accent);
+}
+.vertical {
+  width: 7px;
+  margin-left: -3px;
+  cursor: col-resize;
+}
+/* 1px seam sitting exactly on the boundary inside the 7px target, 3px on either side. */
+.vertical::before {
+  left: 3px;
+  right: 3px;
+}
+.vertical:hover::before,
+.vertical:active::before {
+  left: 2px;
+  right: 2px;
+}
+.horizontal {
+  height: 7px;
+  margin-top: -3px;
+  cursor: row-resize;
+}
+.horizontal::before {
+  top: 3px;
+  bottom: 3px;
+}
+.horizontal:hover::before,
+.horizontal:active::before {
+  top: 2px;
+  bottom: 2px;
+}

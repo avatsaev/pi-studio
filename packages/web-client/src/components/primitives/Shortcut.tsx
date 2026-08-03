@@ -16,11 +16,7 @@ export interface ShortcutProps {
 }
 
 export function ShortcutHint({ combo, chord, os = "macos", className }: ShortcutProps) {
-  const formatted = chord
-    ? formatChord(chord, os)
-    : combo
-      ? formatCombo(combo, os)
-      : "";
+  const formatted = chord ? formatChord(chord, os) : combo ? formatCombo(combo, os) : "";
 
   if (!formatted) return null;
 

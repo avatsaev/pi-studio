@@ -7,10 +7,12 @@ beforeEach(() => {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
 });
 
-function fakeClient(overrides: {
-  resolveDefaultModel?: () => Promise<ResolveDefaultModelResponse>;
-  createAgent?: (req: unknown) => Promise<{ agentId: string }>;
-} = {}): {
+function fakeClient(
+  overrides: {
+    resolveDefaultModel?: () => Promise<ResolveDefaultModelResponse>;
+    createAgent?: (req: unknown) => Promise<{ agentId: string }>;
+  } = {},
+): {
   client: PiStudioClient;
   createAgentCalls: unknown[];
   deleteCalls: string[];
@@ -149,7 +151,12 @@ describe("ensureMaterialized", () => {
     expect(useSessionStore.getState().sessions[sessionId]?.agentId).toBe("agent-new");
     expect(createAgentCalls).toEqual([
       {
-        config: { provider: "pi", cwd: "/work", model: "claude-sonnet-5", modelProvider: "anthropic" },
+        config: {
+          provider: "pi",
+          cwd: "/work",
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+        },
         labels: {},
       },
     ]);
@@ -164,7 +171,12 @@ describe("ensureMaterialized", () => {
 
     expect(createAgentCalls).toEqual([
       {
-        config: { provider: "pi", cwd: "/work", model: "claude-sonnet-5", modelProvider: "anthropic" },
+        config: {
+          provider: "pi",
+          cwd: "/work",
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+        },
         labels: {},
       },
     ]);
@@ -197,7 +209,10 @@ describe("ensureMaterialized", () => {
     await materialized;
 
     expect(createAgentCalls).toEqual([
-      { config: { provider: "pi", cwd: "/work", model: "gpt-5", modelProvider: "openai" }, labels: {} },
+      {
+        config: { provider: "pi", cwd: "/work", model: "gpt-5", modelProvider: "openai" },
+        labels: {},
+      },
     ]);
   });
 

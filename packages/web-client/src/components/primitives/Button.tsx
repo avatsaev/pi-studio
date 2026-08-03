@@ -52,12 +52,7 @@ export function Button({
 
   return (
     <button
-      className={clsx(
-        styles.btn,
-        styles[variant],
-        iconOnly && styles.iconOnly,
-        className,
-      )}
+      className={clsx(styles.btn, styles[variant], iconOnly && styles.iconOnly, className)}
       disabled={isDisabled}
       aria-busy={loading || undefined}
       style={{

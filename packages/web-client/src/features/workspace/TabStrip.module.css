@@ -4,9 +4,29 @@
   gap: var(--pi-spacing-2);
   min-height: 33px;
   padding: var(--pi-spacing-4) var(--pi-spacing-6) 0;
-  overflow-x: auto;
+  overflow: hidden;
   flex-shrink: 0;
   border-bottom: 1px solid var(--pi-color-border);
+}
+/* The tabs scroll; the trailing "+"/split actions do NOT. A pane can be a few hundred px wide, and
+   with the whole strip as one scroll container the actions ended up scrolled out of reach. */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+/* Pane-scoped placement: TabPanelHost positions each strip across the top of its pane's rect
+   (`pane-layout-view.paneChrome`). `min-height` stays for the single-pane case's exact 33px row. */
+.paneStrip {
+  position: absolute;
+  z-index: 1;
+}
+/* Focused-pane indicator — only ever rendered with more than one pane. */
+.focused {
+  border-bottom-color: var(--pi-color-accent);
 }
 .tab {
   display: flex;
@@ -51,6 +71,12 @@
 .newTab {
   position: relative;
   margin: 0 var(--pi-spacing-4);
+}
+/* Trailing split affordances, beside the "+" menu. `flex-shrink: 0` keeps them reachable in a
+   narrow pane — the strip scrolls its tabs instead of squeezing the actions away. */
+.splitAction {
+  position: relative;
+  flex-shrink: 0;
 }
 .itemIcon {
   flex-shrink: 0;

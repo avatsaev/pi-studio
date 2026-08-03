@@ -11,7 +11,8 @@
 
 import { Toolbar } from "@pi-studio-ui/features/connection/Toolbar.js";
 import { SessionList } from "@pi-studio-ui/features/sessions/SessionList.js";
-import { TabStrip } from "@pi-studio-ui/features/workspace/TabStrip.js";
+// No TabStrip here since sprint-049: strips are per pane and live inside TabPanelHost, positioned
+// across the top of each pane's rect (features/workspace/pane-layout-view.ts).
 import { TabPanelHost } from "@pi-studio-ui/features/workspace/TabPanelHost.js";
 import { RightSidebar } from "@pi-studio-ui/features/files/RightSidebar.js";
 import { StatusBar } from "@pi-studio-ui/features/workspace/StatusBar.js";
@@ -39,12 +40,15 @@ export function WorkspacePage() {
           </aside>
         )}
         <div className={styles.center}>
-          <TabStrip />
           <TabPanelHost />
         </div>
         {!rightSidebarCollapsed && (
           <aside className={styles.sidebarRight} style={{ width: rightSidebarWidth }}>
-            <ResizeHandle side="right" className={styles.rightHandle} onResize={resizeRightSidebar} />
+            <ResizeHandle
+              side="right"
+              className={styles.rightHandle}
+              onResize={resizeRightSidebar}
+            />
             <RightSidebar />
           </aside>
         )}

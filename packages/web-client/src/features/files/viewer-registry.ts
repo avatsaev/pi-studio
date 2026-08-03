@@ -23,8 +23,12 @@ const TextViewer = lazy(() => import("./TextViewer.js").then((m) => ({ default: 
 const MarkdownFileViewer = lazy(() =>
   import("./MarkdownFileViewer.js").then((m) => ({ default: m.MarkdownFileViewer })),
 );
-const ImageViewer = lazy(() => import("./ImageViewer.js").then((m) => ({ default: m.ImageViewer })));
-const VideoViewer = lazy(() => import("./VideoViewer.js").then((m) => ({ default: m.VideoViewer })));
+const ImageViewer = lazy(() =>
+  import("./ImageViewer.js").then((m) => ({ default: m.ImageViewer })),
+);
+const VideoViewer = lazy(() =>
+  import("./VideoViewer.js").then((m) => ({ default: m.VideoViewer })),
+);
 const BinaryFallbackViewer = lazy(() =>
   import("./BinaryFallbackViewer.js").then((m) => ({ default: m.BinaryFallbackViewer })),
 );

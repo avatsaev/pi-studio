@@ -28,10 +28,7 @@ export type ComboboxState<T> = {
  * Filter options by a search query (case-insensitive substring match on label
  * and optional description).
  */
-export function filterOptions<T>(
-  options: ComboboxOption<T>[],
-  query: string,
-): ComboboxOption<T>[] {
+export function filterOptions<T>(options: ComboboxOption<T>[], query: string): ComboboxOption<T>[] {
   if (query.trim() === "") return options;
   const q = query.toLowerCase();
   return options.filter(

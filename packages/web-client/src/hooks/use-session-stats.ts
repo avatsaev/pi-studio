@@ -71,9 +71,11 @@ export function useSessionStats(sessionId: string | null): void {
   const client = useConnectionStore((s) => s.client);
   const status = useConnectionStore((s) => s.status);
   const agentId = useSessionStore((s) =>
-    sessionId ? s.sessions[sessionId]?.agentId ?? null : null,
+    sessionId ? (s.sessions[sessionId]?.agentId ?? null) : null,
   );
-  const sessionStatus = useSessionStore((s) => (sessionId ? s.sessions[sessionId]?.status : undefined));
+  const sessionStatus = useSessionStore((s) =>
+    sessionId ? s.sessions[sessionId]?.status : undefined,
+  );
   const inFlightRef = useRef(false);
   const prevStatusRef = useRef<typeof sessionStatus>(undefined);
 

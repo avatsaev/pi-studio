@@ -49,11 +49,7 @@ export {
   type Theme,
   type AppearanceSettings,
 } from "./theme.js";
-export {
-  flattenThemeToVars,
-  applyVarsToRoot,
-  applyThemeToDOM,
-} from "./css-bridge.js";
+export { flattenThemeToVars, applyVarsToRoot, applyThemeToDOM } from "./css-bridge.js";
 export {
   createAppearanceController,
   type AppearanceController,

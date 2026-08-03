@@ -19,7 +19,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { DaemonClient } from "@av-pi-studio/client";
 import { TerminalStreamRouter } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import { useIsTabVisible, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import type { Tab, TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { baseFontSize } from "@pi-studio-ui/theme/tokens.js";
@@ -75,8 +75,9 @@ const TERMINAL_THEME = {
 export function TerminalPanel({ tab }: TerminalPanelProps) {
   const data = tab.data as TerminalTabData;
   const client = useConnectionStore((s) => s.client);
-  const activeTabId = useTabStore((s) => s.activeTabId);
-  const isActive = activeTabId === tab.id;
+  // Per-pane, not `=== activeTabId`: with splits this terminal can be on screen in one pane while
+  // another pane holds the workspace-active tab, and it must refit when it appears either way.
+  const isVisible = useIsTabVisible(tab.id);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -247,11 +248,14 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, slot]);
 
-  // ─── Re-fit whenever this tab becomes the active (visible) one ────────────────────────────
+  // ─── Re-fit whenever this tab becomes visible ─────────────────────────────────────────────
+  // The `ResizeObserver` above catches divider drags and window resizes on its own (it observes
+  // this panel's own box, which is what `TabPanelHost` sizes per pane); this covers the
+  // hidden → visible transition, where the box was 0×0 while `display:none`.
   useEffect(() => {
-    if (!isActive) return;
+    if (!isVisible) return;
     fitAddonRef.current?.fit();
-  }, [isActive]);
+  }, [isVisible]);
 
   if (error) {
     return (

@@ -134,9 +134,7 @@ export function resolveBrandConfig(rawConfig?: unknown): BrandResolution {
 
   const result = BrandConfigSchema.safeParse(rawConfig);
   if (!result.success) {
-    const errors = result.error.errors.map(
-      (e) => `${e.path.join(".")}: ${e.message}`,
-    );
+    const errors = result.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`);
     return { ok: false, errors };
   }
 
