@@ -1,7 +1,7 @@
 # Task 003 — Scope-doc + AGENTS.md sync and full verification
 
 - **Sprint:** sprint-041-agent-turn-settlement
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** S
 - **Depends on:** task-001, task-002
 

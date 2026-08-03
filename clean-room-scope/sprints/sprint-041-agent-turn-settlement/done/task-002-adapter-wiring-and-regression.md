@@ -1,7 +1,7 @@
 # Task 002 — Fake-transport settle wiring + retry-subscription regression test
 
 - **Sprint:** sprint-041-agent-turn-settlement
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** task-001
 

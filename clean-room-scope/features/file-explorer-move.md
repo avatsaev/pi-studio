@@ -8,8 +8,8 @@
 ## Purpose
 
 Relocate and rename files/directories on the daemon machine from the file explorer, by
-drag-and-drop today and by an explicit rename affordance later; the operation is one primitive,
-not two.
+drag-and-drop and by an explicit row context-menu "Rename" affordance (sprint 047); the
+operation is one primitive, not two.
 
 ## Public Contract
 
@@ -78,8 +78,16 @@ function move(path, destination):
 - Illegal drops (onto itself, into its own descendant, into the folder it already lives in, or
   outside the workspace root) show no drop highlight and do nothing on release.
 - The panel's inline status line reports success or the failure reason.
-- An open tab for the moved file reopens at its new path, while tabs under a moved *directory*
-  close.
+- An open tab for the moved file reopens at its new path, while tabs under a moved directory
+  close. A `diff` tab on the moved/renamed path always closes and does **not** reopen — right
+  after a rename `git diff` against the new path alone can't detect the rename (that needs a
+  whole-repo `-M` diff, which the per-path handler doesn't run), so it would either return empty
+  or render the whole file as additions; the inline status line instead reports how many diff
+  tabs closed (e.g. "Renamed to foo.ts — closed 1 diff tab").
+- The row context-menu's **Rename** item (sprint 047) commits this same operation with an
+  unchanged parent directory — no separate RPC, no separate legality path. The row becomes an
+  inline editor pre-filled with the current name (extension excluded from the initial selection);
+  Enter commits, Escape/blur cancels. It is the *only* trigger — no keyboard shortcut.
 
 ## Dependencies
 - Internal: file explorer service, directory-watch push.

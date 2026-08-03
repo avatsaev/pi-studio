@@ -78,9 +78,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 044 | `sprint-044-molecule-viewer-live-files` | web-client + daemon: a **molecule viewer** tab type built on `@molviewer/core` — molecular files (`.pdb`/`.cif`/`.xyz`/`.mol`/`.mol2`/`.gro`/`.lammpstrj`/`.xsf`/POSCAR) open in a 3D viewer instead of the text viewer, plus an empty "New molecule view" from the TabStrip "+" menu. Adds the daemon's **first real filesystem watcher** (`FileWatchService`, `fs.watch` per directory, ref-counted, 150 ms coalescing) behind a `file_watch_*` subscription family, which powers both an edit-gated live reload of open molecule tabs (`sourceMode="update"` preserves camera/selection; skipped while the user has unsaved in-viewer edits) and a **live file tree** (expanded directories refresh on create/delete/rename from any writer, not just agent tools). Also raises the file-read ceiling — 512 KiB → 5 MiB inline (async, so a big read no longer blocks the event loop), streamed uncapped above that, 30 MiB display cap. Fixes a pre-existing per-session subscription leak on disconnect on the way past. | 10 |
 | 045 | `sprint-045-inline-image-rendering` | web-client + daemon + protocol: **inline images in the chat timeline**. `![alt](path)` in a finalized assistant message renders the real image, with bytes streamed over the existing chunked binary file-transfer path — workspace-relative, absolute, and `~` paths all resolve; remote URLs pass through untouched; non-image extensions and missing files degrade to readable text, never a broken-image glyph. Reuses the seam that already exists (`react-markdown`'s per-tag override map, currently holding only `code`) plus a new ref-counted LRU object-URL cache, because the file-viewer download hook's revoke-on-unmount ownership is wrong under timeline virtualization. Second half: a new client→daemon `inline_image_markdown` capability advertised in `hello` (web-client currently advertises none) that makes the daemon append a short image-rendering instruction to the session's system prompt at create time, so only surfaces that can render images are told to emit them. Also closes two pre-existing defects the feature trips over: `file_download_token_request` never expanded `~` (unlike `file_read_request`), and session **resume** dropped the per-session `systemPrompt`. | 7 |
 | 046 | `sprint-046-file-explorer-move` | web-client + daemon: **drag-and-drop move/rename in the file explorer**. Adds the file surface's first mutation of this kind — a `fs.rename`-shaped `file_move_request` on `FileExplorerService` with all eight rejections decided server-side (`empty_path`, `invalid_name`, `not_found`, `not_a_directory`, `same_path`, `into_descendant`, `exists`, `cross_device`), and **parent-only** symlink resolution so a symlink row moves as the link, not its target. A same-parent destination is a rename, so no second RPC is ever needed for that. Collision is a hard error — never overwrite, never merge. On the client it extends the **native HTML5** drop zone already serving OS-file uploads with an `application/x-pi-studio-path` MIME type (dnd-kit is deliberately not used: it fits `TabStrip`'s flat reordering, not re-parenting into a virtualized tree), puts every legality rule in one pure `resolveMoveTarget`, carries expanded paths + selection to the new prefix via `repathAfterMove`, invalidates exactly the two affected listings, and reopens an open tab at its new path. | 6 |
+| 047 | `sprint-047-file-explorer-rename` | web-client + daemon: **explicit rename in the file explorer**, completing item 9 of the improvements triage. Rename is a same-parent `file_move_request`, so no new RPC is needed — the work is a row-substituting inline editor (`file-tree.ts` replaces the edited row rather than inserting one, keeping `TreeNode` hook-free), sibling `renaming` state in `explorer-store` that is mutually exclusive with the create draft, and a context-menu-only trigger (**no F2** — recorded decision). Extracts `moveDropped`'s post-move sequence into a shared `applyMove` and corrects two defects in it: the daemon-echoed destination was discarded, and diff tabs on the moved path closed **silently** — they now stay closed (a per-path `git diff` after a rename renders the whole file as additions) but the status line reports the count. One daemon fix: `moveEntry` validated the trimmed destination basename but joined the untrimmed one. | 6 |
 
-Total: **46 sprints, 223 tasks** (summed from the table above). The older accounting this line used
-to carry (26 sprints / 119 tasks) predated sprints 023–046 and was never updated; recompute from the
+Total: **47 sprints, 229 tasks** (summed from the table above). The older accounting this line used
+to carry (26 sprints / 119 tasks) predated sprints 023–047 and was never updated; recompute from the
 table rather than trusting a hand-maintained figure.
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
@@ -603,6 +604,39 @@ table rather than trusting a hand-maintained figure.
 | task-005 | Draggable rows: `MOVE_MIME` drag source, `dragSourceRef`, `.item.dropTarget` style | none | packages/web-client (features/files/{TreeNode,FileExplorer,FileExplorer.module.css}); features/file-explorer-move |
 | task-006 | Accept the drop: hover targeting, 700 ms auto-expand, move + two-directory invalidation + tab reopen + status line, E2E browser verification | task-002, task-003, task-004, task-005 | packages/web-client (features/files/FileExplorer, stores/tab-store consumers); features/file-explorer-move, file-explorer-transfer |
 
+### sprint-047-file-explorer-rename
+> Explicit **rename** for the file explorer — item 9 of `features/file-explorer-improvements.md`, and
+> the affordance `features/file-explorer-move.md` § Purpose already anticipated ("by drag-and-drop
+> today and by an explicit rename affordance later"). No new daemon RPC: a same-parent destination on
+> the existing `file_move_request` *is* a rename, so sprint 046's server work already covers it.
+>
+> Two product decisions were settled before planning and are recorded in that report's § 9.
+> **(a)** A diff tab on the moved/renamed path closes and does **not** reopen: verified git behaviour
+> is that renaming a *modified* tracked file leaves ` D old` + `?? new`, so the diff handler's
+> per-path `git diff` on the new name returns empty and its `--no-index` fallback renders the entire
+> file as added lines — reopening would replace the user's real "what did I change" view with an
+> all-green whole-file diff. The defect was the *silence*, so the closed count now appears in the
+> status line. **(b)** The trigger is the row context menu only — **no F2** — which removes all
+> row-level keyboard and focus work from the sprint.
+>
+> Two latent implementation choices were also picked here rather than left to the implementer: the
+> inline editor is **row substitution in `file-tree.ts`** (not a `TreeNode` edit mode, which would
+> push `useState` into a component whose docblock pins it as hook-free and presentational), and
+> destination trimming happens on **both** sides — the client trims as create already does, and
+> task-001 fixes the daemon's own validate-trimmed/join-untrimmed split at the source.
+>
+> Tasks 003-005 are deliberately inert until task-006 adds the single `startRename` call site, so
+> every task before it leaves the explorer fully working and none of them ships a stub.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Daemon `moveEntry`: join the **trimmed** destination basename so the validated name is the created name (the `file-explorer.ts:190` join vs `:195` guard split) | bugfix | none | packages/server (files/file-explorer, files/file-explorer.test); features/file-explorer-move |
+| task-002 | Extract `moveDropped`'s post-move sequence into a shared `applyMove`; honour the daemon-echoed destination; count + report closed diff tabs (new pure `move-status.ts`) | refactor + bugfix | task-001 | packages/web-client (features/files/{FileExplorer,move-status,move-status.test}); features/file-explorer-improvements, file-explorer-move |
+| task-003 | `explorer-store.renaming` + `startRename`/`cancelRename`, mutually exclusive with `draft`, cleared by `setRoot` and `repathAfterMove` | feature | none | packages/web-client (stores/{explorer-store,explorer-store.test}); features/file-explorer-improvements |
+| task-004 | `file-tree.ts` `RenameRow`: **substitute** the edited row in place, never insert; children of a renamed expanded directory stay put | feature | none | packages/web-client (features/files/{file-tree,file-tree.test}); features/file-explorer-improvements |
+| task-005 | `TreeRenameRow` (pre-filled, extension excluded from initial selection, Enter/Escape/blur) + `TreeNode` branch + `flattenTree` wiring + `submitRename` through `applyMove` | feature | task-002, task-003, task-004 | packages/web-client (features/files/{TreeRenameRow,TreeNode,FileExplorer}); features/file-explorer-move, file-explorer-improvements |
+| task-006 | Context-menu `Rename` (row variant only, directly above Delete) + eight-check E2E browser verification + docs sync | feature | task-005 | packages/web-client (features/files/FileContextMenu, AGENTS.md); features/file-explorer-improvements, file-explorer-move |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
@@ -623,7 +657,8 @@ Every feature and architecture scope is covered by at least one task.
 | features/mcp-server.md | s010/t001 |
 | features/service-proxy.md | s003/t003, s009/t003, s016/t005 |
 | features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002, s045/t001,t003 (shared `~` resolution, `Begin` mimeType, inline-image reuse of the download path), s046/t001,t004,t006 (move RPC on the same service, watch-driven refresh of both affected directories) |
-| features/file-explorer-move.md | s046/t001-006 |
+| features/file-explorer-move.md | s046/t001-006; s047/t001 (trimmed-basename fix at the source), t005 (same-parent rename destination), t006 (docs: the anticipated affordance landed) |
+| features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |

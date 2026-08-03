@@ -429,4 +429,28 @@ describe("FileExplorerService.moveEntry", () => {
     expect(movedInfo.isSymbolicLink()).toBe(true);
     await expect(readFile(real, "utf8")).resolves.toBe("content");
   });
+
+  it("moves to the trimmed destination basename (no padded name on disk)", async () => {
+    const source = join(dir, "pad-src.txt");
+    await writeFile(source, "padded");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(dir, " padded.txt "));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.destination).toBe(join(dir, "padded.txt"));
+    await expect(readFile(join(dir, "padded.txt"), "utf8")).resolves.toBe("padded");
+    await expect(stat(join(dir, " padded.txt "))).rejects.toThrow();
+    await expect(stat(source)).rejects.toThrow();
+  });
+
+  it("returns invalid_name when the destination basename is only whitespace", async () => {
+    const source = join(dir, "ws-src.txt");
+    await writeFile(source, "x");
+    const svc = new FileExplorerService();
+    const result = await svc.moveEntry(source, join(dir, "   "));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toBe("invalid_name");
+    await expect(readFile(source, "utf8")).resolves.toBe("x");
+  });
 });

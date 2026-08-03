@@ -3,7 +3,7 @@
 > Triage report, not an implementation. Source: user bug/feature list (2026-07-30), cross-referenced
 > against the current `web-client` Files tab implementation. Every item below ships in **one PR**,
 > **web-client only** — no protocol, server, or daemon change required. See companion report
-> `2-file-explorer-improvements.md` for the items that don't qualify as quick wins.
+> `features/file-explorer-improvements.md` for the items that don't qualify as quick wins.
 
 ## Why these are quick wins
 
@@ -63,9 +63,12 @@ composing those existing RPCs and client-side state — no new wire schema, no n
 
 ### Out of scope for this PR (do not implement here)
 
-- Anything requiring a new daemon RPC (rename, move, copy-on-disk, write) — see report 2.
+- Anything requiring a new daemon RPC (rename, move, copy-on-disk, write) — see
+  `features/file-explorer-improvements.md`. *(Status 2026-08-03: the `write` and `move`/rename
+  RPCs both shipped after this PR was scoped; copy-on-disk still has no RPC and is no longer a
+  tracked item.)*
 - Drag-and-drop (item 8) — explicitly flagged by the user as probably not a quick win; confirmed
-  by triage, see report 2.
+  by triage. *(Shipped in sprint 046; see `features/file-explorer-improvements.md` § 8.)*
 - Multi-select in the tree — none of the above items need it; do not add it speculatively.
 
 ### Verification plan (when this PR is implemented)

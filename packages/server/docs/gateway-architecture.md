@@ -258,10 +258,16 @@ sequenceDiagram
   `transport.notify("prompt", {message})` — `AgentService` never touches the transport itself.
 6. **pi streams events.** pi emits JSONL events on stdout; the transport frames each line (parses
  JSON, delivers it via the registered `onEvent` callback) and the session's callback calls
- `mapPiEvent`, which normalizes raw pi events to provider-neutral `AgentStreamEvent`s (see §5). Each
- becomes an `agent_stream` broadcast.
-7. **Turn completes.** When `agent_end` (→ `turn_completed`) is seen, the `run()` promise resolves,
- status returns to `idle` (+ broadcast), and `handleCreate` finally returns
+ `eventMapper.map(raw)` — a stateful `createPiEventMapper()` instance, one per session — which
+ normalizes raw pi events to provider-neutral `AgentStreamEvent`s (see §5). Each becomes an
+ `agent_stream` broadcast.
+7. **Turn completes.** pi's session run loop emits one `agent_end` **per low-level run** — a
+ retryable error, overflow-compaction, or a queued steering/follow-up continuation all loop into
+ another run before the turn is truly done. The mapper treats each such `agent_end` (`willRetry`,
+ or simply followed by more runs) as a non-terminal per-run boundary, latching only the
+ disposition it implies. Only pi's own true-end signal, `agent_settled`, drives the turn-closer
+ stream event (`turn_completed`/`turn_failed`/`turn_canceled`) — that's when the `run()` promise
+ resolves, status returns to `idle` (+ broadcast), and `handleCreate` finally returns
  `create_agent_response { agentId }`, correlated by `requestId`.
 
 > **Why the response can lag the stream.** An RPC call to `send_agent_prompt` resolves after the
@@ -299,9 +305,9 @@ sequenceDiagram
 
 ## 5. The pi provider adapter (transport + event mapping)
 
-The agent layer never reaches into pi internals; it talks to a small transport interface and a pure
-event mapper. This is what makes the provider swappable (the `mock` provider implements the same
-`AgentClient` contract).
+The agent layer never reaches into pi internals; it talks to a small transport interface and a
+per-session stateful event mapper. This is what makes the provider swappable (the `mock` provider
+implements the same `AgentClient` contract).
 
 ```mermaid
 flowchart LR
@@ -309,7 +315,7 @@ flowchart LR
     Client["PiAgentClient<br/>agent.ts"]
     Session["PiAgentSession<br/>agent.ts"]
     Transport["createProcessTransport<br/>rpc-transport.ts"]
-    Mapper["mapPiEvent<br/>event-mapper.ts"]
+    Mapper["createPiEventMapper()<br/>event-mapper.ts"]
   end
   Proc["pi --mode rpc<br/>child process"]
 
@@ -318,7 +324,7 @@ flowchart LR
   Transport -- "JSON line on stdin" --> Proc
   Proc -- "JSON lines on stdout" --> Transport
   Transport -- "onEvent(raw)" --> Session
-  Session -- "mapPiEvent(raw)" --> Mapper
+  Session -- "eventMapper.map(raw)" --> Mapper
   Mapper -- "AgentStreamEvent" --> Session
 ```
 
@@ -341,10 +347,12 @@ deliberately avoided because it also splits on U+2028/U+2029, which are valid in
 
 | pi event                                                                                           | `AgentStreamEvent`                              |
 | -------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `agent_start`                                                                                      | `turn_started`                                  |
-| `agent_end` (stopReason: `error`)                                                                  | `turn_failed` (carries `errorMessage`)          |
-| `agent_end` (stopReason: `aborted`)                                                                | `turn_canceled`                                 |
-| `agent_end` (stopReason: other)                                                                    | `turn_completed`                                |
+| `agent_start`                                                                                      | `turn_started` (also resets the mapper's latched disposition) |
+| `agent_end` (`willRetry:true` — another run is coming)                                              | *(non-terminal)*                                |
+| `agent_end` (`willRetry` false/absent)                                                              | *(non-terminal — latches disposition from the run's `stopReason` for the next `agent_settled`)* |
+| `agent_settled` (latched disposition from `stopReason`: `error`)                                    | `turn_failed` (carries `errorMessage`)          |
+| `agent_settled` (latched disposition: `aborted`)                                                    | `turn_canceled`                                 |
+| `agent_settled` (latched disposition: other)                                                        | `turn_completed`                                |
 | `message_update` (`text_delta`)                                                                    | `assistant_message` (text delta)                |
 | `message_update` (`thinking_delta`)                                                                | `reasoning`                                     |
 | `message_update` (`toolcall_end`)                                                                  | `tool_call` (status `started`)                  |
@@ -438,7 +446,7 @@ flowchart LR
   Registry --> Handle["AgentService.handleCreate/runTurn"] --> Session["PiAgentSession"]
   Session --> Transport --> Pi["pi --mode rpc"]
   Pi --> Transport --> Session
-  Session --> Mapper["mapPiEvent"] --> Timeline["timeline.append"] --> Broadcast["broadcast(agent_stream)"]
+  Session --> Mapper["createPiEventMapper()"] --> Timeline["timeline.append"] --> Broadcast["broadcast(agent_stream)"]
   Broadcast --> Sessions["all Sessions"] --> Clients
 ```
 
@@ -446,6 +454,6 @@ flowchart LR
 - **Router** correlates requests and replies by `requestId`; handler failures are operation errors,
 never dead sockets.
 - **AgentService** owns the turn lifecycle, the per-agent timeline, and the broadcast fan-out.
-- **The pi adapter** is a thin, swappable transport + pure event mapper over a strict-JSONL child
-process, with the CLI bundled so no global install is required.
+- **The pi adapter** is a thin, swappable transport + a per-session stateful event mapper over a
+strict-JSONL child process, with the CLI bundled so no global install is required.
 

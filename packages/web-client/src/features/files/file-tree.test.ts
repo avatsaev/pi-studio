@@ -117,4 +117,96 @@ describe("flattenTree", () => {
       { kind: "loading", path: "/proj/src", depth: 1 },
     ]);
   });
+
+  it("substitutes a rename row in place of a file row at the same index and depth", () => {
+    const tree = new Map([
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
+    ]);
+    const rows = flattenTree("/proj", new Set(["/proj"]), tree, null, "/proj/readme.md");
+    expect(rows).toEqual([
+      { kind: "directory", path: "/proj/src", name: "src", depth: 0, expanded: false },
+      {
+        kind: "rename",
+        path: "/proj/readme.md",
+        name: "readme.md",
+        depth: 0,
+        isDirectory: false,
+      },
+    ]);
+  });
+
+  it("substitutes only the directory's own row when it is being renamed, leaving its expanded children in place", () => {
+    const tree = new Map([
+      ["/proj", listing([{ name: "src", kind: "directory" }])],
+      ["/proj/src", listing([{ name: "index.ts", kind: "file" }])],
+    ]);
+    const rows = flattenTree("/proj", new Set(["/proj", "/proj/src"]), tree, null, "/proj/src");
+    expect(rows).toEqual([
+      { kind: "rename", path: "/proj/src", name: "src", depth: 0, isDirectory: true },
+      { kind: "file", path: "/proj/src/index.ts", name: "index.ts", depth: 1 },
+    ]);
+  });
+
+  it("is identical to passing null when renamingPath matches no visible row", () => {
+    const tree = new Map([
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
+    ]);
+    const withoutRenaming = flattenTree("/proj", new Set(["/proj"]), tree, null, null);
+    const withStalePath = flattenTree("/proj", new Set(["/proj"]), tree, null, "/proj/missing.md");
+    expect(withStalePath).toEqual(withoutRenaming);
+  });
+
+  it("renders both a draft row and a rename row together without throwing", () => {
+    const tree = new Map([
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
+    ]);
+    const draft = { parentPath: "/proj", kind: "file" as const };
+    const rows = flattenTree("/proj", new Set(["/proj"]), tree, draft, "/proj/readme.md");
+    expect(rows).toEqual([
+      { kind: "draft", path: "/proj::draft", depth: 0, draftKind: "file", parentPath: "/proj" },
+      { kind: "directory", path: "/proj/src", name: "src", depth: 0, expanded: false },
+      {
+        kind: "rename",
+        path: "/proj/readme.md",
+        name: "readme.md",
+        depth: 0,
+        isDirectory: false,
+      },
+    ]);
+  });
+
+  it("with renamingPath omitted, output is unchanged from the pre-rename behavior", () => {
+    const tree = new Map([
+      [
+        "/proj",
+        listing([
+          { name: "src", kind: "directory" },
+          { name: "readme.md", kind: "file" },
+        ]),
+      ],
+    ]);
+    const rows = flattenTree("/proj", new Set(["/proj"]), tree);
+    expect(rows).toEqual([
+      { kind: "directory", path: "/proj/src", name: "src", depth: 0, expanded: false },
+      { kind: "file", path: "/proj/readme.md", name: "readme.md", depth: 0 },
+    ]);
+  });
 });

@@ -67,9 +67,11 @@ function archiveAgent(id):
 - Archive is **global** (server-side) and propagates to all clients. The record stays on disk with
   `archivedAt` set; it disappears from active lists.
 - **Auto-archive:** a create request may set `autoArchive: true`; the daemon archives the agent
-  after the first terminal turn event (`turn_completed`/`turn_failed`/`turn_canceled`). If the same
-  request created a Pi-Studio worktree via its `worktree` field, auto-archive also archives that
-  worktree (removing the agent records inside it).
+  after the turn's terminal event (`turn_completed`/`turn_failed`/`turn_canceled`) — the turn's
+  true settlement, fired exactly once, never on an interim run a provider re-runs internally
+  (retry/compaction/queued continuation) before the turn is actually done. If the same request
+  created a Pi-Studio worktree via its `worktree` field, auto-archive also archives that worktree
+  (removing the agent records inside it).
 
 ### Tabs vs. archive (client concept)
 | Concept | Scope | Trigger |

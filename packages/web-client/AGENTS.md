@@ -217,11 +217,20 @@ src/
                             an OS-file drag, whose `dataTransfer` exposes the type *list* but not
                             the *value* during `dragover`); hover resolves the legal drop target via
                             move-target.ts's `resolveMoveTarget` (internal move) or
-                            `resolveUploadTarget` (OS-file drag), auto-expands a hovered collapsed
                             directory after 700ms either way, and on drop calls move-entry.ts's
-                            `moveEntry` or uploads via `useFileTransfer`'s `upload`,
+                            `moveEntry` or uploads via `useFileTransfer`'s `upload`. Drag-move and
+                            the row context-menu's explicit "Rename" (sprint-047 — reuses the same
+                            `file_move_request` with an unchanged parent directory, so no daemon
+                            addition was needed) both commit through one shared `applyMove` helper:
                             invalidates both affected `rpcKeys.explorer(...)` listings, repaths
-                            `explorer-store` state, and reopens/closes the moved item's tab; tints
+                            `explorer-store` state via `repathAfterMove`, and reopens the moved
+                            item's `file`/`molecule` tab at its new path. A `diff` tab on the
+                            moved/renamed path always closes and does NOT reopen — right after a
+                            rename a per-path `git diff` against the new name renders the whole
+                            file as additions, so reopening would replace the real "what did I
+                            change" view — but the closed count is folded into the status line via
+                            move-status.ts's `withClosedDiffs` ("Renamed to foo.ts — closed 1 diff
+                            tab") instead of closing silently; tints
                             every row by git status and ghosts dotfile/gitignored rows from the
                             live `git-store` — see git-status-index.ts below), TreeNode
                             (presentational row: chevron/icon/name + actions button, delegates
@@ -238,9 +247,17 @@ src/
                             would just read as broken; row is `draggable` and fires
                             `onDragStartRow`/`onDragEndRow`
                             — file-explorer quick-wins-1), TreeDraftRow (owns the draft
-                            input's local text state), FileContextMenu (row menu: Open / Open in
-                            MolViewer (files only) / New File/New Folder (directories) / Copy Absolute
-                            Path / Copy Relative Path / Download (files) / Delete; empty-space variant
+                            input's local text state), TreeRenameRow (owns the rename editor's
+                            local text state, same division of labour as TreeDraftRow — pre-fills
+                            the current name, selects the basename without its extension on mount
+                            (whole name for a directory or a dotfile), Enter/Escape/blur — reused
+                            by `TreeNode`'s `row.kind === "rename"` branch, sprint-047),
+                            FileContextMenu (row menu: Open / Open in MolViewer (files only) / New
+                            File/New Folder (directories) / Copy Absolute Path / Copy Relative Path
+                            / Download (files) / Rename / Delete — Rename sits directly above
+                            Delete and triggers ONLY from this menu, never a keyboard shortcut (no
+                            F2, no `tabIndex`/`onKeyDown` on `TreeNode` — sprint-047 decision);
+                            empty-space variant
                             (`ui-store.fileMenu.background`, right-click below the last row): New
                             File/New Folder/Copy Current Directory Path/Copy Current Directory
                             Relative Path — file-explorer quick-wins-1), open-file-tab.ts (shared
@@ -257,6 +274,9 @@ src/
                             move-target.ts (pure `resolveMoveTarget` — drop-legality decision +
                             landing path for a row drag, no React/DOM dependency so it's
                             unit-testable without jsdom — sprint-046),
+                            move-status.ts (pure `withClosedDiffs` — appends a singular/plural
+                            "closed N diff tab(s)" suffix to a move/rename status line, shared by
+                            drag-move and the rename commit above — sprint-047),
                             git-status-index.ts (pure `buildGitStatusLookup(rootPath, changes)` —
                             derives the tree's per-row git tint from `git-store.changes`, which
                             `StatusBar`'s subscription already keeps live, so this costs no extra

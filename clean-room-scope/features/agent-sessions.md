@@ -73,6 +73,15 @@ Request fields:
 ids). Tool calls normalize to `ToolCallDetail` kinds: `shell`, `read`, `edit`, `write`, `search`,
 `fetch`, `task` (and provider-specific via mapper utils).
 
+The terminal event (`turn_completed`/`turn_failed`/`turn_canceled`) marks the actual end of a
+turn — not necessarily the end of a provider's first attempt at it. The Pi provider, in
+particular, may run a prompt more than once before the turn is truly done: an auto-retried
+transient failure, a context-overflow compaction pass, or a queued steering/follow-up
+continuation can all resume the same turn behind the scenes. Pi surfaces each such internal
+re-run's boundary (its `agent_end`), but that boundary is non-terminal — the daemon's
+subscription, timeline, and status stay live/`running` across it — and the terminal fires exactly
+once, only when Pi signals the turn is truly and finally over (`agent_settled`).
+
 ## Behavior & Algorithms
 
 ```
@@ -91,6 +100,8 @@ function run(agent, prompt):
     status = running; broadcast
     turn = session.startTurn(prompt, options)
     for event in session.subscribe(): append to timeline; broadcast agent_stream
+    # a provider may run the prompt more than once (retry/compaction/queued continuation) before
+    # the turn is truly done; only its true-end signal is terminal — fires exactly once per turn
     on turn_completed/failed/canceled:
         status = idle (or error)
         emit canonical user_message exactly once (by provider message id)
