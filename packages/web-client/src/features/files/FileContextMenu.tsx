@@ -4,10 +4,10 @@
  * (`ui-store.ts`'s `fileMenu.background` flag):
  *  - Row menu (background: false): Open / Open in MolViewer (files only) / New File /
  *    New Folder (directories only) / Copy Absolute Path / Copy Relative Path / Download
- *    (files only) / Delete.
+ *    (files only) / Rename / Delete.
  *  - Empty-space menu (background: true, opened by right-clicking below the last row): New File /
  *    New Folder / Copy Current Directory Path / Copy Current Directory Relative Path — no
- *    Open/Download/Delete, since there's no specific row under the cursor.
+ *    Open/Download/Rename/Delete, since there's no specific row under the cursor.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
   FolderPlus,
   Copy,
   Download as DownloadIcon,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -42,6 +43,7 @@ export function FileContextMenu() {
   const closeFileMenu = useUiStore((s) => s.closeFileMenu);
   const client = useConnectionStore((s) => s.client);
   const startDraft = useExplorerStore((s) => s.startDraft);
+  const startRename = useExplorerStore((s) => s.startRename);
   const rootPath = useExplorerStore((s) => s.rootPath);
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
   const { saveToDisk } = useFileTransfer();
@@ -134,6 +136,12 @@ export function FileContextMenu() {
     startDraft(parent, kind);
   }
 
+  function rename() {
+    if (!menu) return;
+    closeFileMenu();
+    startRename(menu.path);
+  }
+
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenu.Trigger asChild>
@@ -206,6 +214,10 @@ export function FileContextMenu() {
                 <MenuSeparator />
               </>
             )}
+            <MenuItem onSelect={rename}>
+              <Pencil size={13} />
+              Rename
+            </MenuItem>
             <MenuItem danger onSelect={remove}>
               <Trash2 size={13} />
               Delete

@@ -54,7 +54,19 @@ interface DraftRow {
   parentPath: string;
 }
 
-export type TreeRow = DirRow | FileRow | LoadingRow | ErrorRow | DraftRow;
+/** A real tree row replaced in place by its rename editor. `path` and `name` are the row's
+ * *current* values; `isDirectory` keeps the correct icon while editing. Unlike `DraftRow`,
+ * `path` here is the real filesystem path — what makes it a stable virtualizer key without a
+ * synthetic suffix. */
+interface RenameRow {
+  kind: "rename";
+  path: string;
+  depth: number;
+  name: string;
+  isDirectory: boolean;
+}
+
+export type TreeRow = DirRow | FileRow | LoadingRow | ErrorRow | DraftRow | RenameRow;
 
 /** Which directory has an in-progress inline create row, and what kind it is. */
 export interface TreeDraft {
@@ -62,7 +74,10 @@ export interface TreeDraft {
   kind: "file" | "directory";
 }
 
-function joinPath(dir: string, name: string): string {
+/** Join a directory and a basename, tolerating a trailing slash on `dir`. Exported so
+ * `FileExplorer.tsx`'s rename commit can compute a same-parent destination without a second copy
+ * of this logic (rename is not a `resolveMoveTarget` drop target — see `applyMove`'s caller). */
+export function joinPath(dir: string, name: string): string {
   return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
@@ -73,6 +88,7 @@ function pushChildren(
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
   draft?: TreeDraft | null,
+  renamingPath?: string | null,
 ): void {
   if (draft?.parentPath === dirPath) {
     rows.push({
@@ -94,7 +110,7 @@ function pushChildren(
     return;
   }
   for (const entry of node.listing?.entries ?? []) {
-    pushEntry(rows, dirPath, entry, depth, expanded, tree, draft);
+    pushEntry(rows, dirPath, entry, depth, expanded, tree, draft, renamingPath);
   }
 }
 function pushEntry(
@@ -105,15 +121,21 @@ function pushEntry(
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
   draft?: TreeDraft | null,
+  renamingPath?: string | null,
 ): void {
   const path = joinPath(parentPath, entry.name);
-  if (entry.kind !== "directory") {
+  const isDirectory = entry.kind === "directory";
+  const isExpanded = isDirectory && expanded.has(path);
+
+  if (path === renamingPath) {
+    rows.push({ kind: "rename", path, depth, name: entry.name, isDirectory });
+  } else if (isDirectory) {
+    rows.push({ kind: "directory", path, name: entry.name, depth, expanded: isExpanded });
+  } else {
     rows.push({ kind: "file", path, name: entry.name, depth });
-    return;
   }
-  const isExpanded = expanded.has(path);
-  rows.push({ kind: "directory", path, name: entry.name, depth, expanded: isExpanded });
-  if (isExpanded) pushChildren(rows, path, depth + 1, expanded, tree, draft);
+
+  if (isExpanded) pushChildren(rows, path, depth + 1, expanded, tree, draft, renamingPath);
 }
 
 /** Flatten the tree rooted at `rootPath` into the ordered rows currently visible. */
@@ -122,9 +144,10 @@ export function flattenTree(
   expanded: Set<string>,
   tree: Map<string, ExplorerTreeEntry>,
   draft?: TreeDraft | null,
+  renamingPath?: string | null,
 ): TreeRow[] {
   if (!rootPath) return [];
   const rows: TreeRow[] = [];
-  pushChildren(rows, rootPath, 0, expanded, tree, draft);
+  pushChildren(rows, rootPath, 0, expanded, tree, draft, renamingPath);
   return rows;
 }

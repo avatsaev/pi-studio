@@ -28,14 +28,15 @@ import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
 import { useExplorerWatch } from "@pi-studio-ui/hooks/use-explorer-watch.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import type { FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
+import type { DiffTabData, FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { dirOf } from "@pi-studio-ui/lib/paths.js";
 import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
-import { flattenTree } from "./file-tree.js";
+import { withClosedDiffs } from "./move-status.js";
+import { flattenTree, joinPath } from "./file-tree.js";
 import { buildGitStatusLookup, buildIgnoredMatcher } from "./git-status-index.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
@@ -62,6 +63,8 @@ export function FileExplorer() {
   const draft = useExplorerStore((s) => s.draft);
   const startDraft = useExplorerStore((s) => s.startDraft);
   const cancelDraft = useExplorerStore((s) => s.cancelDraft);
+  const renaming = useExplorerStore((s) => s.renaming);
+  const cancelRename = useExplorerStore((s) => s.cancelRename);
   const selected = useExplorerStore((s) => s.selected);
   const setSelected = useExplorerStore((s) => s.setSelected);
   // The workspace currently in view in the tab strip drives what Files/Changes browse — same
@@ -120,8 +123,8 @@ export function FileExplorer() {
   const tree = useExplorerTree(expanded);
   useExplorerWatch(expanded);
   const rows = useMemo(
-    () => flattenTree(rootPath, expanded, tree, draft),
-    [rootPath, expanded, tree, draft],
+    () => flattenTree(rootPath, expanded, tree, draft, renaming),
+    [rootPath, expanded, tree, draft, renaming],
   );
   const gitStatusOf = useMemo(() => buildGitStatusLookup(rootPath, changes), [rootPath, changes]);
   const isIgnored = useMemo(() => buildIgnoredMatcher(rootPath, ignored), [rootPath, ignored]);
@@ -165,31 +168,56 @@ export function FileExplorer() {
     autoExpandRef.current = { path: row.path, timer };
   }
 
+  /** Issue the move, then reconcile caches, tree state, and tabs — shared by drag-move and
+   *  rename (task-002: extracted before rename, its second caller, exists so the two can never
+   *  drift). The daemon's echoed `destination` is authoritative from here on: after the
+   *  trimmed-basename fix it may legitimately differ from what was requested, and repathing or
+   *  reopening the client-computed path instead would target a path that no longer exists. */
+  async function applyMove(
+    source: string,
+    requestedDestination: string,
+  ): Promise<{ destination: string; closedDiffs: number }> {
+    if (!client) throw new Error("Not connected.");
+    const destination = await moveEntry(client, source, requestedDestination);
+    const destinationDir = dirOf(destination);
+    await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(dirOf(source)) });
+    await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(destinationDir) });
+    useExplorerStore.getState().repathAfterMove(source, destination, destinationDir);
+
+    // Partition BEFORE closing — closeByPathPrefix removes the matching tabs, so counting
+    // afterwards would always read 0. Same predicate closeByPathPrefix uses, so diff tabs under
+    // a renamed/moved directory are counted too (the recorded decision: "the same count covers
+    // them").
+    const matches = useTabStore.getState().tabs.filter((t) => {
+      if (t.kind !== "file" && t.kind !== "diff" && t.kind !== "molecule") return false;
+      const path = (t.data as FileTabData | DiffTabData | MoleculeTabData).path;
+      return path === source || (path?.startsWith(`${source}/`) ?? false);
+    });
+    const hadTab = matches.some(
+      (t) =>
+        (t.kind === "file" || t.kind === "molecule") &&
+        (t.data as FileTabData | MoleculeTabData).path === source,
+    );
+    const closedDiffs = matches.filter((t) => t.kind === "diff").length;
+
+    useTabStore.getState().closeByPathPrefix(source);
+    if (hadTab) handleOpenFile(destination);
+
+    return { destination, closedDiffs };
+  }
+
   async function moveDropped(source: string, row: { kind: string; path: string }) {
     const target = resolveMoveTarget(source, row, rootPath);
     if (!target || !client) return;
     const basename = source.split("/").pop() ?? source;
     setStatus({ text: `Moving ${basename}…`, error: false });
     try {
-      await moveEntry(client, source, target.destination);
-      await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(dirOf(source)) });
-      await queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(target.destinationDir) });
-      useExplorerStore
-        .getState()
-        .repathAfterMove(source, target.destination, target.destinationDir);
-
-      const hadTab = useTabStore
-        .getState()
-        .tabs.some(
-          (t) =>
-            (t.kind === "file" || t.kind === "molecule") &&
-            (t.data as FileTabData | MoleculeTabData).path === source,
-        );
-      useTabStore.getState().closeByPathPrefix(source);
-      if (hadTab) handleOpenFile(target.destination);
-
+      const { destination, closedDiffs } = await applyMove(source, target.destination);
       setStatus({
-        text: `Moved to ${target.destinationDir.split("/").pop() || "/"}`,
+        text: withClosedDiffs(
+          `Moved to ${dirOf(destination).split("/").pop() || "/"}`,
+          closedDiffs,
+        ),
         error: false,
       });
     } catch (err) {
@@ -208,6 +236,25 @@ export function FileExplorer() {
       if (kind === "file") handleOpenFile(created);
     } catch (err) {
       setStatus({ text: err instanceof Error ? err.message : "Failed to create", error: true });
+    }
+  }
+
+  async function submitRename(path: string, newName: string) {
+    cancelRename();
+    if (!client) return;
+    // Same-parent move — deliberately NOT `resolveMoveTarget`, which returns `null` for a
+    // same-directory destination (correct for drag: dropping a row into its own folder is a
+    // no-op; fatal here). All rename legality is decided server-side by `moveEntry`.
+    const destination = joinPath(dirOf(path), newName);
+    setStatus({ text: `Renaming ${path.split("/").pop()}…`, error: false });
+    try {
+      const { destination: finalPath, closedDiffs } = await applyMove(path, destination);
+      setStatus({
+        text: withClosedDiffs(`Renamed to ${finalPath.split("/").pop()}`, closedDiffs),
+        error: false,
+      });
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : "Failed to rename", error: true });
     }
   }
 
@@ -415,6 +462,8 @@ export function FileExplorer() {
                   onContextMenu={(path, isDirectory, x, y) => openFileMenu(path, isDirectory, x, y)}
                   onSubmitDraft={(parentPath, name) => void submitDraft(parentPath, name)}
                   onCancelDraft={cancelDraft}
+                  onSubmitRename={(path, name) => void submitRename(path, name)}
+                  onCancelRename={cancelRename}
                   onDragStartRow={handleDragStartRow}
                   onDragEndRow={handleDragEndRow}
                   dropTarget={

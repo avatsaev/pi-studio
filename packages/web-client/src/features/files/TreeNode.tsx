@@ -12,6 +12,7 @@ import type { GitRowStatus } from "./git-status-index.js";
 import type { DragEvent } from "react";
 import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { TreeDraftRow } from "./TreeDraftRow.js";
+import { TreeRenameRow } from "./TreeRenameRow.js";
 import styles from "./FileExplorer.module.css";
 
 export interface TreeNodeProps {
@@ -37,6 +38,8 @@ export interface TreeNodeProps {
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
   onSubmitDraft(parentPath: string, name: string): void;
   onCancelDraft(): void;
+  onSubmitRename(path: string, name: string): void;
+  onCancelRename(): void;
   onDragStartRow(path: string, e: DragEvent): void;
   onDragEndRow(): void;
 }
@@ -62,6 +65,8 @@ export function TreeNode({
   onContextMenu,
   onSubmitDraft,
   onCancelDraft,
+  onSubmitRename,
+  onCancelRename,
   onDragStartRow,
   onDragEndRow,
 }: TreeNodeProps) {
@@ -88,6 +93,17 @@ export function TreeNode({
         indentStyle={indent}
         onSubmit={(name) => onSubmitDraft(row.parentPath, name)}
         onCancel={onCancelDraft}
+      />
+    );
+  }
+  if (row.kind === "rename") {
+    return (
+      <TreeRenameRow
+        name={row.name}
+        isDirectory={row.isDirectory}
+        indentStyle={indent}
+        onSubmit={(name) => onSubmitRename(row.path, name)}
+        onCancel={onCancelRename}
       />
     );
   }

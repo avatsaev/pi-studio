@@ -185,14 +185,17 @@ export class FileExplorerService {
     }
     let destination: string;
     let destinationParent: string;
+    // `basename()` keeps leading/trailing spaces, so a free-text destination like `foo.txt `
+    // would validate as `foo.txt` but land on disk with the trailing space. Trim once and use
+    // the trimmed value for BOTH the join and the guard, matching `createEntry` (which trims
+    // its `rawName` before validating and joining).
+    const destName = basename(inputDestination).trim();
     try {
       destinationParent = await realpath(resolve(dirname(inputDestination)));
-      destination = join(destinationParent, basename(inputDestination));
+      destination = join(destinationParent, destName);
     } catch {
       return { ok: false, error: "not_found" };
     }
-
-    const destName = basename(inputDestination).trim();
     if (
       !destName ||
       destName === "." ||

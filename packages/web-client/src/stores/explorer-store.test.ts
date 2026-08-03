@@ -7,6 +7,7 @@ beforeEach(() => {
     expanded: new Set(),
     expandedByRoot: new Map(),
     draft: null,
+    renaming: null,
     selected: null,
   });
 });
@@ -190,5 +191,75 @@ describe("explorer store — repathAfterMove", () => {
     });
     useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
     expect(useExplorerStore.getState().draft).toBe(draft);
+  });
+});
+
+describe("explorer store — rename", () => {
+  it("startRename sets renaming and nulls any in-progress draft", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project");
+    useExplorerStore.getState().startDraft("/home/dev/project/src", "file");
+    useExplorerStore.getState().startRename("/home/dev/project/a.ts");
+    const s = useExplorerStore.getState();
+    expect(s.renaming).toBe("/home/dev/project/a.ts");
+    expect(s.draft).toBeNull();
+  });
+
+  it("startDraft nulls renaming and sets the draft", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project");
+    useExplorerStore.getState().startRename("/home/dev/project/a.ts");
+    useExplorerStore.getState().startDraft("/home/dev/project/src", "directory");
+    const s = useExplorerStore.getState();
+    expect(s.renaming).toBeNull();
+    expect(s.draft).toEqual({ parentPath: "/home/dev/project/src", kind: "directory" });
+  });
+
+  it("setRoot nulls both renaming and draft", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    useExplorerStore.getState().startRename("/home/dev/project-a/a.ts");
+    useExplorerStore.getState().setRoot("/home/dev/project-b");
+    const s = useExplorerStore.getState();
+    expect(s.renaming).toBeNull();
+    expect(s.draft).toBeNull();
+  });
+
+  it("cancelRename nulls renaming and leaves draft, expanded, and selected untouched", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project");
+    useExplorerStore.getState().setSelected({ path: "/home/dev/project/a.ts", isDirectory: false });
+    useExplorerStore.getState().startRename("/home/dev/project/a.ts");
+    const before = useExplorerStore.getState();
+    useExplorerStore.getState().cancelRename();
+    const after = useExplorerStore.getState();
+    expect(after.renaming).toBeNull();
+    expect(after.draft).toBe(before.draft);
+    expect(after.expanded).toBe(before.expanded);
+    expect(after.selected).toEqual({ path: "/home/dev/project/a.ts", isDirectory: false });
+  });
+
+  it("repathAfterMove nulls renaming while its existing rewrite behavior stays byte-identical", () => {
+    useExplorerStore.setState({
+      rootPath: "/proj",
+      expanded: new Set(["/proj", "/proj/a", "/proj/a/b"]),
+      expandedByRoot: new Map(),
+      draft: null,
+      selected: { path: "/proj/a", isDirectory: true },
+      renaming: "/proj/a",
+    });
+    useExplorerStore.getState().repathAfterMove("/proj/a", "/proj/x/a", "/proj/x");
+    const s = useExplorerStore.getState();
+    expect(s.renaming).toBeNull();
+    expect(s.expanded).toEqual(new Set(["/proj", "/proj/x", "/proj/x/a", "/proj/x/a/b"]));
+    expect(s.selected).toEqual({ path: "/proj/x/a", isDirectory: true });
+  });
+
+  it("never holds both renaming and draft through an interleaved start sequence", () => {
+    useExplorerStore.getState().setRoot("/proj");
+    useExplorerStore.getState().startRename("/proj/a.ts");
+    expect(useExplorerStore.getState().draft).toBeNull();
+    useExplorerStore.getState().startDraft("/proj", "file");
+    expect(useExplorerStore.getState().renaming).toBeNull();
+    useExplorerStore.getState().startRename("/proj/b.ts");
+    expect(useExplorerStore.getState().draft).toBeNull();
+    useExplorerStore.getState().cancelRename();
+    expect(useExplorerStore.getState().draft).toBeNull();
   });
 });
