@@ -116,10 +116,12 @@ describe("createExplorerWatcher", () => {
     watcher.sync(new Set(["/repo", "/repo/src"]));
     watcher.dispose();
 
-    expect(requests.filter((r) => r.type === "file_watch_unsubscribe").map((r) => r.path).toSorted()).toEqual([
-      "/repo",
-      "/repo/src",
-    ]);
+    expect(
+      requests
+        .filter((r) => r.type === "file_watch_unsubscribe")
+        .map((r) => r.path)
+        .toSorted(),
+    ).toEqual(["/repo", "/repo/src"]);
 
     emit({ type: "file_changed", path: "/repo" });
     expect(onChanged).not.toHaveBeenCalled();

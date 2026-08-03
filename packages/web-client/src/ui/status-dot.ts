@@ -22,10 +22,10 @@ export type StatusDotInput = {
 };
 
 export type StatusDotColor =
-  | "accent"         // running/active
-  | "statusSuccess"  // finished-ok / success
-  | "statusDanger"   // error / attention
-  | "statusWarning"  // waiting / pending permission
+  | "accent" // running/active
+  | "statusSuccess" // finished-ok / success
+  | "statusDanger" // error / attention
+  | "statusWarning" // waiting / pending permission
   | "foregroundMuted"; // idle / inactive
 
 /**

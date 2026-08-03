@@ -32,9 +32,7 @@ export function injectBrandAccent(theme: Theme, resolved: ResolvedBrandColors): 
  * Build all six branded themes from a brand config.
  * Returns a map from theme name → patched Theme.
  */
-export function buildBrandedThemes(
-  brand: BrandConfig,
-): Readonly<Record<ThemeName, Theme>> {
+export function buildBrandedThemes(brand: BrandConfig): Readonly<Record<ThemeName, Theme>> {
   const resolved = resolveAccentColors(brand.colors);
   const result = {} as Record<ThemeName, Theme>;
   for (const name of THEME_NAMES) {

@@ -66,7 +66,9 @@ describe("applySessionStats", () => {
   });
 
   it("a null contextUsage.tokens/percent (Pi's null-when-unknown convention) maps to undefined", () => {
-    applySessionStats("s1", { contextUsage: { tokens: null, percent: null, contextWindow: 200_000 } });
+    applySessionStats("s1", {
+      contextUsage: { tokens: null, percent: null, contextWindow: 200_000 },
+    });
     const s = useStatsStore.getState().bySession["s1"];
     expect(s?.contextTokens).toBeUndefined();
     expect(s?.contextPercent).toBeUndefined();

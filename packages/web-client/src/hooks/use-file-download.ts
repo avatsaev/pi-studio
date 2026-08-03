@@ -34,7 +34,11 @@ export function useFileDownload(path: string, enabled = true) {
       const blob = new Blob([Uint8Array.from(file.bytes)], {
         type: file.mimeType || "application/octet-stream",
       });
-      return { objectUrl: URL.createObjectURL(blob), mimeType: file.mimeType, fileName: file.fileName };
+      return {
+        objectUrl: URL.createObjectURL(blob),
+        mimeType: file.mimeType,
+        fileName: file.fileName,
+      };
     },
     enabled: Boolean(client) && Boolean(daemon) && Boolean(path) && enabled,
     // Object URLs are process-local, non-serializable browser resources — never persist them or

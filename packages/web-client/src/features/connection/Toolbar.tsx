@@ -83,7 +83,9 @@ export function Toolbar() {
           size="sm"
           variant="ghost"
           iconOnly
-          title={rightSidebarCollapsed ? "Show files/changes sidebar" : "Hide files/changes sidebar"}
+          title={
+            rightSidebarCollapsed ? "Show files/changes sidebar" : "Hide files/changes sidebar"
+          }
           onClick={() => toggleRightSidebar()}
         >
           {rightSidebarCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}

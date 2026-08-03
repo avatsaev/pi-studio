@@ -24,10 +24,7 @@ export function Spinner({
   "aria-label": ariaLabel = "Loading",
 }: SpinnerProps) {
   const px = typeof size === "number" ? size : SPINNER_SIZE_PX[size];
-  const borderPx =
-    typeof size === "number"
-      ? 2
-      : SPINNER_BORDER_PX[size as SpinnerSize];
+  const borderPx = typeof size === "number" ? 2 : SPINNER_BORDER_PX[size as SpinnerSize];
 
   return (
     <span
