@@ -124,16 +124,22 @@ A reconciler keeps tabs in sync with backend reality from a snapshot (`agentsHyd
   active; auto-open per policy. **Archiving an agent (global/server-side) prunes its tab on all clients.**
 
 ### Per-client layout vs. global archive (key distinction)
-- **Tabs/layout/pin/hide/split tree are per-client**, persisted locally (the layout store persists only the
-  per-workspace layout + split sizes; pin/hide/focus-restoration are not persisted).
+- **Tabs/layout/pin/hide/split tree are per-client**, persisted locally (the layout store persists the
+  per-workspace split tree + sizes, tab→pane placement, per-pane active tabs, and the focused pane — see
+  [workspace-split-panes.md](workspace-split-panes.md) § Persisted layout record; pin/hide/focus-restoration
+  tokens are not persisted).
 - **Archive is global/server-side.** Closing an agent **tab** ≠ archiving (subagent tabs are layout-only;
   root-agent tab close archives — see [subagents.md](subagents.md)). Bulk-closing agent/terminal tabs DOES
   close/archive on the daemon.
 
-### Mounted-tab keepalive (LRU)
-A small LRU set (cap 3) keeps recently-active tabs **mounted but hidden** (hidden style +
-pointer-events-none) so switching back is instant and background tabs (terminals, streams) keep state. The
-active tab is always first. Applied per pane (web) and for the focused pane (mobile/non-web desktop).
+### Mounted-tab keepalive
+Inactive panels are kept **mounted but hidden** (hidden style + pointer-events-none) so switching back is
+instant and background tabs (terminals, streams) keep state. An implementation MAY bound hidden panels with
+a small LRU (historically cap 3, active tab always first, applied per pane on web and for the focused pane
+on mobile/non-web desktop) — but a panel that is any pane's active tab, and any live terminal panel (whose
+unmount kills its PTY), MUST NEVER be evicted; see [workspace-split-panes.md](workspace-split-panes.md)
+§ Panel continuity invariant. The current web implementation keeps every open tab's panel mounted, with no
+LRU.
 
 ### Pane / split model
 
@@ -260,7 +266,7 @@ for archived agents. Compact composer layout is chosen per-container (below the 
 | Execution directory missing | Distinct empty state; panels show "directory not found" |
 | Agent archived elsewhere | Its tab is pruned on all clients after hydration |
 | Closing the last tab | Empty pane collapses; empty workspace re-seeds a draft |
-| Split depth would exceed 4 | Split refused |
+| Split depth would exceed 4 | Drag edge-drop degrades to a `center` move (preview matches); programmatic split affordances are disabled — see [workspace-split-panes.md](workspace-split-panes.md) |
 | Pinned profile target's saved profile is deleted | TODO(verify) — likely falls back to a plain draft |
 
 ## Dependencies
@@ -276,7 +282,8 @@ for archived agents. Compact composer layout is chosen per-container (below the 
 - [ ] Tabs/layout persist per client; archiving an agent prunes its tab on all clients.
 - [ ] Web supports drag reorder, cross-pane move, and edge-drop splitting up to depth 4; non-web desktop and
       mobile do not split.
-- [ ] The mounted-tab LRU keeps ≤3 tabs warm; background terminals/streams retain state.
+- [ ] Background terminals/streams retain state while hidden; any warm-panel bound never evicts a
+      pane-active panel or a live terminal.
 - [ ] Bulk close archives agents and closes terminals server-side with the correct confirmation wording.
 - [ ] An empty, fully-hydrated workspace auto-seeds a draft composer tab.
 - [ ] Non-`ready` route states render the gate shell with retry/manage/dismiss instead of the workspace.

@@ -40,7 +40,7 @@ export interface TreeNodeProps {
   onCancelDraft(): void;
   onSubmitRename(path: string, name: string): void;
   onCancelRename(): void;
-  onDragStartRow(path: string, e: DragEvent): void;
+  onDragStartRow(path: string, isDirectory: boolean, e: DragEvent): void;
   onDragEndRow(): void;
 }
 
@@ -122,7 +122,7 @@ export function TreeNode({
       style={indent}
       title={row.path}
       draggable
-      onDragStart={(e) => onDragStartRow(row.path, e)}
+      onDragStart={(e) => onDragStartRow(row.path, isDirectory, e)}
       onDragEnd={onDragEndRow}
       onClick={() => (isDirectory ? onToggle(row.path) : onOpenFile(row.path))}
       onContextMenu={(e) => {

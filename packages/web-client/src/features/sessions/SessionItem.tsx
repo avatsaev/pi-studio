@@ -1,7 +1,9 @@
 /**
  * One row in the session list (POC `renderSessions` per-item markup, POC_TO_APP_PLAN_UI.md §4.2).
+ * Presentational: `SessionList.tsx` owns selection, the context menu, and the drag payload.
  */
 
+import type { DragEvent } from "react";
 import { MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
 import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
@@ -13,14 +15,27 @@ import styles from "./SessionList.module.css";
 export interface SessionItemProps {
   session: SessionEntry;
   active: boolean;
+  /** False for a row outside the workspace currently in view — see `SessionList`'s
+   * `handleDragStart` for why those rows must not be draggable into a pane at all. */
+  draggable: boolean;
   onSelect: () => void;
   onOpenMenu: (x: number, y: number) => void;
+  onDragStartRow: (e: DragEvent) => void;
 }
 
-export function SessionItem({ session, active, onSelect, onOpenMenu }: SessionItemProps) {
+export function SessionItem({
+  session,
+  active,
+  draggable,
+  onSelect,
+  onOpenMenu,
+  onDragStartRow,
+}: SessionItemProps) {
   return (
     <div
       className={clsx(styles.item, active && styles.active)}
+      draggable={draggable}
+      onDragStart={onDragStartRow}
       onClick={onSelect}
       onContextMenu={(ev) => {
         ev.preventDefault();

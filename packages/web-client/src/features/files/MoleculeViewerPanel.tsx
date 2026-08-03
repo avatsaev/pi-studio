@@ -5,15 +5,15 @@
  * `MoleculeViewer` for everything else.
  */
 
-import { useTabStore, type MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { useIsTabVisible, type MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
 import type { PanelProps } from "@pi-studio-ui/features/workspace/panel-registry.js";
 import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { MoleculeViewer } from "./MoleculeViewer.js";
 
 export function MoleculeViewerPanel({ tab }: PanelProps) {
   const { path } = tab.data as MoleculeTabData;
-  const activeTabId = useTabStore((s) => s.activeTabId);
-  const isActive = activeTabId === tab.id;
+  // Per-pane visibility: a molecule tab in a non-focused pane is still on screen and must resize.
+  const isActive = useIsTabVisible(tab.id);
 
   return (
     <Panel>

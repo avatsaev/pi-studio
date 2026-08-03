@@ -8,14 +8,24 @@
  * names which workspace's tabs `TabStrip`/`TabPanelHost` currently render. All tabs stay mounted
  * regardless of workspace — same "hidden but alive" model that already preserves terminal/scroll
  * state across in-workspace tab switches — only the visible SUBSET changes on a workspace switch.
- * `lastActiveTabByWorkspace` remembers each workspace's last-focused tab so switching back to a
- * workspace restores exactly where you left it, not always its first tab.
+ *
+ * **`activeTabId` is derived, not owned.** Since sprint-049 every lifecycle mutation here goes
+ * through `layout-store`, which owns pane structure: which pane holds each tab, each pane's active
+ * tab, and which pane is focused. The workspace-active tab is that focused pane's active tab, and
+ * this store's `activeTabId` field is a cached projection of it written by `syncActiveFromLayout`
+ * alone — the dozens of `activeTabId` consumers keep working, without a second mutable truth that
+ * can drift. A per-workspace "last active tab" map used to live here; the layout store's focused
+ * pane + per-pane actives are the same information, now persisted across reloads, so it is gone.
+ *
+ * With splits, "active" and "visible" part company: a pane's active tab is visible even when
+ * another pane is focused. Panels therefore ask `useIsTabVisible`, not `=== activeTabId`.
  */
 
 import { create } from "zustand";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { ensureMaterialized, discardIfEmpty } from "@pi-studio-ui/stores/materialize.js";
+import { isPaneActiveTab, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal" | "molecule";
 
@@ -59,19 +69,20 @@ export interface Tab {
 
 interface TabStoreState {
   tabs: Tab[];
+  /** The focused pane's active tab, projected from `layout-store` — see the module header. */
   activeTabId: string | null;
   /** Which workspace's tabs are currently visible in the strip/panel host. */
   activeWorkspaceCwd: string | null;
-  /** Last-focused tab id per workspace cwd, for restore-on-switch. */
-  lastActiveTabByWorkspace: Record<string, string>;
 
   /** Open a tab, or activate it if a tab with the same `id` already exists (POC `addTab`).
-   * Always brings the tab's workspace into view. */
-  open(tab: Tab): void;
+   * Always brings the tab's workspace into view. `targetPaneId` places it in a specific pane
+   * (a pane's own "+" menu, or the pane a Split right/down just created); the default is the
+   * focused pane. */
+  open(tab: Tab, targetPaneId?: string): void;
   close(id: string): void;
   /** Activate a tab by id, bringing its workspace into view too. */
   activate(id: string): void;
-  /** Switch the visible workspace, restoring its last-focused tab (or its first tab, or none). */
+  /** Switch the visible workspace, restoring its focused pane's active tab (or none). */
   switchWorkspace(cwd: string): void;
   reorder(fromId: string, toId: string): void;
   updateLabel(id: string, label: string): void;
@@ -84,6 +95,22 @@ interface TabStoreState {
 
 function tabsInWorkspace(tabs: Tab[], cwd: string): Tab[] {
   return tabs.filter((t) => t.workspaceCwd === cwd);
+}
+
+/** The strip order the layout store's nearest-sibling fallbacks need: global order, one workspace. */
+function workspaceOrder(tabs: Tab[], cwd: string): string[] {
+  return tabsInWorkspace(tabs, cwd).map((t) => t.id);
+}
+
+/**
+ * The single writer of `activeTabId`: recompute it from the layout store's focused pane and bring
+ * `cwd` into view. Returns the tab it now names, for the sidebar sync.
+ */
+function syncActiveFromLayout(cwd: string | null): Tab | undefined {
+  const activeTabId = cwd === null ? null : useLayoutStore.getState().activeTabOf(cwd);
+  useTabStore.setState({ activeTabId, activeWorkspaceCwd: cwd });
+  if (activeTabId === null) return undefined;
+  return useTabStore.getState().tabs.find((t) => t.id === activeTabId);
 }
 
 /** Keep the sidebar's `session-store.activeSessionId` in lockstep with whichever chat tab is
@@ -99,84 +126,62 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
   activeWorkspaceCwd: null,
-  lastActiveTabByWorkspace: {},
 
-  open(tab) {
+  open(tab, targetPaneId) {
     const existing = get().tabs.find((t) => t.id === tab.id);
     if (existing) {
       get().activate(existing.id);
       return;
     }
-    set((s) => ({
-      tabs: [...s.tabs, tab],
-      activeTabId: tab.id,
-      activeWorkspaceCwd: tab.workspaceCwd,
-      lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: tab.id },
-    }));
-    syncActiveSession(tab);
+    set((s) => ({ tabs: [...s.tabs, tab] }));
+    const layout = useLayoutStore.getState();
+    layout.ensureWorkspace(tab.workspaceCwd);
+    // Every arrival — user-opened or restore-driven — resolves its pane here: the explicit target
+    // when given, else a persisted claim naming it, else the focused pane. A claimed arrival may
+    // land in a non-focused pane, which is why the sidebar syncs to whatever is active *afterwards*
+    // rather than to `tab` itself.
+    layout.claimPaneFor(tab.workspaceCwd, tab.id, tabIdentity(tab), targetPaneId);
+    syncActiveSession(syncActiveFromLayout(tab.workspaceCwd));
   },
 
   close(id) {
-    let fallbackTab: Tab | undefined;
-    set((s) => {
-      const closed = s.tabs.find((t) => t.id === id);
-      if (!closed) return s;
-      const idx = s.tabs.findIndex((t) => t.id === id);
-      const tabs = s.tabs.filter((t) => t.id !== id);
+    const closed = get().tabs.find((t) => t.id === id);
+    if (!closed) return;
+    // Captured before the removal: the layout store's fallback needs the leaving tab's own position
+    // among its pane's tabs to pick the nearest survivor.
+    const order = workspaceOrder(get().tabs, closed.workspaceCwd);
+    const before = get().activeTabId;
 
-      let activeTabId = s.activeTabId;
-      const lastActiveTabByWorkspace = { ...s.lastActiveTabByWorkspace };
-      if (activeTabId === id) {
-        // Fall back to a sibling within the SAME workspace, not the global next tab — closing a
-        // tab must never jump the visible workspace out from under the user.
-        const siblings = tabsInWorkspace(tabs, closed.workspaceCwd);
-        const siblingIdx = Math.min(idx, siblings.length - 1);
-        const next = siblings[siblingIdx];
-        activeTabId = next?.id ?? null;
-        fallbackTab = next;
-      }
-      if (lastActiveTabByWorkspace[closed.workspaceCwd] === id) {
-        const stillOpen = tabsInWorkspace(tabs, closed.workspaceCwd)[0];
-        if (stillOpen) lastActiveTabByWorkspace[closed.workspaceCwd] = stillOpen.id;
-        else delete lastActiveTabByWorkspace[closed.workspaceCwd];
-      }
-      return { tabs, activeTabId, lastActiveTabByWorkspace };
-    });
-    syncActiveSession(fallbackTab);
+    set((s) => ({ tabs: s.tabs.filter((t) => t.id !== id) }));
+    useLayoutStore.getState().removeTab(closed.workspaceCwd, id, order);
+
+    // The visible workspace never changes on a close, so the derivation stays on it — closing a tab
+    // must not jump the workspace out from under the user.
+    const next = syncActiveFromLayout(get().activeWorkspaceCwd);
+    if (get().activeTabId !== before) syncActiveSession(next);
   },
 
   activate(id) {
-    let activatedTab: Tab | undefined;
-    set((s) => {
-      const tab = s.tabs.find((t) => t.id === id);
-      if (!tab) return s;
-      activatedTab = tab;
-      return {
-        activeTabId: id,
-        activeWorkspaceCwd: tab.workspaceCwd,
-        lastActiveTabByWorkspace: { ...s.lastActiveTabByWorkspace, [tab.workspaceCwd]: id },
-      };
-    });
-    syncActiveSession(activatedTab);
+    const tab = get().tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const layout = useLayoutStore.getState();
+    layout.ensureWorkspace(tab.workspaceCwd);
+    const pane = layout.paneOfTab(tab.workspaceCwd, id);
+    if (pane === null) {
+      // No placement yet (a tab opened before its workspace had a layout) — resolve one now.
+      layout.claimPaneFor(tab.workspaceCwd, id, tabIdentity(tab));
+    } else {
+      layout.focusPane(tab.workspaceCwd, pane);
+      layout.setActiveTab(tab.workspaceCwd, pane, id);
+    }
+    syncActiveSession(syncActiveFromLayout(tab.workspaceCwd));
   },
 
   switchWorkspace(cwd) {
-    let switchedTab: Tab | undefined;
-    set((s) => {
-      const siblings = tabsInWorkspace(s.tabs, cwd);
-      const remembered = s.lastActiveTabByWorkspace[cwd];
-      const stillOpen = remembered && siblings.some((t) => t.id === remembered);
-      const activeTabId = stillOpen ? remembered : (siblings[0]?.id ?? null);
-      switchedTab = siblings.find((t) => t.id === activeTabId);
-      return {
-        activeWorkspaceCwd: cwd,
-        activeTabId,
-        lastActiveTabByWorkspace: activeTabId
-          ? { ...s.lastActiveTabByWorkspace, [cwd]: activeTabId }
-          : s.lastActiveTabByWorkspace,
-      };
-    });
-    syncActiveSession(switchedTab);
+    useLayoutStore.getState().ensureWorkspace(cwd);
+    // The workspace's focused pane and that pane's active tab ARE its remembered tab — persisted by
+    // `pane-layout-persistence`, which is why no separate last-active map lives here any more.
+    syncActiveSession(syncActiveFromLayout(cwd));
   },
 
   reorder(fromId, toId) {
@@ -212,6 +217,66 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 }));
 
+// ─── Identity & visibility ─────────────────────────────────────────────────────────────────
+
+/**
+ * A tab's stable cross-session identity, or `null` when it has none yet. Identity — not tab id — is
+ * what `pane-layout-persistence` keys a pane assignment on, because ids are not stable across a
+ * reconnect: `openNewTerminal` mints `term-new-<n>` while `use-terminal-restore` reopens the same
+ * terminal as `term-<slot>`. Keys are kind-prefixed, so a `file` and a `molecule` tab on the same
+ * absolute path cannot collide. Identity-less tabs (a terminal awaiting its daemon slot, an empty
+ * molecule tab) are simply omitted from the record — there is nothing to restore them against.
+ *
+ * Lives here rather than in `pane-layout-persistence` because `tab-store` must call it on every
+ * open, and that module already depends on this one.
+ */
+export function tabIdentity(tab: Tab): string | null {
+  switch (tab.kind) {
+    case "chat": {
+      // NOT the session id: that is client-local and regenerated on every load (`s-<seq>` when
+      // created here, `s-<agentId prefix>` when restored — `use-session-restore.ts`), so a chat's
+      // pane would never be recognised after a reload. The daemon-side agent id is the stable name;
+      // a draft whose `createAgent` has not landed yet has no identity to persist (a window of one
+      // RPC — `materialize.ts` binds it right after the tab appears).
+      const { sessionId } = tab.data as ChatTabData;
+      const agentId = useSessionStore.getState().sessions[sessionId]?.agentId;
+      return agentId ? `agent:${agentId}` : null;
+    }
+    case "file":
+      return `file:${(tab.data as FileTabData).path}`;
+    case "diff": {
+      const { path, staged } = tab.data as DiffTabData;
+      return `diff:${staged ? "staged" : "worktree"}:${path}`;
+    }
+    case "terminal": {
+      const { slot } = tab.data as TerminalTabData;
+      return slot === null ? null : `terminal:${slot}`;
+    }
+    case "molecule": {
+      const { path } = tab.data as MoleculeTabData;
+      return path === null ? null : `molecule:${path}`;
+    }
+  }
+}
+
+/**
+ * Whether a tab is on screen: its workspace is in view **and** it is its own pane's active tab.
+ *
+ * Not `=== activeTabId`. With splits every pane shows a tab simultaneously, so a pane's active tab
+ * is visible even while another pane is focused — panels that measure themselves or refit a terminal
+ * grid must react to this, not to workspace-wide activeness.
+ */
+export function useIsTabVisible(tabId: string): boolean {
+  // Both selectors return primitives on purpose: a panel must not re-render every time some
+  // unrelated tab's label changes or another pane is rearranged.
+  const cwd = useTabStore((s) =>
+    s.tabs.find((t) => t.id === tabId)?.workspaceCwd === s.activeWorkspaceCwd
+      ? s.activeWorkspaceCwd
+      : null,
+  );
+  return useLayoutStore((s) => (cwd === null ? false : isPaneActiveTab(s.layouts[cwd], tabId)));
+}
+
 // ─── Tab id / open helpers (POC id conventions: "chat-<id>", "file-<path>", …) ────────────
 
 export const tabIds = {
@@ -226,17 +291,23 @@ let terminalCount = 0;
 
 /** Open a brand-new terminal tab against a workspace cwd (no slot yet — `TerminalPanel` creates
  * one on mount). Shared by the `Ctrl/Cmd+T` shortcut (`use-shortcuts.ts`) and the TabStrip's "+"
- * button so both paths mint tab ids/labels identically. */
-export function openNewTerminal(workspaceCwd: string): void {
+ * button so both paths mint tab ids/labels identically.
+ *
+ * `targetPaneId` places the tab in a named pane; omitted (the shortcut's case) it lands in the
+ * focused pane. Same contract on `openNewMolecule`/`openNewChat` below. */
+export function openNewTerminal(workspaceCwd: string, targetPaneId?: string): void {
   terminalCount += 1;
-  useTabStore.getState().open({
-    id: tabIds.terminal(`new-${terminalCount}`),
-    kind: "terminal",
-    label: `Terminal ${terminalCount}`,
-    closable: true,
-    data: { slot: null, cwd: workspaceCwd },
-    workspaceCwd,
-  });
+  useTabStore.getState().open(
+    {
+      id: tabIds.terminal(`new-${terminalCount}`),
+      kind: "terminal",
+      label: `Terminal ${terminalCount}`,
+      closable: true,
+      data: { slot: null, cwd: workspaceCwd },
+      workspaceCwd,
+    },
+    targetPaneId,
+  );
 }
 
 let moleculeCount = 0;
@@ -244,16 +315,19 @@ let moleculeCount = 0;
 /** Open a brand-new empty molecule tab (no path — molviewer's own drag-drop empty state). Shared
  * by the "+" menu so it mints tab ids/labels identically wherever a future shortcut adds another
  * entry point. */
-export function openNewMolecule(workspaceCwd: string): void {
+export function openNewMolecule(workspaceCwd: string, targetPaneId?: string): void {
   moleculeCount += 1;
-  useTabStore.getState().open({
-    id: tabIds.molecule(`new-${moleculeCount}`),
-    kind: "molecule",
-    label: `Molecule ${moleculeCount}`,
-    closable: true,
-    data: { path: null },
-    workspaceCwd,
-  });
+  useTabStore.getState().open(
+    {
+      id: tabIds.molecule(`new-${moleculeCount}`),
+      kind: "molecule",
+      label: `Molecule ${moleculeCount}`,
+      closable: true,
+      data: { path: null },
+      workspaceCwd,
+    },
+    targetPaneId,
+  );
 }
 
 /** Open a brand-new chat: creates a session against a workspace cwd and opens/focuses its chat
@@ -268,16 +342,19 @@ export function openNewMolecule(workspaceCwd: string): void {
  * deferred-draft branch) — so every "New chat" has a bound `agentId` before the user does
  * anything. Best-effort: a failure here (or opening while disconnected, guarded by `if (client)`)
  * is retried by `Composer.submit`'s own `ensureMaterialized` call on the first send. */
-export function openNewChat(workspaceCwd: string): void {
+export function openNewChat(workspaceCwd: string, targetPaneId?: string): void {
   const id = useSessionStore.getState().createSession(workspaceCwd);
-  useTabStore.getState().open({
-    id: tabIds.chat(id),
-    kind: "chat",
-    label: "New chat",
-    closable: true,
-    data: { sessionId: id },
-    workspaceCwd,
-  });
+  useTabStore.getState().open(
+    {
+      id: tabIds.chat(id),
+      kind: "chat",
+      label: "New chat",
+      closable: true,
+      data: { sessionId: id },
+      workspaceCwd,
+    },
+    targetPaneId,
+  );
 
   const client = useConnectionStore.getState().client;
   if (client) {
@@ -297,3 +374,26 @@ export function closeTab(tabId: string): void {
   const { sessionId } = tab.data as ChatTabData;
   void discardIfEmpty(useConnectionStore.getState().client, sessionId);
 }
+
+/**
+ * `activeTabId` is a *projection* of layout state, so it has to follow **every** layout mutation — not
+ * only the ones that originate in this store's own methods. Clicking into another pane calls
+ * `layout-store.focusPane` directly (`TabStrip`'s and `TabPanelHost`'s `onPointerDown`), which changes
+ * which tab is effectively active without touching this store at all; the same is true of any future
+ * focus path (drag commit, keyboard pane navigation, a close fallback).
+ *
+ * Without this, focusing a second conversation left `activeTabId` — and through `syncActiveSession`,
+ * `session-store.activeSessionId` — pointing at the previously focused pane's chat, so the status bar
+ * kept showing the *old* conversation's model, context, tokens and cost while the user typed into a
+ * different one. Making the projection genuinely derived is the only fix that also covers the next
+ * caller who focuses a pane without going through here.
+ *
+ * Cheap enough to sit on every layout write, including a divider drag's per-frame mutations: it reads
+ * one derived id and bails unless that id actually changed.
+ */
+useLayoutStore.subscribe(() => {
+  const { activeWorkspaceCwd, activeTabId } = useTabStore.getState();
+  if (activeWorkspaceCwd === null) return;
+  if (useLayoutStore.getState().activeTabOf(activeWorkspaceCwd) === activeTabId) return;
+  syncActiveSession(syncActiveFromLayout(activeWorkspaceCwd));
+});

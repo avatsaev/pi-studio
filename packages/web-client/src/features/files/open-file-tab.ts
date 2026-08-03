@@ -1,26 +1,33 @@
 /**
- * Shared "open a path as a tab" dispatch — used by the Files tree's row click (`FileExplorer.tsx`)
- * and the file context menu's "Open" action (`FileContextMenu.tsx`) so both mint identical tab
- * ids/labels and agree on the molecule-vs-plain-file kind (`viewer-registry.ts#isMoleculeFile`).
+ * Shared "open a path as a tab" dispatch — used by the Files tree's row click (`FileExplorer.tsx`),
+ * the file context menu's "Open" action (`FileContextMenu.tsx`), and a Files-tree-to-pane drag
+ * (`use-external-pane-drop.ts`) so they all mint identical tab ids/labels and agree on the
+ * molecule-vs-plain-file kind (`viewer-registry.ts#isMoleculeFile`).
+ *
+ * `targetPaneId` places the tab in a named pane — the pane a drop landed on, or the one a split just
+ * created; omitted, it lands in the focused pane. Same contract as `openNewTerminal`/`openNewChat`.
  */
 
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 
-export function openFileTab(path: string, workspaceCwd: string): void {
+export function openFileTab(path: string, workspaceCwd: string, targetPaneId?: string): void {
   if (isMoleculeFile(path)) {
-    openMoleculeTab(path, workspaceCwd);
+    openMoleculeTab(path, workspaceCwd, targetPaneId);
     return;
   }
   const label = path.split("/").pop() || path;
-  useTabStore.getState().open({
-    id: tabIds.file(path),
-    kind: "file",
-    label,
-    closable: true,
-    data: { path },
-    workspaceCwd,
-  });
+  useTabStore.getState().open(
+    {
+      id: tabIds.file(path),
+      kind: "file",
+      label,
+      closable: true,
+      data: { path },
+      workspaceCwd,
+    },
+    targetPaneId,
+  );
 }
 
 /**
@@ -29,14 +36,17 @@ export function openFileTab(path: string, workspaceCwd: string): void {
  * molviewer (e.g. a LAMMPS `data` file that moleviewer's readers can still parse, but whose
  * extension isn't in `MOLECULE_EXTENSIONS`).
  */
-export function openMoleculeTab(path: string, workspaceCwd: string): void {
+export function openMoleculeTab(path: string, workspaceCwd: string, targetPaneId?: string): void {
   const label = path.split("/").pop() || path;
-  useTabStore.getState().open({
-    id: tabIds.molecule(path),
-    kind: "molecule",
-    label,
-    closable: true,
-    data: { path },
-    workspaceCwd,
-  });
+  useTabStore.getState().open(
+    {
+      id: tabIds.molecule(path),
+      kind: "molecule",
+      label,
+      closable: true,
+      data: { path },
+      workspaceCwd,
+    },
+    targetPaneId,
+  );
 }

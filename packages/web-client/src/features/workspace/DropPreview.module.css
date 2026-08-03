@@ -1,0 +1,27 @@
+.preview {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px solid var(--pi-color-accent);
+  border-radius: var(--pi-radius-sm);
+  background: color-mix(in srgb, var(--pi-color-accent) 18%, transparent);
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface0);
+  color: var(--pi-color-foreground);
+  font-size: var(--pi-font-size-xs);
+  white-space: nowrap;
+  cursor: grabbing;
+  box-shadow: var(--pi-shadow-md);
+}
+.chipLabel {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

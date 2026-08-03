@@ -119,10 +119,34 @@ src/
                            images (task-003 sprint-045); revokes only on LRU eviction or
                            connection teardown, never on row unmount — deliberately NOT
                            use-file-download's single-consumer/revoke-on-unmount policy
+  lib/pane-layout-persistence.ts
+                           versioned, client-local pane-layout record (localStorage key
+                           `pi-studio-pane-layout` via providers/kv-store) keyed by stable
+                           **tab identity**, not tab id (`tabIdentity`, in tab-store — a terminal's
+                           tab id changes across a reconnect, `term-new-<n>` → `term-<slot>`, and a
+                           chat's session id is re-minted on every load, so a chat is keyed on its
+                           daemon-side `agent:<agentId>`); trailing-debounced writes on THREE
+                           triggers — a layout mutation, plus tab-store and session-store for
+                           identity acquisition (a terminal's slot arriving, a draft chat's
+                           `bindAgent`), each compared against an identity signature so a rename or
+                           status change writes nothing; also carries top-level
+                           `activeWorkspaceCwd` (which workspace was in view — geometry is per
+                           workspace, so without it restore lands on whatever the session inventory
+                           activates); writes layer live tabs OVER unconsumed claims so a mid-restore
+                           write cannot orphan a pane; `loadPaneLayout` returns a `LoadedPaneLayout`
+                           (`{ workspaces, activeWorkspaceCwd }`) validated via pane-tree's
+                           `parsePaneTree` (sprint-048/049) (+ test)
   stores/                  Zustand slices: ui-store (fileMenu carries a `background` flag for the
                            Files tree's empty-space context menu; `collapsedWorkspaces` seeded in
                            bulk via setCollapsedWorkspaces, not just toggled one at a time),
-                           tab-store (openNewChat materializes eagerly; closeTab wraps the store's
+                           tab-store (`activeTabId` is DERIVED — a cached projection of
+                           layout-store's focused pane and its active tab, written only by
+                           `syncActiveFromLayout()`; every lifecycle method routes through
+                           layout-store, and `useIsTabVisible(tabId)` — not `=== activeTabId` — is
+                           what panels ask, since with splits several tabs are visible at once;
+                           `tabIdentity()` lives here because `open` calls it on every open to
+                           resolve a persisted claim; the `openNew*` helpers take an optional target
+                           pane; openNewChat materializes eagerly; closeTab wraps the store's
                            close action + materialize.ts's discardIfEmpty; closeByPathPrefix closes
                            every file/diff/molecule tab nested under a deleted path), session-store
                            (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
@@ -137,7 +161,9 @@ src/
                            "New Folder" — file-explorer quick-wins-1; `repathAfterMove` — rewrites
                            `expanded`/`selected` after a move so tree state follows the moved
                            subtree to its new prefix instead of pointing at dead paths —
-                           sprint-046) (+ test)
+                           sprint-046) (+ test), layout-store (pane structure per workspace:
+                           pane tree, tab→pane `placement`, per-pane active tabs, focused pane,
+                           plus the restore claim/settle-point machinery — sprint-048) (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `img` node → InlineImage), InlineImage
                            (task-004 sprint-045 — the `![alt](src)` renderer: remote passthrough,
@@ -147,15 +173,29 @@ src/
                            convention below), highlight, image-src (classifyImageSrc — pure
                            markdown image-source classification: remote/local/unresolvable,
                            task-002 sprint-045) (+ tests)
-  hooks/                   use-connection (boot), use-session-restore (session directory restore —
-                           pages each agent's timeline to completion via lib/protocol/timeline-paging
+  hooks/                   use-connection (boot), use-pane-layout (usePaneLayoutBoot — installs the
+                           persisted layouts as pending claims, replays the client-side tabs
+                           (reopen-client-tabs.ts), and wires the persistence writer; MUST run after
+                           the connection boot but before the restore hooks, so a
+                           restored tab finds its claim), use-pane-drag (the shared pane
+                           drag-and-drop session: pointer tracking, live drop resolution via
+                           pane-dnd, and the commit), use-external-pane-drop (the NATIVE-DnD
+                           counterpart: a chat dragged out of the session list or a file out of the
+                           Files tree onto a pane body — `applyExternalDrop` is exported for direct
+                           unit testing) (+ test), use-session-restore (session directory restore
+                           — pages each agent's timeline to completion via lib/protocol/timeline-paging,
+                           reopens EVERY hydrated chat a persisted pane still claims (falling back to
+                           the most recent one when nothing is claimed),
                            + a connection-lifetime `agent_update` listener that keeps
                            session-store.model live on an explicit `/model` set), use-session-stats
                            (per-session context/token/cost/model poll — sprint-042, see AGENTS.md
                            § Invariants "Status bar"), use-terminal-restore
                            (one-shot reopen of every daemon-side terminal as a tab on connect —
                            the safety net for terminals that outlive their tab, e.g. a daemon
-                           restart or a terminal created outside this UI), use-shortcuts,
+                           restart or a terminal created outside this UI; both restore hooks
+                           export their one-shot body as `runSessionRestore`/`runTerminalRestore`,
+                           each reporting its half of layout-store's initial-hydration settle
+                           point in a `finally` — restore-hydration.test.ts), use-shortcuts,
                            use-explorer, use-explorer-tree (one query per expanded tree directory,
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
@@ -180,14 +220,49 @@ src/
     connection/            Toolbar, ConnectionStatus
     sessions/               SessionList (handleDeleteWorkspace — loops `client.agent(id).delete()`
                             over a workspace's sessions, confirms conversations-only/files-
-                            untouched, closes their tabs — file-explorer quick-wins-1), SessionItem,
+                            untouched, closes their tabs — file-explorer quick-wins-1; its rows are
+                            also the drag source for chat→pane drops, and only for the workspace in
+                            view), SessionItem (presentational; `draggable` is decided by SessionList),
                             SessionContextMenu, WorkspaceGroupHeader (per-workspace delete button
-                            alongside "New conversation"), open-workspace, status-map,
+                            alongside "New conversation"), open-chat-tab.ts (shared "open a session
+                            as a chat tab" dispatch — the sibling of files/open-file-tab.ts, and
+                            required for the same reason: three call sites had grown their own copy
+                            of the tab literal that `tabIdentity` keys the persisted layout off),
+                            open-workspace, status-map,
                             workspace-grouping (+ collapseInactiveWorkspaces, used by
                             use-session-restore.ts to seed the sidebar's collapsed set on connect
                             — file-explorer quick-wins-1) (+ test)
-    workspace/              TabStrip (tabs + trailing "+" menu: New chat / New terminal, scoped
-                            to the active workspace — GitHub issue #8), TabPanelHost, panel-registry,
+    workspace/              TabStrip (ONE PER PANE — that pane's tabs in a `.tabs` scroll container,
+                            plus non-shrinking trailing actions pinned outside it so they stay
+                            clickable in a narrow pane: the "+" menu (New chat / New terminal / New
+                            molecule, all targeting THIS pane) and SplitActions' Split right / Split
+                            down, each disabled with a reason from pane-tree's `canSplit` —
+                            sprint-049), TabPanelHost (flat host: every open tab's panel is mounted
+                            exactly once and absolutely positioned at its pane's fractional rect, so
+                            rearranging panes never remounts a panel — sprint-049), PaneDividers
+                            (one hit target per divider from pane-tree's `dividers()`; dragging
+                            calls layout-store.resizeDivider), DropPreview (drag chip + the resolved
+                            drop region's ghost rect), pane-dnd.ts (pure drop resolution: pointer →
+                            pane + region, and whether that means split, move, reorder, or nothing,
+                            plus `containsPoint` for the native drag's own hit-testing)
+                            (+ test), external-drag.ts (the sidebar→pane transport: one MIME per
+                            dragged kind, payload decode, and the shared already-degraded region
+                            resolution; documents why that half is native DnD and not dnd-kit)
+                            (+ test), pane-layout-view.ts (pure store-tree → renderable
+                            rects/dividers projection) (+ test), reopen-client-tabs.ts
+                            (`tabFromIdentity` — the exact inverse of `tabIdentity` for the kinds no
+                            daemon inventory can rebuild, replayed at boot from the persisted record:
+                            file/diff/molecule; see AGENTS.md § Invariants "Who reopens a tab")
+                            (+ test), restore-active-workspace.ts (one-shot switch back to the
+                            workspace that was in view, armed on connect and fired at the hydration
+                            settle point — earlier would be overwritten by the next arriving tab,
+                            since every open brings its own workspace into view) (+ test),
+                            panel-registry,
+                            pane-tree.ts (pure split-pane algebra: leaf/split node model, canSplit/
+                            splitPane/removePane with per-branch depth cap and flat-run collapse,
+                            paneRects/dividers/resizeAtDivider geometry, effectiveTree, and
+                            parsePaneTree for untrusted persisted trees — no React, no store,
+                            sprint-048) (+ test),
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
@@ -261,12 +336,13 @@ src/
                             (`ui-store.fileMenu.background`, right-click below the last row): New
                             File/New Folder/Copy Current Directory Path/Copy Current Directory
                             Relative Path — file-explorer quick-wins-1), open-file-tab.ts (shared
-                            "open a path as a tab" dispatch used by FileExplorer's row click and
-                            FileContextMenu's Open action, so both agree on the molecule-vs-file
-                            kind — file-explorer quick-wins-1; also exports `openMoleculeTab`,
-                            the forced-molecule variant used by FileContextMenu's "Open in
-                            MolViewer" action (files only) to hand any file to molviewer
-                            regardless of `isMoleculeFile`), create-entry.ts (shared
+                            "open a path as a tab" dispatch used by FileExplorer's row click,
+                            FileContextMenu's Open action, and a Files-tree→pane drop, so all three
+                            agree on the molecule-vs-file kind — file-explorer quick-wins-1; also
+                            exports `openMoleculeTab`, the forced-molecule variant used by
+                            FileContextMenu's "Open in MolViewer" action (files only) to hand any
+                            file to molviewer regardless of `isMoleculeFile`. Both take an optional
+                            `targetPaneId`), create-entry.ts (shared
                             `file_create_request` caller + error-code messages, used by
                             FileExplorer's tree draft and OpenWorkspaceDialog's "new folder"
                             affordance), move-entry.ts (shared `file_move_request` caller +
@@ -368,8 +444,10 @@ entered at runtime, never baked into the image.
   `platform/electron.ts` module respectively when that sprint is implemented.
 - **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
   restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
-  returns without touching `tab-store`/`ui-store` at all: `activeWorkspaceCwd` stays `null` and no
-  session/tab is created. (It previously called `openNewChat` in this case, materializing a
+  returns without touching `tab-store`/`ui-store` at all: no session or chat tab is created, and
+  `activeWorkspaceCwd` stays `null` unless the persisted pane layout reopened a client-side tab
+  (`reopen-client-tabs.ts` — a workspace the user had files open in does come back into view, which
+  is the point of persisting it). (It previously called `openNewChat` in this case, materializing a
   client-only session rooted at a guessed home dir and paying an unwanted `resolve_default_model`
   RPC on every fresh connect — removed.) `TabPanelHost.tsx` renders a dedicated "No workspace open"
   empty state (with an "Open Workspace" button wired to `ui-store.openCwdPicker()`) specifically
@@ -380,6 +458,115 @@ entered at runtime, never baked into the image.
   above) is no longer write-only in this state: `OpenWorkspaceDialog` seeds its picker from
   `activeWorkspaceCwd || ui-store.cwd || "~"`, so the deep-link param (or the last workspace
   opened) still does something useful even with no workspace in view.
+- **Panel continuity across pane rearrangement.** `TabPanelHost` mounts each open tab's panel
+  **exactly once** and positions it absolutely at its pane's fractional rect — the pane tree is
+  rendered as a flat list of rects, never as nested React containers per split. Splitting, dragging a
+  tab between panes, resizing, and collapsing a pane therefore only change a panel's `style`, so a
+  terminal keeps its PTY and a chat keeps its stream subscription. NEVER render panels inside a
+  recursive pane component: React would unmount and remount them on every rearrangement, killing the
+  terminal and re-subscribing the chat.
+- **`tab-store.activeTabId` is derived, and per-pane visibility is a different question.**
+  `layout-store` owns all pane state, including the focused pane and each pane's active tab;
+  `activeTabId` is a cached projection written **only** by `syncActiveFromLayout()`. It is driven from
+  two places: this store's own lifecycle methods, and a **module-scope `layout-store` subscription** at
+  the bottom of `tab-store.ts` that re-projects whenever the focused pane's active tab changes. That
+  subscription is not optional bookkeeping — clicking into another pane calls `layout-store.focusPane`
+  directly (`TabStrip`/`TabPanelHost` `onPointerDown`), so without it `activeTabId` and
+  `session-store.activeSessionId` kept naming the *previously* focused pane's chat and the status bar
+  showed the wrong conversation's model, context, tokens and cost. Any new focus path (drag commit,
+  keyboard pane navigation, close fallback) is covered by the same subscription; it bails unless the
+  projected id actually changed, so a divider drag's per-frame mutations stay free.
+  With splits, "is this tab visible?" is no longer `tab.id === activeTabId` — every pane's
+  active tab is visible. Panels MUST use `useIsTabVisible(tabId)` (over `layout-store`'s
+  `isPaneActiveTab`) for mount/visibility decisions, and reserve `activeTabId` for genuinely
+  workspace-scoped things (the shortcut target, the status bar's subject — which now follows the
+  focused pane, the same way an editor's status bar follows the active editor).
+- **A restored tab finds its pane by identity, not by tab id, and only claims survive a reload.**
+  Panes persist; tabs do not. `usePaneLayoutBoot` installs the record as *pending claims* keyed by
+  `tabIdentity`, each restore source (`runSessionRestore`, `runTerminalRestore`) reports in a
+  `finally`, and at that settle point unconsumed claims are dropped and unclaimed panes pruned — so
+  restore is order-independent and a daemon that no longer has an agent/terminal cannot leave a
+  permanently empty pane behind. This is why a chat's identity is its **daemon-side agent id**
+  (`agent:<agentId>`), never its client-local session id, which is re-minted on every load; a draft
+  whose `createAgent` has not landed has no identity and is deliberately unrestorable.
+- **An unclaimed restore-time arrival must never steal an already-occupied pane.** The two restore
+  hooks race in undefined order, so a terminal or chat with no claim for it can arrive *after* a claim
+  has already placed something else in the very pane it would otherwise land in (default routing: the
+  focused pane). `layout-store.ts`'s `claimPaneFor` tracks this with an explicit `restoring` flag —
+  `true` from `installPersistedLayouts` until `markHydrationSource` settles — and while it holds, an
+  unclaimed arrival only takes over a pane whose `activeByPane` slot is still empty; it is still
+  placed (an orphaned terminal must not leak silently), just not activated or focused over a claim.
+  After the settle point this restriction lifts entirely — a live "+"/Ctrl+T open into the focused
+  pane taking it over immediately is the correct, ordinary behaviour. The two hook-level fallbacks
+  that used to force a tab open regardless of any claim — `use-session-restore.ts`'s "open the most
+  recent chat" default and `use-terminal-restore.ts`'s "reopen every running terminal" default — are
+  now scoped to the arrival's **own** workspace having no persisted layout entry at all; a persisted
+  record for some *other* workspace must never suppress or clobber one that genuinely has none.
+- **Restore seeds per-workspace facts from the workspace that was IN VIEW, never from the newest agent.**
+  `use-session-restore` used to derive the sidebar's expanded group, the file-explorer root and the
+  active conversation from `order[0]` — the globally most-recently-active agent — because that predated
+  the layout record knowing which workspace the user was actually looking at. With two workspaces open
+  that reads as "my layout was lost": the panes come back correctly in workspace A while the sidebar
+  sits expanded on B. `pendingActiveWorkspace` (captured by `installPersistedLayouts` at boot, cleared
+  at the settle point) is that fact, and it must be **captured, not re-read**: `writePaneLayout`
+  persists `activeWorkspaceCwd` from whatever is in view *at write time*, and writes fire throughout
+  the restore window, so a later read can get an already-clobbered target. Two things stay keyed on
+  the newest agent on purpose: the task-011 fallback-tab rule (which asks whether *that agent's own*
+  workspace has a record — rekeying it on the view target would stop opening it whenever some other
+  workspace had been split), and the seed's own fallback when nothing was persisted.
+  The active conversation cannot be fixed by seeding alone — every `open()` brings its own workspace
+  into view and re-activates its own chat, so any pre-tab seed is overwritten. `switchWorkspace` at the
+  settle point syncs it from the focused pane, but `syncActiveSession` deliberately no-ops for a
+  terminal/file tab (a terminal has no conversation; blanking the status bar would be worse), which
+  would leave a *foreign* workspace's chat active. `restore-active-workspace.ts` therefore adopts a
+  chat from the restored workspace as its last step — including when the view was already correct,
+  since that says nothing about which conversation is active.
+- **Who reopens a tab depends on who owns it.** Daemon-owned kinds come back from the daemon's
+  connect-time inventory: chats from `list_agents_request`, terminals from the terminal listing, and
+  one deleted since the last load correctly stays gone. `file`/`diff`/`molecule` tabs have no
+  daemon-side existence — they are views of a path — so `features/workspace/reopen-client-tabs.ts`
+  replays them from the record, gated on the connection reporting `open` (nothing restores UI behind
+  the connect form, even though the replay itself needs no RPC), because the persisted **identity is
+  already the descriptor** (`file:<path>`, `diff:<staged|worktree>:<path>`, `molecule:<path>`) and
+  needs no extra state. `tabFromIdentity` MUST stay the exact inverse of `tabIdentity`: it deliberately
+  does not call `openFileTab`, which *dispatches* on extension and would turn a persisted
+  `file:/a/x.cif` into a `molecule` tab, orphan the claim, and prune the pane. Unknown prefixes are
+  ignored, never guessed — a record written by a newer client may name kinds this one has never heard of.
+- **Two drag systems coexist on purpose, split by where the gesture STARTS.** A drag beginning on a tab
+  already in a strip is dnd-kit (`use-pane-drag.ts`, one `DndContext` owned by `TabPanelHost`); a drag
+  beginning on a sidebar row — a session in the list, a file in the Files tree — is native HTML5 DnD
+  (`use-external-pane-drop.ts`). This is forced, not stylistic: dnd-kit cannot receive an OS file drop,
+  because `dataTransfer.files` exists only in native DnD, so the Files tree must stay a native drag
+  source and target for uploads and row-to-row moves regardless. Arming dnd-kit on those same rows
+  would start two gestures at once. The two cannot collide — a native `dragstart` suppresses the
+  pointer events dnd-kit's `PointerSensor` activates on — so `TabPanelHost` renders ONE preview from
+  whichever is live. Both resolve their region through `pane-dnd.effectiveDropRegion`, so "the preview
+  is always the outcome" holds across both. A native drag reads a pane's body box by **measuring** the
+  `data-pane-drop` zones rather than recomputing it: the box is a percentage rect minus
+  `var(--pane-strip-height)`, and the DOM is the only place those are already combined. Its listeners
+  sit on the host, not the zones, because the zones are `pointer-events: none` (they must not swallow
+  clicks into the panel beneath). Mid-drag a browser exposes `dataTransfer.types` but not the values,
+  so the *MIME name* carries the kind and the payload is read at `drop` — which is also why a row
+  outside the workspace in view withholds its MIME entirely instead of being refused at drop time: a
+  pane could not tell it apart in time to suppress the preview.
+- **A pane-layout write must never drop a claim that has not been consumed yet.**
+  `writePaneLayout` is otherwise a projection of *live* tabs, and writes fire throughout the restore
+  window — the client-side replay causes one immediately. Seeding `placement`/`activeByPane` from
+  `pendingPlacement`/`pendingActive` and layering live tabs on top is what keeps a still-in-flight
+  chat's pane in the record; without it the next load has geometry with no claims and the settle point
+  prunes those panes, so the split collapses one reload later with nothing to point at. Post-settle the
+  pending sets are empty and this reduces to the plain live projection — see the two regression tests
+  in `pane-layout-persistence.test.ts` ("keeps unconsumed claims…", "drops a claim once hydration
+  settles…").
+- **Which workspace is in view is persisted state, restored at the settle point.** Pane geometry is
+  per workspace, so restoring geometry alone leaves the view to whoever opens the last tab — in
+  practice `use-session-restore`'s `order[0]`, i.e. the most recently active *agent*, which with two
+  workspaces open is a coin flip. `restore-active-workspace.ts` switches back to the persisted
+  `activeWorkspaceCwd` when hydration settles: earlier is pointless (every `open()` brings its own
+  workspace into view and would overwrite it), it is **one-shot** so a user who switches during
+  restore is never yanked back, and it is skipped when that workspace has no restored tab (landing on
+  an empty workspace is worse than staying put). Symptom when this is missing: "my layout was lost" —
+  the panes are all there, one workspace over.
 - **Restored history is paged to completion, never a single fetch.** `fetch_agent_timeline_request`
   is bounded — the daemon returns at most `limit` projected items (server default 200,
   `timeline-store.ts` `DEFAULT_PAGE_SIZE`) and sets `hasNewer:true` when rows remain past the page;

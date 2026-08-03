@@ -6,9 +6,10 @@
  * (`WorkspaceContextMenu.tsx`) rather than always-visible icon buttons.
  */
 
+import type { DragEvent } from "react";
 import { FolderOpen } from "lucide-react";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
@@ -19,7 +20,9 @@ import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu.js";
-import { groupSessionsByWorkspace, normalizeCwd, workspaceLabel } from "./workspace-grouping.js";
+import { groupSessionsByWorkspace, workspaceLabel } from "./workspace-grouping.js";
+import { openChatTab } from "./open-chat-tab.js";
+import { EXTERNAL_DRAG_MIME } from "@pi-studio-ui/features/workspace/external-drag.js";
 import styles from "./SessionList.module.css";
 
 export function SessionList() {
@@ -27,7 +30,7 @@ export function SessionList() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activate = useSessionStore((s) => s.activate);
-  const openTab = useTabStore((s) => s.open);
+  const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
   const status = useConnectionStore((s) => s.status);
   const openSessionMenu = useUiStore((s) => s.openSessionMenu);
   const openWorkspaceMenu = useUiStore((s) => s.openWorkspaceMenu);
@@ -40,16 +43,21 @@ export function SessionList() {
   function handleSelect(sessionId: string) {
     activate(sessionId);
     const session = sessions[sessionId];
-    const targetCwd = normalizeCwd(session?.cwd || "~", homeDir);
     if (session?.cwd) setCwd(session.cwd);
-    openTab({
-      id: tabIds.chat(sessionId),
-      kind: "chat",
-      label: session?.title ?? "Chat",
-      closable: true,
-      data: { sessionId },
-      workspaceCwd: targetCwd,
-    });
+    if (session) openChatTab(session, homeDir);
+  }
+
+  /**
+   * Only a row belonging to the workspace currently in view is draggable into a pane. Panes belong to
+   * one workspace's layout, and mid-drag a browser exposes `dataTransfer.types` but not its values —
+   * so a pane could not tell a foreign chat from a local one in time to refuse the preview. Withholding
+   * the MIME at the source keeps "the preview is always the outcome" true: a foreign row simply
+   * produces no drop target, instead of previewing a split that would then be rejected.
+   */
+  function handleDragStart(sessionId: string, groupCwd: string, e: DragEvent) {
+    if (groupCwd !== activeWorkspaceCwd) return;
+    e.dataTransfer.setData(EXTERNAL_DRAG_MIME.chat, sessionId);
+    e.dataTransfer.effectAllowed = "copy";
   }
 
   const groups = groupSessionsByWorkspace(order, sessions, homeDir);
@@ -94,8 +102,10 @@ export function SessionList() {
                       key={session.id}
                       session={session}
                       active={session.id === activeSessionId}
+                      draggable={group.cwd === activeWorkspaceCwd}
                       onSelect={() => handleSelect(session.id)}
                       onOpenMenu={(x, y) => openSessionMenu(session.id, x, y)}
+                      onDragStartRow={(e) => handleDragStart(session.id, group.cwd, e)}
                     />
                   ))}
                 </div>

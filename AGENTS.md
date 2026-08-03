@@ -27,7 +27,9 @@ packages/
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
   highlight/   Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
-  web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal.
+  web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal,
+               split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
+               per-pane tab strips, persisted per workspace along with which one was in view).
   desktop/     Electron shell wrapping a bundled daemon — currently a placeholder (exports a single
                package-id constant); real implementation is sprint-033-desktop, not yet built.
 

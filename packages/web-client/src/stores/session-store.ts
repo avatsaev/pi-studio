@@ -211,7 +211,8 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
     set((s) => {
       const { [sessionId]: _removed, ...rest } = s.sessions;
       const order = s.order.filter((id) => id !== sessionId);
-      const activeSessionId = s.activeSessionId === sessionId ? order[0] ?? null : s.activeSessionId;
+      const activeSessionId =
+        s.activeSessionId === sessionId ? (order[0] ?? null) : s.activeSessionId;
       return { sessions: rest, order, activeSessionId };
     });
   },
