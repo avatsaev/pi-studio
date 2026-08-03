@@ -7,17 +7,11 @@ import {
   type PaneNode,
   type SplitNode,
 } from "@pi-studio-ui/features/workspace/pane-tree.js";
+import { resetLayoutStore } from "@pi-studio-ui/test/reset-stores.js";
 
 const CWD = "/work";
 
-beforeEach(() => {
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-    restoring: false,
-    pendingActiveWorkspace: null,
-  });
-});
+beforeEach(resetLayoutStore);
 
 function layout(cwd = CWD): WorkspacePaneLayout {
   return useLayoutStore.getState().layouts[cwd]!;
@@ -529,8 +523,6 @@ describe("invariants under interleaved operations", () => {
 // ─── Restore: claims, settle point, pruning ────────────────────────────────────────────────
 
 describe("restoring a persisted layout", () => {
-  const FRESH = { layouts: {}, hydrationSources: { sessions: false, terminals: false } };
-
   /** A persisted two-pane row: P0 holds `agent:s1`, P1 holds `agent:s2`, P1 was focused. */
   function persisted(
     overrides: Partial<ValidatedWorkspaceLayout> = {},
@@ -580,7 +572,7 @@ describe("restoring a persisted layout", () => {
       ["chat-s1", "chat-s2"],
       ["chat-s2", "chat-s1"],
     ].map((order) => {
-      useLayoutStore.setState(FRESH);
+      resetLayoutStore();
       useLayoutStore.getState().installPersistedLayouts(persisted());
       for (const tabId of order) arrive(tabId, tabId === "chat-s1" ? "agent:s1" : "agent:s2");
       assertInvariants();
@@ -600,7 +592,7 @@ describe("restoring a persisted layout", () => {
       ["chat-s3", "chat-s2"],
       ["chat-s2", "chat-s3"],
     ]) {
-      useLayoutStore.setState(FRESH);
+      resetLayoutStore();
       useLayoutStore
         .getState()
         .installPersistedLayouts(persisted({ placement: { "agent:s2": "P1", "agent:s3": "P1" } }));

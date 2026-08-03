@@ -88,3 +88,8 @@ survives) but it is not what delivers the fix.
 - Two test-authoring bugs caught and fixed by the suite, not shipped: a helper called with an argument it
   does not take, and a case asserting a switch that could not happen because the later `open()` had
   already brought that workspace into view.
+
+---
+
+Written after implementation, so this file is its own summary — unlike tasks 001-010, which were
+specified up front and have a separate `-summary.md`.

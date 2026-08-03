@@ -91,3 +91,8 @@ Three coordinated fixes, one per failure point:
   the full suite, not shipped).
 - Full suite: 565 passing (45 files). `tsc -b --force` clean. `npm run build:web-client` ✓.
   `oxfmt --check` / `oxlint` clean on every touched file.
+
+---
+
+Written after implementation, so this file is its own summary — unlike tasks 001-010, which were
+specified up front and have a separate `-summary.md`.

@@ -3,16 +3,18 @@ import { useTabStore, openNewChat, openNewMolecule, tabIds, type Tab } from "./t
 import { isPaneActiveTab, useLayoutStore } from "./layout-store.js";
 import { canSplit, leafIds } from "@pi-studio-ui/features/workspace/pane-tree.js";
 import { useSessionStore } from "./session-store.js";
+import {
+  resetLayoutStore,
+  resetSessionStore,
+  resetTabStore,
+} from "@pi-studio-ui/test/reset-stores.js";
 
 beforeEach(() => {
-  useTabStore.setState({ tabs: [], activeTabId: null, activeWorkspaceCwd: null });
+  resetTabStore();
   // Pane structure is the layout store's now, so it has to be reset alongside the tabs it places —
   // a stale placement would let a fallback name a tab that no longer exists.
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-  });
-  useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
+  resetLayoutStore();
+  resetSessionStore();
 });
 
 function chatTab(id: string, sessionId: string, workspaceCwd = "/work"): Tab {

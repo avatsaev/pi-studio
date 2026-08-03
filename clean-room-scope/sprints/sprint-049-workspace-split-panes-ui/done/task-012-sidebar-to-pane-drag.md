@@ -76,3 +76,8 @@ have previewed an outcome that then did not happen.
 - One fixture bug found and fixed while writing the tests: the first depth-cap case asserted
   degradation on a *sibling insert*, which is always legal — corrected to a nesting split, and it now
   pins both `canSplit` branches.
+
+---
+
+Written after implementation, so this file is its own summary — unlike tasks 001-010, which were
+specified up front and have a separate `-summary.md`.

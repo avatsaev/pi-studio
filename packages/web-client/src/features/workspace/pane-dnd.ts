@@ -34,6 +34,18 @@ export interface DropBounds {
 }
 
 /**
+ * A resolved drop: the pane that receives it, and the region *after* degradation.
+ *
+ * Shared by both drag systems — dnd-kit tab drags (`use-pane-drag.ts`) and native sidebar drags
+ * (`use-external-pane-drop.ts`) — because `TabPanelHost` renders one preview from whichever is live.
+ * Two identically-shaped types would typecheck at that union and drift apart later.
+ */
+export interface DropOutcome {
+  paneId: string;
+  region: DropRegion;
+}
+
+/**
  * Which region of `body` the pointer is in. Offsets are normalized to ±0.5 from the centre, so the
  * decision is independent of the pane's size; an exact axis tie resolves to the horizontal axis.
  *

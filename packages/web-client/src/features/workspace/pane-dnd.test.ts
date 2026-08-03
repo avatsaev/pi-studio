@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CENTER_BAND, effectiveDropRegion, isNoOpDrop, resolveDropRegion } from "./pane-dnd.js";
+import {
+  CENTER_BAND,
+  containsPoint,
+  effectiveDropRegion,
+  isNoOpDrop,
+  resolveDropRegion,
+} from "./pane-dnd.js";
 import { MAX_PANE_DEPTH, splitPane, type PaneNode } from "./pane-tree.js";
 
 /** A 400×200 body at the origin: centre (200, 100), so ±0.25 lands on x=100/300, y=50/150. */
@@ -126,5 +132,29 @@ describe("isNoOpDrop", () => {
 
   it("is a real split when the tab comes from a different pane", () => {
     expect(isNoOpDrop("bottom", "P1", "t3", placement)).toBe(false);
+  });
+});
+
+describe("containsPoint", () => {
+  // `BODY` is the 400×200 box at the origin declared above.
+  it("includes both edges on each axis", () => {
+    expect(containsPoint(BODY, { x: 0, y: 0 })).toBe(true);
+    expect(containsPoint(BODY, { x: 400, y: 200 })).toBe(true);
+    expect(containsPoint(BODY, { x: 200, y: 100 })).toBe(true);
+  });
+
+  it("excludes a point outside either axis", () => {
+    expect(containsPoint(BODY, { x: -1, y: 100 })).toBe(false);
+    expect(containsPoint(BODY, { x: 401, y: 100 })).toBe(false);
+    expect(containsPoint(BODY, { x: 200, y: -1 })).toBe(false);
+    expect(containsPoint(BODY, { x: 200, y: 201 })).toBe(false);
+  });
+
+  it("matches only the exact corner of a zero-size box", () => {
+    // A pane mid-layout measures 0×0; it must not swallow drops aimed anywhere near it.
+    const degenerate = { left: 10, top: 10, width: 0, height: 0 };
+    expect(containsPoint(degenerate, { x: 10, y: 10 })).toBe(true);
+    expect(containsPoint(degenerate, { x: 11, y: 10 })).toBe(false);
+    expect(containsPoint(degenerate, { x: 10, y: 11 })).toBe(false);
   });
 });

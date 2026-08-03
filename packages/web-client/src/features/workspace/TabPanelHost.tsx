@@ -47,7 +47,7 @@ import {
   panelBoxes,
 } from "./pane-layout-view.js";
 import { PaneDividers } from "./PaneDividers.js";
-import { useExternalPaneDrop, PANE_DROP_ATTR } from "@pi-studio-ui/hooks/use-external-pane-drop.js";
+import { useExternalPaneDrop, paneDropProps } from "@pi-studio-ui/hooks/use-external-pane-drop.js";
 import { DragChip, DropPreview } from "./DropPreview.js";
 import { TabStrip } from "./TabStrip.js";
 import styles from "./TabPanelHost.module.css";
@@ -55,18 +55,13 @@ import styles from "./TabPanelHost.module.css";
 /**
  * The drop target for a pane's body. Pointer-transparent: dnd-kit hit-tests pointer coordinates
  * against measured rects, so this zone needs a box but must not swallow clicks into the panel
- * beneath it. `PANE_DROP_ATTR` lets a native sidebar drag find the same box by measurement, since
+ * beneath it. `paneDropProps` lets a native sidebar drag find the same box by measurement, since
  * `pointer-events: none` also means native drag events never target it directly.
  */
 function PaneDropZone({ paneId, style }: { paneId: string; style: CSSProperties | undefined }) {
   const { setNodeRef } = useDroppable({ id: `pane:${paneId}`, data: { type: "pane", paneId } });
   return (
-    <div
-      ref={setNodeRef}
-      className={styles.dropZone}
-      style={style}
-      {...{ [PANE_DROP_ATTR]: paneId }}
-    />
+    <div ref={setNodeRef} className={styles.dropZone} style={style} {...paneDropProps(paneId)} />
   );
 }
 

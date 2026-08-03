@@ -10,15 +10,13 @@ import {
 import { createPaneLayout, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
 import { leafIds } from "./pane-tree.js";
+import { resetLayoutStore, resetTabStore } from "@pi-studio-ui/test/reset-stores.js";
 
 const CWD = "/work";
 
 beforeEach(() => {
-  useTabStore.setState({ tabs: [], activeTabId: null, activeWorkspaceCwd: null });
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-  });
+  resetTabStore();
+  resetLayoutStore();
 });
 
 function chatTab(id: string, workspaceCwd = CWD): Tab {

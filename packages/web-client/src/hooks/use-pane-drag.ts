@@ -39,7 +39,7 @@ import {
   effectiveDropRegion,
   isNoOpDrop,
   resolveDropRegion,
-  type DropRegion,
+  type DropOutcome,
 } from "@pi-studio-ui/features/workspace/pane-dnd.js";
 import { useLayoutStore, type WorkspacePaneLayout } from "@pi-studio-ui/stores/layout-store.js";
 import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
@@ -68,11 +68,6 @@ function dropTarget(data: unknown): DropTarget | null {
   return { kind: type, paneId };
 }
 
-export interface DropPreviewTarget {
-  paneId: string;
-  region: DropRegion;
-}
-
 export interface PaneDrag {
   sensors: SensorDescriptor<SensorOptions>[];
   collisionDetection: CollisionDetection;
@@ -83,7 +78,7 @@ export interface PaneDrag {
   /** The tab being dragged, for the floating drag chip. */
   draggedTab: Tab | null;
   /** What the drop would do, or `null` when it would do nothing (no target, or a no-op drop). */
-  preview: DropPreviewTarget | null;
+  preview: DropOutcome | null;
 }
 
 /** dnd-kit reports the activating event plus the accumulated delta; together they are the pointer. */
@@ -104,7 +99,7 @@ function paneOfTarget(
 
 export function usePaneDrag(cwd: string | null): PaneDrag {
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<DropPreviewTarget | null>(null);
+  const [preview, setPreview] = useState<DropOutcome | null>(null);
   const draggedTab = useTabStore((s) => s.tabs.find((t) => t.id === draggedId) ?? null);
 
   // Unchanged activation constraint: a plain click still activates a tab instead of starting a drag.
@@ -132,7 +127,7 @@ export function usePaneDrag(cwd: string | null): PaneDrag {
 
   /** What a drop at the current pointer would do, or `null` when it would change nothing. */
   const resolveTarget = useCallback(
-    (event: DragMoveEvent | DragEndEvent): DropPreviewTarget | null => {
+    (event: DragMoveEvent | DragEndEvent): DropOutcome | null => {
       const { over, active } = event;
       const target = dropTarget(over?.data.current);
       if (!over || target === null || cwd === null) return null;

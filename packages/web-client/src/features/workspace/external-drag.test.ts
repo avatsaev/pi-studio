@@ -5,7 +5,6 @@ import {
   readExternalDrag,
   resolveExternalDropRegion,
 } from "./external-drag.js";
-import { containsPoint } from "./pane-dnd.js";
 import type { PaneNode } from "./pane-tree.js";
 
 /** The Files tree's row-move MIME — present on the same transfer as a file's open MIME. */
@@ -104,20 +103,5 @@ describe("resolveExternalDropRegion", () => {
     };
     expect(resolveExternalDropRegion(deep, "D", { x: 110, y: 350 }, BODY)).toBe("left");
     expect(resolveExternalDropRegion(deep, "D", { x: 300, y: 490 }, BODY)).toBe("center");
-  });
-});
-
-describe("containsPoint", () => {
-  it("includes the edges and excludes anything outside", () => {
-    expect(containsPoint(BODY, { x: 100, y: 200 })).toBe(true);
-    expect(containsPoint(BODY, { x: 500, y: 500 })).toBe(true);
-    expect(containsPoint(BODY, { x: 99, y: 350 })).toBe(false);
-    expect(containsPoint(BODY, { x: 300, y: 501 })).toBe(false);
-  });
-
-  it("rejects every point of a zero-size box", () => {
-    // A pane mid-layout measures 0×0; it must not swallow the drop.
-    expect(containsPoint({ left: 10, top: 10, width: 0, height: 0 }, { x: 10, y: 10 })).toBe(true);
-    expect(containsPoint({ left: 10, top: 10, width: 0, height: 0 }, { x: 11, y: 10 })).toBe(false);
   });
 });

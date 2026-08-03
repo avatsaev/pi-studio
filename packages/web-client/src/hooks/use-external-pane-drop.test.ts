@@ -12,17 +12,18 @@ import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { leafIds } from "@pi-studio-ui/features/workspace/pane-tree.js";
 import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
 import type { ExternalDragPayload } from "@pi-studio-ui/features/workspace/external-drag.js";
+import {
+  resetLayoutStore,
+  resetSessionStore,
+  resetTabStore,
+} from "@pi-studio-ui/test/reset-stores.js";
 
 const CWD = "/work";
 
 beforeEach(() => {
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-    restoring: false,
-  });
-  useTabStore.setState({ tabs: [], activeTabId: null, activeWorkspaceCwd: null });
-  useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
+  resetLayoutStore();
+  resetTabStore();
+  resetSessionStore();
 });
 
 function session(id: string, cwd = CWD): SessionEntry {

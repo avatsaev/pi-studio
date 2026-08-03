@@ -12,6 +12,12 @@ import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import {
+  resetLayoutStore,
+  resetSessionStore,
+  resetTabStore,
+  resetWorkspaceUiState,
+} from "@pi-studio-ui/test/reset-stores.js";
 
 /** A client whose every RPC resolves to `response`, or rejects when `response` is an Error. */
 function stubClient(response: unknown): PiStudioClient {
@@ -26,15 +32,10 @@ function stubClient(response: unknown): PiStudioClient {
 }
 
 beforeEach(() => {
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-    restoring: false,
-    pendingActiveWorkspace: null,
-  });
-  useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
-  useTabStore.setState({ tabs: [], activeTabId: null, activeWorkspaceCwd: null });
-  useUiStore.setState({ collapsedWorkspaces: new Set(), cwd: "~" });
+  resetLayoutStore();
+  resetSessionStore();
+  resetTabStore();
+  resetWorkspaceUiState();
 });
 
 describe("terminal restore hydration signal", () => {

@@ -12,19 +12,19 @@ import {
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import {
+  resetLayoutStore,
+  resetSessionStore,
+  resetTabStore,
+} from "@pi-studio-ui/test/reset-stores.js";
 
 const A = "/work/a";
 const B = "/work/b";
 
 beforeEach(() => {
-  useTabStore.setState({ tabs: [], activeTabId: null, activeWorkspaceCwd: null });
-  useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
-  useLayoutStore.setState({
-    layouts: {},
-    hydrationSources: { sessions: false, terminals: false },
-    restoring: false,
-    pendingActiveWorkspace: null,
-  });
+  resetTabStore();
+  resetSessionStore();
+  resetLayoutStore();
 });
 
 /** A restored chat tab, opened the way `use-session-restore` opens one. */

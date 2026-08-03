@@ -34,6 +34,7 @@ import {
   containsPoint,
   isNoOpDrop,
   type DropBounds,
+  type DropOutcome,
   type DropPoint,
   type DropRegion,
 } from "@pi-studio-ui/features/workspace/pane-dnd.js";
@@ -43,21 +44,24 @@ import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useHomeDir } from "./use-home-dir.js";
-
 /**
- * Marks a pane's body drop zone for the pointer lookup below. An attribute rather than a ref map
- * because the zones are already rendered from one list; nothing else needs to address them.
+ * Marks a pane's body drop zone for the pointer lookup below, and spreads onto it. An attribute
+ * rather than a ref map because the zones are already rendered from one list; nothing else needs to
+ * address them.
+ *
+ * The name is written down exactly once, here: the zone that carries it and the selector that reads it
+ * back live in different files, and a rename that hit only one of them would stop every sidebar drag
+ * with nothing failing — these hooks are driven directly in tests, never rendered.
  */
-export const PANE_DROP_ATTR = "data-pane-drop";
+const PANE_DROP_ATTR = "data-pane-drop";
 
-export interface ExternalDropPreview {
-  paneId: string;
-  region: DropRegion;
+export function paneDropProps(paneId: string): Record<string, string> {
+  return { [PANE_DROP_ATTR]: paneId };
 }
 
 export interface ExternalPaneDrop {
   /** The outcome a release right now would produce, or `null` when no external drag is over a pane. */
-  preview: ExternalDropPreview | null;
+  preview: DropOutcome | null;
   onDragOver(event: DragEvent<HTMLElement>): void;
   onDragLeave(event: DragEvent<HTMLElement>): void;
   onDrop(event: DragEvent<HTMLElement>): void;
@@ -147,12 +151,12 @@ export function useExternalPaneDrop(
   cwd: string | null,
   hostRef: RefObject<HTMLElement | null>,
 ): ExternalPaneDrop {
-  const [preview, setPreview] = useState<ExternalDropPreview | null>(null);
+  const [preview, setPreview] = useState<DropOutcome | null>(null);
   const homeDir = useHomeDir();
 
   /** The pane and already-degraded region under this pointer, or `null` when a drop would do nothing. */
   const outcomeAt = useCallback(
-    (event: DragEvent<HTMLElement>): ExternalDropPreview | null => {
+    (event: DragEvent<HTMLElement>): DropOutcome | null => {
       if (cwd === null) return null;
       const layout = useLayoutStore.getState().layouts[cwd];
       if (layout === undefined) return null;
