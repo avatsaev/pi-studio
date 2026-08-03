@@ -1,7 +1,7 @@
 # Task 011 — Stop legacy unconditional restore fallbacks from clobbering claim-driven restore
 
 - **Sprint:** sprint-049-workspace-split-panes-ui
-- **Status:** done — user-verified live (one leg unreachable from the UI, see Acceptance)
+- **Status:** done — user-verified live (see Acceptance; the orphaned-terminal leg is now live-verified too)
 - **Type:** bugfix
 - **Depends on:** task-006, task-008
 - **Size:** M
@@ -75,12 +75,15 @@ Three coordinated fixes, one per failure point:
       load" failure mode. A terminal opened into one of those panes was claimed and persisted
       correctly (`terminal:9` in `placement`/`activeByPane`), and the two other calculator agents on
       the daemon were **not** force-opened, which is the claim-only rule from change 2 holding.
-- [ ] **Not reachable through the UI:** an orphaned terminal — alive on the daemon with no claim — is
-      the one input the guard is really about, and closing a terminal tab kills its PTY, so the state
-      cannot be manufactured from the client. It needs a terminal created outside this UI (CLI/MCP or
-      another connected client), or a daemon restart that loses the tab link. Covered by the three
-      unit tests that drive `claimPaneFor`/`runTerminalRestore` directly; deliberately left unproven
-      live rather than claimed.
+- [x] **Live, manufactured:** an orphaned terminal — alive on the daemon with no claim — was created via
+      a second `mcp`-type `DaemonClient` connection (bypassing the UI entirely, exactly as this leg
+      called for) targeting the already-split `calculator` workspace's exact cwd, whose two panes each
+      held a claimed agent chat. On both a fresh connect and a full page reload immediately after:
+      the two claimed panes ("calculator 3" / "calculator 2") stayed exactly as persisted — no pane
+      was clobbered — the orphaned terminal was never auto-opened as a tab, `list_terminals_request`
+      afterward showed it still `closed: false` (not silently killed), and the persisted layout's
+      `placement`/`activeByPane` for that workspace round-tripped byte-for-byte unchanged. Terminal
+      killed via `kill_terminal_request` afterward to leave no daemon-side artifact.
 
 ## Verification
 
