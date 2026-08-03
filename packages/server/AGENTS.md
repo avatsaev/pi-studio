@@ -470,6 +470,18 @@ creation" above.
   `stopReason` exactly like `session-hydration.ts` does, before falling back to
   `turn_completed`. Caught by live-testing the exact repro (fresh chat → pick a model known to
   429 → send) against a real `pi --mode rpc` process, not by any pre-existing unit test.
+- **`agent_end` is per-run, never the turn's terminal event** (sprint-041): Pi's session run loop
+  emits ONE `agent_end` per low-level run — an auto-retried transient failure (`willRetry:true`),
+  overflow-compaction, or a queued steering/follow-up continuation all loop into another run
+  before the turn truly ends, with exactly one `agent_settled` at the true end. `createPiEventMapper()`
+  (`event-mapper.ts`) is now a stateful factory — one instance per session (`PiAgentSession` holds
+  it for the session's lifetime) — that latches the disposition each `agent_end` implies (the
+  `stopReason` check from the bullet above, moved into the latch) and returns `null`; only
+  `agent_settled` emits the turn-closer stream event. Before this, a retried/continued turn
+  resolved `session.run()` — and with it `runTurn`'s `unsubscribe()`, status flip to `idle`, and
+  `autoArchive` — mid-turn, on the first `agent_end`, silently dropping every row streamed after
+  it. The old stateless `mapPiEvent(raw)` remains as a thin single-event shim over a fresh mapper
+  instance (used by ~10 turn-agnostic unit assertions); it can no longer report a turn's terminal.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's

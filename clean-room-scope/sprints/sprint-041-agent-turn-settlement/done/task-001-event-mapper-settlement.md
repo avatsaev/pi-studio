@@ -1,7 +1,7 @@
 # Task 001 — Make Pi turn-settlement drive the terminal stream event
 
 - **Sprint:** sprint-041-agent-turn-settlement
-- **Status:** backlog
+- **Status:** done
 - **Estimated size:** M
 - **Depends on:** —
 

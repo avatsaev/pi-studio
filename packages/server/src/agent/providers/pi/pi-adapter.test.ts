@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { PiAgentClient } from "./agent.js";
-import { mapPiEvent, mapToolCall } from "./event-mapper.js";
+import { createPiEventMapper, mapPiEvent, mapToolCall } from "./event-mapper.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./rpc-transport.js";
 
 /**
@@ -130,8 +130,15 @@ class FakeTransport implements PiRpcTransport {
         isError: false,
       });
       this.fire({ type: "agent_end" });
+      this.fire({ type: "agent_settled" });
     }
-    if (command === "abort") this.fire({ type: "agent_end" });
+    if (command === "abort") {
+      this.fire({
+        type: "agent_end",
+        messages: [{ role: "assistant", content: [], stopReason: "aborted" }],
+      });
+      this.fire({ type: "agent_settled" });
+    }
     if (command === "steer")
       this.fire({ type: "queue_update", steering: ["steered"], followUp: [] });
     if (command === "follow_up") {
@@ -150,6 +157,49 @@ class FakeTransport implements PiRpcTransport {
 
   close(): Promise<void> {
     return Promise.resolve();
+  }
+}
+
+/**
+ * Regression fixture for sprint-041 (agent-turn-settlement): scripts Pi's real retry sequence —
+ * an `agent_end{willRetry:true}` for a transient failure, then a SECOND low-level run (fired on a
+ * later macrotask, mirroring the real subprocess's `agent.continue()` running after the current
+ * script finishes) that succeeds, followed by the true terminal `agent_settled`
+ * (docs/rpc.md § agent_end / § agent_settled).
+ */
+class RetryFakeTransport extends FakeTransport {
+  override notify(command: string): void {
+    this.notifies.push(command);
+    if (command === "prompt") {
+      this.fire({ type: "agent_start" });
+      this.fire({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "attempt 1" },
+      });
+      // Retryable failure — Pi auto-retries instead of ending the turn.
+      this.fire({
+        type: "agent_end",
+        willRetry: true,
+        messages: [
+          { role: "assistant", content: [], stopReason: "error", errorMessage: "transient 500" },
+        ],
+      });
+      setTimeout(() => {
+        this.fire({ type: "agent_start" });
+        this.fire({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "attempt 2 ok" },
+        });
+        this.fire({
+          type: "agent_end",
+          willRetry: false,
+          messages: [
+            { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
+          ],
+        });
+        this.fire({ type: "agent_settled" });
+      }, 0);
+    }
   }
 }
 
@@ -281,7 +331,7 @@ describe("event mapper", () => {
 
   it("maps real Pi events and ignores unknown ones", () => {
     expect(mapPiEvent({ type: "agent_start" })).toEqual({ kind: "turn_started" });
-    expect(mapPiEvent({ type: "agent_end" })).toEqual({ kind: "turn_completed" });
+    expect(mapPiEvent({ type: "agent_end" })).toBeNull(); // non-terminal; see agent_settled tests below
     expect(
       mapPiEvent({
         type: "message_update",
@@ -309,15 +359,17 @@ describe("event mapper", () => {
     ).toEqual({ kind: "reasoning", final: true });
   });
 
-  it("maps agent_end with a failed final assistant message to turn_failed (real repro: provider 429)", () => {
+  it("latches a failed final assistant message and emits turn_failed on settle (real repro: provider 429)", () => {
     // Regression: `agent_end` used to unconditionally report `turn_completed`, so a live turn
     // that failed with an immediate provider error (e.g. a 429 quota-exceeded rejection) was
     // silently reported as a success — no `turn_failed`/error ever reached the live stream, and
     // the daemon's own `newStatus` computation (which trusts this mapping) never learned the
     // turn failed either. Restore-from-JSONL (`session-hydration.ts`) already handled this
-    // correctly by reading the same `stopReason`/`errorMessage` fields; this mirrors it live.
+    // correctly by reading the same `stopReason`/`errorMessage` fields; this mirrors it live —
+    // now latched at `agent_end` and reported at `agent_settled`, the true terminal.
+    const mapper = createPiEventMapper();
     expect(
-      mapPiEvent({
+      mapper.map({
         type: "agent_end",
         messages: [
           { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -329,27 +381,69 @@ describe("event mapper", () => {
           },
         ],
       }),
-    ).toEqual({ kind: "turn_failed", error: "OpenAI API error (429): 429 quota exceeded\n" });
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_settled" })).toEqual({
+      kind: "turn_failed",
+      error: "OpenAI API error (429): 429 quota exceeded\n",
+    });
   });
 
-  it("maps agent_end with an aborted final assistant message to turn_canceled", () => {
+  it("latches an aborted final assistant message and emits turn_canceled on settle", () => {
+    const mapper = createPiEventMapper();
     expect(
-      mapPiEvent({
+      mapper.map({
         type: "agent_end",
         messages: [{ role: "assistant", content: [], stopReason: "aborted" }],
       }),
-    ).toEqual({ kind: "turn_canceled" });
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_settled" })).toEqual({ kind: "turn_canceled" });
   });
 
-  it("maps agent_end with a clean final assistant message to turn_completed", () => {
+  it("latches a clean final assistant message and emits turn_completed on settle", () => {
+    const mapper = createPiEventMapper();
     expect(
-      mapPiEvent({
+      mapper.map({
         type: "agent_end",
         messages: [
           { role: "assistant", content: [{ type: "text", text: "hi" }], stopReason: "stop" },
         ],
       }),
-    ).toEqual({ kind: "turn_completed" });
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_settled" })).toEqual({ kind: "turn_completed" });
+  });
+
+  it("a retry sequence (willRetry:true, then a clean retried run) yields exactly one turn_completed", () => {
+    // Pi's real event sequence for an auto-retried run: agent_end{willRetry:true} → another
+    // run's rows → agent_end{willRetry:false} → agent_settled (docs/rpc.md § agent_end /
+    // § agent_settled). Only agent_settled is the true terminal.
+    const mapper = createPiEventMapper();
+    expect(mapper.map({ type: "agent_start" })).toEqual({ kind: "turn_started" });
+    expect(
+      mapper.map({
+        type: "agent_end",
+        willRetry: true,
+        messages: [
+          { role: "assistant", content: [], stopReason: "error", errorMessage: "transient 500" },
+        ],
+      }),
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_start" })).toEqual({ kind: "turn_started" });
+    expect(
+      mapper.map({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "retried ok" },
+      }),
+    ).toEqual({ kind: "assistant_message", text: "retried ok" });
+    expect(
+      mapper.map({
+        type: "agent_end",
+        willRetry: false,
+        messages: [
+          { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
+        ],
+      }),
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_settled" })).toEqual({ kind: "turn_completed" });
   });
 });
 
@@ -437,7 +531,7 @@ describe("PiAgentClient", () => {
     const events: AgentStreamEvent[] = [];
     session.subscribe((e) => events.push(e));
     await session.interrupt();
-    expect(events.map((e) => e.kind)).toContain("turn_completed");
+    expect(events.map((e) => e.kind)).toEqual(["turn_canceled"]);
   });
 
   it("steer sends a `steer` notify and surfaces the mapped queue_update", async () => {
@@ -458,6 +552,73 @@ describe("PiAgentClient", () => {
     await session.followUp!("then summarize");
     expect(spawns[0]?.notifies).toContain("follow_up");
     expect(events).toContainEqual({ kind: "queue_update", steering: [], followUp: ["later"] });
+  });
+});
+
+describe("sprint-041 regression: agent turn settlement (agent_settled / willRetry)", () => {
+  it("a non-final agent_end (willRetry:true) must map to null, not a terminal event", () => {
+    // Pi's real event sequence for an auto-retried run: agent_end{willRetry:true} → another run →
+    // agent_end{willRetry:false} → agent_settled. Only agent_settled is the true terminal; the
+    // mapper currently ignores `willRetry` entirely and reports every agent_end as terminal.
+    expect(
+      mapPiEvent({
+        type: "agent_end",
+        willRetry: true,
+        messages: [
+          { role: "assistant", content: [], stopReason: "error", errorMessage: "transient 500" },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("PiAgentSession.run() must wait for agent_settled, not resolve on an interim retried agent_end", async () => {
+    vi.useFakeTimers();
+    try {
+      const spawns: RetryFakeTransport[] = [];
+      const client = new PiAgentClient({
+        command: ["pi", "--mode", "rpc"],
+        transportFactory: (args) => {
+          const t = new RetryFakeTransport(args);
+          spawns.push(t);
+          return t;
+        },
+        binaryResolver: () => true,
+      });
+      const session = await client.createSession({ provider: "pi", cwd: "/work" });
+      const events: AgentStreamEvent[] = [];
+      session.subscribe((e) => events.push(e));
+
+      let resolved = false;
+      void session.run("do it").then(() => {
+        resolved = true;
+      });
+
+      // Flush the microtasks from the synchronous first agent_end — the retry (scheduled via
+      // `setTimeout` in the fake transport, mirroring the real subprocess's async continuation
+      // after the current script finishes) has NOT fired yet.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Bug: `run()` resolves on the first agent_end (willRetry:true) before the retry ever
+      // streams — a caller that unsubscribes right after `await run()` (agent-service.ts's
+      // runTurn) would miss attempt 2 and `agent_settled` entirely, and record the turn failed
+      // even though it ultimately succeeds.
+      expect(resolved).toBe(false);
+
+      await vi.runAllTimersAsync();
+
+      // And even ignoring timing: the turn must yield exactly one terminal event, not one per
+      // agent_end (which would wrongly report `turn_failed` for a turn that ultimately succeeded).
+      expect(events.map((e) => e.kind)).toEqual([
+        "turn_started",
+        "assistant_message",
+        "turn_started",
+        "assistant_message",
+        "turn_completed",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -802,6 +963,7 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
     expect(resolved).toBe(false);
 
     spawns[0]?.fireEvent({ type: "agent_end" });
+    spawns[0]?.fireEvent({ type: "agent_settled" });
     await running;
     expect(resolved).toBe(true);
     expect(events.map((e) => e.kind)).toContain("turn_completed");

@@ -215,12 +215,21 @@ return Promise.resolve({ turnId });
 So starting a turn is fire-and-forget. The "response" is synthesized by watching the event stream for a terminal event.
 
 **Hop 3 — normalize the vocabulary.**
-Raw Pi events are Pi's own shapes. `mapPiEvent` (`event-mapper.ts`) translates them into provider-neutral `AgentStreamEvent`s:
+Raw Pi events are Pi's own shapes. A stateful `createPiEventMapper()` instance, one per session
+(`eventMapper.map(raw)`, `event-mapper.ts`), translates them into provider-neutral
+`AgentStreamEvent`s:
 
-- `agent_start` → `turn_started`
+- `agent_start` → `turn_started` (also resets the mapper's latched turn disposition)
 - `message_update` + `text_delta` → `assistant_message`; `thinking_delta` → `reasoning`
 - `tool_execution_start/end` → `tool_call` with `status: running|completed|error`
-- `agent_end` → inspects `stopReason`: `error` → `turn_failed`, `aborted` → `turn_canceled`, else `turn_completed`
+- `agent_end` → **never terminal.** Pi's session run loop emits one `agent_end` per low-level
+  run — a retryable error (`willRetry:true`), overflow-compaction, or a queued steering/follow-up
+  continuation all loop into another run before the turn is truly done. Every `agent_end` just
+  latches a disposition from its run's `stopReason` (`error` → failed, `aborted` → canceled, else
+  completed) and returns `null`.
+- `agent_settled` → the true end of the turn (Pi will not continue automatically past this point).
+  Emits the latched disposition as the terminal event: `turn_failed` (carries `errorMessage`),
+  `turn_canceled`, or `turn_completed`.
 - **Returns `null`** for a whole set of raw events (`turn_start`, `message_start`, `compaction_start`, …) — dropped, never reach the timeline (`agent.ts:142`)
 
 **Hop 4 — timeline append + broadcast.**

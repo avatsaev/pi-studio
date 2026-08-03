@@ -30,7 +30,7 @@ import type {
   Unsubscribe,
 } from "../../provider-contract.js";
 import type { TimelineRow } from "../../timeline-store.js";
-import { mapPiEvent } from "./event-mapper.js";
+import { createPiEventMapper } from "./event-mapper.js";
 import { hydrateTimelineFromSessionFile } from "./session-hydration.js";
 import {
   createProcessTransport,
@@ -111,6 +111,7 @@ class PiAgentSession implements AgentSession {
 
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly history: AgentStreamEvent[] = [];
+  private readonly eventMapper = createPiEventMapper();
   private modes: AgentModeDefinition[] = [];
   private mode: string | null;
   private model: string | undefined;
@@ -139,7 +140,7 @@ class PiAgentSession implements AgentSession {
         }
         return;
       }
-      const event = mapPiEvent(raw);
+      const event = this.eventMapper.map(raw);
       if (event) this.emit(event);
     });
   }
