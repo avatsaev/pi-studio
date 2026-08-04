@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -137,6 +137,12 @@ function resolveDaemonKeypair(home: string): { publicKeyB64: string; secretKeyB6
         secretKeyB64?: string;
       };
       if (parsed.publicKeyB64 && parsed.secretKeyB64) {
+        // Contains the secret key — re-tighten files written before mode 0600 was enforced.
+        try {
+          chmodSync(path, 0o600);
+        } catch {
+          /* best-effort */
+        }
         return { publicKeyB64: parsed.publicKeyB64, secretKeyB64: parsed.secretKeyB64 };
       }
     } catch {
@@ -150,7 +156,7 @@ function resolveDaemonKeypair(home: string): { publicKeyB64: string; secretKeyB6
   };
   try {
     mkdirSync(home, { recursive: true });
-    writeFileSync(path, JSON.stringify(keypair), "utf8");
+    writeFileSync(path, JSON.stringify(keypair), { encoding: "utf8", mode: 0o600 });
   } catch {
     /* best-effort persistence */
   }

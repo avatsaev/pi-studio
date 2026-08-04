@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -754,9 +754,11 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
 
-    // The daemon writes its persistent keypair to disk on first boot, before it dials the relay.
-    const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
-      .publicKeyB64 as string;
+    // The daemon writes its persistent keypair to disk on first boot, before it dials the relay —
+    // owner-only, since the file carries the Curve25519 secret key.
+    const keypairPath = join(home, "daemon-keypair.json");
+    const daemonPublicKeyB64 = JSON.parse(readFileSync(keypairPath, "utf8")).publicKeyB64 as string;
+    expect(statSync(keypairPath).mode & 0o777).toBe(0o600);
 
     const sessionId = await waitForSessionId(relay);
     const clientSocket = await relay.connectClient(sessionId);

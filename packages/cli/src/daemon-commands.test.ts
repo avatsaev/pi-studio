@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -94,6 +94,17 @@ describe("setDaemonPassword", () => {
     expect(config.daemon.listen).toBe("0.0.0.0:6767");
     expect(config.app.baseUrl).toBe("x");
     expect(config.daemon.auth.password).toBe("hashed:pw");
+  });
+
+  it("writes config.json owner-only (0600) and re-tightens a pre-existing looser file", () => {
+    const home = tmpHome();
+    setDaemonPassword(home, "pw", fakeRuntime());
+    const path = join(home, "config.json");
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+
+    chmodSync(path, 0o644); // simulate a config written before 0600 was enforced
+    setDaemonPassword(home, "pw2", fakeRuntime());
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 });
 

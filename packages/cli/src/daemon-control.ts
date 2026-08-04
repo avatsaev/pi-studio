@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 
@@ -188,8 +188,21 @@ export function setDaemonPassword(home: string, plaintext: string, runtime: Daem
   config.daemon = daemon;
   if (config.version === undefined) config.version = 1;
 
+  writeConfigFile(home, path, config);
+}
+
+/**
+ * Persist `config.json` owner-only (0600): it can carry the daemon password hash. `mode` only
+ * applies on creation, so an explicit chmod re-tightens files written before this was enforced.
+ */
+function writeConfigFile(home: string, path: string, config: Record<string, unknown>): void {
   mkdirSync(home, { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Env vars that configure the outbound relay dial (config.md § Env precedence). */
@@ -254,8 +267,7 @@ export function persistRelayEnvOverrides(
   config.daemon = daemon;
   if (config.version === undefined) config.version = 1;
 
-  mkdirSync(home, { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeConfigFile(home, path, config);
 }
 
 /** Stop the local daemon by signaling its recorded pid. Returns false when no daemon was found. */
