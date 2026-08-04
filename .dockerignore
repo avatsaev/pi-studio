@@ -11,7 +11,7 @@ packages/*/*.tsbuildinfo
 .github
 .vscode
 .idea
-
+.pi 
 # Tests + coverage (not needed at runtime; image builds prod artifacts only)
 **/*.test.ts
 **/*.test.tsx
