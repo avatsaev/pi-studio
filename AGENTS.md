@@ -247,10 +247,10 @@ Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"`
 ## Persistence layout (`$PI_STUDIO_HOME/`)
 
 ```
-config.json           Daemon config (password hash, provider overrides, relay, service proxy, …)
+config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
 pi-studio.pid         PID lock (prevents duplicate daemons)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
-daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE)
+daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/

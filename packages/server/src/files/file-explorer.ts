@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   open,
@@ -278,9 +279,15 @@ export class FileExplorerService {
     }
     if (!info.isFile()) return { ok: false, error: "not_a_file" };
 
+    // Preserve the target's permission bits across the tmp+rename: the rename replaces the inode,
+    // so without this an edited executable script would silently lose its +x bit. The creation
+    // `mode` is umask-masked (never broader than the target); the explicit chmod then restores the
+    // exact bits before the file becomes visible under its real name.
+    const mode = info.mode & 0o7777;
     const tmpPath = join(dirname(resolvedPath), `.${basename(resolvedPath)}.tmp-${randomUUID()}`);
     try {
-      await writeFileFs(tmpPath, content, "utf8");
+      await writeFileFs(tmpPath, content, { encoding: "utf8", mode });
+      await chmod(tmpPath, mode);
       await rename(tmpPath, resolvedPath);
     } catch (err) {
       await rm(tmpPath, { force: true }).catch(() => {});
