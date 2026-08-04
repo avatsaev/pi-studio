@@ -1,7 +1,7 @@
 # Task 001 — `ReconnectionManager.reconnectNow()`
 
 - **Sprint:** sprint-050-connection-resilience
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client (SDK)
 - **Priority:** P1
@@ -74,6 +74,14 @@ Required behavior:
    `{ attempt: 0, serverId }` for a successful forced reconnect, distinguishing it from ladder
    attempts (which are always ≥ 1). State this in the method docstring — it is a contract, not an
    accident of the counter reset.
+6. **Single-armed scheduling (fixes a pre-existing double-schedule).** `scheduleReconnect()` gains
+   an `if (this.timer) return;` guard at the top. Today a *failed* reconnect attempt schedules
+   twice: the transport's close event fires even for a failed connect (`transport.ts` `ws.onclose`),
+   so the `connecting → closed` transition calls `scheduleReconnect()` **and** `tryReconnect()`'s
+   `catch` calls it again — arming two timers, overwriting `this.timer` (the first handle leaks and
+   can never be cancelled), and climbing the ladder two rungs per failure. The guard makes the
+   pending timer unique, which is also what makes `reconnectNow()`'s `clearTimer` authoritative:
+   "cancel the pending timer" is only a meaningful contract when there is at most one.
 
 ## Out of scope
 
@@ -93,6 +101,9 @@ Required behavior:
 - [ ] Two `reconnectNow()` calls racing one in-flight attempt produce exactly one `connect()`.
 - [ ] After a `reconnectNow()` whose `connect()` rejects, the next scheduled delay is the rung-1
       delay (attempt counter reset), not a continuation of the pre-existing ladder position.
+- [ ] A failed reconnect attempt whose transport also emits a close event (fake transport fires
+      `onClose` on failed `connect()`) arms exactly one new timer and increments the attempt
+      counter exactly once — no leaked second timer, no double `connect()` later.
 - [ ] A successful forced reconnect notifies `onReconnected` with `attempt === 0`.
 - [ ] Every pre-existing `ReconnectionManager` test still passes unmodified.
 

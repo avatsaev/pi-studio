@@ -1,7 +1,7 @@
 # Task 002 — Worker-backed timers for the reconnect ladder
 
 - **Sprint:** sprint-050-connection-resilience
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (lib/connection)
 - **Priority:** P1

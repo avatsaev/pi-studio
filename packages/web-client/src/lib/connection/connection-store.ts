@@ -17,6 +17,7 @@ import {
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { resolveConnectTarget } from "./resolve-connect-target.js";
+import { createWorkerTimers } from "./worker-timers.js";
 import { clearInlineImageCache } from "../inline-image-cache.js";
 
 export interface ConnectOptions {
@@ -92,7 +93,11 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       rpcTimeoutMs: 30 * 60 * 1000,
     });
     const client = new PiStudioClient(daemon);
-    const reconnection = new ReconnectionManager(daemon);
+    // Worker-backed timers keep backoff scheduling accurate in a hidden/throttled tab (sprint-050
+    // connection-resilience) — falls back to plain setTimeout when Worker construction is
+    // unavailable, identical to pre-sprint-050 behavior.
+    const { setTimer, clearTimer } = createWorkerTimers();
+    const reconnection = new ReconnectionManager(daemon, { setTimer, clearTimer });
 
     daemon.onStateChange((state) => set({ status: state }));
     reconnection.onReconnected(() => set({ error: null }));

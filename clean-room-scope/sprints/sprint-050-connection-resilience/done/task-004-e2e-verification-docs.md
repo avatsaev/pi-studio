@@ -1,7 +1,7 @@
 # Task 004 — End-to-end verification of both failure modes + docs sync
 
 - **Sprint:** sprint-050-connection-resilience
-- **Status:** backlog
+- **Status:** done
 - **Type:** test + docs
 - **Area:** packages/web-client, packages/client, clean-room-scope
 - **Priority:** P1

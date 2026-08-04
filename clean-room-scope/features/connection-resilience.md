@@ -120,7 +120,7 @@ Action semantics:
 | Action | Executed as |
 |---|---|
 | `reconnect-now` | `reconnection.reconnectNow()` |
-| `probe` | `daemon.ping(PROBE_TIMEOUT_MS)`; on rejection → `daemon.close(4000, "stale-connection-probe")` (the `closed` transition hands off to the active manager; then `reconnectNow()` for immediacy) |
+| `probe` | `daemon.ping(PROBE_TIMEOUT_MS)`; on rejection → `daemon.close(4000, "stale-connection-probe")` — the resulting `closed` transition hands off to the active manager, whose rung-1 retry (~500 ms) performs the reconnect. **No explicit `reconnectNow()` here:** `close()` sets the client to `closing` synchronously, so a call issued in the same tick would always no-op on the `state === "closed"` guard — it would be dead code implying an immediacy that doesn't exist. |
 | `none` | nothing |
 
 Constants: `PROBE_TIMEOUT_MS = 5_000` (deliberately shorter than `ping()`'s 10 s default — a probe
@@ -159,14 +159,24 @@ on window "online":
     if action == "probe":
         probeInFlight = true
         daemon.ping(5000)
-            .catch(() => { daemon.close(4000, "stale-connection-probe"); reconnection.reconnectNow() })
+            .catch(() => {
+                if (store.daemon === daemon)               # identity guard: user may have
+                    daemon.close(4000, "stale-connection-probe")  # disconnected/reconnected meanwhile
+                # closed transition → active manager → rung-1 retry (~500 ms); see Action semantics
+            })
             .finally(() => probeInFlight = false)
 
 ReconnectionManager.reconnectNow():
-    if not active or reconnect attempt in flight: return
-    if daemon.state == "open": return
+    if not active or reconnect attempt in flight: return   # in-flight flag: see task-001
+    if daemon.state != "closed": return       # covers open / connecting / closing / idle in one guard
     clearTimer(pending); attempt = 0
-    scheduleReconnect with delay 0            # reuses tryReconnect; failure re-enters normal ladder
+    tryReconnect() directly                   # not via scheduleReconnect; failure re-enters normal ladder at rung 1
+
+ReconnectionManager.scheduleReconnect():       # existing private method — gains one guard (task-001)
+    if pending timer already armed: return     # single-armed: a failed attempt fires BOTH the closed
+                                               # transition and tryReconnect's catch; without this the
+                                               # ladder double-arms, leaks the overwritten timer handle,
+                                               # and climbs two rungs per failure
 ```
 
 ### Why the probe closing the socket does NOT violate invariant 6
@@ -190,12 +200,13 @@ WebSocket range and appears only in logs.
 |---|---|
 | Rapid visibility flapping (alt-tab spam) | Single-probe guard: at most one probe in flight; `reconnect-now` path is idempotent (attempt-in-flight no-op) |
 | Probe succeeds | Nothing observable; `probeInFlight` clears |
-| Probe fails but network is genuinely down | `close` → immediate attempt fails → normal backoff ladder resumes from rung 1 |
+| Probe fails but network is genuinely down | `close` → `closed` transition → normal backoff ladder from rung 1 |
 | `online` fires while `visibilitychange` probe is in flight | `none` (guard) — the in-flight probe already decides |
-| User clicks Disconnect while a probe is in flight | Store nulls `reconnection`; a late probe rejection calls `daemon.close()` on an already-closed client (no-op) and `reconnectNow()` on a stopped manager (no-op) |
+| User clicks Disconnect (or reconnects) while a probe is in flight | Rejection handler identity-checks the store's current `daemon` against the probed one and does nothing on mismatch; no close on a stale handle, no resurrect |
 | Worker construction throws (CSP) | Silent fallback to `setTimeout` — behavior identical to today, feature degrades to the resume triggers only |
 | Worker + relay transport | No interaction — timers are transport-agnostic; `ping()` works identically over the relay channel |
-| `reconnectNow()` racing a throttled pending timer | `clearTimer` cancels it; only one attempt runs (`tryReconnect` failure is the only re-scheduler) |
+| `reconnectNow()` racing a throttled pending timer | `clearTimer` cancels it; only one attempt runs (the single-armed `scheduleReconnect` guard guarantees at most one pending timer at any time) |
+| Probe close on a truly dead link | The `closed` event lands only after the browser's closing-handshake timeout (a couple of seconds in Chromium) — reconnect follows it; total recovery stays within a few seconds of refocus |
 | Tab discarded entirely by the browser | Out of reach — renderer is gone; only the desktop shell fixes this |
 
 ## Relationship to the desktop shell
@@ -219,19 +230,49 @@ This feature ships first and the shell inherits it.
 
 - [ ] `ReconnectionManager` accepts injected timers from `connection-store` (worker-backed in
       browsers; verify via devtools that backoff retries fire on schedule in a hidden tab past the
-      5-minute intensive-throttling threshold).
-- [ ] `reconnectNow()` is additive: existing `reconnect.ts` tests pass unchanged; new unit tests
+      5-minute intensive-throttling threshold). **Partially verified (task-004):** live smoke test
+      confirmed `connection-store.ts` constructs the manager with `createWorkerTimers()`'s
+      injected timers, and that a real dedicated Worker (not the `setTimeout` fallback) backs
+      them in Chrome (`page.workers()` showed a live `blob:` worker after a forced reconnect) —
+      but the actual 5-minute-intensive-throttling threshold was **not** exercised: doing so
+      needs the tab genuinely backgrounded (occluded, not just `document.hidden` overridden) for
+      several real wall-clock minutes, which this task's automated environment cannot produce.
+      Left unticked; the mechanism is proven, the specific timing claim is not.
+- [x] `reconnectNow()` is additive: existing `reconnect.ts` tests pass unchanged; new unit tests
       cover no-op-when-stopped, no-op-when-open, no-op-when-attempt-in-flight, cancel-pending-timer,
-      attempt-counter reset.
+      attempt-counter reset. Verified: `packages/client/src/terminal-router.test.ts`, 15/15 pass.
 - [ ] Returning to a tab whose connection dropped while hidden reconnects immediately (sub-second
-      on a healthy network), not on the next throttled backoff rung.
+      on a healthy network), not on the next throttled backoff rung. **Partially verified
+      (task-004):** with the tab focused, killing and restarting the daemon produced a client
+      reconnect ~1 second later (rung-1 delay, matching `initialDelayMs`/jitter) — the
+      `reconnect-now` code path itself (`resume-triggers.ts` → `reconnection.reconnectNow()`) is
+      exercised by `resume-action.test.ts` and confirmed wired correctly by inspection, but the
+      specific "tab was genuinely hidden, refocusing triggers the immediate retry" sequence was
+      not exercised end-to-end (needs the same real-backgrounding capability noted above). Left
+      unticked.
 - [ ] After laptop sleep long enough to kill NAT state: on wake + tab focus, the stale `open`
       connection is detected by the probe within `PROBE_TIMEOUT_MS` and replaced by a live one,
-      with no user action and no RPC needed to trip detection.
-- [ ] An explicit user Disconnect is never resurrected by any resume signal.
-- [ ] `resolveResumeAction` covers the full decision table with DOM-free unit tests (no jsdom).
-- [ ] With `Worker` unavailable, the app behaves exactly as before this feature plus the resume
-      triggers (manual fallback verification: stub `Worker` to throw).
+      with no user action and no RPC needed to trip detection. **Not verified (task-004):** this
+      task's automated environment has no way to invoke a genuine OS-level sleep without
+      disconnecting its own tool access, and a devtools-offline toggle produces a clean `close`
+      event rather than the half-open socket this scenario is about (see this spec's own Notes on
+      why that substitute proves nothing). What *was* verified: firing a real `visibilitychange`
+      (hidden→visible) against a healthy, `open` connection triggers exactly one `ping` and no
+      disruption (connection stayed `connected`, and a terminal opened afterward remained fully
+      responsive) — i.e. the probe's happy path is proven; the failure/detection path on a
+      genuinely stale socket is not. Left unticked, restated as a known limitation rather than
+      dropped.
+- [x] An explicit user Disconnect is never resurrected by any resume signal. Verified live
+      (task-004): clicked Disconnect against a real daemon (daemon log showed a clean `code: 1000`
+      close), then dispatched three hidden→visible `visibilitychange` cycles plus two `online`
+      events — the daemon log shows no new `ws client connected` line afterward.
+- [x] `resolveResumeAction` covers the full decision table with DOM-free unit tests (no jsdom).
+      Verified: `packages/web-client/src/lib/connection/resume-action.test.ts`, 6/6 pass, every
+      row including the `managerActive: false` short-circuit.
+- [x] With `Worker` unavailable, the app behaves exactly as before this feature plus the resume
+      triggers (manual fallback verification: stub `Worker` to throw). Verified:
+      `worker-timers.test.ts`'s stubbed-throwing-constructor case (constructor invoked exactly
+      once across two `setTimer` calls, both timers still fire/cancel correctly via the fallback).
 
 ## Test / verification plan
 
@@ -262,7 +303,14 @@ This feature ships first and the shell inherits it.
 ## TODO(verify)
 
 - [ ] Safari/Firefox: confirm dedicated-worker timers are exempt from visibility throttling under
-      battery-saver modes (Chromium confirmed; others expected but unverified).
+      battery-saver modes (Chromium confirmed; others expected but unverified). **task-004
+      update:** live-verified in headless Chromium that `createWorkerTimers()` does construct and
+      use a real dedicated Worker (not the `setTimeout` fallback) during an actual reconnect
+      cycle (`page.workers()` showed a live `blob:` URL worker). The specific claim this item is
+      about — that worker timers are *exempt from visibility throttling* — was not independently
+      re-measured in Chromium either (that requires several real wall-clock minutes of genuine
+      tab backgrounding, not available to this task's automated environment) and Safari/Firefox
+      remain completely untested. Left unticked and unresolved; restated rather than dropped.
 - [x] **Resolved during sprint-050 planning:** the hosted deployment sets **no**
       `Content-Security-Policy` at all (`docker/web-client.nginx.conf.template` has no CSP header,
       and no CSP directive exists anywhere under `docker/`), so blob-URL workers are unconstrained
