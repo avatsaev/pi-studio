@@ -1,7 +1,7 @@
 # Task 003 — Resume triggers: immediate reconnect + stale-socket probe
 
 - **Sprint:** sprint-050-connection-resilience
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (lib/connection)
 - **Priority:** P1
@@ -81,8 +81,14 @@ export function attachResumeTriggers(): () => void;
 - Owns the module-local `probeInFlight` boolean; passes it into `resolveResumeAction` and clears it
   in a `finally`.
 - `reconnect-now` → `reconnection.reconnectNow()`.
-- `probe` → `daemon.ping(PROBE_TIMEOUT_MS)`; on rejection: `daemon.close(4000,
-  "stale-connection-probe")` then `reconnection.reconnectNow()`. On resolve: nothing.
+- `probe` → `daemon.ping(PROBE_TIMEOUT_MS)`; on rejection: re-read the store and, **only if its
+  current `daemon` is still the probed instance** (identity check — the user may have disconnected
+  or reconnected while the probe was pending), `daemon.close(4000, "stale-connection-probe")`.
+  On resolve: nothing. **Do not call `reconnectNow()` here** — `close()` sets the client to
+  `closing` synchronously, so a same-tick `reconnectNow()` always no-ops on its
+  `state === "closed"` guard (task-001); it would be dead code. The reconnect happens via the
+  active manager's `closed`-transition handler: rung-1 retry, ~500 ms. Comment this at the call
+  site so nobody "restores" the no-op call later.
 - `visibilitychange` fires on both directions — act only on `hidden → visible`.
 - **Comment the invariant-6 reconciliation at the probe's call site** (spec § Why the probe closing
   the socket does NOT violate invariant 6). A future reader must not "fix" this into a violation, nor
@@ -109,10 +115,12 @@ also matches the listener's true lifetime (the document, not any component).
 - [ ] Becoming visible with a dropped connection calls `reconnectNow()` and nothing else.
 - [ ] Becoming visible with a live-looking connection issues one `ping`; a `pong` within
       `PROBE_TIMEOUT_MS` results in no further action.
-- [ ] A probe that times out closes the socket with code 4000 and triggers a reconnect.
+- [ ] A probe that times out closes the socket with code 4000; the manager's `closed`-transition
+      rung-1 retry reconnects (verify one `connect()` follows, no explicit `reconnectNow()` on
+      this path).
 - [ ] Rapid visibility flapping never produces overlapping probes (single-probe guard).
-- [ ] A late probe rejection arriving after the user clicked Disconnect is harmless — no reconnect,
-      no throw (the store has nulled the handles; both calls must be no-ops or guarded).
+- [ ] A late probe rejection arriving after the user clicked Disconnect (or reconnected to another
+      daemon) is harmless — the identity check fails and nothing is closed or resurrected.
 - [ ] Triggers are attached exactly once under `<StrictMode>` in dev.
 
 ## Test / verification plan
@@ -131,5 +139,6 @@ also matches the listener's true lifetime (the document, not any component).
   meaning.
 - `PROBE_TIMEOUT_MS` (5 s) is intentionally tighter than `ping()`'s 10 s default: the daemon answers
   pings from its socket read loop, so 5 s of silence on a working link is already pathological.
-- Guard against a null `daemon`/`reconnection` at signal time even when `managerActive` was true a
-  moment earlier — the user can disconnect between the check and the probe's rejection.
+- The identity check in the rejection handler (store's current `daemon` vs. the probed one) is the
+  disconnect guard: `managerActive` was true at signal time, but the user can disconnect — or
+  connect elsewhere, replacing the handles — before the probe rejects.

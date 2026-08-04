@@ -45,6 +45,7 @@ export class ReconnectionManager {
   private attempt = 0;
   private timer: unknown = null;
   private active = false;
+  private reconnecting = false;
   private detachState: (() => void) | null = null;
 
   private readonly reconnectedHandlers = new Set<ReconnectedHandler>();
@@ -105,6 +106,29 @@ export class ReconnectionManager {
     this.detachState = null;
   }
 
+  /**
+   * Cancel any pending backoff timer and attempt a reconnect immediately, resetting the backoff
+   * ladder. No-op unless the manager is active and the daemon is `closed`; no-op while an attempt
+   * is already in flight.
+   *
+   * `attempt: 0` is the forced-reconnect signal: a successful forced reconnect notifies
+   * `onReconnected` with `{ attempt: 0, serverId }`, distinguishing it from ladder attempts
+   * (always ≥ 1). A forced attempt that fails still falls back to `scheduleReconnect()`'s normal
+   * failure path, which restarts the ladder at rung 1 — the correct aggression level for a user
+   * who just triggered this via a fresh external signal (tab visible, network online).
+   */
+  reconnectNow(): void {
+    if (!this.active) return;
+    if (this.reconnecting) return;
+    if (this.daemon.state !== "closed") return;
+    if (this.timer) {
+      this.clearTimer(this.timer);
+      this.timer = null;
+    }
+    this.attempt = 0;
+    void this.tryReconnect();
+  }
+
   /** Number of reconnect attempts made since the last healthy open. */
   get attemptCount(): number {
     return this.attempt;
@@ -112,17 +136,21 @@ export class ReconnectionManager {
 
   private scheduleReconnect(): void {
     if (!this.active) return;
+    if (this.timer) return; // already armed — see reconnectNow()'s docstring for why this must be unique
     if (this.attempt >= this.maxAttempts) return;
     this.attempt += 1;
     const delay = this.delayForAttempt(this.attempt);
     this.timer = this.setTimer(() => {
       this.timer = null;
+      if (this.reconnecting) return;
       void this.tryReconnect();
     }, delay);
   }
 
   private async tryReconnect(): Promise<void> {
     if (!this.active) return;
+    if (this.reconnecting) return;
+    this.reconnecting = true;
     const attempt = this.attempt;
     try {
       // connect() re-sends hello with the same capabilities → daemon rehydrates them, and the
@@ -134,6 +162,8 @@ export class ReconnectionManager {
     } catch (error) {
       for (const handler of this.failedHandlers) handler(error, attempt);
       this.scheduleReconnect(); // back off and retry
+    } finally {
+      this.reconnecting = false;
     }
   }
 }

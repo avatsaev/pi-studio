@@ -99,11 +99,24 @@ src/
                             Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
                             Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
-                           relay-transport pairing-link connections), resolve-connect-target
-                           (pure routing: plain address vs. pairing link, direct vs. relay + tests),
-                           normalize-url (accepts ws/wss/http/https/bare-host, maps http→ws /
-                           https→wss), query-client (TanStack Query), rpc-keys, files-changed
-                           (cache-invalidation signaling)
+                           relay-transport pairing-link connections; constructs
+                           ReconnectionManager with createWorkerTimers()'s injected timers —
+                           sprint-050), resolve-connect-target (pure routing: plain address vs.
+                           pairing link, direct vs. relay + tests), normalize-url (accepts
+                           ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
+                           (TanStack Query), rpc-keys, files-changed (cache-invalidation
+                           signaling), worker-timers (createWorkerTimers — setTimeout/clearTimeout
+                           backed by a lazily-created, module-level shared Worker built from an
+                           inline Blob URL, exempt from hidden-tab timer throttling; falls back to
+                           plain setTimeout, latched, if Worker construction is unavailable or
+                           throws — sprint-050, see Invariants "Connection resume triggers") (+
+                           test, fallback path only — no DOM Worker in this repo's Vitest
+                           environment), resume-action (resolveResumeAction — pure decision core:
+                           status/managerActive/probeInFlight → none/reconnect-now/probe — sprint-050)
+                           (+ test, full decision table), resume-triggers (attachResumeTriggers —
+                           visibilitychange/online DOM wiring installed once at module scope in
+                           main.tsx, outside React/StrictMode — sprint-050, see Invariants
+                           "Connection resume triggers")
   lib/protocol/            events.ts (protocol event helpers), timeline-paging.ts
                            (fetchTimelineEvents — drains every `fetch_agent_timeline_request` page
                            into one ordered event list; see Invariants "Restored history") (+ test)
@@ -434,14 +447,38 @@ entered at runtime, never baked into the image.
   a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
   `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
   `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
-  store.ts#connect()` routes between the two via `resolveConnectTarget()`
+store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
-  client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
+client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
   adding `getIsElectron()` platform gating are **not yet implemented** — both are
   sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
   `platform/electron.ts` module respectively when that sprint is implemented.
+- **Connection resume triggers (sprint-050).** `lib/connection/resume-triggers.ts`'s
+  `attachResumeTriggers()` is installed once, at module scope in `main.tsx` (never inside a React
+  effect — `<StrictMode>` double-invokes dev effects, which would attach two listener sets). It
+  reacts to `visibilitychange` (`hidden → visible` only) and `online`, reading
+  `useConnectionStore.getState()` fresh at signal time (never captured — the store replaces
+  `daemon`/`reconnection` on every `connect()`), and feeds `lib/connection/resume-action.ts`'s
+  pure `resolveResumeAction({ status, managerActive, probeInFlight })`: `closed` + an active
+  `ReconnectionManager` → `reconnection.reconnectNow()` (bypasses the pending backoff delay);
+  `open` + active + no probe already in flight → a liveness probe, `daemon.ping(PROBE_TIMEOUT_MS)`
+  (`PROBE_TIMEOUT_MS = 5_000`, tighter than `ping()`'s 10 s default — the daemon answers from its
+  socket read loop, so 5 s of silence on a working link is already pathological); on rejection,
+  after an identity check (`store.daemon === <the probed instance>`, guarding a disconnect/
+  reconnect racing the probe), `daemon.close(4000, "stale-connection-probe")` — the resulting
+  `closed` transition hands off to the active `ReconnectionManager`'s own rung-1 retry; the probe
+  branch **never** calls `reconnectNow()` itself (`close()` sets `closing` synchronously, so a
+  same-tick call would always no-op on `reconnectNow()`'s `state === "closed"` guard — that would
+  be dead code implying an immediacy that doesn't exist). `managerActive: false` (the user clicked
+  Disconnect, or never connected) short-circuits every row to `none` — **no resume signal ever
+  resurrects an explicit disconnect.** `reconnection.ts`'s Worker-backed timers
+  (`lib/connection/worker-timers.ts`'s `createWorkerTimers()`, injected at `connection-store.ts`'s
+  single `new ReconnectionManager(daemon, …)` call site) keep the backoff ladder's scheduled
+  retries accurate in a hidden/throttled tab; `resume-triggers.ts` is the complementary path for
+  the moment the user actually returns. Close code `4000` is in the WebSocket private-use range —
+  it appears only in logs, no wire meaning.
 - **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
   restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
   returns without touching `tab-store`/`ui-store` at all: no session or chat tab is created, and
@@ -472,7 +509,7 @@ entered at runtime, never baked into the image.
   the bottom of `tab-store.ts` that re-projects whenever the focused pane's active tab changes. That
   subscription is not optional bookkeeping — clicking into another pane calls `layout-store.focusPane`
   directly (`TabStrip`/`TabPanelHost` `onPointerDown`), so without it `activeTabId` and
-  `session-store.activeSessionId` kept naming the *previously* focused pane's chat and the status bar
+  `session-store.activeSessionId` kept naming the _previously_ focused pane's chat and the status bar
   showed the wrong conversation's model, context, tokens and cost. Any new focus path (drag commit,
   keyboard pane navigation, close fallback) is covered by the same subscription; it bails unless the
   projected id actually changed, so a divider drag's per-frame mutations stay free.
@@ -482,7 +519,7 @@ entered at runtime, never baked into the image.
   workspace-scoped things (the shortcut target, the status bar's subject — which now follows the
   focused pane, the same way an editor's status bar follows the active editor).
 - **A restored tab finds its pane by identity, not by tab id, and only claims survive a reload.**
-  Panes persist; tabs do not. `usePaneLayoutBoot` installs the record as *pending claims* keyed by
+  Panes persist; tabs do not. `usePaneLayoutBoot` installs the record as _pending claims_ keyed by
   `tabIdentity`, each restore source (`runSessionRestore`, `runTerminalRestore`) reports in a
   `finally`, and at that settle point unconsumed claims are dropped and unclaimed panes pruned — so
   restore is order-independent and a daemon that no longer has an agent/terminal cannot leave a
@@ -490,7 +527,7 @@ entered at runtime, never baked into the image.
   (`agent:<agentId>`), never its client-local session id, which is re-minted on every load; a draft
   whose `createAgent` has not landed has no identity and is deliberately unrestorable.
 - **An unclaimed restore-time arrival must never steal an already-occupied pane.** The two restore
-  hooks race in undefined order, so a terminal or chat with no claim for it can arrive *after* a claim
+  hooks race in undefined order, so a terminal or chat with no claim for it can arrive _after_ a claim
   has already placed something else in the very pane it would otherwise land in (default routing: the
   focused pane). `layout-store.ts`'s `claimPaneFor` tracks this with an explicit `restoring` flag —
   `true` from `installPersistedLayouts` until `markHydrationSource` settles — and while it holds, an
@@ -501,7 +538,7 @@ entered at runtime, never baked into the image.
   that used to force a tab open regardless of any claim — `use-session-restore.ts`'s "open the most
   recent chat" default and `use-terminal-restore.ts`'s "reopen every running terminal" default — are
   now scoped to the arrival's **own** workspace having no persisted layout entry at all; a persisted
-  record for some *other* workspace must never suppress or clobber one that genuinely has none.
+  record for some _other_ workspace must never suppress or clobber one that genuinely has none.
 - **Restore seeds per-workspace facts from the workspace that was IN VIEW, never from the newest agent.**
   `use-session-restore` used to derive the sidebar's expanded group, the file-explorer root and the
   active conversation from `order[0]` — the globally most-recently-active agent — because that predated
@@ -509,16 +546,16 @@ entered at runtime, never baked into the image.
   that reads as "my layout was lost": the panes come back correctly in workspace A while the sidebar
   sits expanded on B. `pendingActiveWorkspace` (captured by `installPersistedLayouts` at boot, cleared
   at the settle point) is that fact, and it must be **captured, not re-read**: `writePaneLayout`
-  persists `activeWorkspaceCwd` from whatever is in view *at write time*, and writes fire throughout
+  persists `activeWorkspaceCwd` from whatever is in view _at write time_, and writes fire throughout
   the restore window, so a later read can get an already-clobbered target. Two things stay keyed on
-  the newest agent on purpose: the task-011 fallback-tab rule (which asks whether *that agent's own*
+  the newest agent on purpose: the task-011 fallback-tab rule (which asks whether _that agent's own_
   workspace has a record — rekeying it on the view target would stop opening it whenever some other
   workspace had been split), and the seed's own fallback when nothing was persisted.
   The active conversation cannot be fixed by seeding alone — every `open()` brings its own workspace
   into view and re-activates its own chat, so any pre-tab seed is overwritten. `switchWorkspace` at the
   settle point syncs it from the focused pane, but `syncActiveSession` deliberately no-ops for a
   terminal/file tab (a terminal has no conversation; blanking the status bar would be worse), which
-  would leave a *foreign* workspace's chat active. `restore-active-workspace.ts` therefore adopts a
+  would leave a _foreign_ workspace's chat active. `restore-active-workspace.ts` therefore adopts a
   chat from the restored workspace as its last step — including when the view was already correct,
   since that says nothing about which conversation is active.
 - **Who reopens a tab depends on who owns it.** Daemon-owned kinds come back from the daemon's
@@ -529,7 +566,7 @@ entered at runtime, never baked into the image.
   the connect form, even though the replay itself needs no RPC), because the persisted **identity is
   already the descriptor** (`file:<path>`, `diff:<staged|worktree>:<path>`, `molecule:<path>`) and
   needs no extra state. `tabFromIdentity` MUST stay the exact inverse of `tabIdentity`: it deliberately
-  does not call `openFileTab`, which *dispatches* on extension and would turn a persisted
+  does not call `openFileTab`, which _dispatches_ on extension and would turn a persisted
   `file:/a/x.cif` into a `molecule` tab, orphan the claim, and prune the pane. Unknown prefixes are
   ignored, never guessed — a record written by a newer client may name kinds this one has never heard of.
 - **Two drag systems coexist on purpose, split by where the gesture STARTS.** A drag beginning on a tab
@@ -546,11 +583,11 @@ entered at runtime, never baked into the image.
   `var(--pane-strip-height)`, and the DOM is the only place those are already combined. Its listeners
   sit on the host, not the zones, because the zones are `pointer-events: none` (they must not swallow
   clicks into the panel beneath). Mid-drag a browser exposes `dataTransfer.types` but not the values,
-  so the *MIME name* carries the kind and the payload is read at `drop` — which is also why a row
+  so the _MIME name_ carries the kind and the payload is read at `drop` — which is also why a row
   outside the workspace in view withholds its MIME entirely instead of being refused at drop time: a
   pane could not tell it apart in time to suppress the preview.
 - **A pane-layout write must never drop a claim that has not been consumed yet.**
-  `writePaneLayout` is otherwise a projection of *live* tabs, and writes fire throughout the restore
+  `writePaneLayout` is otherwise a projection of _live_ tabs, and writes fire throughout the restore
   window — the client-side replay causes one immediately. Seeding `placement`/`activeByPane` from
   `pendingPlacement`/`pendingActive` and layering live tabs on top is what keeps a still-in-flight
   chat's pane in the record; without it the next load has geometry with no claims and the settle point
@@ -560,7 +597,7 @@ entered at runtime, never baked into the image.
   settles…").
 - **Which workspace is in view is persisted state, restored at the settle point.** Pane geometry is
   per workspace, so restoring geometry alone leaves the view to whoever opens the last tab — in
-  practice `use-session-restore`'s `order[0]`, i.e. the most recently active *agent*, which with two
+  practice `use-session-restore`'s `order[0]`, i.e. the most recently active _agent_, which with two
   workspaces open is a coin flip. `restore-active-workspace.ts` switches back to the persisted
   `activeWorkspaceCwd` when hydration settles: earlier is pointless (every `open()` brings its own
   workspace into view and would overwrite it), it is **one-shot** so a user who switches during
@@ -581,12 +618,12 @@ entered at runtime, never baked into the image.
 - **A row's `streaming` flag must never outlive the block it describes.** `AssistantRow`/
   `ReasoningRow` render `row.text` as plain text with a cursor while `streaming` is true and only
   route through `<Markdown>` once it clears — deliberate, since re-parsing markdown + Shiki on
-  every token delta is wasteful. That makes `streaming: false` the *only* thing standing between
+  every token delta is wasteful. That makes `streaming: false` the _only_ thing standing between
   the user and rendered markdown, so `reducer.ts` clears it the moment the row can no longer grow:
   on `assistant_message.final`/`reasoning.final` (the daemon's mapping of Pi's `text_end`/
   `thinking_end`), on the next `tool_call`, on an assistant↔reasoning switch, and on any turn
   boundary. `finalizeRow`/`finalizeStreamingRows` are the single implementation — use them rather
-  than nulling `streamingAssistantIndex`/`streamingReasoningIndex` by hand. Clearing the *index*
+  than nulling `streamingAssistantIndex`/`streamingReasoningIndex` by hand. Clearing the _index_
   alone (what `onToolCall` used to do) strands the row: `turn_completed` only finalizes the index
   it still holds, so every message followed by a tool call rendered as raw markdown source
   forever, including after a reload — `use-session-restore.ts` replays through this same reducer.
@@ -595,7 +632,7 @@ entered at runtime, never baked into the image.
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
-  css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px root, so text
+css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px root, so text
   also tracks the user's own browser/OS zoom. `ThemeBoundary` applies the vars synchronously
   during first render, before paint, which is why the fallbacks are gone: a `var(--x, 13px)`
   fallback is a second, silently-stale copy of the scale (`markdown.module.css` shipped mistyped
@@ -610,7 +647,7 @@ entered at runtime, never baked into the image.
   scales the whole table by `clamp(10..24)/FONT_SIZE_BASE` and silently miscalibrates if the two
   drift apart — which they did the first time `base` was retuned. `applyAppearance` likewise
   derives its key list from `Object.keys(baseFontSize)`, so adding a rung needs no edit there.
-  History worth not repeating: the original scale read too small; a fix converted px→rem *and*
+  History worth not repeating: the original scale read too small; a fix converted px→rem _and_
   enlarged everything ~1.25x in one commit, which overshot; that enlargement was rolled back, and
   the scale then settled at ~1.06x over the original (`4xs`=10 … `base`=17) via ~1.125x. Each of
   those passes before the rewiring was a 77-line shotgun edit purely because the literals were

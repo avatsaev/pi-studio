@@ -3,6 +3,14 @@
   line-height: 1.5;
   color: var(--pi-color-foreground);
   word-break: break-word;
+  /* The parent chat row (`.row` in rows.module.css) sets `white-space: pre-wrap` so plain
+   * streaming text preserves the model's raw newlines verbatim. Once a row finalizes and
+   * switches to this markdown-rendered view, block spacing (paragraphs, lists, headings) is
+   * expressed entirely through element margins — CommonMark soft line breaks are meant to
+   * collapse to a single space like any other prose text. Without resetting this here, every
+   * soft-wrapped source line inherits `pre-wrap` and renders as its own forced line break,
+   * producing the "too much space between paragraphs" look. */
+  white-space: normal;
 }
 .prose > :first-child {
   margin-top: 0;
