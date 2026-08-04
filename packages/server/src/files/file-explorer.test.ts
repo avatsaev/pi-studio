@@ -1,4 +1,5 @@
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -231,6 +232,17 @@ describe("FileExplorerService.writeFile", () => {
     if (!result.ok) throw new Error("unreachable");
     expect(result.size).toBe(Buffer.byteLength("new content"));
     await expect(readFile(target, "utf8")).resolves.toBe("new content");
+  });
+
+  it("preserves the target's permission bits (an edited executable stays executable)", async () => {
+    const target = join(dir, "run.sh");
+    await writeFile(target, "#!/bin/sh\necho old\n");
+    await chmod(target, 0o755);
+    const svc = new FileExplorerService();
+    const result = await svc.writeFile(target, "#!/bin/sh\necho new\n");
+    expect(result.ok).toBe(true);
+    expect((await stat(target)).mode & 0o777).toBe(0o755);
+    await expect(readFile(target, "utf8")).resolves.toBe("#!/bin/sh\necho new\n");
   });
 
   it("returns not_found when the target does not exist (write never creates)", async () => {

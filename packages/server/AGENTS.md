@@ -634,6 +634,12 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   across filesystems). Resolves only the *parent* of each path via `realpath`, then re-joins the
   basename — resolving the full source would follow a symlink to its target instead of moving the
   link itself.
+- `writeFile` / `file_write_request`: overwrite-only atomic save (temp file + `rename`; target must
+  already exist; capped at the inline-read ceiling). Preserves the target's permission bits across
+  the rename (creation `mode` from the pre-write `stat`, then an exact `chmod` on the temp file) so
+  an edited executable script keeps its `+x`. Ownership/xattrs/ACLs are still NOT preserved —
+  accepted scope (UTF-8 content + mode only).
+
 ### Projects / Git subsystem (`projects/`)
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.

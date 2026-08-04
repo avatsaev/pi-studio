@@ -192,6 +192,10 @@ a plain `daemon start` can't force a config file into existence or clobber an al
 relay config. Mirrors `setDaemonPassword`'s read-merge-write shape; only the fields whose env var is
 actually present get overwritten.
 
+Both `setDaemonPassword` and `persistRelayEnvOverrides` write `config.json` through a shared
+`writeConfigFile` helper that enforces owner-only `0600` (the file can carry the daemon password
+hash) — including an explicit `chmod` to re-tighten configs written before this was enforced.
+
 ### `feature` group (`feature-commands.ts`)
 
 `registerFeatureCommands` registers `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,

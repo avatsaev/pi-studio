@@ -264,6 +264,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/file-explorer-move.md](features/file-explorer-move.md)         | feature      | Move/rename files and directories, explorer drag-and-drop                     |
 | [features/subagents.md](features/subagents.md)                           | feature      | Parent/child agents, subagents track, cascade archive                         |
 | [features/cli.md](features/cli.md)                                       | feature      | Commander.js CLI command surface                                              |
+| [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |

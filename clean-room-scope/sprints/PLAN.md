@@ -79,10 +79,17 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 045 | `sprint-045-inline-image-rendering` | web-client + daemon + protocol: **inline images in the chat timeline**. `![alt](path)` in a finalized assistant message renders the real image, with bytes streamed over the existing chunked binary file-transfer path — workspace-relative, absolute, and `~` paths all resolve; remote URLs pass through untouched; non-image extensions and missing files degrade to readable text, never a broken-image glyph. Reuses the seam that already exists (`react-markdown`'s per-tag override map, currently holding only `code`) plus a new ref-counted LRU object-URL cache, because the file-viewer download hook's revoke-on-unmount ownership is wrong under timeline virtualization. Second half: a new client→daemon `inline_image_markdown` capability advertised in `hello` (web-client currently advertises none) that makes the daemon append a short image-rendering instruction to the session's system prompt at create time, so only surfaces that can render images are told to emit them. Also closes two pre-existing defects the feature trips over: `file_download_token_request` never expanded `~` (unlike `file_read_request`), and session **resume** dropped the per-session `systemPrompt`. | 7 |
 | 046 | `sprint-046-file-explorer-move` | web-client + daemon: **drag-and-drop move/rename in the file explorer**. Adds the file surface's first mutation of this kind — a `fs.rename`-shaped `file_move_request` on `FileExplorerService` with all eight rejections decided server-side (`empty_path`, `invalid_name`, `not_found`, `not_a_directory`, `same_path`, `into_descendant`, `exists`, `cross_device`), and **parent-only** symlink resolution so a symlink row moves as the link, not its target. A same-parent destination is a rename, so no second RPC is ever needed for that. Collision is a hard error — never overwrite, never merge. On the client it extends the **native HTML5** drop zone already serving OS-file uploads with an `application/x-pi-studio-path` MIME type (dnd-kit is deliberately not used: it fits `TabStrip`'s flat reordering, not re-parenting into a virtualized tree), puts every legality rule in one pure `resolveMoveTarget`, carries expanded paths + selection to the new prefix via `repathAfterMove`, invalidates exactly the two affected listings, and reopens an open tab at its new path. | 6 |
 | 047 | `sprint-047-file-explorer-rename` | web-client + daemon: **explicit rename in the file explorer**, completing item 9 of the improvements triage. Rename is a same-parent `file_move_request`, so no new RPC is needed — the work is a row-substituting inline editor (`file-tree.ts` replaces the edited row rather than inserting one, keeping `TreeNode` hook-free), sibling `renaming` state in `explorer-store` that is mutually exclusive with the create draft, and a context-menu-only trigger (**no F2** — recorded decision). Extracts `moveDropped`'s post-move sequence into a shared `applyMove` and corrects two defects in it: the daemon-echoed destination was discarded, and diff tabs on the moved path closed **silently** — they now stay closed (a per-path `git diff` after a rename renders the whole file as additions) but the status line reports the count. One daemon fix: `moveEntry` validated the trimmed destination basename but joined the untrimmed one. | 6 |
+| 050 | `sprint-050-connection-resilience` | web-client + client SDK: fix two connection-layer failure modes that browsers impose and this app's core usage pattern (watch long-running agents while doing something else) makes constant. **(a)** Hidden-tab timer throttling stretches the reconnect ladder from sub-second to minute-granularity — fixed by backing `ReconnectionManager`'s backoff with a Web Worker through the `setTimer`/`clearTimer` seam it already exposes for tests, so no SDK change is needed for it. **(b)** A half-open socket after laptop sleep / NAT expiry leaves the UI reading `open` forever, because the web client has **no client→server liveness loop** and socket events are its only inputs — fixed by a `ping` probe fired on tab-visible/network-online that closes the socket (code 4000) when it times out. That probe is the one caller permitted to conclude socket death from a timeout; the reconciliation against invariant 6 (`rpcTimeoutMs` ≠ socket death) is written into the scope and must be commented at the call site. Adds one additive SDK method, `ReconnectionManager.reconnectNow()`, so a resume signal can bypass the remaining backoff rung instead of waiting it out. No protocol, daemon, or persistence change. | 4 |
 
-Total: **47 sprints, 229 tasks** (summed from the table above). The older accounting this line used
+Total: **48 sprints, 233 tasks** (summed from the table above). The older accounting this line used
 to carry (26 sprints / 119 tasks) predated sprints 023–047 and was never updated; recompute from the
 table rather than trusting a hand-maintained figure.
+
+> **Index gap (found while planning sprint 050, not introduced by it):**
+> `sprint-048-workspace-split-panes-model` and `sprint-049-workspace-split-panes-ui` exist on disk
+> with completed tasks but appear in neither the table above nor the task index below, so the
+> totals here exclude them. Reconstructing those two sections from their `done/` folders is a
+> separate housekeeping pass — deliberately not folded into this sprint's planning.
 
 > **UI audit note:** sprints 012–016 (the UI client) were re-audited against the live Paseo reference
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,
@@ -637,6 +644,37 @@ table rather than trusting a hand-maintained figure.
 | task-005 | `TreeRenameRow` (pre-filled, extension excluded from initial selection, Enter/Escape/blur) + `TreeNode` branch + `flattenTree` wiring + `submitRename` through `applyMove` | feature | task-002, task-003, task-004 | packages/web-client (features/files/{TreeRenameRow,TreeNode,FileExplorer}); features/file-explorer-move, file-explorer-improvements |
 | task-006 | Context-menu `Rename` (row variant only, directly above Delete) + eight-check E2E browser verification + docs sync | feature | task-005 | packages/web-client (features/files/FileContextMenu, AGENTS.md); features/file-explorer-improvements, file-explorer-move |
 
+### sprint-050-connection-resilience
+> web-client + client SDK, derived from `features/connection-resilience.md`. Two failure modes that
+> share one trigger surface, so they ship together.
+>
+> **Grounding facts that shaped the task split.** `ReconnectionManager` already accepts injected
+> `setTimer`/`clearTimer` (added for tests), so the throttling half is a *construction-site* change
+> in `connection-store.ts` with no SDK modification — task-002 depends on nothing. The stale-socket
+> half does need an SDK addition (`reconnectNow()`, task-001), because the manager can only move
+> from `closed` toward `open` through its private backoff timer today. Those two are independent
+> and may run concurrently; task-003 consumes both.
+>
+> **The repo's test reality is designed into the plan, not worked around.** Vitest runs in the Node
+> environment with no DOM and no jsdom (a deliberate repo-wide convention — see the
+> `text-viewer-state.ts` / `molecule-reload.ts` pure-core extractions). So the Worker path and the
+> `visibilitychange`/`online` wiring are **not** unit-testable here: tasks 002 and 003 cover their
+> pure cores and fallback branches, and task-004 supplies the live proof. No task may claim
+> coverage it cannot have.
+>
+> Two contract decisions were settled during planning rather than left to the implementer: the
+> resume *signal* is **not** a parameter of `resolveResumeAction` (no decision-table row branches on
+> it — it stays at the wiring layer), and `attachResumeTriggers()` installs at **module scope in
+> `main.tsx`, outside React**, because that file renders under `<StrictMode>` whose dev-mode
+> double-invoked effects would attach two listener sets. Both are reflected back into the scope doc.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `ReconnectionManager.reconnectNow()`: cancel the pending rung, reset the ladder, attempt immediately; guarded on active/in-flight/`closed`, with `attempt: 0` as the forced-reconnect signal | feature | none | packages/client (reconnect, terminal-router.test — the manager's tests live there, there is no `reconnect.test.ts`); features/connection-resilience |
+| task-002 | Worker-backed timers (inline Blob worker, latched `setTimeout` fallback, lazy singleton) injected into `ReconnectionManager` at the `connection-store` construction site | feature | none | packages/web-client (lib/connection/{worker-timers,worker-timers.test,connection-store}); features/connection-resilience |
+| task-003 | Resume triggers: pure `resolveResumeAction` decision core + `visibilitychange`/`online` wiring; immediate reconnect when down, 5 s `ping` probe → close 4000 → reconnect when the socket only looks up | feature | task-001 | packages/web-client (lib/connection/{resume-action,resume-action.test,resume-triggers}, main.tsx); features/connection-resilience |
+| task-004 | Live E2E proof of both failure modes (6 min hidden-tab reconnect, real laptop sleep, disconnect-flap, regression sweep) + docs sync + close the scope's acceptance/TODO items | test + docs | task-001, task-002, task-003 | packages/web-client (AGENTS.md), packages/client (AGENTS.md); features/connection-resilience |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
@@ -661,6 +699,7 @@ Every feature and architecture scope is covered by at least one task.
 | features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
 | features/cli.md | s011/t001-004 |
+| features/connection-resilience.md | s050/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
 | features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render) |
@@ -681,7 +720,7 @@ Every feature and architecture scope is covered by at least one task.
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
-| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003 |
+| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness) |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
 | architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays) |
 | architecture/ssh-gateway-connections.md | s025/t001-005 |
@@ -729,3 +768,7 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Whether the markdown *file* viewer should pass the viewed file's directory as its asset base
       (would make repository README images render inline for free). Behavior is desirable; whether it
       lands with this sprint is open — s045/t004.
+- [ ] Safari/Firefox: whether dedicated-worker timers are exempt from visibility throttling under
+      battery-saver modes (Chromium confirmed; others expected but unverified). Only affects how much
+      of the throttling fix those browsers get — the `setTimeout` fallback keeps them at today's
+      behavior either way — s050/t002,t004.
