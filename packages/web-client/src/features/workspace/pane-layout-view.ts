@@ -156,6 +156,18 @@ export function paneDividers(layout: WorkspacePaneLayout | undefined): Divider[]
   return dividers(rendered);
 }
 
+/**
+ * The pane that owns a tab, from the layout's tab→pane placement — `null` for a tab not yet placed
+ * (a transient state during restore; render call sites fall back to the pre-existing "no target
+ * given" default of whichever pane is globally focused).
+ */
+export function resolveOwningPaneId(
+  tabId: string,
+  layout: WorkspacePaneLayout | undefined,
+): string | null {
+  return layout?.placement[tabId] ?? null;
+}
+
 export function panelBoxes(
   tabs: readonly Tab[],
   activeWorkspaceCwd: string | null,

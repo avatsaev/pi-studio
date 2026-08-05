@@ -45,6 +45,7 @@ import {
   paneDividers,
   paneStyle,
   panelBoxes,
+  resolveOwningPaneId,
 } from "./pane-layout-view.js";
 import { PaneDividers } from "./PaneDividers.js";
 import { useExternalPaneDrop, paneDropProps } from "@pi-studio-ui/hooks/use-external-pane-drop.js";
@@ -176,7 +177,7 @@ export function TabPanelHost() {
               }}
             >
               <Suspense fallback={<Spinner size="md" />}>
-                <Panel tab={tab} />
+                <Panel tab={tab} owningPaneId={resolveOwningPaneId(tab.id, layout)} />
               </Suspense>
             </div>
           );

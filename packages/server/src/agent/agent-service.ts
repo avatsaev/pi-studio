@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
-import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
@@ -15,7 +14,7 @@ import type {
   RunOptions,
 } from "./provider-contract.js";
 import { AgentTimelineStore } from "./timeline-store.js";
-import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
+import { composeSystemPrompt } from "./compose-system-prompt.js";
 
 /**
  * AgentService wires `create_agent_request` + run/turn loop + `agent_stream` broadcast
@@ -147,20 +146,19 @@ export class AgentService {
     if (title && !labels["title"]) labels["title"] = title;
     const clientMessageId = msg.clientMessageId as string | undefined;
     const autoArchive = Boolean(msg.autoArchive);
-
-    // When the creating connection advertised `inline_image_markdown` (task-006, sprint-045),
-    // append the image-rendering instruction to the persisted system prompt — never mutating the
-    // caller's `config`, and never reordering/replacing a caller-supplied prompt: it always comes
-    // first, the instruction always after, separated by a blank line. Absent stays absent when
-    // the capability isn't advertised (e.g. every CLI-created session).
-    const effectiveConfig = wsSession?.supports(CLIENT_CAPS.inline_image_markdown)
-      ? {
-          ...config,
-          systemPrompt: [config.systemPrompt as string | undefined, INLINE_IMAGE_INSTRUCTIONS]
-            .filter(Boolean)
-            .join("\n\n"),
-        }
-      : config;
+    // Compose the system prompt from capability-gated instructions. When the creating connection
+    // advertises capabilities like `inline_image_markdown` or `file_link_markdown`, their
+    // instruction blocks are appended to the persisted system prompt in a stable order, never
+    // mutating the caller's `config`, and never reordering/replacing a caller-supplied prompt:
+    // it always comes first, the instructions always after, separated by a blank line. Absent
+    // stays absent when no capabilities are advertised (e.g. every CLI-created session).
+    const effectiveConfig = {
+      ...config,
+      systemPrompt: composeSystemPrompt(
+        config.systemPrompt as string | undefined,
+        (flag) => wsSession?.supports(flag) ?? false,
+      ),
+    };
 
     // 1. Create the agent record at status "initializing". `config` is persisted verbatim
     // (`AgentRecord.config`) so a deferred draft (no `initialPrompt`, see step 2) can still spawn

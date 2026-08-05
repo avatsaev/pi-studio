@@ -9,6 +9,7 @@ import type { Tab } from "@pi-studio-ui/stores/tab-store.js";
 
 export interface PanelProps {
   tab: Tab;
+  owningPaneId: string | null;
 }
 
 const ChatPanel = lazy(() =>

@@ -58,6 +58,23 @@ export function externalDragKind(types: readonly string[]): ExternalDragKind | n
   return null;
 }
 
+/**
+ * Drag-start handler for a file-path drag source (a `FileLink`/resolved `InlineImage` in the chat
+ * timeline; mirrors the Files tree's own inline `dataTransfer.setData(EXTERNAL_DRAG_MIME.path, …)`
+ * in `FileExplorer.tsx`'s `handleDragStartRow`) — writes the identical `path`-kind payload so a drop
+ * on a pane needs no new drop-side handling. Returned as a closure so the caller supplies `path`
+ * once and the result is a plain `onDragStart` prop; the closure itself has no state, so it is
+ * exercised directly in tests with a minimal fake `DataTransfer` rather than a rendered drag.
+ */
+export function pathDragStartHandler(
+  path: string,
+): (event: { dataTransfer: Pick<DataTransfer, "setData" | "effectAllowed"> }) => void {
+  return (event) => {
+    event.dataTransfer.setData(EXTERNAL_DRAG_MIME.path, path);
+    event.dataTransfer.effectAllowed = "copyMove";
+  };
+}
+
 export interface ExternalDragPayload {
   kind: ExternalDragKind;
   /** A chat's session id, or a file's absolute path. */

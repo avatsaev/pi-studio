@@ -9,7 +9,8 @@
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md)
 
-> **Render stack:** DOM clients only (web-client + the Electron shell that hosts the same bundle).
+> **Render stack:** DOM clients only — web-client today, plus the Electron shell once
+> sprint-033-desktop wires it to host the same bundle (the desktop package is still a placeholder).
 > Markdown rendering is `react-markdown` + `remark-gfm`. Opening the referenced file reuses the
 > existing tab-store "open a path as a tab" dispatch and the existing pane drag-and-drop payload
 > defined in [workspace-split-panes.md](workspace-split-panes.md) § Drag sources. Nothing in this
@@ -59,7 +60,8 @@ Appended to the same client-capability registry `inline_image_markdown` lives in
 same `supports(caps, flag)` helper. Purely additive — a client that omits it behaves exactly as
 today, and a client may advertise either flag, both, or neither independently.
 
-Advertised by: web-client (and therefore the Electron desktop shell). Not advertised by: CLI, MCP.
+Advertised by: web-client (and, once sprint-033-desktop wires it, the Electron desktop shell).
+Not advertised by: CLI, MCP.
 
 ### Markdown link source classification
 
@@ -80,6 +82,7 @@ Deliberately a **two-way** split, simpler than the image classifier's three-way 
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | empty / whitespace                                           | `external`                                                                                                                                    |
 | fragment-only (`#section`, an in-page anchor)                | `external` — MUST NOT be intercepted; agent-authored tables of contents and heading anchors must keep working exactly as plain markdown links |
+| non-empty path with a trailing `#fragment` (`README.md#usage`) | the fragment is stripped and the remainder re-enters this table; the file opens, the anchor is ignored (no heading/line targeting — see § Out of Scope) |
 | `http:` / `https:` scheme                                    | `external`                                                                                                                                    |
 | any other explicit `scheme:` (`mailto:`, `tel:`, `file:`, …) | `external`                                                                                                                                    |
 | starts with `/`                                              | `local`, path used as-is                                                                                                                      |
@@ -93,10 +96,24 @@ see § Known Limitations), and anything that does not resolve to a local candida
 **ordinary, unmodified anchor** rather than fallback text, since a non-file `href` may be a genuinely
 working link and must not be visually degraded.
 
-The scheme/tilde/relative resolution rules are otherwise identical to `classifyImageSrc`'s. An
-implementer SHOULD factor the shared "resolve a scheme/tilde/relative candidate against a base and a
-home dir" step into one function reused by both classifiers rather than duplicating it — the same
-DRY concern inline-image-rendering.md raises for relative-path joining.
+The scheme/tilde/relative resolution rules are otherwise identical to `classifyImageSrc`'s, with two
+additions that are contractual here, not cosmetic:
+
+- **Percent-decoding.** The raw markdown `href` arrives percent-encoded for characters like spaces
+(`my%20notes.md`); a candidate classified `local` is percent-decoded before resolution. External
+hrefs pass through byte-for-byte untouched.
+- **Normalization.** A `local` result MUST be a lexically normalized absolute path — `.` and `..`
+segments collapsed — never a raw join. A tab's identity is `file:<absolute path>`, matched by exact
+string ([workspace-split-panes.md](workspace-split-panes.md) § Tab identity), so an unnormalized
+`/repo/./notes.md` from `[notes](./notes.md)` would never match the `file:/repo/notes.md` tab a
+Files-tree open minted — silently defeating every tab-reuse acceptance criterion below. The shared
+resolver does **not** normalize today (`classifyImageSrc` returns `/repo/./shot.png` for
+`./shot.png` against `/repo`).
+
+An implementer SHOULD factor the shared "resolve a scheme/tilde/relative candidate against a base
+and a home dir" step into one function reused by both classifiers rather than duplicating it — the
+same DRY concern inline-image-rendering.md raises for relative-path joining — and that shared step
+is where normalization is added, so both classifiers gain it together.
 
 ### Click-to-open pane targeting (amends inline-image-rendering.md)
 
@@ -124,6 +141,14 @@ owning pane (the Files tree sidebar, the chat-session sidebar, both of which sit
 It is specifically wrong for a dispatch that originates *from inside* a pane's own rendered content,
 which both this feature and the pre-existing image feature are.
 
+Two implementation notes ride along with this fix. First, the pre-existing inline-image click
+handler does not actually call the shared open-file dispatch today — it hand-rolls a tab-store open
+(always kind `file`, `workspaceCwd: assetBase || "~"`). Applying this contract is the moment to
+converge it onto the same dispatch this feature's link click uses; two parallel open paths is
+exactly the drift this amendment exists to remove. Second, the dispatch's workspace argument is the
+**owning chat tab's workspace cwd** — threaded from the panel host exactly as the owning pane id is
+(§ Pane-owner propagation) — never the `assetBase || "~"` approximation.
+
 ### Drag-to-split
 
 The rendered element (a local file link, and — by the same fix — a resolved inline image) is a drag
@@ -145,7 +170,7 @@ session sidebar.
 An external (non-local) link or a remote image is never a drag source for this payload — dragging one
 falls back to the browser's own default link/image drag behavior, untouched.
 
-## Behavior &amp; Algorithms
+## Behavior & Algorithms
 
 ### Render pipeline
 
@@ -227,7 +252,7 @@ A tab that is not yet placed in any pane (a brand-new tab mid-creation) has no o
 the open-file dispatch's pre-existing "no target given" fallback (the globally focused pane) covers
 that transient case — it never throws or blocks the click.
 
-## Data &amp; Persistence
+## Data & Persistence
 
 - **Client:** no new persisted state. The owning pane id is derived at render time from the layout
 state [workspace-split-panes.md](workspace-split-panes.md) already persists; it is never stored
@@ -238,13 +263,14 @@ No new persisted entity, no schema migration.
 - **Wire:** no new message type, no new binary opcode, no changed field semantics. One added
 capability flag string.
 
-## Error Handling &amp; Edge Cases
+## Error Handling & Edge Cases
 
 
 | Condition                                                               | Expected behavior                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Link resolves to a local path but the file no longer exists             | The tab opens; the file viewer's own missing/unreadable state renders — the same outcome as opening a stale Files-tree entry. No separate error state lives in the link itself                                                                                                                                                       |
 | `href` is `#section` (in-page anchor)                                   | Renders as an ordinary anchor; never intercepted, even with a valid asset base                                                                                                                                                                                                                                                       |
+| `href` is `notes.md#usage` (path + trailing fragment)                   | The fragment is stripped; `notes.md` classifies as any other candidate. The file opens, the anchor is ignored                                                                                                                                                                                                                        |
 | `href` is `mailto:`/`tel:`/another non-http scheme                      | Renders as an ordinary anchor; never intercepted                                                                                                                                                                                                                                                                                     |
 | `href` resolves to a directory                                          | Falls through to the open-file dispatch as any other local path would; the viewer surfaces whatever its own "not a file" state is. See § Known Limitations                                                                                                                                                                           |
 | Relative `href` with no asset base                                      | Renders as an ordinary anchor; not intercepted, no path guessed                                                                                                                                                                                                                                                                      |
@@ -259,8 +285,14 @@ capability flag string.
 ## Known Limitations (accepted)
 
 **Directories are not specially handled.** A link/image resolving to a directory dispatches the same
-open-file action as a file, and the viewer shows whatever its own non-file state already is. A
-"reveal in the Files tree" action for a directory target is a reasonable follow-on, not built here.
+open-file action as a file, and the viewer shows whatever its own non-file state already is. This
+knowingly relaxes a source-side rule [workspace-split-panes.md](workspace-split-panes.md) § Drag
+sources imposes on the Files tree — a directory row must never advertise itself as pane-droppable,
+because a drop target cannot inspect a payload mid-drag. With no existence or type pre-check
+(below), a link cannot know it targets a directory, so a directory-target link *is* draggable here,
+and a drop fills the new split with the viewer's non-file state. Accepted: the outcome is benign,
+and the alternative is exactly the pre-check this scope omits. A "reveal in the Files tree" action
+for a directory target is a reasonable follow-on, not built here.
 
 **Spawn-time instruction binding.** Identical accepted asymmetry to
 [inline-image-rendering.md](inline-image-rendering.md) § Known Limitations: the instruction is fixed
@@ -296,41 +328,32 @@ also pick up, since both flags now share it.
 ## Acceptance Criteria
 
 - [ ] `[label](./notes.md)` in an assistant message with a resolvable asset base renders as an
-
   actionable element, not a plain navigating anchor.
 - [ ] The same with an absolute path and with a `~`-prefixed path renders actionable.
 - [ ] `[docs](https://example.com)` renders as an ordinary external link; no interception.
 - [ ] `[jump](#section)` renders as an ordinary in-page anchor; never intercepted, even with a valid
-
   asset base.
 - [ ] A relative link with no asset base renders as an ordinary anchor, not intercepted.
 - [ ] Clicking an actionable link reuses an already-open tab for the same path rather than opening a
-
-  duplicate.
+  duplicate — including when the link was written `./`-relative and the existing tab was opened
+  from the Files tree (normalization).
 - [ ] Clicking an actionable link opens the file into the pane the clicked message is rendered in and
-
   focuses that pane — never into a different pane that merely happens to be globally focused.
 - [ ] The same pane-targeting behavior is verified for the pre-existing inline-image click-to-open
-
   (regression coverage for the fix, not just the new feature).
 - [ ] Dragging an actionable link onto a pane's edge splits that pane and opens the file into the new
-
   split, identical to dragging the same path from the Files tree.
 - [ ] Dragging an actionable link onto a pane's center region opens/moves into that pane without
-
   splitting.
 - [ ] Dragging an actionable link that already has an open tab elsewhere reuses that tab, following
-
   the same no-duplicate rule a Files-tree drag already follows.
 - [ ] A web-client-created agent session's persisted config contains the file-link instruction
-
   appended after any caller-supplied prompt; a CLI-created session's does not.
 - [ ] A session created by a connection advertising both capabilities has both instruction blocks
-
   appended, in a stable, deterministic order.
 - [ ] `classifyFileLinkSrc` is unit-tested across every row of its classification table, including
-
-  the fragment-only, unknown-scheme, and no-asset-base cases.
+  the fragment-only, path-plus-fragment, unknown-scheme, no-asset-base, percent-encoded, and
+  `.`/`..`-normalization cases.
 - [ ] No new wire message type, binary opcode, or HTTP route was introduced.
 
 ## Out of Scope
@@ -339,7 +362,8 @@ also pick up, since both flags now share it.
 — structured syntax is the contract, exactly as with image syntax.
 - Directory-specific handling (open-as-tab vs. reveal-in-explorer) beyond falling through to the
 existing open-file dispatch.
-- Line-number-targeted opening (`path:42`).
+- Line-number-targeted opening (`path:42`) and heading-anchor targeting — a trailing `#fragment` is
+stripped and ignored, never resolved to a heading position.
 - Non-DOM clients (a future client opts in the same way images do: advertise the flag, implement the
 render half against its own primitives).
 - A modifier-click "open beside" affordance distinct from drag-to-split — drag onto a pane edge is

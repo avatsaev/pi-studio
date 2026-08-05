@@ -25,6 +25,8 @@ export const CLIENT_CAPS = {
   terminal_reflowable_snapshot: "terminal_reflowable_snapshot",
   /** Client renders markdown images (`![alt](path)`) whose target is a local filesystem path. */
   inline_image_markdown: "inline_image_markdown",
+  /** Client renders markdown links (`[label](path)`) whose target is a local filesystem path as an open-file action. */
+  file_link_markdown: "file_link_markdown",
 } as const;
 
 export type ClientCapabilityKey = keyof typeof CLIENT_CAPS;

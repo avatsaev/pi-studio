@@ -3,6 +3,7 @@ import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService, getTimeline } from "./agent-service.js";
 import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
+import { FILE_LINK_INSTRUCTIONS } from "./file-link-instructions.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
@@ -134,9 +135,16 @@ describe("create_agent_request", () => {
     expect(managed?.record.config?.model).toBe("picked-model");
   });
 });
-
-function fakeSession(supportsInlineImages: boolean): { supports: (flag: string) => boolean } {
-  return { supports: (flag) => supportsInlineImages && flag === CLIENT_CAPS.inline_image_markdown };
+function fakeSession(options: { supportsInlineImages?: boolean; supportsFileLinks?: boolean }): {
+  supports: (flag: string) => boolean;
+} {
+  return {
+    supports: (flag) => {
+      if (flag === CLIENT_CAPS.inline_image_markdown) return options.supportsInlineImages ?? false;
+      if (flag === CLIENT_CAPS.file_link_markdown) return options.supportsFileLinks ?? false;
+      return false;
+    },
+  };
 }
 
 describe("inline_image_markdown capability composes the system prompt (task-006)", () => {
@@ -145,7 +153,7 @@ describe("inline_image_markdown capability composes the system prompt (task-006)
     const result = (await service.handleCreate(
       { requestId: "req-cap", config: { provider: "mock", cwd: "/w" } },
       () => [],
-      fakeSession(true) as never,
+      fakeSession({ supportsInlineImages: true }) as never,
     )) as Record<string, unknown>;
     const agentId = (result.payload as Record<string, unknown>).agentId as string;
     expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
@@ -156,7 +164,7 @@ describe("inline_image_markdown capability composes the system prompt (task-006)
     const result = (await service.handleCreate(
       { requestId: "req-nocap", config: { provider: "mock", cwd: "/w" } },
       () => [],
-      fakeSession(false) as never,
+      fakeSession({}) as never,
     )) as Record<string, unknown>;
     const agentId = (result.payload as Record<string, unknown>).agentId as string;
     expect(manager.get(agentId)?.record.config?.systemPrompt).toBeUndefined();
@@ -180,11 +188,74 @@ describe("inline_image_markdown capability composes the system prompt (task-006)
         config: { provider: "mock", cwd: "/w", systemPrompt: "be terse" },
       },
       () => [],
-      fakeSession(true) as never,
+      fakeSession({ supportsInlineImages: true }) as never,
     )) as Record<string, unknown>;
     const agentId = (result.payload as Record<string, unknown>).agentId as string;
     expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(
       `be terse\n\n${INLINE_IMAGE_INSTRUCTIONS}`,
     );
+  });
+});
+
+describe("capability-gated instruction composition (task-005)", () => {
+  it("neither flag advertised: effectiveConfig.systemPrompt === config.systemPrompt (including undefined staying undefined)", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-none", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({}) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBeUndefined();
+  });
+
+  it("only inline_image_markdown advertised: persisted systemPrompt is the instruction (or after caller prompt)", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-image-only", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({ supportsInlineImages: true }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
+  });
+
+  it("only file_link_markdown advertised: persisted systemPrompt contains FILE_LINK_INSTRUCTIONS, not image instruction", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-link-only", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({ supportsFileLinks: true }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(FILE_LINK_INSTRUCTIONS);
+  });
+
+  it("both advertised: both blocks present, in stable order (image, then file-link)", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-both", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({ supportsInlineImages: true, supportsFileLinks: true }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(expected);
+  });
+
+  it("caller-supplied prompt with both capabilities: prompt always first, never mutated/reordered", async () => {
+    const { service, manager } = makeService();
+    const callerPrompt = "be helpful and concise";
+    const result = (await service.handleCreate(
+      {
+        requestId: "req-both-caller",
+        config: { provider: "mock", cwd: "/w", systemPrompt: callerPrompt },
+      },
+      () => [],
+      fakeSession({ supportsInlineImages: true, supportsFileLinks: true }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    const expected = `${callerPrompt}\n\n${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(expected);
   });
 });

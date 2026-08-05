@@ -25,18 +25,32 @@ import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
   session: SessionEntry;
+  owningPaneId: string | null;
+  workspaceCwd: string;
 }
 
 const STICK_THRESHOLD_PX = 40;
 
-function renderRow(row: TimelineRow, assetBase: string | null) {
+function renderRow(
+  row: TimelineRow,
+  assetBase: string | null,
+  owningPaneId?: string | null,
+  workspaceCwd?: string,
+) {
   switch (row.kind) {
     case "user":
       return <UserRow row={row} />;
     case "assistant":
-      return <AssistantRow row={row} assetBase={assetBase} />;
+      return (
+        <AssistantRow
+          row={row}
+          assetBase={assetBase}
+          owningPaneId={owningPaneId}
+          workspaceCwd={workspaceCwd}
+        />
+      );
     case "reasoning":
-      return <ReasoningRow row={row} />;
+      return <ReasoningRow row={row} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />;
     case "tool":
       return <ToolCard row={row} />;
     case "error":
@@ -46,7 +60,7 @@ function renderRow(row: TimelineRow, assetBase: string | null) {
   }
 }
 
-export function Timeline({ session }: TimelineProps) {
+export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps) {
   const rows = session.timeline.rows;
   const running = session.status === "running";
   const homeDir = useHomeDir();
@@ -142,7 +156,7 @@ export function Timeline({ session }: TimelineProps) {
               className={styles.rowWrap}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
-              {renderRow(row, assetBase)}
+              {renderRow(row, assetBase, owningPaneId, workspaceCwd)}
             </div>
           );
         })}

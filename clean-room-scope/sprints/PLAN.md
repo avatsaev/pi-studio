@@ -80,10 +80,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 046 | `sprint-046-file-explorer-move` | web-client + daemon: **drag-and-drop move/rename in the file explorer**. Adds the file surface's first mutation of this kind — a `fs.rename`-shaped `file_move_request` on `FileExplorerService` with all eight rejections decided server-side (`empty_path`, `invalid_name`, `not_found`, `not_a_directory`, `same_path`, `into_descendant`, `exists`, `cross_device`), and **parent-only** symlink resolution so a symlink row moves as the link, not its target. A same-parent destination is a rename, so no second RPC is ever needed for that. Collision is a hard error — never overwrite, never merge. On the client it extends the **native HTML5** drop zone already serving OS-file uploads with an `application/x-pi-studio-path` MIME type (dnd-kit is deliberately not used: it fits `TabStrip`'s flat reordering, not re-parenting into a virtualized tree), puts every legality rule in one pure `resolveMoveTarget`, carries expanded paths + selection to the new prefix via `repathAfterMove`, invalidates exactly the two affected listings, and reopens an open tab at its new path. | 6 |
 | 047 | `sprint-047-file-explorer-rename` | web-client + daemon: **explicit rename in the file explorer**, completing item 9 of the improvements triage. Rename is a same-parent `file_move_request`, so no new RPC is needed — the work is a row-substituting inline editor (`file-tree.ts` replaces the edited row rather than inserting one, keeping `TreeNode` hook-free), sibling `renaming` state in `explorer-store` that is mutually exclusive with the create draft, and a context-menu-only trigger (**no F2** — recorded decision). Extracts `moveDropped`'s post-move sequence into a shared `applyMove` and corrects two defects in it: the daemon-echoed destination was discarded, and diff tabs on the moved path closed **silently** — they now stay closed (a per-path `git diff` after a rename renders the whole file as additions) but the status line reports the count. One daemon fix: `moveEntry` validated the trimmed destination basename but joined the untrimmed one. | 6 |
 | 050 | `sprint-050-connection-resilience` | web-client + client SDK: fix two connection-layer failure modes that browsers impose and this app's core usage pattern (watch long-running agents while doing something else) makes constant. **(a)** Hidden-tab timer throttling stretches the reconnect ladder from sub-second to minute-granularity — fixed by backing `ReconnectionManager`'s backoff with a Web Worker through the `setTimer`/`clearTimer` seam it already exposes for tests, so no SDK change is needed for it. **(b)** A half-open socket after laptop sleep / NAT expiry leaves the UI reading `open` forever, because the web client has **no client→server liveness loop** and socket events are its only inputs — fixed by a `ping` probe fired on tab-visible/network-online that closes the socket (code 4000) when it times out. That probe is the one caller permitted to conclude socket death from a timeout; the reconciliation against invariant 6 (`rpcTimeoutMs` ≠ socket death) is written into the scope and must be commented at the call site. Adds one additive SDK method, `ReconnectionManager.reconnectNow()`, so a resume signal can bypass the remaining backoff rung instead of waiting it out. No protocol, daemon, or persistence change. | 4 |
+| 051 | `sprint-051-file-link-rendering` | web-client + daemon + protocol: **actionable file links in the chat timeline** (`[label](path)` opens the file as a tab), the sibling feature to sprint-045's inline images sharing its capability→instruction→markdown-override shape. Fixes a shared pane-targeting defect along the way — click-to-open (both this feature's and the pre-existing inline-image one) currently lands in whichever pane is globally focused rather than the pane the message is rendered in, because no component between the pane host and a markdown node-override carries a pane id — and fixes a shared classifier gap (`classifyImageSrc`'s `local` results were unnormalized and not percent-decoded, which would have silently broken this feature's tab-reuse acceptance criteria). Drag-to-split reuses the existing Files-tree `path` payload with zero drop-side changes. Generalizes the daemon's single-capability system-prompt ternary into an ordered, N-capability composition so both instructions compose deterministically. | 6 |
 
-Total: **48 sprints, 233 tasks** (summed from the table above). The older accounting this line used
-to carry (26 sprints / 119 tasks) predated sprints 023–047 and was never updated; recompute from the
-table rather than trusting a hand-maintained figure.
+Total: **49 sprints, 239 tasks** (summed from the table above, still excluding 048/049 per the gap
+noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
 > `sprint-048-workspace-split-panes-model` and `sprint-049-workspace-split-panes-ui` exist on disk
@@ -675,13 +675,55 @@ table rather than trusting a hand-maintained figure.
 | task-003 | Resume triggers: pure `resolveResumeAction` decision core + `visibilitychange`/`online` wiring; immediate reconnect when down, 5 s `ping` probe → close 4000 → reconnect when the socket only looks up | feature | task-001 | packages/web-client (lib/connection/{resume-action,resume-action.test,resume-triggers}, main.tsx); features/connection-resilience |
 | task-004 | Live E2E proof of both failure modes (6 min hidden-tab reconnect, real laptop sleep, disconnect-flap, regression sweep) + docs sync + close the scope's acceptance/TODO items | test + docs | task-001, task-002, task-003 | packages/web-client (AGENTS.md), packages/client (AGENTS.md); features/connection-resilience |
 
+### sprint-051-file-link-rendering
+> Sibling to sprint-045: `[label](path)` in a **finalized** assistant markdown block becomes an
+> actionable open-file element, using the identical capability→instruction→markdown-override shape
+> — instead of fetching bytes, a resolved link dispatches the existing "open a path as a tab"
+> primitive. `workspace-split-panes.md` § Drag sources already carries a fourth row for this (a file
+> link or resolved inline image dropped onto a pane), so drag-to-split needs zero drop-side changes
+> — only a source that writes the existing `EXTERNAL_DRAG_MIME.path` payload the Files tree already
+> defines.
+>
+> **Two shared defects this feature's review surfaced, both fixed here, both benefiting the
+> pre-existing inline-image feature too.** (1) Nothing between `TabPanelHost` and a markdown
+> node-override carries a pane id — `TabPanelHost.tsx` computes the tab's owning pane
+> (`layout.placement[tab.id]`) for its focus handler but never passes it downstream, so every
+> open-file dispatch (including today's inline-image click) falls back to whichever pane merely
+> happens to be globally focused. task-002 threads `owningPaneId` through the whole render chain;
+> task-003 is where both this feature's link click and `InlineImage`'s click (converged onto the
+> same `openFileTab` dispatch it should have been calling all along) start reading it. (2)
+> `classifyImageSrc`'s `local` results were never normalized or percent-decoded
+> (`./shot.png` against `/repo` returns `/repo/./shot.png`, unchanged since sprint-045) — harmless
+> for images, but fatal for this feature's tab-reuse acceptance criteria, since tab identity is
+> `file:<absolute path>` matched by exact string. task-001 fixes it in the one shared resolver both
+> classifiers now call.
+>
+> **Capability composition generalizes from one flag to N.** `agent-service.ts` hardcodes a single
+> `?:` for `inline_image_markdown` today; task-005 replaces it with an ordered
+> `CAPABILITY_INSTRUCTIONS` list (`composeSystemPrompt`) so which instruction blocks land, and in
+> what order, is deterministic regardless of which capability subset a connection advertised — the
+> existing image instruction moves onto the new mechanism rather than being left beside a second
+> ad hoc branch.
+>
+> No new RPC, no new binary opcode, no HTTP route, no protocol message schema — one capability
+> string, reusing every existing dispatch/payload primitive.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Shared candidate-resolution step (extracted from `classifyImageSrc`, joins via existing `lib/paths.ts` `resolveWorkspacePath`) + normalization/percent-decoding fix + pure `classifyFileLinkSrc` | feature + bugfix | none | packages/web-client (lib/paths, timeline/{href-resolution,file-link-src,file-link-src.test,image-src,image-src.test,markdown.test}); features/file-link-rendering, inline-image-rendering |
+| task-002 | `owningPaneId` + `workspaceCwd` propagation: `TabPanelHost` → `ChatPanel` → `Timeline` → `AssistantRow`/`ReasoningRow` → `Markdown` (pre-existing pane-targeting defect fix) | bugfix | none | packages/web-client (features/workspace/{TabPanelHost,panel-registry,pane-layout-view}, features/chat/{ChatPanel,Timeline,rows/AssistantRow,rows/ReasoningRow}, timeline/markdown); features/file-link-rendering, inline-image-rendering, workspace-split-panes |
+| task-003 | `FileLink` component + `a` markdown override + converged click-to-open dispatch (`InlineImage` moves onto shared `openFileTab`, both now pane-targeted) | feature | task-001, task-002 | packages/web-client (timeline/{FileLink,markdown,InlineImage}); features/file-link-rendering, inline-image-rendering |
+| task-004 | Drag-to-split source wiring: `FileLink`/`InlineImage` write the existing `EXTERNAL_DRAG_MIME.path` payload on `dragstart`, zero drop-side changes | feature | task-003 | packages/web-client (timeline/{FileLink,InlineImage}); features/file-link-rendering, workspace-split-panes |
+| task-005 | `CLIENT_CAPS.file_link_markdown` + web-client advertisement + `composeSystemPrompt` (ordered N-capability composition, replacing the single-flag ternary) + `file-link-instructions.ts` | feature | none | packages/protocol (client-capabilities); packages/web-client (lib/connection/connection-store); packages/server (agent/{agent-service,compose-system-prompt,file-link-instructions,create-run.test}, daemon/bootstrap.test); features/file-link-rendering, inline-image-rendering, agent-sessions; architecture/websocket-protocol |
+| task-006 | E2E browser verification against the spec's full acceptance-criteria list + docs sync (protocol/server/web-client AGENTS.md) | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (protocol, server, web-client); features/file-link-rendering |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
 
 | Scope file | Covered by |
 |------------|-----------|
-| features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition) |
+| features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition), s051/t005 (generalized N-capability composition) |
 | features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt) |
 | features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001 |
 | features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004 |
@@ -703,8 +745,9 @@ Every feature and architecture scope is covered by at least one task.
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
 | features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render) |
-| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render); s045/t004 (`img` markdown override) |
-| features/inline-image-rendering.md | s045/t001-007 |
+| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render); s045/t004 (`img` markdown override), s051/t003 (`a` markdown override) |
+| features/inline-image-rendering.md | s045/t001-007; s051/t001-003 (amended: normalized/decoded classifier, pane-targeted click-to-open) |
+| features/file-link-rendering.md | s051/t001-006 |
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
 | features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
@@ -714,7 +757,7 @@ Every feature and architecture scope is covered by at least one task.
 | features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004 |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |

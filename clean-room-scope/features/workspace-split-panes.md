@@ -94,6 +94,11 @@ Two source-side restrictions exist because a drop target cannot inspect a drag's
 directory row (there is no directory tab), MUST NOT advertise themselves as pane-droppable at all.
 Refusing at drop time instead would preview an outcome that then does not happen.
 
+These restrictions apply to *rows* — sources that know what they point at. A chat-message file link
+([file-link-rendering.md](file-link-rendering.md)) performs no existence or type pre-check by
+design, so it cannot honor the directory restriction; that accepted relaxation is documented in
+that doc's § Known Limitations.
+
 ### Persisted layout record
 
 One **versioned** record per client, holding an entry per workspace:

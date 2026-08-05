@@ -9,15 +9,19 @@
  */
 
 import { detectViewerKind } from "@pi-studio-ui/features/files/viewer-registry.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
+import { resolveHrefCandidate } from "./href-resolution.js";
 
 export type ImageSrcClassification =
   | { kind: "remote" }
   | { kind: "local"; path: string }
   | { kind: "unresolvable" };
 
-const REMOTE_SCHEMES = new Set(["http:", "https:", "data:", "blob:"]);
+const REMOTE_SCHEMES: Record<string, true> = {
+  "http:": true,
+  "https:": true,
+  "data:": true,
+  "blob:": true,
+};
 
 /** Matches a leading `scheme:` (e.g. `http:`, `file:`, `mailto:`) — not a Windows drive letter
  *  (`C:\...`) or a bare `:` with no scheme name. */
@@ -52,19 +56,14 @@ export function classifyImageSrc(
   const schemeMatch = SCHEME_RE.exec(stripped);
   if (schemeMatch) {
     const scheme = `${schemeMatch[1]!.toLowerCase()}:`;
-    return REMOTE_SCHEMES.has(scheme) ? { kind: "remote" } : { kind: "unresolvable" };
+    return scheme in REMOTE_SCHEMES ? { kind: "remote" } : { kind: "unresolvable" };
   }
 
-  let candidate: string | null;
-  if (stripped.startsWith("/")) {
-    candidate = stripped;
-  } else if (stripped === "~" || stripped.startsWith("~/")) {
-    candidate = homeDir ? normalizeCwd(stripped, homeDir) : null;
-  } else {
-    candidate = resolveWorkspacePath(stripped, base ?? "");
-  }
-
+  // Use the shared resolution step: resolves path, applies normalization + percent-decoding
+  const candidate = resolveHrefCandidate(src, base, homeDir);
   if (!candidate) return { kind: "unresolvable" };
+
+  // Image-specific gate: must be an image extension
   if (detectViewerKind(candidate) !== "image") return { kind: "unresolvable" };
   return { kind: "local", path: candidate };
 }

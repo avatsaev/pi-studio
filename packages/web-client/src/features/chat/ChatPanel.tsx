@@ -14,9 +14,10 @@ import styles from "./ChatPanel.module.css";
 
 export interface ChatPanelProps {
   tab: Tab;
+  owningPaneId: string | null;
 }
 
-export function ChatPanel({ tab }: ChatPanelProps) {
+export function ChatPanel({ tab, owningPaneId }: ChatPanelProps) {
   // `panel-registry.ts` only ever mounts this component for `tab.kind === "chat"`, whose `data`
   // is always `ChatTabData` — narrowed here since `Tab["data"]` is a union at the type level.
   const { sessionId } = tab.data as ChatTabData;
@@ -34,7 +35,7 @@ export function ChatPanel({ tab }: ChatPanelProps) {
 
   return (
     <Panel>
-      <Timeline session={session} />
+      <Timeline session={session} owningPaneId={owningPaneId} workspaceCwd={tab.workspaceCwd} />
       <Composer sessionId={session.id} />
     </Panel>
   );

@@ -108,7 +108,7 @@ sees a textless `assistant_message` and no-ops on it.
 
 | Export | Description |
 |--------|-------------|
-| `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown` — flags the client advertises in `hello.capabilities` |
+| `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown` — flags the client advertises in `hello.capabilities` |
 | `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 

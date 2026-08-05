@@ -10,9 +10,11 @@ import styles from "./rows.module.css";
 
 export interface ReasoningRowProps {
   row: ReasoningRowModel;
+  owningPaneId?: string | null;
+  workspaceCwd?: string | null;
 }
 
-export function ReasoningRow({ row }: ReasoningRowProps) {
+export function ReasoningRow({ row, owningPaneId = null, workspaceCwd = null }: ReasoningRowProps) {
   return (
     <div className={`${styles.row} ${styles.reasoning}`}>
       <span className={styles.who}>thinking</span>
@@ -22,7 +24,7 @@ export function ReasoningRow({ row }: ReasoningRowProps) {
           <span className={styles.cursor}>▍</span>
         </span>
       ) : (
-        <Markdown text={row.text} />
+        <Markdown text={row.text} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />
       )}
     </div>
   );

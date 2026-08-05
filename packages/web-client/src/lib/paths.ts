@@ -32,3 +32,42 @@ export function relativeToRoot(path: string, root: string): string {
   if (!root || !path.startsWith(root)) return path;
   return path.slice(root.length).replace(/^\/+/, "");
 }
+
+
+/**
+ * Lexically collapses `.` and `..` segments in an absolute path without filesystem access.
+ * Handles each segment in order, appending to a stack and popping for `..` (unless already at root).
+ * Returns the normalized path. Input must be absolute (starts with `/`).
+ *
+ * Examples:
+ * - `/repo/./notes.md` → `/repo/notes.md`
+ * - `/repo/a/../notes.md` → `/repo/notes.md`
+ * - `/repo/a/../../notes.md` → `/notes.md`
+ * - `/../notes.md` → `/notes.md` (leading `..` clamped to root)
+ */
+export function collapseDotSegments(path: string): string {
+  if (!path.startsWith("/")) {
+    return path; // Not absolute; return unchanged
+  }
+
+  const segments = path.split("/");
+  const stack: string[] = [];
+
+  for (const segment of segments) {
+    if (segment === "" || segment === ".") {
+      // Empty segments (from leading `/` or double `//`) and `.` are ignored
+      continue;
+    } else if (segment === "..") {
+      // Pop the last non-root segment if available
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      // else: already at root, ignore extra `..`
+    } else {
+      // Regular segment
+      stack.push(segment);
+    }
+  }
+
+  return "/" + stack.join("/");
+}
