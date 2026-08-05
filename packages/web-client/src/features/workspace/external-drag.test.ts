@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_DRAG_MIME,
   externalDragKind,
+  pathDragStartHandler,
   readExternalDrag,
   resolveExternalDropRegion,
 } from "./external-drag.js";
@@ -103,5 +104,38 @@ describe("resolveExternalDropRegion", () => {
     };
     expect(resolveExternalDropRegion(deep, "D", { x: 110, y: 350 }, BODY)).toBe("left");
     expect(resolveExternalDropRegion(deep, "D", { x: 300, y: 490 }, BODY)).toBe("center");
+  });
+});
+
+/** A `DataTransfer` stand-in that only needs `setData`/`effectAllowed`, matching
+ * `pathDragStartHandler`'s minimal event shape. */
+function fakeDataTransfer() {
+  const written: Record<string, string> = {};
+  return {
+    written,
+    dataTransfer: {
+      setData: (mime: string, value: string) => {
+        written[mime] = value;
+      },
+      effectAllowed: "none" as DataTransfer["effectAllowed"],
+    },
+  };
+}
+
+describe("pathDragStartHandler", () => {
+  it("writes the path-kind payload and sets a copy/move effect (FileLink, InlineImage drag sources)", () => {
+    const { written, dataTransfer } = fakeDataTransfer();
+    pathDragStartHandler("/repo/notes.md")({ dataTransfer });
+    expect(written).toEqual({ [EXTERNAL_DRAG_MIME.path]: "/repo/notes.md" });
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
+  });
+
+  it("is a fresh closure per path — two handlers for two paths never cross-write", () => {
+    const a = fakeDataTransfer();
+    const b = fakeDataTransfer();
+    pathDragStartHandler("/repo/a.md")({ dataTransfer: a.dataTransfer });
+    pathDragStartHandler("/repo/b.md")({ dataTransfer: b.dataTransfer });
+    expect(a.written).toEqual({ [EXTERNAL_DRAG_MIME.path]: "/repo/a.md" });
+    expect(b.written).toEqual({ [EXTERNAL_DRAG_MIME.path]: "/repo/b.md" });
   });
 });

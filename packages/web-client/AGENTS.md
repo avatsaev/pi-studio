@@ -125,7 +125,11 @@ src/
                            timeline/image-src.ts's relative-path branch); dirOf (parent directory
                            of an absolute path) and relativeToRoot (strip a workspace root prefix)
                            — file-explorer quick-wins-1, used by FileContextMenu.tsx's Copy Path
-                           actions and FileExplorer.tsx's selected-directory targeting
+                           actions and FileExplorer.tsx's selected-directory targeting;
+                           collapseDotSegments (sprint-051) — lexical `.`/`..` segment collapser,
+                           no filesystem access, applied by timeline/href-resolution.ts's shared
+                           classifier-resolution step (never by resolveWorkspacePath itself, which
+                           stays byte-identical for its existing callers)
   lib/clipboard.ts         copyText — Clipboard-API write with an execCommand("copy") fallback
                            for non-secure-context LAN access (file-explorer quick-wins-1)
   lib/inline-image-cache.ts ref-counted, LRU-bounded (32-entry) object-URL cache for inline chat
@@ -178,14 +182,24 @@ src/
                            pane tree, tab→pane `placement`, per-pane active tabs, focused pane,
                            plus the restore claim/settle-point machinery — sprint-048) (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
-                           (react-markdown wrapper; `img` node → InlineImage), InlineImage
-                           (task-004 sprint-045 — the `![alt](src)` renderer: remote passthrough,
-                           local fetch via use-inline-image, click-to-open a file tab),
-                           inline-image-view (selectInlineImageView — pure render-decision
-                           selector InlineImage switches on, extracted per the no-jsdom
-                           convention below), highlight, image-src (classifyImageSrc — pure
-                           markdown image-source classification: remote/local/unresolvable,
-                           task-002 sprint-045) (+ tests)
+                           (react-markdown wrapper; `img` node → InlineImage, `a` node → FileLink),
+                           InlineImage (task-004 sprint-045, click/drag wiring converged in
+                           sprint-051 — the `![alt](src)` renderer: remote passthrough, local fetch
+                           via use-inline-image, click-to-open + drag-to-split via the shared
+                           file-open-target/external-drag helpers), FileLink (sprint-051 — the
+                           `[label](href)` renderer: external passthrough, local click-to-open +
+                           drag-to-split, sibling to InlineImage), inline-image-view
+                           (selectInlineImageView — pure render-decision selector InlineImage
+                           switches on, extracted per the no-jsdom convention below),
+                           href-resolution (resolveHrefCandidate — the scheme/tilde/relative
+                           resolution step image-src and file-link-src share; normalizes via
+                           lib/paths.ts's collapseDotSegments and percent-decodes, sprint-051),
+                           file-open-target (resolveFileOpenTarget — pure workspaceCwd/targetPaneId
+                           resolution FileLink and InlineImage's click handlers share, sprint-051),
+                           highlight, image-src (classifyImageSrc — pure markdown image-source
+                           classification: remote/local/unresolvable, task-002 sprint-045),
+                           file-link-src (classifyFileLinkSrc — pure markdown link-source
+                           classification: local/external, sprint-051) (+ tests)
   hooks/                   use-connection (boot), use-pane-layout (usePaneLayoutBoot — installs the
                            persisted layouts as pending claims, replays the client-side tabs
                            (reopen-client-tabs.ts), and wires the persistence writer; MUST run after
@@ -340,7 +354,8 @@ src/
                             the current name, selects the basename without its extension on mount
                             (whole name for a directory or a dotfile), Enter/Escape/blur — reused
                             by `TreeNode`'s `row.kind === "rename"` branch, sprint-047),
-                            FileContextMenu (row menu: Open / Open in MolViewer (files only) / New
+                            FileContextMenu (row menu: Open / Open in MolViewer (files only) /
+                            Open as Text (molecule files only) / New
                             File/New Folder (directories) / Copy Absolute Path / Copy Relative Path
                             / Download (files) / Rename / Delete — Rename sits directly above
                             Delete and triggers ONLY from this menu, never a keyboard shortcut (no
@@ -352,9 +367,12 @@ src/
                             "open a path as a tab" dispatch used by FileExplorer's row click,
                             FileContextMenu's Open action, and a Files-tree→pane drop, so all three
                             agree on the molecule-vs-file kind — file-explorer quick-wins-1; also
-                            exports `openMoleculeTab`, the forced-molecule variant used by
-                            FileContextMenu's "Open in MolViewer" action (files only) to hand any
-                            file to molviewer regardless of `isMoleculeFile`. Both take an optional
+                            exports the two forced variants that skip that dispatch:
+                            `openMoleculeTab` (FileContextMenu's "Open in MolViewer", files only —
+                            hands any file to molviewer regardless of `isMoleculeFile`) and
+                            `openTextTab` (FileContextMenu's "Open as Text", molecule files only —
+                            opens a `kind: "file"` tab so `detectViewerKind` routes the molecule
+                            path to `TextViewer`). All three take an optional
                             `targetPaneId`), create-entry.ts (shared
                             `file_create_request` caller + error-code messages, used by
                             FileExplorer's tree draft and OpenWorkspaceDialog's "new folder"
@@ -690,8 +708,12 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
 - **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
   `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
   molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at
-  **tab-open time** in `FileExplorer.tsx`'s `handleOpenFile` via `isMoleculeFile(path)`
-  (`viewer-registry.ts`) — NOT inside `FilePanel` or as a new `ViewerKind` entry. Supported
+  **tab-open time** in `open-file-tab.ts`'s `openFileTab` via `isMoleculeFile(path)`
+  (`viewer-registry.ts`) — NOT inside `FilePanel` or as a new `ViewerKind` entry. Either side is
+  overridable per open from the row context menu ("Open in MolViewer" / "Open as Text"), and both
+  tabs may be open on one path at once — `tabIds.file` (`file-<path>`) and `tabIds.molecule`
+  (`mol-<path>`) are separate id namespaces, which is also why `tabFromIdentity` must not
+  re-dispatch (see § Invariants "Who reopens a tab"). Supported
   formats: `MOLECULE_EXTENSIONS` (pdb, mol, mol2, cif, mmcif, xyz, extxyz, gro, lammpstrj, xsf —
   10 formats) + `MOLECULE_FILENAMES` (poscar, contcar — extension-less, matched by basename);
   LAMMPS `data` files are deliberately excluded (no fixed extension, would require async
@@ -820,14 +842,62 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   it, so every relative image path there classifies `unresolvable` and is never fetched. The
   actual remote/loading/ready/error render decision is extracted into a pure
   `timeline/inline-image-view.ts#selectInlineImageView` (this package's no-jsdom convention below)
-  rather than tested by rendering `InlineImage.tsx` itself. A `ready` image is clickable → opens
-  the file in a tab via `useTabStore`'s `open` (same shape as `FileExplorer.tsx`'s
-  `handleOpenFile`), `workspaceCwd: assetBase || "~"`. **Capability gate (task-006):**
-  `connection-store.ts` advertises `CLIENT_CAPS.inline_image_markdown` in every `hello` frame
-  unconditionally (not feature-detected) — the daemon composes an image-rendering instruction into
-  a NEW agent's system prompt only when it sees this flag on the creating connection
-  (`packages/server/AGENTS.md` § Agent subsystem); the web-client side of this feature is just
-  "always tell the daemon we can render `![](path)`," nothing here reads the flag back.
+  rather than tested by rendering `InlineImage.tsx` itself. A `ready` image is a click-to-open AND
+  drag-to-split source: click dispatches through the shared `openFileTab` primitive (converged onto
+  it in sprint-051, replacing an earlier hand-rolled `useTabStore.getState().open(...)` call), and
+  drag writes the `EXTERNAL_DRAG_MIME.path` payload via `pathDragStartHandler` — both via the
+  `timeline/file-open-target.ts#resolveFileOpenTarget`/`workspace/external-drag.ts` helpers § File
+  link rendering below documents in full (this section's own render/click/drag mechanics are that
+  section's, applied to images instead of links). **Capability gate:** `connection-store.ts`
+  advertises `CLIENT_CAPS.inline_image_markdown` in every `hello` frame unconditionally (not
+  feature-detected) — the daemon composes an image-rendering instruction into a NEW agent's system
+  prompt only when it sees this flag on the creating connection, alongside the file-link
+  instruction when `file_link_markdown` is also advertised (`packages/server/AGENTS.md` § Agent
+  subsystem); the web-client side of this feature is just "always tell the daemon we can render
+  `![](path)`," nothing here reads the flag back.
+- **File link rendering (sprint-051, tasks 1-6 — fully wired).** Sibling to inline image rendering:
+  `[label](path)` in a finalized assistant markdown block becomes an actionable open-file element
+  instead of a plain navigating anchor. `timeline/href-resolution.ts#resolveHrefCandidate` is the
+  step both this feature's `timeline/file-link-src.ts#classifyFileLinkSrc` and
+  `timeline/image-src.ts#classifyImageSrc` now share for scheme detection, `~`/relative resolution
+  (via `normalizeCwd`/`lib/paths.ts#resolveWorkspacePath` — never reimplemented), normalization
+  (`lib/paths.ts#collapseDotSegments`, a lexical `.`/`..` collapser with no filesystem access), and
+  percent-decoding (`decodeURIComponent`, malformed sequences kept raw rather than throwing).
+  `classifyFileLinkSrc(href, base, homeDir)` is a two-way split — simpler than the image
+  classifier's three-way one: no extension gate (a directory-shaped path still classifies `local`),
+  and anything that isn't a resolved local candidate is `external` outright (never a degraded
+  fallback, since a non-file `href` may be a genuinely working link) — a fragment-only href
+  (`#section`) is `external` too, so in-page anchors are never intercepted.
+  **Render layer:** `timeline/FileLink.tsx` is `markdown.tsx`'s `a` node override, threaded the
+  same `assetBase`/`owningPaneId`/`workspaceCwd` props as the `img` override. `external` renders a
+  plain, unmodified `<a>`; `local(path)` renders an actionable, draggable one.
+  **Converged click-to-open + pane targeting:** both `FileLink` and `InlineImage` dispatch through
+  `openFileTab` (`features/files/open-file-tab.ts`, the same primitive the Files tree and its
+  context menu use) with arguments from one shared pure function,
+  `timeline/file-open-target.ts#resolveFileOpenTarget(assetBase, owningPaneId, workspaceCwd)` —
+  `workspaceCwd` prefers the owning chat tab's real cwd over the `assetBase || "~"` approximation
+  (which now only applies on markdown surfaces rendered outside any tab), and a `null` owningPaneId
+  becomes `undefined`, matching `openFileTab`'s `targetPaneId` contract and falling back to
+  whichever pane is globally focused. **Pane-owner propagation:** `owningPaneId`/`workspaceCwd` are
+  threaded top-down as plain props — `TabPanelHost` resolves a tab's pane id via
+  `features/workspace/pane-layout-view.ts#resolveOwningPaneId(tabId, layout)` (this file's home for
+  `TabPanelHost`'s testable render decisions) and passes it into `PanelProps`; `ChatPanel` forwards
+  it plus `tab.workspaceCwd` into `Timeline`; `Timeline#renderRow` forwards both into
+  `AssistantRow`/`ReasoningRow`, which forward them into `Markdown`, which passes them to both the
+  `img` and `a` overrides. Every layer from `TabPanelHost` through `Timeline` requires a real,
+  non-optional value (the panel host always has one to give); `AssistantRow`/`ReasoningRow`/
+  `MarkdownProps`/`InlineImageProps` stay optional, `null`-defaulted, since `react-markdown` may
+  omit props at that boundary. **Drag-to-split:** a `local` `FileLink` and a `ready` `InlineImage`
+  are both native-HTML5 drag sources via `features/workspace/external-drag.ts#pathDragStartHandler`
+  — one shared closure writing the identical `EXTERNAL_DRAG_MIME.path` payload a Files-tree row
+  drag writes (`FileExplorer.tsx#handleDragStartRow`), so `use-external-pane-drop.ts`'s existing
+  generic `path`-kind drop handling needs no changes. An `external` link or a remote image is never
+  a drag source for this payload — the browser's own default drag behavior applies unmodified.
+  **Capability gate:** `connection-store.ts` advertises `CLIENT_CAPS.file_link_markdown`
+  unconditionally, alongside `inline_image_markdown`, same pattern — see
+  `packages/server/AGENTS.md` § Agent subsystem for the daemon-side `composeSystemPrompt`
+  composition both flags now share.
+
 - **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current

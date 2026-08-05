@@ -37,10 +37,15 @@ src/
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
     agent-service.ts              AgentService — RPC handler wiring for agent operations.
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
-                                   `handleCreate` appends to `config.systemPrompt` when the
-                                   creating connection advertised `inline_image_markdown`
-                                   (task-006, sprint-045); bound at spawn time only (see its own
-                                   header comment for the accepted limitation).
+                                   for markdown image rendering (task-006, sprint-045); bound at
+                                   spawn time only (see its own header comment for the accepted
+                                   limitation).
+    file-link-instructions.ts     FILE_LINK_INSTRUCTIONS — the sibling instruction for markdown
+                                   file-link rendering (sprint-051), same spawn-time-binding caveat.
+    compose-system-prompt.ts      CAPABILITY_INSTRUCTIONS (ordered flag -> instruction list) +
+                                   composeSystemPrompt(callerPrompt, supports) — generalizes the
+                                   single-flag ternary `handleCreate` used to run into an
+                                   N-capability, order-stable composition (sprint-051).
     provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral).
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id.
     provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
@@ -266,20 +271,25 @@ src/
   which is a `createSession`, not a resume. No protocol schema exists for
   `list_agents_request`/`response` at all — it is, and remains, an untyped ad hoc RPC on both
   server and client.
-- **Inline-image capability composes the system prompt at create time** (`handleCreate`,
-  task-006 sprint-045): `registerHandlers` passes the RPC's own `ctx.session` into `handleCreate`
-  as `wsSession` (named to avoid colliding with the function's existing `session: AgentSession`
-  local for the spawned provider session). When `wsSession?.supports(CLIENT_CAPS.
-  inline_image_markdown)`, `handleCreate` builds an `effectiveConfig` — a NEW object, never a
-  mutation of the incoming `msg.config` — whose `systemPrompt` is `[callerPrompt,
-  INLINE_IMAGE_INSTRUCTIONS].filter(Boolean).join("\n\n")`: a caller-supplied prompt is always
-  preserved verbatim and always comes first, the instruction is always appended after, separated
-  by a blank line. `effectiveConfig` (not the raw `config`) is what both the persisted
-  `AgentRecord.config` AND the eager-spawn path's `client.createSession(...)` call use, so a
-  same-turn immediate spawn and a later `spawnOrResumeSession` replay both see the composed
-  value. No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at
-  hand) → `effectiveConfig === config`, untouched. Task-005 (below) is what makes the composed
-  value survive a daemon restart: `resumeSession` reads it back via `overrides.systemPrompt`.
+- **Capability-gated instructions compose the system prompt at create time** (`handleCreate`,
+  generalized in sprint-051 from task-006 sprint-045's single-flag form): `registerHandlers` passes
+  the RPC's own `ctx.session` into `handleCreate` as `wsSession` (named to avoid colliding with the
+  function's existing `session: AgentSession` local for the spawned provider session).
+  `handleCreate` calls `composeSystemPrompt(config.systemPrompt, (flag) => wsSession?.supports(flag)
+  ?? false)`, which walks `compose-system-prompt.ts`'s ordered `CAPABILITY_INSTRUCTIONS` list
+  (`inline_image_markdown` → `INLINE_IMAGE_INSTRUCTIONS`, then `file_link_markdown` →
+  `FILE_LINK_INSTRUCTIONS`) and appends every block whose flag `wsSession` advertises, in that
+  fixed order regardless of the `hello` frame's own declaration order. The result becomes
+  `effectiveConfig` — a NEW object, never a mutation of the incoming `msg.config`: a caller-supplied
+  prompt is always preserved verbatim and always comes first, matching blocks are appended after,
+  separated by a blank line; zero matching flags returns the caller prompt unchanged (including
+  `undefined` staying `undefined`). `effectiveConfig` (not the raw `config`) is what both the
+  persisted `AgentRecord.config` AND the eager-spawn path's `client.createSession(...)` call use, so
+  a same-turn immediate spawn and a later `spawnOrResumeSession` replay both see the composed value.
+  No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at hand) →
+  every flag check returns `false` → `effectiveConfig.systemPrompt === config.systemPrompt`,
+  untouched. Task-005 (below) is what makes the composed value survive a daemon restart:
+  `resumeSession` reads it back via `overrides.systemPrompt`.
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.

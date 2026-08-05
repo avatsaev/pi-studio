@@ -6,6 +6,7 @@ import {
   panelBoxes,
   paneStyle,
   percent,
+  resolveOwningPaneId,
 } from "./pane-layout-view.js";
 import { createPaneLayout, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
@@ -229,5 +230,28 @@ describe("panelBoxes", () => {
     expect(occupiedPaneRects(layoutOf()).get(right)!.width).toBeCloseTo(0.3);
     expect(after[0]!.style).toMatchObject({ width: "70%" });
     expect(after[1]!.style).toMatchObject({ left: "70%", width: "30%" });
+  });
+});
+
+describe("resolveOwningPaneId", () => {
+  it("maps a placed tab to its pane id", () => {
+    useTabStore.getState().open(chatTab("chat-1"));
+    const pane = layoutOf().focusedPaneId;
+    expect(resolveOwningPaneId("chat-1", layoutOf())).toBe(pane);
+  });
+
+  it("returns null for a tab absent from the layout's placement", () => {
+    useTabStore.getState().open(chatTab("chat-1"));
+    expect(resolveOwningPaneId("chat-unplaced", layoutOf())).toBe(null);
+  });
+
+  it("returns null when the layout itself is undefined", () => {
+    expect(resolveOwningPaneId("chat-1", undefined)).toBe(null);
+  });
+
+  it("maps tabs in a split layout to their respective panes", () => {
+    const { left, right } = twoPanes(["chat-1", "chat-2"]);
+    expect(resolveOwningPaneId("chat-1", layoutOf())).toBe(left);
+    expect(resolveOwningPaneId("chat-2", layoutOf())).toBe(right);
   });
 });

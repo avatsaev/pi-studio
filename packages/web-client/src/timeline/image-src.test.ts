@@ -78,14 +78,14 @@ describe("classifyImageSrc", () => {
   it("resolves a ./-prefixed relative path against the asset base", () => {
     expect(classifyImageSrc("./shot.png", "/repo", "/home/bob")).toEqual({
       kind: "local",
-      path: "/repo/./shot.png",
+      path: "/repo/shot.png",
     });
   });
 
   it("resolves a ../-prefixed relative path against the asset base", () => {
     expect(classifyImageSrc("../shot.png", "/repo/sub", "/home/bob")).toEqual({
       kind: "local",
-      path: "/repo/sub/../shot.png",
+      path: "/repo/shot.png",
     });
   });
 
@@ -119,6 +119,13 @@ describe("classifyImageSrc", () => {
     expect(classifyImageSrc("shot.png#frag", "/repo", "/home/bob")).toEqual({
       kind: "local",
       path: "/repo/shot.png",
+    });
+  });
+
+  it("percent-decodes spaces in image names", () => {
+    expect(classifyImageSrc("my%20shot.png", "/repo", "/home/bob")).toEqual({
+      kind: "local",
+      path: "/repo/my shot.png",
     });
   });
 

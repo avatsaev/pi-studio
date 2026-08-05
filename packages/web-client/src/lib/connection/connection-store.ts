@@ -84,7 +84,10 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       url: target.url,
       clientId: opts.clientId ?? generateClientId(),
       clientType: "browser",
-      capabilities: { [CLIENT_CAPS.inline_image_markdown]: true },
+      capabilities: {
+        [CLIENT_CAPS.inline_image_markdown]: true,
+        [CLIENT_CAPS.file_link_markdown]: true,
+      },
       transport,
       // The PiStudioClient facade has no per-call timeout override for
       // createAgent/send/interrupt, and agent turns can run far longer than a

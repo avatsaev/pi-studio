@@ -2,9 +2,9 @@
  * File row context menu — Radix DropdownMenu anchored at cursor/button coordinates, mirroring
  * `SessionContextMenu.tsx`'s pattern. Two variants share this one component/menu instance
  * (`ui-store.ts`'s `fileMenu.background` flag):
- *  - Row menu (background: false): Open / Open in MolViewer (files only) / New File /
- *    New Folder (directories only) / Copy Absolute Path / Copy Relative Path / Download
- *    (files only) / Rename / Delete.
+ *  - Row menu (background: false): Open / Open in MolViewer (files only) / Open as Text (molecule
+ *    files only — plain files already open that way) / New File / New Folder (directories only) /
+ *    Copy Absolute Path / Copy Relative Path / Download (files only) / Rename / Delete.
  *  - Empty-space menu (background: true, opened by right-clicking below the last row): New File /
  *    New Folder / Copy Current Directory Path / Copy Current Directory Relative Path — no
  *    Open/Download/Rename/Delete, since there's no specific row under the cursor.
@@ -16,6 +16,7 @@ import {
   Atom,
   ExternalLink,
   FilePlus,
+  FileText,
   FolderPlus,
   Copy,
   Download as DownloadIcon,
@@ -36,7 +37,8 @@ import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
 import { copyText } from "@pi-studio-ui/lib/clipboard.js";
 import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
-import { openFileTab, openMoleculeTab } from "./open-file-tab.js";
+import { isMoleculeFile } from "./viewer-registry.js";
+import { openFileTab, openMoleculeTab, openTextTab } from "./open-file-tab.js";
 
 export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);
@@ -73,6 +75,12 @@ export function FileContextMenu() {
     if (!menu) return;
     closeFileMenu();
     openMoleculeTab(menu.path, activeWorkspaceCwd || "~");
+  }
+
+  function openAsText() {
+    if (!menu) return;
+    closeFileMenu();
+    openTextTab(menu.path, activeWorkspaceCwd || "~");
   }
 
   async function copyAbsolutePath() {
@@ -180,6 +188,12 @@ export function FileContextMenu() {
                   <Atom size={13} />
                   Open in MolViewer
                 </MenuItem>
+                {isMoleculeFile(menu.path) && (
+                  <MenuItem onSelect={openAsText}>
+                    <FileText size={13} />
+                    Open as Text
+                  </MenuItem>
+                )}
                 <MenuSeparator />
               </>
             )}
