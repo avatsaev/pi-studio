@@ -3,9 +3,14 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [timeline-rendering.md](timeline-rendering.md),
 > [file-explorer-transfer.md](file-explorer-transfer.md), [agent-sessions.md](agent-sessions.md),
-> [agent-providers.md](agent-providers.md),
+> [agent-providers.md](agent-providers.md), [file-link-rendering.md](file-link-rendering.md),
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md)
+
+> **Amended by [file-link-rendering.md](file-link-rendering.md) § Click-to-open pane targeting**:
+> click-to-open in this feature must target the pane that rendered the click, not whichever pane is
+> globally focused. See that doc for the full contract and rationale — this is a defect fix shared
+> with that sibling feature, not something specific to either one.
 
 > **Render stack:** DOM clients only (web-client + the Electron shell that hosts the same bundle).
 > Markdown rendering is `react-markdown` + `remark-gfm`; the image bytes arrive over the existing

@@ -74,13 +74,14 @@ existing pane and panes could only ever accumulate.
 
 #### Drag sources
 
-The same five regions apply to a drag from any of three sources; only what the drop *opens* differs:
+The same five regions apply to a drag from any of four sources; only what the drop *opens* differs:
 
 | Source | Dropped payload | Already open? |
 |--------|-----------------|---------------|
 | a tab in a pane's strip | that tab | always — move / split with it |
 | a conversation row in the session list | that session | maybe — reuse its tab if so, else open one |
 | a file row in the file tree | that path | maybe — reuse its tab if so, else open one |
+| a file link or inline image in a chat message ([file-link-rendering.md](file-link-rendering.md), [inline-image-rendering.md](inline-image-rendering.md)) | that path | maybe — reuse its tab if so, else open one |
 
 A sidebar drop whose payload has **no tab yet** MUST create the pane first (edge regions) and open
 the tab directly into it, never into the dropped-on pane followed by a move — the intermediate state
