@@ -404,7 +404,7 @@ src/
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
-                            `@molviewer/core@0.4.0`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
+                            `@molviewer/core@0.4.1`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
                             (PanelProps adapter, styled via the shared `Panel` primitive plus a
                             local `.wrap`/`.badges` override for its absolute-positioned status
                             badges), molecule-source.ts,
@@ -737,7 +737,7 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
   scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
   here. `@molviewer/core` is declared in this package's own `package.json` (not root).
-- **Molecule viewer save (`onSave`, `@molviewer/core@0.4.0`).** `MoleculeViewer.tsx` passes
+- **Molecule viewer save (`onSave`, `@molviewer/core@0.4.1`).** `MoleculeViewer.tsx` passes
   `onSave` to `<MolViewer>` only when the tab is file-backed (`path` non-null — the empty
   "+"-menu tab has nowhere to write and gets no Save button at all, since passing the prop is
   what draws it). The handler writes `e.text()` (the viewer's own current-frame serialization)

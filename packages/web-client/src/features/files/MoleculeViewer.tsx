@@ -15,7 +15,7 @@
  * `MolViewer` reloads with `sourceMode="update"` — camera/selection survive. When it's gated by
  * unsaved edits, a small stale-file indicator surfaces instead of silently diverging.
  *
- * Save (`onSave`, `@molviewer/core@0.4.0`): only wired when `path` is non-null — a file-backed
+ * Save (`onSave`, `@molviewer/core@0.4.1`): only wired when `path` is non-null — a file-backed
  * tab writes the viewer's current serialization straight back to that same absolute path via
  * `file_write_request` (`write-file.ts`); the empty ("+"-menu) tab has nowhere to write and gets
  * no Save button at all (passing `onSave` is what draws it). `e.saved()` is called only after the
