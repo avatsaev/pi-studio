@@ -25,7 +25,7 @@
  * write target — the absolute `path` prop already in scope is what gets written.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MolViewer, type MolViewerHandle, type SaveEvent } from "@molviewer/core";
 import "@molviewer/core/style.css";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
@@ -72,7 +72,19 @@ export function MoleculeViewer({ path, isActive, onModifiedChange }: MoleculeVie
   // read by the same effect that writes it, and by the stale-indicator check below.
   const lastAppliedAtRef = useRef<number | null>(null);
 
-  const source = moleculeSource(path, download.data?.objectUrl);
+  // Memoized, and that is load-bearing. `MolViewer`'s `source` prop is a load TRIGGER keyed on
+  // object IDENTITY (`useEffect(…, [source])` in @molviewer/core, documented there as "loaded
+  // whenever this value's identity changes"), so a fresh `{ url, name }` literal per render is a
+  // reload command: `UPDATE_SYSTEM` re-parses the file and silently reverts every in-viewer edit.
+  // Symptom when this is missing: the FIRST atom delete/move after a load or a save undoes itself
+  // — the edit flips `modified`, `onModifiedChange` → `setModified` re-renders, and the new
+  // identity reloads the molecule out from under the edit. Later edits stuck (no `modified`
+  // transition, so no re-render), which is what made it look intermittent. Every unrelated
+  // re-render did it too, and `TabPanelHost` re-renders all panels on every layout mutation —
+  // a divider drag reloaded the structure once per pointermove frame.
+  // Identity must change only when the bytes do: when `refetch()` mints a new object URL.
+  const objectUrl = download.data?.objectUrl ?? null;
+  const source = useMemo(() => moleculeSource(path, objectUrl), [path, objectUrl]);
 
   useEffect(() => {
     if (!shouldApplyRefresh({ changedAt, lastAppliedAt: lastAppliedAtRef.current, modified })) {

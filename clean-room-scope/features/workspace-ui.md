@@ -82,6 +82,13 @@ A tab = `{ tabId, target, createdAt }`. The UI works with a descriptor `{ key, t
   viewer's own edit mode), reload is gated: instead of overwriting, a small **"File changed on disk"**
   indicator appears. Once the user resolves the conflict (by discarding their edits or undoing them),
   the catch-up happens automatically. **Camera angle and selection state are preserved** across reloads.
+  **Reload is triggered only by an actual change to the file's bytes.** No UI interaction — switching
+  tabs, focusing another pane, resizing a pane, or dragging a split divider — may reload the structure
+  or discard in-viewer edits: an edit the user just made must survive every rearrangement of the
+  workspace around it, and the viewer's own mouse/keyboard editing must never be undone a frame after
+  it lands. An implementation that treats "the host re-rendered" as "the content changed" reverts
+  edits silently and reads to the user as dead input rather than as a reload (see
+  `packages/web-client/AGENTS.md` § Invariants for the concrete trap this describes).
 - **Content fetch:** file bytes are streamed uncapped (not subject to the inline text-read byte limit),
   allowing molecular trajectory files and other large structures to load without truncation.
 ## Behavior & Algorithms

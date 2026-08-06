@@ -737,6 +737,22 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   and muted-text scale untouched. This is chrome-only: `initialView.backgroundColor` (the WebGL
   scene's clear color) and `colorScheme` (per-atom coloring) are separate props, neither touched
   here. `@molviewer/core` is declared in this package's own `package.json` (not root).
+- **`MolViewer`'s `source` prop is a load TRIGGER keyed on object IDENTITY — never hand it a fresh
+  literal.** `@molviewer/core`'s `MolViewer.tsx` loads via `useEffect(…, [source])`, documented
+  there as "loaded whenever this value's identity changes", and an `update`-mode load re-parses the
+  file and dispatches `UPDATE_SYSTEM`, replacing the structure and silently discarding every
+  in-viewer edit (camera/selection/status survive, which is why it reads as a revert rather than a
+  reload). `MoleculeViewer.tsx` MUST therefore memoize it —
+  `useMemo(() => moleculeSource(path, objectUrl), [path, objectUrl])` — so identity changes only
+  when the bytes do, i.e. when `download.refetch()` mints a new object URL, which is exactly what
+  live reload needs. Calling `moleculeSource(...)` inline during render instead made the **first**
+  atom delete or move after every load and every save undo itself: the edit flips `modified`,
+  `onModifiedChange` → `setModified` re-renders, the new `source` identity reloads the file, and the
+  atom reappears a frame later. Later edits stuck (already dirty ⇒ no `modified` transition ⇒ no
+  re-render), which is what made it read as random rather than as a bug with a period. Any
+  unrelated re-render did it too, and since `TabPanelHost` re-renders every panel on every layout
+  mutation, a divider drag reloaded the structure once per `pointermove` frame — presenting as the
+  viewer's own mouse/keyboard input "not registering".
 - **Molecule viewer save (`onSave`, `@molviewer/core@0.4.1`).** `MoleculeViewer.tsx` passes
   `onSave` to `<MolViewer>` only when the tab is file-backed (`path` non-null — the empty
   "+"-menu tab has nowhere to write and gets no Save button at all, since passing the prop is
