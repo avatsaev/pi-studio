@@ -5,7 +5,7 @@
  * `file_link_markdown` capability). A session that resumes after a client disconnect will
  * retain it; one created from the CLI and later opened in a capable client will not have it,
  * because the CLI client does not advertise the capability at spawn. This asymmetry is accepted
- * (see clean-room-scope/features/file-link-rendering.md § Known Limitations).
+ * (see swe/features/file-link-rendering.md § Known Limitations).
  */
 
 export const FILE_LINK_INSTRUCTIONS = `

@@ -4,7 +4,7 @@
  * 300 on desktop, `foreground` color. Leading icons/badges are siblings, never
  * nested inside this component.
  *
- * clean-room-scope docs/design.md §3 (hierarchy via weight+color, not size).
+ * swe docs/design.md §3 (hierarchy via weight+color, not size).
  */
 
 import { clsx } from "clsx";

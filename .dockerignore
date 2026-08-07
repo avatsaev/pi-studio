@@ -19,7 +19,7 @@ coverage
 **/coverage
 
 # Docs / specs / planning (not shipped in the image)
-clean-room-scope
+swe
 specs
 docs
 **/AGENTS.md

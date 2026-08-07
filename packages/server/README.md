@@ -405,7 +405,7 @@ session — `interrupt_agent` applies the same reconciliation as a second line o
 loops are recovered as `stopped` with an interruption log entry.
 
 For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package and the specs under
-[`clean-room-scope/`](../../clean-room-scope/).
+[`swe/`](../../swe/).
 
 ---
 

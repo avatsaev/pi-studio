@@ -1,5 +1,5 @@
 /**
- * Pure, DOM-free decision core for the resume triggers (clean-room-scope/features/
+ * Pure, DOM-free decision core for the resume triggers (swe/features/
  * connection-resilience.md § Public Contract, § Decision table). Extracted per this repo's
  * no-jsdom testing convention (see `timeline/text-viewer-state.ts` / `hooks/molecule-reload.ts`).
  */

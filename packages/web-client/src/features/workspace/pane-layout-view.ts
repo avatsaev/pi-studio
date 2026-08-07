@@ -9,7 +9,7 @@
  * the set or the order of entries, so React reconciles the same DOM nodes in place and no panel is
  * ever remounted or re-parented (`TerminalPanel` kills its PTY on unmount).
  *
- * clean-room-scope/features/workspace-split-panes.md § Panel continuity invariant, § Geometry
+ * swe/features/workspace-split-panes.md § Panel continuity invariant, § Geometry
  */
 
 import type { CSSProperties } from "react";

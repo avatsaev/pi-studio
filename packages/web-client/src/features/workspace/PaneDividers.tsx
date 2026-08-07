@@ -14,7 +14,7 @@
  * pointer-to-fraction math would need the sizes captured at drag start and drift against the store's
  * clamping; deltas simply cannot.
  *
- * clean-room-scope/features/workspace-split-panes.md § Resizing
+ * swe/features/workspace-split-panes.md § Resizing
  */
 
 import { useRef } from "react";

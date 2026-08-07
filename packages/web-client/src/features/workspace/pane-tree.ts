@@ -13,7 +13,7 @@
  *     removing a pane silently produces same-direction nesting, wasting depth against the cap and
  *     changing divider behaviour.
  *
- * clean-room-scope/features/workspace-split-panes.md § Pane tree, § Splitting,
+ * swe/features/workspace-split-panes.md § Pane tree, § Splitting,
  * § Removing a pane / collapsing
  */
 

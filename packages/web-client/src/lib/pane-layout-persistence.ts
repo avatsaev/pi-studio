@@ -10,7 +10,7 @@
  * mutation, because a terminal placed by drag and never touched again would otherwise lose its pane
  * when its daemon slot finally arrives.
  *
- * clean-room-scope/features/workspace-split-panes.md § Persisted layout record, § Tab identity,
+ * swe/features/workspace-split-panes.md § Persisted layout record, § Tab identity,
  * § Data & Persistence
  */
 

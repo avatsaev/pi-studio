@@ -18,7 +18,7 @@
  * A file row carries its move MIME **and** its open MIME at once: one gesture, and *where* it lands
  * decides the meaning — another row is a move, a pane body is an open.
  *
- * clean-room-scope/features/workspace-split-panes.md § Drop regions, § Splitting
+ * swe/features/workspace-split-panes.md § Drop regions, § Splitting
  */
 
 import {

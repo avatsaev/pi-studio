@@ -1,0 +1,24 @@
+{
+  "planRoot": "swe",
+  "build": "npm run build",
+  "typecheck": "npm run typecheck",
+  "lint": "npm run lint",
+  "test": "npm test",
+  "skipGates": [],
+  "parallelSprints": true,
+  "notesDir": "notes",
+
+  "layout": {
+    "comment": "This project predates av-swe's default layout and already holds 47 completed sprints. Two deviations from the skill defaults, kept deliberately so existing history stays valid:",
+    "sprintsDir": "swe/sprints",
+    "specsDirs": ["swe/features", "swe/architecture"],
+    "specsIndex": "swe/MAIN-SCOPE.md",
+    "blockedFolder": "present in new sprints only; sprints 001-047 predate it"
+  },
+
+  "gateNotes": {
+    "perPackageBuild": "npm run build:<pkg> (e.g. npm run build:web-client) — preferred inside a task; the full `build` gate runs at sprint end",
+    "focusedTest": "npx vitest run <path> — preferred inside a task; the full `test` gate runs at sprint end",
+    "fmt": "npx oxfmt <changed files> — scoped, never a project-wide reformat"
+  }
+}

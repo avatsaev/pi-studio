@@ -20,7 +20,7 @@
  * `activeTabId` needs no manual resync here: it is a projection, and `tab-store`'s subscription on the
  * layout store follows every layout mutation, including these.
  *
- * clean-room-scope/features/workspace-split-panes.md § Drop regions, § Splitting
+ * swe/features/workspace-split-panes.md § Drop regions, § Splitting
  */
 
 import { useCallback, useState, type DragEvent, type RefObject } from "react";

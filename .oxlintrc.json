@@ -5,7 +5,7 @@
     "node": true,
     "es2023": true
   },
-  "ignorePatterns": ["**/dist/**", "**/build/**", "**/node_modules/**", "clean-room-scope/**"],
+  "ignorePatterns": ["**/dist/**", "**/build/**", "**/node_modules/**", "swe/**"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"

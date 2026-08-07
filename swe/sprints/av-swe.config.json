@@ -1,0 +1,9 @@
+{
+  "_note": "Plan root is swe/sprints — now coincidentally the same name as the av-swe default `swe/`, but for unrelated historical reasons: this repo already had 46 sprints and a PLAN.md there (originally under `clean-room-scope/`, renamed to `swe/` later) before av-swe was adopted. Specs still deviate from the av-swe `<planRoot>/specs/` layout: they live in swe/features/ and swe/architecture/, with swe/MAIN-SCOPE.md as the overview. Task files reference those paths directly.",
+  "planRoot": "swe/sprints",
+  "build": "npm run build",
+  "typecheck": "npm run typecheck",
+  "lint": "npm run lint",
+  "test": "npm test",
+  "parallelSprints": true
+}

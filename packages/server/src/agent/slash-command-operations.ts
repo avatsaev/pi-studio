@@ -18,7 +18,7 @@ import type { AgentClient } from "./provider-contract.js";
  *
  * Pi's own RPC contract is explicit that TUI-only built-ins (/settings, /hotkeys, etc.) have no
  * RPC equivalent and would not execute if sent via `prompt` — those are intentionally NOT
- * represented here or on the wire (see clean-room-scope/sprints/sprint-037-agent-slash-commands).
+ * represented here or on the wire (see swe/sprints/sprint-037-agent-slash-commands).
  */
 
 export interface SlashCommandOpsDeps {

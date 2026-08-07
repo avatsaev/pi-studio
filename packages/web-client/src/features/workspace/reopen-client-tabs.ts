@@ -23,7 +23,7 @@
  * the client and fire when it arrives (`use-file-read.ts`'s `enabled`), and the whole replay finishes
  * long before either daemon restore reports in — so ordering against them needs no coordination.
  *
- * clean-room-scope/features/workspace-split-panes.md § Restoring a persisted layout, § Tab identity
+ * swe/features/workspace-split-panes.md § Restoring a persisted layout, § Tab identity
  */
 
 import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";

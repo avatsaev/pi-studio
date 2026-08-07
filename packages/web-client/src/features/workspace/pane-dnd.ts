@@ -8,7 +8,7 @@
  * consulting `canSplit` on its own — two independent checks are two chances to disagree, and the user
  * would see a split preview and get a move.
  *
- * clean-room-scope/features/workspace-split-panes.md § Drop regions, § Resolving a drop region
+ * swe/features/workspace-split-panes.md § Drop regions, § Resolving a drop region
  */
 
 import { canSplit, type PaneNode, type SplitRegion } from "./pane-tree.js";

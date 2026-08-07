@@ -3,7 +3,7 @@
  * exercise only the plain-`setTimeout` **fallback path** (fire, cancel, the latched fallback
  * decision, and pending-callback cleanup) — the actual Worker path is not unit-testable here and
  * is verified live in task-004 (see
- * clean-room-scope/sprints/sprint-050-connection-resilience/backlog/task-004-e2e-verification-docs.md).
+ * swe/sprints/sprint-050-connection-resilience/backlog/task-004-e2e-verification-docs.md).
  * Do not read this file's coverage as proving the Worker path works; it proves the module
  * degrades correctly when it can't.
  *

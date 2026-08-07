@@ -283,7 +283,7 @@ packages/
   relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
   web-client/  production React/Vite browser UI
   desktop/     Electron wrapper (later sprint — placeholder)
-clean-room-scope/   specifications + the sprint implementation plan
+swe/   specifications + the sprint implementation plan
 ```
 
 Compile-time dependency graph:
@@ -298,6 +298,6 @@ cli       ──────► protocol, client, relay  (+ resolves server/web-
 web-client──────► protocol, client
 ```
 
-The detailed specifications live under [`clean-room-scope/`](clean-room-scope/) —
-[`MAIN-SCOPE.md`](clean-room-scope/MAIN-SCOPE.md) is the entry point. Each package also has its own
+The detailed specifications live under [`swe/`](swe/) —
+[`MAIN-SCOPE.md`](swe/MAIN-SCOPE.md) is the entry point. Each package also has its own
 `README.md` and `AGENTS.md`.

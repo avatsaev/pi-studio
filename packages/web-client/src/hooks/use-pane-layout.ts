@@ -25,7 +25,7 @@
  * state it just read. Writes that land before hydration settles are safe regardless: they preserve
  * unconsumed claims (see `pane-layout-persistence.ts`'s `writePaneLayout`).
  *
- * clean-room-scope/features/workspace-split-panes.md § Restoring a persisted layout
+ * swe/features/workspace-split-panes.md § Restoring a persisted layout
  */
 
 import { useEffect, useRef } from "react";

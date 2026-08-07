@@ -33,7 +33,7 @@ packages/
   desktop/     Electron shell wrapping a bundled daemon — currently a placeholder (exports a single
                package-id constant); real implementation is sprint-033-desktop, not yet built.
 
-clean-room-scope/   Technical specifications (MAIN-SCOPE.md is the entry point).
+swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions). Server
                     architecture docs live in `packages/server/docs/`.
@@ -292,10 +292,10 @@ tolerated without a migration framework.
 
 ## Where to find specifications
 
-- `clean-room-scope/MAIN-SCOPE.md` — system overview and package responsibilities
-- `clean-room-scope/architecture/` — deep dives (websocket-protocol, persistence, agent-lifecycle,
+- `swe/MAIN-SCOPE.md` — system overview and package responsibilities
+- `swe/architecture/` — deep dives (websocket-protocol, persistence, agent-lifecycle,
   client-app-runtime, daemon-bootstrap, relay-e2ee, …)
-- `clean-room-scope/features/` — feature-level specs (agent-sessions, terminals, cli, projects-
+- `swe/features/` — feature-level specs (agent-sessions, terminals, cli, projects-
   workspaces, git-checkout, chat-rooms, loops, schedules, file-explorer-transfer, …)
 
 ---

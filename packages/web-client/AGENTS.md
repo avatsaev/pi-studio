@@ -7,7 +7,7 @@ modular, typed, performant app.
 > chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
 > system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
 > the **Electron-specific runtime code does not exist yet** — no `getIsElectron()`, no injected
-> daemon URL, no `contextBridge` consumer. That is `clean-room-scope/sprints/sprint-033-desktop`
+> daemon URL, no `contextBridge` consumer. That is `swe/sprints/sprint-033-desktop`
 > scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
 

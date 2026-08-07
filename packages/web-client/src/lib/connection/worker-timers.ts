@@ -1,6 +1,6 @@
 /**
  * `setTimeout`/`clearTimeout` equivalents backed by a dedicated Web Worker
- * (clean-room-scope/features/connection-resilience.md § Purpose item 1).
+ * (swe/features/connection-resilience.md § Purpose item 1).
  *
  * Dedicated-worker timers are exempt from a hidden tab's page-visibility throttling (Chrome
  * intensive throttling clamps chained main-thread `setTimeout` chains to ~1 fire/minute after

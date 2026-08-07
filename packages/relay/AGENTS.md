@@ -2,7 +2,7 @@
 
 E2EE relay channel primitives, plus a standalone runnable relay server. Lets a client reach a
 daemon behind a firewall/NAT without opening inbound ports, while the relay itself stays
-zero-knowledge (see `clean-room-scope/architecture/relay-e2ee.md`). Published to npm as
+zero-knowledge (see `swe/architecture/relay-e2ee.md`). Published to npm as
 `@av-pi-studio/relay`; ships both as a library and as a `pi-studio-relay` CLI binary.
 
 ---

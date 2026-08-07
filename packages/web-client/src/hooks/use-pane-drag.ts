@@ -18,7 +18,7 @@
  * The preview and the drop read ONE already-degraded region (`pane-dnd.effectiveDropRegion`), so what
  * the user sees is what happens — including when an illegal edge degrades to a whole-pane move.
  *
- * clean-room-scope/features/workspace-split-panes.md § Drop regions, § Resolving a drop region,
+ * swe/features/workspace-split-panes.md § Drop regions, § Resolving a drop region,
  * § Splitting, § UI Behavior
  */
 

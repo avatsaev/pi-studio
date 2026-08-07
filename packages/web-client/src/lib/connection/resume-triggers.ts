@@ -1,5 +1,5 @@
 /**
- * Thin DOM wiring for the resume triggers (clean-room-scope/features/connection-resilience.md
+ * Thin DOM wiring for the resume triggers (swe/features/connection-resilience.md
  * § Purpose item 2, § Behavior & Algorithms). Subscribes to `visibilitychange` (hidden → visible
  * only) and `online`; feeds the live connection state through {@link resolveResumeAction} and
  * executes the result against the store's *live* handles — read at signal time, never captured,

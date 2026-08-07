@@ -4,7 +4,7 @@
 > Every number and color below is read directly from the current implementation — if this doc and
 > the code ever disagree, the code wins and this doc is stale (file an issue against it).
 >
-> Related: `AGENTS.md` (source layout), `clean-room-scope/architecture/design-system.md` (original
+> Related: `AGENTS.md` (source layout), `swe/architecture/design-system.md` (original
 > cross-platform spec this was ported from — historical reference, not always current for the
 > web-only implementation described here).
 

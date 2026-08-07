@@ -33,7 +33,7 @@
  * deliberate arrangement. After the settle point this restriction lifts: a live "+"/Ctrl+T open
  * into the focused pane taking it over immediately is the correct, expected behaviour.
  *
- * clean-room-scope/features/workspace-split-panes.md § Tab ↔ pane assignment, § Splitting,
+ * swe/features/workspace-split-panes.md § Tab ↔ pane assignment, § Splitting,
  * § Programmatic splits, § Moving a tab between panes, § Removing a pane / collapsing,
  * § Restoring a persisted layout
  */

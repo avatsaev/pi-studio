@@ -7,7 +7,7 @@
  * `pane-dnd.effectiveDropRegion`, which is what makes "the preview is always the outcome" true by
  * construction rather than by two agreeing checks.
  *
- * clean-room-scope/features/workspace-split-panes.md § UI Behavior, § Drop regions
+ * swe/features/workspace-split-panes.md § UI Behavior, § Drop regions
  */
 
 import type { Tab } from "@pi-studio-ui/stores/tab-store.js";

@@ -64,7 +64,7 @@ src/
 
 ## When implementing this sprint
 
-1. Read `clean-room-scope/architecture/daemon-bootstrap.md` for daemon startup/shutdown sequencing.
+1. Read `swe/architecture/daemon-bootstrap.md` for daemon startup/shutdown sequencing.
 2. The daemon can be embedded via `import { startDaemon } from "@av-pi-studio/server"` (the
    server package exposes a programmatic `index.ts` API) or spawned as a child process.
 3. Use `electron-builder` (or `electron-forge`) for packaging; configure `asar` to bundle all

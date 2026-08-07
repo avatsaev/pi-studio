@@ -17,7 +17,7 @@
  * - it has at least one live tab, so switching does not land on an empty workspace whose sessions were
  *   all deleted since the last load.
  *
- * clean-room-scope/features/workspace-split-panes.md § Restoring a persisted layout
+ * swe/features/workspace-split-panes.md § Restoring a persisted layout
  */
 
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";

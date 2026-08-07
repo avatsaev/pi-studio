@@ -1,5 +1,5 @@
 /**
- * Terminal PTY size-claim decisions (`clean-room-scope/features/terminals.md` § PTY size
+ * Terminal PTY size-claim decisions (`swe/features/terminals.md` § PTY size
  * ownership). Pure and DOM-free so the ownership gate is unit-testable under the repo's Node-only
  * vitest environment — `TerminalPanel.tsx` is the only caller.
  *

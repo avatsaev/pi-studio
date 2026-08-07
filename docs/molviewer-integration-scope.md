@@ -523,8 +523,8 @@ sprint-044 (tasks 001-009); see implementation results above.**
 
 ## 7. Implementation plan
 
-Completed as `clean-room-scope/sprints/sprint-044-molecule-viewer-live-files/` — 10 tasks in
-`backlog/`, indexed in `clean-room-scope/sprints/PLAN.md`. Tasks 001–004 were the web-client
+Completed as `swe/sprints/sprint-044-molecule-viewer-live-files/` — 10 tasks in
+`backlog/`, indexed in `swe/sprints/PLAN.md`. Tasks 001–004 were the web-client
 molecule viewer (no daemon changes), 005–008 the live-update subsystem (005 first fixed the §4.5
 leak), 009 the raised file-read ceiling (§2.3, independent of both halves). Task 010 is
 implementation-complete; this doc now records the sprint's delivered scope and smoke-test results.
