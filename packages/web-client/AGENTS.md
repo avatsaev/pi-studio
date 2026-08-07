@@ -418,8 +418,12 @@ src/
     terminal/               TerminalPanel (one xterm instance per open terminal tab; opening a
                             tab whose `data.slot` is already known — e.g. from
                             `use-terminal-restore.ts` — subscribes to the existing PTY instead of
-                            spawning a new one). No dedicated "Terminals" management view —
-                            orphaned terminals reopen automatically as tabs on connect.
+                            spawning a new one), terminal-size.ts (pure PTY size predicates:
+                            `isMeasurable`/`sameGrid`/`shouldClaimSize` — validity + dedupe only;
+                            the *permission* gate `isSizeAuthority` lives in TerminalPanel and is
+                            deliberately kept separate — see § Invariants "PTY sizing"). No
+                            dedicated "Terminals" management view — orphaned terminals reopen
+                            automatically as tabs on connect.
   routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right,
                            plus the full-width `StatusBar` pinned to the bottom of `.shell`)
   components/              (reserved for non-design-system reusable components; currently empty)
@@ -520,6 +524,37 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   terminal keeps its PTY and a chat keeps its stream subscription. NEVER render panels inside a
   recursive pane component: React would unmount and remount them on every rearrangement, killing the
   terminal and re-subscribing the chat.
+- **PTY sizing: permission and knowledge are separate, and neither is focus.** `TerminalPanel` sends
+  a `Resize` frame from exactly one seam (`claimSize`) behind two independent gates.
+  `isSizeAuthority(tabId)` is **permission** — is this panel visibly rendering (active workspace, its
+  pane's active tab)? `shouldClaimSize(next, believed)` (`terminal-size.ts`) is **knowledge** —
+  validity plus dedupe against `believedSizeRef`, what we think the PTY currently is, seeded from
+  `create_terminal_request`/`subscribe_terminal_request`'s echo.
+  - NEVER gate a resize on pane focus or DOM focus. Focus is who receives keystrokes; it says nothing
+    about whether a rendered grid is real. Splitting with a non-terminal tab, switching workspaces,
+    and session restore each move focus away from a terminal that is still visibly on screen — gating
+    on focus stranded those at the wrong width (garbled text, background color stopping short of the
+    rendered columns).
+  - NEVER treat "this client has never sent a size" (`believedSizeRef === null`) as "not allowed to
+    send one". That is the normal state of every **restored** terminal, whose PTY predates the client;
+    conflating the two made restored terminals ignore divider drags and window resizes for their
+    entire life. An unknown belief counts as *differing*, because that PTY is usually still at its
+    80×24 spawn default.
+  - A `fit()` that lands on an unchanged grid emits no `onResize`, so `performRefit` reconciles
+    explicitly after fitting — a panel that measured 0×0 while hidden would otherwise become visible
+    and stay silent.
+  - Attach-time sizing goes in the `subscribe_terminal_request` **payload**, not a frame sent after
+    it resolves: the daemon emits the `Snapshot` synchronously, so a later frame cannot stop a
+    full-screen app's paint from being replayed at the wrong width.
+  - Every reconcile point (post-fit, on focus, post-attach) goes through the one `measureAndClaim()`
+    helper. Don't re-inline `proposeDimensions()` + `isMeasurable` + claim at a new call site; that
+    trio drifted across three copies once already.
+  - Guard the daemon's echo with `isMeasurable` before seeding `believedSizeRef`. An older daemon may
+    omit `cols`/`rows`, and a `{cols: undefined}` belief matches no real measurement, so every later
+    fit would re-send a resize the PTY already has. `null` ("unknown") is handled everywhere; a
+    half-populated grid is not.
+  - The pre-slot input queue is bounded in **bytes** (`MAX_PENDING_INPUT_BYTES`), not chunks: one
+    `onData` chunk is a whole paste, so a chunk-count cap bounds nothing useful.
 - **`tab-store.activeTabId` is derived, and per-pane visibility is a different question.**
   `layout-store` owns all pane state, including the focused pane and each pane's active tab;
   `activeTabId` is a cached projection written **only** by `syncActiveFromLayout()`. It is driven from

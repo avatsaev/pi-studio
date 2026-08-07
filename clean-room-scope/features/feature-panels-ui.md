@@ -140,8 +140,8 @@ renders an empty filler when its workspace is not focused.
   pane remounts. On focus/visibility change, re-request reflow and force a fresh resize.
 - **Input/keys:** output written only when the workspace is focused and the active id matches. Input goes
   through a bounded pending queue flushed once attached + error-free (raw data or structured keys honoring
-  kitty/win32 input modes). Resize: only the claiming, focused, visible pane sends resize (deduping
-  identical sizes).
+  kitty/win32 input modes). Resize: only the visible pane sends resize (deduping identical sizes) — see
+  the implementation contract below, which supersedes "focused" here.
 - **Mobile virtual keyboard:** a two-row key bar (Esc, Tab, Ctrl, ↑, Shift, ⌫/Alt, Space, ←, ↓, →, Enter)
   with sticky modifier toggles applied to the next key. Keyboard show/hide pulses several reflows and shifts
   padding. Swipe (mobile, viewing agent): right → agent list, left → file explorer (blurs the terminal
@@ -149,6 +149,40 @@ renders an empty filler when its workspace is not focused.
 - **Local file links:** an xterm link provider detects file-path tokens, resolves them, and opens them in the
   workspace.
 - **States:** host not connected → message; attaching → spinner; stream error → red row.
+
+> **Pi-Studio implementation contract (web).** Split panes change three of the assumptions above, and
+> the rest of this subsection is binding as written:
+> - **N simultaneous subscriptions, not one.** Every open terminal tab holds its own subscription for
+>   its whole life; there is no "active id" and no unsubscribe-on-tab-switch, because several panes
+>   render several terminals at once and all panels stay mounted
+>   ([workspace-ui.md](workspace-ui.md) § Mounted-tab keepalive). Frames are demuxed by slot by the
+>   terminal-stream router, so "route for the active id only" is replaced by "route by slot".
+> - **No empty filler for an unfocused workspace, and output is always written.** A live terminal in a
+>   background workspace or a non-focused pane keeps rendering; unmounting it would kill its PTY
+>   ([workspace-split-panes.md](workspace-split-panes.md) § Panel continuity invariant). What stays
+>   scoped is **only** the size claim, and it is scoped to *visibility*, not focus (next bullet).
+> - **Size claim follows visibility, not focus**, per [terminals.md](terminals.md) § PTY size
+>   ownership — which is normative for every detail here. The creating pane sizes the PTY at spawn via
+>   `CreateTerminalRequest.cols`/`.rows`; an attaching pane sends its measured grid in the
+>   `SubscribeTerminalRequest` **payload** (the daemon applies it before emitting the `Snapshot`, so a
+>   full-screen app is never replayed at the wrong width); afterwards a Resize frame goes out on a
+>   genuine dimension change or a reconcile, deduped against the size the client believes the PTY has,
+>   and coalesced so a divider drag emits one frame at rest.
+>   - The gate is **visibility** — active workspace, own pane's active tab. It is NOT pane focus and
+>     NOT DOM focus: a split with a non-terminal tab, a workspace switch, and session restore each move
+>     focus off a terminal that is still visibly rendering, and gating on focus strands those at the
+>     wrong width. A backgrounded or other-workspace pane is the passive observer that must stay silent.
+>   - "Has this client sent a size before?" is **knowledge, never permission**. Every *restored*
+>     terminal starts with none — its PTY predates the client — and treating that as "not allowed"
+>     makes restored terminals ignore resizes for their whole life.
+>
+> Appearance is **not** optional and **not** hardcoded: the emulator's palette MUST come from
+> `colors.terminal` (the theme's full xterm ANSI map, [../architecture/design-system.md](../architecture/design-system.md)
+> § Colors), its font size from the appearance-scaled font scale, and its font family from
+> `fontFamily.mono` — so a theme switch, a custom mono font, and the 10–24 px font-size setting all
+> reach the terminal. A font change alters cell metrics, so it MUST refit and then claim the new size.
+> _Not yet implemented: `TerminalPanel` currently hardcodes its palette, mono stack and font size.
+> Delivering this is sprint-053-terminal-fidelity's scope._
 
 ### Browser pane (embedded)
 - **Platform split:** native and plain web → a "Browser is desktop-only" placeholder; **Electron** → a real
@@ -229,6 +263,8 @@ composer. (Membership/policy semantics are in [subagents.md](subagents.md); this
 
 ## TODO(verify)
 - [ ] Byte-transfer/save path for file downloads (download store internals).
-- [ ] Terminal snapshot serialization format.
+- [ ] Terminal snapshot serialization format — the basic tier is the daemon's raw byte ring; the
+      reflowable tier's payload format is fixed by the task that implements it
+      ([terminals.md](terminals.md) § Restore / snapshot, tier 2).
 - [ ] Full PR activity/check data shape and the exact daemon RPC for fetching a failed check's logs.
 - [ ] Explorer-sidebar open/pin/overlay mechanics (mobile overlay vs desktop pinned).

@@ -77,9 +77,37 @@ export function registerTerminalHandlers(
 
     streamUnsubs.get(key(session, slot))?.(); // replace existing subscription
     try {
+      // Resize BEFORE subscribing, using the grid the attaching client sent (if any).
+      //
+      // The basic Snapshot is a raw byte ring, so it reproduces the wrapping and absolute cursor
+      // positioning of whatever width the PTY had when those bytes were written (`terminals.md`
+      // § Restore / snapshot: "replaying at a different width is approximate by construction").
+      // For a full-screen app that paints by absolute position — htop, vim — replaying an 80-column
+      // stream into a 190-column emulator is not approximate, it is scrambled.
+      //
+      // A client-side resize after attaching cannot fix this: `subscribe` emits the snapshot
+      // synchronously below, long before any client Resize frame could arrive, so the mangled bytes
+      // are already on the wire. Resizing first means the PTY sees SIGWINCH and the app repaints at
+      // the right width, and that repaint arrives as live Output right behind the snapshot — which
+      // is exactly why manually dragging the pane "fixed" it before.
+      //
+      // Validation and the same-size no-op both live in `manager.resize` — the one choke point every
+      // size path funnels through — so this passes the raw values straight through rather than
+      // growing a second, drifting copy of those rules here.
+      manager.resize(slot, Number(ctx.message.cols), Number(ctx.message.rows));
       const unsub = manager.subscribe(slot, (frame) => session.sendBinary(frame));
       streamUnsubs.set(key(session, slot), unsub);
-      return { type: "subscribe_terminal_response", slot, ok: true, restoreMode };
+      // Echo the PTY's real size so the client can seed its belief instead of guessing. Without
+      // this a reattaching client cannot know what it is attaching to, and has to send a blind
+      // reconcile that is either redundant or, worse, indistinguishable from a stale claim.
+      const entry = manager.get(slot);
+      return {
+        type: "subscribe_terminal_response",
+        slot,
+        ok: true,
+        restoreMode,
+        ...(entry ? { cols: entry.cols, rows: entry.rows } : {}),
+      };
     } catch {
       return { type: "subscribe_terminal_response", slot, ok: false, error: "no_such_terminal" };
     }
