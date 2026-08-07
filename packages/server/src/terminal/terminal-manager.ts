@@ -13,10 +13,16 @@ import { ScreenBuffer } from "./screen-buffer.js";
  * Workspace-scoped PTY terminal manager (features/terminals.md § Behavior, § PTY size ownership,
  * § Output coalescing). PTYs are multiplexed over the binary terminal stream protocol by `slot`.
  *
- * Size ownership is **last-interacting-client-wins** and is a client concern: the manager only
- * resizes the PTY when a client explicitly sends a Resize (genuine viewport change / focus). It
- * NEVER resizes on subscribe/attach, and never broadcasts resize ownership — a resized PTY simply
- * redraws via normal Output, which every attached client renders in its own viewport.
+ * Size ownership is **last-interacting-client-wins** and which client may claim is a client concern.
+ * The manager resizes only when told to explicitly, never as a side effect of subscribe/attach, and
+ * never broadcasts resize ownership — a resized PTY simply redraws via normal Output, which every
+ * attached client renders in its own viewport. (`subscribe_terminal_request` in `terminal-rpc.ts`
+ * does resize before it calls `subscribe()`, using the size the attaching client sent; that is the
+ * handler's decision, not something this class does on its own.)
+ *
+ * Every requested size is validated here — see `isValidGrid`. This is the single choke point every
+ * path funnels through (create, binary Resize frame, subscribe payload), and a client is not a
+ * trusted source of dimensions.
  */
 
 /** A subscriber sink receives fully-encoded binary terminal frames. */
@@ -59,12 +65,51 @@ export interface TerminalManagerOptions {
   logger?: Logger;
 }
 
+/**
+ * Grid bounds for any client-supplied size (`terminals.md` § PTY size ownership: "the daemon MUST
+ * validate every requested size, whatever path it arrives on").
+ *
+ * The floor is `ScreenBuffer`'s own minimum. The ceiling is far past any real display — a 5120px
+ * ultrawide at a 6px cell is ~850 columns — and exists to bound what one frame can make the headless
+ * grid allocate: cells scale with `cols * rows`, so an unchecked `1e9` is an instant OOM.
+ */
+const MIN_GRID_COLS = 2;
+const MIN_GRID_ROWS = 1;
+const MAX_GRID_COLS = 1000;
+const MAX_GRID_ROWS = 1000;
+
+/**
+ * Whether a client-supplied grid may be applied to a real PTY. Rejects rather than clamps: a clamp
+ * silently invents a size neither side asked for, and the client's own belief would then disagree
+ * with the PTY forever. A rejected resize is visible (`resize()` returns `false`) and the client's
+ * next genuine change still reports.
+ *
+ * Takes the pair as one object so it narrows both fields for the caller — the values arrive from the
+ * wire as `unknown`/possibly-`NaN` numbers, and no caller should have to assert them afterwards.
+ */
+export function isValidGrid(
+  grid: { cols?: unknown; rows?: unknown } | undefined,
+): grid is { cols: number; rows: number } {
+  if (grid === undefined) return false;
+  const { cols, rows } = grid;
+  return (
+    typeof cols === "number" &&
+    Number.isInteger(cols) &&
+    cols >= MIN_GRID_COLS &&
+    cols <= MAX_GRID_COLS &&
+    typeof rows === "number" &&
+    Number.isInteger(rows) &&
+    rows >= MIN_GRID_ROWS &&
+    rows <= MAX_GRID_ROWS
+  );
+}
+
 interface ManagedTerminal {
   entry: TerminalRuntimeEntry;
   pty: PtyProcess;
   subscribers: Set<TerminalFrameSink>;
-  /** Rolling buffer used as the transient screen snapshot (raw bytes; clients replay it). */
-  screen: Uint8Array;
+  /** Rolling bounded ring used as the transient screen snapshot (raw bytes; clients replay it). */
+  screen: SnapshotRing;
   /** Headless terminal grid used for screen-accurate text capture (CLI/MCP). */
   screenModel: ScreenBuffer;
   /** Pending coalesced output. */
@@ -111,8 +156,10 @@ export class TerminalManager {
     const slot = nextFreeSlot(this.terminals, this.slotCursor);
     if (slot === null) throw new Error("no free terminal slot (256 terminals already open)");
     this.slotCursor = (slot + 1) % SLOT_SPACE;
-    const cols = options.cols ?? 80;
-    const rows = options.rows ?? 24;
+    // An invalid client-supplied grid falls back to the 80×24 default rather than failing the spawn:
+    // the caller merely loses its size claim, and its first real measurement will reconcile. The
+    // response echoes what the PTY actually got, so the client never believes the size it asked for.
+    const { cols, rows } = isValidGrid(options) ? options : { cols: 80, rows: 24 };
     const shell = options.shell ?? this.defaultShell;
 
     let pty: PtyProcess;
@@ -167,13 +214,12 @@ export class TerminalManager {
       entry,
       pty,
       subscribers: new Set(),
-      screen: new Uint8Array(0),
+      screen: new SnapshotRing(this.snapshotBytes),
       screenModel: new ScreenBuffer(cols, rows),
       pending: [],
       flushTimer: null,
     };
     this.terminals.set(slot, managed);
-
     pty.onData((data) => this.onOutput(managed, data));
     pty.onExit(() => this.onExit(managed));
 
@@ -189,7 +235,7 @@ export class TerminalManager {
     if (!managed) throw new Error(`no terminal in slot ${slot}`);
 
     // Snapshot first (rebuilds screen state), then live output.
-    sink(encodeTerminalFrame({ opcode: "Snapshot", slot, data: managed.screen.slice() }));
+    sink(encodeTerminalFrame({ opcode: "Snapshot", slot, data: managed.screen.bytes() }));
     managed.subscribers.add(sink);
 
     return () => {
@@ -213,16 +259,23 @@ export class TerminalManager {
   }
 
   /**
-   * Explicit, client-initiated resize (genuine viewport change / focus). The only path that claims
-   * PTY size. Never called from subscribe/attach.
+   * Apply a client-requested size. Returns `false` and does nothing for an unknown/closed slot or an
+   * invalid grid — the binary `Resize` frame path reaches this with whatever bytes were on the wire,
+   * so this is where a hostile or malformed size is stopped rather than handed to a real PTY.
+   *
+   * The PTY and screen model are updated **before** `entry`, so a throw from either leaves the entry
+   * describing the size the terminal actually has instead of one that was only requested — `entry` is
+   * what `list()`/the subscribe echo report, and a lying entry propagates to every client.
    */
   resize(slot: number, cols: number, rows: number): boolean {
     const managed = this.terminals.get(slot);
     if (!managed || managed.entry.closed) return false;
-    managed.entry.cols = cols;
-    managed.entry.rows = rows;
+    if (!isValidGrid({ cols, rows })) return false;
+    if (managed.entry.cols === cols && managed.entry.rows === rows) return true;
     managed.pty.resize(cols, rows);
     managed.screenModel.resize(cols, rows);
+    managed.entry.cols = cols;
+    managed.entry.rows = rows;
     return true;
   }
 
@@ -257,7 +310,7 @@ export class TerminalManager {
 
   private onOutput(managed: ManagedTerminal, data: Uint8Array): void {
     // Append to the transient screen snapshot (bounded ring) for binary client replay.
-    managed.screen = appendBounded(managed.screen, data, this.snapshotBytes);
+    managed.screen.append(data);
     // Feed the headless grid for screen-accurate text capture.
     managed.screenModel.write(data);
     // Coalesce before broadcast.
@@ -294,9 +347,150 @@ export class TerminalManager {
   }
 }
 
-function appendBounded(buffer: Uint8Array, data: Uint8Array, max: number): Uint8Array {
-  const combined = concat([buffer, data]);
-  return combined.length <= max ? combined : combined.slice(combined.length - max);
+/**
+ * Escape-safe trim: cutting the retained ring at a raw byte offset frequently lands
+ * mid-escape-sequence (`terminals.md` § Restore / snapshot, tier 1). The bytes after such a cut are
+ * the sequence's tail — parameter digits, an SGR/cursor final byte, an OSC payload — which the
+ * emulator on replay consumes as garbage input instead of the printable text it actually is,
+ * corrupting everything after it. `safeReplayStart` finds the nearest safe boundary at or after the
+ * naive cut instead; `SnapshotRing.compact` is its only caller.
+ */
+const ESC = 0x1b;
+const BEL = 0x07;
+
+function isCsiFinalByte(byte: number): boolean {
+  return byte >= 0x40 && byte <= 0x7e;
+}
+
+function isUtf8ContinuationByte(byte: number): boolean {
+  return byte >= 0x80 && byte <= 0xbf;
+}
+
+/** DCS (`P`), SOS (`X`), PM (`^`), APC (`_`) — all string-typed, all terminated by ST (`ESC \`). */
+function startsStringSequence(byte: number): boolean {
+  return byte === 0x50 || byte === 0x58 || byte === 0x5e || byte === 0x5f;
+}
+
+type ReplayScanState = "normal" | "esc" | "csi" | "osc" | "osc-esc" | "string" | "string-esc";
+
+/**
+ * Index of the first byte in `buffer` at or after `from` that can safely start a replay — i.e.
+ * not inside an incomplete escape/CSI/OSC/DCS/SOS/PM/APC sequence and not a UTF-8 continuation
+ * byte split off from its lead byte. Parses from the start of `buffer`, not from `from`, because
+ * whether `from` lands inside a sequence depends on where that sequence began, which may be
+ * before `from` — the exact case a raw byte-offset cut produces.
+ *
+ * Bounded: if the sequence straddling `from` never terminates before `buffer.length`, drops to
+ * `buffer.length` (nothing left of that unterminated tail is safe to replay) rather than scanning
+ * past the buffer or emitting a partial sequence.
+ */
+export function safeReplayStart(buffer: Uint8Array, from: number): number {
+  if (from <= 0) return 0;
+  if (from >= buffer.length) return buffer.length;
+
+  let state: ReplayScanState = "normal";
+  for (let i = 0; i < buffer.length; i++) {
+    if (state === "normal" && i >= from && !isUtf8ContinuationByte(buffer[i]!)) return i;
+
+    const byte = buffer[i]!;
+    switch (state) {
+      case "normal":
+        if (byte === ESC) state = "esc";
+        break;
+      case "esc":
+        if (byte === 0x5b /* [ */) state = "csi";
+        else if (byte === 0x5d /* ] */) state = "osc";
+        else if (startsStringSequence(byte)) state = "string";
+        else state = "normal"; // two-byte ESC form: this byte was its own terminator
+        break;
+      case "csi":
+        if (isCsiFinalByte(byte)) state = "normal";
+        break;
+      case "osc":
+        if (byte === BEL) state = "normal";
+        else if (byte === ESC) state = "osc-esc";
+        break;
+      case "osc-esc":
+        if (byte === 0x5c /* \ */) state = "normal";
+        else if (byte !== ESC) state = "osc";
+        break;
+      case "string":
+        if (byte === ESC) state = "string-esc";
+        break;
+      case "string-esc":
+        if (byte === 0x5c) state = "normal";
+        else if (byte !== ESC) state = "string";
+        break;
+    }
+  }
+
+  // Ran off the end still inside an unterminated sequence (or a run of continuation bytes with no
+  // following lead byte) — nothing from `from` onward is a safe start.
+  return buffer.length;
+}
+
+/**
+ * Fraction of the cap the ring keeps when it compacts. The reclaimed headroom (the remaining
+ * quarter) is what makes both costs below amortized rather than per-chunk.
+ */
+const RING_LOW_WATER = 0.75;
+
+/**
+ * Bounded, contiguous byte ring holding the transient replay snapshot for one terminal.
+ *
+ * This sits on the daemon's hottest path — every byte of every terminal passes through `append` —
+ * so the two O(ring) costs are deliberately amortized. The naive version rebuilt the whole buffer
+ * per chunk (`concat`) *and* re-ran the escape-safe scan per chunk once full, which on a build
+ * spewing megabytes meant tens of thousands of full-ring copies and scans.
+ *
+ * - **Append is O(chunk).** Bytes are memcpy'd into spare capacity behind a write cursor; nothing
+ *   else moves. Only when the cap would be exceeded does a compaction run.
+ * - **Compaction is O(ring) but rare.** It reclaims down to `RING_LOW_WATER`, so the next one is a
+ *   whole quarter-cap of output away instead of one chunk away.
+ *
+ * The bytes stay contiguous because `safeReplayStart` must parse from the start of the retained
+ * region — whether an offset sits mid-sequence depends on where that sequence began, which a
+ * chunk-list representation could not answer without flattening first.
+ */
+class SnapshotRing {
+  private readonly buf: Uint8Array;
+  private readonly lowWater: number;
+  private len = 0;
+
+  constructor(private readonly max: number) {
+    this.buf = new Uint8Array(max);
+    // `max` can be tiny in tests; never let the target reclaim the entire ring.
+    this.lowWater = Math.max(1, Math.floor(max * RING_LOW_WATER));
+  }
+
+  /** The retained bytes. A view, not a copy — `encodeTerminalFrame` copies into the frame it builds. */
+  bytes(): Uint8Array {
+    return this.buf.subarray(0, this.len);
+  }
+
+  append(data: Uint8Array): void {
+    // A single chunk at least as large as the whole ring replaces it outright: everything currently
+    // retained is older than bytes we are about to drop anyway.
+    if (data.length >= this.max) {
+      const start = safeReplayStart(data, data.length - this.lowWater);
+      this.len = data.length - start;
+      this.buf.set(data.subarray(start), 0);
+      return;
+    }
+    if (this.len + data.length > this.max) {
+      // Drop enough that the post-append length lands on the low-water mark.
+      this.compact(this.len + data.length - this.lowWater);
+    }
+    this.buf.set(data, this.len);
+    this.len += data.length;
+  }
+
+  /** Discard the oldest `drop` bytes, rounded forward to the next escape-safe boundary. */
+  private compact(drop: number): void {
+    const start = safeReplayStart(this.bytes(), drop);
+    this.buf.copyWithin(0, start, this.len);
+    this.len -= start;
+  }
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

@@ -109,8 +109,9 @@ src/
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
     pty-backend.ts                PtyBackend — node-pty abstraction (injectable for tests).
-    screen-buffer.ts              ScreenBuffer — xterm/headless snapshot for new subscribers.
-    terminal-rpc.ts               RPC handlers: create/list/resize/input/subscribe/close terminal.
+    screen-buffer.ts              ScreenBuffer — xterm/headless grid, backs `capture()` only.
+    terminal-rpc.ts               RPC handlers: create/list/rename/subscribe/input/kill/capture +
+                                  the binary Input/Resize frame handler (resize is binary-only).
     index.ts
 
   projects/
@@ -529,21 +530,61 @@ creation" above.
   slot of 256 and every `encodeTerminalFrame` for it threw, killing terminals until restart.
   With all 256 concurrently live, `createTerminal` throws rather than emitting an unencodable id.
 - **Output coalescing**: batches PTY output into 4 ms windows before broadcasting.
-- **Screen snapshot**: `ScreenBuffer` (xterm/headless) retains the last ≤64 KiB of output as a
-  snapshot for new subscribers (so they see the current screen state).
-- **Size ownership**: last-interacting-client-wins. The manager only resizes when a client
-  explicitly sends a `Resize` frame; it never resizes on subscribe.
-- `subscribe(slot, sink)` — attach a raw-binary-frame sink; replays the snapshot first.
+- **Screen snapshot ring**: `ManagedTerminal.screen`, a `SnapshotRing` — a bounded (64 KiB default),
+  contiguous byte arena holding the last output for new subscribers. This is what `subscribe` replays
+  as the `Snapshot` frame; distinct from `ScreenBuffer` below.
+  - Trimmed at an **escape-safe** boundary (`safeReplayStart`) rather than a raw byte offset — a
+    naive cut frequently lands mid-CSI/OSC/DCS sequence or mid-UTF-8, which the emulator then
+    consumes as garbage on replay. The scan runs forward to the sequence's terminator (or drops the
+    whole unterminated tail) so the retained ring always starts at a safe boundary.
+  - Both O(ring) costs are **amortized, deliberately** — this is the hottest path the daemon has
+    (every byte of every terminal). `append` memcpys only the new chunk behind a write cursor;
+    compaction (escape-safe scan + `copyWithin`) runs only when the cap would be exceeded, and then
+    reclaims to a 75% low-water mark so the next one is a quarter-cap of output away. The earlier
+    version rebuilt the whole buffer *and* re-scanned it per chunk. Never reintroduce a per-append
+    full copy or scan.
+  - Bytes must stay contiguous: `safeReplayStart` parses from the start of the retained region, so a
+    chunk-list representation could not answer "is this offset mid-sequence?" without flattening.
+- **`ScreenBuffer`** (`screen-buffer.ts`, `@xterm/headless`): a live headless terminal grid fed every
+  output byte as it arrives. Used **only** by `capture(slot)` for one-shot screen-accurate text
+  (CLI/MCP); it does not participate in `subscribe`'s replay and never sees the byte ring.
+- **Size validation is centralized** in `resize`/`createTerminal` via `isValidGrid` (integers,
+  2–1000 cols × 1–1000 rows). Every size path funnels through the manager — create, binary `Resize`
+  frame, subscribe payload — and the binary path in particular arrives with whatever was decoded off
+  the wire, with no RPC coercion in front of it. Validating here rather than per call site is what
+  keeps `NaN`/`0`/negative/`1e9` out of `node-pty` and the headless grid. `resize` also no-ops a
+  same-size request (so callers need no compare of their own) and applies to the PTY/screen model
+  *before* mutating `entry`, so a throw cannot leave `entry` describing a size the terminal never
+  got. An invalid create-time grid falls back to 80×24 rather than failing the spawn.
+- **Size ownership**: last-interacting-client-wins. `TerminalManager` itself never resizes on
+  subscribe — but `subscribe_terminal_request` does, before it calls `manager.subscribe()`, when the
+  attaching client supplied `cols`/`rows` (see the handler note below). Beyond that the manager
+  resizes only on an explicit binary `Resize` frame.
+- `subscribe(slot, sink)` — attach a raw-binary-frame sink; replays the snapshot ring first,
+  **synchronously**, which is why any size correction must happen before this call rather than after
+  the RPC resolves.
 - `killAll()` — kill every live terminal and clear its pending flush timer; called from
   `startDaemon(...).close()` so a stray PTY can't emit output after the transports it would
   flush through (relay/WS) have already been torn down on shutdown.
 
-Terminal RPC handlers (`terminal-rpc.ts`):
-- `create_terminal` — spawn PTY, return slot + entry.
-- `list_terminals` — list all live terminals.
-- `resize_terminal` — resize PTY.
-- `close_terminal` — kill PTY.
-- Binary `Input` frames → write to PTY stdin.
+Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed:
+- `create_terminal_request` — spawn PTY, return slot + entry (echoing the size the PTY actually got).
+- `list_terminals_request` — list all live terminals.
+- `rename_terminal_request` — rename a terminal.
+- `subscribe_terminal_request` / `unsubscribe_terminal_request` — attach/detach a slot's binary
+  stream for the requesting session. Optional `cols`/`rows` are applied to the PTY **before** the
+  snapshot is emitted (`terminals.md` § Restore / snapshot): the snapshot is a raw byte ring, so a
+  full-screen app's paint replayed at the wrong width renders scrambled, and a client `Resize` sent
+  after the response is always too late. Validation and the same-size no-op are the manager's job,
+  not this handler's. The response echoes the PTY's resulting `cols`/`rows` so a subscriber that
+  sent nothing still learns the real size.
+- `kill_terminal_request` — kill a PTY. (There is no `resize_terminal`/`close_terminal` RPC: resize
+  arrives **only** as a binary frame, opcode `0x03`, decoded by `makeTerminalBinaryHandler` below;
+  "close" is this handler, not a separately named one.)
+- `capture_terminal_request` — one-shot screen-accurate text via `ScreenBuffer`.
+- `start_workspace_script_request` — spawn a project-config-defined workspace script as a terminal.
+- Binary `Input`/`Resize` frames (opcode `0x02`/`0x03`) → `makeTerminalBinaryHandler` writes to the
+  PTY / calls `manager.resize()`; neither has a text-RPC equivalent.
 
 
 ### File watching (`files/`)

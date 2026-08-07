@@ -81,8 +81,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 047 | `sprint-047-file-explorer-rename` | web-client + daemon: **explicit rename in the file explorer**, completing item 9 of the improvements triage. Rename is a same-parent `file_move_request`, so no new RPC is needed — the work is a row-substituting inline editor (`file-tree.ts` replaces the edited row rather than inserting one, keeping `TreeNode` hook-free), sibling `renaming` state in `explorer-store` that is mutually exclusive with the create draft, and a context-menu-only trigger (**no F2** — recorded decision). Extracts `moveDropped`'s post-move sequence into a shared `applyMove` and corrects two defects in it: the daemon-echoed destination was discarded, and diff tabs on the moved path closed **silently** — they now stay closed (a per-path `git diff` after a rename renders the whole file as additions) but the status line reports the count. One daemon fix: `moveEntry` validated the trimmed destination basename but joined the untrimmed one. | 6 |
 | 050 | `sprint-050-connection-resilience` | web-client + client SDK: fix two connection-layer failure modes that browsers impose and this app's core usage pattern (watch long-running agents while doing something else) makes constant. **(a)** Hidden-tab timer throttling stretches the reconnect ladder from sub-second to minute-granularity — fixed by backing `ReconnectionManager`'s backoff with a Web Worker through the `setTimer`/`clearTimer` seam it already exposes for tests, so no SDK change is needed for it. **(b)** A half-open socket after laptop sleep / NAT expiry leaves the UI reading `open` forever, because the web client has **no client→server liveness loop** and socket events are its only inputs — fixed by a `ping` probe fired on tab-visible/network-online that closes the socket (code 4000) when it times out. That probe is the one caller permitted to conclude socket death from a timeout; the reconciliation against invariant 6 (`rpcTimeoutMs` ≠ socket death) is written into the scope and must be commented at the call site. Adds one additive SDK method, `ReconnectionManager.reconnectNow()`, so a resume signal can bypass the remaining backoff rung instead of waiting it out. No protocol, daemon, or persistence change. | 4 |
 | 051 | `sprint-051-file-link-rendering` | web-client + daemon + protocol: **actionable file links in the chat timeline** (`[label](path)` opens the file as a tab), the sibling feature to sprint-045's inline images sharing its capability→instruction→markdown-override shape. Fixes a shared pane-targeting defect along the way — click-to-open (both this feature's and the pre-existing inline-image one) currently lands in whichever pane is globally focused rather than the pane the message is rendered in, because no component between the pane host and a markdown node-override carries a pane id — and fixes a shared classifier gap (`classifyImageSrc`'s `local` results were unnormalized and not percent-decoded, which would have silently broken this feature's tab-reuse acceptance criteria). Drag-to-split reuses the existing Files-tree `path` payload with zero drop-side changes. Generalizes the daemon's single-capability system-prompt ternary into an ordered, N-capability composition so both instructions compose deterministically. | 6 |
+| 052 | `sprint-052-terminal-sizing` | web-client + daemon: fix the terminal's **PTY size handshake**, the single root cause behind unused horizontal space, mangled long-command editing, ghost characters on backspace, and scrambled redraws. The PTY runs at the 80×24 default for its whole life while xterm renders ~140×35, because `TerminalPanel` calls `fitAddon.fit()` *before* attaching `onResize` and `FitAddon` only resizes on a dimension **change** — so the one size-changing fit of the panel's life fires with no listener, and every later refit is a silent no-op. Implements all three size-claim triggers the scope has always specified and the code has never had (create-time `cols`/`rows`, genuine viewport change, focus/tap), with dedupe, coalescing, and the explicit non-triggers enforced. Second, independent garbling cause fixed too: the daemon's 64 KiB snapshot ring is cut on a raw byte boundary (frequently mid-escape-sequence) and the client `clear()`s instead of `reset()`ing before replay. Zero protocol change; the daemon already forwards `cols`/`rows`. | 6 |
+| 053 | `sprint-053-terminal-fidelity` | web-client + daemon + protocol: the terminal's remaining conformance gaps, all against **already-written** scope. **(a)** The emulator ignores the appearance system entirely — a hardcoded 19-colour dark literal and the *unscaled* `baseFontSize.sm` — while `colors.terminal` already builds a full per-variant xterm ANSI map and `theme.ts` already scales every rung from the user's 10–24 px setting; unreachable from a component because `ThemeBoundary` keeps the controller private and only emits CSS vars, so a theme context lands first. A font change alters cell metrics, hence refit + size claim. **(b)** An exited PTY leaves a zombie tab: there is no close opcode, `onExit` only clears subscribers, and the `terminals_update` broadcast has zero web-client consumers (and isn't even sent on self-exit). **(c)** Implements restore **tier 2** — `Restore` (`0x05`), `terminal-restore-modes`, and `terminal_reflowable_snapshot` have all existed since sprint-002 and are wholly dead: no server path emits the frame, no client advertises the capability. A serialized headless-grid redraw makes reattach width-correct instead of approximate. | 6 |
 
-Total: **49 sprints, 239 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **51 sprints, 251 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -717,6 +719,94 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-005 | `CLIENT_CAPS.file_link_markdown` + web-client advertisement + `composeSystemPrompt` (ordered N-capability composition, replacing the single-flag ternary) + `file-link-instructions.ts` | feature | none | packages/protocol (client-capabilities); packages/web-client (lib/connection/connection-store); packages/server (agent/{agent-service,compose-system-prompt,file-link-instructions,create-run.test}, daemon/bootstrap.test); features/file-link-rendering, inline-image-rendering, agent-sessions; architecture/websocket-protocol |
 | task-006 | E2E browser verification against the spec's full acceptance-criteria list + docs sync (protocol/server/web-client AGENTS.md) | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (protocol, server, web-client); features/file-link-rendering |
 
+### sprint-052-terminal-sizing
+> **Root cause, verified.** `TerminalPanel.tsx:207` calls `fitAddon.fit()` — which *does* resize the
+> frontend grid 80×24 → the real size — but `terminal.onResize` is not attached until `:229`, and
+> `node_modules/@xterm/addon-fit/src/FitAddon.ts:43-46` only calls `terminal.resize()` when the
+> proposed dimensions **differ**. So that one resize fires into nothing and every later `fit()` (the
+> `ResizeObserver`'s initial callback, the `isVisible` refit) recomputes the same numbers and is a
+> silent no-op. `create_terminal_request` doesn't pass `cols`/`rows` either. Net: the PTY stays 80×24
+> forever while xterm renders ~140×35, so every wrap decision and cursor-positioning sequence the
+> shell's line editor emits is calibrated to a width the display does not have — which is exactly the
+> reported ghosting, scrambling, and misalignment. The defect survived smoke testing because a panel
+> that mounts **hidden** works correctly: `proposeDimensions()` returns `undefined` under
+> `display:none`, so the first fit no-ops and the later visibility fit *does* fire with the handler
+> attached. Only the ordinary path — open a terminal and look at it — is broken.
+>
+> **The fix is scope conformance, not new design.** `terminals.md` § PTY size ownership already named
+> the triggers ("genuinely changes size **or** the user focuses/taps") and
+> `feature-panels-ui.md` § Terminal pane already required the dedupe ("only the claiming, focused,
+> visible pane sends resize (deduping identical sizes)") and the post-subscribe size resend. Neither
+> half was ever implemented. Planning sharpened § PTY size ownership into an explicit trigger table
+> (adding the create-time claim, which is *not* a Resize frame — the terminal does not exist yet, so
+> nothing is taken from another client) plus an explicit non-trigger list, and added a Pi-Studio
+> implementation contract to § Terminal pane recording the three ways split panes legitimately diverge
+> from the reference app's single-terminal model (N simultaneous subscriptions, no empty filler / no
+> unsubscribe-on-switch, size claim scoped to the focused visible pane).
+>
+> **No protocol or daemon-RPC change.** `terminal-rpc.ts:53-54` already forwards `cols`/`rows` and
+> `terminal-manager.ts:114-115,171` already applies them to both the PTY spawn and the `ScreenBuffer`
+> grid. The only daemon change in the sprint is the escape-safe ring trim (task-005).
+>
+> **No component test is possible** — the root vitest runner discovers `.test.ts` under a plain Node
+> environment with no jsdom — so the decidable logic is extracted into a pure `terminal-size.ts` and
+> the panel behaviour is proven by a live browser sequence in task-006, with `stty size`,
+> `pi-studio terminal ls`, and devtools binary-frame counts as the oracles.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Decouple the xterm mount from the slot; attach `onData`/`onResize` before the first `fit()`; split subscription from emulator so a reconnect stops destroying scrollback | bugfix | none | packages/web-client (features/terminal/{TerminalPanel,TerminalPanel.module.css}); features/terminals, feature-panels-ui |
+| task-002 | Create-time size claim: measured `cols`/`rows` on `create_terminal_request`, reconciled against the daemon's echo; pure `terminal-size.ts` (`isMeasurable`/`sameGrid`/`shouldClaimOnChange`/`shouldClaimOnFocus`) + tests | bugfix | task-001 | packages/web-client (features/terminal/{TerminalPanel,terminal-size,terminal-size.test}); packages/server (terminal/terminal-rpc — verify only); features/terminals |
+| task-003 | Focus/tap claim + ownership-gated genuine-change claim through one `claimSize` seam, deduped against the last claimed size; non-triggers (attach, mount/visibility fits of a never-claimed panel, reconnect, background pane) provably silent | bugfix | task-002 | packages/web-client (features/terminal/{TerminalPanel,terminal-size}, stores/layout-store — read only); features/terminals, feature-panels-ui |
+| task-004 | Coalesce refits/claims to one frame at rest (rAF + trailing settle), guard the `ResizeObserver` feedback loop, skip hidden panels | bugfix | task-003 | packages/web-client (features/terminal/TerminalPanel); features/terminals |
+| task-005 | Snapshot replay hygiene: client `reset()` before replay (not `clear()`); daemon `safeReplayStart` so the 64 KiB ring never begins mid-escape-sequence | bugfix | none | packages/server (terminal/{terminal-manager,terminal-manager.test}); packages/web-client (features/terminal/TerminalPanel); features/terminals |
+| task-006 | Live E2E proof of the whole size contract (fresh open, long-command editing, drag, splits, reattach, reconnect, two clients, large-output replay) + docs sync incl. three wrong statements in `packages/server/AGENTS.md` and a stale renderer comment | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (server, web-client); packages/web-client (features/terminal/TerminalPanel); features/terminals, feature-panels-ui |
+
+### sprint-053-terminal-fidelity
+> Three independent terminal gaps, each a divergence from scope that is already written, sequenced
+> after sprint-052 because two of them sit directly on the size path it fixes.
+>
+> **Appearance.** `feature-panels-ui.md` § Terminal pane requires "theme from the terminal color
+> tokens, user mono font, code font size" and `design-system.md` § Colors already defines
+> `colors.terminal` as the full xterm ANSI map, built per variant (with a light-mode override).
+> `TerminalPanel.tsx:51-73` ships a hardcoded 19-colour dark literal plus `baseFontSize.sm` — the
+> **unscaled** token — and a literal mono stack, so the light theme leaves the terminal dark and the
+> 10–24 px font-size setting does nothing there. The blocker is structural, not cosmetic: no component
+> can read the resolved theme, because `ThemeBoundary.tsx:24-30` keeps the controller in a private ref
+> and its only output is CSS variables (`css-bridge.ts:113-118` emits just two of the nineteen colours,
+> commented "consumed by xterm config directly" — by nothing, because nothing can). Hence task-001's
+> context seam. Reading the palette back out of CSS with `getComputedStyle` was rejected: it
+> string-round-trips data already held, and cannot deliver the numeric font size. A font change alters
+> cell metrics, so it is a genuine viewport change → refit then claim.
+>
+> **Exit.** `feature-panels-ui.md` § Terminal pane says "exit sets 'Terminal exited'". Today `exit`
+> leaves a tab with a blinking cursor that swallows keystrokes. There is no close opcode
+> (`terminal-manager.ts:291-293` says so explicitly), the sole signal is a `terminals_update` broadcast
+> with **zero** web-client consumers, and that broadcast isn't sent at all on self-exit — only from RPC
+> handlers. So the sprint adds an exit notification seam on `TerminalManager` (not a new opcode: the
+> protocol is append-only and the JSON inventory broadcast already exists) and a client-side
+> reconciliation.
+>
+> **Reflowable restore (tier 2).** `Restore = 0x05`, `SERVER_FEATURES["terminal-restore-modes"]`
+> (advertised, `restoreModesEnabled: true`), and `CLIENT_CAPS.terminal_reflowable_snapshot` have all
+> existed since sprint-002 and are **wholly dead**: no server path ever emits the frame, the negotiated
+> `restoreMode` is echoed then ignored, and no client advertises the capability. The basic tier replays
+> the raw byte ring, which reproduces the wrapping of whatever width the PTY had when those bytes were
+> written — approximate by construction at any other width, which is why a reattach after a resize
+> renders wrong even with sprint-052's escape-safe trim. Tier 2 serves a serialized redraw of the
+> daemon's `@xterm/headless` grid instead, correct at any client width, and resolves both scopes'
+> `TODO(verify)` on the snapshot serialization format.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Appearance context: publish the resolved `Theme` (incl. `colors.terminal`, scaled `fontSize`, `fontFamily.mono`) from `ThemeBoundary` with change notification, preserving the synchronous pre-first-paint apply | refactor | none | packages/web-client (theme/{ThemeBoundary,appearance-store,index}); architecture/design-system, features/feature-panels-ui |
+| task-002 | Terminal follows the theme, mono font, and font-size setting; hardcoded palette + unscaled token deleted; font change refits then claims, colour-only change claims nothing | bugfix | task-001 | packages/web-client (features/terminal/TerminalPanel, theme/colors — read only); architecture/design-system, features/feature-panels-ui, terminals |
+| task-003 | Exited-terminal state: `TerminalManager` exit notification seam (covers self-exit, not just RPC kill) → `terminals_update`; client reconciliation, "Terminal exited", input disabled, final screen preserved | bugfix | none | packages/server (terminal/{terminal-manager,terminal-rpc,terminal-manager.test,terminal-rpcs.test}); packages/web-client (features/terminal/TerminalPanel, features/workspace/TabStrip, stores/tab-store); features/feature-panels-ui, terminals |
+| task-004 | Daemon tier 2: bounded grid serialization on `ScreenBuffer`, emitted as `Restore` (`0x05`) instead of `Snapshot` when the negotiated mode is reflowable; negotiation result finally honoured | feature | none | packages/server (terminal/{screen-buffer,screen-buffer.test,terminal-manager,terminal-rpc,+tests}, package.json); features/terminals, feature-panels-ui; architecture/websocket-protocol |
+| task-005 | Client tier 2: advertise `terminal_reflowable_snapshot`, request + honour the echoed `restoreMode`, apply `Restore` through the shared reset-then-replay helper | feature | task-004 | packages/web-client (lib/connection/connection-store, features/terminal/TerminalPanel); packages/client (terminal-router.test); features/terminals; architecture/websocket-protocol |
+| task-006 | Live E2E proof of the three strands **and their combinations** (font change → new width → restore laid out for it; exited terminal not restored on reconnect; disabled-daemon fallback) + sprint-052 regression sweep + docs sync | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (protocol, client, server, web-client); features/terminals, feature-panels-ui; architecture/design-system |
+| task-007 | Broadcast PTY size on resize (ends multi-client belief drift, the limitation sprint-052 documented rather than fixed) + degrade the snapshot ring to the naive cut instead of dropping everything on an unterminated escape sequence | bugfix | none (coordinate with task-003 — both want one `terminals_update` listener) | packages/server (terminal/{terminal-manager,terminal-rpc,+tests}); packages/web-client (features/terminal/TerminalPanel); features/terminals |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task.
@@ -730,7 +820,7 @@ Every feature and architecture scope is covered by at least one task.
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
 | features/worktrees.md | s003/t003, s008/t003, s011/t004, s013/t003 |
 | features/git-checkout.md | s008/t004-006, s009/t006 (diff highlight), s016/t003 |
-| features/terminals.md | s002/t004, s007/t003, s009/t001-002, s016/t004 |
+| features/terminals.md | s002/t004, s007/t003, s009/t001-002, s016/t004; s052/t001-006 (PTY size-ownership conformance: create-time/change/focus claims, dedupe+coalescing, escape-safe snapshot ring, reset-before-replay), s053/t002-006 (appearance-driven emulator, exited state, reflowable restore tier 2) |
 | features/chat-rooms.md | s010/t002, s011/t004 |
 | features/schedules-heartbeats.md | s010/t003, s011/t004, s013/t005 (UI) |
 | features/loops.md | s010/t004, s011/t004 |
@@ -749,7 +839,7 @@ Every feature and architecture scope is covered by at least one task.
 | features/inline-image-rendering.md | s045/t001-007; s051/t001-003 (amended: normalized/decoded classifier, pane-targeted click-to-open) |
 | features/file-link-rendering.md | s051/t001-006 |
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
-| features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render) |
+| features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render); s052/t001,t003,t006 (terminal-pane size-claim + status-surface conformance, Pi-Studio split-pane contract), s053/t001-006 (appearance sourcing, "Terminal exited" state, reconnect/restore) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
 | features/rewind.md | s015/t007 (logic); s021/t005 (render) |
 | features/provider-usage.md | s013/t004-005, s015/t006; s019/t004, s021/t004 (render) |
@@ -757,15 +847,15 @@ Every feature and architecture scope is covered by at least one task.
 | features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004 |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
-| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness) |
+| architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness), s052/t001-004 (terminal-stream router usage: subscription split from emulator, single `claimSize` seam), s053/t005 (`onRestore` becomes a live path) |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
-| architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays) |
+| architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays); s053/t001-002 (resolved-`Theme` context for JS-configured surfaces; `colors.terminal` + scaled font scale finally consumed) |
 | architecture/ssh-gateway-connections.md | s025/t001-005 |
 
 ## Open questions — TODO(verify)
@@ -776,7 +866,9 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Exact `fetch_agent_timeline` field names + cursor encoding + page-limit merge counting — s006/t001,t003.
 - [ ] Permission response option vocabulary + payload field names per provider — s006/t005.
 - [ ] Per-request field shapes for checkout/git ops + diff projection format + `gh`/API surface — s008/t004-006.
-- [ ] Terminal Restore opcode value + reflowable-snapshot payload + worker protocol — s002/t004, s009/t001.
+- [x] Terminal Restore opcode value — `0x05`, confirmed against the live codec; the reflowable payload
+      format is unconstrained by any external peer and is fixed by s053/t004. Worker protocol remains
+      open (see below) — s002/t004, s009/t001, s053/t004-005.
 - [ ] File-transfer frame layout (opcodes/chunk/completion) + download-token TTL/single-use — s002/t005, s009/t005.
 - [ ] Service-proxy branch/project slugging + public TLS handling — s009/t003.
 - [ ] Schedule missed-run/catch-up across downtime; `create_heartbeat` vs `create_schedule` params — s010/t003.
@@ -815,3 +907,20 @@ Carried from the scope; resolve against the live source while implementing the o
       battery-saver modes (Chromium confirmed; others expected but unverified). Only affects how much
       of the throttling fix those browsers get — the `setTimeout` fallback keeps them at today's
       behavior either way — s050/t002,t004.
+- [ ] Whether the production PTY should run in a dedicated worker process (`terminal-worker-protocol.ts`)
+      or stay in-process behind `PtyBackend` as it does today. Carried unresolved from
+      `features/terminals.md` § TODO(verify); untouched by s052/s053, neither of which depends on the
+      answer.
+- [ ] Renderer addon: `design-system.md` § UI technology stack lists `@xterm/xterm` ^6 beta with
+      `addon-webgl`/`addon-search`/`addon-web-links`/`addon-clipboard`/`addon-image`/`addon-ligatures`/
+      `addon-unicode11`; the app ships ^5.5.0 with `addon-fit` only, so it runs xterm 5's **DOM**
+      renderer (a stale comment at `TerminalPanel.tsx:197-199` claims canvas — corrected by s052/t006).
+      Whether to adopt the WebGL renderer for heavy-output throughput, and whether to move to the ^6
+      line, is a deliberate open decision — not a prerequisite for either terminal sprint.
+- [ ] Scrollback is hardcoded at 5000 lines; `feature-panels-ui.md` § Terminal pane says "configured
+      scrollback" but no setting exists. Whether it becomes an appearance/terminal setting is open —
+      s053/t002 deliberately does not invent one.
+- [ ] `pi-studio terminal capture` renders `payload.text` while the daemon returns `screen`, so it
+      prints an empty string; `terminal ls` renders a `title` column while entries carry `name`. Both in
+      `packages/cli/src/feature-commands.ts`, both found while scoping s052, both deliberately out of
+      scope there (CLI surface, unrelated to sizing) — needs its own small task.

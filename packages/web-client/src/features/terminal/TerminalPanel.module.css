@@ -1,4 +1,5 @@
 .wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -15,12 +16,14 @@
   overflow: hidden;
   padding: var(--pi-spacing-6) var(--pi-spacing-8);
 }
-.status {
+.statusOverlay {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--pi-spacing-8);
-  height: 100%;
+  background: var(--pi-terminal-bg);
   color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }

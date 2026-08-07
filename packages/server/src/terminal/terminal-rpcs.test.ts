@@ -2,14 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { decodeTerminalFrame } from "@av-pi-studio/protocol";
+import { decodeTerminalFrame, encodeTerminalFrame } from "@av-pi-studio/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { HandlerRegistry, type RpcHandler } from "../ws/router.js";
 import { Session } from "../ws/session.js";
 import type { PtyBackend, PtyProcess, PtySpawnOptions } from "./pty-backend.js";
 import { TerminalManager } from "./terminal-manager.js";
-import { registerTerminalHandlers } from "./terminal-rpc.js";
+import { makeTerminalBinaryHandler, registerTerminalHandlers } from "./terminal-rpc.js";
 
 class FakePty implements PtyProcess {
   writes: Uint8Array[] = [];
@@ -18,7 +18,10 @@ class FakePty implements PtyProcess {
   write(d: Uint8Array): void {
     this.writes.push(d);
   }
-  resize(): void {}
+  resizes: { cols: number; rows: number }[] = [];
+  resize(cols: number, rows: number): void {
+    this.resizes.push({ cols, rows });
+  }
   kill(): void {}
   onData(cb: (d: Uint8Array) => void): void {
     this.dataCb = cb;
@@ -35,6 +38,16 @@ class FakeBackend implements PtyBackend {
     this.ptys.push(p);
     return p;
   }
+}
+
+/** Narrow a `create_terminal_response`'s slot without asserting a fabricated shape. */
+function createdSlot(res: Record<string, unknown> | undefined): number {
+  const terminal = res?.terminal;
+  if (terminal && typeof terminal === "object" && "slot" in terminal) {
+    const slot = terminal.slot;
+    if (typeof slot === "number") return slot;
+  }
+  throw new Error("create_terminal_response did not carry a numeric slot");
 }
 
 /** A Session backed by a fake socket capturing text + binary sends. */
@@ -159,6 +172,135 @@ describe("terminal lifecycle RPCs", () => {
     expect(res!.ok).toBe(true);
     expect(binary).toHaveLength(1);
     expect(decodeTerminalFrame(binary[0]!).opcode).toBe("Snapshot");
+  });
+
+  // Regression (sprint-052): the Snapshot is a raw byte ring, so it reproduces the wrapping and
+  // absolute cursor positioning of the width the PTY had when those bytes were written. A
+  // full-screen app's 80-column paint replayed into a much wider emulator renders scrambled, and a
+  // client-side Resize sent AFTER attaching cannot prevent it — `subscribe` emits the snapshot
+  // synchronously, so the mangled bytes are already gone. The resize must land first.
+  it("resizes the PTY before emitting the Snapshot when the subscriber sends a grid", async () => {
+    const { registry, manager, backend } = setup();
+    const { session: creator } = makeSession("creator");
+    const created = await call(registry, creator, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+      cols: 80,
+      rows: 24,
+    });
+    const slot = createdSlot(created);
+    const pty = backend.ptys[0]!;
+    const resizesBeforeSubscribe = pty.resizes.length;
+
+    const { session, binary } = makeSession("sub");
+    const res = await call(registry, session, {
+      type: "subscribe_terminal_request",
+      slot,
+      cols: 190,
+      rows: 50,
+    });
+
+    expect(res!.ok).toBe(true);
+    // The PTY actually resized...
+    expect(pty.resizes.length).toBe(resizesBeforeSubscribe + 1);
+    expect(pty.resizes.at(-1)).toEqual({ cols: 190, rows: 50 });
+    // ...and the manager's entry reflects it, so the echo below is the real size.
+    expect(manager.list().find((t) => t.slot === slot)).toMatchObject({ cols: 190, rows: 50 });
+    // ...and the snapshot still arrived (ordering, not replacement).
+    expect(binary).toHaveLength(1);
+    expect(decodeTerminalFrame(binary[0]!).opcode).toBe("Snapshot");
+    // The response echoes the PTY's real size so the client can seed its belief.
+    expect(res).toMatchObject({ cols: 190, rows: 50 });
+  });
+
+  it("echoes the PTY's size without resizing when the subscriber sends no grid", async () => {
+    const { registry, backend } = setup();
+    const { session: creator } = makeSession("creator");
+    const created = await call(registry, creator, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+      cols: 100,
+      rows: 30,
+    });
+    const slot = createdSlot(created);
+    const pty = backend.ptys[0]!;
+    const before = pty.resizes.length;
+
+    // A hidden panel measures 0×0 and sends nothing — it must not resize what it only watches
+    // (`terminals.md` § PTY size ownership), but it still needs to learn what it attached to.
+    const { session } = makeSession("sub");
+    const res = await call(registry, session, { type: "subscribe_terminal_request", slot });
+
+    expect(res!.ok).toBe(true);
+    expect(pty.resizes.length).toBe(before);
+    expect(res).toMatchObject({ cols: 100, rows: 30 });
+  });
+
+  it("ignores a non-positive or non-integer grid from a subscriber", async () => {
+    const { registry, backend } = setup();
+    const { session: creator } = makeSession("creator");
+    const created = await call(registry, creator, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+      cols: 100,
+      rows: 30,
+    });
+    const slot = createdSlot(created);
+    const pty = backend.ptys[0]!;
+    const before = pty.resizes.length;
+
+    const { session } = makeSession("sub");
+    await call(registry, session, {
+      type: "subscribe_terminal_request",
+      slot,
+      cols: 0,
+      rows: 30,
+    });
+    await call(registry, session, {
+      type: "subscribe_terminal_request",
+      slot,
+      cols: 80.5,
+      rows: 24,
+    });
+
+    expect(pty.resizes.length).toBe(before);
+  });
+
+  // The binary `Resize` frame path is the one every real pane drag uses, and it reaches
+  // `manager.resize` with whatever was decoded off the wire — no RPC-level coercion in front of it.
+  // A malformed size must be rejected there rather than reaching `node-pty`/the headless grid, and
+  // must never throw out of the frame handler (that would take down the whole frame dispatcher).
+  it("rejects a malformed grid arriving as a binary Resize frame", async () => {
+    const { registry, manager, backend } = setup();
+    const { session } = makeSession("s1");
+    const created = await call(registry, session, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+      cols: 100,
+      rows: 30,
+    });
+    const slot = createdSlot(created);
+    const pty = backend.ptys[0]!;
+    const before = pty.resizes.length;
+    const handler = makeTerminalBinaryHandler(manager);
+
+    for (const [cols, rows] of [
+      [0, 24],
+      [1, 24],
+      [90000, 24],
+      [80, 0],
+    ]) {
+      expect(() =>
+        handler(session, encodeTerminalFrame({ opcode: "Resize", slot, cols: cols!, rows: rows! })),
+      ).not.toThrow();
+    }
+
+    expect(pty.resizes.length).toBe(before);
+    expect(manager.get(slot)).toMatchObject({ cols: 100, rows: 30 });
+
+    // A well-formed frame on the same path still applies.
+    handler(session, encodeTerminalFrame({ opcode: "Resize", slot, cols: 190, rows: 50 }));
+    expect(pty.resizes.at(-1)).toEqual({ cols: 190, rows: 50 });
   });
 });
 
