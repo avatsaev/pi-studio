@@ -1,7 +1,7 @@
 // StatusBadge + Alert variant contracts.
 // ui-components.md § Surfaces / badges / chips / avatars
 
-export type StatusBadgeVariant = "success" | "error" | "muted";
+export type StatusBadgeVariant = "success" | "error" | "warning" | "muted";
 
 // Single semantic token per variant — text color AND a translucent tint of the SAME token as
 // background (matches `ChangesPanel.module.css`'s `.added`/`.modified`/`.deleted` convention).
@@ -18,6 +18,8 @@ export function statusBadgeTokens(variant: StatusBadgeVariant): BadgeTokens {
       return { token: "statusSuccess" };
     case "error":
       return { token: "statusDanger" };
+    case "warning":
+      return { token: "statusWarning" };
     case "muted":
       return { token: "foregroundMuted" };
   }

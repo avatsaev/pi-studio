@@ -404,12 +404,16 @@ src/
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
-                            `@molviewer/core`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
+                            `@molviewer/core`'s `onSave` to `write-file.ts` and its
+                            `onPolymerBuild` to create-entry + upload), MoleculeViewerPanel
                             (PanelProps adapter, styled via the shared `Panel` primitive plus a
                             local `.wrap`/`.badges` override for its absolute-positioned status
                             badges), molecule-source.ts,
                             write-file.ts (shared `file_write_request` caller + error-code messages,
                             mirrors move-entry.ts — used by MoleculeViewer's Save button),
+                            delete-entry.ts (shared `file_delete_request` caller — FileContextMenu's
+                            delete action and MoleculeViewer's polymer-build rollback),
+                            polymer-file.ts (pure polymer file-name derivation),
                             molecule-reload.ts (pure reload-gate logic), molecule-theme.ts (pi-studio
                             chrome color override), text-viewer-state.ts (pure state selection), + tests
     git/                    ChangesPanel (pure `git-store` consumer — see AGENTS.md § Invariants
@@ -804,6 +808,40 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   creating one. `packages/server/src/files/file-explorer.ts`'s `file_write_request` handler is
   unvalidated (no protocol-package schema entry), matching every other file RPC in this surface —
   see root AGENTS.md's per-path-subscription passthrough convention.
+- **Molecule viewer polymer build (`onPolymerBuild`, `@molviewer/core` 0.4.4+).** File-backed tabs
+  only, same `path`-non-null gate as `onSave` — but the consequence is the opposite: omitting
+  `onSave` hides the Save button, while omitting `onPolymerBuild` leaves Build live and molviewer
+  downloads the `.mol2` itself, which is the right answer for a `+`-menu tab with no directory to
+  write beside. Building is the one molviewer operation that deliberately does NOT change what is
+  on screen (no action is dispatched, nothing is snapshotted, there is nothing to undo), so the
+  monomer tab is untouched and the polymer becomes a NEW file plus a NEW tab.
+  - **Naming is the host's job** and lives in `polymer-file.ts`:
+    `<monomer-stem>_polymer_<e.monomers>.mol2`, later attempts suffixed `_2`, `_3`, … The stem
+    comes from the tab's absolute `path`, NOT `e.sourceFileName` — same reasoning as `onSave`
+    ignoring `e.fileName` — which also makes the event's `sourceFileName: null` case unreachable.
+    `e.monomers` is the chain length in monomer units; `e.report` separately carries a physical
+    length in Å.
+  - **The collision check is the filesystem, never a listing.** `writePolymer` claims each
+    candidate with `create-entry.ts` (`file_create_request` opens `wx`, create-exclusive) and
+    advances on `exists`, capped at `MAX_POLYMER_NAME_ATTEMPTS`. This is why `createEntry` throws
+    `CreateEntryError` carrying the raw server `code`: branching on rendered prose would break
+    when the wording changes. Contrast `FileExplorer.uploadFiles`, which probes the cached listing
+    and therefore has to fall back to a `window.confirm` overwrite prompt.
+  - **Content goes through the binary upload stream, not `file_write_request`.** The latter caps
+    at `MAX_INLINE_FILE_READ_BYTES` (5 MiB), reachable for a long chain of a large monomer; the
+    upload (`useFileTransfer().upload`, which also invalidates the explorer listing) has no cap and
+    opens the target `"w"`, filling the empty file the claim just created. A failed upload rolls
+    the claim back via `delete-entry.ts` — best-effort, so a failing delete never masks the upload
+    error the user actually needs.
+  - **The new tab joins THIS viewer's pane**, resolved via `useLayoutStore.paneOfTab(workspaceCwd,
+    tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded from
+    `MoleculeViewerPanel`'s `tab`. Without it a build started in a background pane would fling its
+    result into the focused one. A null pane needs no special case: `openMoleculeTab` treats an
+    unknown pane id as "not supplied".
+  - `e.report.clashes > 0` surfaces a `warning`-variant `StatusBadge` (the variant added to
+    `ui/status-badge.ts` for this, mapping to the existing `statusWarning` theme token). Rigid
+    placement is never minimised, so overlapping atoms are a real result — reported after the
+    write, not instead of it.
 - **Live file watching (`use-file-watch`/`use-explorer-watch`/`use-file-live-refresh`).** All three
   subscribe to the daemon's `file_watch_subscribe`/`_unsubscribe` + `file_changed` push family
   (`packages/server/AGENTS.md` § File watching). `watchFile` (the framework-free core behind
