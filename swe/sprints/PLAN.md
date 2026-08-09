@@ -83,8 +83,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 051 | `sprint-051-file-link-rendering` | web-client + daemon + protocol: **actionable file links in the chat timeline** (`[label](path)` opens the file as a tab), the sibling feature to sprint-045's inline images sharing its capability→instruction→markdown-override shape. Fixes a shared pane-targeting defect along the way — click-to-open (both this feature's and the pre-existing inline-image one) currently lands in whichever pane is globally focused rather than the pane the message is rendered in, because no component between the pane host and a markdown node-override carries a pane id — and fixes a shared classifier gap (`classifyImageSrc`'s `local` results were unnormalized and not percent-decoded, which would have silently broken this feature's tab-reuse acceptance criteria). Drag-to-split reuses the existing Files-tree `path` payload with zero drop-side changes. Generalizes the daemon's single-capability system-prompt ternary into an ordered, N-capability composition so both instructions compose deterministically. | 6 |
 | 052 | `sprint-052-terminal-sizing` | web-client + daemon: fix the terminal's **PTY size handshake**, the single root cause behind unused horizontal space, mangled long-command editing, ghost characters on backspace, and scrambled redraws. The PTY runs at the 80×24 default for its whole life while xterm renders ~140×35, because `TerminalPanel` calls `fitAddon.fit()` *before* attaching `onResize` and `FitAddon` only resizes on a dimension **change** — so the one size-changing fit of the panel's life fires with no listener, and every later refit is a silent no-op. Implements all three size-claim triggers the scope has always specified and the code has never had (create-time `cols`/`rows`, genuine viewport change, focus/tap), with dedupe, coalescing, and the explicit non-triggers enforced. Second, independent garbling cause fixed too: the daemon's 64 KiB snapshot ring is cut on a raw byte boundary (frequently mid-escape-sequence) and the client `clear()`s instead of `reset()`ing before replay. Zero protocol change; the daemon already forwards `cols`/`rows`. | 6 |
 | 053 | `sprint-053-terminal-fidelity` | web-client + daemon + protocol: the terminal's remaining conformance gaps, all against **already-written** scope. **(a)** The emulator ignores the appearance system entirely — a hardcoded 19-colour dark literal and the *unscaled* `baseFontSize.sm` — while `colors.terminal` already builds a full per-variant xterm ANSI map and `theme.ts` already scales every rung from the user's 10–24 px setting; unreachable from a component because `ThemeBoundary` keeps the controller private and only emits CSS vars, so a theme context lands first. A font change alters cell metrics, hence refit + size claim. **(b)** An exited PTY leaves a zombie tab: there is no close opcode, `onExit` only clears subscribers, and the `terminals_update` broadcast has zero web-client consumers (and isn't even sent on self-exit). **(c)** Implements restore **tier 2** — `Restore` (`0x05`), `terminal-restore-modes`, and `terminal_reflowable_snapshot` have all existed since sprint-002 and are wholly dead: no server path emits the frame, no client advertises the capability. A serialized headless-grid redraw makes reattach width-correct instead of approximate. | 6 |
+| 054 | `sprint-054-provider-auth-cli` | cli only: **`pi-studio auth login/status/logout`** — close the post-install onboarding gap where a user must hand-edit Pi's `auth.json` or discover `/login` inside the foreign `pi-studio pi` TUI before any agent can run. Pi's own CLI has **no headless login** (`pi auth` is read-side only: `check`/`api_key`/`bearer_token`), but its auth engine is fully programmatic and exported from the package main entry: `ModelRuntime.create({authPath})` + `getProviders`/`checkAuth`/`login`/`logout`, driven by a UI-agnostic `AuthInteraction` (`prompt` over text/secret/select/manual_code, `notify` over info/auth_url/device_code/progress). So this sprint reimplements **nothing** — it supplies a readline interaction (masked secrets, numbered selects, QR for OAuth URLs and device codes) and the path resolution that makes CLI-written credentials the exact ones daemon-spawned `pi --mode rpc` processes read (`<piHome>/agent/auth.json`, parity with the server's `piHomeEnv()`). Pi loads **lazily** — its main entry drags the whole TUI graph, so `--help` must not pay for it. Local and daemon-free by construction: no protocol, no RPC, no WebSocket. Scope: `features/provider-auth-cli.md`; the daemon-mediated (`provider-auth-rpc.md`) and browser (`provider-auth-ui.md`) siblings are deliberately separate, later, and independent. | 6 |
+| 055 | `sprint-055-provider-auth-rpc` | protocol + daemon (no client, no CLI): the **daemon-side half** of provider auth — five flat RPC pairs (`provider_auth_list`/`login`/`respond`/`cancel`/`logout`) plus a `provider_auth_flow_event` per-session push, letting a browser or relay-remote client authenticate a model provider **on the daemon host**, which is the only place credentials are useful (that is where `pi --mode rpc` children spawn and read `auth.json`). Sprint-054 closed the same gap for someone with a shell on that machine; this closes it for everyone else. The inversion is the work: Pi drives login by *calling back* (`notify(event)` synchronous, `prompt(p): Promise<string>`), so the daemon parks the promise, pushes an event, and resolves it from a later RPC — with one flow per session, a 10-min TTL, opaque `not_found` for cross-session access, and disconnect-cancels-flow riding `SessionSubscriptions`'s existing close hook for free. Three planning-time source findings reshaped the scope doc before any task was written: a handler **cannot choose an `rpc_error` code** (only `unknown_message_type`/`handler_error` exist, from a module-private sender), so domain failures use `{ ok, error }` payloads per `file_watch_subscribe_response`'s precedent; `checkAuth()` really can hang (sprint-054 shipped a 3 s bound degrading to `"unknown"`); and Pi's own `login()` races `interaction.signal` and throws its **own** `AbortError`, so cancellation must be judged by `signal.aborted`, never by error type. Lazy `import()` of `ModelRuntime` is **not** a startup win here (the daemon already statically imports the package via `session-hydration.ts`) — it exists so a daemon whose Pi runtime fails to construct still boots and serves everything else, retrying on the next call. Production bootstrap only; `dev-bootstrap.ts` stays mock-only, so the dev daemon answers `unknown_message_type` with no `if (dev)` branch anywhere. | 5 |
 
-Total: **51 sprints, 251 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **53 sprints, 262 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -807,9 +809,103 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-006 | Live E2E proof of the three strands **and their combinations** (font change → new width → restore laid out for it; exited terminal not restored on reconnect; disabled-daemon fallback) + sprint-052 regression sweep + docs sync | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (protocol, client, server, web-client); features/terminals, feature-panels-ui; architecture/design-system |
 | task-007 | Broadcast PTY size on resize (ends multi-client belief drift, the limitation sprint-052 documented rather than fixed) + degrade the snapshot ring to the naive cut instead of dropping everything on an unterminated escape sequence | bugfix | none (coordinate with task-003 — both want one `terminals_update` listener) | packages/server (terminal/{terminal-manager,terminal-rpc,+tests}); packages/web-client (features/terminal/TerminalPanel); features/terminals |
 
+### sprint-054-provider-auth-cli
+> **The gap, verified.** After `npm i -g @av-pi-studio/cli` there is no first-class way to
+> authenticate a model provider: the user hand-edits Pi's `auth.json` or discovers `/login` inside
+> the `pi-studio pi` pass-through TUI. Pi's own CLI cannot close it either — `dist/cli/auth-command`
+> exposes only `check`/`api_key`/`bearer_token`, all read-side; login exists solely as the TUI
+> dialog. So this is a hole Pi has not filled, not a duplication of one it has.
+>
+> **Why it is small.** Pi's auth engine is exported from the package main entry (`dist/index.d.ts`):
+> `ModelRuntime.create({authPath, modelsPath, refreshOnCreate})`, `getProviders()`, `checkAuth()`,
+> `login(providerId, type, interaction)`, `logout()`. All provider-specific flow logic — API-key
+> entry, Anthropic/Codex OAuth, device codes, token exchange and refresh — is Pi's. The only thing
+> a host must supply is `AuthInteraction`: `prompt(AuthPrompt): Promise<string>` over
+> `text|secret|select|manual_code`, and `notify(AuthEvent): void` over
+> `info|auth_url|device_code|progress`. Pi's TUI dialog is one implementation of that interface;
+> this sprint writes a readline one.
+>
+> **The load-bearing detail** is path parity, not prompting. Credentials are only useful if the
+> daemon's spawned `pi --mode rpc` children read the same file, so `<piHome>/agent/auth.json` must
+> be derived by exactly the rule `provider-registry.ts`'s `piHomeEnv()` and `pi-commands.ts`'s
+> `piProxyEnv()` already use (task-001 asserts the parity, task-006 proves it with a real agent
+> turn). Pi's `FileAuthStorageBackend` locks the file, so a CLI login concurrent with agents
+> refreshing tokens is safe by construction — no coordination needed on our side.
+>
+> **Loading Pi is not free.** Its main entry pulls the whole interactive/TUI module graph, so the
+> import is dynamic and inside the command actions; `pi-studio --help` and every other command must
+> not pay for it (asserted in task-001, observed in task-006). `packages/cli` gains a direct
+> `@earendil-works/pi-coding-agent` dep pinned to the same range as `packages/server` — one copy,
+> no `auth.json` shape skew.
+>
+> Entirely local: no protocol change, no daemon, no WebSocket. The remote/browser answer is the two
+> sibling scopes (`provider-auth-rpc.md`, `provider-auth-ui.md`), deliberately independent of this
+> one — neither depends on it, and it does not depend on them.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | `AuthRuntime` seam + `resolvePiAuthPaths` (daemon-parity `<piHome>/agent/auth.json`), lazy `ModelRuntime` construction, direct pi dep pinned to server's range | feature | none | packages/cli (auth-runtime, auth-runtime.test, cli-core, package.json); packages/server (provider-registry — parity reference); features/provider-auth-cli |
+| task-002 | Terminal `AuthInteraction`: masked secret / text / numbered select / manual-code prompts, `info`/`auth_url`/`device_code`/`progress` rendering with QR, flow-wide **and** per-prompt abort, stderr-only output | feature | task-001 | packages/cli (auth-interaction, auth-interaction.test, qr, output); features/provider-auth-cli |
+| task-003 | `auth status` (four states incl. env-var `AuthCheck.source`, bounded per-provider probe, `--json`) + `auth logout` (idempotent, ambient-credential note); group registered in `program.ts` | feature | task-001 | packages/cli (auth-commands, auth-commands.test, program); features/provider-auth-cli, cli |
+| task-004 | `auth login [provider]`: picker, method selection (`--type` / single-method / `loginLabel` select), flow execution, SIGINT cancel with handler+readline cleanup, error vs cancel exit paths | feature | task-002, task-003 | packages/cli (auth-commands, auth-commands.test); features/provider-auth-cli |
+| task-005 | Headless `--api-key` (prefilled secret-only interaction, rejects any other prompt) + non-TTY fail-fast guard that never hangs a provisioning job | feature | task-004 | packages/cli (auth-commands, auth-interaction, auth-commands.test); features/provider-auth-cli |
+| task-006 | Live proof that a CLI-written credential runs a **daemon-spawned agent** (10-step run incl. 0600 mode, ambient env-var case, headless, observed lazy-load) + docs sync incl. the `packages/cli/AGENTS.md` invariant that now must state the in-process Pi auth runtime | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (root, cli); features/provider-auth-cli, cli |
+
+### sprint-055-provider-auth-rpc
+> **What sprint-054 cannot reach.** CLI login only helps someone with a shell on the daemon's
+> machine. A web-client user — especially over the relay to a headless box — has no way in, yet the
+> credential *must* land on the daemon host: that is where `pi --mode rpc` children spawn and read
+> `auth.json`. This sprint is the daemon-side half, and nothing else: protocol + server, no SDK, no
+> UI, no CLI (the browser half is `features/provider-auth-ui.md`, a later sprint that consumes this
+> contract verbatim).
+>
+> **The work is an inversion, not a feature.** Pi drives login by calling back — `notify(event)`
+> synchronous, `prompt(p): Promise<string>`. The daemon has to turn that inside out: push an event,
+> park the promise, resolve it from a later correlated RPC. Everything else is the discipline around
+> that: one flow per session, 10-minute TTL, exactly one terminal `done`, opaque `not_found` for a
+> flow you do not own, and no secret in any log line or frame.
+>
+> **Three source findings reshaped the scope doc before a single task was written**, which is why
+> the tasks read the way they do:
+> 1. A handler **cannot choose an `rpc_error` code** — `ws/router.ts` emits only
+>    `unknown_message_type` and `handler_error`, from a module-private `sendRpcError`. So domain
+>    failures travel as `{ ok, error }` response payloads, following `file_watch_subscribe_response`.
+>    The original scope's `rpc_error(provider_auth_unavailable)` design was simply not buildable.
+> 2. `checkAuth()` **can hang** — not hypothetically: sprint-054 hit it and shipped a 3 s bound
+>    degrading to `"unknown"`. `list` inherits that, and `ProviderAuthInfo.configured` is therefore
+>    `boolean | "unknown"` on the wire.
+> 3. Pi's `login()` **races `interaction.signal` itself** and throws its own generic `AbortError`
+>    (found the hard way in sprint-054/task-004). Cancellation is judged by `signal.aborted`, never
+>    by error type — an acceptance criterion in task-003, not a footnote.
+>
+> **Two things that look like design choices but are constraints.** Disconnect-cancels-flow needs no
+> new lifecycle code: `SessionSubscriptions` already holds per-session disposers and is already
+> drained on socket close, so a flow registers its own cancel under `provider_auth_flow:<id>` and
+> gets it free. And the lazy `import()` of `ModelRuntime` is **not** a startup optimization — the
+> daemon already statically imports the package (`session-hydration.ts`); it is lazy so a daemon
+> whose runtime fails to construct still boots and serves everything else, retrying next call.
+>
+> Registered in the production bootstrap only. `dev-bootstrap.ts` stays mock-only and answers
+> `unknown_message_type`, exactly as it already does for file-watch and checkout — no `if (dev)`
+> branch anywhere in the service.
+>
+> Runs independently of sprint-054 in both directions (protocol+server vs cli — no shared files
+> except root `AGENTS.md`, different sections). Tasks 001 and 002 have no dependency on each other
+> and may run concurrently.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Protocol: five `provider_auth_*` request/response pairs (`ok`-bearing payloads, union entries) + `providerAuth` in `SERVER_FEATURES`/`COMPAT`; flow-event push deliberately left to the passthrough fallback | feature | none | packages/protocol (messages, client-capabilities, session-messages.test, client-capabilities.test); features/provider-auth-rpc; architecture/websocket-protocol |
+| task-002 | Export `resolvePiAgentDir`/`resolvePiAuthPaths` from `provider-registry` (real precedence: `agents.providers.pi.env` > `daemon.piHome` > Pi default) + daemon `PiAuthRuntime` seam: retry-on-failure lazy `ModelRuntime`, login-capable filter, bounded `checkAuth`, logout re-check | feature | none | packages/server (agent/provider-auth/pi-auth-runtime + test, agent/provider-registry + test); features/provider-auth-rpc; architecture/config |
+| task-003 | `ProviderAuthService`: flow registry (one per session, TTL, exactly one terminal `done`) + `AuthInteraction` bridge (`notify`→push, `prompt`→parked promise), per-prompt vs flow-wide abort, `signal.aborted`-authoritative cancel, opaque cross-session `not_found`, no secret in logs or frames | feature | task-002 | packages/server (agent/provider-auth/provider-auth-service + test); features/provider-auth-rpc |
+| task-004 | `registerProviderAuthHandlers` mirroring `registerFileWatchHandlers` + production `bootstrap.ts` wiring + disconnect-cancels-flow via `SessionSubscriptions` keys; dev bootstrap deliberately untouched | feature | task-001, task-003 | packages/server (agent/provider-auth/provider-auth-rpc + test, daemon/bootstrap, daemon/bootstrap.test, ws/session-subscriptions — read only); features/provider-auth-rpc |
+| task-005 | Live E2E on a real daemon + real socket + real Pi: 10-step run (api_key login over the wire, 0600 `auth.json`, **path parity with a spawned agent**, logout, cancel, socket-drop, secret-absence scan) + docs sync (root/protocol/server `AGENTS.md`) | test + docs | task-001, task-002, task-003, task-004 | AGENTS.md (root, protocol, server); features/provider-auth-rpc |
+
 ## Coverage check
 
-Every feature and architecture scope is covered by at least one task.
+Every feature and architecture scope is covered by at least one task, **except** one deliberately
+unplanned sibling: `features/provider-auth-ui.md` (scoped, not yet broken into sprints — it
+consumes sprint-055's wire contract, so it is planned after that contract exists).
 
 | Scope file | Covered by |
 |------------|-----------|
@@ -830,7 +926,10 @@ Every feature and architecture scope is covered by at least one task.
 | features/file-explorer-move.md | s046/t001-006; s047/t001 (trimmed-basename fix at the source), t005 (same-parent rename destination), t006 (docs: the anticipated affordance landed) |
 | features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
-| features/cli.md | s011/t001-004 |
+| features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs) |
+| features/provider-auth-cli.md | s054/t001-006 |
+| features/provider-auth-rpc.md | s055/t001-005 |
+| features/provider-auth-ui.md | not yet planned — consumes s055's wire contract, planned once it lands |
 | features/connection-resilience.md | s050/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
@@ -847,12 +946,12 @@ Every feature and architecture scope is covered by at least one task.
 | features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004 |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
-| architecture/config.md | s003/t002-003, s005/t003, s013/t004 |
+| architecture/config.md | s003/t002-003, s005/t003, s013/t004, s055/t002 (`piHomeEnv`'s path rule exported as `resolvePiAgentDir`/`resolvePiAuthPaths`, making spawn-path/auth-path parity assertable) |
 | architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness), s052/t001-004 (terminal-stream router usage: subscription split from emulator, single `claimSize` seam), s053/t005 (`onRestore` becomes a live path) |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
 | architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays); s053/t001-002 (resolved-`Theme` context for JS-configured surfaces; `colors.terminal` + scaled font scale finally consumed) |

@@ -80,6 +80,7 @@ desktop     ──────► server   (NOT web-client yet — planned for s
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
 | CLI framework | `commander` |
+| Interactive terminal prompts | `@inquirer/prompts` (cli only — `auth login` picker/masked input; lazy-imported) |
 | QR codes | `qrcode` |
 | Auth | `bcryptjs` (password hashing), `tweetnacl` (keypair for relay pairing) |
 | Molecular structure viewer | `@molviewer/core` (web-client only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
@@ -183,7 +184,7 @@ tRPC API directly via `curl` for status polling, rather than waiting on an upstr
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
-| `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio daemon start --pi-home <dir>` sets this for a locally-spawned daemon. |
+| `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
 | `PI_STUDIO_LISTEN` | `0.0.0.0:6767` (production `main.ts`); the CLI's local-spawn path binds `127.0.0.1:6767` instead | Daemon bind address (`host:port`) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
@@ -241,6 +242,10 @@ Two providers ship today:
   testing.
 
 Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"` in the manifest.
+`pi` needs a model-provider credential before it can run a turn — `pi-studio auth login` (CLI-local,
+no daemon required; `packages/cli/AGENTS.md`'s `auth` group) is the supported way to provide one
+without hand-editing Pi's `auth.json` or discovering `/login` inside `pi-studio pi`'s pass-through
+TUI.
 
 ---
 

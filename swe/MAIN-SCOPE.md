@@ -264,6 +264,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/file-explorer-move.md](features/file-explorer-move.md)         | feature      | Move/rename files and directories, explorer drag-and-drop                     |
 | [features/subagents.md](features/subagents.md)                           | feature      | Parent/child agents, subagents track, cascade archive                         |
 | [features/cli.md](features/cli.md)                                       | feature      | Commander.js CLI command surface                                              |
+| [features/provider-auth-cli.md](features/provider-auth-cli.md)           | feature      | `pi-studio auth` login/status/logout reusing Pi's ModelRuntime locally (no daemon) |
+| [features/provider-auth-rpc.md](features/provider-auth-rpc.md)           | feature      | Daemon-side provider auth RPCs: list/login/respond/cancel/logout + flow-event push |
 | [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
@@ -277,6 +279,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 | [features/rewind.md](features/rewind.md)                                 | feature (UI) | Rewind conversation/files/both to a prior message (+ small protocol amendment) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
+| [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + Model Providers settings panel and login dialog |
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
 | [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |
 | [features/white-label-branding.md](features/white-label-branding.md)     | feature (UI) | Build-time brand config: product name/title, accent colors, logo/icons        |

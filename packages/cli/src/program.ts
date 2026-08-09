@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerAgentCommands } from "./agent-commands.js";
+import { registerAuthCommands } from "./auth-commands.js";
 import { registerDaemonCommands, ensureLocalDaemonAndPair } from "./daemon-commands.js";
 import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
 import { registerPiCommands } from "./pi-commands.js";
@@ -65,6 +66,7 @@ function registerCommands(
   setExit: (code: number) => void,
 ): void {
   registerAgentCommands(program, ctx, setExit);
+  registerAuthCommands(program, ctx, setExit);
   registerDaemonCommands(program, ctx, setExit);
   registerFeatureCommands(program, ctx, setExit);
   registerPiCommands(program, ctx, setExit);
