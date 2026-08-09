@@ -39,6 +39,7 @@ import { copyText } from "@pi-studio-ui/lib/clipboard.js";
 import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 import { openFileTab, openMoleculeTab, openTextTab } from "./open-file-tab.js";
+import { deleteEntry } from "./delete-entry.js";
 
 export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);
@@ -125,11 +126,7 @@ export function FileContextMenu() {
       return;
     }
     try {
-      const response = await client.connection.request<{ ok: boolean; error?: string }>(
-        "file_delete_request",
-        { path: menu.path },
-      );
-      if (!response.ok) throw new Error(response.error ?? "delete failed");
+      await deleteEntry(client, menu.path);
       await queryClient.invalidateQueries({ queryKey: ["explorer"] });
       useTabStore.getState().closeByPathPrefix(menu.path);
     } catch (err) {

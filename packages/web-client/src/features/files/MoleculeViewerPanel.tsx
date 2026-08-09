@@ -17,7 +17,12 @@ export function MoleculeViewerPanel({ tab }: PanelProps) {
 
   return (
     <Panel>
-      <MoleculeViewer path={path} isActive={isActive} />
+      <MoleculeViewer
+        path={path}
+        workspaceCwd={tab.workspaceCwd}
+        tabId={tab.id}
+        isActive={isActive}
+      />
     </Panel>
   );
 }

@@ -24,7 +24,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@floating-ui/react": "^0.27.19",
-    "@molviewer/core": ">=0.4.3 <1.0.0",
+    "@molviewer/core": "^0.4.4",
     "@radix-ui/react-dialog": "^1.1.18",
     "@radix-ui/react-dropdown-menu": "^2.1.19",
     "@radix-ui/react-popover": "^1.1.18",
