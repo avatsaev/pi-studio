@@ -1,6 +1,7 @@
 import { DaemonClient, RpcError, RpcTimeoutError } from "@av-pi-studio/client";
 
 import { type ConnectOptions, connectDaemon } from "./connection.js";
+import type { AuthRuntime } from "./auth-runtime.js";
 import type { DaemonRuntime } from "./daemon-control.js";
 import type { PiRuntime } from "./pi-commands.js";
 import type { RelayRuntime } from "./relay-control.js";
@@ -46,6 +47,8 @@ export interface CliContext {
   pi?: PiRuntime;
   /** Self-update control runtime (npm registry/install side-effects); tests inject fakes. */
   update?: UpdateRuntime;
+  /** Pi auth-engine seam (network/filesystem side-effects); tests inject fakes. */
+  auth?: AuthRuntime;
 }
 
 /** Default production context. */

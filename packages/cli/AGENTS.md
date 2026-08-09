@@ -34,6 +34,22 @@ src/
   pairing.ts             buildPairingUrl() + readDaemonPublicKey() — relay pairing URL construction.
   qr.ts                  renderQrToTerminal() — QR code string via the `qrcode` library.
 
+  auth-runtime.ts        AuthRuntime seam — resolvePiAuthPaths() (daemon-parity `<piHome>/agent/auth.json`),
+                          lazy `ModelRuntime` construction, provider listing/checkAuth/login/logout.
+  auth-runtime.test.ts
+
+  auth-interaction.ts    Terminal `AuthInteraction`: `@inquirer/prompts` (masked secret / text /
+                          arrow-key select, upgrading to type-to-filter search above 8 options /
+                          manual-code), notify rendering (info/auth_url/device_code/progress) with
+                          QR, serialized through a queue that prompts await so a QR never lands
+                          mid-prompt, prefilled `createApiKeyInteraction()` for headless
+                          `--api-key`, flow-wide + per-prompt abort (inquirer's `ExitPromptError`
+                          for Ctrl+C during a live prompt).
+  auth-interaction.test.ts
+
+  auth-commands.ts       `auth` command group (login/status/logout) — local, daemon-free.
+  auth-commands.test.ts
+
   agent-commands.ts      Agent command group (run/ls/attach/send/stop/wait/logs/…).
   agent-commands.test.ts
 
@@ -79,14 +95,14 @@ src/
 
 Registered on the root Commander program:
 
-| Flag                    | Description                                                                                                                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-H, --host <host>`     | Daemon/host target (e.g. `workstation.local:6767` or `ws://…`)                                                                                                                                |
-| `--password <password>` | Password for password-protected daemons                                                                                                                                                       |
-| `--home <dir>`          | Override `$PI_STUDIO_HOME` (client-id store)                                                                                                                                                  |
-| `--pi-home <dir>`       | Override `$PI_STUDIO_PI_HOME` — forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) and to `pi-studio pi` — redirects the bundled Pi CLI's own `.pi` config dir |
-| `--json`                | Render output as JSON instead of a table                                                                                                                                                      |
-| `-v, --version`         | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0                                                            |
+| Flag                    | Description                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-H, --host <host>`     | Daemon/host target (e.g. `workstation.local:6767` or `ws://…`)                                                                                                                                                                                                                                    |
+| `--password <password>` | Password for password-protected daemons                                                                                                                                                                                                                                                           |
+| `--home <dir>`          | Override `$PI_STUDIO_HOME` (client-id store)                                                                                                                                                                                                                                                      |
+| `--pi-home <dir>`       | Override `$PI_STUDIO_PI_HOME` — forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) and to `pi-studio pi`; also selects the `<piHome>/agent/auth.json` the `auth` group reads/writes (`resolvePiAuthPaths()`) — redirects the bundled Pi CLI's own `.pi` config dir |
+| `--json`                | Render output as JSON instead of a table                                                                                                                                                                                                                                                          |
+| `-v, --version`         | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0                                                                                                                                                                |
 
 Default action (no subcommand):
 
@@ -150,6 +166,23 @@ Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`
 - `mock` → `{ provider: "mock" }`
 - bare `pi` → `{ provider: "pi" }`
+
+### `auth` group (`auth-commands.ts`)
+
+| Command                                                           | Description                                                                                                                                       |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth login [provider] [--type api_key\|oauth] [--api-key <key>]` | Log in to a model provider — interactive picker/prompts, or headless with `--api-key` (requires an explicit `provider`, implies `--type api_key`) |
+| `auth status [--json]`                                            | Show which providers are configured, how (`api key`\|`oauth`\|`not configured`\|`unknown`), and from where (stored credential / ambient env var)  |
+| `auth logout <provider>`                                          | Remove a stored provider credential (idempotent; notes when an ambient env var still configures it)                                               |
+
+**Local and daemon-free** — unlike every other group above, `auth` never opens a WebSocket. It
+talks directly to Pi's own auth store (`<piHome>/agent/auth.json`, see `--pi-home` above) through
+`auth-runtime.ts`'s `AuthRuntime` seam, which lazily constructs `@earendil-works/pi-coding-agent`'s
+`ModelRuntime` — Pi's real login/logout/checkAuth engine, the same one the daemon's spawned
+`pi --mode rpc` processes read credentials from. This is a different mechanism from Pi's own
+TUI-only `/login`/`/logout` slash commands noted under the `agent` group above (those run inside an
+already-spawned agent session and have no RPC equivalent); `auth login` instead writes directly to
+the file both the CLI and every future agent spawn read, before any agent needs to exist.
 
 ### `daemon` group (`daemon-commands.ts`)
 
@@ -349,6 +382,7 @@ interface CliContext {
   relay?: RelayRuntime; // local relay-server control override for tests
   update?: UpdateRuntime; // self-update control override for tests
   pi?: PiRuntime; // embedded Pi CLI proxy runtime override for tests
+  auth?: AuthRuntime; // Pi auth-engine seam (ModelRuntime login/status/logout) override for tests
 }
 ```
 
@@ -412,7 +446,28 @@ branches to `createRelayTransport` when it carries a relay offer).
   drive an existing daemon, and only resolves `@av-pi-studio/server`/`@av-pi-studio/relay/server`
   via `import.meta.resolve` (never `await import()`) to bake an absolute module URL into a detached
   `node -e` subprocess it spawns — see `daemon-control.ts`'s `subprocessStarter` and
-  `relay-control.ts`'s `subprocessRelayStarter`.
+  `relay-control.ts`'s `subprocessRelayStarter`. This does **not** extend to Pi's own auth engine:
+  the `auth` group loads `@earendil-works/pi-coding-agent`'s `ModelRuntime` in-process, lazily —
+  `auth-runtime.ts` only constructs it inside an `auth login`/`status`/`logout` action, never at
+  import or registration time — and writes Pi's own `auth.json` under Pi's own file lock
+  (`FileAuthStorageBackend`), the same file the daemon's spawned `pi --mode rpc` processes read.
+  `ModelRuntime` is neither "daemon" nor "relay" code, so this doesn't contradict the rule above;
+  it's a second, narrower exception worth naming explicitly. Note this is orthogonal to a
+  pre-existing, unrelated fact: `daemon-commands.ts` and `pi-commands.ts` already statically import
+  `@av-pi-studio/server`, whose module graph transitively pulls in the real
+  `@earendil-works/pi-coding-agent` package for **every** CLI invocation, including `--help` —
+  confirmed with a real `node:module` `resolve`/`load` hook trace, not just inspection. So the
+  module is already loaded before any auth command runs; `auth-runtime.ts`'s own guarantee is
+  narrower and independently true regardless: `ModelRuntime.create()` itself (the expensive part —
+  auth-store init, model list load, provider rebuild) is never _invoked_ until a real `auth`
+  command needs it (confirmed with the same live trace, instrumenting `ModelRuntime.create`
+  directly: zero invocations for `--help`/`ls`, exactly one for `auth status`).
+- **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
+  import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
+  `await import()` taken only when a prompt is about to render — verified with a `node:module`
+  resolve hook against a positive control: zero `@inquirer/*` resolutions for `--help` and for
+  `auth login --api-key`, 31 for a direct import. Keep it that way: never hoist it to a static
+  import.
 - **`withDaemon` handles all connection lifecycle.** Individual commands don't call
   `connect`/`disconnect` manually.
 - **`--json` flag** must be respected by all commands that produce structured output (use
@@ -431,4 +486,11 @@ npx vitest run packages/cli
 ```
 
 Tests cover: command parsing, provider-spec parsing, stream-event formatting, daemon-control
-state machine, output rendering, pairing URL construction.
+state machine, output rendering, pairing URL construction, and the `auth` group's
+`auth-runtime.test.ts` (path resolution, lazy `ModelRuntime` construction), `auth-interaction.test.ts`
+(prompt/notify rendering, select delegation, notify/prompt serialization ordering, abort paths),
+and `auth-commands.test.ts` (login/status/logout orchestration against a fake `AuthRuntime`, no
+real Pi import, no network — mirrors the `pi-commands.test.ts` pattern). The interactive layer is
+tested through the `TerminalIo` seam with fakes, never a real TTY; the actual inquirer rendering
+(arrow keys, filtering, masking, QR placement) is verified by driving the built binary in a real
+PTY.

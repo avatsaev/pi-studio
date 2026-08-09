@@ -404,7 +404,7 @@ src/
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
                             BinaryFallbackViewer, TextViewer, viewer-registry,
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
-                            `@molviewer/core@0.4.1`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
+                            `@molviewer/core`'s `onSave` to `write-file.ts`), MoleculeViewerPanel
                             (PanelProps adapter, styled via the shared `Panel` primitive plus a
                             local `.wrap`/`.badges` override for its absolute-positioned status
                             badges), molecule-source.ts,
@@ -788,7 +788,7 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   unrelated re-render did it too, and since `TabPanelHost` re-renders every panel on every layout
   mutation, a divider drag reloaded the structure once per `pointermove` frame — presenting as the
   viewer's own mouse/keyboard input "not registering".
-- **Molecule viewer save (`onSave`, `@molviewer/core@0.4.1`).** `MoleculeViewer.tsx` passes
+- **Molecule viewer save (`onSave`, `@molviewer/core` 0.4.3+).** `MoleculeViewer.tsx` passes
   `onSave` to `<MolViewer>` only when the tab is file-backed (`path` non-null — the empty
   "+"-menu tab has nowhere to write and gets no Save button at all, since passing the prop is
   what draws it). The handler writes `e.text()` (the viewer's own current-frame serialization)
