@@ -21,6 +21,9 @@ npx @av-pi-studio/cli [options] [command] [args]
 ## Quick start
 
 ```bash
+# log in to a model provider (the `pi` provider needs one before it can run a turn)
+pi-studio auth login
+
 # start a local daemon (if one isn't already running) and print a pairing QR code
 pi-studio daemon start
 
@@ -42,13 +45,14 @@ Run `pi-studio --help` (or `<command> --help`) for the full command tree.
 
 ## Global options
 
-| Flag                    | Description                                                                                                                                                 |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-H, --host <host>`     | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`) |
-| `--password <password>` | Password for a password-protected daemon                                                                                                                    |
-| `--home <dir>`          | Override `$PI_STUDIO_HOME` (used for the client-id store)                                                                                                   |
-| `--json`                | Render command output as JSON instead of a table                                                                                                            |
-| `-v, --version`         | Print the installed CLI version and exit                                                                                                                    |
+| Flag                    | Description                                                                                                                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-H, --host <host>`     | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`)                                                                       |
+| `--password <password>` | Password for a password-protected daemon                                                                                                                                                                                          |
+| `--home <dir>`          | Override `$PI_STUDIO_HOME` (used for the client-id store)                                                                                                                                                                         |
+| `--pi-home <dir>`       | Override `$PI_STUDIO_PI_HOME` — the bundled Pi CLI's own `.pi` config dir. Selects the `auth.json` the `auth` group reads/writes, and is forwarded to a locally-spawned daemon and to `pi-studio pi`. Must precede the subcommand |
+| `--json`                | Render command output as JSON instead of a table                                                                                                                                                                                  |
+| `-v, --version`         | Print the installed CLI version and exit                                                                                                                                                                                          |
 
 **Connection resolution**: `--host host:port` → `ws://host:port`; a `ws://`/`wss://` URL is used
 as-is; `http://`/`https://` are accepted for familiarity and mapped to `ws://`/`wss://` (the daemon
@@ -82,6 +86,31 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 Provider spec parsing (`--provider`): `pi/claude-3-5-sonnet` → provider `pi`, model
 `claude-3-5-sonnet`; bare `pi` → provider only; `mock` → the credential-free mock provider.
+
+### `auth`
+
+| Command                                                           | Description                                                                                                           |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `auth login [provider] [--type api_key\|oauth] [--api-key <key>]` | Log in to a model provider. With no arguments, pick one interactively; `--api-key` is the headless path               |
+| `auth status [--json]`                                            | Show which providers are configured, how (api key / oauth), and from where (stored credential vs. an ambient env var) |
+| `auth logout <provider>`                                          | Remove a stored credential. Idempotent, and tells you when an ambient env var still configures the provider           |
+
+The `pi` provider needs a model-provider credential before it can run a turn. This is the
+supported way to supply one — no hand-editing Pi's `auth.json`, no hunting for `/login` inside
+`pi-studio pi`'s interactive TUI:
+
+```bash
+pi-studio auth login                          # interactive: filter the provider list, pick, enter key
+pi-studio auth login openai --api-key sk-...  # headless — for scripts, CI, Dockerfiles
+pi-studio auth status
+```
+
+**Local and daemon-free** — unlike every other group here, `auth` never opens a WebSocket. It
+writes Pi's own credential store at `<piHome>/agent/auth.json` (see `--pi-home`), which is the
+exact file the daemon's spawned agents read, so a credential you add here is picked up on the next
+agent spawn with no daemon restart. Interactive prompts need a TTY; use `--api-key` with an
+explicit provider for non-interactive setups. Secrets are never echoed, and the store is written
+`0600`.
 
 ### `daemon`
 
@@ -194,5 +223,7 @@ npx vitest run packages/cli
 ```
 
 Tests cover command parsing, provider-spec parsing, stream-event formatting, the daemon-control
-state machine, output rendering, and pairing-URL construction — all against an injected
-`CliContext` (stub output sink + mock `DaemonRuntime`), never a real spawned daemon.
+state machine, output rendering, pairing-URL construction, and the `auth` group (path resolution,
+prompt/notify rendering, login/status/logout orchestration) — all against an injected `CliContext`
+(stub output sink + mock `DaemonRuntime`, fake `AuthRuntime` and terminal I/O), never a real
+spawned daemon and never a real credential store.

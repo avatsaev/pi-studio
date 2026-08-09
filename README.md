@@ -72,17 +72,17 @@ curl http://127.0.0.1:6767/api/health
 
 All are optional; the daemon also reads `$PI_STUDIO_HOME/config.json`.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `PI_STUDIO_HOME` | `~/.pi-studio` | State + config + logs directory |
-| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Daemon listen address (`host:port`) |
-| `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
-| `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
-| `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
-| `PI_STUDIO_LOG_LEVEL` | `info` | pino log level |
-| `PI_STUDIO_RELAY_ENABLED` | `false` | Opt in to dialing out to a relay (see below) |
-| `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay `host:port` to dial |
-| `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` to reach the relay |
+| Variable                   | Default                 | Purpose                                                   |
+| -------------------------- | ----------------------- | --------------------------------------------------------- |
+| `PI_STUDIO_HOME`           | `~/.pi-studio`          | State + config + logs directory                           |
+| `PI_STUDIO_LISTEN`         | `0.0.0.0:6767`          | Daemon listen address (`host:port`)                       |
+| `PI_STUDIO_PASSWORD`       | _(unset)_               | Require this password for connections (bcrypt-checked)    |
+| `PI_STUDIO_HOSTNAMES`      | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
+| `PI_STUDIO_SERVER_ID`      | _(generated UUID)_      | Stable server identity                                    |
+| `PI_STUDIO_LOG_LEVEL`      | `info`                  | pino log level                                            |
+| `PI_STUDIO_RELAY_ENABLED`  | `false`                 | Opt in to dialing out to a relay (see below)              |
+| `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_               | Relay `host:port` to dial                                 |
+| `PI_STUDIO_RELAY_USE_TLS`  | `false`                 | Use `wss://` to reach the relay                           |
 
 Example — run on a different port with a password and an isolated home:
 
@@ -99,6 +99,9 @@ The `@av-pi-studio/cli` package provides a `pi-studio` command. After `npm run b
 the workspace bin:
 
 ```bash
+# log in to a model provider (the `pi` provider needs one — see "The `pi` provider" below)
+node packages/cli/dist/cli.js auth login
+
 # start a local daemon (if one isn't already running) and print a pairing QR code
 node packages/cli/dist/cli.js daemon start
 
@@ -123,7 +126,8 @@ node packages/cli/dist/cli.js --host workstation.local:6767 ls   # target a remo
 ```
 
 Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`run`/`ls`/`attach`,
-`daemon`, `relay`, `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, `worktree`).
+`auth`, `daemon`, `relay`, `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,
+`worktree`).
 
 ## Web UI (`packages/web-client`)
 
@@ -243,10 +247,21 @@ supply pi credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
 
 The `pi` CLI is **bundled** inside `@earendil-works/pi-coding-agent` — the daemon launches
 `node <pkg>/dist/cli.js --mode rpc`, so **no global `pi` install is required**. You only need pi
-*authenticated*: set `ANTHROPIC_API_KEY` (etc.) in the daemon's environment, or have
-`~/.pi/agent/auth.json` configured.
+_authenticated_. The supported way is `pi-studio auth login` (see below); alternatively set
+`ANTHROPIC_API_KEY` (etc.) in the daemon's environment.
 
-To use a *different* pi than the bundled one, point the daemon at an absolute path in
+```bash
+pi-studio auth login                          # interactive: pick a provider, enter a key
+pi-studio auth login openai --api-key sk-...  # headless, for scripts/CI
+pi-studio auth status                         # what's configured, and from where
+```
+
+This writes Pi's own credential store (`~/.pi/agent/auth.json` by default, or
+`<dir>/agent/auth.json` under `--pi-home <dir>`) — the exact file the daemon's spawned agents
+read, so a credential is picked up on the next agent spawn with no daemon restart. The command is
+entirely local: it never connects to a daemon.
+
+To use a _different_ pi than the bundled one, point the daemon at an absolute path in
 `$PI_STUDIO_HOME/config.json`:
 
 ```json
