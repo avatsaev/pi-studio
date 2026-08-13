@@ -84,6 +84,11 @@ src/
 | `agentCommandDescriptorSchema` / `AgentCommandDescriptor` | schema + type | Discoverable command entry (sprint-040): `name` (required) + optional `id`/`description`/`source` (`extension`\|`prompt`\|`skill`)/`scope` (`user`\|`project`\|`temporary`)/`path` |
 | `agentListCommandsRequestSchema` / `AgentListCommandsRequest` | schema + type | `agent_list_commands_request` — surfaces Pi's `get_commands` (extension commands, prompt templates, skills) for a live session; `{ agentId }` |
 | `agentListCommandsResponseSchema` / `AgentListCommandsResponse` | schema + type | Response `{ payload: { commands: AgentCommandDescriptor[] } }` |
+| `extensionPacksListRequestSchema` / `ExtensionPacksListRequest` | schema + type | `extension_packs_list_request` (sprint-057) — `{}`, read curated-pack state |
+| `extensionPacksListResponseSchema` / `ExtensionPacksListResponse` | schema + type | Response: `autoSync`, `selected: string[]`, `packs: ExtensionPackInfo[]`, optional `lastSync: { at, outcome }` (a persisted **summary**, never the full report) |
+| `extensionPacksSetRequestSchema` / `ExtensionPacksSetRequest` | schema + type | `extension_packs_set_request` — optional `packs?: string[]`; **absent** is the manual-sync trigger (no persistence, ungated), **present** replaces the selection then syncs |
+| `extensionPacksSetResponseSchema` / `ExtensionPacksSetResponse` | schema + type | List-response fields plus `ok: boolean`, optional `error` (domain failure, e.g. unknown slug — never `rpc_error`), optional `report: ExtensionSyncReport` (present only when `ok: true`) |
+| `extensionPackInfoSchema` / `ExtensionPackInfo`, `extensionEntryInfoSchema` / `ExtensionEntryInfo`, `extensionSyncReportSchema` / `ExtensionSyncReport` | schema + type | Nested shapes for the pair above; `status`/`outcome`/`reason` fields are plain `z.string()`, never narrowed enums (`EntryStatus`/`SyncOutcome` exported as documentation-only TS unions) — an older client must still parse a status value a later daemon introduces |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -109,7 +114,7 @@ sees a textless `assistant_message` and no-ops on it.
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`

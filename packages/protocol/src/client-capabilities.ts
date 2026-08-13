@@ -43,6 +43,7 @@ export const SERVER_FEATURES = {
   "terminal-restore-modes": "terminal-restore-modes",
   rewind: "rewind",
   checkoutRefresh: "checkoutRefresh",
+  extensionPacks: "extensionPacks",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -74,6 +75,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   rewind: COMPAT({ name: "rewind", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(checkoutRefresh): added 0.0.0, remove by TBD
   checkoutRefresh: COMPAT({ name: "checkoutRefresh", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(extensionPacks): added 0.0.0, remove by TBD
+  extensionPacks: COMPAT({ name: "extensionPacks", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

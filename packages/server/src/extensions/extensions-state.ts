@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import type { PersistedConfig } from "../config/daemon-config.js";
 import { atomicWriteJson } from "../persistence/atomic-store.js";
-import { resolvePiAgentDir } from "../agent/provider-registry.js";
+import { resolvePiAgentDir } from "../agent/pi-home.js";
 
 /**
  * `$PI_STUDIO_HOME/extensions-state.json` — per-pi-home sync bookkeeping
@@ -99,7 +99,7 @@ export async function saveExtensionsState(home: string, state: ExtensionsState):
 /**
  * The directory spawned agents actually receive as `PI_CODING_AGENT_DIR` — the state key
  * everything in this feature is keyed on. Delegates entirely to {@link resolvePiAgentDir} (the one
- * shared derivation with the spawn path in `agent/provider-registry.ts`, which itself `~`-expands
+ * shared derivation with the spawn path in `agent/pi-home.ts`, which itself `~`-expands
  * and absolutizes both non-default branches) and applies Pi's own default when neither an override
  * nor `daemon.piHome` is set. No `resolve()` here: re-resolving an already-absolute path is a
  * no-op for the two real branches, and applying it only to the default branch (as this function
@@ -109,4 +109,24 @@ export async function saveExtensionsState(home: string, state: ExtensionsState):
  */
 export function effectivePiHomeKey(config: PersistedConfig): string {
   return resolvePiAgentDir(config) ?? join(homedir(), ".pi", "agent");
+}
+
+/**
+ * Pi's global `settings.json` at `<piHomeKey>/settings.json` — read-only, never written; every
+ * mutation goes through `pi install`. Absent file ⇒ empty `packages`. `ok: false` ⇒ malformed
+ * JSON, the caller must not act on a reality it can't read. Shared by `ExtensionsService` (the
+ * daemon path) and the CLI's `extensions list --local` (sprint-057/task-005) — one implementation,
+ * so the two can never read `settings.json` differently.
+ */
+export async function readPiSettingsPackages(
+  piHomeKey: string,
+): Promise<{ packages: unknown[]; ok: boolean }> {
+  const path = join(piHomeKey, "settings.json");
+  if (!existsSync(path)) return { packages: [], ok: true };
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8")) as { packages?: unknown };
+    return { packages: Array.isArray(raw.packages) ? raw.packages : [], ok: true };
+  } catch {
+    return { packages: [], ok: false };
+  }
 }

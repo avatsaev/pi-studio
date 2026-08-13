@@ -1,18 +1,17 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { PersistedConfig } from "../config/daemon-config.js";
+import { persistExtensionPacks, type PersistedConfig } from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
 import { createLimiter } from "../util/concurrency.js";
 import { CURATED_PACKS, selectEntries } from "./curated-packs.js";
 import {
   effectivePiHomeKey,
   loadExtensionsState,
+  readPiSettingsPackages,
   saveExtensionsState,
   type PiHomeState,
 } from "./extensions-state.js";
-import { planSync, type PlannedEntry } from "./sync-planner.js";
+import { attachLastErrors, planSync, type DescribedEntry } from "./sync-planner.js";
 import { executePlan, type InstallSpawn, type SyncReport } from "./sync-executor.js";
 
 /**
@@ -25,10 +24,12 @@ import { executePlan, type InstallSpawn, type SyncReport } from "./sync-executor
 
 export type SyncReason = "bootstrap" | "manual" | "selection";
 
+export type { DescribedEntry };
+
 export interface ExtensionsDescribe {
   autoSync: boolean;
   selected: string[];
-  entries: PlannedEntry[];
+  entries: DescribedEntry[];
   /** `outcome` is read back as a plain `string`, not the narrow `SyncReport["outcome"]` union —
    *  the persisted field is forward-compat (a future daemon's new outcome value must round-trip
    *  through an older one without a type mismatch). */
@@ -40,6 +41,9 @@ export class ExtensionsService {
   private readonly config: PersistedConfig;
   private readonly logger: Logger;
   private readonly spawn: InstallSpawn | undefined;
+  /** Where `setSelectedPacks` persists — defaults to `<home>/config.json`, mirroring bootstrap's
+   *  own default, so tests that don't care about persistence never need to pass one. */
+  private readonly configPath: string;
   // In-process mutex (concurrency-1 limiter): a sync requested while one runs waits for it, then
   // gets its own fresh run — never the same report, since config may have changed in between.
   private readonly mutex = createLimiter(1);
@@ -49,15 +53,36 @@ export class ExtensionsService {
     config: PersistedConfig;
     logger: Logger;
     spawn?: InstallSpawn;
+    configPath?: string;
   }) {
     this.home = deps.home;
     this.config = deps.config;
     this.logger = deps.logger;
     this.spawn = deps.spawn;
+    this.configPath = deps.configPath ?? join(deps.home, "config.json");
   }
 
   sync(reason: SyncReason): Promise<SyncReport> {
     return this.mutex(() => this.runSync(reason));
+  }
+
+  /**
+   * Updates the service's own selection view *and* persists it, in that order — an
+   * in-memory-correct daemon must survive a disk write failure (logged, never thrown; the running
+   * daemon keeps serving the new selection even if the write failed). `core` is never stored (it
+   * is implicit); dedupes and preserves caller order otherwise.
+   */
+  async setSelectedPacks(packs: readonly string[]): Promise<void> {
+    const deduped = [...new Set(packs.filter((p) => p !== "core"))];
+    this.config.daemon.extensions.packs = deduped;
+    try {
+      await persistExtensionPacks(this.configPath, deduped);
+    } catch (err) {
+      this.logger.error(
+        { err: (err as Error)?.message ?? String(err) },
+        "failed to persist extension pack selection to config.json",
+      );
+    }
   }
 
   /** Dry-run: the same planner, no writes. One code path for "what we'd do" and "what we
@@ -66,7 +91,7 @@ export class ExtensionsService {
     const piHomeKey = effectivePiHomeKey(this.config);
     const [state, settings] = await Promise.all([
       loadExtensionsState(this.home),
-      this.readSettings(piHomeKey),
+      readPiSettingsPackages(piHomeKey),
     ]);
     const piHomeState: PiHomeState | "unreadable" =
       state === "unreadable" ? "unreadable" : (state.piHomes[piHomeKey] ?? emptyPiHomeState());
@@ -80,23 +105,9 @@ export class ExtensionsService {
     return {
       autoSync: this.config.daemon.extensions.autoSync,
       selected: [...packs],
-      entries,
+      entries: attachLastErrors(entries, piHomeState),
       lastSync: state === "unreadable" ? undefined : state.piHomes[piHomeKey]?.lastSync,
     };
-  }
-
-  /** Pi's global `settings.json` at `<agent dir>/settings.json` — read-only, never written; every
-   *  mutation goes through `pi install`. Absent file ⇒ empty `packages`. `ok: false` ⇒ malformed
-   *  JSON, the caller must not act on a reality it can't read. */
-  private async readSettings(piHomeKey: string): Promise<{ packages: unknown[]; ok: boolean }> {
-    const path = join(piHomeKey, "settings.json");
-    if (!existsSync(path)) return { packages: [], ok: true };
-    try {
-      const raw = JSON.parse(await readFile(path, "utf8")) as { packages?: unknown };
-      return { packages: Array.isArray(raw.packages) ? raw.packages : [], ok: true };
-    } catch {
-      return { packages: [], ok: false };
-    }
   }
 
   /** Persists only the `{ at, outcome }` summary (never the full report) so a freshly-booted
@@ -128,7 +139,7 @@ export class ExtensionsService {
     }
 
     const piHomeKey = effectivePiHomeKey(this.config);
-    const settings = await this.readSettings(piHomeKey);
+    const settings = await readPiSettingsPackages(piHomeKey);
     if (!settings.ok) {
       this.logger.warn(
         { piHomeKey },

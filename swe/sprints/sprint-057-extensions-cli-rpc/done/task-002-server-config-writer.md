@@ -1,7 +1,7 @@
 # Task 002 — Server-side `config.json` writer that never bakes env overrides onto disk
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (config)
 - **Priority:** P1

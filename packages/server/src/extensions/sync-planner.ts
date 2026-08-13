@@ -42,6 +42,38 @@ export interface SyncPlan {
   entries: PlannedEntry[];
 }
 
+/** A `PlannedEntry` with its last recorded failure attached, when one exists — shared by
+ *  `ExtensionsService.describe()` (the daemon path) and the CLI's `extensions list --local`
+ *  (sprint-057/task-005), so the two report identical data from the same state, never a
+ *  hand-rolled second derivation. */
+export interface DescribedEntry extends PlannedEntry {
+  lastError?: { at: string; attempts: number; reason: string; message: string };
+}
+
+/** Attaches each entry's `state.failures[identity]`, when present, as `lastError` — one snapshot,
+ *  one shape, never a second `loadExtensionsState` read by a caller (that would risk interleaving
+ *  with the mutex-guarded sync writing the same file on the daemon path). */
+export function attachLastErrors(
+  entries: readonly PlannedEntry[],
+  state: PiHomeState | "unreadable",
+): DescribedEntry[] {
+  const failures = state === "unreadable" ? {} : state.failures;
+  return entries.map((entry) => {
+    const failure = failures[entry.identity];
+    return failure
+      ? {
+          ...entry,
+          lastError: {
+            at: failure.at,
+            attempts: failure.attempts,
+            reason: failure.reason,
+            message: failure.message,
+          },
+        }
+      : entry;
+  });
+}
+
 /** Pi's own rule (`getPackageSourceString`, package-manager.js): a settings package entry is
  *  either the source string itself, or an object carrying it under `.source` (the user's own
  *  per-package filter form). */

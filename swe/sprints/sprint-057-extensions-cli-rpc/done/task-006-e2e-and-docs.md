@@ -1,7 +1,7 @@
 # Task 006 — End-to-end verification across daemon + CLI, and the docs sweep
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** test + docs
 - **Area:** packages/cli, packages/server (integration); AGENTS.md (root, protocol, server, cli)
 - **Priority:** P1

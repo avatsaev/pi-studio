@@ -53,11 +53,16 @@ web-client  ──────► protocol, client
 desktop     ──────► server   (NOT web-client yet — planned for sprint-033-desktop, not wired)
 ```
 
-`cli` depends on `server` and `web-client` NOT to import their runtime code, but to (a) resolve
-`@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
+`cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
+(a) resolve `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
 `import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
-`web-client`'s prebuilt static SPA assets for the `pi-studio web` command. See
-`packages/cli/AGENTS.md`.
+`web-client`'s prebuilt static SPA assets for the `pi-studio web` command. One narrow, deliberate
+exception: `pi-studio extensions list --local` (sprint-057/task-005) imports `server`'s pure
+extension-planning modules (`extensions/index.ts`'s `curated-packs`/`sync-planner`/
+`extensions-state`, plus `daemon-config.ts`'s `loadConfig`) in-process, to run the same read-only
+planner a connected daemon runs — no daemon lifecycle, no WS server, no `pi` process spawn. See
+`packages/cli/AGENTS.md`'s Invariants section for the full boundary (also covers the pre-existing
+auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above.
 

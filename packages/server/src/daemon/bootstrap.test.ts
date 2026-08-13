@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { Writable } from "node:stream";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +21,8 @@ import {
   decodeFileTransferFrame,
   decodeTerminalFrame,
   encodeTerminalFrame,
+  extensionPacksListResponseSchema,
+  extensionPacksSetResponseSchema,
 } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
@@ -25,6 +35,7 @@ import { INLINE_IMAGE_INSTRUCTIONS } from "../agent/inline-image-instructions.js
 import { FILE_LINK_INSTRUCTIONS } from "../agent/file-link-instructions.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
+import { persistedConfigSchema } from "../config/daemon-config.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -134,6 +145,7 @@ describe("production daemon bootstrap", () => {
       { type: "file_explorer_request", path: booted.home },
       { type: "file_move_request", path: "", destination: "" },
       { type: "checkout_status_subscribe", cwd: booted.home },
+      { type: "extension_packs_list_request" },
     ];
     for (const probe of probes) {
       const res = await client.rpc(probe);
@@ -468,6 +480,132 @@ describe("extensions sync (bootstrap fire-and-forget)", () => {
     client.close();
 
     expect(spawn).not.toHaveBeenCalled();
+  }, 15000);
+});
+
+describe("extension packs RPC (sprint-057)", () => {
+  it("extension_packs_list_request/_set_request are registered end-to-end over a real WS connection", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-ext-rpc-"));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ daemon: { piHome: join(home, "pihome"), extensions: { autoSync: false } } }),
+      "utf8",
+    );
+    const port = 6800 + Math.floor(Math.random() * 200);
+    handle = startDaemon({
+      host: "127.0.0.1",
+      port,
+      home,
+      logger: silentLogger(),
+      extensionsInstallSpawn: succeedAlwaysSpawn,
+    });
+    const client = await connect(port);
+
+    const listRaw = await client.rpc({ type: "extension_packs_list_request" });
+    // Validate against the real wire schema (task-001) rather than an inline cast — a response
+    // that doesn't satisfy the protocol contract fails here, not silently.
+    const list = extensionPacksListResponseSchema.parse(listRaw);
+    expect(list.autoSync).toBe(false);
+    expect(list.packs[0]?.id).toBe("core");
+
+    const setRaw = await client.rpc({ type: "extension_packs_set_request", packs: [] });
+    const set = extensionPacksSetResponseSchema.parse(setRaw);
+    expect(set.ok).toBe(true);
+
+    const raw = persistedConfigSchema.parse(
+      JSON.parse(readFileSync(join(home, "config.json"), "utf8")),
+    );
+    expect(raw.daemon.extensions.packs).toEqual([]);
+
+    client.close();
+  }, 15000);
+
+  it("full round trip: list -> set(with packs) -> set(without packs, one seeded failure) -> list (task-006)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-ext-roundtrip-"));
+    const piHomeKey = join(home, "pihome", "agent");
+    writeFileSync(
+      join(home, "config.json"),
+      // autoSync:false throughout — keeps this deterministic (no racing boot-sync fire-and-forget
+      // against the RPC calls below) while still proving the manual path installs for real.
+      JSON.stringify({ daemon: { piHome: join(home, "pihome"), extensions: { autoSync: false } } }),
+      "utf8",
+    );
+    // `pi-web-access` fails with a 404; every other package succeeds and — mirroring what a real
+    // `pi install <spec>` actually does — appends the source to settings.json, so the planner's
+    // next read reports a genuine `installed` status, not `user_removed` (offered-but-absent).
+    const flakySpawn: InstallSpawn = async ({ command }) => {
+      const source = command.at(-1) as string;
+      if (source.includes("pi-web-access")) {
+        return { exitCode: 1, stderr: "npm error 404 Not Found" };
+      }
+      mkdirSync(piHomeKey, { recursive: true });
+      const settingsPath = join(piHomeKey, "settings.json");
+      const current: { packages: string[] } = existsSync(settingsPath)
+        ? JSON.parse(readFileSync(settingsPath, "utf8"))
+        : { packages: [] };
+      current.packages.push(source);
+      writeFileSync(settingsPath, JSON.stringify(current), "utf8");
+      return { exitCode: 0, stderr: "" };
+    };
+    const port = 6800 + Math.floor(Math.random() * 200);
+    handle = startDaemon({
+      host: "127.0.0.1",
+      port,
+      home,
+      logger: silentLogger(),
+      extensionsInstallSpawn: flakySpawn,
+    });
+    const client = await connect(port);
+
+    // 1. list — fresh state, nothing attempted yet.
+    const list1 = extensionPacksListResponseSchema.parse(
+      await client.rpc({ type: "extension_packs_list_request" }),
+    );
+    expect(list1.selected).toEqual([]);
+    expect(list1.lastSync).toBeUndefined();
+    expect(list1.packs[0]?.packages.every((p) => p.status === "pending")).toBe(true);
+
+    // 2. set(with packs) — `sync("selection")` IS gated by autoSync:false: persists the
+    // (unchanged, empty) selection but installs nothing. Proves the documented asymmetry between
+    // the two branches (task-003's spec: "with packs" is gated, "without packs" is not).
+    const set1 = extensionPacksSetResponseSchema.parse(
+      await client.rpc({ type: "extension_packs_set_request", packs: [] }),
+    );
+    expect(set1.ok).toBe(true);
+    expect(set1.report?.outcome).toBe("noop");
+    expect(set1.report?.installed).toEqual([]);
+
+    // 3. set(without packs) — the ungated manual path: actually runs, surfacing the seeded
+    // failure directly on the response.
+    const set2 = extensionPacksSetResponseSchema.parse(
+      await client.rpc({ type: "extension_packs_set_request" }),
+    );
+    expect(set2.ok).toBe(true);
+    expect(set2.report?.outcome).toBe("partial");
+    expect(set2.report?.installed).toHaveLength(4);
+    expect(set2.report?.failures).toHaveLength(1);
+    expect(set2.report?.failures[0]?.source).toBe("npm:pi-web-access");
+    const failedInSet = set2.packs[0]?.packages.find((p) => p.identity === "pi-web-access");
+    expect(failedInSet?.status).toBe("failed");
+    expect(failedInSet?.lastError?.attempts).toBe(1);
+    expect(failedInSet?.lastError?.reason).toBe("not_found");
+
+    // 4. list — reflects the same partial state the `set` response already reported: one entry
+    // failed with lastError, the rest installed, lastSync recorded.
+    const list2 = extensionPacksListResponseSchema.parse(
+      await client.rpc({ type: "extension_packs_list_request" }),
+    );
+    expect(list2.lastSync?.outcome).toBe("partial");
+    const failedInList = list2.packs[0]?.packages.find((p) => p.identity === "pi-web-access");
+    expect(failedInList?.status).toBe("failed");
+    expect(failedInList?.lastError?.reason).toBe("not_found");
+    expect(
+      list2.packs[0]?.packages
+        .filter((p) => p.identity !== "pi-web-access")
+        .every((p) => p.status === "installed"),
+    ).toBe(true);
+
+    client.close();
   }, 15000);
 });
 

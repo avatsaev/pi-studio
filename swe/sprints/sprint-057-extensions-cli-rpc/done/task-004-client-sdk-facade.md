@@ -1,7 +1,7 @@
 # Task 004 — `PiStudioClient` facade: `listExtensionPacks` / `setExtensionPacks`
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P2

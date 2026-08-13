@@ -1,7 +1,7 @@
 # Task 001 — Protocol: `extension_packs_list`/`_set` pairs + `extensionPacks` server feature
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1

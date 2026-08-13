@@ -30,6 +30,10 @@ import {
   agentSwitchSessionRequestSchema,
   agentSwitchSessionResponseSchema,
   createAgentRequestSchema,
+  extensionPacksListRequestSchema,
+  extensionPacksListResponseSchema,
+  extensionPacksSetRequestSchema,
+  extensionPacksSetResponseSchema,
   fetchAgentTimelineResponseSchema,
   legacyRespondToPermissionSchema,
   respondToPermissionRequestSchema,
@@ -517,5 +521,153 @@ describe("command discovery (sprint-040)", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("extension packs (sprint-057)", () => {
+  const pack = {
+    id: "core",
+    title: "Core",
+    description: "Curated core pack",
+    packages: [
+      { source: "npm:pi-memctx", identity: "npm:pi-memctx", addedIn: "0.0.1", status: "installed" },
+    ],
+  };
+
+  it("extension_packs_list_request/_response parse with a lastSync-absent response", () => {
+    expect(
+      extensionPacksListRequestSchema.safeParse({
+        type: "extension_packs_list_request",
+        requestId: "r1",
+      }).success,
+    ).toBe(true);
+
+    const result = extensionPacksListResponseSchema.safeParse({
+      type: "extension_packs_list_response",
+      requestId: "r1",
+      autoSync: true,
+      selected: ["core"],
+      packs: [pack],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.lastSync).toBeUndefined();
+  });
+
+  it("lastSync accepts exactly { at, outcome } as a summary, never installed/failures", () => {
+    const result = extensionPacksListResponseSchema.safeParse({
+      type: "extension_packs_list_response",
+      requestId: "r1",
+      autoSync: true,
+      selected: [],
+      packs: [],
+      lastSync: { at: "2026-08-13T00:00:00.000Z", outcome: "ok" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastSync).toEqual({ at: "2026-08-13T00:00:00.000Z", outcome: "ok" });
+      expect(result.data.lastSync).not.toHaveProperty("installed");
+      expect(result.data.lastSync).not.toHaveProperty("failures");
+    }
+  });
+
+  it("tolerates an unknown future EntryInfo.status, SyncReport failure reason, and lastSync outcome", () => {
+    const futureEntry = {
+      ...pack,
+      packages: [{ ...pack.packages[0], status: "quarantined_future" }],
+    };
+    expect(
+      extensionPacksListResponseSchema.safeParse({
+        type: "extension_packs_list_response",
+        requestId: "r1",
+        autoSync: true,
+        selected: [],
+        packs: [futureEntry],
+        lastSync: { at: "2026-08-13T00:00:00.000Z", outcome: "reconciled_future" },
+      }).success,
+    ).toBe(true);
+
+    const setResult = extensionPacksSetResponseSchema.safeParse({
+      type: "extension_packs_set_response",
+      requestId: "r1",
+      autoSync: true,
+      selected: ["core"],
+      packs: [pack],
+      ok: true,
+      report: {
+        at: "2026-08-13T00:00:00.000Z",
+        outcome: "reconciled_future",
+        installed: [],
+        failures: [
+          {
+            identity: "npm:pi-memctx",
+            source: "npm:pi-memctx",
+            pack: "core",
+            reason: "quantum_flux",
+            message: "boom",
+          },
+        ],
+      },
+    });
+    expect(setResult.success).toBe(true);
+  });
+
+  it("extension_packs_set_request validates with and without packs (manual-sync trigger)", () => {
+    expect(
+      extensionPacksSetRequestSchema.safeParse({
+        type: "extension_packs_set_request",
+        requestId: "r1",
+        packs: ["core"],
+      }).success,
+    ).toBe(true);
+    const manual = extensionPacksSetRequestSchema.safeParse({
+      type: "extension_packs_set_request",
+      requestId: "r1",
+    });
+    expect(manual.success).toBe(true);
+    if (manual.success) expect(manual.data.packs).toBeUndefined();
+  });
+
+  it("extension_packs_set_response: ok:false + error validates without report; ok:true validates with report", () => {
+    const rejected = extensionPacksSetResponseSchema.safeParse({
+      type: "extension_packs_set_response",
+      requestId: "r1",
+      autoSync: true,
+      selected: [],
+      packs: [pack],
+      ok: false,
+      error: "unknown pack slug: nope",
+    });
+    expect(rejected.success).toBe(true);
+    if (rejected.success) expect(rejected.data.report).toBeUndefined();
+
+    const accepted = extensionPacksSetResponseSchema.safeParse({
+      type: "extension_packs_set_response",
+      requestId: "r1",
+      autoSync: true,
+      selected: ["core"],
+      packs: [pack],
+      ok: true,
+      report: {
+        at: "2026-08-13T00:00:00.000Z",
+        outcome: "ok",
+        installed: ["npm:pi-memctx"],
+        failures: [],
+      },
+    });
+    expect(accepted.success).toBe(true);
+  });
+
+  it("parses both pairs through the session-message union", () => {
+    expect(
+      sessionMessageSchema.safeParse({ type: "extension_packs_list_request", requestId: "r1" })
+        .success,
+    ).toBe(true);
+    expect(
+      sessionMessageSchema.safeParse({
+        type: "extension_packs_set_request",
+        requestId: "r1",
+        packs: ["core"],
+      }).success,
+    ).toBe(true);
   });
 });

@@ -1,7 +1,9 @@
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 
 import { z } from "zod";
+
+import { atomicWriteJson } from "../persistence/atomic-store.js";
 
 /**
  * Daemon config (`$PI_STUDIO_HOME/config.json`) — architecture/config.md § Daemon config,
@@ -306,4 +308,50 @@ export function loadConfig(path: string, env: Env = process.env): PersistedConfi
   }
   const parsed = persistedConfigSchema.parse(migrateConfig(raw));
   return overlayEnv(parsed, env);
+}
+
+// ---------------------------------------------------------------------------
+// persistExtensionPacks
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist `daemon.extensions.packs` into `configPath`, merging into the RAW file contents — never a
+ * loaded (env-overlaid) config. Creates the file/dir when missing. Written 0600: config.json can
+ * carry the daemon password hash.
+ *
+ * Reads the raw JSON (`{}` when the file is missing or unparseable — never throw the caller's RPC
+ * away over a corrupt config), sets `daemon.extensions.packs`, writes atomically, then ensures mode
+ * `0600` (mode only applies on create, so re-chmod like the CLI does for files written before the
+ * rule).
+ */
+export async function persistExtensionPacks(
+  configPath: string,
+  packs: readonly string[],
+): Promise<void> {
+  // Read raw JSON: file missing or parse error → treat as {}
+  let config: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    } catch {
+      config = {};
+    }
+  }
+
+  // Merge only daemon.extensions.packs; preserve all other keys
+  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
+  const extensions = (daemon.extensions as Record<string, unknown> | undefined) ?? {};
+  extensions.packs = Array.from(packs);
+  daemon.extensions = extensions;
+  config.daemon = daemon;
+
+  // Write atomically via permissive schema (do NOT round-trip persistedConfigSchema)
+  await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
+
+  // Re-chmod to 0600 (best-effort, mirrors CLI pattern)
+  try {
+    chmodSync(configPath, 0o600);
+  } catch {
+    /* best-effort */
+  }
 }

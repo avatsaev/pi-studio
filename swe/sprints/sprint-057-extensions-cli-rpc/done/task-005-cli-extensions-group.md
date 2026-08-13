@@ -1,7 +1,7 @@
 # Task 005 — CLI `pi-studio extensions` group: `list`, `select`, `sync`
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/cli
 - **Priority:** P1

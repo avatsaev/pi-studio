@@ -1,7 +1,7 @@
 # Task 003 — RPC handlers: list (dry-run statuses) + set (persist, sync, report)
 
 - **Sprint:** sprint-057-extensions-cli-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (extensions, daemon/bootstrap)
 - **Priority:** P1

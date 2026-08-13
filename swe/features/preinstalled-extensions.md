@@ -274,7 +274,10 @@ append-only shape**, distinguished by whether `packs` is present:
 
 Validation failures are **domain payloads, not `rpc_error`**: an unknown slug answers `ok: false` +
 `error` with no persistence and no sync, mirroring `file_watch_subscribe_response`. (`rpc_error`
-carries only transport-level codes, so a handler cannot express a domain failure through it.) `report`
+carries only transport-level codes, so a handler cannot express a domain failure through it.) A
+**malformed `packs`** (present, but not an array of strings) is rejected the same way rather than
+coerced: the handler reads an unvalidated `Record<string, unknown>`, and coercing would read as
+"deselect everything" and persist an empty selection — silent data loss. `report`
 is present exactly when a sync ran — i.e. on every `ok: true` response.
 
 The CLI passes a generous per-call timeout (10 minutes) for `select`/`sync`: a first-run install of

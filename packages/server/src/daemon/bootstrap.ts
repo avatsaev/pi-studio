@@ -67,6 +67,7 @@ import {
 } from "../orchestration/loop-service.js";
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
+import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
 
 import {
@@ -219,6 +220,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     config,
     logger: extensionsLogger,
     spawn: opts.extensionsInstallSpawn,
+    configPath,
   });
 
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
@@ -464,6 +466,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const fileTransferBinary = fileTransfer.binaryHandler();
   const fileWatchService = new FileWatchService({ logger });
   registerFileWatchHandlers(registry, { fileWatchService, subscriptions, logger });
+  registerExtensionsHandlers(registry, { service: extensionsService, logger: extensionsLogger });
 
   // Simple file diff RPC for the POC UI (returns unified diff for a single file). Untracked
   // (brand-new) files have no git-tracked "before" state, so a plain `git diff` against them is
