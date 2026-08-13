@@ -1,13 +1,18 @@
-import { join } from "node:path";
-
 import type { ProviderDefinition } from "@av-pi-studio/protocol";
 
 import type { PersistedConfig, ProviderOverride } from "../config/daemon-config.js";
 import type { AgentClient, AgentModelDefinition } from "./provider-contract.js";
 import { PROVIDER_MANIFEST } from "./manifest.js";
+import { resolvePiAgentDir, piHomeEnv } from "./pi-home.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import { PiAgentClient } from "./providers/pi/agent.js";
 import type { PiTransportFactory } from "./providers/pi/rpc-transport.js";
+
+/** Re-exported for the existing import surface (`provider-registry.test.ts`'s path-parity tests,
+ *  and any other in-tree consumer) — the implementation lives in `./pi-home.js` (moved, not
+ *  copied), which `extensions-state.ts` and the CLI's `extensions list --local` also import
+ *  directly, without pulling in the provider runtime this module carries. */
+export { resolvePiAgentDir };
 
 /**
  * Provider client-factory registry + custom Pi-compatible profile resolution
@@ -51,18 +56,6 @@ function applyModelOverrides(client: PiAgentClient, override: ProviderOverride):
   return client;
 }
 
-/** Derive `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from `daemon.piHome`, so a single
- * Pi-Studio setting redirects the bundled Pi CLI's entire `~/.pi/agent` tree (models.json,
- * auth.json, settings.json, sessions/, …) to a custom directory. */
-function piHomeEnv(piHome: string | undefined): Record<string, string> {
-  if (!piHome) return {};
-  const agentDir = join(piHome, "agent");
-  return {
-    PI_CODING_AGENT_DIR: agentDir,
-    PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
-  };
-}
-
 function buildPiClient(
   providerId: string,
   override: ProviderOverride | undefined,
@@ -72,7 +65,7 @@ function buildPiClient(
   const client = new PiAgentClient({
     provider: providerId,
     command: override?.command,
-    env: { ...piHomeEnv(config.daemon.piHome), ...override?.env },
+    env: { ...piHomeEnv(config), ...override?.env },
     sessionDir:
       override?.params && typeof override.params.sessionDir === "string"
         ? override.params.sessionDir

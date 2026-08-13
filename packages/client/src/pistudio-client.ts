@@ -14,6 +14,8 @@ import type {
   AgentStreamEvent,
   AgentSwitchSessionResponse,
   CreateAgentRequest,
+  ExtensionPacksListResponse,
+  ExtensionPacksSetResponse,
   FetchAgentTimelineResponse,
   SessionMessage,
   TimelineDirection,
@@ -232,6 +234,38 @@ export class PiStudioClient {
   /** Provider actions (list providers/models/modes, refresh snapshot). */
   get providers(): PiStudioProviderActions {
     return new ProviderHandle(this.daemon);
+  }
+
+  listExtensionPacks(): Promise<ExtensionPacksListResponse> {
+    return this.daemon.request<ExtensionPacksListResponse>("extension_packs_list_request", {});
+  }
+
+  /**
+   * Change the selection and sync. Resolves only after the daemon's sync completes — pass a
+   * generous opts.timeoutMs for a first-run install, which can exceed the client's default
+   * rpcTimeoutMs.
+   */
+  setExtensionPacks(
+    packs: string[],
+    opts?: { timeoutMs?: number },
+  ): Promise<ExtensionPacksSetResponse> {
+    return this.daemon.request<ExtensionPacksSetResponse>(
+      "extension_packs_set_request",
+      { packs },
+      opts?.timeoutMs,
+    );
+  }
+
+  /**
+   * Sync now without changing the selection (sends the request with no `packs` key at all — the
+   * ungated manual-sync path).
+   */
+  syncExtensionPacks(opts?: { timeoutMs?: number }): Promise<ExtensionPacksSetResponse> {
+    return this.daemon.request<ExtensionPacksSetResponse>(
+      "extension_packs_set_request",
+      {},
+      opts?.timeoutMs,
+    );
   }
 
   /** Subscribe to ALL `agent_update` events (any agent). */

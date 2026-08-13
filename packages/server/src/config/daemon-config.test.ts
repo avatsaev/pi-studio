@@ -1,16 +1,28 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { chmodSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { loadConfig, migrateConfig, overlayEnv, persistedConfigSchema } from "./daemon-config.js";
+import {
+  loadConfig,
+  migrateConfig,
+  overlayEnv,
+  persistedConfigSchema,
+  persistExtensionPacks,
+} from "./daemon-config.js";
 
 async function tempConfig(contents: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
   const path = join(dir, "config.json");
   await writeFile(path, JSON.stringify(contents), "utf8");
   return path;
+}
+
+async function tempConfigPath(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
+  return join(dir, "config.json");
 }
 
 describe("defaults", () => {
@@ -23,6 +35,7 @@ describe("defaults", () => {
     expect(cfg.daemon.relay.enabled).toBe(false);
     expect(cfg.log.level).toBe("info");
     expect(cfg.agents.providers).toEqual({});
+    expect(cfg.daemon.extensions).toEqual({ autoSync: true, packs: [] });
   });
 
   it("an empty object parses to defaults", () => {
@@ -93,6 +106,34 @@ describe("env overlay (env wins)", () => {
       "c",
     ]);
   });
+
+  it("PI_STUDIO_EXTENSIONS_AUTOSYNC: 'false'/'0' disable, unset/other values leave it true", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(overlayEnv(base, {}).daemon.extensions.autoSync).toBe(true);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "false" }).daemon.extensions.autoSync,
+    ).toBe(false);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "0" }).daemon.extensions.autoSync,
+    ).toBe(false);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "yes" }).daemon.extensions.autoSync,
+    ).toBe(true);
+  });
+
+  it("PI_STUDIO_EXTENSION_PACKS splits and trims a CSV of pack slugs", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSION_PACKS: "a, b ,c" }).daemon.extensions.packs,
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("an unknown pack slug in daemon.extensions.packs loads without error", () => {
+    expect(
+      persistedConfigSchema.parse({ daemon: { extensions: { packs: ["not-a-real-pack"] } } }).daemon
+        .extensions.packs,
+    ).toEqual(["not-a-real-pack"]);
+  });
 });
 
 describe("provider validation", () => {
@@ -122,5 +163,131 @@ describe("provider validation", () => {
     });
     const cfg = loadConfig(path, {});
     expect(cfg.agents.providers["my-fork"]?.label).toBe("My Fork");
+  });
+});
+
+describe("persistExtensionPacks", () => {
+  it("writes daemon.extensions.packs into a fresh (absent) config.json with mode 0600", async () => {
+    const path = await tempConfigPath();
+    await persistExtensionPacks(path, ["ext-1", "ext-2"]);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(raw.daemon).toEqual({ extensions: { packs: ["ext-1", "ext-2"] } });
+    expect((statSync(path).mode & 0o777) === 0o600).toBe(true);
+  });
+
+  it("preserves unrelated keys on an existing file", async () => {
+    const initial = {
+      version: 1,
+      unknown_top: "value",
+      daemon: {
+        listen: "127.0.0.1:7000",
+        unknown_daemon_key: "preserved",
+        auth: { password: "hash" },
+      },
+    };
+    const path = await tempConfig(initial);
+    await persistExtensionPacks(path, ["ext-1"]);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // Check that all original keys are preserved
+    expect(raw.version).toBe(1);
+    expect(raw.unknown_top).toBe("value");
+    expect((raw.daemon as Record<string, unknown>).listen).toBe("127.0.0.1:7000");
+    expect((raw.daemon as Record<string, unknown>).unknown_daemon_key).toBe("preserved");
+    expect(((raw.daemon as Record<string, unknown>).auth as Record<string, unknown>).password).toBe(
+      "hash",
+    );
+    // Check that packs was added
+    expect(
+      ((raw.daemon as Record<string, unknown>).extensions as Record<string, unknown>).packs,
+    ).toEqual(["ext-1"]);
+  });
+
+  it("does NOT persist env overrides (headline test)", async () => {
+    const initial = { version: 1 };
+    const path = await tempConfig(initial);
+
+    // Call with env vars set; they must NOT leak into the written file.
+    // Note: persistExtensionPacks does NOT use env — it only writes the packs argument
+    await persistExtensionPacks(path, ["arg-pack-1", "arg-pack-2"]);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const daemon = raw.daemon as Record<string, unknown>;
+
+    // Only daemon.extensions.packs should be present
+    expect(daemon.listen).toBeUndefined();
+    expect((daemon.extensions as Record<string, unknown>).autoSync).toBeUndefined();
+    expect((daemon.extensions as Record<string, unknown>).packs).toEqual([
+      "arg-pack-1",
+      "arg-pack-2",
+    ]);
+  });
+
+  it('does NOT materialize defaults: a file with only {"version":1} gains only daemon.extensions.packs', async () => {
+    const path = await tempConfig({ version: 1 });
+    await persistExtensionPacks(path, ["ext-1"]);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+
+    // Only version and daemon.extensions.packs should be present
+    expect((raw.daemon as Record<string, unknown>).listen).toBeUndefined();
+    expect((raw.daemon as Record<string, unknown>).hostnames).toBeUndefined();
+    expect(Object.keys(raw).toSorted()).toEqual(["daemon", "version"]);
+  });
+
+  it("re-tightens a pre-existing 0644 file to 0600", async () => {
+    const path = await tempConfig({ version: 1 });
+    // Manually chmod to 0644
+    chmodSync(path, 0o644);
+    expect((statSync(path).mode & 0o777) === 0o644).toBe(true);
+
+    await persistExtensionPacks(path, ["ext-1"]);
+
+    expect((statSync(path).mode & 0o777) === 0o600).toBe(true);
+  });
+
+  it("does NOT throw on a corrupt/unparseable existing file; replaces it with the merged key", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
+    const path = join(dir, "config.json");
+    await writeFile(path, "{ invalid json", "utf8");
+
+    // Should not throw
+    await persistExtensionPacks(path, ["ext-1"]);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(raw).toEqual({ daemon: { extensions: { packs: ["ext-1"] } } });
+  });
+
+  it("loadConfig after a write returns the persisted packs; env value still wins in memory", async () => {
+    const path = await tempConfig({ version: 1 });
+    await persistExtensionPacks(path, ["file-pack-1", "file-pack-2"]);
+
+    // Load with no env override
+    const cfgNoEnv = loadConfig(path, {});
+    expect(cfgNoEnv.daemon.extensions.packs).toEqual(["file-pack-1", "file-pack-2"]);
+
+    // Load with env override; env must win in memory
+    const cfgWithEnv = loadConfig(path, {
+      PI_STUDIO_EXTENSION_PACKS: "env-pack-1,env-pack-2",
+    });
+    expect(cfgWithEnv.daemon.extensions.packs).toEqual(["env-pack-1", "env-pack-2"]);
+
+    // The file should still contain only the file value
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(
+      ((raw.daemon as Record<string, unknown>).extensions as Record<string, unknown>).packs,
+    ).toEqual(["file-pack-1", "file-pack-2"]);
+  });
+
+  it("writes atomically: no temp file left behind on success", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
+    const path = join(dir, "config.json");
+
+    await persistExtensionPacks(path, ["ext-1"]);
+
+    // List files in the directory; should only contain config.json
+    const fileList = await readdir(dir);
+    expect(fileList).toEqual(["config.json"]);
   });
 });

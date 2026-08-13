@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { DaemonClient } from "./daemon-client.js";
 import { PiStudioClient } from "./pistudio-client.js";
@@ -169,6 +169,46 @@ function makeScriptedDaemon(): {
           provider: msg.provider,
           model: "claude-sonnet-5",
           modelProvider: "anthropic",
+        });
+        return;
+      }
+      case "extension_packs_list_request": {
+        // Flat fields on the message — the real wire schema (packages/protocol/src/messages.ts)
+        // has no `payload` wrapper for this pair, unlike several older RPCs above.
+        reply({
+          type: "extension_packs_list_response",
+          requestId,
+          autoSync: true,
+          selected: ["swe"],
+          packs: [
+            { id: "core", title: "Core", description: "Always-on core pack", packages: [] },
+            { id: "swe", title: "Software Engineering", description: "SWE tools", packages: [] },
+          ],
+        });
+        return;
+      }
+      case "extension_packs_set_request": {
+        const packs = msg.packs as string[] | undefined;
+        if (packs?.includes("unknown")) {
+          reply({
+            type: "extension_packs_set_response",
+            requestId,
+            autoSync: true,
+            selected: ["swe"],
+            packs: [],
+            ok: false,
+            error: "unknown pack: unknown",
+          });
+          return;
+        }
+        reply({
+          type: "extension_packs_set_response",
+          requestId,
+          autoSync: true,
+          selected: packs ?? ["swe"],
+          packs: [],
+          ok: true,
+          report: { at: new Date().toISOString(), outcome: "ok", installed: [], failures: [] },
         });
         return;
       }
@@ -407,5 +447,77 @@ describe("PiStudioClient — command discovery (sprint-040)", () => {
     expect(fake.sent.find((m) => m.type === "agent_list_commands_request")?.agentId).toBe(
       created.agentId,
     );
+  });
+});
+describe("PiStudioClient — extension pack actions (sprint-057)", () => {
+  it("listExtensionPacks sends extension_packs_list_request and returns the parsed response payload unchanged", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.listExtensionPacks();
+    expect(payload.autoSync).toBe(true);
+    expect(payload.selected).toEqual(["swe"]);
+    expect(payload.packs).toHaveLength(2);
+    const sent = fake.sent.find((m) => m.type === "extension_packs_list_request");
+    expect(sent).toBeDefined();
+    expect(sent).toEqual({ type: "extension_packs_list_request", requestId: expect.any(String) });
+  });
+
+  it("setExtensionPacks sends extension_packs_set_request with packs array", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.setExtensionPacks(["swe"]);
+    expect(payload.ok).toBe(true);
+    const sent = fake.sent.find((m) => m.type === "extension_packs_set_request");
+    expect(sent).toBeDefined();
+    expect(sent).toEqual({
+      type: "extension_packs_set_request",
+      requestId: expect.any(String),
+      packs: ["swe"],
+    });
+  });
+
+  it("syncExtensionPacks sends extension_packs_set_request with no packs key at all (not packs: [])", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.syncExtensionPacks();
+    expect(payload.ok).toBe(true);
+    const sent = fake.sent.find((m) => m.type === "extension_packs_set_request");
+    expect(sent).toBeDefined();
+    expect(sent).not.toHaveProperty("packs");
+    expect(sent).toEqual({
+      type: "extension_packs_set_request",
+      requestId: expect.any(String),
+    });
+  });
+
+  it("opts.timeoutMs reaches request()'s third parameter; omitting it leaves the client default", async () => {
+    const { client, daemon } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+
+    await client.setExtensionPacks(["swe"], { timeoutMs: 90_000 });
+    expect(spy).toHaveBeenLastCalledWith(
+      "extension_packs_set_request",
+      expect.objectContaining({ packs: ["swe"] }),
+      90_000,
+    );
+
+    await client.syncExtensionPacks({ timeoutMs: 120_000 });
+    expect(spy).toHaveBeenLastCalledWith(
+      "extension_packs_set_request",
+      expect.objectContaining({}),
+      120_000,
+    );
+
+    await client.setExtensionPacks(["swe"]);
+    expect(spy).toHaveBeenLastCalledWith(
+      "extension_packs_set_request",
+      expect.objectContaining({ packs: ["swe"] }),
+      undefined,
+    );
+  });
+
+  it("an ok:false response (unknown slug) resolves as data, never throws — a UI can render error", async () => {
+    const { client } = await makeFacade();
+    const payload = await client.setExtensionPacks(["unknown"]);
+    expect(payload.ok).toBe(false);
+    expect(payload.error).toBe("unknown pack: unknown");
+    expect(payload.report).toBeUndefined();
   });
 });

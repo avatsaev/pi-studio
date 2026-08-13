@@ -56,6 +56,10 @@ src/
   daemon-commands.ts     Daemon command group (start/stop/status/set-password/pair).
   daemon-commands.test.ts
 
+  extensions-commands.ts `extensions` command group (list/select/sync) + daemon-free `list
+                          --local` mode.
+  extensions-commands.test.ts
+
   daemon-control.ts      DaemonRuntime — probe/start/stop/waitForDaemon (spawns server process).
   feature-commands.ts    Feature command group (terminal/chat/schedule/loop/provider/worktree/…).
   feature-commands.test.ts
@@ -229,6 +233,35 @@ Both `setDaemonPassword` and `persistRelayEnvOverrides` write `config.json` thro
 `writeConfigFile` helper that enforces owner-only `0600` (the file can carry the daemon password
 hash) — including an explicit `chmod` to re-tighten configs written before this was enforced.
 
+### `extensions` group (`extensions-commands.ts`)
+
+| Command                          | RPC                                                          | Description                                                                                     |
+| --------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `extensions list`                 | `extension_packs_list_request`                                | Table of curated packs/entries/statuses (`--json` for the raw payload); exit `0` always          |
+| `extensions list --local`         | _(none — no daemon)_                                          | Same table, computed in-process against `$PI_STUDIO_HOME`/`--pi-home`; read-only, no daemon      |
+| `extensions select [packs...]`    | `extension_packs_set_request` (with `packs`)                  | Replace the selection (`core` always implicit), then sync                                        |
+| `extensions sync`                 | `extension_packs_set_request` (no `packs` key)                | Sync now without changing the selection — the ungated manual path, works with `autoSync: false`  |
+
+`select`/`sync` use `client.request(type, params, EXTENSIONS_SYNC_TIMEOUT_MS)` directly
+(`EXTENSIONS_SYNC_TIMEOUT_MS = 600_000`), **not** `runRpc` (no timeout slot) and not `withDaemon`'s
+default `rpcTimeoutMs` — the response arrives only after the daemon's triggered sync completes,
+which can exceed the SDK's 30 s default on a first-run install of five packages. Report rendering
+(`renderSyncReport`) and exit-code mapping (`exitCodeForSetResponse`) are pure, unit-tested
+functions: `ok`/`noop` ⇒ `EXIT_OK`; `partial`/`failed`/`skipped`, or a rejected `ok: false`
+response, ⇒ `EXIT_ERROR` — no carve-out for "expected" failures, successful installs are always
+kept and reported. A daemon not advertising `serverFeatures.extensionPacks` prints "this daemon
+does not support extension packs; update the host" and exits `EXIT_ERROR` **before** sending any
+request.
+
+`extensions list --local` mirrors the `auth` group's daemon-free precedent (see Invariants below
+for the module-boundary rationale): it resolves the effective pi-home through the SAME
+`effectivePiHomeKey`/`loadConfig` derivation the daemon uses (never a hand-rolled `<dir>/agent`
+join), then calls the identical `planSync`/`attachLastErrors` and renders through the identical
+`renderExtensionsList` the daemon path calls — the wire-shape mapping (`toExtensionPackInfoList`,
+`packages/server/src/extensions/wire.ts`) is shared code, not a parallel reimplementation, so the
+two paths cannot drift for the same on-disk state. Requires `--pi-home <dir>` **before** the
+subcommand (a root option: `pi-studio --pi-home <dir> extensions list --local`).
+
 ### `feature` group (`feature-commands.ts`)
 
 `registerFeatureCommands` registers `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,
@@ -308,7 +341,7 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
   back to a global `pi` on `$PATH` when the dependency is absent (mirrors the daemon's own
   `defaultPiCommand()` fallback); returns `null` when neither is found (reported as `EXIT_ERROR`).
 - `piProxyEnv(opts, env)` — derives `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from
-  `--pi-home`/`PI_STUDIO_PI_HOME` (same derivation as the server's `provider-registry.ts`
+  `--pi-home`/`PI_STUDIO_PI_HOME` (same derivation as the server's `agent/pi-home.ts`
   `piHomeEnv()`, kept as a separate implementation here since the CLI has no daemon config context
   when run standalone), so `pi-studio pi` talks to the same Pi config tree the daemon's agents use.
 - `spawn({ command, env })` — default implementation forwards signals via shared process-group
@@ -462,6 +495,19 @@ branches to `createRelayTransport` when it carries a relay offer).
   auth-store init, model list load, provider rebuild) is never _invoked_ until a real `auth`
   command needs it (confirmed with the same live trace, instrumenting `ModelRuntime.create`
   directly: zero invocations for `--help`/`ls`, exactly one for `auth status`).
+- **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
+  auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
+  `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public
+  index, `packages/server/src/extensions/index.ts`) plus `daemon-config.ts`'s `loadConfig` — to run
+  the same dry-run planner a connected daemon runs, so `extensions list` works identically with or
+  without one. None of these modules start a WS server, bind a port, spawn `pi`, or write daemon
+  state; `extensions-commands.ts` never imports `ExtensionsService`/`sync-executor.ts` (the
+  orchestration/install-spawning half) or anything under `daemon/`. This is why the rule's
+  "never runs daemon/relay code in-process" is about **daemon lifecycle/mutation** code, not every
+  line ever exported from `@av-pi-studio/server` — a distinction the auth-engine exception already
+  established. `resolvePiAgentDir` (`agent/pi-home.ts`) was extracted out of `provider-registry.ts`
+  specifically so this in-process read path never reaches `providers/pi/agent.js` or
+  `providers/mock/mock-provider.js` either — see root `AGENTS.md`'s dependency-graph note.
 - **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
   import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
   `await import()` taken only when a prompt is about to render — verified with a `node:module`

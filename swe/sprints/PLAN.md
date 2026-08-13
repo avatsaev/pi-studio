@@ -85,8 +85,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 053 | `sprint-053-terminal-fidelity` | web-client + daemon + protocol: the terminal's remaining conformance gaps, all against **already-written** scope. **(a)** The emulator ignores the appearance system entirely — a hardcoded 19-colour dark literal and the *unscaled* `baseFontSize.sm` — while `colors.terminal` already builds a full per-variant xterm ANSI map and `theme.ts` already scales every rung from the user's 10–24 px setting; unreachable from a component because `ThemeBoundary` keeps the controller private and only emits CSS vars, so a theme context lands first. A font change alters cell metrics, hence refit + size claim. **(b)** An exited PTY leaves a zombie tab: there is no close opcode, `onExit` only clears subscribers, and the `terminals_update` broadcast has zero web-client consumers (and isn't even sent on self-exit). **(c)** Implements restore **tier 2** — `Restore` (`0x05`), `terminal-restore-modes`, and `terminal_reflowable_snapshot` have all existed since sprint-002 and are wholly dead: no server path emits the frame, no client advertises the capability. A serialized headless-grid redraw makes reattach width-correct instead of approximate. | 6 |
 | 054 | `sprint-054-provider-auth-cli` | cli only: **`pi-studio auth login/status/logout`** — close the post-install onboarding gap where a user must hand-edit Pi's `auth.json` or discover `/login` inside the foreign `pi-studio pi` TUI before any agent can run. Pi's own CLI has **no headless login** (`pi auth` is read-side only: `check`/`api_key`/`bearer_token`), but its auth engine is fully programmatic and exported from the package main entry: `ModelRuntime.create({authPath})` + `getProviders`/`checkAuth`/`login`/`logout`, driven by a UI-agnostic `AuthInteraction` (`prompt` over text/secret/select/manual_code, `notify` over info/auth_url/device_code/progress). So this sprint reimplements **nothing** — it supplies a readline interaction (masked secrets, numbered selects, QR for OAuth URLs and device codes) and the path resolution that makes CLI-written credentials the exact ones daemon-spawned `pi --mode rpc` processes read (`<piHome>/agent/auth.json`, parity with the server's `piHomeEnv()`). Pi loads **lazily** — its main entry drags the whole TUI graph, so `--help` must not pay for it. Local and daemon-free by construction: no protocol, no RPC, no WebSocket. Scope: `features/provider-auth-cli.md`; the daemon-mediated (`provider-auth-rpc.md`) and browser (`provider-auth-ui.md`) siblings are deliberately separate, later, and independent. | 6 |
 | 055 | `sprint-055-provider-auth-rpc` | protocol + daemon (no client, no CLI): the **daemon-side half** of provider auth — five flat RPC pairs (`provider_auth_list`/`login`/`respond`/`cancel`/`logout`) plus a `provider_auth_flow_event` per-session push, letting a browser or relay-remote client authenticate a model provider **on the daemon host**, which is the only place credentials are useful (that is where `pi --mode rpc` children spawn and read `auth.json`). Sprint-054 closed the same gap for someone with a shell on that machine; this closes it for everyone else. The inversion is the work: Pi drives login by *calling back* (`notify(event)` synchronous, `prompt(p): Promise<string>`), so the daemon parks the promise, pushes an event, and resolves it from a later RPC — with one flow per session, a 10-min TTL, opaque `not_found` for cross-session access, and disconnect-cancels-flow riding `SessionSubscriptions`'s existing close hook for free. Three planning-time source findings reshaped the scope doc before any task was written: a handler **cannot choose an `rpc_error` code** (only `unknown_message_type`/`handler_error` exist, from a module-private sender), so domain failures use `{ ok, error }` payloads per `file_watch_subscribe_response`'s precedent; `checkAuth()` really can hang (sprint-054 shipped a 3 s bound degrading to `"unknown"`); and Pi's own `login()` races `interaction.signal` and throws its **own** `AbortError`, so cancellation must be judged by `signal.aborted`, never by error type. Lazy `import()` of `ModelRuntime` is **not** a startup win here (the daemon already statically imports the package via `session-hydration.ts`) — it exists so a daemon whose Pi runtime fails to construct still boots and serves everything else, retrying on the next call. Production bootstrap only; `dev-bootstrap.ts` stays mock-only, so the dev daemon answers `unknown_message_type` with no `if (dev)` branch anywhere. | 5 |
+| 056 | `sprint-056-extensions-sync-engine` | server only (no protocol, no client, no CLI): the **engine half** of curated preinstalled Pi extensions — a fresh install runs a bare `pi`, and every user repeats the same manual hunt through `pi.dev/packages`. The daemon now ensures a curated set is present in the bundled Pi's global settings: one `core` pack of 7 **unpinned** npm sources, installed once via `pi install` and then left alone forever. Unpinned is forced, not lazy — `pi update` skips pinned npm specs (`if (!parsed.pinned)`, pi 0.84.1 `package-manager.js:840`), so a Pi-Studio pin would permanently exclude that extension from the user's own updater. The whole design is one rule: **sync installs an identity exactly once, ever**; `offered`-as-intent plus a byte-compare against what sync last wrote means a `pi remove` sticks forever and any hand-edit transfers ownership permanently, so a user who also runs `pi` standalone never fights the daemon over `settings.json`. Failure isolation is a hard requirement, not a nicety: one 404/401/timeout/crashing-postinstall never aborts the run, never blocks the other packages, and never fails the sync — `partial` is a normal end state. Fire-and-forget after the WS listener binds, so readiness is never delayed; `dev-bootstrap` deliberately untouched. Kill switch is one config key or one env var. Task 001 front-loads the five open `TODO(verify)` probes against the live pi CLI because the path-parity guarantee (install location == the dir spawned agents load from) is the one unverified assumption every later task is built on. Pack **selection** ships fully built with nothing yet to select — `core` is implicit, `swe`/`science`/`data` are comments awaiting a pure data edit. The RPC/SDK/CLI surface is sprint-057. | 6 |
+| 057 | `sprint-057-extensions-cli-rpc` | protocol + daemon + client + cli: the **surface half** of curated preinstalled extensions. Sprint-056's engine is fully functional but only reachable by hand-editing `config.json` or exporting env vars — nobody discovers a feature that has no command. This adds two flat RPC pairs (`extension_packs_list`/`_set`), an `extensionPacks` feature flag, two `PiStudioClient` methods, and `pi-studio extensions list/select/sync`. Three findings shape it. **(a)** The daemon has **no config writer at all** — only the CLI writes `config.json` (`setDaemonPassword`, `persistRelayEnvOverrides`), so persisting a selection is new capability with a real trap: `loadConfig` returns `overlayEnv(file, env)`, so persisting the *loaded* config would bake every `PI_STUDIO_*` override permanently onto disk, turning a one-shot `PI_STUDIO_EXTENSIONS_AUTOSYNC=false` into a permanent kill switch. Task 002 isolates a raw-file read-merge-write for exactly that reason, and its headline test asserts env vars never reach the file. **(b)** `bootstrap.ts` loads config **once** into long-lived services, so a handler that only persists to disk leaves the running daemon syncing the *old* selection until restart — invisibly, since the file looks right. The service owns both halves. **(c)** `set` returns only after its sync completes, which on a first run exceeds the SDK's default 30 s `rpcTimeoutMs`; the CLI passes 600 s explicitly rather than widening `runRpc`, so the flagship first-run command can't print "timed out" while installs are actually succeeding. `list --local` runs the pure planner in-process with no daemon (mirroring the `auth` group) — which contradicts root `AGENTS.md`'s cli→server "no runtime imports" sentence, so task 005 must amend that sentence or drop the flag, explicitly. Exit codes stay dumb: `0` on `ok`/`noop`, error otherwise — the earlier draft's carve-out died with the private package that motivated it. | 6 |
 
-Total: **53 sprints, 262 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **55 sprints, 274 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -901,11 +903,122 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-004 | `registerProviderAuthHandlers` mirroring `registerFileWatchHandlers` + production `bootstrap.ts` wiring + disconnect-cancels-flow via `SessionSubscriptions` keys; dev bootstrap deliberately untouched | feature | task-001, task-003 | packages/server (agent/provider-auth/provider-auth-rpc + test, daemon/bootstrap, daemon/bootstrap.test, ws/session-subscriptions — read only); features/provider-auth-rpc |
 | task-005 | Live E2E on a real daemon + real socket + real Pi: 10-step run (api_key login over the wire, 0600 `auth.json`, **path parity with a spawned agent**, logout, cancel, socket-drop, secret-absence scan) + docs sync (root/protocol/server `AGENTS.md`) | test + docs | task-001, task-002, task-003, task-004 | AGENTS.md (root, protocol, server); features/provider-auth-rpc |
 
+### sprint-056-extensions-sync-engine
+> **The gap.** A fresh Pi-Studio install runs a bare `pi`. Pi has a rich package ecosystem, but
+> finding and installing the good ones is manual work every user repeats. This sprint makes the
+> daemon ensure a curated set is present in the bundled Pi's global settings — `core`, 7 unpinned
+> npm sources — after install/update, with no user action.
+>
+> **Server only.** No protocol, no client SDK, no CLI (that is `sprint-057-extensions-cli-rpc`). It
+> still ships a complete, controllable feature: `autoSync` defaults on, and pack selection plus the
+> kill switch are reachable through `config.json` or `PI_STUDIO_EXTENSIONS_AUTOSYNC` /
+> `PI_STUDIO_EXTENSION_PACKS` before any CLI exists. Sprint 057 is ergonomics on top, not the
+> feature.
+>
+> **Unpinned is forced, not lazy.** `pi update` skips pinned npm specs
+> (`updateConfiguredSources`: `if (!parsed.pinned)`, pi 0.84.1 `package-manager.js:840`), so a pin
+> written by Pi-Studio would permanently exclude that extension from the user's own updater and make
+> us the bottleneck for every upstream bug fix. A guard test rejects any pinned source so a future
+> "let's freeze this one" edit fails CI instead of shipping.
+>
+> **One rule carries the design:** sync installs an identity **exactly once, ever**. `offered`
+> records intent, not presence; statuses are derived by byte-comparing the current `settings.json`
+> entry against what sync last wrote. So a `pi remove` sticks forever, any hand-edit (version pin,
+> object-filter form) transfers ownership permanently, and someone who also uses `pi` standalone
+> never fights the daemon over `settings.json`. There is deliberately **no** in-place rewrite path —
+> a package that genuinely moves is a new identity (deprecate + add). An earlier draft's
+> `source_changed` status was cut during review as unreachable: changing a source string always
+> changes the identity.
+>
+> **Failure isolation is a hard requirement.** One package that 404s, needs credentials, times out,
+> or crashes its own postinstall must never abort the run, never block the others, and never fail the
+> sync — `partial` is a normal end state and nothing is ever rolled back. State is written after
+> *every* action, so a mid-sync kill loses neither successes nor diagnostics. Task 005 is where most
+> of the sprint's test weight sits.
+>
+> **Task 001 front-loads the unknowns.** Five `TODO(verify)` items are probed against the live pi CLI
+> first — above all whether `pi install` honours `PI_CODING_AGENT_DIR` on the **write** path, since
+> the entire path-parity guarantee (install location == the dir daemon-spawned agents load from)
+> rests on it. One small task beats discovering it in task 006 with four modules already built on the
+> assumption.
+>
+> **Cross-sprint note:** task 003 needs the same pi-home derivation that sprint-055/task-002 exports
+> as `resolvePiAgentDir`. Sprint 055 runs first, so task 003 imports it if present and creates it
+> with that exact contract otherwise — there must be exactly one derivation in the tree either way.
+>
+> Tasks 001, 002, and 003 have no dependency on each other and may run concurrently.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Probe the live `pi install`: global-settings write path under `PI_CODING_AGENT_DIR`, reinstall idempotency, TTY requirement, stderr fidelity for `classify()`, partial-write risk — findings recorded in the spec's § TODO(verify) + one offline read-side test | test + docs | none | packages/server (extensions/pi-install-behavior.test); features/preinstalled-extensions |
+| task-002 | `curated-packs.ts`: 7-entry unpinned `core` manifest + `CuratedPackCatalog` types + `parseSource`/`identityOf`/`selectEntries` + `SERVER_VERSION`; guard test enforcing the manifest invariants (no pins, disjoint identities, stable slugs, semver `addedIn <= current`, no placeholders); records the release-blocking per-entry security read in `swe/notes/core-pack-security-read.md` | feature + docs | none | packages/server (extensions/curated-packs + test); swe/notes; features/preinstalled-extensions |
+| task-003 | `daemon.extensions.autoSync`/`.packs` schema + `PI_STUDIO_EXTENSIONS_AUTOSYNC`/`PI_STUDIO_EXTENSION_PACKS` overlay rows; `extensions-state.json` store (atomic, `.passthrough()`, `"unreadable"` fail-safe distinct from empty); single `effectivePiHomeKey` derivation with asserted spawn-path parity | feature | none | packages/server (extensions/extensions-state + test, config/daemon-config + test, agent/provider-registry); features/preinstalled-extensions; architecture/config, architecture/persistence |
+| task-004 | Pure `planSync`: six statuses, deprecated-first tombstone check, `offered`-as-intent, byte-compare ownership transfer, string-vs-object settings forms, `failed`-still-retries, `"unreadable"` ⇒ zero actions; zero I/O, table-driven tests | feature | task-002, task-003 | packages/server (extensions/sync-planner + test); features/preinstalled-extensions |
+| task-005 | Executor: sequential `pi install` per action via injectable spawn seam, **no fail-fast** (spawn error/non-zero/timeout/throw all captured per action), state written after every action, `attempts` accounting, `classify()` taxonomy, `noop`/`skipped` outcomes, install env's `PI_CODING_AGENT_DIR` from the shared `effectivePiHomeKey` derivation (path-parity regression case incl. the provider-env override) + git/npm non-interactive guards | feature | task-001, task-003, task-004 | packages/server (extensions/sync-executor + test); features/preinstalled-extensions |
+| task-006 | `ExtensionsService` (settings.json read-only, promise-chain mutex + re-plan, `autoSync` gating, `describe()` dry-run reusing the planner) + fire-and-forget bootstrap sync after `httpServer.listen` mirroring agent recovery; live E2E incl. `pi remove`/hand-pin non-interference and spawned-agent path parity; docs sync | feature + test + docs | task-002, task-003, task-004, task-005 | packages/server (extensions/extensions-service + test, daemon/bootstrap + test); AGENTS.md (root, server); docker/README; features/preinstalled-extensions; architecture/daemon-bootstrap |
+
+### sprint-057-extensions-cli-rpc
+> **The gap.** Sprint-056's engine works, but it is invisible: selection and the kill switch live in
+> `config.json` and two env vars, so nobody discovers the feature and nobody can see *why* an
+> extension is missing. This sprint gives it a wire contract and a command group.
+>
+> **Three findings from reading the real code shaped the task split:**
+>
+> **(a) The daemon has no config writer at all.** Only `packages/cli/src/daemon-control.ts` writes
+> `config.json` (`setDaemonPassword`, `persistRelayEnvOverrides`). So persisting a selection is a new
+> server capability — with a trap that makes it worth its own task: `loadConfig` returns
+> `overlayEnv(parsedFile, env)`, and `daemon-control.ts` calls out that this overlay is deliberately
+> in-memory only. Persisting the *loaded* config would therefore bake every `PI_STUDIO_*` override
+> permanently onto disk, silently converting a one-shot `PI_STUDIO_EXTENSIONS_AUTOSYNC=false` shell
+> experiment into a permanent kill switch, and `PI_STUDIO_LISTEN=…` into a permanent bind change.
+> Task 002 is a narrow raw-file read-merge-write whose headline test asserts env vars never reach the
+> file. It also refuses to round-trip through `persistedConfigSchema` first, which would materialise
+> every default and freeze future default changes.
+>
+> **(b) `bootstrap.ts` loads config once** and hands it to long-lived services, so a handler that
+> persists to disk and stops there leaves the *running* daemon syncing the old selection until
+> restart — and the file on disk looks correct, so the bug is invisible. `ExtensionsService` owns both
+> halves (in-memory view first, then persist), and task 003 has an explicit regression test for it.
+>
+> **(c) `set` returns only after its sync finishes.** A first-run install of five packages can exceed
+> the SDK's default 30 s `rpcTimeoutMs` (`daemon-client.ts:109`), which would make the flagship
+> first-run command print "request timed out" while the installs are actually succeeding in the
+> background. The CLI passes an explicit 600 s to `client.request(…, timeoutMs)` rather than widening
+> the shared `runRpc` helper (whose signature has no timeout slot) for one caller. Root invariant 6
+> already guarantees an RPC timeout never kills the socket.
+>
+> **A documented boundary has to move.** `extensions list --local` runs the pure planner in-process
+> with no daemon (mirroring how the `auth` group works entirely CLI-locally), which means cli imports
+> three pure server modules — contradicting root `AGENTS.md`'s statement that cli depends on server
+> *not* for runtime code. Task 005 must amend that sentence or drop `--local`, and record which; the
+> invariant must not be left contradicted.
+>
+> **Simplifications that survived review:** exit codes are dumb (`0` on `ok`/`noop`, error otherwise —
+> the earlier draft's "expected failure" carve-out died with the private package that motivated it);
+> `autoSync` is deliberately **not** settable over the wire, staying a file/env kill switch; there is
+> no push/broadcast type, since the response carries the result.
+>
+> Tasks 001 and 002 are independent (protocol vs. server config) and may run concurrently; so may 003
+> and 004 once 001 lands.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------|--------|
+| task-001 | Protocol: `extension_packs_list`/`_set` pairs (`PackInfo`/`EntryInfo`/`SyncReport`, `lastSync` as summary not report, **optional `packs`** so an absent field is the ungated manual-sync trigger, `reason` as open string for append-only safety, `ok`/`error`/optional `report` for domain failures) + `extensionPacks` in `SERVER_FEATURES`/`COMPAT` | feature | none | packages/protocol (messages, client-capabilities + tests); features/preinstalled-extensions; architecture/websocket-protocol |
+| task-002 | Server-side `persistExtensionPacks`: raw-file read-merge-write, `0600`, preserves unknown keys, **never** persists env overlay, never materialises schema defaults | feature | none | packages/server (config/daemon-config + test); features/preinstalled-extensions; architecture/config |
+| task-003 | `registerExtensionsHandlers`: list via `describe()`'s planner dry run (asserted identical to `planSync`), set branches on `packs` — present ⇒ validate → `setSelectedPacks` (in-memory **and** disk) → gated `sync("selection")`; absent ⇒ ungated `sync("manual")` with no config write; bootstrap-only registration | feature | task-001, task-002 | packages/server (extensions/extensions-rpc + test, extensions-service, daemon/bootstrap + test); features/preinstalled-extensions |
+| task-004 | `PiStudioClient.listExtensionPacks`/`setExtensionPacks(packs, { timeoutMs })`/`syncExtensionPacks({ timeoutMs })` — thin typed wrappers, `ok: false` returned as data not thrown | feature | task-001 | packages/client (pistudio-client + test); features/preinstalled-extensions |
+| task-005 | `pi-studio extensions list/select/sync`: status table (incl. `attempts` when > 1) + `--json`, per-failure lines + retry footer, 600 s per-call timeout, `sync` sends the packs-less manual request so it works under `autoSync: false`, exit `0` on `ok`/`noop` only, feature-flag guard, `--local` in-process planner reusing the shared pi-home derivation + the root `AGENTS.md` boundary amendment | feature | task-001, task-003 | packages/cli (extensions-commands + test, program); AGENTS.md (root); features/preinstalled-extensions; features/cli |
+| task-006 | Offline in-process list→set(with packs)→set(without packs)→list integration test using `bootstrap.test.ts`'s raw-socket idiom (incl. seeded failure ⇒ `partial`), eight-step live run proving `pi remove`/hand-pin non-interference and the ungated manual sync through the real CLI, plus the four-file docs sweep | test + docs | task-001, task-002, task-003, task-004, task-005 | packages/server, packages/cli (integration); AGENTS.md (root, protocol, server, cli); features/preinstalled-extensions |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, **except** one deliberately
-unplanned sibling: `features/provider-auth-ui.md` (scoped, not yet broken into sprints — it
-consumes sprint-055's wire contract, so it is planned after that contract exists).
+unplanned sibling: `features/provider-auth-ui.md` (scoped, not yet broken into sprints — it consumes
+sprint-055's wire contract, so it is planned after that contract exists).
+`features/preinstalled-extensions.md` is now fully planned across two sprints: the engine in
+sprint-056 (server only) and the wire/SDK/CLI surface in sprint-057. Sprint-056 stands alone as a
+complete, controllable feature via `config.json` and the two env vars; sprint-057 makes it
+discoverable.
 
 | Scope file | Covered by |
 |------------|-----------|
@@ -926,10 +1039,11 @@ consumes sprint-055's wire contract, so it is planned after that contract exists
 | features/file-explorer-move.md | s046/t001-006; s047/t001 (trimmed-basename fix at the source), t005 (same-parent rename destination), t006 (docs: the anticipated affordance landed) |
 | features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
-| features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs) |
+| features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs); s057/t005 (`extensions` group: first command needing an explicit per-call RPC timeout, and first CLI runtime import of server modules for `--local`) |
 | features/provider-auth-cli.md | s054/t001-006 |
 | features/provider-auth-rpc.md | s055/t001-005 |
 | features/provider-auth-ui.md | not yet planned — consumes s055's wire contract, planned once it lands |
+| features/preinstalled-extensions.md | s056/t001-006 (engine: verified pi behavior, manifest+guard test, config+state, pure planner, isolating executor, service+bootstrap sync); s057/t001-006 (surface: wire pairs + feature flag, server config writer, handlers, SDK facade, `extensions` CLI group, E2E+docs) |
 | features/connection-resilience.md | s050/t001-004 |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
@@ -938,20 +1052,15 @@ consumes sprint-055's wire contract, so it is planned after that contract exists
 | features/inline-image-rendering.md | s045/t001-007; s051/t001-003 (amended: normalized/decoded classifier, pane-targeted click-to-open) |
 | features/file-link-rendering.md | s051/t001-006 |
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
-| features/feature-panels-ui.md | s016/t001-005, s015/t005 (logic); s022/t001-004 (render); s052/t001,t003,t006 (terminal-pane size-claim + status-surface conformance, Pi-Studio split-pane contract), s053/t001-006 (appearance sourcing, "Terminal exited" state, reconnect/restore) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
-| features/rewind.md | s015/t007 (logic); s021/t005 (render) |
-| features/provider-usage.md | s013/t004-005, s015/t006; s019/t004, s021/t004 (render) |
-| features/keyboard-shortcuts.md | s012/t005, s013/t004-005, s015/t006; s018/t003 (render) |
-| features/localization.md | s012/t005,t006, s013/t004; s017/t002, s019/t004 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
-| architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001 |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip) |
+| architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001, s056/t006 (fire-and-forget extensions sync after `httpServer.listen`, mirroring agent recovery; `dev-bootstrap` deliberately excluded) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
-| architecture/persistence.md | s001/t003, s003/t001,t004 |
+| architecture/persistence.md | s001/t003, s003/t001,t004, s056/t003 (`extensions-state.json`: atomic store whose corrupt-file fail-safe is a distinct `"unreadable"` result, never an empty state) |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
-| architecture/config.md | s003/t002-003, s005/t003, s013/t004, s055/t002 (`piHomeEnv`'s path rule exported as `resolvePiAgentDir`/`resolvePiAuthPaths`, making spawn-path/auth-path parity assertable) |
+| architecture/config.md | s003/t002-003, s005/t003, s013/t004, s055/t002 (`piHomeEnv`'s path rule exported as `resolvePiAgentDir`/`resolvePiAuthPaths`, making spawn-path/auth-path parity assertable), s056/t003 (`daemon.extensions` subtree + `PI_STUDIO_EXTENSIONS_AUTOSYNC`/`PI_STUDIO_EXTENSION_PACKS` overlay; reuses that same single derivation for the state key), s057/t002 (the daemon's **first** `config.json` writer — raw-file merge that must never persist the in-memory env overlay or materialise schema defaults) |
 | architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness), s052/t001-004 (terminal-stream router usage: subscription split from emulator, single `claimSize` seam), s053/t005 (`onRestore` becomes a live path) |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
 | architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays); s053/t001-002 (resolved-`Theme` context for JS-configured surfaces; `colors.terminal` + scaled font scale finally consumed) |
@@ -965,6 +1074,15 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Exact `fetch_agent_timeline` field names + cursor encoding + page-limit merge counting — s006/t001,t003.
 - [ ] Permission response option vocabulary + payload field names per provider — s006/t005.
 - [ ] Per-request field shapes for checkout/git ops + diff projection format + `gh`/API surface — s008/t004-006.
+- [ ] Live `pi install` behavior, all owned by s056/t001 and probed **before** the rest of that sprint
+      is built: whether the **global** settings file is written under `PI_CODING_AGENT_DIR` (the whole
+      path-parity guarantee rests on it — pi's docs only name the literal `~/.pi/agent/settings.json`);
+      exit code + duplicate-entry behavior on reinstalling an identical spec (the benign cross-process
+      race stance assumes idempotent success); whether any code path needs a TTY (a prompt would hang
+      sync for the full 180 s timeout); how much of npm's own stderr (`404`/`E401`/`ETIMEDOUT`) survives
+      into pi's output (decides whether `classify()`'s taxonomy is meaningful or collapses to
+      `install_failed`/`unknown` — cosmetic either way, but the acceptance criteria must match what is
+      observed); and whether a failed install can leave a half-written `settings.json` entry — s056/t001.
 - [x] Terminal Restore opcode value — `0x05`, confirmed against the live codec; the reflowable payload
       format is unconstrained by any external peer and is fixed by s053/t004. Worker protocol remains
       open (see below) — s002/t004, s009/t001, s053/t004-005.

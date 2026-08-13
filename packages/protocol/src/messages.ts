@@ -816,6 +816,162 @@ export const agentListCommandsResponseSchema = z
 export type AgentListCommandsResponse = z.infer<typeof agentListCommandsResponseSchema>;
 
 // ===========================================================================
+// Extension packs (sprint-057, sprint-056 preinstalled-extensions.md § RPC surface) — read curated-
+// pack state and change the selection over the wire. No push/broadcast type: sync is
+// request-triggered and the response carries the result (the `checkout_status_update` per-session
+// `send()` family is the precedent to copy if live progress is ever wanted, not a new mechanism).
+// ===========================================================================
+
+/**
+ * Documents today's values for `EntryInfo.status`. Structurally mirrors
+ * `packages/server/src/extensions/sync-planner.ts`'s `EntryStatus` — duplicated deliberately
+ * (protocol keeps zero workspace imports, root invariant 2); task-003 maps between them. The wire
+ * field itself is `z.string()`, never a narrowed enum: an older client must still parse a status
+ * value a later daemon introduces (append-only rule).
+ */
+export type EntryStatus =
+  | "installed"
+  | "pending"
+  | "failed"
+  | "user_removed"
+  | "user_modified"
+  | "deprecated";
+
+/**
+ * Documents today's values for `SyncReport.outcome` / `lastSync.outcome`. The wire field is
+ * `z.string()` for the same forward-compat reason as {@link EntryStatus} — the server already
+ * commits to this for the persisted form (`ExtensionsDescribe.lastSync.outcome`,
+ * `packages/server/src/extensions/extensions-service.ts`), since a persisted future outcome must
+ * round-trip through an older daemon.
+ */
+export type SyncOutcome = "ok" | "noop" | "partial" | "failed" | "skipped";
+
+export const extensionEntryInfoSchema = z
+  .object({
+    source: z.string(),
+    identity: z.string(),
+    addedIn: z.string(),
+    deprecated: z.boolean().optional(),
+    /** {@link EntryStatus} today; plain string on the wire (see above). */
+    status: z.string(),
+    lastError: z
+      .object({
+        at: z.string(),
+        attempts: z.number(),
+        /** `ExtensionFailureReason` today (`sync-executor.ts`); plain string, same reason. */
+        reason: z.string(),
+        message: z.string(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+export type ExtensionEntryInfo = z.infer<typeof extensionEntryInfoSchema>;
+
+export const extensionPackInfoSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    description: z.string(),
+    packages: z.array(extensionEntryInfoSchema),
+  })
+  .passthrough();
+export type ExtensionPackInfo = z.infer<typeof extensionPackInfoSchema>;
+
+/** One failed install within a triggered sync run. */
+export const extensionSyncFailureSchema = z
+  .object({
+    identity: z.string(),
+    source: z.string(),
+    pack: z.string(),
+    /** `ExtensionFailureReason` today; plain string, same forward-compat reason as above. */
+    reason: z.string(),
+    message: z.string(),
+  })
+  .passthrough();
+
+/** The full result of a triggered sync run — returned only as an RPC response field, never
+ *  persisted as-is (see {@link extensionsLastSyncSummarySchema}). */
+export const extensionSyncReportSchema = z
+  .object({
+    at: z.string(),
+    /** {@link SyncOutcome} today; plain string on the wire. */
+    outcome: z.string(),
+    installed: z.array(z.string()),
+    failures: z.array(extensionSyncFailureSchema),
+  })
+  .passthrough();
+export type ExtensionSyncReport = z.infer<typeof extensionSyncReportSchema>;
+
+/**
+ * `lastSync` is a **summary**, not a report: only `{ at, outcome }` is ever persisted
+ * (`extensions-state.json`), so promising a full {@link ExtensionSyncReport} here would be a lie
+ * after any daemon restart. No `installed`/`failures` fields — do not widen this to the report shape.
+ */
+export const extensionsLastSyncSummarySchema = z
+  .object({
+    at: z.string(),
+    /** {@link SyncOutcome} today; plain string on the wire. */
+    outcome: z.string(),
+  })
+  .passthrough();
+
+export const extensionPacksListRequestSchema = z
+  .object({
+    type: z.literal("extension_packs_list_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type ExtensionPacksListRequest = z.infer<typeof extensionPacksListRequestSchema>;
+
+export const extensionPacksListResponseSchema = z
+  .object({
+    type: z.literal("extension_packs_list_response"),
+    requestId: z.string(),
+    autoSync: z.boolean(),
+    selected: z.array(z.string()),
+    packs: z.array(extensionPackInfoSchema),
+    lastSync: extensionsLastSyncSummarySchema.optional(),
+  })
+  .passthrough();
+export type ExtensionPacksListResponse = z.infer<typeof extensionPacksListResponseSchema>;
+
+/**
+ * `packs` is optional; its **absence** is the manual-sync trigger. Present ⇒ change the selection
+ * and sync. Absent ⇒ change nothing, run an ungated manual sync — this is what carries
+ * `pi-studio extensions sync` (task-005), which must keep working even with `autoSync: false`.
+ */
+export const extensionPacksSetRequestSchema = z
+  .object({
+    type: z.literal("extension_packs_set_request"),
+    requestId: z.string(),
+    packs: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type ExtensionPacksSetRequest = z.infer<typeof extensionPacksSetRequestSchema>;
+
+/**
+ * `ok`/`error` are domain fields, not `rpc_error` — a handler cannot express a domain failure
+ * (e.g. an unknown pack slug) through `rpc_error`, which carries only transport-level codes
+ * (mirrors `file_watch_subscribe_response`'s `ok: false, error: "…"` idiom). `report` is optional
+ * for the same reason: a rejected request ran no sync.
+ */
+export const extensionPacksSetResponseSchema = z
+  .object({
+    type: z.literal("extension_packs_set_response"),
+    requestId: z.string(),
+    autoSync: z.boolean(),
+    selected: z.array(z.string()),
+    packs: z.array(extensionPackInfoSchema),
+    lastSync: extensionsLastSyncSummarySchema.optional(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    report: extensionSyncReportSchema.optional(),
+  })
+  .passthrough();
+export type ExtensionPacksSetResponse = z.infer<typeof extensionPacksSetResponseSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -884,6 +1040,10 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   followUpAgentResponseSchema,
   agentListCommandsRequestSchema,
   agentListCommandsResponseSchema,
+  extensionPacksListRequestSchema,
+  extensionPacksListResponseSchema,
+  extensionPacksSetRequestSchema,
+  extensionPacksSetResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

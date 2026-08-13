@@ -53,11 +53,16 @@ web-client  ──────► protocol, client
 desktop     ──────► server   (NOT web-client yet — planned for sprint-033-desktop, not wired)
 ```
 
-`cli` depends on `server` and `web-client` NOT to import their runtime code, but to (a) resolve
-`@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
+`cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
+(a) resolve `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
 `import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
-`web-client`'s prebuilt static SPA assets for the `pi-studio web` command. See
-`packages/cli/AGENTS.md`.
+`web-client`'s prebuilt static SPA assets for the `pi-studio web` command. One narrow, deliberate
+exception: `pi-studio extensions list --local` (sprint-057/task-005) imports `server`'s pure
+extension-planning modules (`extensions/index.ts`'s `curated-packs`/`sync-planner`/
+`extensions-state`, plus `daemon-config.ts`'s `loadConfig`) in-process, to run the same read-only
+planner a connected daemon runs — no daemon lifecycle, no WS server, no `pi` process spawn. See
+`packages/cli/AGENTS.md`'s Invariants section for the full boundary (also covers the pre-existing
+auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above.
 
@@ -138,6 +143,10 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
 #    rewrites internal @av-pi-studio/* deps to match, builds+typechecks+tests, then publishes
 #    protocol/highlight/relay/client/web-client/server/cli to npm in that dependency order.
+#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
+#    reads packages/protocol/package.json as the reference). The root package.json intentionally
+#    has NO "version" field — it is a private workspace root that nothing publishes and nothing
+#    reads; do not add one back, or it will silently drift from the real version.
 #    Requires: npm login. Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
@@ -195,6 +204,8 @@ tRPC API directly via `curl` for status polling, rather than waiting on an upstr
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
+|`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
+|`PI_STUDIO_EXTENSION_PACKS`|_(unset, i.e. `core` only)_|CSV of extra audience pack slugs to select, additive to the always-implicit `core` (`daemon.extensions.packs`)|
 
 Also reads `$PI_STUDIO_HOME/config.json`.
 
@@ -256,6 +267,8 @@ config.json           Daemon config (password hash, provider overrides, relay, s
 pi-studio.pid         PID lock (prevents duplicate daemons)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600
+extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
+                       lastSync (features/preinstalled-extensions.md § State file)
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/

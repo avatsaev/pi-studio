@@ -20,6 +20,7 @@ describe("capability flag sets", () => {
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
         "daemonStatusRpc",
+        "extensionPacks",
         "providersSnapshot",
         "rewind",
         "terminal-restore-modes",
