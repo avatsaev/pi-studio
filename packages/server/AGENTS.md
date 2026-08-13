@@ -47,7 +47,13 @@ src/
                                    single-flag ternary `handleCreate` used to run into an
                                    N-capability, order-stable composition (sprint-051).
     provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral).
-    provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id.
+    provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
+                                   resolvePiAgentDir(config) — the shared pi-home derivation used
+                                   by both the spawn path and extensions/extensions-state.ts's
+                                   effectivePiHomeKey. `~`-expands and resolves both non-default
+                                   branches to an absolute path (against the daemon's own cwd) so
+                                   the two consumers can never derive a different directory for a
+                                   `~`-prefixed or relative daemon.piHome/env override.
     provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
     session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
@@ -105,6 +111,29 @@ src/
     entity-stores.ts              load*/save* functions — JSON file I/O per entity type.
     atomic-store.ts               AtomicStore — write-to-tmp-then-rename for crash safety.
     index.ts
+
+  extensions/                     Preinstalled-extensions sync (features/preinstalled-extensions.md).
+    curated-packs.ts               CURATED_PACKS manifest + parseSource/identityOf/selectEntries +
+                                    the checkCatalogInvariants guard (unpinned, disjoint identities,
+                                    stable slugs, addedIn <= SERVER_VERSION, no placeholders).
+    extensions-state.ts            extensions-state.json store (offered/failures/lastSync per
+                                    pi-home) + effectivePiHomeKey — the state key, kept
+                                    byte-identical to a spawned agent's PI_CODING_AGENT_DIR via
+                                    agent/provider-registry.ts's resolvePiAgentDir.
+    sync-planner.ts                planSync — pure three-way merge (manifest x state x pi's live
+                                    settings.json) → SyncPlan. No I/O; the one code path behind
+                                    both "what sync would do" and "what ExtensionsService.describe()
+                                    reports". Never plans an install over an identity already in
+                                    settings.json, even one never `offered` — `pi install` would let
+                                    pi's own settings-merge rewrite a pre-existing user entry in
+                                    place.
+    sync-executor.ts               executePlan — spawns `pi install <spec>` per planned action via
+                                    an injectable InstallSpawn seam; one package failing never
+                                    aborts the run; state persisted after every action.
+    extensions-service.ts          ExtensionsService — orchestration only: reads settings.json +
+                                    state, calls the planner/executor, persists lastSync, logs the
+                                    summary line. In-process mutex (createLimiter(1)) serializes
+                                    concurrent sync() calls.
 
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
@@ -736,6 +765,37 @@ All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
 
 All schemas use `.passthrough()` and optional fields — never throw on unknown fields from newer
 daemon versions.
+
+### Extensions sync (`extensions/`)
+
+`ExtensionsService` keeps the bundled Pi's global `settings.json` stocked with a curated set of
+recommended extensions (features/preinstalled-extensions.md). Invariants:
+
+- **Additive only, forever.** Sync only installs an identity it has never successfully installed
+  before (`offered` records intent, not presence) **and** that isn't already present in
+  `settings.json` under any form — `pi install` matches by version-insensitive identity and
+  rewrites an existing entry in place, so installing over a pre-existing user entry would destroy
+  it even before Pi-Studio ever offered that identity. A user's `pi remove`, hand-edit, or
+  pre-existing install permanently transfers ownership — the planner never plans an action for that
+  identity again.
+- **Sources stay unpinned.** `pi update` skips pinned npm specs, so a version/ref pin in
+  `curated-packs.ts` would exclude that extension from the user's own updater forever — the guard
+  test (`curated-packs.test.ts`) makes this mechanically unbreakable.
+- **One package failing never aborts the sync.** `sync-executor.ts` runs every planned action to
+  completion regardless of earlier failures; state is persisted after each one.
+- **Never delays daemon readiness.** `bootstrap.ts` kicks off `sync("bootstrap")` fire-and-forget
+  **after** `httpServer.listen(...)`, mirroring the agent-recovery block's pattern. **Not** wired
+  into `dev-bootstrap.ts` — the mock-only dev daemon must never touch a real pi-home's settings.
+- **Single derivation for the effective pi-home.** `agent/provider-registry.ts#resolvePiAgentDir`
+  feeds both the spawned-agent env and `extensions-state.ts#effectivePiHomeKey` — install location
+  and agent load location can never diverge. `resolvePiAgentDir` itself `~`-expands and absolutizes
+  both non-default branches (against the daemon's own cwd), because the bundled Pi CLI's own path
+  handling expands `~` but never resolves a relative path — normalizing in the one derivation, not
+  in each consumer, is what keeps them in agreement for a `~`-prefixed or relative
+  `daemon.piHome`/env override.
+- **Never rewrite a corrupt `extensions-state.json`.** `loadExtensionsState` returns the literal
+  string `"unreadable"` rather than defaults; every caller's fail-safe is to do nothing and log
+  once, never reset the file.
 
 ### HTTP server (`http/`)
 

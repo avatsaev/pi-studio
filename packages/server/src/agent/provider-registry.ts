@@ -1,8 +1,9 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ProviderDefinition } from "@av-pi-studio/protocol";
 
 import type { PersistedConfig, ProviderOverride } from "../config/daemon-config.js";
+import { expandHome } from "../files/resolve-path.js";
 import type { AgentClient, AgentModelDefinition } from "./provider-contract.js";
 import { PROVIDER_MANIFEST } from "./manifest.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -51,12 +52,36 @@ function applyModelOverrides(client: PiAgentClient, override: ProviderOverride):
   return client;
 }
 
-/** Derive `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from `daemon.piHome`, so a single
- * Pi-Studio setting redirects the bundled Pi CLI's entire `~/.pi/agent` tree (models.json,
+/**
+ * The one shared derivation of the directory a spawned Pi agent uses for its `~/.pi/agent` tree
+ * (features/preinstalled-extensions.md § Public Contract — Effective pi-home key). Precedence:
+ * `agents.providers.pi.env.PI_CODING_AGENT_DIR` (wins) > `join(daemon.piHome, "agent")` > Pi's own
+ * default. Returns `undefined` for the last case — callers that need an absolute path (the
+ * extensions state key, the executor's install env) apply Pi's own default themselves; callers
+ * that only add env vars when redirecting (`piHomeEnv` below) treat `undefined` as "add nothing".
+ *
+ * Both non-default branches are `~`-expanded and resolved to an absolute path (against the
+ * daemon's own cwd) *here*, in the one derivation, rather than by each consumer: the bundled Pi
+ * CLI's own path handling (`normalizePath`) expands a leading `~/` but never resolves a relative
+ * path, so a raw relative or `~`-prefixed value would install into one directory (whatever this
+ * process resolves it to) while a spawned agent loads from another (whatever Pi resolves it to)
+ * — a silent, permanent install/load split that state's "offered" bookkeeping would never surface
+ * or retry. Absolutizing here, once, is what makes the state key (`effectivePiHomeKey`), the
+ * executor's install env, and the agent's spawn env provably agree.
+ */
+export function resolvePiAgentDir(config: PersistedConfig): string | undefined {
+  const override = config.agents.providers.pi?.env?.PI_CODING_AGENT_DIR;
+  if (override) return resolve(expandHome(override));
+  if (config.daemon.piHome) return resolve(expandHome(config.daemon.piHome), "agent");
+  return undefined;
+}
+
+/** Derive `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from {@link resolvePiAgentDir}, so a
+ * single Pi-Studio setting redirects the bundled Pi CLI's entire `~/.pi/agent` tree (models.json,
  * auth.json, settings.json, sessions/, …) to a custom directory. */
-function piHomeEnv(piHome: string | undefined): Record<string, string> {
-  if (!piHome) return {};
-  const agentDir = join(piHome, "agent");
+function piHomeEnv(config: PersistedConfig): Record<string, string> {
+  const agentDir = resolvePiAgentDir(config);
+  if (!agentDir) return {};
   return {
     PI_CODING_AGENT_DIR: agentDir,
     PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
@@ -72,7 +97,7 @@ function buildPiClient(
   const client = new PiAgentClient({
     provider: providerId,
     command: override?.command,
-    env: { ...piHomeEnv(config.daemon.piHome), ...override?.env },
+    env: { ...piHomeEnv(config), ...override?.env },
     sessionDir:
       override?.params && typeof override.params.sessionDir === "string"
         ? override.params.sessionDir

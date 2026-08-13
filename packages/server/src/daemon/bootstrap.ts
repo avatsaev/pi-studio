@@ -66,6 +66,8 @@ import {
   type WorkerOutcome,
 } from "../orchestration/loop-service.js";
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
+import { ExtensionsService } from "../extensions/extensions-service.js";
+import type { InstallSpawn } from "../extensions/sync-executor.js";
 
 import {
   SERVER_FEATURES,
@@ -89,6 +91,9 @@ export interface DaemonOptions {
    * `PI_STUDIO_LOG_LEVEL` (default `info`). Tests inject `silentLogger()`.
    */
   logger?: Logger;
+  /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
+   *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
+  extensionsInstallSpawn?: InstallSpawn;
 }
 
 export interface DaemonHandle {
@@ -205,6 +210,16 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const daemonKeypairB64 = resolveDaemonKeypair(home);
   writePidLock(home);
   logger.info({ home, configPath, serverId }, "daemon starting");
+
+  // ── Preinstalled-extensions sync (constructed here; kicked off after the WS server is
+  // accepting connections — see the fire-and-forget block right before `return` below) ─────────
+  const extensionsLogger = logger.child({ component: "extensions-sync" });
+  const extensionsService = new ExtensionsService({
+    home,
+    config,
+    logger: extensionsLogger,
+    spawn: opts.extensionsInstallSpawn,
+  });
 
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
   const resolveClient = (provider: string): AgentClient =>
@@ -809,6 +824,17 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
 
   httpServer.listen(opts.port, opts.host);
+  logger.info({ host: opts.host, port: opts.port }, "http/ws server accepting connections");
+
+  // Fire-and-forget: never delays daemon readiness, never blocks the return below. Mirrors the
+  // agent-recovery block above, but deliberately kicked off AFTER listen() rather than before —
+  // extensions sync is optional-and-loud, agent recovery is required-for-correctness.
+  void extensionsService.sync("bootstrap").catch((err: unknown) => {
+    extensionsLogger.error(
+      { err: (err as Error)?.message ?? String(err) },
+      "extensions sync failed",
+    );
+  });
 
   return {
     httpServer,

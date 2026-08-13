@@ -23,6 +23,7 @@ describe("defaults", () => {
     expect(cfg.daemon.relay.enabled).toBe(false);
     expect(cfg.log.level).toBe("info");
     expect(cfg.agents.providers).toEqual({});
+    expect(cfg.daemon.extensions).toEqual({ autoSync: true, packs: [] });
   });
 
   it("an empty object parses to defaults", () => {
@@ -92,6 +93,34 @@ describe("env overlay (env wins)", () => {
       "b",
       "c",
     ]);
+  });
+
+  it("PI_STUDIO_EXTENSIONS_AUTOSYNC: 'false'/'0' disable, unset/other values leave it true", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(overlayEnv(base, {}).daemon.extensions.autoSync).toBe(true);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "false" }).daemon.extensions.autoSync,
+    ).toBe(false);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "0" }).daemon.extensions.autoSync,
+    ).toBe(false);
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "yes" }).daemon.extensions.autoSync,
+    ).toBe(true);
+  });
+
+  it("PI_STUDIO_EXTENSION_PACKS splits and trims a CSV of pack slugs", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(
+      overlayEnv(base, { PI_STUDIO_EXTENSION_PACKS: "a, b ,c" }).daemon.extensions.packs,
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("an unknown pack slug in daemon.extensions.packs loads without error", () => {
+    expect(
+      persistedConfigSchema.parse({ daemon: { extensions: { packs: ["not-a-real-pack"] } } }).daemon
+        .extensions.packs,
+    ).toEqual(["not-a-real-pack"]);
   });
 });
 

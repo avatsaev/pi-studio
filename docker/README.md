@@ -180,11 +180,21 @@ through the web server's origin (`ws://<web-host>:8080/daemon-ws`) instead of th
 ## Volumes
 
 - **`/data`** (`PI_STUDIO_HOME`) — persistent daemon state: agent records, the Curve25519
-  `daemon-keypair.json`, `server-id`, `pi-studio.pid`, `logs/`, and the `projects/` registries. Use
-  a named volume so agents, projects, and the relay identity survive restarts.
+  `daemon-keypair.json`, `server-id`, `pi-studio.pid`, `logs/`, the `projects/` registries, and
+  `extensions-state.json` (preinstalled-extensions sync bookkeeping). Use a named volume so
+  agents, projects, the relay identity, and extensions-sync history survive restarts.
 - **`/workspace`** — bind-mount the host directories your agents operate on. Agents spawn their
   provider process (and terminals, git, worktrees) in these `cwd`s, so the paths you open via the
   client (e.g. `pi-studio open /workspace/my-repo`) must exist inside the container.
+- **Preinstalled-extensions sync and `PI_STUDIO_HOME` vs. the pi-home**: the bundled `pi`'s own
+  config dir (`~/.pi/agent`, holding `settings.json` — where recommended extensions actually get
+  installed) is **separate** from `/data`/`PI_STUDIO_HOME` unless `daemon.piHome` /
+  `PI_STUDIO_PI_HOME` redirects it under `/data` too. Neither is volume-mounted by this compose
+  setup out of the box, so **every container recreate starts from a fresh pi-home**: sync sees no
+  prior `extensions-state.json` entry for that pi-home and re-offers the full `core` set —
+  harmless (idempotent `pi install`), but means the extension set is reinstalled on every
+  recreate rather than persisted. To persist it, point `daemon.piHome` (or `PI_STUDIO_PI_HOME`) at
+  a path under `/data` and keep the existing `/data` volume mounted.
 
 ## pi provider auth
 

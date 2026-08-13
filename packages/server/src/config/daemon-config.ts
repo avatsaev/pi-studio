@@ -112,6 +112,14 @@ export const persistedConfigSchema = z
             enabled: z.boolean().optional(),
           })
           .default({}),
+        /** Preinstalled-extensions sync (features/preinstalled-extensions.md § Daemon config). */
+        extensions: z
+          .object({
+            autoSync: z.boolean().default(true),
+            /** Selected audience packs, additive to the always-implicit `core`. */
+            packs: z.array(z.string()).default([]),
+          })
+          .default({}),
       })
       .default({}),
     app: z.object({ baseUrl: z.string().optional() }).default({}),
@@ -263,6 +271,16 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
   }
   if (env.PI_STUDIO_SERVICE_PROXY_ENABLED !== undefined) {
     next.daemon.serviceProxy.enabled = envBool(env.PI_STUDIO_SERVICE_PROXY_ENABLED);
+  }
+
+  if (env.PI_STUDIO_EXTENSIONS_AUTOSYNC !== undefined) {
+    const v = env.PI_STUDIO_EXTENSIONS_AUTOSYNC.trim().toLowerCase();
+    next.daemon.extensions.autoSync = !(v === "false" || v === "0");
+  }
+  if (env.PI_STUDIO_EXTENSION_PACKS !== undefined) {
+    next.daemon.extensions.packs = env.PI_STUDIO_EXTENSION_PACKS.split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
   }
 
   return next;

@@ -199,6 +199,8 @@ tRPC API directly via `curl` for status polling, rather than waiting on an upstr
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
+|`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
+|`PI_STUDIO_EXTENSION_PACKS`|_(unset, i.e. `core` only)_|CSV of extra audience pack slugs to select, additive to the always-implicit `core` (`daemon.extensions.packs`)|
 
 Also reads `$PI_STUDIO_HOME/config.json`.
 
@@ -260,6 +262,8 @@ config.json           Daemon config (password hash, provider overrides, relay, s
 pi-studio.pid         PID lock (prevents duplicate daemons)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600
+extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
+                       lastSync (features/preinstalled-extensions.md § State file)
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
