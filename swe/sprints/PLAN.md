@@ -903,9 +903,12 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 
 ## Coverage check
 
-Every feature and architecture scope is covered by at least one task, **except** one deliberately
-unplanned sibling: `features/provider-auth-ui.md` (scoped, not yet broken into sprints — it
-consumes sprint-055's wire contract, so it is planned after that contract exists).
+Every feature and architecture scope is covered by at least one task, **except** two deliberately
+unplanned siblings: `features/provider-auth-ui.md` (scoped, not yet broken into sprints — it
+consumes sprint-055's wire contract, so it is planned after that contract exists) and
+`features/preinstalled-extensions.md` (scoped 2026-08-12, not yet broken into sprints — curated
+Pi extension packs synced by the daemon; `core` and `science` pack contents are both decided, so
+this is ready to plan).
 
 | Scope file | Covered by |
 |------------|-----------|

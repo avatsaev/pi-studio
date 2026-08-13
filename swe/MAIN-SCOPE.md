@@ -267,6 +267,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/provider-auth-cli.md](features/provider-auth-cli.md)           | feature      | `pi-studio auth` login/status/logout reusing Pi's ModelRuntime locally (no daemon) |
 | [features/provider-auth-rpc.md](features/provider-auth-rpc.md)           | feature      | Daemon-side provider auth RPCs: list/login/respond/cancel/logout + flow-event push |
 | [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
+| [features/preinstalled-extensions.md](features/preinstalled-extensions.md) | feature      | Curated Pi extension packs auto-installed/updated by the daemon (additive-only sync) |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |

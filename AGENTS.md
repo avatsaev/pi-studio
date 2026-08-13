@@ -138,6 +138,10 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
 #    rewrites internal @av-pi-studio/* deps to match, builds+typechecks+tests, then publishes
 #    protocol/highlight/relay/client/web-client/server/cli to npm in that dependency order.
+#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
+#    reads packages/protocol/package.json as the reference). The root package.json intentionally
+#    has NO "version" field — it is a private workspace root that nothing publishes and nothing
+#    reads; do not add one back, or it will silently drift from the real version.
 #    Requires: npm login. Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
