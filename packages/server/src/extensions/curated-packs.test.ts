@@ -40,7 +40,13 @@ describe("CURATED_PACKS (the real manifest)", () => {
   });
 
   it("SERVER_VERSION matches packages/server/package.json, never the root package.json", () => {
-    expect(SERVER_VERSION).toBe("0.0.73");
+    // Read live rather than hardcode a literal: this must keep passing across every version
+    // bump, not just the version current when this test was written (a hardcoded literal here
+    // would fail every single release the moment `scripts/publish.sh` bumps the version before
+    // this suite runs — see the 0.0.74 release CI failure this test was fixed to prevent).
+    const serverPkgPath = new URL("../../package.json", import.meta.url);
+    const serverPkg = JSON.parse(readFileSync(serverPkgPath, "utf8"));
+    expect(SERVER_VERSION).toBe(serverPkg.version);
     // The root package.json has no "version" field at all — nothing to confuse this with.
     const rootPkgPath = new URL("../../../../package.json", import.meta.url);
     const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf8"));
@@ -55,7 +61,7 @@ describe("CURATED_PACKS (the real manifest)", () => {
       ["-e", `import(${JSON.stringify(distEntry.href)}).then(m => console.log(m.SERVER_VERSION))`],
       { encoding: "utf8" },
     ).trim();
-    expect(out).toBe("0.0.73");
+    expect(out).toBe(SERVER_VERSION);
   });
 });
 
