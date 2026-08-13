@@ -9,11 +9,11 @@
   "notesDir": "notes",
 
   "layout": {
-    "comment": "This project predates av-swe's default layout and already holds 47 completed sprints. Two deviations from the skill defaults, kept deliberately so existing history stays valid:",
+    "comment": "This project predates av-swe's default layout and already holds 47 completed sprints. One deviation from the skill defaults, kept deliberately so existing history stays valid:",
     "sprintsDir": "swe/sprints",
     "specsDirs": ["swe/features", "swe/architecture"],
     "specsIndex": "swe/MAIN-SCOPE.md",
-    "blockedFolder": "present in new sprints only; sprints 001-047 predate it"
+    "gitkeepBackfill": "sprints 001-057 backfilled with backlog/in_progress/blocked/done + .gitkeep in every sprint on 2026-08-13, closing the prior 'blockedFolder present in new sprints only' deviation — all sprints now carry all four state folders uniformly, per the skill's .gitkeep convention"
   },
 
   "gateNotes": {
