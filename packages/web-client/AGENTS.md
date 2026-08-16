@@ -293,9 +293,10 @@ src/
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
-    chat/                   ChatPanel, Timeline, Composer, ModelMenu (status bar's model-selector
-                            searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
-                            selector"), CommandMenu (composer's `/` slash-command popup — see
+    chat/                   ChatPanel, Timeline, Composer (bordered card: textarea + bottom
+                            action toolbar), ModelMenu (that toolbar's model-selector searchable
+                            popup, sprint-043 — see AGENTS.md § Invariants "Model selector"),
+                            CommandMenu (composer's `/` slash-command popup — see
                             AGENTS.md § Invariants "Slash-command picker") + slash-commands.ts
                             (pure token/filter/apply logic, unit-tested), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
@@ -743,7 +744,27 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   for Steer) rather than one shared flag: the Send/create-agent RPC blocks server-side for the
   _entire_ turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
-  whichever flag matches the currently-rendered action (`running ? steering : sending`).
+  whichever flag matches the currently-rendered action (`running ? steering : sending`). All three
+  actions are icon-only circular buttons in the composer toolbar (see next bullet): Send is
+  `ArrowUp`, Steer is `Navigation`, Stop is a `destructive` `Square` rendered *beside* the primary
+  action while running, never replacing it.
+- **Composer layout: one card, one bottom toolbar.** `Composer.tsx` renders a bordered `.card`
+  (`Composer.module.css`) holding the autosizing textarea, the `Attachments` strip, and a
+  `.toolbar` row along the bottom edge: attach (`+`) and slash-commands (`/`) on the left, model
+  picker + Stop/Send-or-Steer on the right (`.toolbarRight`, `margin-left: auto`). Three things
+  here are load-bearing and easy to break:
+  - **The textarea keeps a 1px TRANSPARENT border, never `border: none`.** `.highlightLayer`
+    (the slash-command chip mirror) is absolutely positioned over the same box and mirrors the
+    textarea's `padding` + `1px` border exactly; dropping the border shifts every glyph by 1px
+    and the chip drifts off the text. The card, not the textarea, paints the visible surface and
+    border — hence `.card .textarea { background: transparent; border-color: transparent }`,
+    parented on `.card` purely to outrank `TextInput.module.css`'s `.input`/`.input:focus`.
+  - **The accent focus ring is `.card:has(.textarea:focus)`, NOT `:focus-within`.** The toolbar's
+    buttons live inside the card, so `:focus-within` lights the whole input up accent-blue merely
+    because the model menu or attach button took focus.
+  - **Circular buttons override `.btn`'s radius through `.card .roundBtn`, not `!important`** —
+    CSS-module file order across chunks isn't guaranteed, so a bare `.roundBtn` rule ties with
+    `Button.module.css`'s own single-class `.btn` rule and may lose.
 - **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
   `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
   molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at
@@ -987,7 +1008,8 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `packages/server/AGENTS.md` § Agent subsystem for the daemon-side `composeSystemPrompt`
   composition both flags now share.
 
-- **Model selector (sprint-043, moved to the status bar) + eager draft materialization.**
+- **Model selector (sprint-043; lives in the composer's bottom toolbar) + eager draft
+  materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
   search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
   model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
@@ -998,14 +1020,13 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `--pi-color-foregroundMuted`. Each model row carries its own underlying LLM `provider` (e.g.
   `"anthropic"`) alongside its `id` (`AgentModelDefinition.provider`/`ProviderModel.provider`,
   threaded through from Pi's own `Model` object — see `packages/server/AGENTS.md` §
-  ProviderRegistry). `ModelMenu` itself no longer owns a trigger element: it takes a
+  ProviderRegistry). `ModelMenu` itself owns no trigger element: it takes a
   `renderTrigger(currentModel)` prop and wraps whatever the caller renders in
-  `DropdownMenu.Trigger asChild` — originally the composer's own ghost button, now
-  `StatusBar.tsx`'s icon+text segment button (`styles.modelSegment`), showing `session.model` or
-  a `"Model"` placeholder. The composer no longer renders `ModelMenu` or holds any model-picking
-  code; picking still updates `SessionEntry.model`/`modelProvider` through the same store action,
-  so whichever materialize path is currently in flight sees the same value regardless of where
-  the pick happened.
+  `DropdownMenu.Trigger asChild` — today `Composer.tsx`'s toolbar button (`styles.modelBtn`:
+  model name + chevron), showing `session.model` or a `"Model"` placeholder. It also passes
+  `align="end"`, overriding `MenuContent`'s `align="start"` default, because that trigger sits at
+  the right edge of the composer; a start-aligned popup would hang off the panel. The status bar
+  no longer renders `ModelMenu` or holds any model-picking code.
 
   **A brand-new "New chat" tab materializes the instant its tab is created, not on first
   keystroke/pick/send.** `tab-store.ts`'s `openNewChat` fires `stores/materialize.ts`'s
@@ -1013,7 +1034,7 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   appear synchronously, and the real, persisted `AgentRecord` (see below) is created in the
   background, best-effort (a failure or an offline open is retried by `Composer.tsx`'s `submit()`,
   which still calls `ensureMaterialized` unconditionally before every send — the one remaining
-  place other than `openNewChat` and `StatusBar.tsx`'s `handleSelectModel` that calls it).
+  place other than `openNewChat` and `Composer.tsx`'s `handleSelectModel` that calls it).
   `ensureMaterialized` itself resolves the default model (`resolveDefaultModel`, a daemon-cached
   `resolve_default_model` lookup — `packages/server/AGENTS.md` § `ProviderRegistry`) when the
   entry has none yet, seeding `session.model`/`modelProvider` from it — re-checking the CURRENT
@@ -1030,13 +1051,13 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   also why `Composer.tsx` needs no "watch the raw broadcast for the first turn" dance: by the time
   a turn can start, `agentId` is already bound and `useAgentStream` is already subscribed.
 
-  **Once the session has a bound `agentId`,** `StatusBar.tsx`'s `handleSelectModel` still awaits
+  **Once the session has a bound `agentId`,** `Composer.tsx`'s `handleSelectModel` still awaits
   `ensureMaterialized` unconditionally (a no-op once bound, the common case now) before firing
   `client.agent(agentId).setModel(modelProvider, modelId)` (`agent_set_model_request`) — one path
   regardless of materialization state, unlike the old branch that returned early (silently
   dropping the pick) whenever a materialize was already in flight, which eager materialization
   made the COMMON case rather than a rare race. Rejections are swallowed with no dedicated UI
-  surface (same swallow-and-let-the-broadcast-be-authoritative convention as `Composer.tsx`'s
+  surface (same swallow-and-let-the-broadcast-be-authoritative convention as its own
   `submit()`). **A bound `agentId` does NOT imply a live process** — a deferred draft's `agentId`
   is set the instant it materializes, well before the first send that actually spawns one — so
   this call can legitimately hit an agent with no live session at all. That distinction is
@@ -1152,14 +1173,13 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     project-scoped commands from `get_commands`, not an error. This is a Pi-side gate this feature
     does not (and should not) work around.
 - **Status bar (sprint-042).** `StatusBar.tsx`, mounted once in `WorkspacePage` (always on
-  screen, unlike any feature panel), renders six segments for the **active session** in order:
-  model, cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost. The
-  model segment is the only interactive one (sprint-043) — a button rendering `ModelMenu`'s
-  `renderTrigger`, always shown while a session is active (even before a model is known, as a
-  `"Model"` placeholder), unlike the other five which are plain icon+text and only render when
-  their underlying value exists (`gitAvailable`, `session`, …). Its leading chevron is therefore
-  driven separately from the generic segment loop's `i > 0` check — see the render's `Boolean(session)
-|| i > 0` condition — since it sits outside the `segments` array those five build. Reads
+  screen, unlike any feature panel), renders five read-only segments for the **active session**
+  in order: cwd, git branch (+ ahead/behind/dirty/conflict), context usage, token total, cost.
+  Each renders only when its underlying value exists (`gitAvailable`, `session`, …), and the
+  leading chevron is a plain `i > 0` check over the one `segments` array. **Nothing here is
+  interactive.** The model picker sprint-043 put in this bar has moved to the composer's bottom
+  toolbar (see "Model selector" above), which is why this file imports no `ModelMenu`,
+  `useConnectionStore`, or `ensureMaterialized`. Reads
   `session-store`/`git-store`/`stats-store` (all reactive selectors); polls via
   `useSessionStats(activeSessionId)`. Two subtleties that matter if you touch this area:
   - **`StatusBar` is the SOLE owner of the checkout-status subscription** (`useCheckoutStatus`),
@@ -1177,10 +1197,11 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     them (see `agentStreamEventSchema` in `@av-pi-studio/protocol`). `use-session-stats.ts` polls
     `client.agent(id).sessionStats()` on mount/session-switch, on a ~12s interval, and immediately
     when the session's `status` transitions away from `"running"`. Its `applySessionStats` also
-    writes a poll-returned `model` back into `session-store` (not just `stats-store`) — the model
-    _segment_ reads `SessionEntry.model`, so skipping this write-through leaves the segment
-    permanently blank even though the poll succeeded (a real bug this sprint's live smoke test
-    caught before it shipped).
+    writes a poll-returned `model` back into `session-store` (not just `stats-store`) — the
+    composer's model button reads `SessionEntry.model`, so skipping this write-through leaves it
+    showing the `"Model"` placeholder forever even though the poll succeeded (a real bug
+    sprint-042's live smoke test caught before it shipped). This poll runs off `StatusBar`'s
+    mount, so the model label depends on this bar being on screen even though the label isn't.
 - **Timeline auto-scroll's mount-time "grew" ref must revert on cleanup.** `Timeline.tsx`'s
   stick-to-bottom effect compares `session.timeline.rows.length` against a `prevRowCountRef` to
   decide whether to re-run `virtualizer.scrollToIndex(rows.length - 1, {align: "end"})` — but

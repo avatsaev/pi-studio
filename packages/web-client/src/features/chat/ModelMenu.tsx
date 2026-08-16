@@ -1,14 +1,16 @@
 /**
- * ModelMenu — model-selector trigger + anchored searchable picker (sprint-043; moved from the
- * composer into the workspace `StatusBar` footer). Renders a caller-supplied trigger element
- * (`renderTrigger`, e.g. `StatusBar.tsx`'s icon+text segment button) that opens an anchored
- * dropdown listing the provider's models with a fuzzy search filter at the top. The current
- * model sorts first with a checkmark; every row renders `label (id)` with the id in muted text.
+ * ModelMenu — model-selector trigger + anchored searchable picker (sprint-043; lives in the
+ * composer's bottom toolbar). Renders a caller-supplied trigger element (`renderTrigger`, i.e.
+ * `Composer.tsx`'s model-name + chevron button) that opens an anchored dropdown listing the
+ * provider's models with a fuzzy search filter at the top. The current model sorts first with a
+ * checkmark; every row renders `label (id)` with the id in muted text.
  *
  * Anchoring follows `TabStrip.tsx`'s `NewTabMenu` visible-trigger pattern (`DropdownMenu.Trigger
  * asChild` wrapping a real element), NOT `SessionContextMenu`'s invisible fixed-coordinate
- * trigger (that pattern is for right-click menus only). Search reuses the pure `filterOptions`
- * helper (case-insensitive substring on label + id) instead of a bespoke filter.
+ * trigger (that pattern is for right-click menus only). `align="end"` overrides `MenuContent`'s
+ * `align="start"` default because this trigger sits at the RIGHT edge of the composer toolbar —
+ * a start-aligned popup would hang off the panel's right side. Search reuses the pure
+ * `filterOptions` helper (case-insensitive substring on label + id) instead of a bespoke filter.
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -77,7 +79,7 @@ export function ModelMenu({ currentModel, provider, onSelect, renderTrigger }: M
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenu.Trigger asChild>{renderTrigger(currentModel)}</DropdownMenu.Trigger>
-      <MenuContent minWidth={240} sideOffset={4} className={styles.picker}>
+      <MenuContent minWidth={240} align="end" sideOffset={6} className={styles.picker}>
         <input
           ref={searchRef}
           className={styles.search}
