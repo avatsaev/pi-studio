@@ -448,7 +448,8 @@ describe("extensions sync (bootstrap fire-and-forget)", () => {
 
     const text = chunks.join("");
     const acceptIdx = text.indexOf("accepting connections");
-    const syncIdx = text.indexOf("installed 5 of 5 recommended extensions");
+    // Count-agnostic on purpose: this test asserts ORDERING, not the manifest's entry count.
+    const syncIdx = text.search(/installed \d+ of \d+ recommended extensions/);
     expect(acceptIdx).toBeGreaterThanOrEqual(0);
     expect(syncIdx).toBeGreaterThan(acceptIdx);
   }, 15000);
@@ -582,7 +583,8 @@ describe("extension packs RPC (sprint-057)", () => {
     );
     expect(set2.ok).toBe(true);
     expect(set2.report?.outcome).toBe("partial");
-    expect(set2.report?.installed).toHaveLength(4);
+    // 4 offerable entries, one (`pi-web-access`) seeded to fail ⇒ 3 installed + 1 failure.
+    expect(set2.report?.installed).toHaveLength(3);
     expect(set2.report?.failures).toHaveLength(1);
     expect(set2.report?.failures[0]?.source).toBe("npm:pi-web-access");
     const failedInSet = set2.packs[0]?.packages.find((p) => p.identity === "pi-web-access");

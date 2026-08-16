@@ -18,12 +18,11 @@ import {
 // editing the real manifest.
 
 describe("CURATED_PACKS (the real manifest)", () => {
-  it("core has exactly the five spec'd sources, all npm, all unpinned, addedIn 0.0.73", () => {
-    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(5);
+  it("core has exactly the four spec'd sources, all npm, all unpinned, addedIn 0.0.73", () => {
+    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(4);
     const sources = CURATED_PACKS.core.packages.map((p) => p.source);
     expect(sources).toEqual([
       "npm:@99percentpeople/pi-background-tasks",
-      "npm:pi-memctx",
       "npm:@juicesharp/rpiv-todo",
       "npm:pi-web-access",
       "npm:pi-powerline-footer",
