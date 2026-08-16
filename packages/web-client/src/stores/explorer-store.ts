@@ -13,11 +13,13 @@ import { create } from "zustand";
 import type { PiStudioClient } from "@av-pi-studio/client";
 
 interface ExplorerStoreState {
-  /** The active workspace's resolved cwd — the tree root. Always a member of `expanded`; there
-   * is no row/chevron for it, its children render at depth 0 (§4.7: the file explorer is scoped
-   * to the workspace, not a general filesystem browser — there is nothing above this to show). */
+  /** The active workspace's resolved cwd — the tree root. Rendered as the tree's own first row,
+   * a collapsible directory row with its children at depth 1 (`file-tree.ts`'s `flattenTree`);
+   * there is nothing above it to show, since the explorer is workspace-scoped, not a general
+   * filesystem browser. */
   rootPath: string;
-  /** Absolute paths of directories currently expanded in the tree (always includes `rootPath`). */
+  /** Absolute paths of directories currently expanded in the tree. Contains `rootPath` unless
+   * the user has collapsed the root row itself. */
   expanded: Set<string>;
   /** Session memory of each workspace's `expanded` set, keyed by its resolved root path. Keys
    * are inserted dynamically as workspaces are visited this session, so a `Map` (not `Record`)
@@ -25,9 +27,9 @@ interface ExplorerStoreState {
   expandedByRoot: Map<string, Set<string>>;
 
   /** Switch the tree root — called when the active workspace changes. Saves the outgoing root's
-   * `expanded` set into `expandedByRoot` and restores the incoming root's remembered set (or
-   * seeds a fresh one containing just the root, if this root has never been visited this
-   * session). */
+   * `expanded` set into `expandedByRoot` and restores the incoming root's remembered set. A root
+   * never visited this session is seeded expanded; a *remembered* set is restored verbatim, so a
+   * deliberately collapsed root stays collapsed across workspace switches. */
   setRoot(path: string): void;
   toggle(path: string): void;
   /** In-progress inline "new file"/"new folder" row in the tree: the directory it will be
@@ -66,11 +68,9 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
       const expandedByRoot = new Map(s.expandedByRoot);
       if (s.rootPath) expandedByRoot.set(s.rootPath, s.expanded);
       const remembered = expandedByRoot.get(path);
-      const expanded = new Set(remembered);
-      expanded.add(path);
       return {
         rootPath: path,
-        expanded,
+        expanded: remembered ? new Set(remembered) : new Set([path]),
         expandedByRoot,
         draft: null,
         selected: null,
@@ -80,7 +80,6 @@ export const useExplorerStore = create<ExplorerStoreState>()((set) => ({
 
   toggle: (path) =>
     set((s) => {
-      if (path === s.rootPath) return s;
       const expanded = new Set(s.expanded);
       if (expanded.has(path)) expanded.delete(path);
       else expanded.add(path);

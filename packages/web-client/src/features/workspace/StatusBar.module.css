@@ -36,41 +36,6 @@
   color: var(--pi-color-foregroundMuted);
   flex-shrink: 0;
 }
-.modelSegment {
-  display: flex;
-  align-items: center;
-  gap: var(--pi-spacing-5);
-  padding: var(--pi-spacing-2) var(--pi-spacing-6) var(--pi-spacing-2) var(--pi-spacing-8);
-  border-radius: var(--pi-radius-base);
-  border: 1px solid var(--pi-color-border);
-  background: var(--pi-color-surface2);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.modelSegment:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--pi-color-surface2) 85%, var(--pi-color-foreground) 15%);
-  border-color: var(--pi-color-foregroundMuted);
-}
-.modelSegment[data-state="open"] {
-  background: color-mix(in srgb, var(--pi-color-surface2) 85%, var(--pi-color-foreground) 15%);
-  border-color: var(--pi-color-accent);
-}
-.modelSegment:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.modelChevron {
-  color: var(--pi-color-foregroundMuted);
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
-  /* Points up at rest since the menu opens ABOVE the footer (StatusBar sits at the bottom of
-     the viewport) — the caret hints the expansion direction, not a generic "closed" default. */
-  transform: rotate(180deg);
-}
-.modelSegment[data-state="open"] .modelChevron {
-  transform: rotate(0deg);
-}
 .text {
   overflow: hidden;
   text-overflow: ellipsis;
