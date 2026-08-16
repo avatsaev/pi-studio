@@ -28,10 +28,20 @@ describe("explorer store — tree expansion", () => {
     expect(useExplorerStore.getState().expanded.has("/home/dev/project/src")).toBe(false);
   });
 
-  it("toggle is a no-op on the root — it can never be collapsed", () => {
+  it("toggle collapses and re-expands the root row itself", () => {
     useExplorerStore.getState().setRoot("/home/dev/project");
     useExplorerStore.getState().toggle("/home/dev/project");
+    expect(useExplorerStore.getState().expanded.has("/home/dev/project")).toBe(false);
+    useExplorerStore.getState().toggle("/home/dev/project");
     expect(useExplorerStore.getState().expanded.has("/home/dev/project")).toBe(true);
+  });
+
+  it("a collapsed root survives a switch to another workspace and back", () => {
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    useExplorerStore.getState().toggle("/home/dev/project-a");
+    useExplorerStore.getState().setRoot("/home/dev/project-b");
+    useExplorerStore.getState().setRoot("/home/dev/project-a");
+    expect(useExplorerStore.getState().expanded.has("/home/dev/project-a")).toBe(false);
   });
 
   it("remembers a workspace's expanded set across a switch to another workspace and back", () => {

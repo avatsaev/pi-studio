@@ -4,13 +4,17 @@
  * style single-directory browser with a lazy-loading tree). Each expanded directory fetches its
  * own listing (`useExplorerTree`, one `file_explorer_request` per expanded path); `file-tree.ts`
  * flattens root + expansion set + per-path listings into the ordered row list rendered here
- * through `@tanstack/react-virtual` (same virtualizer pattern as `Timeline.tsx`). Directory click
- * toggles expand/collapse in place; file click opens a file tab. Rows are drag sources for an
- * internal move/rename (`file_move_request`, sprint-046) — dragging a row onto a directory (or
- * file, which targets its parent) moves it there. Dragging files in from the OS uploads them into
- * the hovered row's directory (same highlight + 700ms auto-expand as an internal move,
- * `resolveUploadTarget` in move-target.ts) or the workspace root when dropped on empty space or
- * the header's "Upload" button; `dataTransfer.types` — `"Files"` vs the internal
+ * through `@tanstack/react-virtual` (same virtualizer pattern as `Timeline.tsx`). The workspace
+ * root is the tree's own first row: a collapsible directory row naming the cwd, styled as a
+ * heading, not draggable, and wired to the *background* context-menu variant (New File/New
+ * Folder/Copy path — never Rename/Delete, which make no sense for the workspace root). It also
+ * carries no git tint or dot-ghosting, both of which would fire on almost every workspace.
+ * Directory click toggles expand/collapse in place; file click opens a file tab. Rows are drag
+ * sources for an internal move/rename (`file_move_request`, sprint-046) — dragging a row onto a
+ * directory (or file, which targets its parent) moves it there. Dragging files in from the OS
+ * uploads them into the hovered row's directory (same highlight + 700ms auto-expand as an
+ * internal move, `resolveUploadTarget` in move-target.ts) or the workspace root when dropped on
+ * empty space or the header's "Upload" button; `dataTransfer.types` — `"Files"` vs the internal
  * `application/x-pi-studio-path` MIME — discriminates the two drag kinds before any per-row state
  * is touched, so a stale internal-drag ref can never hijack an OS-file drop into the wrong
  * directory (or vice versa). Each row can be saved back to disk via its "⋮" menu. Downloads ride
@@ -36,7 +40,7 @@ import { dirOf } from "@pi-studio-ui/lib/paths.js";
 import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
 import { withClosedDiffs } from "./move-status.js";
-import { flattenTree, joinPath } from "./file-tree.js";
+import { flattenTree, joinPath, rowKey } from "./file-tree.js";
 import { buildGitStatusLookup, buildIgnoredMatcher } from "./git-status-index.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
@@ -135,7 +139,10 @@ export function FileExplorer() {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 12,
-    getItemKey: (index) => rows[index]?.path ?? index,
+    getItemKey: (index) => {
+      const row = rows[index];
+      return row ? rowKey(row) : index;
+    },
   });
 
   function handleOpenFile(path: string) {
@@ -413,6 +420,7 @@ export function FileExplorer() {
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index];
             if (!row) return null;
+            const isRootRow = row.path === rootPath && row.kind === "directory";
             return (
               <div
                 key={virtualRow.key}
@@ -454,14 +462,16 @@ export function FileExplorer() {
                     (row.kind === "file" || row.kind === "directory") && row.path === selected?.path
                   }
                   gitStatus={
-                    row.kind === "file" || row.kind === "directory"
+                    !isRootRow && (row.kind === "file" || row.kind === "directory")
                       ? gitStatusOf(row.path)
                       : undefined
                   }
                   hidden={
+                    !isRootRow &&
                     (row.kind === "file" || row.kind === "directory") &&
                     (row.name.startsWith(".") || isIgnored(row.path))
                   }
+                  isRoot={isRootRow}
                   onToggle={(path) => {
                     setSelected({ path, isDirectory: true });
                     toggle(path);
@@ -470,7 +480,9 @@ export function FileExplorer() {
                     setSelected({ path, isDirectory: false });
                     handleOpenFile(path);
                   }}
-                  onContextMenu={(path, isDirectory, x, y) => openFileMenu(path, isDirectory, x, y)}
+                  onContextMenu={(path, isDirectory, x, y) =>
+                    openFileMenu(path, isDirectory, x, y, isRootRow)
+                  }
                   onSubmitDraft={(parentPath, name) => void submitDraft(parentPath, name)}
                   onCancelDraft={cancelDraft}
                   onSubmitRename={(path, name) => void submitRename(path, name)}

@@ -303,7 +303,10 @@ src/
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
-                            @tanstack/react-virtual; upload button targets the workspace root;
+                            @tanstack/react-virtual, keyed by file-tree.ts's `rowKey` — see
+                            AGENTS.md § Invariants "Files tree root row"; the workspace cwd is
+                            the tree's own first row, collapsible, with children at depth 1;
+                            upload button targets the workspace root;
                             dragging files in from the OS uploads into the hovered row's
                             directory (or the root when dropped on empty space) — restored after
                             an earlier removal (it briefly made the whole panel an ambiguous drop
@@ -730,6 +733,26 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
   exception: `mkdir` is non-recursive and file creation opens `wx` (create-exclusive, never
   truncates), so a name collision fails loudly with an `"exists"` error instead of needing a
   confirm dialog — do not "improve" this by switching to `{ recursive: true }` or `"w"`.
+- **Files tree root row.** The workspace cwd is the tree's own first row (`file-tree.ts`'s
+  `flattenTree` emits it; children start at depth 1), and it is collapsible — `explorer-store`'s
+  `toggle` used to hard-refuse the root and `setRoot` used to force-add it to `expanded`; both
+  guards are gone, so `setRoot` now seeds a *never-visited* root expanded but restores a
+  remembered set verbatim, letting a deliberately collapsed root survive a workspace switch. The
+  row is deliberately special-cased at the `TreeNode` callsite in three ways, all of which would
+  otherwise misfire on nearly every workspace: no git tint (the root inherits the status of
+  anything changed beneath it, so it would be permanently lit), no dotfile/gitignored ghosting,
+  and `draggable={false}` (every legal drop target lives *inside* the root, so a root drag can
+  only ever be refused). Its context menu is the **background** variant — New File / New Folder /
+  Copy path, never Rename/Delete.
+- **Tree row identity is `file-tree.ts`'s `rowKey`, NEVER `row.path`.** A `loading`/`error` row
+  carries its *directory's* path, so an expanded-but-unsettled directory emits two rows sharing
+  one path. Before the root row existed that pair only appeared mid-tree and rarely collided
+  visibly; now it is on screen during every workspace's first paint (root row + its own loading
+  row). Feeding duplicate keys to `@tanstack/react-virtual`'s `getItemKey` makes React orphan one
+  of the two nodes rather than replace it — the symptom is ghost text stacked on the root folder
+  name that only clears on hover. `rowKey` prefixes the row kind; `file-tree.test.ts`'s `rowKey`
+  suite pins uniqueness across every kind rendered at once. `row.path` remains the right key for
+  *semantic* comparisons (drop target, active file) — that is why `DraftRow.path` stays synthetic.
 - **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
   action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
   routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
