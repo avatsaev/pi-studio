@@ -94,6 +94,13 @@
   box-shadow: inset 0 0 0 1px var(--pi-color-accent);
   border-radius: var(--pi-radius-base);
 }
+/* The tree's own root row (the workspace cwd) reads as the tree's heading, not as a peer
+   directory: neutral foreground instead of `.dirName`'s accent, and a heavier weight. Needs the
+   `.item.rootItem` specificity to beat `.dirName`'s own single-class colour. */
+.item.rootItem .dirName {
+  color: var(--pi-color-foreground);
+  font-weight: 600;
+}
 .chevronSlot {
   display: flex;
   align-items: center;

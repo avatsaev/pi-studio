@@ -67,8 +67,6 @@ export const CURATED_PACKS = {
     packages: [
       // Background commands + attachable PTY/TUI sessions — long-running work without blocking a turn.
       { source: "npm:@99percentpeople/pi-background-tasks", addedIn: "0.0.73" },
-      // Automatic memory-context injection: load, search, persist knowledge across sessions.
-      { source: "npm:pi-memctx", addedIn: "0.0.73" },
       // Todo list for the model, rendered as a live overlay that survives /reload.
       { source: "npm:@juicesharp/rpiv-todo", addedIn: "0.0.73" },
       // Web search, URL fetch, repo cloning, PDF/YouTube extraction.
@@ -90,7 +88,7 @@ never "which version of them" — so it needs no maintenance when upstream publi
 | `title`, `description` | Display copy for CLI tables and future UI pickers. |
 | `packages[].source` | Pi source spec, **unpinned**: `npm:<name>` or `git:<url>` with no `@version`/`@ref` suffix. Unpinned npm sources stay eligible for the user's `pi update`; unpinned git sources track the default branch. See tenet 3 for why a pin here would be actively harmful. |
 | `packages[].addedIn` | The **aligned workspace package version** on disk when the entry was added (docs/UI/audit only; not load-bearing for sync). This is the version every `packages/*/package.json` shares — currently `0.0.73`. A new entry is stamped with the *current* version and ships in the following release; this keeps the guard test's `addedIn <= current` check green between the curation edit and the release bump. Read it at runtime from `packages/server/package.json`; the root `package.json` deliberately has **no** `version` field (it is a private workspace root that `scripts/publish.sh` never bumps — the field was removed rather than left to drift), so there is no second version line to confuse it with. |
-| `packages[].deprecated?` | Tombstone. Entries are **never deleted** from the manifest (append-only, same idiom as the wire protocol); `deprecated: true` stops offering to pi-homes that never received it, and existing installs are untouched. |
+| `packages[].deprecated?` | Tombstone. `deprecated: true` stops offering an entry to pi-homes that never received it; existing installs are untouched. |
 
 **Identity** of an entry = pi's own dedup key (npm package name; git URL without ref) extracted
 from `source`. Invariants, enforced by a guard test (`curated-packs.test.ts`, same idiom as
@@ -627,13 +625,12 @@ precedent).
       ever added for the failed package, partial or otherwise. The planner's `user_removed`/`pending`
       distinction needs no revision: an identity is either fully present (successful install) or
       fully absent (failed install, or never attempted).
-- [x] Initial `core` pack contents — **decided** (see the manifest above): 5 unpinned npm sources.
+- [x] Initial `core` pack contents — **decided** (see the manifest above): 4 unpinned npm sources.
       `@juicesharp/rpiv-ask-user-question` and `@luxusai/pi-hindsight` were in an earlier draft and
       were **cut before the manifest ever shipped** — deleted outright rather than tombstoned with
       `deprecated: true`, since that flag exists for entries already offered to real pi-homes and
       would otherwise leave dead data and a permanent `deprecated` row in the CLI/UI for something no
       user ever received. Re-adding either later is a pure-data edit stamped with the then-current
-      `addedIn`. Dropping hindsight also removes the two-competing-memory-toolsets overlap with
-      `pi-memctx`. The per-entry security read (pi's own docs: packages run with full system access,
-      and every entry is third-party-maintained) is a release-blocking acceptance criterion above, not
-      a side note here.
+      `addedIn`. The per-entry security read (pi's own docs: packages run with full system access,
+      and every entry is third-party-maintained) is a release-blocking acceptance criterion above,
+      not a side note here.

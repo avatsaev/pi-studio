@@ -35,7 +35,7 @@ function configWithPiHome(home: string): PersistedConfig {
 }
 
 describe("ExtensionsService.sync", () => {
-  it("a fresh pi-home installs every core entry (offline, injected seam)", async () => {
+  it("a fresh pi-home installs every offerable core entry (offline, injected seam)", async () => {
     const home = await tempHome();
     const config = configWithPiHome(home);
     const service = new ExtensionsService({
@@ -47,7 +47,7 @@ describe("ExtensionsService.sync", () => {
 
     const report = await service.sync("bootstrap");
     expect(report.outcome).toBe("ok");
-    expect(report.installed).toHaveLength(5);
+    expect(report.installed).toHaveLength(4);
     expect(report.failures).toEqual([]);
   });
 
@@ -55,10 +55,10 @@ describe("ExtensionsService.sync", () => {
     const home = await tempHome();
     const config = configWithPiHome(home);
     const piHomeKey = effectivePiHomeKey(config);
-    // The user installed two of the five curated packages themselves, before Pi-Studio ever ran
-    // here — one pinned to an exact version, one filtered via the object form.
+    // The user installed two of the curated packages themselves, before Pi-Studio ever ran here —
+    // one pinned to an exact version, one filtered via the object form.
     await seedSettings(piHomeKey, [
-      "npm:pi-memctx@0.4.1",
+      "npm:@juicesharp/rpiv-todo@0.4.1",
       { source: "npm:pi-web-access", tools: ["fetch"] },
     ]);
     const spawned: string[] = [];
@@ -72,13 +72,15 @@ describe("ExtensionsService.sync", () => {
 
     // `pi install` is never spawned for either of the user's own entries — spawning it would let
     // pi's own settings-merge rewrite their pin/filter in place.
-    expect(spawned).not.toContain("npm:pi-memctx");
+    expect(spawned).not.toContain("npm:@juicesharp/rpiv-todo");
     expect(spawned).not.toContain("npm:pi-web-access");
-    expect(spawned).toHaveLength(3);
-    expect(report.installed).toHaveLength(3);
+    expect(spawned).toHaveLength(2);
+    expect(report.installed).toHaveLength(2);
 
     const described = await service.describe();
-    expect(described.entries.find((e) => e.identity === "pi-memctx")?.status).toBe("user_modified");
+    expect(described.entries.find((e) => e.identity === "@juicesharp/rpiv-todo")?.status).toBe(
+      "user_modified",
+    );
     expect(described.entries.find((e) => e.identity === "pi-web-access")?.status).toBe(
       "user_modified",
     );
@@ -139,7 +141,7 @@ describe("ExtensionsService.sync", () => {
 
     const report = await service.sync("manual");
     expect(spawn).toHaveBeenCalled();
-    expect(report.installed).toHaveLength(5);
+    expect(report.installed).toHaveLength(4);
   });
 
   it("malformed settings.json ⇒ outcome skipped, no spawn, file left untouched", async () => {
@@ -192,7 +194,7 @@ describe("ExtensionsService.sync", () => {
     // Never overlapping: the second run only starts once the first's actions are all done.
     expect(maxConcurrent).toBe(1);
     // First run installs everything; the second sees it all already offered ⇒ noop.
-    expect(first.installed).toHaveLength(5);
+    expect(first.installed).toHaveLength(4);
     expect(second.outcome).toBe("noop");
   });
 
@@ -227,7 +229,7 @@ describe("ExtensionsService.describe", () => {
     const described = await service.describe();
     expect(described.autoSync).toBe(true);
     expect(described.selected).toEqual([]);
-    expect(described.entries).toHaveLength(5);
+    expect(described.entries).toHaveLength(4);
     expect(described.entries.every((e) => e.status === "pending")).toBe(true);
     expect(await loadExtensionsState(home)).toEqual({ version: 1, piHomes: {} });
   });
@@ -240,6 +242,6 @@ describe("ExtensionsService.describe", () => {
     const service = new ExtensionsService({ home, config, logger: silentLogger() });
     const described = await service.describe();
     expect(described.autoSync).toBe(false);
-    expect(described.entries).toHaveLength(5);
+    expect(described.entries).toHaveLength(4);
   });
 });

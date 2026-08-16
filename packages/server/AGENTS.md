@@ -809,6 +809,14 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
 - **Sources stay unpinned.** `pi update` skips pinned npm specs, so a version/ref pin in
   `curated-packs.ts` would exclude that extension from the user's own updater forever — the guard
   test (`curated-packs.test.ts`) makes this mechanically unbreakable.
+- **A curated entry must survive headless startup.** Every entry runs inside `pi --mode rpc`, where
+  pi only begins reading stdin *after* extension activation finishes. An extension that `await`s a
+  UI dialog (`ctx.ui.confirm`/`input`/`select`) during activation therefore deadlocks: nothing can
+  answer it, the promise never settles, the event loop drains, and the process exits **0** before
+  serving a single command — every turn in every session then fails with "failed to send".
+  `providers/pi/agent.ts`'s auto-cancel for extension UI dialogs cannot save it (the reply is
+  written into a pipe nobody reads yet). Vet a new entry against a real `pi --mode rpc` spawn in a
+  directory with no prior state for it before adding it.
 - **One package failing never aborts the sync.** `sync-executor.ts` runs every planned action to
   completion regardless of earlier failures; state is persisted after each one.
 - **Never delays daemon readiness.** `bootstrap.ts` kicks off `sync("bootstrap")` fire-and-forget

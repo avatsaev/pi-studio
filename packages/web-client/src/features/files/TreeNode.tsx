@@ -33,6 +33,9 @@ export interface TreeNodeProps {
    * (`FileExplorer.tsx` computes both). Ghosts the row so it reads as present-but-not-normally-
    * visible; still fully interactive, and full opacity on hover/active/selected. */
   hidden?: boolean;
+  /** True for the tree's own root row (the workspace cwd). Styled as a heading and NOT draggable:
+   * every legal drop target lives inside it, so a root drag could only ever be refused. */
+  isRoot?: boolean;
   onToggle(path: string): void;
   onOpenFile(path: string): void;
   onContextMenu(path: string, isDirectory: boolean, x: number, y: number): void;
@@ -60,6 +63,7 @@ export function TreeNode({
   dropTarget,
   gitStatus,
   hidden,
+  isRoot,
   onToggle,
   onOpenFile,
   onContextMenu,
@@ -113,6 +117,7 @@ export function TreeNode({
     <div
       className={clsx(
         styles.item,
+        isRoot && styles.rootItem,
         active && styles.active,
         selected && styles.selected,
         dropTarget && styles.dropTarget,
@@ -121,7 +126,7 @@ export function TreeNode({
       )}
       style={indent}
       title={row.path}
-      draggable
+      draggable={!isRoot}
       onDragStart={(e) => onDragStartRow(row.path, isDirectory, e)}
       onDragEnd={onDragEndRow}
       onClick={() => (isDirectory ? onToggle(row.path) : onOpenFile(row.path))}

@@ -4,8 +4,9 @@
  * (`useExplorerTree`); this module just walks the two into the ordered row list the virtualizer
  * renders — no React, no store access, so it's cheap to unit-test in isolation.
  *
- * The workspace root itself is never a row (§4.7: this is a workspace-scoped browser, there is
- * nothing above the root to show and nothing to collapse it to) — its children start at depth 0.
+ * The workspace root is the tree's first row — a collapsible directory row naming the workspace
+ * cwd, with its children at depth 1. Nothing renders above it: this is a workspace-scoped
+ * browser (§4.7), not a general filesystem browser.
  */
 
 import type { ExplorerEntry } from "@pi-studio-ui/hooks/use-explorer.js";
@@ -28,8 +29,9 @@ interface FileRow {
 }
 
 /** A directory's listing is loading, rendered indented under it — not itself
- * expandable/clickable. `path` is the *directory's* path (for a stable React key), not a real
- * file/dir on disk. */
+ * expandable/clickable. `path` is the *directory's* path, not a real file/dir on disk — it
+ * deliberately collides with that directory's own row, which is why row identity for React goes
+ * through `rowKey` (below) rather than `path`. */
 interface LoadingRow {
   kind: "loading";
   path: string;
@@ -44,8 +46,9 @@ interface ErrorRow {
   message: string;
 }
 
-/** The inline "new file"/"new folder" name-entry row. `path` is a synthetic key (never a real
- * filesystem path) so the virtualizer's `getItemKey` stays unique. */
+/** The inline "new file"/"new folder" name-entry row. `path` is synthetic (never a real
+ * filesystem path) so it can't be mistaken for one by the row-identity comparisons that DO key
+ * off `path` — the drop-target highlight and the active-file highlight in `FileExplorer.tsx`. */
 interface DraftRow {
   kind: "draft";
   path: string; // `${parentPath}::draft`
@@ -56,8 +59,7 @@ interface DraftRow {
 
 /** A real tree row replaced in place by its rename editor. `path` and `name` are the row's
  * *current* values; `isDirectory` keeps the correct icon while editing. Unlike `DraftRow`,
- * `path` here is the real filesystem path — what makes it a stable virtualizer key without a
- * synthetic suffix. */
+ * `path` here is the real filesystem path — the editor stands in for that exact row. */
 interface RenameRow {
   kind: "rename";
   path: string;
@@ -67,6 +69,19 @@ interface RenameRow {
 }
 
 export type TreeRow = DirRow | FileRow | LoadingRow | ErrorRow | DraftRow | RenameRow;
+
+/**
+ * Stable, collision-free React/virtualizer key for a row.
+ *
+ * `path` alone is NOT unique: a `loading`/`error` row carries its *directory's* path, so an
+ * expanded-but-unsettled directory yields two rows sharing one path — and since the root is now
+ * a row of its own, that pair is on screen during every workspace's first paint. Duplicate keys
+ * make React orphan one of the two nodes instead of replacing it, which is exactly the "ghost
+ * text stacked on the root folder name" symptom.
+ */
+export function rowKey(row: TreeRow): string {
+  return `${row.kind}:${row.path}`;
+}
 
 /** Which directory has an in-progress inline create row, and what kind it is. */
 export interface TreeDraft {
@@ -138,7 +153,14 @@ function pushEntry(
   if (isExpanded) pushChildren(rows, path, depth + 1, expanded, tree, draft, renamingPath);
 }
 
-/** Flatten the tree rooted at `rootPath` into the ordered rows currently visible. */
+/**
+ * Flatten the tree rooted at `rootPath` into the ordered rows currently visible.
+ *
+ * The root is itself the first row — a real, collapsible directory row whose children sit at
+ * depth 1 beneath it, so the workspace being browsed is always named on screen. It is never
+ * substituted by a rename row: renaming/deleting the workspace root is not offered (its row
+ * opens the background-variant context menu, `FileExplorer.tsx`).
+ */
 export function flattenTree(
   rootPath: string,
   expanded: Set<string>,
@@ -147,7 +169,16 @@ export function flattenTree(
   renamingPath?: string | null,
 ): TreeRow[] {
   if (!rootPath) return [];
-  const rows: TreeRow[] = [];
-  pushChildren(rows, rootPath, 0, expanded, tree, draft, renamingPath);
+  const rootExpanded = expanded.has(rootPath);
+  const rows: TreeRow[] = [
+    {
+      kind: "directory",
+      path: rootPath,
+      name: rootPath.split("/").pop() || rootPath,
+      depth: 0,
+      expanded: rootExpanded,
+    },
+  ];
+  if (rootExpanded) pushChildren(rows, rootPath, 1, expanded, tree, draft, renamingPath);
   return rows;
 }

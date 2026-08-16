@@ -28,12 +28,14 @@ import { connectDaemon } from "./connection.js";
 
 /**
  * A realistic curated `ExtensionPackInfo[]` fixture, matching the real wire shape
- * (`packages/protocol/src/messages.ts`) — five `core` entries, one already failed.
+ * (`packages/protocol/src/messages.ts`) — the four `core` entries, one already failed. The source
+ * list mirrors `CURATED_PACKS.core` on purpose: the `listExtensionsLocal` test below renders this
+ * fixture through the shared renderer and compares it to output computed from the real manifest,
+ * so a manifest edit must be reflected here too.
  */
 function packsFixture(opts: { failWebAccess?: boolean } = {}): ExtensionPackInfo[] {
   const names = [
     "npm:@99percentpeople/pi-background-tasks",
-    "npm:pi-memctx",
     "npm:@juicesharp/rpiv-todo",
     "npm:pi-web-access",
     "npm:pi-powerline-footer",
@@ -187,13 +189,13 @@ function connectOptsFrom(ctx: CliContext) {
 describe("buildEntryRows", () => {
   it("one row per curated entry; failed row carries reason, truncated message, and attempts when > 1", () => {
     const rows = buildEntryRows(packsFixture({ failWebAccess: true }));
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(4);
     const failedRow = rows.find((r) => r.source === "npm:pi-web-access");
     expect(failedRow?.status).toBe("failed");
     expect(failedRow?.reason).toBe("not_found");
     expect(failedRow?.message).toBe("npm error 404 Not Found"); // first line only
     expect(failedRow?.attempts).toBe(2);
-    const okRow = rows.find((r) => r.source === "npm:pi-memctx");
+    const okRow = rows.find((r) => r.source === "npm:@juicesharp/rpiv-todo");
     expect(okRow?.status).toBe("installed");
     expect(okRow?.reason).toBeUndefined();
     expect(okRow?.attempts).toBeUndefined();
@@ -332,7 +334,7 @@ describe("selectExtensions / syncExtensions", () => {
     const { client, ctx, out } = await connectedClient(transport);
     const code = await syncExtensions(client, ctx, {});
     expect(code).toBe(EXIT_OK);
-    expect(out[0]).toContain("installed 5 of 5 recommended extensions");
+    expect(out[0]).toContain("installed 4 of 4 recommended extensions");
     client.close();
   });
 
@@ -444,7 +446,7 @@ describe("listExtensionsLocal", () => {
     await mkdir(piHomeAgentDir, { recursive: true });
     await writeFile(
       join(piHomeAgentDir, "settings.json"),
-      JSON.stringify({ packages: ["npm:pi-memctx"] }),
+      JSON.stringify({ packages: ["npm:pi-web-access"] }),
       "utf8",
     );
 
@@ -458,22 +460,20 @@ describe("listExtensionsLocal", () => {
     };
     await listExtensionsLocal(localCtx, { piHome });
 
-    // `npm:pi-memctx` was already present in settings.json before Pi-Studio ever "offered" it —
-    // the planner reports that as `user_modified` (never installed over), matching sprint-056's
-    // adopt-don't-install rule; the other four core entries are `pending` (offline environment).
+    // `npm:pi-web-access` was already present in settings.json before Pi-Studio ever "offered" it
+    // — the planner reports that as `user_modified` (never installed over), matching sprint-056's
+    // adopt-don't-install rule; the other three core entries are `pending` (offline environment).
     expect(localOut[0]).toContain("user_modified");
-    const memctxLine = localOut[0]!.split("\n").find((l) => l.includes("npm:pi-memctx"));
-    expect(memctxLine).toContain("user_modified");
+    const webAccessLine = localOut[0]!.split("\n").find((l) => l.includes("npm:pi-web-access"));
+    expect(webAccessLine).toContain("user_modified");
 
     // Reconstruct the exact wire payload `--local` must have built (same entries, same statuses)
     // and feed it through `renderExtensionsList` directly — the identical function `listExtensions`
     // (the daemon path) calls. Equal output proves `--local` produced a correctly wire-shaped
     // payload and used the shared renderer, not a hand-rolled second table format.
     const packs = packsFixture();
-    const memctx = packs[0]!.packages.find((p) => p.identity === "pi-memctx")!;
-    memctx.status = "user_modified";
     for (const p of packs[0]!.packages) {
-      if (p !== memctx) p.status = "pending";
+      p.status = p.identity === "pi-web-access" ? "user_modified" : "pending";
     }
     const expected: ExtensionPacksListResponse = {
       type: "extension_packs_list_response",

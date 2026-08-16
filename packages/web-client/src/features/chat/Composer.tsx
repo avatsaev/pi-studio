@@ -1,5 +1,8 @@
 /**
- * Composer — autosizing textarea + attach/send/stop (POC `initChatPanel`/`send()`,
+ * Composer — a bordered card holding an autosizing textarea with a **bottom toolbar** beneath it
+ * (attach / slash-commands on the left, model picker + send/steer/stop on the right), replacing
+ * the old single-row "textarea flanked by loose buttons" layout. Send/stop semantics are
+ * unchanged (POC `initChatPanel`/`send()`,
  * POC_TO_APP_PLAN_UI.md §4.4). Every send goes through `ensureMaterialized` (`stores/
  * materialize.ts`) first: a brand-new session (`agentId: null`) becomes a real, persisted draft
  * via a no-`initialPrompt` `createAgent` call — the daemon persists the record but does NOT spawn
@@ -29,7 +32,8 @@
  * default model into the record if none was set yet) — long before this composer even mounts, in
  * the common case. `submit`'s own `ensureMaterialized` call below is the retry path: it only does
  * real work when the eager materialize failed or never ran (opened while disconnected). Picking a
- * different model (`StatusBar.tsx`'s `handleSelectModel`) updates the already-materialized
+ * different model (`handleSelectModel` below, moved here from `StatusBar.tsx` with the toolbar)
+ * updates the already-materialized
  * record's `config.model`/`config.modelProvider` directly — replayed by the server on first spawn
  * regardless of whether it's the resolved default or an explicit pick (`spawnOrResumeSession`).
  *
@@ -45,8 +49,7 @@
  */
 
 import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
-import { clsx } from "clsx";
-import { Navigation, Paperclip, Send, Slash, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, Navigation, Plus, Slash, Square } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
@@ -56,6 +59,7 @@ import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
 import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { CommandMenu } from "./CommandMenu.js";
+import { ModelMenu } from "./ModelMenu.js";
 import {
   applyCommand,
   commandOptions,
@@ -88,6 +92,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
   const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
   const setCwd = useSessionStore((s) => s.setCwd);
+  const setModel = useSessionStore((s) => s.setModel);
 
   const [text, setText] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -291,32 +296,34 @@ export function Composer({ sessionId }: ComposerProps) {
     void client?.agent(session.agentId).interrupt();
   }
 
+  /**
+   * `modelProvider` is the model's OWN underlying LLM provider (e.g. `"anthropic"`) — REQUIRED by
+   * `client.agent(id).setModel(provider, modelId)`'s `provider` argument. Never hardcode the
+   * pi-studio provider id ("pi") here; Pi has no model registered under a provider literally
+   * named "pi" (sprint-043's "Model not found: pi/<modelId>" bug).
+   *
+   * Single path regardless of whether the session is already materialized: `ensureMaterialized`
+   * is a no-op once bound (the common case now that `tab-store.ts` `openNewChat` materializes
+   * eagerly) and otherwise awaits whatever in-flight materialize is already running — the
+   * `setModel` optimistic pick two lines up already updated the entry that materialize reads
+   * `config.model`/`config.modelProvider` from, so there is no dropped-pick race even when this
+   * fires while the eager materialize is still in flight.
+   */
+  function handleSelectModel(modelId: string, modelProvider?: string): void {
+    setModel(sessionId, modelId, modelProvider); // optimistic display pick either way
+    if (!client || !modelProvider) return;
+    void (async () => {
+      const agentId = await ensureMaterialized(client, sessionId);
+      await client.agent(agentId).setModel(modelProvider, modelId);
+    })().catch(() => {
+      // Same swallow-and-let-the-stream-be-the-source-of-truth convention as `submit`'s catch —
+      // a rejected `agent_set_model_request` has no dedicated UI surface today.
+    });
+  }
+
   return (
     <div className={styles.composer}>
-      <CommandMenu
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        options={filtered}
-        highlightedIndex={highlight}
-        onSelect={applySelectedCommand}
-        isLoading={isLoading}
-        isError={isError}
-        errorMessage={error instanceof Error ? error.message : undefined}
-        hiddenExtensionCount={hiddenExtensionCount}
-        renderTrigger={() => (
-          <Button
-            className={styles.slashBtn}
-            variant="ghost"
-            size="md"
-            iconOnly
-            title="Slash commands"
-            aria-label="Slash commands"
-          >
-            <Slash size={16} />
-          </Button>
-        )}
-      />
-      <div className={styles.inputArea}>
+      <div className={styles.card}>
         <div className={styles.textareaWrap}>
           <div className={styles.highlightLayer} aria-hidden>
             {span ? (
@@ -330,13 +337,13 @@ export function Composer({ sessionId }: ComposerProps) {
           </div>
           <TextArea
             ref={textareaRef}
-            className={clsx(styles.textarea, span && styles.textareaOverlaid)}
+            className={styles.textarea}
             rows={1}
             value={text}
             placeholder={
               running
-                ? "Steer the running turn… (Enter to steer, Shift+Enter for newline)"
-                : "Ask anything… (Enter to send, Shift+Enter for newline)"
+                ? "Steer the running turn…  ⏎ steer · ⇧⏎ newline"
+                : "Ask anything…  ⏎ send · ⇧⏎ newline · / commands"
             }
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
@@ -344,17 +351,85 @@ export function Composer({ sessionId }: ComposerProps) {
           />
         </div>
         <Attachments images={images} onRemove={handleRemoveImage} />
+        <div className={styles.toolbar}>
+          <Button
+            className={styles.toolBtn}
+            variant="ghost"
+            size="sm"
+            iconOnly
+            title="Attach image"
+            aria-label="Attach image"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Plus size={16} />
+          </Button>
+          <CommandMenu
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            options={filtered}
+            highlightedIndex={highlight}
+            onSelect={applySelectedCommand}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={error instanceof Error ? error.message : undefined}
+            hiddenExtensionCount={hiddenExtensionCount}
+            renderTrigger={() => (
+              <Button
+                className={styles.toolBtn}
+                variant="ghost"
+                size="sm"
+                iconOnly
+                title="Slash commands"
+                aria-label="Slash commands"
+              >
+                <Slash size={16} />
+              </Button>
+            )}
+          />
+          <div className={styles.toolbarRight}>
+            <ModelMenu
+              currentModel={session?.model}
+              provider="pi"
+              onSelect={handleSelectModel}
+              renderTrigger={(currentModel) => (
+                <button
+                  type="button"
+                  className={styles.modelBtn}
+                  disabled={!client}
+                  title={currentModel ? `Model: ${currentModel}` : "Select model"}
+                >
+                  <span className={styles.modelLabel}>{currentModel ?? "Model"}</span>
+                  <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
+                </button>
+              )}
+            />
+            {running && (
+              <Button
+                className={styles.roundBtn}
+                variant="destructive"
+                size="sm"
+                iconOnly
+                title="Stop the running turn"
+                aria-label="Stop"
+                onClick={handleStop}
+              >
+                <Square size={14} />
+              </Button>
+            )}
+            <Button
+              className={styles.roundBtn}
+              size="sm"
+              iconOnly
+              disabled={!canSubmit}
+              title={running ? "Steer the running turn" : "Send"}
+              aria-label={running ? "Steer" : "Send"}
+              onClick={() => void submit(running ? "steer" : "send")}
+            >
+              {running ? <Navigation size={16} /> : <ArrowUp size={18} />}
+            </Button>
+          </div>
+        </div>
       </div>
-      <Button
-        className={styles.attachBtn}
-        variant="ghost"
-        size="md"
-        iconOnly
-        title="Attach image"
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <Paperclip size={16} />
-      </Button>
       <input
         ref={fileInputRef}
         className={styles.hiddenFileInput}
@@ -363,37 +438,6 @@ export function Composer({ sessionId }: ComposerProps) {
         multiple
         onChange={handleFileInputChange}
       />
-      <div className={styles.actions}>
-        {running ? (
-          <Button
-            size="sm"
-            disabled={!canSubmit}
-            onClick={() => void submit("steer")}
-            leftIcon={<Navigation size={14} />}
-          >
-            Steer
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            disabled={!canSubmit}
-            onClick={() => void submit("send")}
-            leftIcon={<Send size={14} />}
-          >
-            Send
-          </Button>
-        )}
-        {running && (
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={handleStop}
-            leftIcon={<Square size={14} />}
-          >
-            Stop
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
