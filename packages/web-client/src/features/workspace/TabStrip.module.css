@@ -37,7 +37,7 @@
   max-width: 200px;
   height: var(--pi-spacing-24);
   padding: 0 var(--pi-spacing-10);
-  border-radius: var(--pi-radius-md);
+  border-radius: var(--pi-radius-base);
   font-size: var(--pi-font-size-2xs);
   cursor: pointer;
   color: var(--pi-color-foregroundMuted);
