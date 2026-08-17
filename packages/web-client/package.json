@@ -7,8 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:web": "VITE_TARGET=web tsc -b && VITE_TARGET=web vite build",
-    "build:electron": "VITE_TARGET=electron tsc -b && VITE_TARGET=electron vite build",
+    "build:web": "VITE_TARGET=web tsc -b && NODE_OPTIONS=--max-old-space-size=6144 VITE_TARGET=web vite build",
+    "build:electron": "VITE_TARGET=electron tsc -b && NODE_OPTIONS=--max-old-space-size=6144 VITE_TARGET=electron vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"

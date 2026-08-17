@@ -29,7 +29,12 @@ export default defineConfig(() => {
     build: {
       outDir: isElectron ? "dist/electron" : "dist/web",
       emptyOutDir: true,
-      sourcemap: true,
+      // No sourcemap consumer exists (no Sentry/error-tracking upload, nothing reads .map at
+      // runtime) — generating them for these large vendor chunks (18MB+ for a single chunk) blew
+      // Rollup's sourcemap-rendering phase past the default V8 old-space heap on GitHub Actions'
+      // standard runner, OOM-killing every release build from 2026-08-17 onward (18.5MB+8.3MB+…
+      // of maps was ~68% of the whole dist/ output — pure waste being shipped to production too).
+      sourcemap: false,
       rollupOptions: {
         output: {
           // Split large vendor libraries into their own chunks so the main

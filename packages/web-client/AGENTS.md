@@ -478,6 +478,15 @@ image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_
 `docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
 entered at runtime, never baked into the image.
 
+Production builds (`build:web`/`build:electron`) set `sourcemap: false` in `vite.config.ts` and run
+`vite build` under `NODE_OPTIONS=--max-old-space-size=6144` — the largest vendor chunks (`vendor`,
+`vendor-molviewer`) generate 8–18 MB sourcemaps each; with sourcemaps on, Rollup's chunk-rendering
+phase blew past the default V8 old-space heap and OOM-killed every `.github/workflows/release.yml`
+run from 2026-08-17 onward (`node --max-old-space-size` default is ~2 GB regardless of the runner's
+actual RAM). Nothing in this repo consumes `.map` files (no Sentry/error-tracking upload) — they
+were ~68% of `dist/web`'s total size for zero benefit. `npm run dev`'s dev-server sourcemaps are
+unaffected (Vite's dev transform is separate from this `build.sourcemap` option).
+
 ---
 
 ## Invariants
