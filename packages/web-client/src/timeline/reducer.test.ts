@@ -97,10 +97,11 @@ describe("timeline reducer — tool statusText passthrough", () => {
 });
 
 /**
- * `streaming` is what `AssistantRow` reads to decide plain text vs rendered markdown. The reducer
- * used to clear only the streaming *index* on `tool_call`, leaving the row's flag set — so any
- * message followed by a tool call rendered as raw markdown source forever, including after
- * reload (`use-session-restore` replays through this same reducer).
+ * `streaming` is what `AssistantRow` reads to choose the live split render (`StreamingMarkdown`)
+ * over one canonical `<Markdown>` parse. The reducer used to clear only the streaming *index* on
+ * `tool_call`, leaving the row's flag set — so any message followed by a tool call kept a blinking
+ * caret and an unhighlighted last block forever, including after reload (`use-session-restore`
+ * replays through this same reducer).
  */
 describe("timeline reducer — streaming finalization", () => {
   it("finalizes a mid-turn assistant row when a tool call follows it", () => {

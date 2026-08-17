@@ -102,17 +102,23 @@ suppress their own outer margins via a context flag.
   icon); meta line `"Assistant · Mon D, HH:MM"` (timestamp of the row's first chunk — stamped once, at
   creation, never moved by later streaming deltas). No bubble, no background fill, no left
   border — plain body text on
-  the timeline background, identified only by the rail disc and meta line. While streaming, plain
-  text with a shared 7×14 solid `accentBright` block caret (a styled element, not a blinking `▍`
-  character) at the end; the reducer clears `streaming` at block close (not turn end), at which
-  point the body swaps to rendered markdown. See § Markdown support. `blockGroupId`/`blockIndex`
+  the timeline background, identified only by the rail disc and meta line. Markdown renders live
+  while streaming, block by block: every block the model has finished renders fully (highlighted
+  fences, diagrams, math), the block still being written renders through a lean parse (no
+  highlighting/diagram/math pass) and carries a 7×14 solid `accentBright` block caret (a styled
+  element, not a blinking `▍` character) after its last element. Re-parsing the whole message per
+  token delta is the thing that is forbidden, not live rendering — see § Markdown support and
+  `packages/web-client/src/timeline/streaming-split.ts`. The reducer clears `streaming` at block
+  close (not turn end), which swaps the split render for one canonical full parse.
+  `blockGroupId`/`blockIndex`
   block-group collapsing above is reference-app behavior this client does not implement — each
   `AssistantRow` is one contiguous text buffer per block, not a group of collapsible sub-blocks.
 - **Reasoning (web-client):** `RowShell` rail disc muted (`surface3` fill, a `Brain` icon in
   `foregroundMuted`); meta line `"Reasoning · Mon D, HH:MM"` (timestamp of the row's first chunk, same
   rule as `AssistantRow`) plus a small bordered `final` chip once the block
   closes (`!streaming`). Body: italic `foregroundMuted`, `font-size-2xs`, no card, no shimmer —
-  streams as plain text with the same shared caret as the assistant row, then swaps to markdown.
+  same live block-by-block markdown and shared caret as the assistant row while streaming, then one
+  canonical parse once the block closes.
   Not a tool card with a brain icon (that description predates this row's own treatment).
 - **Tool-call card:** see § Tool-call cards.
 - **Activity log pill:** colored by type — system (gray), info (blue), success (green), error (red),

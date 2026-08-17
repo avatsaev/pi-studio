@@ -31,10 +31,12 @@ set the server can emit today:
 `validation-conventions.md`). The Pi provider currently sends `"started"`, `"running"`,
 `"completed"`, `"error"`.
 
-`assistant_message.final` / `reasoning.final` exist so a renderer can switch a block from a cheap
-streaming tier to full markdown the instant the model stops writing prose — before the (possibly
-large) tool-call payload streams, and long before the terminal `turn_completed`, which can be
-minutes away.
+`assistant_message.final` / `reasoning.final` exist so a renderer can close a block the instant the
+model stops writing prose — before the (possibly large) tool-call payload streams, and long before
+the terminal `turn_completed`, which can be minutes away. `packages/web-client` renders markdown
+live for an open block (per-block, so the cost never scales with message length — see its
+`timeline/streaming-split.ts`), and uses these markers to swap that split render for one canonical
+full parse, complete with syntax highlighting, diagrams and math.
 
 ## `ToolCallDetail` — nested union
 

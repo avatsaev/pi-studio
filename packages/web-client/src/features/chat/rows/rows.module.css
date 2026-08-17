@@ -103,35 +103,6 @@
   line-height: 1.5;
 }
 
-.streamingText {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* Shared streaming caret (User/Assistant/Reasoning rows) — a styled element, not the `▍` glyph;
- * § 07's no-glyph rule. Blinks by default; `prefers-reduced-motion: reduce` holds it static. */
-.caret {
-  display: inline-block;
-  width: var(--pi-spacing-7);
-  height: var(--pi-spacing-14);
-  margin-left: var(--pi-spacing-2);
-  vertical-align: text-bottom;
-  background: var(--pi-color-accentBright);
-  animation: caretBlink 1s step-start infinite;
-}
-
-@keyframes caretBlink {
-  50% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .caret {
-    animation: none;
-  }
-}
-
 /* ─── Reasoning (design spec § 04 — italic muted body, `final` chip once the block closes) ────── */
 
 .reasoningDisc {

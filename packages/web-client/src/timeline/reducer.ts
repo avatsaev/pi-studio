@@ -17,11 +17,12 @@ import {
  * Flip a still-streaming assistant/reasoning row to its finalized form, in place on an already
  * copied `rows` array.
  *
- * This is the switch that swaps `AssistantRow`'s cheap plain-text streaming tier for the full
- * `<Markdown>` render, so it must fire the moment a row can no longer grow. Clearing the
- * streaming *index* without clearing the row's `streaming` flag (what this reducer used to do on
- * `tool_call`) strands the row in plain text forever — `turn_completed` only ever finalizes the
- * index it still holds, which is `null` by then.
+ * This is the switch that swaps `AssistantRow`'s live block-by-block streaming render
+ * (`StreamingMarkdown`: lean tail, blinking caret) for one canonical `<Markdown>` parse of the
+ * whole text, so it must fire the moment a row can no longer grow. Clearing the streaming *index*
+ * without clearing the row's `streaming` flag (what this reducer used to do on `tool_call`) strands
+ * the row mid-stream forever — caret still blinking, last block never highlighted — because
+ * `turn_completed` only ever finalizes the index it still holds, which is `null` by then.
  */
 function finalizeRow(rows: TimelineRow[], index: number | null): void {
   if (index === null) return;

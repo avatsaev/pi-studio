@@ -182,7 +182,11 @@ src/
                            pane tree, tab→pane `placement`, per-pane active tabs, focused pane,
                            plus the restore claim/settle-point machinery — sprint-048) (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
-                           (react-markdown wrapper; `img` node → InlineImage, `a` node → FileLink),
+                           (react-markdown wrapper; `Markdown` for finalized text and
+                           `StreamingMarkdown` for a row still being written; `img` node →
+                           InlineImage, `a` node → FileLink), streaming-split
+                           (splitStreamingMarkdown — pure block/tail split that makes live markdown
+                           affordable during streaming; see § Invariants) (+ test),
                            InlineImage (task-004 sprint-045, click/drag wiring converged in
                            sprint-051 — the `![alt](src)` renderer: remote passthrough, local fetch
                            via use-inline-image, click-to-open + drag-to-split via the shared
@@ -689,12 +693,27 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   still remembered them — the daemon's timeline, rehydrated from Pi's session file, was complete).
   Paging stops on `hasNewer:false`, an empty page, or a cursor that fails to advance; never add a
   page cap, which would reintroduce silent truncation.
-- **A row's `streaming` flag must never outlive the block it describes.** `AssistantRow`/
-  `ReasoningRow` render `row.text` as plain text with a cursor while `streaming` is true and only
-  route through `<Markdown>` once it clears — deliberate, since re-parsing markdown + Shiki on
-  every token delta is wasteful. That makes `streaming: false` the _only_ thing standing between
-  the user and rendered markdown, so `reducer.ts` clears it the moment the row can no longer grow:
-  on `assistant_message.final`/`reasoning.final` (the daemon's mapping of Pi's `text_end`/
+- **Markdown renders live while a row streams, block by block — never by re-parsing the whole
+  message per token delta.** The daemon emits one `assistant_message`/`reasoning` event per Pi
+  `text_delta` (no coalescing anywhere in between), so the streaming row re-renders once per token.
+  A full parse through react-markdown + remark-gfm + remark-math + rehype-katex measures ~1.3ms at
+  213B, ~9ms at 3.5KB and ~27ms at 10KB — several frame budgets per token — which is why the row
+  used to stream as plain text and only swap to `<Markdown>` at block close. `StreamingMarkdown`
+  (`timeline/markdown.tsx`) instead splits the text with `timeline/streaming-split.ts`: every block
+  the model has finished is its own memoized `MarkdownBody` (parsed exactly once for the turn) and
+  only the block still being written re-parses per delta (~0.24ms). The tail additionally renders
+  `lean` — no Shiki, no mermaid, no KaTeX — since those would re-tokenize a half-open fence, re-lay
+  out a half-written diagram, and flash red parse errors on a half-typed `$…$` on every token; each
+  fires exactly once, when its block closes and moves into the immutable half. Never widen the
+  split's boundary rules for convenience: a wrong cut is a visible mid-stream artifact (its header
+  documents why a blank line inside a fence or before an indented list continuation is not a
+  boundary), and `blocks` must stay append-only because `StreamingMarkdown` keys on the index.
+- **A row's `streaming` flag must never outlive the block it describes.** It selects
+  `StreamingMarkdown` (split render + caret) over `Markdown` (one canonical parse of the whole
+  text) in `AssistantRow`/`ReasoningRow`, so a stranded flag leaves a finished message rendering
+  through the streaming path — with a blinking caret, a lean tail, and no KaTeX on its last block —
+  forever. `reducer.ts` therefore clears it the moment the row can no longer grow: on
+  `assistant_message.final`/`reasoning.final` (the daemon's mapping of Pi's `text_end`/
   `thinking_end`), on the next `tool_call`, on an assistant↔reasoning switch, and on any turn
   boundary. `finalizeRow`/`finalizeStreamingRows` are the single implementation — use them rather
   than nulling `streamingAssistantIndex`/`streamingReasoningIndex` by hand. Clearing the _index_

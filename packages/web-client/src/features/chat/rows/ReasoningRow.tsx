@@ -1,15 +1,15 @@
 /**
  * Reasoning row (design spec § 04, sprint-059/task-003) — italic, muted body visually distinct
  * from assistant replies, with a muted rail disc and a small `final` chip on the meta line once
- * the block closes. Streams as plain text with the shared block caret, same rationale as
- * `AssistantRow`.
+ * the block closes. Renders live markdown while streaming, same split-by-block path and rationale
+ * as `AssistantRow`.
  */
 
 import { Brain } from "lucide-react";
 import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
 import { formatMetaTime } from "@pi-studio-ui/timeline/format-meta-time.js";
 import type { ReasoningRow as ReasoningRowModel } from "@pi-studio-ui/timeline/row-model.js";
-import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
+import { Markdown, StreamingMarkdown } from "@pi-studio-ui/timeline/markdown.js";
 import { RowShell } from "./RowShell.js";
 import shellStyles from "./RowShell.module.css";
 import styles from "./rows.module.css";
@@ -44,10 +44,11 @@ export function ReasoningRow({
     >
       <div className={styles.reasoningBody}>
         {row.streaming ? (
-          <span className={styles.streamingText}>
-            {row.text}
-            <span className={styles.caret} />
-          </span>
+          <StreamingMarkdown
+            text={row.text}
+            owningPaneId={owningPaneId}
+            workspaceCwd={workspaceCwd}
+          />
         ) : (
           <Markdown text={row.text} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />
         )}
