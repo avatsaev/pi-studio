@@ -267,12 +267,15 @@ src/
                             workspace-grouping (+ collapseInactiveWorkspaces, used by
                             use-session-restore.ts to seed the sidebar's collapsed set on connect
                             — file-explorer quick-wins-1) (+ test)
-    workspace/              TabStrip (ONE PER PANE — that pane's tabs in a `.tabs` scroll container,
-                            plus non-shrinking trailing actions pinned outside it so they stay
-                            clickable in a narrow pane: the "+" menu (New chat / New terminal / New
-                            molecule, all targeting THIS pane) and SplitActions' Split right / Split
-                            down, each disabled with a reason from pane-tree's `canSplit` —
-                            sprint-049), TabPanelHost (flat host: every open tab's panel is mounted
+    workspace/              TabStrip (ONE PER PANE — soft-pill tabs that shrink and ellipsise their
+                            own label before the tab list scrolls (sprint-061 redesign); trailing
+                            chrome (the "+" menu — New chat / New terminal / New molecule, all
+                            targeting THIS pane — then a `.stripActions` cluster: SplitActions' Split
+                            right / Split down, each disabled with a reason from pane-tree's
+                            `canSplit`) stays outside that scroll container so it's reachable in a
+                            narrow pane — sprint-049), tab-attention.ts (pure: which chat tab, if any,
+                            gets the background-turn `StatusDot`) (+ test), TabPanelHost (flat host:
+                            every open tab's panel is mounted
                             exactly once and absolutely positioned at its pane's fractional rect, so
                             rearranging panes never remounts a panel — sprint-049), PaneDividers
                             (one hit target per divider from pane-tree's `dividers()`; dragging
@@ -1182,6 +1185,35 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   (`Timeline.tsx`), retired in the same sprint. Every new CSS animation in this codebase MUST carry
   its own `@media (prefers-reduced-motion: reduce)` override, local to that module — there is no
   shared motion utility and none should be added for a single override.
+
+- **Workspace tab strip (sprint-061).** `TabStrip.tsx`/`.module.css` (`features/workspace/`), the
+  0.1.0 UI redesign's § 07. Six traps worth knowing before touching this file:
+  - The strip band's height is declared **once**, as `--pane-strip-height` on
+    `TabPanelHost.module.css`'s `.area`. `pane-layout-view.ts`'s `calc()`s, the strip's own
+    `min-height`, and `TabPanelHost.module.css`'s empty-state offsets all read that one variable —
+    `pane-layout-view.test.ts` asserts the `calc()` strings symbolically, so changing the number
+    means editing one CSS declaration, never those tests. It is a `--pane-*` name on purpose:
+    `--pi-*` is theme-emitted and `theme/token-integrity.test.ts` fails any `var(--pi-…)` the theme
+    does not define. It matches `platform/breakpoints.ts`'s `WORKSPACE_SECONDARY_HEADER_HEIGHT`.
+  - **Tabs shrink, trailing chrome does not.** `.tab` is `flex: 0 1 auto; min-width:
+var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tabs` is
+    `flex: 0 1 auto` — never `1 1`, which would eat the free space and shove "+" against the split
+    buttons — and scrolls only once pills hit their floor; "+" and `.stripActions` stay `flex: none`
+    outside that scroll container so they stay reachable in a narrow pane (sprint-049's fix,
+    preserved).
+  - The close (×) box is reserved and toggled with `opacity`, never `display`/`visibility`, so
+    hovering an inactive tab never re-truncates its label. Visible on the active tab, on
+    hover/keyboard-focus of an inactive one, and unconditionally under `@media (max-width: 575px),
+(hover: none)` — the CSS mirror of `components/primitives/helpers.ts`'s `hoverVisible`, because
+    nothing in this package feeds a live pane width into that JS helper.
+  - "+" stays a sibling of `SortableContext`, never wrapped into it or into `.stripActions` (GitHub
+    issue #8: a sortable "+" poisons `closestCenter` collision detection).
+  - Every glyph in this file routes through the `Icon` primitive at a token size
+    (`icon-size-xs`/`sm`) — never a raw lucide element with a literal `size={n}`.
+  - A tab's attention `StatusDot` is a projection of its session's status via
+    `tab-attention.ts` (running/error only), never new per-tab state — there is no unread/dirty flag
+    on `Tab`, and the pane's active chat tab deliberately shows no dot because `TurnProgressBar`
+    already states that case under the strip.
 
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through

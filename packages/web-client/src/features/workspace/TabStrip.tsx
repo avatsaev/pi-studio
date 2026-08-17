@@ -19,9 +19,9 @@
 import type { CSSProperties } from "react";
 import {
   MessageSquare,
-  FileText,
+  File,
   GitCompare,
-  TerminalSquare,
+  SquareTerminal,
   Atom,
   X,
   Plus,
@@ -33,6 +33,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useDroppable } from "@dnd-kit/core";
 import { MenuContent, MenuItem } from "@pi-studio-ui/components/primitives/Menu.js";
 import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
+import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -43,22 +44,39 @@ import {
   closeTab,
   type Tab,
   type TabKind,
+  type ChatTabData,
 } from "@pi-studio-ui/stores/tab-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
+import { tabAttentionStatus } from "./tab-attention.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { canSplit, type SplitRegion } from "./pane-tree.js";
 import styles from "./TabStrip.module.css";
 
+/** Leading glyph per pane kind (redesign spec § 07). `molecule` keeps `Atom` rather than the
+ * spec's generic "viewer (`Box`)" — this app's kind is `molecule`, not a generic viewer, and
+ * `Atom` reads correctly for it. Also consumed by `DropPreview.tsx`'s drag chip. */
 export const ICON_BY_KIND: Record<TabKind, typeof MessageSquare> = {
   chat: MessageSquare,
-  file: FileText,
+  file: File,
   diff: GitCompare,
-  terminal: TerminalSquare,
+  terminal: SquareTerminal,
   molecule: Atom,
 };
 
+/** Path-shaped kinds render their label in the mono font, matching the file's own path text. */
+const MONO_LABEL_KINDS: Partial<Record<TabKind, true>> = { file: true, diff: true };
+
 function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
   const activate = useTabStore((s) => s.activate);
-  const Icon = ICON_BY_KIND[tab.kind];
+  const KindIcon = ICON_BY_KIND[tab.kind];
+  // Primitive-valued selector (a string or undefined, never the `SessionEntry` object) so a
+  // stream event that mutates timeline/model/etc. on some OTHER session never re-renders every
+  // tab in the strip — only a `status` change on this tab's own session does.
+  const sessionStatus = useSessionStore((s) =>
+    tab.kind === "chat" ? s.sessions[(tab.data as ChatTabData).sessionId]?.status : undefined,
+  );
+  const attention = tabAttentionStatus(tab, sessionStatus, active);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.id,
@@ -68,7 +86,7 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
   return (
     <div
       ref={setNodeRef}
-      className={clsx(styles.tab, active && styles.active)}
+      className={clsx(styles.tab, active && styles.tabActive)}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -82,19 +100,27 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
       {...attributes}
       {...listeners}
     >
-      <span className={styles.icon}>
-        <Icon size={13} />
+      <span className={styles.tabIcon}>
+        <Icon
+          icon={KindIcon}
+          size="xs"
+          color={active && tab.kind === "chat" ? "var(--pi-color-accentBright)" : "currentColor"}
+          aria-hidden
+        />
       </span>
-      <span className={styles.label}>{tab.label}</span>
+      <span className={clsx(styles.tabLabel, MONO_LABEL_KINDS[tab.kind] && styles.tabLabelMono)}>
+        {tab.label}
+      </span>
+      <StatusDot status={attention} className={styles.tabDot} />
       {tab.closable && (
         <span
-          className={styles.close}
+          className={styles.tabClose}
           onClick={(ev) => {
             ev.stopPropagation();
             closeTab(tab.id);
           }}
         >
-          <X size={12} />
+          <Icon icon={X} size="xs" aria-hidden />
         </span>
       )}
     </div>
@@ -127,25 +153,25 @@ function NewTabMenu({
       <DropdownMenu.Trigger asChild>
         <IconButton
           className={styles.newTab}
+          size="xs"
           hoverBase="var(--pi-color-background)"
-          style={{ borderRadius: "var(--pi-radius-sm)" }}
           title="New tab"
           disabled={!workspaceCwd}
         >
-          <Plus size={14} />
+          <Icon icon={Plus} size="sm" aria-hidden />
         </IconButton>
       </DropdownMenu.Trigger>
       <MenuContent minWidth={160} sideOffset={4}>
         <MenuItem onSelect={openInPane(openNewChat)}>
-          <MessageSquare size={13} className={styles.itemIcon} />
+          <Icon icon={MessageSquare} size="xs" className={styles.itemIcon} aria-hidden />
           New chat
         </MenuItem>
         <MenuItem onSelect={openInPane(openNewTerminal)}>
-          <TerminalSquare size={13} className={styles.itemIcon} />
+          <Icon icon={SquareTerminal} size="xs" className={styles.itemIcon} aria-hidden />
           New terminal
         </MenuItem>
         <MenuItem onSelect={openInPane(openNewMolecule)}>
-          <Atom size={13} className={styles.itemIcon} />
+          <Icon icon={Atom} size="xs" className={styles.itemIcon} aria-hidden />
           New molecule view
         </MenuItem>
       </MenuContent>
@@ -183,28 +209,28 @@ function SplitActions({ cwd, paneId }: { cwd: string | null; paneId: string | nu
   const downRefusal = refusal("bottom");
 
   return (
-    <>
+    <div className={styles.stripActions}>
       <IconButton
         className={styles.splitAction}
+        size="xs"
         hoverBase="var(--pi-color-background)"
-        style={{ borderRadius: "var(--pi-radius-sm)" }}
         title={rightRefusal ?? "Split right"}
         disabled={rightRefusal !== null}
         onClick={split("right")}
       >
-        <Columns2 size={14} />
+        <Icon icon={Columns2} size="sm" aria-hidden />
       </IconButton>
       <IconButton
         className={styles.splitAction}
+        size="xs"
         hoverBase="var(--pi-color-background)"
-        style={{ borderRadius: "var(--pi-radius-sm)" }}
         title={downRefusal ?? "Split down"}
         disabled={downRefusal !== null}
         onClick={split("bottom")}
       >
-        <Rows2 size={14} />
+        <Icon icon={Rows2} size="sm" aria-hidden />
       </IconButton>
-    </>
+    </div>
   );
 }
 

@@ -62,7 +62,7 @@
 
     <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
       <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">03</span><span style="font-weight:600">Sidebar — one combined workspace tree</span><span style="margin-left:auto;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">SessionList · Sidebar</span></div>
-      <div style="padding:18px;display:grid;grid-template-columns:262px 1fr;gap:20px;align-items:start">
+      <div style="padding:18px;display:grid;grid-template-columns:262px minmax(0,1fr);gap:20px;align-items:start">
         <div style="border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden">
           <div style="width:100%;background:var(--pi-color-surface1);font-size:12px">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 8px;font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--pi-color-foregroundMuted)">WORKSPACES · 2<span style="font-weight:400;font-size:13px">＋</span></div>
@@ -79,7 +79,7 @@
             <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--pi-color-border);font-size:11.5px;color:var(--pi-color-foregroundMuted)"><span>＋ Add workspace</span><span style="margin-left:auto">⚙</span></div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+        <div style="min-width:0;display:flex;flex-direction:column;gap:12px;font-size:13px">
           <div><b>What changes.</b> The icon rail is removed. Workspaces and their sessions live in one scrolling pane, so a workspace's <em>full name</em> is always legible and its sessions stay individually addressable.</div>
           <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;color:var(--pi-color-foregroundMuted)">
             <li><b style="color:var(--pi-color-foreground)">Workspace header = full-bleed band.</b> <span style="font-family:var(--pi-font-mono);font-size:12px">surface2</span>, 1px <span style="font-family:var(--pi-font-mono);font-size:12px">border</span> top and bottom, edge-to-edge (no side margin, no radius, no card frame). Same band whether expanded or collapsed — expansion is expressed only by the chevron rotation and the presence of session rows.</li>
@@ -140,7 +140,7 @@
       <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">04</span><span style="font-weight:600">Chat timeline — one row per real event, nothing invented</span><span style="margin-left:auto;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">Timeline · ToolCard · row-model.ts</span></div>
       <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
         <p style="margin:0;color:var(--pi-color-foregroundMuted);max-width:78ch">The redesign deliberately contains <b style="color:var(--pi-color-foreground)">no</b> plan/checklist row and <b style="color:var(--pi-color-foreground)">no</b> merged "agent actions" log: neither exists in <span style="font-family:var(--pi-font-mono);font-size:12.5px">AgentStreamEvent</span>. Every visual row below maps 1:1 onto a <span style="font-family:var(--pi-font-mono);font-size:12.5px">TimelineRow</span> the reducer already produces.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:12.5px">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:12.5px">
           <div style="background:var(--pi-color-surface2);padding:8px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">ROW / EVENT</div>
           <div style="background:var(--pi-color-surface2);padding:8px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">VISUAL SPEC</div>
           <div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">user → UserRow</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">18px avatar, accent-tinted bubble (accent 20% over surface1, 45% border), radius-lg, inline-block so short prompts stay short</div>
@@ -174,7 +174,7 @@
           <div style="display:flex;gap:12px"><div style="width:20px;flex:none;display:flex;justify-content:center"><span style="width:18px;height:18px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700">π</span></div>
             <div style="flex:1;font-size:13px"><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);margin-bottom:3px">Assistant · 09:43:02</div><div>Skill scaffolded. Running the connectivity check now<span style="display:inline-block;width:7px;height:14px;background:var(--pi-color-accentBright);vertical-align:-2px;margin-left:2px;opacity:.8"></span></div></div></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
           <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:13px"><div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:8px">TOOL BADGE PER <span style="font-family:var(--pi-font-mono);letter-spacing:0">ToolCallDetail</span> KIND</div>
             <div style="display:flex;flex-direction:column;gap:5px;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">
               <div><span style="color:var(--pi-color-accentBright)">shell</span> → SHELL · accent tint · shows <span style="color:var(--pi-color-foreground)">command</span></div>
@@ -219,7 +219,7 @@
 
     <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
       <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">05</span><span style="font-weight:600">Composer, queue chips &amp; turn-progress bar</span><span style="margin-left:auto;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">Composer · ModelMenu · TabStrip</span></div>
-      <div style="padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+      <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start">
         <div style="display:flex;flex-direction:column;gap:12px">
           <div style="border:1px solid var(--pi-color-border);border-radius:10px;background:var(--pi-color-surface0);padding:14px">
             <div style="position:relative;height:2px;background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);overflow:hidden;margin-bottom:14px"><span style="position:absolute;top:0;bottom:0;width:38%;background:linear-gradient(90deg,transparent,var(--pi-color-accent) 35%,color-mix(in srgb,var(--pi-color-accent) 75%,var(--pi-color-accentBright)) 50%,var(--pi-color-accent) 65%,transparent);animation:indet 1.5s linear infinite"></span></div>
@@ -235,7 +235,7 @@
             </div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+        <div style="min-width:0;display:flex;flex-direction:column;gap:12px;font-size:13px">
           <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;color:var(--pi-color-foregroundMuted)">
             <li><b style="color:var(--pi-color-foreground)">The model selector moves inside the composer.</b> One <span style="font-family:var(--pi-font-mono);font-size:12px">radius-xl</span> shell on <span style="font-family:var(--pi-font-mono);font-size:12px">surface1</span>: textarea on top, control row underneath — attach (＋), a 1px <span style="font-family:var(--pi-font-mono);font-size:12px">surface3</span> divider, then the model trigger pushed right, then a circular accent send button (30px, <span style="font-family:var(--pi-font-mono);font-size:12px">radius-full</span>). Remove the model indicator from the status bar; keep <span style="font-family:var(--pi-font-mono);font-size:12px">ModelMenu</span> as the popup, anchored to the trigger.</li>
             <li><b style="color:var(--pi-color-foreground)">Model trigger truncates, never wraps</b> — full ids are long. <span style="font-family:var(--pi-font-mono);font-size:12px">min-width:0</span> + ellipsis, hover uses the standard hover-lift on <span style="font-family:var(--pi-font-mono);font-size:12px">surface1</span>.</li>
@@ -262,7 +262,7 @@
 
     <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
       <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">06</span><span style="font-weight:600">Files panel &amp; pane chrome</span><span style="margin-left:auto;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">FileExplorer · TabStrip · RightSidebar</span></div>
-      <div style="padding:18px;display:grid;grid-template-columns:250px 1fr;gap:20px;align-items:start">
+      <div style="padding:18px;display:grid;grid-template-columns:250px minmax(0,1fr);gap:20px;align-items:start">
         <div style="border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;background:var(--pi-color-surface1)">
           <div style="height:38px;display:flex;align-items:stretch;gap:2px;padding:0 10px;border-bottom:1px solid var(--pi-color-border);font-size:12.5px">
             <span style="display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:2px solid var(--pi-color-accent);font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z"></path></svg> Files</span>
@@ -282,7 +282,7 @@
             <div style="display:flex;align-items:center;gap:7px;height:26px;padding:0 8px 0 22px;border-radius:3px"><span style="width:12px"></span><span style="color:var(--pi-color-foregroundMuted)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"></path><path d="M14 3.5V8h4.5"></path></svg></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">BlackBerry_App_Descriptor.xml</span></div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+        <div style="min-width:0;display:flex;flex-direction:column;gap:12px;font-size:13px">
           <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;color:var(--pi-color-foregroundMuted)">
             <li><b style="color:var(--pi-color-foreground)">Tabs, not pills.</b> Files / Changes read as underlined tabs: 2px <span style="font-family:var(--pi-font-mono);font-size:12px">accent</span> bottom border on the active one, <span style="font-family:var(--pi-font-mono);font-size:12px">foregroundMuted</span> + transparent border on the other; refresh <span style="font-family:var(--pi-font-mono);font-size:12px">IconButton</span> pinned right. Changes keeps its accent count badge.</li>
             <li><b style="color:var(--pi-color-foreground)">Action row</b> under the tabs: new-file, new-folder (icon-only, 30×26, <span style="font-family:var(--pi-font-mono);font-size:12px">surface0</span> on 1px border) and a labelled Upload button. Separated from the tree by a 70%-opacity border.</li>
@@ -295,9 +295,71 @@
     </section>
 
     <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
-      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">07</span><span style="font-weight:600">Implementation order &amp; guardrails</span></div>
-      <div style="padding:18px;display:grid;grid-template-columns:1.15fr 1fr;gap:20px;align-items:start">
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">07</span><span style="font-weight:600">Workspace tab strip</span><span style="margin-left:auto;font-family:var(--pi-font-mono);font-size:12px;color:var(--pi-color-foregroundMuted)">TabStrip</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:18px">
+        <div style="width:100%;overflow-x:auto;display:flex;flex-direction:column;gap:12px">
+          <div style="min-width:720px;border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;background:var(--pi-color-surface0)">
+            <div style="height:36px;display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid var(--pi-color-border);font-size:12px">
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;background:var(--pi-color-surface2);color:var(--pi-color-foreground);"><span style="color:var(--pi-color-accentBright);flex:none">◍</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">task-001-reconnect</span><span style="opacity:.6;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="flex:none;color:var(--pi-color-foregroundMuted)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"></path><path d="M14 3.5V8h4.5"></path></svg></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--pi-font-mono);font-size:11.5px;">AzrTE_Screen.java</span><span style="opacity:.45;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="flex:none;font-family:var(--pi-font-mono);font-size:10px">&gt;_</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">Terminal 1</span><span style="opacity:.45;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">New chat</span><span style="width:7px;height:7px;border-radius:50%;background:var(--pi-color-statusWarning);flex:none"></span><span style="opacity:.45;flex:none">×</span></div>
+              <span style="padding:0 8px;flex:none;color:var(--pi-color-foregroundMuted)">＋</span>
+              <span style="margin-left:auto;display:flex;gap:9px;padding-right:4px;flex:none;color:var(--pi-color-foregroundMuted)"><span>◫</span><span>▤</span></span>
+            </div>
+            <div style="position:relative;height:2px;background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);overflow:hidden"><span style="position:absolute;top:0;bottom:0;width:38%;background:linear-gradient(90deg,transparent,var(--pi-color-accent) 35%,color-mix(in srgb,var(--pi-color-accent) 75%,var(--pi-color-accentBright)) 50%,var(--pi-color-accent) 65%,transparent);animation:indet 1.5s linear infinite"></span></div>
+            <div style="padding:26px 14px;color:var(--pi-color-foregroundMuted);font-size:12.5px;text-align:center">pane body — owns its own scroll</div>
+          </div>
+          <div style="width:470px;max-width:100%;border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;background:var(--pi-color-surface0)">
+            <div style="padding:7px 12px;border-bottom:1px solid var(--pi-color-border);font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">SAME STRIP IN A NARROW PANE — TABS SHRINK, CHROME DOESN'T</div>
+            <div style="height:36px;display:flex;align-items:center;gap:2px;padding:0 8px;font-size:12px">
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;background:var(--pi-color-surface2);color:var(--pi-color-foreground);"><span style="color:var(--pi-color-accentBright);flex:none">◍</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">task-001-reconnect</span><span style="opacity:.6;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--pi-font-mono);font-size:11.5px;">pnpm-workspace.yaml</span><span style="opacity:.45;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--pi-font-mono);font-size:11.5px;">AzrTE_Screen.java</span><span style="opacity:.45;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">Terminal 1</span><span style="opacity:.45;flex:none">×</span></div>
+              <div style="height:26px;flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;white-space:nowrap;color:var(--pi-color-foregroundMuted);"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">Terminal 2</span><span style="opacity:.45;flex:none">×</span></div>
+              <span style="padding:0 8px;flex:none;color:var(--pi-color-foregroundMuted)">＋</span>
+              <span style="margin-left:auto;display:flex;gap:9px;padding-right:4px;flex:none;color:var(--pi-color-foregroundMuted)"><span>◫</span><span>▤</span></span>
+            </div>
+          </div>
+        </div>
+        <div style="min-width:0;display:flex;flex-direction:column;gap:12px;font-size:13px">
+          <div><b>What changes.</b> Tabs become soft pills on the pane's own header row instead of full-height bordered segments, and the tab strip becomes the pane's single piece of chrome: identity, add-tab, split controls, and turn progress all live in that 36px band.</div>
+          <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;color:var(--pi-color-foregroundMuted)">
+            <li><b style="color:var(--pi-color-foreground)">Strip geometry.</b> Height <span style="font-family:var(--pi-font-mono);font-size:12px">WORKSPACE_SECONDARY_HEADER_HEIGHT</span> (36), <span style="font-family:var(--pi-font-mono);font-size:12px">spacing-8</span> side padding, 1px bottom <span style="font-family:var(--pi-font-mono);font-size:12px">border</span>, transparent background — the strip does not get its own surface step; the pane's <span style="font-family:var(--pi-font-mono);font-size:12px">surface0</span> shows through.</li>
+            <li><b style="color:var(--pi-color-foreground)">Tab = 26px pill.</b> <span style="font-family:var(--pi-font-mono);font-size:12px">radius-md</span>, <span style="font-family:var(--pi-font-mono);font-size:12px">spacing-10</span> horizontal padding, <span style="font-family:var(--pi-font-mono);font-size:12px">gap: spacing-7</span> between icon, label, and close. Active: <span style="font-family:var(--pi-font-mono);font-size:12px">surface2</span> fill + <span style="font-family:var(--pi-font-mono);font-size:12px">foreground</span> text. Inactive: no fill, <span style="font-family:var(--pi-font-mono);font-size:12px">foregroundMuted</span> text, hover-lift on hover. No borders, no bottom underline on tabs — the underline treatment belongs to the Files/Changes panel tabs only, so the two never read as the same control.</li>
+            <li><b style="color:var(--pi-color-foreground)">Truncation is mandatory.</b> Each tab is <span style="font-family:var(--pi-font-mono);font-size:12px">flex: 0 1 auto; min-width: 0</span> with <span style="font-family:var(--pi-font-mono);font-size:12px">white-space: nowrap</span> on the pill and <span style="font-family:var(--pi-font-mono);font-size:12px">overflow: hidden; text-overflow: ellipsis</span> on the label span only — icon, status dot, and × stay <span style="font-family:var(--pi-font-mono);font-size:12px">flex: none</span>. A long file name must shrink its own pill, never wrap it to two lines or push ＋ and the split buttons off the strip. (This was the single worst defect of the current strip.)</li>
+            <li><b style="color:var(--pi-color-foreground)">Leading glyph states the pane kind</b> at <span style="font-family:var(--pi-font-mono);font-size:12px">icon-size-xs</span> via <span style="font-family:var(--pi-font-mono);font-size:12px">Icon</span>: chat (<span style="font-family:var(--pi-font-mono);font-size:12px">MessageSquare</span>, accentBright when that session is the active one), file (<span style="font-family:var(--pi-font-mono);font-size:12px">File</span>, name in <span style="font-family:var(--pi-font-mono);font-size:12px">font-mono</span> at <span style="font-family:var(--pi-font-mono);font-size:12px">font-size-2xs</span>), terminal (<span style="font-family:var(--pi-font-mono);font-size:12px">SquareTerminal</span>), viewer (<span style="font-family:var(--pi-font-mono);font-size:12px">Box</span>). An unread/attention tab shows a <span style="font-family:var(--pi-font-mono);font-size:12px">StatusDot</span> before the × instead of a badge.</li>
+            <li><b style="color:var(--pi-color-foreground)">Trailing chrome, in this order:</b> ＋ (opens the existing new-tab <span style="font-family:var(--pi-font-mono);font-size:12px">Menu</span>), then <span style="font-family:var(--pi-font-mono);font-size:12px">margin-left:auto</span>, then split-vertical and split-horizontal <span style="font-family:var(--pi-font-mono);font-size:12px">IconButton</span>s (<span style="font-family:var(--pi-font-mono);font-size:12px">size="xs"</span>, <span style="font-family:var(--pi-font-mono);font-size:12px">hoverBase</span> = the pane's ambient surface). All three are <span style="font-family:var(--pi-font-mono);font-size:12px">flex:none</span>.</li>
+            <li><b style="color:var(--pi-color-foreground)">Close affordance.</b> × is always rendered on the active tab; on inactive tabs it follows <span style="font-family:var(--pi-font-mono);font-size:12px">hoverVisible</span> (always shown on compact/touch). Its box is reserved either way so the label width doesn't jump on hover.</li>
+            <li><b style="color:var(--pi-color-foreground)">The turn-progress bar hangs off the strip's bottom edge</b> (section 05) — 2px, full pane width, immediately under the border, so a running pane is identifiable from the strip alone.</li>
+          </ol>
+          <pre style="margin:0;padding:13px 15px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);font-family:var(--pi-font-mono);font-size:12px;line-height:1.65;overflow-x:auto;color:var(--pi-color-foreground)">/* TabStrip.module.css */
+.strip { display:flex; align-items:center; gap: var(--pi-spacing-2);
+         height: 36px; padding: 0 var(--pi-spacing-8);
+         border-bottom: var(--pi-border-width-1) solid var(--pi-color-border); }
+.tab { flex: 0 1 auto; min-width: 0;
+       display:flex; align-items:center; gap: var(--pi-spacing-7);
+       height: var(--pi-spacing-24); padding: 0 var(--pi-spacing-10);
+       border-radius: var(--pi-radius-md);
+       font-size: var(--pi-font-size-2xs);
+       color: var(--pi-color-foregroundMuted);
+       white-space: nowrap; cursor: pointer; }
+.tab:hover { background: color-mix(in srgb, var(--pi-color-surface0) 85%,
+                                   var(--pi-color-foreground) 15%); }
+.tabActive { background: var(--pi-color-surface2); color: var(--pi-color-foreground); }
+.tabLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tabLabelMono { font-family: var(--pi-font-mono); }
+.tabIcon, .tabDot, .tabClose { flex: none; }
+.stripActions { margin-left: auto; display:flex; gap: var(--pi-spacing-8); flex: none; }</pre>
+        </div>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">08</span><span style="font-weight:600">Implementation order &amp; guardrails</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px;align-items:start">
+        <div style="min-width:0;display:flex;flex-direction:column;gap:8px;font-size:13px">
           <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">SUGGESTED SEQUENCE</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">1</span><div><b>SessionList / Sidebar</b> — combined tree, band headers, frameless rows, states. Largest visual win, no protocol work.</div></div>
@@ -305,7 +367,7 @@
             <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">3</span><div><b>Composer + ModelMenu</b> move; strip the model chip from <span style="font-family:var(--pi-font-mono);font-size:12px">StatusBar</span>.</div></div>
             <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">4</span><div><b>Queue chips + TurnProgressBar</b> — both read state that <span style="font-family:var(--pi-font-mono);font-size:12px">applyAgentStreamEvent</span> already maintains.</div></div>
             <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">5</span><div><b>FileExplorer chrome</b> — tabs, action row, row styling, lucide icons.</div></div>
-            <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">6</span><div><b>Pane headers</b> across TabStrip consumers; verify each pane body scrolls independently.</div></div>
+            <div style="display:flex;gap:10px;padding:9px 12px;border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1)"><span style="color:var(--pi-color-accentBright);font-weight:700">6</span><div><b>TabStrip</b> (section 07) — pill tabs, truncation, trailing chrome; verify each pane body scrolls independently.</div></div>
           </div>
           <div style="margin-top:6px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">VERIFY BEFORE SHIPPING</div>
           <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 14px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:5px">
@@ -315,7 +377,7 @@
             <div>· Long strings: 60-char workspace name, deep file path, long model id — all ellipsis, no wrap, no layout shift.</div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div style="min-width:0;display:flex;flex-direction:column;gap:8px;font-size:13px">
           <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-destructive)">DO NOT</div>
           <div style="border:1px solid color-mix(in srgb,var(--pi-color-destructive) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--pi-color-destructive) 8%,transparent);padding:12px 15px;display:flex;flex-direction:column;gap:7px;color:var(--pi-color-foregroundMuted)">
             <div>· Don't copy a hex from this page into a CSS module. Use the mapped token.</div>

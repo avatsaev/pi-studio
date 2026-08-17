@@ -2,11 +2,11 @@
   display: flex;
   align-items: center;
   gap: var(--pi-spacing-2);
-  min-height: 33px;
-  padding: var(--pi-spacing-4) var(--pi-spacing-6) 0;
+  min-height: var(--pane-strip-height);
+  padding: 0 var(--pi-spacing-8);
   overflow: hidden;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--pi-color-border);
+  border-bottom: var(--pi-border-width-1) solid var(--pi-color-border);
 }
 /* The tabs scroll; the trailing "+"/split actions do NOT. A pane can be a few hundred px wide, and
    with the whole strip as one scroll container the actions ended up scrolled out of reach. */
@@ -14,12 +14,12 @@
   display: flex;
   align-items: center;
   gap: var(--pi-spacing-2);
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
 }
 /* Pane-scoped placement: TabPanelHost positions each strip across the top of its pane's rect
-   (`pane-layout-view.paneChrome`). `min-height` stays for the single-pane case's exact 33px row. */
+   (`pane-layout-view.paneChrome`). `min-height` stays for the single-pane case's exact 36px row. */
 .paneStrip {
   position: absolute;
   z-index: 1;
@@ -31,52 +31,89 @@
 .tab {
   display: flex;
   align-items: center;
-  gap: var(--pi-spacing-6);
-  padding: var(--pi-spacing-6) var(--pi-spacing-8);
-  border-radius: var(--pi-radius-md) var(--pi-radius-md) 0 0;
-  font-size: var(--pi-font-size-xs);
+  gap: var(--pi-spacing-7);
+  flex: 0 1 auto;
+  min-width: var(--pi-spacing-128);
+  max-width: 200px;
+  height: var(--pi-spacing-24);
+  padding: 0 var(--pi-spacing-10);
+  border-radius: var(--pi-radius-md);
+  font-size: var(--pi-font-size-2xs);
   cursor: pointer;
   color: var(--pi-color-foregroundMuted);
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
   user-select: none;
 }
 .tab:hover {
   background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
 }
-.active {
-  background: var(--pi-color-surface0);
+.tabActive {
+  background: var(--pi-color-surface2);
   color: var(--pi-color-foreground);
 }
-.icon {
+.tabIcon {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  flex: none;
 }
-.label {
-  max-width: 160px;
+.tabLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.close {
+.tabLabelMono {
+  font-family: var(--pi-font-mono);
+}
+/* Background chat tabs only (redesign spec § 07); `StatusDot` itself returns `null` for a `null`
+   status, so no conditional wrapper is needed here. */
+.tabDot {
+  flex: none;
+}
+/* Reserved either way so a label's width/truncation point never shifts on hover; toggled with
+   `opacity`, never `display`. Always visible on the active tab, on hover/keyboard-focus of an
+   inactive one, and unconditionally below the `sm` breakpoint or on a coarse pointer (mirrors
+   `helpers.ts`'s `hoverVisible`, which nothing in this package feeds a live width into). */
+.tabClose {
   display: flex;
   align-items: center;
+  flex: none;
   border-radius: var(--pi-radius-base);
   padding: var(--pi-spacing-1);
-  flex-shrink: 0;
+  opacity: 0;
 }
-.close:hover {
+.tabActive .tabClose,
+.tab:hover .tabClose,
+.tab:focus-within .tabClose {
+  opacity: 1;
+}
+.tabClose:hover {
   background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
+}
+@media (max-width: 575px), (hover: none) {
+  .tabClose {
+    opacity: 1;
+  }
 }
 .newTab {
   position: relative;
-  margin: 0 var(--pi-spacing-4);
+  border-radius: var(--pi-radius-sm);
+  flex: none;
 }
-/* Trailing split affordances, beside the "+" menu. `flex-shrink: 0` keeps them reachable in a
-   narrow pane — the strip scrolls its tabs instead of squeezing the actions away. */
+/* Trailing split cluster, pinned to the strip's right edge. `flex: none` on both the wrapper and
+   each button keeps them reachable in a narrow pane — `.tabs` scrolls its tabs instead of
+   squeezing this cluster away (sprint-049's fix, preserved). */
+.stripActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  flex: none;
+}
 .splitAction {
   position: relative;
-  flex-shrink: 0;
+  border-radius: var(--pi-radius-sm);
+  flex: none;
 }
 .itemIcon {
   flex-shrink: 0;

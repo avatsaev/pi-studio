@@ -19,9 +19,10 @@ import { dividers, effectiveTree, paneRects, type Divider, type Rect } from "./p
 import type { DropRegion } from "./pane-dnd.js";
 
 /**
- * Height of a pane's tab strip, matching `TabStrip.module.css`'s 33px row (border-box, so the bottom
- * border is inside it). A pane's rect is split into this strip plus the panel body below, which is
- * why panel styles are `calc(<percentage> ± this)`.
+ * Height of a pane's tab strip, matching `TabStrip.module.css`'s 36px row (border-box, so the bottom
+ * border is inside it) and `platform/breakpoints.ts`'s `WORKSPACE_SECONDARY_HEADER_HEIGHT`. A
+ * pane's rect is split into this strip plus the panel body below, which is why panel styles are
+ * `calc(<percentage> ± this)`.
  *
  * Deliberately NOT a `--pi-*` name: that prefix is reserved for theme-emitted design tokens and
  * `theme/token-integrity.test.ts` fails any `var(--pi-…)` the theme does not define. This is a

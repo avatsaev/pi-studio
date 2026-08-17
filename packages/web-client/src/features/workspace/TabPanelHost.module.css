@@ -3,9 +3,10 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  /* One pane = strip row + panel body. Matches TabStrip.module.css's 33px row (border-box), and is
-     the offset pane-layout-view.ts's calc()s use. */
-  --pane-strip-height: 33px;
+  /* One pane = strip row + panel body. Matches TabStrip.module.css's 36px row (border-box), the
+     `WORKSPACE_SECONDARY_HEADER_HEIGHT` constant in platform/breakpoints.ts, and is the offset
+     pane-layout-view.ts's calc()s use. */
+  --pane-strip-height: 36px;
 }
 .panel {
   position: absolute;

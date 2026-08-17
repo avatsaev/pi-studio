@@ -173,14 +173,43 @@ LRU.
   no DnD splitting (split actions hidden).
 
 ### Desktop tab strip
-- Height 36. Per-tab widths distributed between an icon-only minimum and a 200px max; if even icon-only
-  doesn't fit, enable horizontal scroll. Labels truncate by width; loading tabs show a skeleton bar.
-- Each chip: icon (+ status dot), label, close button (always when policy = all), wrapped in a context menu
-  + tooltip; active tab shows the accent indicator. Reorder via a sortable inline list with a drag handle
-  (the split container's shared drag context owns cross-pane drags).
-- Trailing actions cluster: New agent tab, New terminal tab (disabled while creating), New molecule view,
-  New browser tab (Electron only), and — when splits are supported — Split right / Split down. Keyboard
-  chords shown in tooltips.
+Redesigned in sprint-061 to the 0.1.0 UI redesign's § 07 (`swe/UI design/redesign 0.1.0/Redesign
+Handoff Spec.dc.html`). One strip per pane, absolutely positioned across the top of its pane's rect.
+
+- **Band.** Height 36 (`WORKSPACE_SECONDARY_HEADER_HEIGHT`, `platform/breakpoints.ts`), declared once
+  as `--pane-strip-height` on `TabPanelHost.module.css`'s `.area` — every consumer (`pane-layout-view`'s
+  `calc()`s, the strip's own `min-height`, the empty-pane offsets) reads that one variable. `spacing-8`
+  side padding, a 1px bottom border, no surface of its own — the pane's ambient background shows
+  through.
+- **Tab = 24px pill.** `radius-md` on all four corners, `spacing-10` horizontal padding, `spacing-7`
+  gaps between icon/label/status-dot/close. Active: `surface2` fill + `foreground` text. Inactive: no
+  fill, `foregroundMuted` text, hover-lift. No borders, no underline (the underline treatment is
+  exclusive to the Files/Changes panel tabs, so the two never read as one control).
+- **Truncation is mandatory, not a distribution algorithm.** Each pill is `flex: 0 1 auto` with a
+  ~128px floor and a 200px cap; only the label span ellipsises — icon, status dot, and close stay
+  fixed-size. Once pills hit their floor, the tab list scrolls horizontally; the trailing chrome
+  (below) sits outside that scroll container so it never gets pushed unreachable in a narrow pane.
+- **Leading glyph** states the pane kind via the `Icon` primitive at `icon-size-xs`: chat
+  (`MessageSquare`, `accentBright` when that tab is the pane's active one), file (`File`, label in
+  the mono font), diff (`GitCompare`, mono label), terminal (`SquareTerminal`), molecule (`Atom`).
+- **Attention dot.** A background chat tab (not the pane's active tab) shows a `StatusDot` between
+  its label and close — a spinning ring while its session has a turn running, `statusDanger` after a
+  failed turn — projected live from the session's own status, not a separate unread/dirty flag. The
+  active chat tab never shows one: `TurnProgressBar` already states that case under the strip.
+- **Close affordance.** Always shown on the active tab; on an inactive one it's reserved (so hovering
+  never reflows the label) and opacity-gated — visible on hover/keyboard-focus, and unconditionally
+  below a 576px viewport or on a coarse pointer (no live width is fed into a JS visibility check; this
+  mirrors the app's `hoverVisible` rule purely in CSS).
+- **Trailing chrome, in order:** ＋ (opens the existing new-tab menu) immediately after the last pill,
+  then the remaining space, then split-right / split-down (hidden when splits aren't supported). All
+  three are fixed-size `IconButton`s and stay outside the tab list's scroll container.
+- Reorder via a sortable inline list with a drag handle (the split container's shared drag context owns
+  cross-pane drags).
+- **Not implemented in `packages/web-client`** (reference-app behavior, marked rather than silently
+  dropped): loading tabs do not show a skeleton bar, and there is no per-tab right-click context menu
+  or hover tooltip beyond the native `title` attribute. The attention dot also has no "needs input"
+  state — this client's session-status enum has no `waiting`/needs-input value to project, so only a
+  running turn or a failed one earn a dot.
 
 ### Mobile (compact) tab UI
 No tab strip. A single switcher trigger shows the active tab's icon + label + chevron; tapping opens a list

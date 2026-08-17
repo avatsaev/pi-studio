@@ -43,7 +43,7 @@ ids so streaming only re-renders the last block.
 | `activity_log` | `activityType: system\|info\|success\|error\|artifact`, `message`, `metadata?` | Colored info/error pill row |
 | `compaction` | `status: loading\|completed`, `trigger?`, `preTokens?` | Horizontal-rule "Context compacted" marker |
 
-> **Web-client rail redesign (sprint-059, `swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html`
+> **Web-client rail redesign (sprint-059, `swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html`
 > is the visual source of truth).** `packages/web-client`'s actual `TimelineRow` union
 > (`timeline/row-model.ts`) is narrower than the table above: exactly `user` | `assistant` |
 > `reasoning` | `tool` | `error` | `system`. It has never modeled `thought`/`todo_list`/
@@ -168,7 +168,7 @@ args/result): `displayName`, `summary`, `errorText`, icon, and flags (`isLoading
 > Expand/collapse (chevron, `aria-expanded`, re-measure on toggle) is preserved from the prior
 > design; there is no bottom-sheet variant, no hover-reveal chevron, and no `StatusBadge` (that
 > primitive is still used elsewhere, just not here — a free-form wire status string can't fit a
-> fixed-variant badge). See `swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html` § 04 for the
+> fixed-variant badge). See `swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html` § 04 for the
 > full visual spec this implements.
 
 - **Status visuals:** running/executing → label shimmer (web: gradient sweep; native: SVG peak overlay) +
@@ -245,7 +245,7 @@ explorer for directories.
 - **Running footer:** a spinner (amber) + a live elapsed timer (ticks ~10×/s). **`packages/web-client` does
   not implement this** — it renders `TurnProgressBar` instead: a single indeterminate 2px accent bar
   mounted absolutely at the top of the pane (under the tab strip) for the duration of the running turn,
-  replacing any row-level running affordance (sprint-060; see `swe/design/redesign 0.1.0/Redesign Handoff
+  replacing any row-level running affordance (sprint-060; see `swe/UI design/redesign 0.1.0/Redesign Handoff
   Spec.dc.html` § 05 for the visual source of truth). No spinner or elapsed timer renders in the timeline.
 - **Completed footer:** attaches under the last assistant message of a finished turn; shows a copy button +
   "Worked for <duration>" that swaps to the end timestamp on hover (web) / tap-reveal (native).
