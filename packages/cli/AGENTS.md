@@ -375,10 +375,21 @@ install shape (npm link, global `npm i -g`) without a separate vite/dev toolchai
 `@av-pi-studio/cli` version published on npm, via the SAME `npm install -g` path used to install
 it in the first place (README.md § Install) — shells out to the user's own `npm`, rather than
 reimplementing a registry client, so it correctly respects npm config (registry mirrors, auth,
-proxies) and stays in sync with whatever `npm install -g` itself does.
+proxies) and stays in sync with whatever `npm install -g` itself does. It then always also runs
+`pi update --extensions` against the same embedded/global Pi CLI `pi-studio pi` proxies to
+(reusing `runPiProxy` from `pi-commands.ts` verbatim — same bundled-CLI-first resolution,
+`--pi-home` env derivation, and exit-code mapping), bringing already-installed curated extensions
+(deliberately unpinned — `packages/server/AGENTS.md`'s extensions section) up to their latest
+published version. This closes the loop the unpinned-install design left open: Pi-Studio's own
+sync engine never updates an already-installed extension's version (that's the user's job via
+`pi update`), so a single `pi-studio update` is the one command that updates both the CLI and
+every extension version — the extensions step runs unconditionally whenever the CLI step isn't
+skipped by `--check`, independent of whether the CLI itself had a new version, since extensions
+publish on their own schedule.
 
-`--check` reports whether an update is available without installing anything (exit `EXIT_OK`
-either way — "already up to date" is not a failure).
+`--check` reports whether a CLI update is available without installing anything or touching pi
+extensions (exit `EXIT_OK` either way — "already up to date" is not a failure). It only checks the
+CLI package; there is no dry-run equivalent for the extensions step.
 
 `UpdateRuntime` (`update-control.ts`):
 
@@ -398,6 +409,12 @@ either way — "already up to date" is not a failure).
   ever publishes bare `major.minor.patch` releases (`scripts/publish.sh`'s patch-only bump).
 - `CURRENT_VERSION` — this package's own `package.json` version, read via `createRequire` at
   startup (same pattern as `program.ts`'s `-v/--version`) — never hardcoded.
+
+`runUpdate`'s exit code: the CLI self-update step's outcome wins over the extensions step's when
+both are attempted (a failed npm install is reported even if `pi update --extensions` happened to
+succeed afterward); when the CLI step succeeds or is a no-op ("already up to date"), the
+extensions step's exit code (e.g. `EXIT_ERROR` if no embedded/global Pi CLI is resolvable, or Pi's
+own `update --extensions` exits nonzero) is surfaced instead.
 
 ---
 
