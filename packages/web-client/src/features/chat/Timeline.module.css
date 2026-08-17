@@ -1,5 +1,15 @@
 /* Virtualized timeline viewport (POC `.chat-area`, POC_TO_APP_PLAN_UI.md §4.3/§6). */
 
+/* The scroller cannot host the jump-to-latest button itself: an absolutely-positioned child of a
+   scroll container scrolls away with its content. Hence this wrapper, which also carries the flex
+   sizing `ChatPanel` hands the timeline. */
+.root {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
 .viewport {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -29,4 +39,51 @@
   height: 100%;
   color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
+}
+
+/* Shown only while the bottom anchor is detached (features/timeline-rendering.md § Autoscroll).
+   Inset to match the viewport's own padding, so it lines up with the content column. */
+.jumpToLatest {
+  position: absolute;
+  right: var(--pi-spacing-20);
+  bottom: var(--pi-spacing-16);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-full);
+  background: var(--pi-color-surface2);
+  color: var(--pi-color-foreground);
+  box-shadow: var(--pi-shadow-md);
+  cursor: pointer;
+  animation: jumpToLatestIn 120ms ease-out;
+}
+
+.jumpToLatest:hover {
+  background: var(--pi-color-surface3);
+}
+
+.jumpToLatest:focus-visible {
+  outline: 2px solid var(--pi-color-accent);
+  outline-offset: 2px;
+}
+
+@keyframes jumpToLatestIn {
+  from {
+    opacity: 0;
+    transform: translateY(var(--pi-spacing-4));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jumpToLatest {
+    animation: none;
+  }
 }

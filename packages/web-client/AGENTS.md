@@ -199,7 +199,11 @@ src/
                            highlight, image-src (classifyImageSrc — pure markdown image-source
                            classification: remote/local/unresolvable, task-002 sprint-045),
                            file-link-src (classifyFileLinkSrc — pure markdown link-source
-                           classification: local/external, sprint-051) (+ tests)
+                           classification: local/external, sprint-051), bottom-anchor
+                           (nextAnchorState/isLaidOut/lastRowUserId + AT_BOTTOM_THRESHOLD_PX —
+                           the pure follow-the-bottom policy Timeline drives through
+                           features/chat/use-bottom-anchor; see AGENTS.md § Invariants "Timeline
+                           bottom anchor") (+ tests)
   hooks/                   use-connection (boot), use-pane-layout (usePaneLayoutBoot — installs the
                            persisted layouts as pending claims, replays the client-side tabs
                            (reopen-client-tabs.ts), and wires the persistence writer; MUST run after
@@ -300,7 +304,9 @@ src/
                             searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
                             selector"), CommandMenu (composer's `/` slash-command popup — see
                             AGENTS.md § Invariants "Slash-command picker") + slash-commands.ts
-                            (pure token/filter/apply logic, unit-tested), Attachments,
+                            (pure token/filter/apply logic, unit-tested), use-bottom-anchor (the
+                            timeline's bottom-anchor controller: gesture/scroll/resize listeners
+                            over timeline/bottom-anchor.ts's pure state machine), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
@@ -1148,7 +1154,8 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
 - **Turn progress bar (sprint-060).** `TurnProgressBar.tsx` (`features/chat/`) is the running
   affordance — one indeterminate bar per pane, mounted absolutely at the top of `ChatPanel`
   (`position: absolute`; `ChatPanel` gives it a `position: relative` host) so its mount/unmount
-  never reflows the virtualized `Timeline` beneath it or disturbs stick-to-bottom autoscroll.
+  never reflows the virtualized `Timeline` beneath it or disturbs the bottom anchor (see
+  "Timeline bottom anchor" below).
   Trigger is `session.status === "running"`, read straight off the store — not a local
   `turn_started` listener — which is what makes a mid-turn page reload show it immediately (the
   hydrated daemon status `use-session-restore.ts` sets, before any stream event arrives) instead of
@@ -1266,18 +1273,41 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     showing the `"Model"` placeholder forever even though the poll succeeded (a real bug
     sprint-042's live smoke test caught before it shipped). This poll runs off `StatusBar`'s
     mount, so the model label depends on this bar being on screen even though the label isn't.
-- **Timeline auto-scroll's mount-time "grew" ref must revert on cleanup.** `Timeline.tsx`'s
-  stick-to-bottom effect compares `session.timeline.rows.length` against a `prevRowCountRef` to
-  decide whether to re-run `virtualizer.scrollToIndex(rows.length - 1, {align: "end"})` — but
-  without an explicit cleanup that restores the ref's PREVIOUS value, this silently breaks under
-  React StrictMode's dev-only double-invoke (mount → phantom cleanup → mount, same instance, no
-  actual teardown — see `TerminalPanel.tsx`'s own doc comment for the established pattern): the
-  phantom first invocation already flips the ref, so the real second invocation sees `grew ===
-false` and skips the scroll — right as `@tanstack/react-virtual`'s OWN scroll-element
-  re-attachment (which correctly redoes itself across that same phantom cycle) resets the DOM
-  `scrollTop` back to `0`. Net effect (a real, live-verified bug, not theoretical): every
-  freshly-opened or freshly-restored chat tab with existing history opened at the TOP instead of
-  the bottom — confirmed via a `scrollTo` call-stack trace showing the sequence `0` (virtualizer's
-  first attach) → correct offset (this effect) → `0` again (virtualizer's phantom-cycle
-  re-attach, unopposed because the ref-guard silently ate the real second invocation). Fixed by
-  returning `() => { prevRowCountRef.current = prevCount; }` from the effect.
+- **Timeline bottom anchor: only a gesture detaches, only proximity re-attaches.** Following the
+  live agent output is split in two along the line of what an effect can actually do.
+  - **Staying pinned while existing content grows is the virtualizer's job** — `Timeline.tsx`
+    passes `anchorTo: "end"` (plus `scrollEndThreshold: AT_BOTTOM_THRESHOLD_PX`), which
+    compensates every size change inside `resizeItem`, before paint. This covers the cases an
+    effect structurally cannot: streamed text appended into the assistant row that already exists,
+    a tool card's growing output tail, a late image/mermaid/highlight resolve, and an estimated
+    row height being replaced by its real measured one. Do NOT reintroduce an app-level
+    "scroll again after it grew" effect — it runs after the fact and always loses a frame.
+  - **Deciding whether to follow at all is `timeline/bottom-anchor.ts`** (pure, unit-tested) driven
+    by `features/chat/use-bottom-anchor.ts` (listeners + `ResizeObserver`). One boolean, two
+    rules: a **user gesture** (`wheel`/`touchmove`/`pointerdown`/`keydown`, matched to the scroll
+    it causes by a 500ms window) that lands further than `AT_BOTTOM_THRESHOLD_PX` from the bottom
+    detaches; any scroll back within that distance re-attaches. A scroll no gesture produced must
+    NEVER detach: the previous controller derived the flag from raw scroll position on every
+    event, so a virtualizer correction, a StrictMode re-attach, or the `scrollTop` a
+    `display:none` tab restores when it is shown again silently killed following for the rest of
+    the turn, with no user input at all.
+  - **A hidden tab can neither be measured nor scrolled.** Live-verified: under `display:none` the
+    scroller reports `clientHeight`/`scrollHeight`/`scrollTop` as `0` and **ignores `scrollTop`
+    writes**. So `isLaidOut()` gates every metric-derived decision, pinned state is simply held
+    across the hidden period, and the anchor re-asserts the bottom on the `ResizeObserver`'s
+    0→real-height transition. That observer — not a `visible` prop threaded through `PanelProps` —
+    is deliberate: pane splits, divider drags, workspace switches, window resizes and the mobile
+    keyboard all change the same box, and this keeps the fix local to the one scroller that cares.
+  - **`estimateSize` is a real median (160px), not a placeholder minimum.** Every unmeasured row
+    is estimated with it, so the further it sits from reality the further a restored
+    conversation's first jump-to-bottom lands from the true bottom (measured rows in a live
+    session ranged 51–571px; the old `48` under-estimated by ~3.4× and was the visible half of
+    "resuming a conversation doesn't scroll all the way down").
+  - **One scroller element for both the empty and populated states.** Rendering a different
+    `div` per branch would detach/re-attach the virtualizer and its listeners on a chat's first
+    message. `.root` exists because the jump-to-latest button cannot live inside the scroller (an
+    absolutely-positioned child of a scroll container scrolls away with the content).
+  - Consequence worth knowing: while pinned, expanding the **last** tool card scrolls to the end
+    of its newly revealed body rather than its header — the anchor cannot distinguish growth the
+    user clicked for from growth the agent streamed, and special-casing one of them is what made
+    the previous design unmaintainable.

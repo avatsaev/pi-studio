@@ -255,16 +255,29 @@ explorer for directories.
 - **Native:** an inverted list (bottom = offset 0); the live head + auxiliary render at the visual bottom;
   older-history spinner at the top; near-bottom threshold small (~32px); pulling toward the oldest edge
   loads older history.
-- **Web:** a normal-order scroll with partial virtualization when history is long (older items become
-  height-estimated placeholders; the most recent ≥50 items are real and the mounted window snaps back to a
-  user-message boundary). Near-bottom = distance-from-bottom ≤ threshold.
-- A **bottom-anchor controller** is a frame-scheduled state machine with `sticky-bottom` and `detached`
-  modes: route requests (initial entry / resume) and local requests (jump-to-bottom / message-sent)
-  trigger a scroll-to-bottom attempt with a verification + bounded retry pass; it blocks until authoritative
-  history is ready and the viewport/content are measurable; it stays pinned through content growth and
-  detaches when the user scrolls away beyond a small delta while nothing is pending. Native adds settling
-  frames on keyboard/viewport changes.
-- A floating **scroll-to-bottom** button (round chevron-down) fades in when not near bottom.
+- **Web (as shipped):** a normal-order fully-virtualized scroll (`@tanstack/react-virtual` over the row
+  model, variable-size rows measured on mount/resize). Partial virtualization with height-estimated
+  placeholders for older items and a user-message-aligned mounted window is NOT implemented; every row is a
+  real measured row, and older history is hydrated to completion at restore rather than paged in on scroll.
+  Near-bottom = distance-from-bottom ≤ 64px (`AT_BOTTOM_THRESHOLD_PX`).
+- The **bottom-anchor controller** is split along the line of what an effect can do, rather than being one
+  frame-scheduled retry machine:
+  - Staying pinned through *content growth* (streamed text appended into an existing row, a growing tool
+    output tail, a late image/mermaid/highlight resolve, an estimated height replaced by its measured one)
+    is the virtualizer's `anchorTo: "end"`, applied inside its own resize handling before paint. Its
+    `scrollEndThreshold` is the same 64px the controller uses, so "at the end" means one thing.
+  - Whether to follow at all is one boolean with two rules: **only a user gesture detaches** (a
+    `wheel`/`touchmove`/`pointerdown`/`keydown`-caused scroll landing beyond the threshold), **only
+    proximity re-attaches** (any scroll back within it). Route requests (initial entry / resume) and local
+    requests (jump-to-bottom / the user's own new message) pin unconditionally. A scroll no gesture caused
+    never detaches, which is what removes the need for a verification/retry pass: no programmatic scroll,
+    StrictMode re-attach, or restored offset can turn following off.
+  - A hidden pane (`display:none`) reports every scroll metric as 0 and ignores `scrollTop` writes, so
+    decisions are gated on the viewport being laid out, pinned state is held across the hidden period, and
+    the bottom is re-asserted on the viewport's 0→real-height transition (a `ResizeObserver`, which also
+    covers pane resize, divider drags and window/keyboard changes). Native adds settling frames on
+    keyboard/viewport changes.
+- A floating **scroll-to-bottom** button (round, arrow-down) fades in while detached.
 - Empty state: centered muted "Start chatting with this agent…".
 - On web, expanding a tool card disables the parent list scroll and blocks wheel propagation so the nested
   detail captures the wheel.

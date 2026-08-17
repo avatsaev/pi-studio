@@ -1201,7 +1201,8 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 >
 > **(b) It is absolutely positioned.** A 2px flex child would shift the virtualized timeline down on
 > every `turn_started` and back up on every terminal event — a `measureElement` re-measure and a
-> fight with stick-to-bottom autoscroll (`Timeline.tsx`'s "grew" effect) for a decorative element.
+> fight with the timeline's bottom-anchor controller (`timeline/bottom-anchor.ts`;
+> `Timeline.tsx`'s `anchorTo: "end"`/`ResizeObserver` re-stick) for a decorative element.
 > Absolute over the viewport's own `--pi-spacing-16` top padding covers no content and reflows
 > nothing, while keeping § 05's mount/unmount semantics exactly.
 >
