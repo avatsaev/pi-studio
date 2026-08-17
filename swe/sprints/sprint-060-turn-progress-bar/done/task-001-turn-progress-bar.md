@@ -1,7 +1,7 @@
 # Task 001 — `TurnProgressBar`: indeterminate 2px sweep at the top of the chat panel
 
 - **Sprint:** sprint-060-turn-progress-bar
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (chat)
 - **Priority:** P1

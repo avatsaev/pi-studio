@@ -1,7 +1,7 @@
 # Task 003 — Docs sync + cross-variant / reduced-motion / a11y verification sweep
 
 - **Sprint:** sprint-060-turn-progress-bar
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs + test
 - **Area:** packages/web-client, swe/features
 - **Priority:** P1

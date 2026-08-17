@@ -1,3 +1,7 @@
+.panel {
+  position: relative;
+}
+
 .empty {
   display: flex;
   align-items: center;

@@ -236,9 +236,15 @@ explorer for directories.
 ### Turn grouping, spacing & footers
 - **Turn timing:** a turn starts at a user message and ends before the next user message; per assistant
   message records start/complete/duration. While the agent is running, the in-flight turn is not flushed.
-- **Running footer:** a spinner (amber) + a live elapsed timer (ticks ~10×/s).
+- **Running footer:** a spinner (amber) + a live elapsed timer (ticks ~10×/s). **`packages/web-client` does
+  not implement this** — it renders `TurnProgressBar` instead: a single indeterminate 2px accent bar
+  mounted absolutely at the top of the pane (under the tab strip) for the duration of the running turn,
+  replacing any row-level running affordance (sprint-060; see `swe/design/redesign 0.1.0/Redesign Handoff
+  Spec.dc.html` § 05 for the visual source of truth). No spinner or elapsed timer renders in the timeline.
 - **Completed footer:** attaches under the last assistant message of a finished turn; shows a copy button +
   "Worked for <duration>" that swaps to the end timestamp on hover (web) / tap-reveal (native).
+  **`packages/web-client` does not implement this either** — no completed-turn footer, duration, or copy
+  affordance renders; the timeline ends at the last row.
 - **Block grouping & gaps:** consecutive assistant messages sharing a block group collapse spacing
   (inter-block gap 12). Gap rules: user→user 4; tool-seq→tool-seq 0 (packed); user→tool-seq 16;
   assistant↔tool-seq 4; same assistant block group 12; default 16. When a completed footer attaches to a
@@ -309,7 +315,11 @@ copy button with a brief "Copied" confirmation.
       bordered treatments per detail type.
 - [ ] A multi-sequence tool call renders as one item; tool-sequence rows pack tightly.
 - [ ] A completed turn shows "Worked for <duration>" (→ end timestamp on hover); a running turn shows a live
-      elapsed timer.
+      elapsed timer. **Not implemented in `packages/web-client`** — see "Turn grouping, spacing & footers"
+      above.
+- [x] `packages/web-client` mounts a top-mounted indeterminate 2px `TurnProgressBar` for the duration of a
+      running turn and unmounts it on completion — no elapsed timer, no "Worked for" completed footer
+      (sprint-060).
 - [ ] Permission prompts render in the live area with Deny/Accept (question/plan variants) and respond with
       a spinner + timeout.
 - [ ] Code blocks/diffs/file previews are syntax-highlighted and keep the mono font under a custom UI font.

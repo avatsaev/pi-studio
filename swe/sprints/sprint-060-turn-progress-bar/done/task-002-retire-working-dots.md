@@ -1,7 +1,7 @@
 # Task 002 — Retire the working-dots indicator and settle the running empty state
 
 - **Sprint:** sprint-060-turn-progress-bar
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** packages/web-client (chat timeline)
 - **Priority:** P1

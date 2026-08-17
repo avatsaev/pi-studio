@@ -10,6 +10,7 @@ import type { Tab, ChatTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { Timeline } from "./Timeline.js";
 import { Composer } from "./Composer.js";
+import { TurnProgressBar } from "./TurnProgressBar.js";
 import styles from "./ChatPanel.module.css";
 
 export interface ChatPanelProps {
@@ -34,7 +35,8 @@ export function ChatPanel({ tab, owningPaneId }: ChatPanelProps) {
   }
 
   return (
-    <Panel>
+    <Panel className={styles.panel}>
+      <TurnProgressBar running={session.status === "running"} />
       <Timeline session={session} owningPaneId={owningPaneId} workspaceCwd={tab.workspaceCwd} />
       <Composer sessionId={session.id} />
     </Panel>

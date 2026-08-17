@@ -1,0 +1,72 @@
+/* TurnProgressBar — redesign spec § 05. Structure copied from the spec's own
+   `TurnProgressBar.module.css` reference block; `.track`'s `position` and `z-index` are the two
+   deliberate deviations:
+   - `position: absolute` + `inset-inline`/`top` (mount site decision) so mounting/unmounting the
+     bar never reflows the virtualized timeline beneath it (`ChatPanel` gives it a `position:
+     relative` host).
+   - `z-index: 1` — without it the bar is covered by `Timeline`'s rows: `Panel` never establishes
+     its own stacking context, and each virtualized row carries an inline `transform:
+     translateY(...)` (`Timeline.tsx`'s `.rowWrap`), which implicitly promotes it to a stacking
+     context at the same `z-index: auto` level as this absolutely-positioned track. With both at
+     the same implicit level, painting falls back to DOM order — and `Timeline` renders after this
+     component, so its rows would paint on top. An explicit z-index (matching the small local
+     values `MarkdownFileViewer.module.css`/`MoleculeViewer.module.css`/`TabStrip.module.css` use
+     for their own decorative overlays) pins the bar above any in-panel content regardless of DOM
+     order. */
+
+.track {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+  /* Design spec § 05 calls for `var(--pi-border-width-2)` (2px); bumped a touch per live review
+     feedback for better visibility. No `border-width-3` token exists and this is a one-off
+     geometry literal (same treatment as `.sweep`'s width/duration below), not a new scale rung. */
+  height: 3px;
+  background: color-mix(in srgb, var(--pi-color-accent) 22%, transparent);
+  overflow: hidden;
+}
+
+.sweep {
+  position: absolute;
+  inset-block: 0;
+  width: 38%;
+  left: -38%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--pi-color-accent) 35%,
+    color-mix(in srgb, var(--pi-color-accent) 75%, var(--pi-color-accentBright)) 50%,
+    var(--pi-color-accent) 65%,
+    transparent
+  );
+  animation: sweep 1.5s linear infinite;
+}
+
+@keyframes sweep {
+  from {
+    left: -38%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep {
+    animation: none;
+    width: 100%;
+    left: 0;
+    opacity: var(--pi-opacity-50);
+  }
+}
+
+/* Off-screen live region — same recipe as `Dialog.module.css`'s `.visuallyHidden`. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

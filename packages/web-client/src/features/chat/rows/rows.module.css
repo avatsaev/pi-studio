@@ -164,6 +164,10 @@
   border-color: color-mix(in srgb, var(--pi-color-accent) 45%, transparent);
 }
 
+.toolCardBodyCompleted {
+  border-color: color-mix(in srgb, var(--pi-color-statusSuccess) 45%, transparent);
+}
+
 .toolCardBodyError {
   border-color: color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
 }

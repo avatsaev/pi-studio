@@ -293,10 +293,12 @@ src/
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
-    chat/                   ChatPanel, Timeline, Composer (bordered card: textarea + bottom
-                            action toolbar), ModelMenu (that toolbar's model-selector searchable
-                            popup, sprint-043 — see AGENTS.md § Invariants "Model selector"),
-                            CommandMenu (composer's `/` slash-command popup — see
+    chat/                   ChatPanel, Timeline, TurnProgressBar (indeterminate 2px running-turn
+                            bar, mounted absolutely at the top of ChatPanel — see AGENTS.md
+                            § Invariants "Turn progress bar"), Composer (bordered card: textarea +
+                            bottom action toolbar), ModelMenu (that toolbar's model-selector
+                            searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
+                            selector"), CommandMenu (composer's `/` slash-command popup — see
                             AGENTS.md § Invariants "Slash-command picker") + slash-commands.ts
                             (pure token/filter/apply logic, unit-tested), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
@@ -1142,6 +1144,18 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   visible (and its tab reopens) across a refresh/reconnect for as long as nobody explicitly closes
   it or deletes it. Only `closeTab`'s `discardIfEmpty` (above) or an explicit delete ever removes
   one.
+
+- **Turn progress bar (sprint-060).** `TurnProgressBar.tsx` (`features/chat/`) is the running
+  affordance — one indeterminate bar per pane, mounted absolutely at the top of `ChatPanel`
+  (`position: absolute`; `ChatPanel` gives it a `position: relative` host) so its mount/unmount
+  never reflows the virtualized `Timeline` beneath it or disturbs stick-to-bottom autoscroll.
+  Trigger is `session.status === "running"`, read straight off the store — not a local
+  `turn_started` listener — which is what makes a mid-turn page reload show it immediately (the
+  hydrated daemon status `use-session-restore.ts` sets, before any stream event arrives) instead of
+  waiting for the next event. It replaced the prior "Agent is working…" bouncing-dots indicator
+  (`Timeline.tsx`), retired in the same sprint. Every new CSS animation in this codebase MUST carry
+  its own `@media (prefers-reduced-motion: reduce)` override, local to that module — there is no
+  shared motion utility and none should be added for a single override.
 
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through

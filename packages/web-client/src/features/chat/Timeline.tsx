@@ -143,18 +143,7 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
   if (rows.length === 0) {
     return (
       <div className={styles.viewport} ref={scrollRef}>
-        {running ? (
-          <div className={styles.working} role="status" aria-live="polite">
-            <span className={styles.workingDots} aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-            Agent is working…
-          </div>
-        ) : (
-          <div className={styles.empty}>No messages yet — say something to start.</div>
-        )}
+        {!running && <div className={styles.empty}>No messages yet — say something to start.</div>}
       </div>
     );
   }
@@ -184,16 +173,6 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
           );
         })}
       </div>
-      {running && (
-        <div className={styles.working} role="status" aria-live="polite">
-          <span className={styles.workingDots} aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          Agent is working…
-        </div>
-      )}
     </div>
   );
 }

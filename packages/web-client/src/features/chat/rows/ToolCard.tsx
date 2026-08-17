@@ -130,6 +130,7 @@ export function ToolCard({
         className={clsx(
           styles.toolCardBody,
           row.status === "running" && styles.toolCardBodyRunning,
+          row.status === "completed" && styles.toolCardBodyCompleted,
           row.status === "error" && styles.toolCardBodyError,
         )}
       >
