@@ -40,6 +40,13 @@ export default defineConfig(() => {
           // Split large vendor libraries into their own chunks so the main
           // entry stays small and framework code caches independently.
           manualChunks(id) {
+            // Vite's dynamic-import preload helper (virtual module, no node_modules in its id).
+            // Left to Rollup's default placement it lands inside whichever vendor chunk happens
+            // to reference it first (was: vendor-highlight), making every other chunk that uses
+            // a dynamic import depend on that chunk — the final edge of a vendor-highlight ->
+            // vendor-markdown -> vendor -> vendor-highlight circular-chunk cycle (see below).
+            // Pin it into the base `vendor` chunk that everything already imports.
+            if (id.includes("vite/preload-helper")) return "vendor";
             if (!id.includes("node_modules")) return undefined;
             if (
               id.includes("react-markdown") ||
@@ -48,7 +55,18 @@ export default defineConfig(() => {
               id.includes("mdast") ||
               id.includes("hast") ||
               id.includes("unist") ||
-              id.includes("unified")
+              id.includes("unified") ||
+              // Not caught by the patterns above, but only ever pulled in by the markdown/KaTeX
+              // pipeline (rehype-katex; property-information via hast-util-*; vfile/vfile-message
+              // via unified). Left in the default `vendor` bucket they created a circular chunk
+              // import (vendor <-> vendor-markdown) — e.g. vfile-message imports
+              // unist-util-stringify-position back out of vendor-markdown — which Rollup resolves
+              // with the wrong module init order in production builds: `Cannot access '<var>'
+              // before initialization` on load. Dev-mode Vite serves unbundled ESM and never
+              // hits this, so it only reproduces in built output (`pi-studio web`/vite preview).
+              id.includes("property-information") ||
+              id.includes("rehype-katex") ||
+              id.includes("vfile")
             ) {
               return "vendor-markdown";
             }
