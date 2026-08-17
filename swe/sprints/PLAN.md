@@ -87,8 +87,11 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 055 | `sprint-055-provider-auth-rpc` | protocol + daemon (no client, no CLI): the **daemon-side half** of provider auth — five flat RPC pairs (`provider_auth_list`/`login`/`respond`/`cancel`/`logout`) plus a `provider_auth_flow_event` per-session push, letting a browser or relay-remote client authenticate a model provider **on the daemon host**, which is the only place credentials are useful (that is where `pi --mode rpc` children spawn and read `auth.json`). Sprint-054 closed the same gap for someone with a shell on that machine; this closes it for everyone else. The inversion is the work: Pi drives login by *calling back* (`notify(event)` synchronous, `prompt(p): Promise<string>`), so the daemon parks the promise, pushes an event, and resolves it from a later RPC — with one flow per session, a 10-min TTL, opaque `not_found` for cross-session access, and disconnect-cancels-flow riding `SessionSubscriptions`'s existing close hook for free. Three planning-time source findings reshaped the scope doc before any task was written: a handler **cannot choose an `rpc_error` code** (only `unknown_message_type`/`handler_error` exist, from a module-private sender), so domain failures use `{ ok, error }` payloads per `file_watch_subscribe_response`'s precedent; `checkAuth()` really can hang (sprint-054 shipped a 3 s bound degrading to `"unknown"`); and Pi's own `login()` races `interaction.signal` and throws its **own** `AbortError`, so cancellation must be judged by `signal.aborted`, never by error type. Lazy `import()` of `ModelRuntime` is **not** a startup win here (the daemon already statically imports the package via `session-hydration.ts`) — it exists so a daemon whose Pi runtime fails to construct still boots and serves everything else, retrying on the next call. Production bootstrap only; `dev-bootstrap.ts` stays mock-only, so the dev daemon answers `unknown_message_type` with no `if (dev)` branch anywhere. | 5 |
 | 056 | `sprint-056-extensions-sync-engine` | server only (no protocol, no client, no CLI): the **engine half** of curated preinstalled Pi extensions — a fresh install runs a bare `pi`, and every user repeats the same manual hunt through `pi.dev/packages`. The daemon now ensures a curated set is present in the bundled Pi's global settings: one `core` pack of 7 **unpinned** npm sources, installed once via `pi install` and then left alone forever. Unpinned is forced, not lazy — `pi update` skips pinned npm specs (`if (!parsed.pinned)`, pi 0.84.1 `package-manager.js:840`), so a Pi-Studio pin would permanently exclude that extension from the user's own updater. The whole design is one rule: **sync installs an identity exactly once, ever**; `offered`-as-intent plus a byte-compare against what sync last wrote means a `pi remove` sticks forever and any hand-edit transfers ownership permanently, so a user who also runs `pi` standalone never fights the daemon over `settings.json`. Failure isolation is a hard requirement, not a nicety: one 404/401/timeout/crashing-postinstall never aborts the run, never blocks the other packages, and never fails the sync — `partial` is a normal end state. Fire-and-forget after the WS listener binds, so readiness is never delayed; `dev-bootstrap` deliberately untouched. Kill switch is one config key or one env var. Task 001 front-loads the five open `TODO(verify)` probes against the live pi CLI because the path-parity guarantee (install location == the dir spawned agents load from) is the one unverified assumption every later task is built on. Pack **selection** ships fully built with nothing yet to select — `core` is implicit, `swe`/`science`/`data` are comments awaiting a pure data edit. The RPC/SDK/CLI surface is sprint-057. | 6 |
 | 057 | `sprint-057-extensions-cli-rpc` | protocol + daemon + client + cli: the **surface half** of curated preinstalled extensions. Sprint-056's engine is fully functional but only reachable by hand-editing `config.json` or exporting env vars — nobody discovers a feature that has no command. This adds two flat RPC pairs (`extension_packs_list`/`_set`), an `extensionPacks` feature flag, two `PiStudioClient` methods, and `pi-studio extensions list/select/sync`. Three findings shape it. **(a)** The daemon has **no config writer at all** — only the CLI writes `config.json` (`setDaemonPassword`, `persistRelayEnvOverrides`), so persisting a selection is new capability with a real trap: `loadConfig` returns `overlayEnv(file, env)`, so persisting the *loaded* config would bake every `PI_STUDIO_*` override permanently onto disk, turning a one-shot `PI_STUDIO_EXTENSIONS_AUTOSYNC=false` into a permanent kill switch. Task 002 isolates a raw-file read-merge-write for exactly that reason, and its headline test asserts env vars never reach the file. **(b)** `bootstrap.ts` loads config **once** into long-lived services, so a handler that only persists to disk leaves the running daemon syncing the *old* selection until restart — invisibly, since the file looks right. The service owns both halves. **(c)** `set` returns only after its sync completes, which on a first run exceeds the SDK's default 30 s `rpcTimeoutMs`; the CLI passes 600 s explicitly rather than widening `runRpc`, so the flagship first-run command can't print "timed out" while installs are actually succeeding. `list --local` runs the pure planner in-process with no daemon (mirroring the `auth` group) — which contradicts root `AGENTS.md`'s cli→server "no runtime imports" sentence, so task 005 must amend that sentence or drop the flag, explicitly. Exit codes stay dumb: `0` on `ok`/`noop`, error otherwise — the earlier draft's carve-out died with the private package that motivated it. | 6 |
+| 058 | `sprint-058-tool-output-streaming` | server + protocol + web-client + cli: **live in-flight tool output**. A long-running tool call is silent dead air today — Pi streams `tool_execution_update` with the *accumulated* partial result, but the event mapper drops it, so a `ToolCard` for a 2-minute `npm test` shows a bare `running` badge until the tool ends, indistinguishable from a hang. The design is deliberately minimal: **no new event kind**. Partials ride the existing `tool_call` event with `status: "running"` plus one new optional `partial: true` field, because the client's `mergeTool()` already replaces `output` with the latest non-empty value per `callId` — an unmodified client renders streamed output with zero changes, and an old daemon simply never sends partials. Snapshots are **ephemeral**, exactly like `queue_update`: broadcast with no `seq` (already optional on the wire), never appended to the timeline, never in fetched history, never in the provider's replay buffer — `projectRows` collapses a tool call into one item anyway, so persisting superseded snapshots would pay storage and frame cost for data discarded at projection time. Because each snapshot is accumulated rather than a delta, coalescing is lossless: a per-`callId` throttle (200 ms leading+trailing, latest-wins) with a 64 KiB **tail** cap bounds rate and frame size. Two traps found while scoping carry their own tasks: `outputOf` reads `result.content`, but update events carry `partialResult.content`, so left unchanged the feature silently produces empty snapshots; and a trailing-edge timer firing after `tool_execution_end` regresses the card's badge from `completed` back to `running`, since `onToolCall` derives status from the latest event — cancellation on the terminal event is an acceptance criterion with its own race test, not a footnote. Also closes a spec-vs-code contradiction found in passing: `queue_update` is *specified* as never-persisted but is appended like everything else; it joins the same ephemeral branch (safe — a row's `queued` flag is set only by the client-local optimistic echo, so replayed history never needs one cleared). A post-planning adversarial review added three fixes the first pass missed, all at the edges of the consumer set and terminal states: the CLI's `agent watch`/`attach` print one line per stream event and would spam ~600 duplicate lines per long tool (new task 006 suppresses partials at the subscription site, both render modes); a canceled/failed turn never delivers `tool_execution_end`, leaving the row `running` and the tail pinned forever (task 005 closes open tool rows on turn terminal — also fixing the pre-existing stale-badge defect); and a terminal event with empty output would leave the last partial masquerading as final, diverging from a post-reload hydration (task 005 makes terminal `output` authoritative). | 7 |
+| 059 | `sprint-059-chat-timeline-redesign` | web-client only: the **chat timeline** half of the 0.1.0 UI redesign (`swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html`), and the first of six PRs from that handoff spec. The timeline stops being a chat-bubble log and becomes a threaded event rail: a 20px gutter with an 18px disc per row and a continuous connector, full-width content, and a meta line replacing the uppercase `.who` label. The assistant row loses its bubble entirely; the user's becomes an `inline-block` accent-tinted one that hugs short prompts; reasoning goes frameless italic with a `final` chip; the tool card is rebuilt around a kind badge (READ/EDIT/SHELL/…), the tool's full primary field, inline status, a `surface0` `output · N lines` strip, and `+N −N` diff counts with an open-file affordance. **Nothing is invented:** every row maps 1:1 onto a `TimelineRow` the reducer already produces — no plan/checklist row, no batched action log, neither of which exists in `AgentStreamEvent` (and neither of which this codebase ever built). **No new tokens and no protocol work:** every value in the mock already exists in `theme/tokens.ts`/`colors.ts`, verified rung by rung during planning. Two token traps drive real decisions rather than footnotes: `success` aliases the accent on dark variants, so every green signal uses `statusSuccess` (else the WRITE badge is indistinguishable from READ), and the `zinc` variant's near-white accent means content on accent fills must use `accentForeground`, never a hardcoded white. Free-form wire status is the third: `reducer.ts` collapses it to `running`/`completed`/`error`, so the raw string rides along as `statusText` for the card to render unknown values as muted text instead of mislabelling them `running`. Display logic that deserves a test lands in pure `.ts` modules (no jsdom, per project convention); the components stay thin and are verified in a real browser across `dark`/`light`/`zinc`, compact width, and a live streaming turn | 5 |
+| 060 | `sprint-060-turn-progress-bar` | web-client only: the **turn-progress indicator** from § 05 of the same 0.1.0 handoff spec — the top-of-chat loading bar, taken out of § 05 ahead of the rest of that section because it is the one piece with no dependency on the composer/`ModelMenu` move. An indeterminate 2px bar (track `accent` 22%, a 38%-wide accent→`accentBright` gradient sweeping on a 1.5s linear loop) appears across the top of a chat pane's body for exactly as long as that pane's session is running, and retires the "Agent is working…" bouncing dots that `sprint-059/task-002` deliberately kept alive until this sprint existed. Three planning decisions the mock could not make: the bar mounts at the top of **`ChatPanel`**, not in pane chrome (`TabPanelHost` already lays each panel out directly beneath its pane's `TabStrip`, `ChatPanel` already holds the session, and § 06's pane-header sprint rewrites that chrome — a chrome mount would collide with it); it is **absolutely positioned**, because a 2px flex child would reflow the virtualized timeline on every `turn_started` and fight stick-to-bottom autoscroll for a decorative element; and its trigger is **`session.status === "running"`** rather than a `turn_started` listener, which is both exactly § 05's mount rule (`hooks/agent-stream-events.ts:32-43` maps the four turn events onto status) and the only version that survives a mid-turn page reload (`use-session-restore.ts:151` hydrates the daemon's own status). Also the codebase's first `prefers-reduced-motion` block (§ 05 specifies the static fallback) and the first a11y-parity question of the redesign: the dots were a `role="status"` live region, so the bar must expose the running state by name instead of silently dropping it. No protocol change, no new token, no new scale key — `--pi-border-width-2` and `--pi-opacity-50` already exist, and durations stay CSS literals because this project has no motion-token family and § 07 forbids inventing scale keys. § 05's queue chips, the composer/`ModelMenu` move and stripping `StatusBar`'s model chip are **not** here — they are the composer sprint. | 3 |
 
-Total: **55 sprints, 274 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **58 sprints, 289 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -1010,6 +1013,230 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-005 | `pi-studio extensions list/select/sync`: status table (incl. `attempts` when > 1) + `--json`, per-failure lines + retry footer, 600 s per-call timeout, `sync` sends the packs-less manual request so it works under `autoSync: false`, exit `0` on `ok`/`noop` only, feature-flag guard, `--local` in-process planner reusing the shared pi-home derivation + the root `AGENTS.md` boundary amendment | feature | task-001, task-003 | packages/cli (extensions-commands + test, program); AGENTS.md (root); features/preinstalled-extensions; features/cli |
 | task-006 | Offline in-process list→set(with packs)→set(without packs)→list integration test using `bootstrap.test.ts`'s raw-socket idiom (incl. seeded failure ⇒ `partial`), eight-step live run proving `pi remove`/hand-pin non-interference and the ungated manual sync through the real CLI, plus the four-file docs sweep | test + docs | task-001, task-002, task-003, task-004, task-005 | packages/server, packages/cli (integration); AGENTS.md (root, protocol, server, cli); features/preinstalled-extensions |
 
+### sprint-058-tool-output-streaming
+> **The gap.** Pi emits `tool_execution_update` while a tool runs, carrying the accumulated partial
+> result — and the mapper drops it (`event-mapper.ts`'s deliberate ignore list). So a `ToolCard` for a
+> long `npm test`/build shows a bare `running` badge with nothing under it until the tool ends. This
+> is the one place the current UX actively misleads: a working turn and a hung one look identical.
+>
+> **The design is one optional field, and that is the whole point.** A new event `kind` was rejected:
+> the client's `mergeTool()` already replaces `output` with the latest non-empty value per `callId`, so
+> partials riding the existing `tool_call` event render on an **unmodified** client, while an old
+> daemon simply never sends them. A new kind would need a new case in every consumer before anything
+> appeared at all. `partial: true` marks delivery, not the tool call — it is never stored on the row.
+>
+> **Ephemeral is a storage decision, not a shortcut.** Partials are broadcast with no `seq` (already
+> optional on the wire), never appended to the timeline, never in fetched history, never in the
+> provider's replay buffer. `projectRows` collapses a whole tool-call lifecycle into one projected item
+> regardless, so persisting superseded snapshots would pay storage + frame cost for rows discarded at
+> projection time. Accumulated-not-delta is what licenses this: dropping an intermediate snapshot
+> loses nothing, which is also what makes the 200 ms per-`callId` throttle lossless rather than lossy.
+>
+> **Two traps found by reading the real code, each with its own task and its own test:**
+>
+> **(a) `outputOf` reads `result.content`; update events carry `partialResult.content`.** Left
+> unchanged the mapper produces a perfectly well-formed event stream with *empty* output — the exact
+> class of silent-empty-detail bug this codebase has hit before. Task 002 asserts both readers.
+>
+> **(b) A trailing-edge timer can outrun the terminal event.** `onToolCall` derives row status from the
+> latest event received, so a partial flushing after `tool_execution_end` regresses the badge
+> `completed` → `running` and leaves it wrong for the session. A naive throttle wrapper has exactly
+> this bug, so task 003 makes terminal-cancels-pending an acceptance criterion with a dedicated race
+> test, and turn-terminal/session-close cancel everything.
+>
+> **A spec-vs-code contradiction closed in passing.** `timeline-streaming.md` specifies `queue_update`
+> as ephemeral and never in fetched history; the subscriber appends it like everything else. It joins
+> the same branch this sprint introduces. Verified safe rather than assumed: a row's `queued` flag is
+> set only by the client-local optimistic echo (`addOptimisticUserMessage`), so a replayed history
+> never contains a queued row needing a `queue_update` to clear it.
+>
+> **Scope discipline.** Coalescing lives with the Pi adapter (chattiness is a provider trait, and the
+> history buffer is there too); `agent-service` gets only the persistence branch. Deliberately *not*
+> in scope: the other four candidate events from the same audit (auto-retry visibility, compaction
+> indicator, usage/cost, `toolcall_start` placeholder) — each is its own scope doc if wanted.
+>
+> **A post-planning adversarial review** (spec cross-checked claim-by-claim against the live source)
+> added three fixes, all in the two categories the first pass under-sampled — consumer-set edges and
+> terminal states: (1) the CLI's `agent watch`/`attach` render one line per stream event and would
+> print the same `[shell running] …` line ~5×/s for a long tool, in both text and `--json` modes →
+> new task 006 suppresses partials at the subscription site (the guard cannot live in
+> `formatStreamEvent`: `--json` bypasses it); (2) `onTurnCanceled`/`onTurnFailed` only finalize
+> assistant/reasoning rows, so an aborted tool keeps `status: "running"` forever — today a stale
+> badge, with the tail rule a permanently pinned block → task 005 closes open tool rows on turn
+> terminal (new client-local `"canceled"` status); (3) `mergeTool` keeps prior non-empty fields, so a
+> terminal event with empty output would leave the last partial rendered as final while a reload
+> shows nothing → task 005 makes terminal `output` authoritative (taken verbatim, other fields still
+> merge). Verified sound in the same pass, no action: no zod parse boundary strips `partial` at
+> runtime (`daemon-client.ts` only `JSON.parse`s); the web client reads `seq` only from fetch pages,
+> never live frames; the only other `session.subscribe` consumers are the providers' terminal-kind
+> watchers.
+>
+> Tasks 002+003 (pi adapter), 004 (agent-service + mock), 005 (web-client), and 006 (cli) touch
+> disjoint files and may all run concurrently once task 001 lands; 007 gates the sprint.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: optional `partial` on the `tool_call` branch (+ confirm `agent_stream.seq` is already optional, so the ephemeral shape needs no schema change); schema comment records the producer/consumer contract — no `seq`, never persisted, supersede-not-accumulate | feature | none | packages/protocol (messages + test); features/tool-output-streaming; architecture/websocket-protocol |
+| task-002 | Pi mapper: `tool_execution_update` → `tool_call` `{status:"running", partial:true}`; `outputOf` reads `result.content ?? partialResult.content` (both directions tested); mapper stays pure/stateless — no throttling | feature | task-001 | packages/server (agent/providers/pi/event-mapper + test); features/tool-output-streaming; features/agent-providers |
+| task-003 | Per-`callId` coalescer module (injected clock/timers): 200 ms leading+trailing latest-wins throttle, 64 KiB **tail** cap on a character boundary, terminal-event **and** turn-terminal/session-close cancellation, partials excluded from `history`/`streamHistory()` | feature | task-002 | packages/server (agent/providers/pi/tool-output-coalescer + test, agent + test); features/tool-output-streaming |
+| task-004 | `agent-service` ephemeral branch: partial `tool_call` **and** `queue_update` broadcast with daemon-owned `timestamp` but no `seq` and no `timeline.append`; mock provider emits accumulated partials so the path is testable offline | feature | task-001 | packages/server (agent/agent-service + tests, agent/providers/mock); features/tool-output-streaming; features/timeline-streaming |
+| task-005 | web-client: pure tail helper (last 12 lines) + `ToolCard` live tail while `running` (bounded height, survives manual expand across status change); reducer **regression locks** — replace-not-accumulate, detail preserved, no `partial` on the row, no query invalidation for partials; **turn-terminal closes open tool rows** (`turn_canceled`→`"canceled"` (new client-local status), `turn_failed`→`"error"` — also fixes the pre-existing stale-badge defect); **terminal `output` is authoritative** (taken verbatim incl. absent/empty, so live view equals post-reload hydration; other fields still merge) | feature | task-001 | packages/web-client (ToolCard, rows.module.css, row-model, reducer, timeline tail helper + tests); features/tool-output-streaming; features/timeline-rendering |
+| task-006 | CLI: `agent watch`/`attach` suppress `partial: true` events at the subscription site — before the render-mode branch, since `--json` bypasses `formatStreamEvent`; fetch-based `agent log` structurally unaffected (partials never in pages); no richer CLI streaming rendering | feature | task-001 | packages/cli (agent-commands + test); features/tool-output-streaming; features/cli |
+| task-007 | Cross-layer offline integration test (partial frames carry no `seq`; persisted rows are start+end only; fetched page has one `tool_call` item; live and authoritative paths converge through the reducer, enforced by task 005's terminal-output authority) + live Pi run recording observed partial rate, cap triggering, a mid-tool interrupt closing the card as `canceled`, and a parallel `agent watch` printing no duplicates + six-file docs sweep incl. removing `tool_execution_update` from `docs/agent-stream-events.md`'s ignored list | test + docs | task-001, task-002, task-003, task-004, task-005, task-006 | packages/server (integration); docs/agent-stream-events; AGENTS.md (root, protocol, server, web-client, cli); features/tool-output-streaming |
+
+### sprint-059-chat-timeline-redesign
+> **Where this comes from.** `swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html` is a handoff
+> spec for a six-part web-client redesign. Its own § 07 sequence is: sidebar → **timeline/ToolCard**
+> → composer+ModelMenu → queue chips+TurnProgressBar → FileExplorer chrome → pane headers. This
+> sprint takes the timeline slice first by explicit user decision; the others are separate sprints.
+> The handoff HTML stays the single visual source of truth — deliberately **not** forked into a
+> markdown copy under `swe/features/`, which would drift on contact.
+>
+> **The redesign is a re-skin, not a re-model.** Every visual row maps 1:1 onto a `TimelineRow` the
+> reducer already produces. § 04 explicitly forbids a plan/checklist row and a merged "agent actions"
+> log because neither exists in `AgentStreamEvent` — and neither was ever built here, so there is
+> nothing to delete. No protocol change, no new event, no new token: every color, rung, radius and
+> spacing key the mock uses was checked against `theme/tokens.ts`/`colors.ts` during planning and
+> already exists (the one candidate addition, a `26` spacing key, belongs to the Files-panel sprint
+> and is optional even there).
+>
+> **Three findings shape the tasks, each grounded in the live source:**
+>
+> **(a) `success` is not green on dark variants.** `theme/colors.ts:246` aliases `success` to the
+> theme accent, so a `success`-tinted WRITE badge is indistinguishable from an accent-tinted READ
+> badge — invisible on the default theme, obvious on none. Every green signal uses `statusSuccess`.
+> Its sibling: the `zinc` variant's accent is near-white, so content on an accent fill must use
+> `accentForeground` (`colors.ts:226,289`), never a hardcoded white. Both rules outlive this sprint —
+> the sidebar's selected-session row hits the identical trap — so task 005 writes them into
+> `packages/web-client/AGENTS.md` rather than leaving them as sprint folklore.
+>
+> **(b) Tool status is free-form on the wire, an enum in the client.** `messages.ts:289` types it
+> `z.string().optional()`; `reducer.ts:130-131` collapses everything that is not `completed`/`error`
+> into `"running"`. § 04 requires unknown values to render as plain muted text — impossible from the
+> normalized enum alone, and actively wrong today (an `awaiting_approval` tool reads as `running`).
+> Task 001 keeps the enum (it drives border/wash treatment) and carries the raw string alongside it
+> as `statusText`. Additive and optional, so no existing consumer changes.
+>
+> **(c) The connector cannot be a CSS `:last-child`.** Rows are virtualized
+> (`Timeline.tsx:148-162`), so the last *mounted* element is routinely not the last row — a CSS-only
+> termination would drop the thread mid-conversation. Position is passed explicitly from the map,
+> where the index and length are already in hand. Same reason the rail lives inside each row rather
+> than as a viewport overlay: `measureElement` then needs no change at all.
+>
+> **Task split follows the project's test convention, not cosmetics.** Vitest runs node-only with no
+> jsdom, so anything worth asserting — badge/tint mapping, diff `+N −N`, output line counts, the
+> status passthrough — is a pure module in task 001 with real tests, and the components that consume
+> it stay thin enough to verify in a browser. Tasks 002→003→004 are strictly sequential (each builds
+> on the shared `RowShell`); 005 gates the sprint.
+>
+> **Cross-sprint note — and the agreed running order.** `sprint-058/task-005` (planned, unstarted)
+> edits four of the same files: it adds a live output tail, a client-local `"canceled"` status, and
+> terminal-output authority. The changes are complementary (a field vs. a union member; chrome vs.
+> behavior), and **059 runs first** — decided deliberately, not by arrival order:
+> - Merge cost is one-directional. 058/task-005 would build its tail into chrome that 059/task-004
+>   then demolishes; reversed, the tail lands in a card already built to receive it. Only 058-first
+>   pays twice, and only for placement — the tail helper, reducer locks and terminal-state fixes are
+>   untouched by the redesign either way.
+> - 059 unblocks the five remaining redesign sprints (`RowShell`, the `--kindToken` badge recipe, the
+>   `statusSuccess`/`accentForeground` rules); 058 unblocks nothing downstream.
+> - 059 is web-client-only and browser-verifiable; 058 spans protocol + server + CLI with a coalescer
+>   race to get right. Low blast radius first.
+>
+> The one argument the other way — that the redesign spec never covers in-flight output, so 059-first
+> pushes an uncovered visual decision into a behavior task — is closed rather than accepted: task-004
+> now ships the output *region* as a distinct element with its running-state treatment specified, so
+> 058's tail inherits a designed slot. `"canceled"` likewise lands as one entry in a status-keyed
+> lookup.
+>
+> **058's value need not wait.** Its tasks 001-004 + 006 (protocol, mapper, coalescer, agent-service,
+> CLI suppression) touch no redesign file, and by 058's own core tenet an unmodified client already
+> renders streamed output — verified: partials merge into `tool.output` via `mergeTool`, and
+> `toolBody` already emits it as a section, so the server half alone makes *expanded* cards
+> live-update with zero client work. Running that half early (in parallel, even) and deferring only
+> 058/task-005 + 007 until after this sprint is a supported option; it fragments one sprint's
+> execution, which deviates from one-sprint-at-a-time, so annotate 058 if it is taken.
+>
+> **Shipped as a follow-up, not deferred:** the mock's `09:41:12` meta-line timestamps — revised
+> during implementation to `"Mon D, HH:MM"` (date included, no seconds; a chat session commonly
+> spans multiple days, and the mock's bare time is ambiguous once that happens) rendered in a
+> dimmed span that reaches full opacity on hover, not always-on (user correction after the mock was
+> implemented literally). Landed after
+> sprint-059 closed — `AgentTimelineStore`'s per-row `timestamp` now survives `projectRows()`'s
+> `ProjectedItem` collapse, `PiStudioAgentStreamHandler` forwards it as a second `meta` argument on
+> `timeline.subscribe`, and `flattenTimelineItems()` pairs each hydrated event with the timestamp of
+> the row that introduced it (only the first chunk of a merged assistant/reasoning/tool-call group —
+> later deltas never move it). `UserRow`/`AssistantRow`/`ReasoningRow` render it via
+> `timeline/format-meta-time.ts` inside `RowShell.module.css`'s `.metaTime` (`opacity: 0.55`,
+> `.shellRow:hover` → `1`); `ToolCard` and the sidebar still show none, per the design spec.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Pure presentation logic: per-kind badge label + single tint token (`statusSuccess` for `write`, `task` treatment as the unknown-kind fallback), unified-diff `+N −N` counts, output line-count summary, full-primary-field accessor; plus `statusText` on `ToolRow` carrying the wire's free-form status so unknown values render as text instead of collapsing to `running` | feature | none | packages/web-client (tool-mapping, row-model, reducer + tests); design spec § 02,§ 04; features/timeline-rendering |
+| task-002 | `RowShell`: 20px rail with an 18px disc and a `surface3` connector, full-width content column (`min-width:0`), meta line replacing the uppercase `.who` label; connector termination passed from the virtualized map, never `:last-child`; `SystemRow` (centered, rail-less) and `ErrorRow` (destructive-tinted card, explicitly non-terminal) converted as the first consumers | feature | none | packages/web-client (RowShell, Timeline, rows.module.css, SystemRow, ErrorRow); design spec § 04,§ 07; features/timeline-rendering |
+| task-003 | Prose rows on the shell: user `inline-block` accent bubble that hugs short prompts (pending/failed/queued preserved, `failed` retinted off its solid destructive fill), assistant frameless with no bubble and no left border, reasoning frameless italic with a `final` chip; one shared block caret element replacing the `▍` glyph and its `blink` keyframes, reduced-motion aware; `accentForeground` on every accent fill | feature | task-002 | packages/web-client (UserRow, AssistantRow, ReasoningRow, rows.module.css); design spec § 04,§ 07; features/timeline-rendering |
+| task-004 | `ToolCard` rebuild: kind badge via a one-token `--kindToken` recipe (text/bg/border from one token, three `color-mix` ratios), full primary field with ellipsis, per-status treatment (running accent border+wash with the `Spinner` primitive, `✓ completed` in `statusSuccess`, destructive error, unknown → muted `statusText`), `surface0` `output · N lines` strip, `edit` diff preview with `+N −N` expanding to the existing `DiffView`, and an `Open` affordance dispatching `openFileTab` through `resolveFileOpenTarget` (requires threading pane/cwd props into the row) | feature | task-001, task-002 | packages/web-client (ToolCard, rows.module.css, Timeline); design spec § 04,§ 07; features/timeline-rendering |
+| task-005 | Dead-style sweep (bubble fills, `align-self`, `max-width:85%`, `.who`, `blink`/`▍`) verified by usage search not by eye; reduced-motion audit across every timeline animation; the two token rules written into `packages/web-client/AGENTS.md`; `features/timeline-rendering.md` resynced so it stops describing right-aligned bubbles the client no longer renders; then § 07's pre-ship list — theme tests, all six variants with `light`/`zinc` checked deliberately, compact width, long-string ellipsis, and a live streaming turn | chore + docs + test | task-001, task-002, task-003, task-004 | packages/web-client (CSS modules, AGENTS.md); features/timeline-rendering; design spec § 07 |
+
+### sprint-060-turn-progress-bar
+> **Where this comes from.** § 05 of the same 0.1.0 handoff spec
+> (`swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html`) covers three things: the composer +
+> `ModelMenu` move, queue chips, and the turn-progress bar. Only the bar is here. The other two are
+> composer work (§ 07 sequences the composer move as step 3 and pairs the chips with it), while the
+> bar touches nothing the composer owns — so it ships on its own, immediately after the timeline
+> sprint whose placeholder it retires.
+>
+> **It closes a loop sprint-059 deliberately left open.** `sprint-059/task-002` and `task-005` both
+> kept the "Agent is working…" bouncing dots alive and named "the TurnProgressBar sprint" as their
+> owner, precisely so no commit would land a timeline with no running affordance. Task 001 here adds
+> the bar; task 002 deletes the dots — in that order, for the same reason.
+>
+> **Three decisions the mock could not make, each grounded in this app's layout:**
+>
+> **(a) The bar mounts at the top of `ChatPanel`, not in pane chrome.** § 05 says "directly under the
+> tab strip", which in this app is already where a chat panel's own top edge sits:
+> `TabPanelHost.tsx:118-127` renders one `TabStrip` per pane and `:162-184` lays each panel out in a
+> rect below it. `ChatPanel` also already holds the session, so no plumbing is needed — whereas a
+> chrome mount would need the pane's active-tab session resolved in `TabPanelHost` and would collide
+> with § 06's pane-header sprint, which rewrites exactly that chrome.
+>
+> **(b) It is absolutely positioned.** A 2px flex child would shift the virtualized timeline down on
+> every `turn_started` and back up on every terminal event — a `measureElement` re-measure and a
+> fight with stick-to-bottom autoscroll (`Timeline.tsx`'s "grew" effect) for a decorative element.
+> Absolute over the viewport's own `--pi-spacing-16` top padding covers no content and reflows
+> nothing, while keeping § 05's mount/unmount semantics exactly.
+>
+> **(c) The trigger is `session.status === "running"`, not a `turn_started` listener.**
+> `hooks/agent-stream-events.ts:32-43` already maps the four turn events onto store status, so status
+> *is* § 05's rule — and it additionally covers what a local listener cannot:
+> `use-session-restore.ts:151` hydrates the daemon's own `agent.status`, so a reload during a live
+> turn shows the bar at once instead of waiting for the next event.
+>
+> **No new tokens, no protocol work, no test infrastructure.** `--pi-border-width-2` and
+> `--pi-opacity-50` already exist (`theme/tokens.ts:100-111`) — the spec's own CSS writes
+> `var(--pi-opacity-50)` for its "40%" prose, and adding a `40` key would be the scale churn § 07
+> forbids. Durations stay CSS literals: there is no motion/duration token family and existing CSS
+> already carries raw `1.2s`/`0.7s`. The component is a status-keyed render with no pure logic worth a
+> unit test, so it is verified in a real browser per project convention.
+>
+> **The a11y parity trap.** The dots are a `role="status"`/`aria-live` region whose **text** is what a
+> screen reader speaks. An indeterminate progressbar has no value to announce, so swapping that text
+> for an `aria-label` would silently delete the announcement while looking like a faithful port — the
+> bar keeps a visually-hidden live region alongside `role="progressbar"` (reusing `Dialog.module.css`'s
+> existing `.visuallyHidden` recipe), and the acceptance criterion is that a reader still *announces*
+> the turn, not merely that the element has a name.
+>
+> **Not a reduced-motion first, despite appearances.** `packages/web-client/src` has zero
+> `prefers-reduced-motion` blocks today, but sprint-059/task-003 adds one for the streaming caret and
+> task-005 audits every timeline animation — both land before this sprint runs. So this task follows
+> 059's established shape rather than inventing a second idiom, which is also why task 002's deletion
+> of `workingBounce` has to expect an override 059 may have added around it.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `TurnProgressBar` + styles + `ChatPanel` mount: indeterminate 2px bar (22% accent track, 38%-wide accent→`accentBright` gradient, 1.5s linear sweep) absolutely positioned across the top of the chat pane body, rendered only while `session.status === "running"`; `prefers-reduced-motion` holds it static full-width at `--pi-opacity-50` (that token's first CSS consumer — `token-integrity` only checks the reverse direction), following whatever media-query shape sprint-059 established rather than a second idiom; `role="progressbar"` (no `aria-valuenow`) **plus** a visually-hidden live region, because an `aria-label` alone would drop the announcement the dots' text region made | feature | none | packages/web-client (TurnProgressBar + module CSS, ChatPanel + module CSS); design spec § 05,§ 02,§ 07; features/timeline-rendering |
+| task-002 | Retire the working-dots indicator: delete both `Timeline.tsx` render sites (empty-state branch + sticky footer) and all of `Timeline.module.css:34-75` (`.working`, `.workingDots`, the `nth-child` delays, `workingBounce`), verified by usage search; a running session with an empty timeline renders an empty viewport rather than the "No messages yet" invitation, which is wrong mid-turn | chore | task-001 | packages/web-client (Timeline, Timeline.module.css); design spec § 05,§ 07 |
+| task-003 | Docs sync + § 07 pre-ship sweep: `TurnProgressBar` into `packages/web-client/AGENTS.md`'s `chat/` layout line plus invariants for the mount/trigger/reduced-motion rules; `features/timeline-rendering.md`'s "Running footer" (amber spinner + live elapsed timer) resynced to the shipped top-mounted bar with the reference-app behavior marked deliberately unimplemented; then theme tests, `dark`/`light`/`zinc`, compact width, reduced motion, accessibility tree, and a live streaming turn recorded as observed results | docs + test | task-001, task-002 | packages/web-client (AGENTS.md); features/timeline-rendering; design spec § 05,§ 07 |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, **except** one deliberately
@@ -1019,12 +1246,25 @@ sprint-055's wire contract, so it is planned after that contract exists).
 sprint-056 (server only) and the wire/SDK/CLI surface in sprint-057. Sprint-056 stands alone as a
 complete, controllable feature via `config.json` and the two env vars; sprint-057 makes it
 discoverable.
+`features/tool-output-streaming.md` is fully planned in sprint-058 (protocol field, Pi mapper +
+coalescer, ephemeral broadcast, web-client tail + terminal-state fixes, CLI watch suppression,
+E2E + docs) — it ships as one vertical slice because a partial event that is produced but not
+rendered, rendered but persisted, or persisted but spamming the CLI is worse than none.
+The 0.1.0 UI redesign (`swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html`) is a **design
+handoff, not a `swe/features/*.md` scope**, so it is tracked per-sprint rather than as a coverage
+row: sprint-059 implements its § 04 (chat timeline) and sprint-060 the turn-progress bar out of § 05.
+What remains unplanned is the sidebar, the rest of § 05 (composer + `ModelMenu` move, queue chips,
+`StatusBar`'s model chip), FileExplorer chrome, and pane headers — one sprint each when they are
+taken up. Sprint-059/task-005 and sprint-060/task-003 keep `features/timeline-rendering.md` honest
+against the new visual language (row treatments and the running footer respectively) rather than
+letting the shipped UI and the written scope diverge.
 
 | Scope file | Covered by |
 |------------|-----------|
 | features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition), s051/t005 (generalized N-capability composition) |
-| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt) |
-| features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001 |
+| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt), s058/t002-003 (mapper stops dropping `tool_execution_update`; per-`callId` coalescing lives with the adapter because chattiness is a provider trait) |
+| features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001, s058/t004 (second member of the ephemeral no-`seq` family, and the task that finally makes `queue_update`'s specified never-persisted status true in code), s058/t007 (live-vs-authoritative convergence exercised for a streamed tool call) |
+| features/tool-output-streaming.md | s058/t001-007 (optional `partial` field; mapper + `partialResult` reader; coalescer with terminal-cancellation; ephemeral broadcast + mock partials; `ToolCard` live tail + turn-terminal row closing + terminal-output authority; CLI watch suppression; cross-layer E2E + docs) |
 | features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004 |
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
 | features/worktrees.md | s003/t003, s008/t003, s011/t004, s013/t003 |
@@ -1039,7 +1279,7 @@ discoverable.
 | features/file-explorer-move.md | s046/t001-006; s047/t001 (trimmed-basename fix at the source), t005 (same-parent rename destination), t006 (docs: the anticipated affordance landed) |
 | features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
 | features/subagents.md | s005/t005, s014/t001, s016/t005 |
-| features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs); s057/t005 (`extensions` group: first command needing an explicit per-call RPC timeout, and first CLI runtime import of server modules for `--local`) |
+| features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs); s057/t005 (`extensions` group: first command needing an explicit per-call RPC timeout, and first CLI runtime import of server modules for `--local`); s058/t006 (`agent watch`/`attach` suppress ephemeral partial events — the guard sits at the subscription site because `--json` bypasses `formatStreamEvent`) |
 | features/provider-auth-cli.md | s054/t001-006 |
 | features/provider-auth-rpc.md | s055/t001-005 |
 | features/provider-auth-ui.md | not yet planned — consumes s055's wire contract, planned once it lands |
@@ -1048,14 +1288,14 @@ discoverable.
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
 | features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render) |
-| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render); s045/t004 (`img` markdown override), s051/t003 (`a` markdown override) |
+| features/timeline-rendering.md | s015/t001-005 (logic); s021/t001-003 (render); s045/t004 (`img` markdown override), s051/t003 (`a` markdown override), s058/t005 (tool card gains a live output tail while running — first row content that streams without being persisted), s059/t001-005 (0.1.0 redesign of the rendered timeline: gutter rail + meta lines, frameless assistant/reasoning, rebuilt tool card with kind badges and output strip; t005 resyncs this scope doc, whose row treatments still describe the reference app's right-aligned bubbles), s060/t001-003 (0.1.0 redesign's turn-progress indicator: top-of-pane indeterminate bar replaces the working-dots footer; t003 resyncs this scope doc's "Running footer" section, which still specifies the reference app's elapsed timer) |
 | features/inline-image-rendering.md | s045/t001-007; s051/t001-003 (amended: normalized/decoded classifier, pane-targeted click-to-open) |
 | features/file-link-rendering.md | s051/t001-006 |
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001, s056/t006 (fire-and-forget extensions sync after `httpServer.listen`, mirroring agent recovery; `dev-bootstrap` deliberately excluded) |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire), s058/t001,t004 (first *ephemeral* use of an existing event kind: an optional `partial` flag plus a deliberately omitted `seq` mark a frame as live-only, proving the append-only rules can carry a delivery-semantics change with no new message type) |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004, s056/t003 (`extensions-state.json`: atomic store whose corrupt-file fail-safe is a distinct `"unreadable"` result, never an empty state) |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
@@ -1141,3 +1381,13 @@ Carried from the scope; resolve against the live source while implementing the o
       prints an empty string; `terminal ls` renders a `title` column while entries carry `name`. Both in
       `packages/cli/src/feature-commands.ts`, both found while scoping s052, both deliberately out of
       scope there (CLI surface, unrelated to sizing) — needs its own small task.
+- [ ] Whether Pi's own `partialResult` truncation (`details.truncation`) already bounds snapshots
+      tightly enough that the daemon's 64 KiB tail cap effectively never triggers. Cosmetic either way
+      — the cap is a frame-size guard, not a correctness requirement — but the answer decides whether
+      the acceptance criterion is exercised by real traffic or only by a synthetic test — s058/t003,t006.
+- [ ] Observed real-world partial rate from `pi` for a chatty tool (a build, a test run). Decides
+      whether `PARTIAL_MIN_INTERVAL_MS = 200` is generous, tight, or irrelevant; recorded from the live
+      run rather than guessed — s058/t006.
+- [x] `queue_update` was specified as ephemeral/never-persisted (`timeline-streaming.md` § Timeline
+      model) but is appended to the timeline like any other event. Found while scoping s058; resolved
+      there by moving it onto the same ephemeral branch as partial `tool_call` frames — s058/t004.

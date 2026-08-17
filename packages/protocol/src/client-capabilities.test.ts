@@ -12,6 +12,9 @@ describe("capability flag sets", () => {
     expect(CLIENT_CAPS.custom_mode_icons).toBe("custom_mode_icons");
     expect(CLIENT_CAPS.reasoning_merge_enum).toBe("reasoning_merge_enum");
     expect(CLIENT_CAPS.terminal_reflowable_snapshot).toBe("terminal_reflowable_snapshot");
+    expect(CLIENT_CAPS.inline_image_markdown).toBe("inline_image_markdown");
+    expect(CLIENT_CAPS.file_link_markdown).toBe("file_link_markdown");
+    expect(CLIENT_CAPS.mermaid_diagram_markdown).toBe("mermaid_diagram_markdown");
   });
 
   it("exports SERVER_FEATURES keys", () => {

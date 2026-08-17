@@ -44,6 +44,14 @@ export interface UserRow {
    * ids — see `reducer.ts`'s `onQueueUpdate`). Never set on a normal (non-steered) send.
    */
   queued?: boolean;
+  /**
+   * Daemon-owned ISO-8601 timestamp of the row that introduced this message (the optimistic
+   * echo stamps `new Date().toISOString()` immediately on Send; the server's `user_message`
+   * broadcast overwrites it with the canonical value on confirmation). Undefined only if it
+   * arrived through a code path that predates this field (never happens for rows created going
+   * forward).
+   */
+  timestamp?: string;
 }
 
 export interface AssistantRow {
@@ -57,6 +65,8 @@ export interface AssistantRow {
    * must never outlive the block it describes.
    */
   streaming: boolean;
+  /** ISO-8601 timestamp of the row's first chunk (set once, at creation — never on later deltas). */
+  timestamp?: string;
 }
 
 export interface ReasoningRow {
@@ -65,6 +75,8 @@ export interface ReasoningRow {
   text: string;
   /** Same contract as `AssistantRow.streaming`. */
   streaming: boolean;
+  /** Same contract as `AssistantRow.timestamp`. */
+  timestamp?: string;
 }
 
 export interface ToolRow {
@@ -74,6 +86,13 @@ export interface ToolRow {
   callId: string;
   tool: ToolCallDetail;
   status: ToolCallStatus;
+  /**
+   * The wire's raw, free-form `tool_call.status` string (`messages.ts`'s `status: z.string()`),
+   * alongside the normalized `status` above. `status` still drives border/wash treatment; this
+   * carries provider-specific values (e.g. `"awaiting_approval"`) a card can render as plain text
+   * instead of collapsing them into `"running"`. Unset when no event for this row has carried one.
+   */
+  statusText?: string;
 }
 
 export interface ErrorRow {

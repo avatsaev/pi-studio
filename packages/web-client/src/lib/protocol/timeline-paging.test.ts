@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { fetchTimelineEvents, type TimelinePageLike } from "./timeline-paging.js";
 
 /** One "other" projected item carrying a user_message event, as the daemon returns it. */
-function userItem(text: string): unknown {
-  return { kind: "other", event: { kind: "user_message", messageId: text, text } };
+function userItem(text: string, timestamp?: string): unknown {
+  return { kind: "other", event: { kind: "user_message", messageId: text, text }, timestamp };
 }
 
 /** Build a fetch stub over fixed pages, recording the cursor each call received. */
@@ -25,10 +25,15 @@ function pager(pages: TimelinePageLike[]): {
 describe("fetchTimelineEvents", () => {
   it("returns a single page's events without asking for more", async () => {
     const { fetchPage, cursors } = pager([
-      { items: [userItem("a")], hasNewer: false, endCursor: "3" },
+      { items: [userItem("a", "2026-08-17T13:08:00.000Z")], hasNewer: false, endCursor: "3" },
     ]);
     const events = await fetchTimelineEvents(fetchPage);
-    expect(events).toEqual([{ kind: "user_message", messageId: "a", text: "a" }]);
+    expect(events).toEqual([
+      {
+        event: { kind: "user_message", messageId: "a", text: "a" },
+        timestamp: "2026-08-17T13:08:00.000Z",
+      },
+    ]);
     expect(cursors).toEqual([null]);
   });
 
@@ -39,11 +44,9 @@ describe("fetchTimelineEvents", () => {
       { items: [userItem("c")], hasNewer: false, endCursor: "485" },
     ]);
     const events = await fetchTimelineEvents(fetchPage);
-    expect(events.map((e) => (e.kind === "user_message" ? e.text : e.kind))).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(
+      events.map((e) => (e.event.kind === "user_message" ? e.event.text : e.event.kind)),
+    ).toEqual(["a", "b", "c"]);
     expect(cursors).toEqual([null, "199", "399"]);
   });
 

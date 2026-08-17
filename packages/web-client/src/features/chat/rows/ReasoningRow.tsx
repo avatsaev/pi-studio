@@ -1,31 +1,57 @@
 /**
- * Reasoning row — dimmer/italic styling, visually distinct from assistant replies (POC
- * `.msg.reasoning`, POC_TO_APP_PLAN_UI.md §4.3). Streams as plain text with a cursor, same
- * rationale as `AssistantRow`.
+ * Reasoning row (design spec § 04, sprint-059/task-003) — italic, muted body visually distinct
+ * from assistant replies, with a muted rail disc and a small `final` chip on the meta line once
+ * the block closes. Streams as plain text with the shared block caret, same rationale as
+ * `AssistantRow`.
  */
 
+import { Brain } from "lucide-react";
+import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
+import { formatMetaTime } from "@pi-studio-ui/timeline/format-meta-time.js";
 import type { ReasoningRow as ReasoningRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
+import { RowShell } from "./RowShell.js";
+import shellStyles from "./RowShell.module.css";
 import styles from "./rows.module.css";
 
 export interface ReasoningRowProps {
   row: ReasoningRowModel;
   owningPaneId?: string | null;
   workspaceCwd?: string | null;
+  /** Draw the rail connector below this row. `false` on the timeline's last row. */
+  connector: boolean;
 }
 
-export function ReasoningRow({ row, owningPaneId = null, workspaceCwd = null }: ReasoningRowProps) {
+export function ReasoningRow({
+  row,
+  owningPaneId = null,
+  workspaceCwd = null,
+  connector,
+}: ReasoningRowProps) {
+  const time = formatMetaTime(row.timestamp);
   return (
-    <div className={`${styles.row} ${styles.reasoning}`}>
-      <span className={styles.who}>thinking</span>
-      {row.streaming ? (
-        <span className={styles.streamingText}>
-          {row.text}
-          <span className={styles.cursor}>▍</span>
-        </span>
-      ) : (
-        <Markdown text={row.text} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />
-      )}
-    </div>
+    <RowShell
+      disc={<Icon icon={Brain} size="xs" color="var(--pi-color-foregroundMuted)" />}
+      discClassName={styles.reasoningDisc}
+      connector={connector}
+      meta={
+        <>
+          Reasoning
+          {time && <span className={shellStyles.metaTime}> · {time}</span>}
+        </>
+      }
+      metaTrailing={!row.streaming && <span className={styles.finalChip}>final</span>}
+    >
+      <div className={styles.reasoningBody}>
+        {row.streaming ? (
+          <span className={styles.streamingText}>
+            {row.text}
+            <span className={styles.caret} />
+          </span>
+        ) : (
+          <Markdown text={row.text} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />
+        )}
+      </div>
+    </RowShell>
   );
 }

@@ -46,6 +46,8 @@ export interface ToolCallItem {
   callId?: string;
   sourceSeqStart: number;
   sourceSeqEnd: number;
+  /** Timestamp of the group's first row (ISO-8601). */
+  timestamp: string;
   events: AgentStreamEvent[];
 }
 
@@ -53,12 +55,15 @@ export interface AssistantItem {
   kind: "assistant";
   sourceSeqStart: number;
   sourceSeqEnd: number;
+  /** Timestamp of the group's first row (ISO-8601). */
+  timestamp: string;
   events: AgentStreamEvent[];
 }
 
 export interface OtherItem {
   kind: "other";
   sourceSeq: number;
+  timestamp: string;
   event: AgentStreamEvent;
 }
 
@@ -89,6 +94,7 @@ export function projectRows(rows: TimelineRow[]): ProjectedItem[] {
         callId,
         sourceSeqStart: row.seq,
         sourceSeqEnd: (rows[j - 1] as TimelineRow).seq,
+        timestamp: row.timestamp,
         events: group,
       });
       i = j;
@@ -104,11 +110,12 @@ export function projectRows(rows: TimelineRow[]): ProjectedItem[] {
         kind: "assistant",
         sourceSeqStart: row.seq,
         sourceSeqEnd: (rows[j - 1] as TimelineRow).seq,
+        timestamp: row.timestamp,
         events: group,
       });
       i = j;
     } else {
-      items.push({ kind: "other", sourceSeq: row.seq, event: row.event });
+      items.push({ kind: "other", sourceSeq: row.seq, timestamp: row.timestamp, event: row.event });
       i++;
     }
   }

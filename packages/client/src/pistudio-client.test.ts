@@ -268,6 +268,25 @@ describe("PiStudioClient — agent create + stream", () => {
     expect(mine).toEqual(["reasoning"]);
   });
 
+  it("timeline.subscribe forwards the daemon-stamped timestamp/seq as meta", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const metas: unknown[] = [];
+    client.agent(created.agentId).timeline.subscribe((_e, meta) => metas.push(meta));
+    fake.push({
+      type: "agent_stream",
+      agentId: created.agentId,
+      event: { kind: "reasoning" },
+      timestamp: "2026-08-17T13:08:00.000Z",
+      seq: 3,
+    });
+    await Promise.resolve();
+    expect(metas).toEqual([{ timestamp: "2026-08-17T13:08:00.000Z", seq: 3 }]);
+  });
+
   it("delivers stream events when subscribed before the burst", async () => {
     const { client, daemon } = await makeFacade();
     const events: string[] = [];

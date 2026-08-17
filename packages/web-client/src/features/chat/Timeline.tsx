@@ -33,13 +33,14 @@ const STICK_THRESHOLD_PX = 40;
 
 function renderRow(
   row: TimelineRow,
+  isLast: boolean,
   assetBase: string | null,
   owningPaneId?: string | null,
   workspaceCwd?: string,
 ) {
   switch (row.kind) {
     case "user":
-      return <UserRow row={row} />;
+      return <UserRow row={row} connector={!isLast} />;
     case "assistant":
       return (
         <AssistantRow
@@ -47,14 +48,30 @@ function renderRow(
           assetBase={assetBase}
           owningPaneId={owningPaneId}
           workspaceCwd={workspaceCwd}
+          connector={!isLast}
         />
       );
     case "reasoning":
-      return <ReasoningRow row={row} owningPaneId={owningPaneId} workspaceCwd={workspaceCwd} />;
+      return (
+        <ReasoningRow
+          row={row}
+          owningPaneId={owningPaneId}
+          workspaceCwd={workspaceCwd}
+          connector={!isLast}
+        />
+      );
     case "tool":
-      return <ToolCard row={row} />;
+      return (
+        <ToolCard
+          row={row}
+          assetBase={assetBase}
+          owningPaneId={owningPaneId}
+          workspaceCwd={workspaceCwd}
+          connector={!isLast}
+        />
+      );
     case "error":
-      return <ErrorRow row={row} />;
+      return <ErrorRow row={row} connector={!isLast} />;
     case "system":
       return <SystemRow row={row} />;
   }
@@ -156,7 +173,13 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
               className={styles.rowWrap}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
-              {renderRow(row, assetBase, owningPaneId, workspaceCwd)}
+              {renderRow(
+                row,
+                virtualRow.index === rows.length - 1,
+                assetBase,
+                owningPaneId,
+                workspaceCwd,
+              )}
             </div>
           );
         })}

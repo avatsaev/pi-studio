@@ -250,6 +250,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/agent-sessions.md](features/agent-sessions.md)                 | feature      | Create/run/stop/resume agents; prompts, modes, models, thinking, attachments  |
 | [features/agent-providers.md](features/agent-providers.md)               | feature      | Pi provider adapter, modes/models/features, configuration                     |
 | [features/timeline-streaming.md](features/timeline-streaming.md)         | feature      | Append-only timeline, live stream, authoritative paged catch-up sync          |
+| [features/tool-output-streaming.md](features/tool-output-streaming.md)   | feature      | Live in-flight tool output: ephemeral coalesced `tool_call` partial snapshots (+ small protocol amendment) |
 | [features/tool-permissions.md](features/tool-permissions.md)             | feature      | Tool-call permission request/approve/deny flow                                |
 | [features/projects-workspaces.md](features/projects-workspaces.md)       | feature      | Project/workspace registries, reconciliation, open-project                    |
 | [features/worktrees.md](features/worktrees.md)                           | feature      | Pi-Studio-managed git worktrees, setup/teardown, auto-archive                 |
@@ -275,6 +276,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/timeline-rendering.md](features/timeline-rendering.md)         | feature (UI) | Per-row rendering, tool-call cards, diffs, markdown, autoscroll, footers      |
 | [features/inline-image-rendering.md](features/inline-image-rendering.md) | feature (UI) | Markdown images in chat resolved from local paths + capability-gated agent instruction |
 | [features/file-link-rendering.md](features/file-link-rendering.md)     | feature (UI) | Markdown file links in chat opened as an actionable file-tab dispatch + drag-to-split, capability-gated agent instruction |
+| [features/mermaid-diagram-rendering.md](features/mermaid-diagram-rendering.md) | feature (UI) | Fenced `mermaid` code blocks in chat rendered as live diagrams, capability-gated agent instruction |
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |

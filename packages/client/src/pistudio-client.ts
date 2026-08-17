@@ -43,7 +43,17 @@ import type { DaemonClient } from "./daemon-client.js";
 
 export type PiStudioAgentUpdateHandler = (update: AgentUpdateMessage) => void;
 export type PiStudioWorkspaceUpdateHandler = (update: WorkspaceUpdateMessage) => void;
-export type PiStudioAgentStreamHandler = (event: AgentStreamEvent) => void;
+/** Metadata carried alongside a live `agent_stream` event (daemon-owned, not provider-replayed). */
+export interface AgentStreamEventMeta {
+  /** ISO-8601 or epoch-millis timestamp the daemon stamped on this event's timeline row. */
+  timestamp?: string | number;
+  seq?: number;
+}
+
+export type PiStudioAgentStreamHandler = (
+  event: AgentStreamEvent,
+  meta: AgentStreamEventMeta,
+) => void;
 
 /** Shape of an inbound `agent_update` session message (append-only; passthrough). */
 export interface AgentUpdateMessage {
@@ -308,9 +318,15 @@ class TimelineHandle implements PiStudioAgentTimelineHandle {
 
   subscribe(handler: PiStudioAgentStreamHandler): () => void {
     return this.daemon.onSessionMessage((msg) => {
-      const m = msg as unknown as { type?: string; agentId?: string; event?: AgentStreamEvent };
+      const m = msg as unknown as {
+        type?: string;
+        agentId?: string;
+        event?: AgentStreamEvent;
+        timestamp?: string | number;
+        seq?: number;
+      };
       if (m.type === "agent_stream" && m.agentId === this.agentId && m.event) {
-        handler(m.event);
+        handler(m.event, { timestamp: m.timestamp, seq: m.seq });
       }
     });
   }

@@ -26,8 +26,12 @@ export function useAgentStream(sessionId: string): void {
   useEffect(() => {
     if (!client || !agentId) return;
 
-    const unsubscribe = client.agent(agentId).timeline.subscribe((event) => {
-      applyAgentStreamEvent({ sessionId, event, client, queryClient });
+    const unsubscribe = client.agent(agentId).timeline.subscribe((event, meta) => {
+      const timestamp =
+        typeof meta.timestamp === "number"
+          ? new Date(meta.timestamp).toISOString()
+          : meta.timestamp;
+      applyAgentStreamEvent({ sessionId, event, timestamp, client, queryClient });
     });
 
     return unsubscribe;

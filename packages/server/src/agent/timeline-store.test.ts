@@ -66,6 +66,7 @@ describe("projection collapse", () => {
       callId: "c1",
       sourceSeqStart: 0,
       sourceSeqEnd: 1,
+      timestamp: NOW,
     });
     expect(items[0]?.kind === "tool_call" ? items[0].events.length : 0).toBe(2);
   });
@@ -78,7 +79,12 @@ describe("projection collapse", () => {
     s.append(ev("turn_completed"));
     const items = projectRows(s.allRows());
     expect(items).toHaveLength(2); // merged assistant + turn_completed
-    expect(items[0]).toMatchObject({ kind: "assistant", sourceSeqStart: 0, sourceSeqEnd: 2 });
+    expect(items[0]).toMatchObject({
+      kind: "assistant",
+      sourceSeqStart: 0,
+      sourceSeqEnd: 2,
+      timestamp: NOW,
+    });
   });
 });
 
