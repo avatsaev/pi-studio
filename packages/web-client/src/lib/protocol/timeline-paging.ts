@@ -10,8 +10,7 @@
  * just never asked for the rest.
  */
 
-import type { AgentStreamEvent } from "@av-pi-studio/protocol";
-import { flattenTimelineItems } from "./events.js";
+import { flattenTimelineItems, type TimestampedEvent } from "./events.js";
 
 /** The subset of `FetchAgentTimelineResponse` paging needs (structural, so tests need no wire types). */
 export interface TimelinePageLike {
@@ -22,7 +21,7 @@ export interface TimelinePageLike {
 
 /**
  * Fetch forward from the start of the timeline until the daemon reports no newer rows, flattening
- * every page into one ordered `AgentStreamEvent[]` ready for `applyStreamEvent` replay.
+ * every page into one ordered `TimestampedEvent[]` ready for `applyStreamEvent` replay.
  *
  * `fetchPage` receives the cursor to resume from (`null` for the first page). Paging stops on
  * `hasNewer:false`, an empty page, or a cursor that fails to advance — the daemon's `endCursor` is
@@ -31,8 +30,8 @@ export interface TimelinePageLike {
  */
 export async function fetchTimelineEvents(
   fetchPage: (cursor: string | null) => Promise<TimelinePageLike>,
-): Promise<AgentStreamEvent[]> {
-  const events: AgentStreamEvent[] = [];
+): Promise<TimestampedEvent[]> {
+  const events: TimestampedEvent[] = [];
   let cursor: string | null = null;
 
   for (;;) {

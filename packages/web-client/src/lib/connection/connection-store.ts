@@ -87,6 +87,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       capabilities: {
         [CLIENT_CAPS.inline_image_markdown]: true,
         [CLIENT_CAPS.file_link_markdown]: true,
+        [CLIENT_CAPS.mermaid_diagram_markdown]: true,
       },
       transport,
       // The PiStudioClient facade has no per-call timeout override for

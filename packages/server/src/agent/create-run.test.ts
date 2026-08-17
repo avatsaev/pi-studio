@@ -4,6 +4,7 @@ import { AgentManager } from "./agent-manager.js";
 import { AgentService, getTimeline } from "./agent-service.js";
 import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
 import { FILE_LINK_INSTRUCTIONS } from "./file-link-instructions.js";
+import { MERMAID_DIAGRAM_INSTRUCTIONS } from "./mermaid-diagram-instructions.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
@@ -135,13 +136,18 @@ describe("create_agent_request", () => {
     expect(managed?.record.config?.model).toBe("picked-model");
   });
 });
-function fakeSession(options: { supportsInlineImages?: boolean; supportsFileLinks?: boolean }): {
+function fakeSession(options: {
+  supportsInlineImages?: boolean;
+  supportsFileLinks?: boolean;
+  supportsMermaid?: boolean;
+}): {
   supports: (flag: string) => boolean;
 } {
   return {
     supports: (flag) => {
       if (flag === CLIENT_CAPS.inline_image_markdown) return options.supportsInlineImages ?? false;
       if (flag === CLIENT_CAPS.file_link_markdown) return options.supportsFileLinks ?? false;
+      if (flag === CLIENT_CAPS.mermaid_diagram_markdown) return options.supportsMermaid ?? false;
       return false;
     },
   };
@@ -256,6 +262,33 @@ describe("capability-gated instruction composition (task-005)", () => {
     )) as Record<string, unknown>;
     const agentId = (result.payload as Record<string, unknown>).agentId as string;
     const expected = `${callerPrompt}\n\n${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(expected);
+  });
+
+  it("only mermaid_diagram_markdown advertised: persisted systemPrompt is the mermaid instruction, not image/file-link", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-mermaid-only", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({ supportsMermaid: true }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(MERMAID_DIAGRAM_INSTRUCTIONS);
+  });
+
+  it("all three advertised: all three blocks present, in stable order (image, file-link, mermaid)", async () => {
+    const { service, manager } = makeService();
+    const result = (await service.handleCreate(
+      { requestId: "req-all-three", config: { provider: "mock", cwd: "/w" } },
+      () => [],
+      fakeSession({
+        supportsInlineImages: true,
+        supportsFileLinks: true,
+        supportsMermaid: true,
+      }) as never,
+    )) as Record<string, unknown>;
+    const agentId = (result.payload as Record<string, unknown>).agentId as string;
+    const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}\n\n${MERMAID_DIAGRAM_INSTRUCTIONS}`;
     expect(manager.get(agentId)?.record.config?.systemPrompt).toBe(expected);
   });
 });

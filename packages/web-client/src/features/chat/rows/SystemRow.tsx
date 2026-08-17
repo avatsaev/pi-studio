@@ -1,6 +1,7 @@
 /**
- * System row — muted/italic styling (POC's `turn_canceled` "(canceled)" reasoning-styled bubble,
- * POC_TO_APP_PLAN_UI.md §4.3), used for canceled-turn markers and other system notices.
+ * System row — centered muted marker (design spec § 04's ROW/EVENT table), used for canceled-turn
+ * markers and other system notices. The one row kind that renders outside `RowShell` — it has no
+ * rail entry.
  */
 
 import type { SystemRow as SystemRowModel } from "@pi-studio-ui/timeline/row-model.js";
@@ -11,5 +12,5 @@ export interface SystemRowProps {
 }
 
 export function SystemRow({ row }: SystemRowProps) {
-  return <div className={`${styles.row} ${styles.system}`}>{row.text}</div>;
+  return <div className={styles.systemRow}>{row.text}</div>;
 }

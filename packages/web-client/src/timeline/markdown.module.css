@@ -44,19 +44,54 @@
   border-radius: var(--pi-radius-base);
   padding: 0.1em 0.35em;
 }
+/* Block math (`$$...$$`) can overflow a narrow chat column on long equations — same
+ * `overflow-x: auto` treatment as `.prose pre` above, not a horizontal page scrollbar. */
+.prose .katex-display {
+  margin: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Mermaid diagrams (`language-mermaid` fenced blocks, `MermaidBlock` in markdown.tsx) — themed
+ * via `mermaid-theme.ts`'s CSS-var passthrough, same convention as `<MolViewer>`'s theme prop.
+ * `overflow-x: auto` for the same reason as `.prose pre`/`.katex-display` above: a wide diagram
+ * scrolls inside the chat column instead of overflowing it. */
+.mermaid {
+  margin: 0.5em 0;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.mermaid svg {
+  max-width: 100%;
+}
+.mermaidError {
+  margin: 0.5em 0;
+}
+.mermaidErrorMessage {
+  margin: 0 0 0.25em;
+  color: var(--pi-color-destructive);
+  font-size: var(--pi-font-size-xs);
+}
 .prose table {
   border-collapse: collapse;
   margin: 0.5em 0;
 }
 .prose th,
 .prose td {
-  border: 1px solid var(--pi-color-border);
+  /* `surface3`, not `border` — `border` sits within 2 units of `surface2` for the `dark`
+   * (Paseo) tint and is byte-for-byte identical to it for `zinc`, so it renders invisibly once
+   * a table is inside the assistant bubble (`.assistantBody`, `rows.module.css`), which fills
+   * with `surface2`. `surface3` (already the rail connector's contrast token, `RowShell.tsx`)
+   * stays visible against every surface rung a table can land on. */
+  border: 1px solid var(--pi-color-surface3);
   padding: var(--pi-spacing-4) var(--pi-spacing-8);
 }
 .prose blockquote {
   margin: 0.5em 0;
   padding-left: var(--pi-spacing-10);
-  border-left: 2px solid var(--pi-color-border);
+  /* Same `surface3` fix as the table borders above — a blockquote's left rule is equally
+   * invisible against the `surface2` assistant bubble with the old `border` token. */
+  border-left: 2px solid var(--pi-color-surface3);
   color: var(--pi-color-foregroundMuted);
 }
 .prose ul,

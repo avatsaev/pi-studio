@@ -60,7 +60,12 @@ function onTurnStarted(state: TimelineState): TimelineState {
  * or a whole hydrated block — either way the text will not grow, so the row finalizes now rather
  * than at `turn_completed`, which is a whole tool loop away.
  */
-function onAssistantMessage(state: TimelineState, text: string, final: boolean): TimelineState {
+function onAssistantMessage(
+  state: TimelineState,
+  text: string,
+  final: boolean,
+  timestamp?: string,
+): TimelineState {
   const rows = state.rows.slice();
   finalizeRow(rows, state.streamingReasoningIndex); // POC: assistant_message clears currentReasoning
   let index = state.streamingAssistantIndex;
@@ -68,7 +73,13 @@ function onAssistantMessage(state: TimelineState, text: string, final: boolean):
     // A textless `final` marker with no open row has nothing to close — never open an empty row.
     if (!text)
       return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
-    const row: TimelineRow = { kind: "assistant", id: nextRowId(), text: "", streaming: true };
+    const row: TimelineRow = {
+      kind: "assistant",
+      id: nextRowId(),
+      text: "",
+      streaming: true,
+      timestamp,
+    };
     rows.push(row);
     index = rows.length - 1;
   }
@@ -83,14 +94,25 @@ function onAssistantMessage(state: TimelineState, text: string, final: boolean):
   };
 }
 
-function onReasoning(state: TimelineState, text: string, final: boolean): TimelineState {
+function onReasoning(
+  state: TimelineState,
+  text: string,
+  final: boolean,
+  timestamp?: string,
+): TimelineState {
   const rows = state.rows.slice();
   finalizeRow(rows, state.streamingAssistantIndex); // POC: reasoning clears currentBubble
   let index = state.streamingReasoningIndex;
   if (index === null || rows[index]?.kind !== "reasoning") {
     if (!text)
       return { ...state, rows, streamingAssistantIndex: null, streamingReasoningIndex: null };
-    const row: TimelineRow = { kind: "reasoning", id: nextRowId(), text: "", streaming: true };
+    const row: TimelineRow = {
+      kind: "reasoning",
+      id: nextRowId(),
+      text: "",
+      streaming: true,
+      timestamp,
+    };
     rows.push(row);
     index = rows.length - 1;
   }
@@ -139,7 +161,13 @@ function onToolCall(
   if (existingIndex !== undefined && rows[existingIndex]?.kind === "tool") {
     const row = rows[existingIndex];
     if (row.kind !== "tool") return state;
-    rows[existingIndex] = { ...row, tool: mergeTool(row.tool, event.tool), status };
+    const statusText = event.status ?? row.statusText;
+    rows[existingIndex] = {
+      ...row,
+      tool: mergeTool(row.tool, event.tool),
+      status,
+      ...(statusText !== undefined ? { statusText } : {}),
+    };
     return {
       ...state,
       rows,
@@ -148,7 +176,14 @@ function onToolCall(
     };
   }
 
-  const row: TimelineRow = { kind: "tool", id: nextRowId(), callId: key, tool: event.tool, status };
+  const row: TimelineRow = {
+    kind: "tool",
+    id: nextRowId(),
+    callId: key,
+    tool: event.tool,
+    status,
+    ...(event.status !== undefined ? { statusText: event.status } : {}),
+  };
   rows.push(row);
   return {
     ...state,
@@ -185,6 +220,7 @@ function onUserMessage(
   text: string,
   images?: Array<{ mimeType?: string; data?: string }>,
   messageId?: string,
+  timestamp?: string,
 ): TimelineState {
   // Reconcile against the optimistic row `Composer` inserted synchronously on Send (same
   // `clientMessageId`, echoed back verbatim by the daemon as this event's `messageId` — see
@@ -199,7 +235,15 @@ function onUserMessage(
       const rows = state.rows.slice();
       const prev = rows[idx];
       if (prev?.kind === "user") {
-        rows[idx] = { ...prev, text, images, pending: false };
+        // The server's broadcast carries the canonical timestamp — prefer it over the
+        // optimistic echo's client-clock guess.
+        rows[idx] = {
+          ...prev,
+          text,
+          images,
+          pending: false,
+          ...(timestamp !== undefined ? { timestamp } : {}),
+        };
         return { ...state, rows };
       }
     }
@@ -210,6 +254,7 @@ function onUserMessage(
     text,
     images,
     clientMessageId: messageId,
+    timestamp,
   };
   return { ...state, rows: [...state.rows, row] };
 }
@@ -232,16 +277,20 @@ function onQueueUpdate(state: TimelineState, steering: readonly string[]): Timel
 }
 
 /** Apply one `AgentStreamEvent` to timeline state. Pure — no mutation of the input. */
-export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent): TimelineState {
+export function applyStreamEvent(
+  state: TimelineState,
+  event: AgentStreamEvent,
+  timestamp?: string,
+): TimelineState {
   switch (event.kind) {
     case "turn_started":
       return onTurnStarted(state);
     case "user_message":
-      return onUserMessage(state, event.text ?? "", event.images, event.messageId);
+      return onUserMessage(state, event.text ?? "", event.images, event.messageId, timestamp);
     case "assistant_message":
-      return onAssistantMessage(state, event.text ?? "", event.final ?? false);
+      return onAssistantMessage(state, event.text ?? "", event.final ?? false, timestamp);
     case "reasoning":
-      return onReasoning(state, event.text ?? "", event.final ?? false);
+      return onReasoning(state, event.text ?? "", event.final ?? false, timestamp);
     case "tool_call":
       return onToolCall(state, event);
     case "turn_completed":
@@ -255,13 +304,18 @@ export function applyStreamEvent(state: TimelineState, event: AgentStreamEvent):
     case "queue_update":
       return onQueueUpdate(state, event.steering ?? []);
     default:
-      return state; // unknown/future kind — ignore gracefully (append-only protocol)
+      return state; // unknown/future kind - ignore rather than throw (append-only wire contract)
   }
 }
 
 /** Replay a whole ordered event list (session restore / timeline hydration) into fresh state. */
-export function replayEvents(events: readonly AgentStreamEvent[]): TimelineState {
-  return events.reduce(applyStreamEvent, EMPTY_TIMELINE);
+export function replayEvents(
+  events: readonly { event: AgentStreamEvent; timestamp?: string }[],
+): TimelineState {
+  return events.reduce(
+    (state, { event, timestamp }) => applyStreamEvent(state, event, timestamp),
+    EMPTY_TIMELINE,
+  );
 }
 
 /**
@@ -278,6 +332,7 @@ export function addOptimisticUserMessage(
   text: string,
   images?: Array<{ mimeType?: string; data?: string }>,
   queued?: boolean,
+  timestamp?: string,
 ): TimelineState {
   const row: TimelineRow = {
     kind: "user",
@@ -287,6 +342,7 @@ export function addOptimisticUserMessage(
     clientMessageId,
     pending: true,
     queued,
+    timestamp,
   };
   return { ...state, rows: [...state.rows, row] };
 }

@@ -27,6 +27,8 @@ export const CLIENT_CAPS = {
   inline_image_markdown: "inline_image_markdown",
   /** Client renders markdown links (`[label](path)`) whose target is a local filesystem path as an open-file action. */
   file_link_markdown: "file_link_markdown",
+  /** Client renders `language-mermaid` fenced code blocks as a live diagram (flowcharts, sequence diagrams, etc.). */
+  mermaid_diagram_markdown: "mermaid_diagram_markdown",
 } as const;
 
 export type ClientCapabilityKey = keyof typeof CLIENT_CAPS;

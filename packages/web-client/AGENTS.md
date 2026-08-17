@@ -469,6 +469,11 @@ entered at runtime, never baked into the image.
 
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
+- **`statusSuccess`, never `success`, for green signals.** `theme/colors.ts`'s `buildDarkColors`
+  aliases `success` to the accent color on dark variants, so a `success`-tinted element is
+  indistinguishable from an accent-tinted one there.
+- **`accentForeground`, never a hardcoded white, for content on an accent fill.** The `zinc`
+  variant's accent is near-white, so white text/icons on it are invisible.
 - **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
 - **Connection input is toolbar/URL-param, either a direct address or a pairing link** — the same
@@ -546,7 +551,7 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   - NEVER treat "this client has never sent a size" (`believedSizeRef === null`) as "not allowed to
     send one". That is the normal state of every **restored** terminal, whose PTY predates the client;
     conflating the two made restored terminals ignore divider drags and window resizes for their
-    entire life. An unknown belief counts as *differing*, because that PTY is usually still at its
+    entire life. An unknown belief counts as _differing_, because that PTY is usually still at its
     80×24 spawn default.
   - A `fit()` that lands on an unchanged grid emits no `onResize`, so `performRefit` reconciles
     explicitly after fitting — a panel that measured 0×0 while hidden would otherwise become visible
@@ -736,23 +741,23 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
 - **Files tree root row.** The workspace cwd is the tree's own first row (`file-tree.ts`'s
   `flattenTree` emits it; children start at depth 1), and it is collapsible — `explorer-store`'s
   `toggle` used to hard-refuse the root and `setRoot` used to force-add it to `expanded`; both
-  guards are gone, so `setRoot` now seeds a *never-visited* root expanded but restores a
+  guards are gone, so `setRoot` now seeds a _never-visited_ root expanded but restores a
   remembered set verbatim, letting a deliberately collapsed root survive a workspace switch. The
   row is deliberately special-cased at the `TreeNode` callsite in three ways, all of which would
   otherwise misfire on nearly every workspace: no git tint (the root inherits the status of
   anything changed beneath it, so it would be permanently lit), no dotfile/gitignored ghosting,
-  and `draggable={false}` (every legal drop target lives *inside* the root, so a root drag can
+  and `draggable={false}` (every legal drop target lives _inside_ the root, so a root drag can
   only ever be refused). Its context menu is the **background** variant — New File / New Folder /
   Copy path, never Rename/Delete.
 - **Tree row identity is `file-tree.ts`'s `rowKey`, NEVER `row.path`.** A `loading`/`error` row
-  carries its *directory's* path, so an expanded-but-unsettled directory emits two rows sharing
+  carries its _directory's_ path, so an expanded-but-unsettled directory emits two rows sharing
   one path. Before the root row existed that pair only appeared mid-tree and rarely collided
   visibly; now it is on screen during every workspace's first paint (root row + its own loading
   row). Feeding duplicate keys to `@tanstack/react-virtual`'s `getItemKey` makes React orphan one
   of the two nodes rather than replace it — the symptom is ghost text stacked on the root folder
   name that only clears on hover. `rowKey` prefixes the row kind; `file-tree.test.ts`'s `rowKey`
   suite pins uniqueness across every kind rendered at once. `row.path` remains the right key for
-  *semantic* comparisons (drop target, active file) — that is why `DraftRow.path` stays synthetic.
+  _semantic_ comparisons (drop target, active file) — that is why `DraftRow.path` stays synthetic.
 - **Steering (mid-turn injection).** While `session.status === "running"`, `Composer.tsx`'s primary
   action becomes **Steer** instead of **Send** (`send_agent_prompt` is only legal when idle) — Enter
   routes through `submit("steer")`, calling `client.agent(id).steer(prompt, {clientMessageId,
@@ -769,7 +774,7 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
   whichever flag matches the currently-rendered action (`running ? steering : sending`). All three
   actions are icon-only circular buttons in the composer toolbar (see next bullet): Send is
-  `ArrowUp`, Steer is `Navigation`, Stop is a `destructive` `Square` rendered *beside* the primary
+  `ArrowUp`, Steer is `Navigation`, Stop is a `destructive` `Square` rendered _beside_ the primary
   action while running, never replacing it.
 - **Composer layout: one card, one bottom toolbar.** `Composer.tsx` renders a bordered `.card`
   (`Composer.module.css`) holding the autosizing textarea, the `Attachments` strip, and a
@@ -878,7 +883,7 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     the claim back via `delete-entry.ts` — best-effort, so a failing delete never masks the upload
     error the user actually needs.
   - **The new tab joins THIS viewer's pane**, resolved via `useLayoutStore.paneOfTab(workspaceCwd,
-    tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded from
+tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded from
     `MoleculeViewerPanel`'s `tab`. Without it a build started in a background pane would fling its
     result into the focused one. A null pane needs no special case: `openMoleculeTab` treats an
     unknown pane id as "not supplied".
@@ -1030,6 +1035,28 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   unconditionally, alongside `inline_image_markdown`, same pattern — see
   `packages/server/AGENTS.md` § Agent subsystem for the daemon-side `composeSystemPrompt`
   composition both flags now share.
+
+- **Mermaid diagram rendering.** Sibling to inline image/file-link rendering, much simpler:
+  `timeline/markdown.tsx`'s `code` node-override (`CodeRenderer`) branches on the fenced block's
+  `language-xxx` tag — a `language-mermaid` block dispatches to `MermaidBlock` instead of the
+  existing Shiki `CodeBlock` path. `MermaidBlock` dynamically imports `mermaid` (same lazy-chunk
+  rationale as `@molviewer/core`'s vendor chunk — its parser/renderer is a few hundred KB nobody
+  should pay for until a message actually contains a diagram) and renders via
+  `mermaid.render(id, code)` into `dangerouslySetInnerHTML` — mermaid's own sanitized SVG output
+  (`securityLevel: "strict"`), not raw user HTML; invalid diagram syntax falls back to the raw
+  fenced code plus mermaid's own error message rather than losing the rest of the message.
+  **Theming is NOT a `var()` passthrough** like `<MolViewer>`'s (`molecule-theme.ts`) — mermaid's
+  `khroma` color engine computes derived shades in JS before any CSS reaches the DOM, so it cannot
+  resolve a `var(--pi-color-*)` reference. `timeline/mermaid-theme.ts#readMermaidThemeVariables`
+  reads pi-studio's live theme off `document.documentElement`'s COMPUTED custom properties instead,
+  handing mermaid concrete hex strings. Read once per diagram mount — a diagram already on screen
+  does not retheme without remounting if the user switches theme mid-session; accepted, not fixed.
+  **Capability gate:** `connection-store.ts` advertises `CLIENT_CAPS.mermaid_diagram_markdown`
+  unconditionally, alongside `inline_image_markdown`/`file_link_markdown` — see
+  `packages/server/AGENTS.md` § Agent subsystem for the daemon-side `composeSystemPrompt`
+  composition all three flags now share. Unlike the sibling features, client-side render dispatch
+  is unconditional on this flag — a `language-mermaid` block always renders as a diagram
+  regardless of what any connection advertised; the flag only gates the agent instruction.
 
 - **Model selector (sprint-043; lives in the composer's bottom toolbar) + eager draft
   materialization.**

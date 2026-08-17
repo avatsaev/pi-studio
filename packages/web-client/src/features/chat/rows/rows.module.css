@@ -1,61 +1,63 @@
-/* Shared timeline row styles (POC `.msg` family, POC_TO_APP_PLAN_UI.md §4.3). */
+/* Shared timeline row styles (POC `.msg` family, POC_TO_APP_PLAN_UI.md §4.3). `UserRow`/
+ * `AssistantRow`/`ReasoningRow` (sprint-059/task-003) and `ToolCard`/`ErrorRow`/`SystemRow`
+ * (task-002/004) all render on the shared `RowShell` gutter-rail scaffold now — none of them use
+ * a `.row`/`.who` bubble wrapper anymore. */
 
-.row {
-  padding: var(--pi-spacing-8) var(--pi-spacing-12);
-  border-radius: var(--pi-radius-md);
-  max-width: 85%;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-  font-size: var(--pi-font-size-sm);
-}
-
-.who {
-  display: block;
-  font-size: var(--pi-font-size-3xs);
-  color: var(--pi-color-foregroundMuted);
-  margin-bottom: var(--pi-spacing-3);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
+/* ─── Meta-line chips (shared by User/Reasoning rows' `RowShell` meta line) ──────────────────── */
 
 .queuedBadge {
   display: inline-flex;
   align-items: center;
   gap: var(--pi-spacing-2);
-  margin-left: var(--pi-spacing-6);
   padding: 0 var(--pi-spacing-4);
-  border-radius: var(--pi-radius-base);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-sm);
   font-size: var(--pi-font-size-4xs);
   font-weight: 600;
-  text-transform: none;
-  letter-spacing: normal;
-  vertical-align: middle;
-  background: rgba(20, 20, 24, 0.45);
-  color: #c7cbd1;
+  color: var(--pi-color-foregroundMuted);
 }
 
-/* ─── User ─────────────────────────────────────────────────────────────── */
-
-.user {
-  background: color-mix(in srgb, var(--pi-color-accent) 35%, var(--pi-color-surface1) 65%);
-  color: var(--pi-color-foreground);
-  align-self: flex-end;
-  border-bottom-right-radius: 2px;
+.finalChip {
+  padding: 0 var(--pi-spacing-4);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-sm);
+  font-size: var(--pi-font-size-4xs);
+  color: var(--pi-color-foregroundMuted);
 }
 
-.userPending {
+/* ─── User (design spec § 04 — shrink-to-fit accent bubble, not a `max-width` block) ──────────── */
+
+.userDisc {
+  background: color-mix(in srgb, var(--pi-color-statusSuccess) 65%, var(--pi-color-surface3));
+}
+
+.userAligned {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.userPendingRow {
   opacity: 0.6;
 }
 
-.userQueued {
-  opacity: 0.88;
+.userBubble {
+  display: inline-block;
+  max-width: 100%;
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-radius: var(--pi-radius-lg);
+  background: color-mix(in srgb, var(--pi-color-accent) 20%, var(--pi-color-surface1));
+  border: var(--pi-border-width-1) solid color-mix(in srgb, var(--pi-color-accent) 45%, transparent);
+  color: var(--pi-color-foreground);
+  font-size: var(--pi-font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.userFailed {
-  background: var(--pi-color-destructive);
-  color: var(--pi-color-destructiveForeground);
-  opacity: 1;
+.userBubbleFailed {
+  background: color-mix(in srgb, var(--pi-color-destructive) 20%, var(--pi-color-surface1));
+  border-color: color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
 }
 
 .userImages {
@@ -85,17 +87,20 @@
   object-fit: contain;
 }
 
-/* ─── Assistant ────────────────────────────────────────────────────────── */
+/* ─── Assistant (bubble like User's, but neutral surface2 fill — not accent-tinted like User's
+ * blue, so the two speakers stay visually distinct at a glance) ──────────────────────────────── */
 
-.assistant {
-  background: var(--pi-color-surface1);
-  color: var(--pi-color-foreground);
-  align-self: flex-start;
-  border-bottom-left-radius: 2px;
+.assistantDisc {
+  background: var(--pi-color-accent);
 }
 
-.assistant.streaming {
-  border-left: 2px solid var(--pi-color-accent);
+.assistantBody {
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-radius: var(--pi-radius-lg);
+  background: var(--pi-color-surface2);
+  border: var(--pi-border-width-1) solid var(--pi-color-surface3);
+  font-size: var(--pi-font-size-sm);
+  line-height: 1.5;
 }
 
 .streamingText {
@@ -103,57 +108,100 @@
   word-break: break-word;
 }
 
-.cursor {
+/* Shared streaming caret (User/Assistant/Reasoning rows) — a styled element, not the `▍` glyph;
+ * § 07's no-glyph rule. Blinks by default; `prefers-reduced-motion: reduce` holds it static. */
+.caret {
   display: inline-block;
-  margin-left: var(--pi-spacing-1);
-  animation: blink 1s step-start infinite;
-  color: var(--pi-color-accentBright);
+  width: var(--pi-spacing-7);
+  height: var(--pi-spacing-14);
+  margin-left: var(--pi-spacing-2);
+  vertical-align: text-bottom;
+  background: var(--pi-color-accentBright);
+  animation: caretBlink 1s step-start infinite;
 }
 
-@keyframes blink {
+@keyframes caretBlink {
   50% {
     opacity: 0;
   }
 }
 
-/* ─── Reasoning ────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
+}
 
-.reasoning {
-  background: var(--pi-color-background);
-  color: var(--pi-color-foregroundMuted);
+/* ─── Reasoning (design spec § 04 — italic muted body, `final` chip once the block closes) ────── */
+
+.reasoningDisc {
+  background: var(--pi-color-surface3);
+}
+
+.reasoningBody {
+  /* A touch dimmer than plain `foregroundMuted` (user feedback) — mixed toward transparent
+   * rather than a new token, so it fades with whatever surface it sits on. */
+  color: color-mix(in srgb, var(--pi-color-foregroundMuted) 82%, transparent);
   font-style: italic;
-  font-size: var(--pi-font-size-xs);
-  align-self: flex-start;
+  font-size: var(--pi-font-size-2xs);
+  line-height: 1.5;
 }
 
 /* ─── Tool ─────────────────────────────────────────────────────────────── */
 
-.tool {
+.toolDisc {
+  background: var(--pi-color-surface3);
+}
+
+.toolCardBody {
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-lg);
   background: var(--pi-color-surface1);
-  border: 1px solid var(--pi-color-border);
-  align-self: flex-start;
-  font-size: var(--pi-font-size-xs);
-  max-width: 90%;
-  padding: 0;
   overflow: hidden;
+}
+
+.toolCardBodyRunning {
+  border-color: color-mix(in srgb, var(--pi-color-accent) 45%, transparent);
+}
+
+.toolCardBodyError {
+  border-color: color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
 }
 
 .toolHeader {
   display: flex;
   align-items: center;
-  gap: var(--pi-spacing-6);
+  gap: var(--pi-spacing-8);
   width: 100%;
-  padding: var(--pi-spacing-8) var(--pi-spacing-12);
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+  padding: var(--pi-spacing-7) var(--pi-spacing-12);
+  font-size: var(--pi-font-size-2xs);
   cursor: pointer;
+  /* Clicking to toggle shouldn't leave a text selection dragged across the badge/path/status —
+     the header is a click target, not selectable copy (the expanded body's diff/code/output
+     stays selectable; this is scoped to the header row only). */
+  user-select: none;
 }
 
-.toolHeader:disabled {
+.toolHeader[aria-disabled="true"] {
   cursor: default;
+}
+
+.toolHeader:hover:not([aria-disabled="true"]) {
+  /* Same theme-adaptive hover-lift idiom as `SessionList.module.css`'s `.workspaceHeader:hover` —
+     mixing in `foreground` (light on dark themes, dark on light) always lifts in the right
+     direction, unlike a hardcoded literal. Signals the header is clickable/expandable; bodyless
+     cards (`aria-disabled="true"`) get no hover feedback since they have nothing to expand. */
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
+}
+
+.toolHeader.toolHeaderRunning:hover:not([aria-disabled="true"]) {
+  /* Running cards are already accent-washed at rest; hovering intensifies that same wash instead
+     of switching to the generic surface1 lift above, which would clash with the accent border. */
+  background: color-mix(in srgb, var(--pi-color-accent) 16%, transparent);
+}
+
+.toolHeaderRunning {
+  background: color-mix(in srgb, var(--pi-color-accent) 10%, transparent);
 }
 
 .toolChevron {
@@ -166,14 +214,78 @@
   transform: rotate(90deg);
 }
 
-.toolInlineDetail {
+.kindBadge {
+  flex-shrink: 0;
+  font-size: var(--pi-font-size-4xs);
+  font-weight: var(--pi-font-weight-bold);
+  letter-spacing: 0.06em;
+  border-radius: var(--pi-radius-base);
+  padding: 0 var(--pi-spacing-5);
+  color: var(--kindToken);
+  background: color-mix(in srgb, var(--kindToken) 20%, transparent);
+  border: var(--pi-border-width-1) solid color-mix(in srgb, var(--kindToken) 48%, transparent);
+}
+
+.toolPath {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--pi-font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toolTrailing {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  font-size: var(--pi-font-size-3xs);
+}
+
+.toolStatusRunning {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  color: var(--pi-color-accentBright);
+}
+
+.toolStatusSuccess {
+  color: var(--pi-color-statusSuccess);
+}
+
+.toolStatusError {
+  color: var(--pi-color-destructive);
+}
+
+.toolStatusUnknown {
   color: var(--pi-color-foregroundMuted);
-  font-family: var(--pi-font-mono);
-  min-width: 0;
-  flex: 1;
+}
+
+.toolDiffAdded {
+  color: var(--pi-color-statusSuccess);
+}
+
+.toolDiffRemoved {
+  color: var(--pi-color-destructive);
+}
+
+.toolOpenButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pi-spacing-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pi-color-foregroundMuted);
+  font: inherit;
+  font-size: var(--pi-font-size-3xs);
+  cursor: pointer;
+}
+
+.toolOpenButton:hover {
+  color: var(--pi-color-foreground);
 }
 
 .toolBody {
@@ -193,52 +305,68 @@
   color: var(--pi-color-foreground);
 }
 
-.toolIcon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.toolIcon.running {
-  color: var(--pi-color-accentBright);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.toolIcon.completed {
-  color: var(--pi-color-statusSuccess);
-}
-
-.toolIcon.error {
-  color: var(--pi-color-statusDanger);
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.toolLabel {
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-.toolBadge {
-  margin-left: auto;
-}
-
-/* ─── Error / System ───────────────────────────────────────────────────── */
-
-.error {
-  background: var(--pi-color-destructive);
-  color: var(--pi-color-destructiveForeground);
-  align-self: flex-start;
-}
-
-.system {
-  background: transparent;
+.toolOutputStrip {
+  border-top: var(--pi-border-width-1) solid
+    color-mix(in srgb, var(--pi-color-border) 60%, transparent);
+  padding: var(--pi-spacing-6) var(--pi-spacing-12);
+  background: var(--pi-color-surface0);
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-3xs);
   color: var(--pi-color-foregroundMuted);
-  font-style: italic;
-  align-self: flex-start;
-  padding: var(--pi-spacing-4) var(--pi-spacing-12);
+}
+
+.toolDiffPreview {
+  border-top: var(--pi-border-width-1) solid
+    color-mix(in srgb, var(--pi-color-border) 60%, transparent);
+  padding: var(--pi-spacing-3) 0;
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-3xs);
+}
+
+.toolDiffPreviewLine {
+  padding: var(--pi-spacing-1) var(--pi-spacing-12);
+}
+
+.toolDiffPreviewAdd {
+  color: var(--pi-color-statusSuccess);
+  background: color-mix(in srgb, var(--pi-color-statusSuccess) 9%, transparent);
+}
+
+.toolDiffPreviewDel {
+  color: var(--pi-color-destructive);
+  background: color-mix(in srgb, var(--pi-color-destructive) 9%, transparent);
+}
+
+.toolDiffPreviewMore {
+  padding: var(--pi-spacing-1) var(--pi-spacing-12);
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* ─── Error (design spec § 04 — non-terminal card, not a solid fill) ──────── */
+
+.errorDisc {
+  background: color-mix(in srgb, var(--pi-color-destructive) 25%, var(--pi-color-surface3));
+}
+
+.errorCard {
+  border: var(--pi-border-width-1) solid
+    color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
+  border-radius: var(--pi-radius-lg);
+  background: color-mix(in srgb, var(--pi-color-destructive) 10%, var(--pi-color-surface1));
+  padding: var(--pi-spacing-7) var(--pi-spacing-12);
+  font-size: var(--pi-font-size-2xs);
+}
+
+.errorLead {
+  color: var(--pi-color-destructive);
+  font-weight: var(--pi-font-weight-bold);
+}
+
+/* ─── System (design spec § 04 — no rail entry, renders outside RowShell) ─── */
+
+.systemRow {
+  text-align: center;
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-3xs);
+  padding: var(--pi-spacing-4) 0;
 }

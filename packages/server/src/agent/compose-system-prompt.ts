@@ -1,15 +1,17 @@
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { FILE_LINK_INSTRUCTIONS } from "./file-link-instructions.js";
 import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
+import { MERMAID_DIAGRAM_INSTRUCTIONS } from "./mermaid-diagram-instructions.js";
 
 /**
  * Ordered, stable list of capability-gated instruction blocks. The declared order
- * (image, then file-link) is the single source of composition order — call-site
+ * (image, then file-link, then mermaid) is the single source of composition order — call-site
  * iteration order of capabilities must never leak into output order.
  */
 export const CAPABILITY_INSTRUCTIONS = [
   [CLIENT_CAPS.inline_image_markdown, INLINE_IMAGE_INSTRUCTIONS],
   [CLIENT_CAPS.file_link_markdown, FILE_LINK_INSTRUCTIONS],
+  [CLIENT_CAPS.mermaid_diagram_markdown, MERMAID_DIAGRAM_INSTRUCTIONS],
 ] as const;
 
 /**

@@ -336,7 +336,8 @@ src/
   `handleCreate` calls `composeSystemPrompt(config.systemPrompt, (flag) => wsSession?.supports(flag)
   ?? false)`, which walks `compose-system-prompt.ts`'s ordered `CAPABILITY_INSTRUCTIONS` list
   (`inline_image_markdown` → `INLINE_IMAGE_INSTRUCTIONS`, then `file_link_markdown` →
-  `FILE_LINK_INSTRUCTIONS`) and appends every block whose flag `wsSession` advertises, in that
+  `FILE_LINK_INSTRUCTIONS`, then `mermaid_diagram_markdown` → `MERMAID_DIAGRAM_INSTRUCTIONS`) and
+  appends every block whose flag `wsSession` advertises, in that
   fixed order regardless of the `hello` frame's own declaration order. The result becomes
   `effectiveConfig` — a NEW object, never a mutation of the incoming `msg.config`: a caller-supplied
   prompt is always preserved verbatim and always comes first, matching blocks are appended after,

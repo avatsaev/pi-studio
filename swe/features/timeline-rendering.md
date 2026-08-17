@@ -43,6 +43,18 @@ ids so streaming only re-renders the last block.
 | `activity_log` | `activityType: system\|info\|success\|error\|artifact`, `message`, `metadata?` | Colored info/error pill row |
 | `compaction` | `status: loading\|completed`, `trigger?`, `preTokens?` | Horizontal-rule "Context compacted" marker |
 
+> **Web-client rail redesign (sprint-059, `swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html`
+> is the visual source of truth).** `packages/web-client`'s actual `TimelineRow` union
+> (`timeline/row-model.ts`) is narrower than the table above: exactly `user` | `assistant` |
+> `reasoning` | `tool` | `error` | `system`. It has never modeled `thought`/`todo_list`/
+> `activity_log`/`compaction`/a "Spoke" block/a plan card — those rows above describe a richer
+> reference-app design this client does not implement, not something this sprint removed. Since
+> sprint-059, every row kind the client *does* render shares a `RowShell` gutter-rail scaffold — a
+> 20px rail with an 18px disc + a `surface3` connector line down to the next row, beside a
+> full-width content column with an optional meta line — rather than the chat-bubble layout the
+> rest of this document (written for a broader, still-hypothetical native/reference client)
+> describes. See § Row treatments and § Tool-call cards below for what actually ships.
+
 Agent tool-call data: `{ provider, callId, name, status: running\|completed\|failed\|canceled, error,
 detail: ToolCallDetail, metadata? }`.
 
@@ -63,17 +75,45 @@ gap, and may have a turn footer prepended/appended. The layout engine owns outer
 suppress their own outer margins via a context flag.
 
 ### Row treatments
-- **User message:** right-aligned bubble (`surface3`, large radius with a notched top-right corner, padding
-  16). Inside: image thumbnails (48×48 pills, wrap) → structured attachment pills (review/PR/issue/text,
-  max-width ~220) → selectable text. Below (right-aligned), revealed on hover (always on native/compact):
-  timestamp, an optional **rewind menu** (see [rewind.md](rewind.md) — hidden entirely when the agent's
-  provider supports no rewind mode), copy button. Web-client only: a small "queued" pill next to the
-  sender label while `queued` is set (steered message not yet delivered to the LLM).
-- **Assistant message / markdown:** vertical padding 12, collapsible top/bottom when adjacent blocks share a
-  block group. Text split into memoized markdown blocks (12px between blocks). Markdown engine with
-  typographer + linkify; `file://` links allowed. See § Markdown support.
-- **Reasoning ("thinking"):** the tool card with a brain icon, label "Thinking", shimmer while not ready;
-  streamed text shown as plain text in the expanded body.
+- **User message (web-client):** `RowShell` rail disc tinted `accent` (a `User` icon,
+  `accentForeground` on it, staying in the rail's fixed left column); meta line
+  `"You · Mon D, HH:MM"` (24-hour, zero-padded, local time, no seconds — `timeline/format-meta-time.ts`; blank
+  time segment when the row's `timestamp` is unset) with `· failed to send` appended when the
+  optimistic send failed, right-aligned. Body: a
+  *shrink-to-fit* `inline-block` bubble — `color-mix(accent 20%, surface1)` fill,
+  `color-mix(accent 45%, transparent)` border, `radius-lg` — right-aligned within the content
+  column (`.userAligned`: `flex-direction: column; align-items: flex-end` on the content column,
+  not on the row as a whole) so it stays visually distinct from the left-flowing assistant/tool
+  rows sharing the same rail (task-005 follow-up, after user feedback that the initial rail-only
+  redesign made every row blend together). This is a different mechanism from, but the same visual
+  outcome as, the notched-corner right-aligned block this section described before sprint-059.
+  Image thumbnails render below the bubble, also right-aligned, open full-size in a dialog on
+  click. `pending` dims the whole row; `failed` retints the bubble toward `destructive` (a tint,
+  never a solid fill); `queued` shows a small bordered chip on the meta line. The meta-line
+  timestamp renders in its own dimmed span (`RowShell.module.css`'s `.metaTime`, `opacity: 0.55`)
+  that reaches full opacity on hover over the row (`.shellRow:hover .metaTime`, transition
+  suppressed under `prefers-reduced-motion`) — a deliberate declutter, not a hidden affordance;
+  the label/chip beside it stay full-opacity always. Sourced from the daemon's per-row
+  `AgentTimelineStore` timestamp on confirmed/hydrated rows, or the optimistic send's own
+  `new Date().toISOString()` until the server's `user_message` broadcast overwrites it with the
+  canonical value. No rewind menu, no structured attachment pills, no copy button — neither
+  exists in `packages/web-client` today.
+- **Assistant message / markdown (web-client):** `RowShell` rail disc tinted `accent` (a `Bot`
+  icon); meta line `"Assistant · Mon D, HH:MM"` (timestamp of the row's first chunk — stamped once, at
+  creation, never moved by later streaming deltas). No bubble, no background fill, no left
+  border — plain body text on
+  the timeline background, identified only by the rail disc and meta line. While streaming, plain
+  text with a shared 7×14 solid `accentBright` block caret (a styled element, not a blinking `▍`
+  character) at the end; the reducer clears `streaming` at block close (not turn end), at which
+  point the body swaps to rendered markdown. See § Markdown support. `blockGroupId`/`blockIndex`
+  block-group collapsing above is reference-app behavior this client does not implement — each
+  `AssistantRow` is one contiguous text buffer per block, not a group of collapsible sub-blocks.
+- **Reasoning (web-client):** `RowShell` rail disc muted (`surface3` fill, a `Brain` icon in
+  `foregroundMuted`); meta line `"Reasoning · Mon D, HH:MM"` (timestamp of the row's first chunk, same
+  rule as `AssistantRow`) plus a small bordered `final` chip once the block
+  closes (`!streaming`). Body: italic `foregroundMuted`, `font-size-2xs`, no card, no shimmer —
+  streams as plain text with the same shared caret as the assistant row, then swaps to markdown.
+  Not a tool card with a brain icon (that description predates this row's own treatment).
 - **Tool-call card:** see § Tool-call cards.
 - **Activity log pill:** colored by type — system (gray), info (blue), success (green), error (red),
   artifact (blue, clickable); optional "Details ▸" reveals pretty-printed JSON metadata.
@@ -89,6 +129,41 @@ suppress their own outer margins via a context flag.
 The core row card. Build a presentation from the detail (or synthesize an "unknown" detail from
 args/result): `displayName`, `summary`, `errorText`, icon, and flags (`isLoadingDetails`, `hasDetails`,
 `canOpenDetails`, `openFilePath`, `isPlan`). Plan details render a plan card instead of a badge.
+
+> **Web-client tool card (sprint-059).** `ToolCard.tsx` renders a much narrower, protocol-scoped
+> design than "Status visuals"/"Layout"/the mapping tables below (those describe a richer
+> reference-app model this client does not implement — no `displayName`/`isPlan`/bottom sheet, and
+> `ToolCallDetail` has exactly seven kinds: `shell`/`read`/`edit`/`write`/`search`/`fetch`/`task`,
+> no `worktree_setup`/`sub_agent`/`speak`/`plain_text`). On the shared `RowShell` rail (muted disc,
+> the kind's lucide icon), the header is `[kind badge] [full primary field] [trailing status]`:
+> - **Kind badge** — one `--kindToken` custom property drives text/background(20%)/border(48%) via
+>   `color-mix`, never split across token families: `statusInfo` (a fixed, vivid, theme-invariant
+>   blue, not the brand `accent`/`accentBright` — those varied too much across variants to read
+>   well as always-legible badge text, per iterated user feedback) for shell/read/search/fetch,
+>   `statusSuccess` for write, `statusWarning` for edit, `foregroundMuted` for task (and the
+>   fallback for an unrecognized kind). The header itself also has a hover-lift background (the
+>   app's theme-adaptive `foreground`-mix idiom) and `user-select: none`, so the click-to-expand
+>   affordance is visible on hover and a click never drags a text selection across it.
+> - **Primary field** — the tool's full, untruncated `path`/`command`/`query`/`url`/`description`,
+>   monospace, CSS-ellipsised (full value in `title`) — not a basename/first-line summary.
+> - **Trailing status** — `edit`'s `+N −N` diff counts, then per-status text: `✓ completed` in
+>   `statusSuccess`; the wire's raw status in `destructive` when `error`; a `Spinner` + "running" in
+>   `accentBright` when `running`; any other free-form status string (e.g. `awaiting_approval`,
+>   which the normalized status collapses into `running`) as plain muted text instead of a
+>   misleading spinner. `running`/`error` additionally tint the card border + header wash.
+> - **Output strip** — a distinct `surface0` `output · N lines` region below the header whenever
+>   output is present, independent of expand/collapse (a reserved slot for a future live tail).
+> - **Diff preview** — collapsed `edit` cards show the first changed diff line (tinted
+>   `statusSuccess`/`destructive` by add/del) + `… N more lines`; expanding replaces it with the
+>   full `<DiffView>`.
+> - **Open** — `edit`/`write` cards with a resolved path get an `Open` button dispatching the same
+>   `openFileTab` pane-targeted flow file links use.
+>
+> Expand/collapse (chevron, `aria-expanded`, re-measure on toggle) is preserved from the prior
+> design; there is no bottom-sheet variant, no hover-reveal chevron, and no `StatusBadge` (that
+> primitive is still used elsewhere, just not here — a free-form wire status string can't fit a
+> fixed-variant badge). See `swe/design/redesign 0.1.0/Redesign Handoff Spec.dc.html` § 04 for the
+> full visual spec this implements.
 
 - **Status visuals:** running/executing → label shimmer (web: gradient sweep; native: SVG peak overlay) +
   dimmed label; failed → an alert icon replaces the tool icon + an Error section in the expanded body;
