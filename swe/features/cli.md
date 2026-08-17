@@ -23,7 +23,7 @@ agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio r
 |-------|----------|
 | `agent` (also top-level) | `ls`, `run`, `import`, `attach`, `logs`, `stop`, `delete`, `send`, `inspect`, `wait`, `archive`, `reload`, `update`, `mode` |
 | `auth` | `login [provider] [--type api_key\|oauth] [--api-key <key>]`, `status`, `logout <provider>` — CLI-local, daemon-free (see `provider-auth-cli.md`) |
-| `daemon` | `start`, `stop`, `restart`, `status`, `pair`, `set-password` |
+| `daemon` | `start`, `stop`, `restart`, `status`, `pair`, `set-password`, `rotate-key` |
 | `chat` | `ls`, `create`, `inspect`, `post`, `read`, `wait`, `delete` |
 | `terminal` | `ls`, `create`, `capture`, `send-keys`, `kill` |
 | `loop` | `run`, `ls`, `inspect`, `logs`, `stop` |

@@ -111,6 +111,9 @@ node packages/cli/dist/cli.js daemon stop
 
 # set a daemon password (bcrypt-hashed into config.json; enforced on next start)
 node packages/cli/dist/cli.js daemon set-password hunter2
+
+# revoke every pairing link/QR ever issued (e.g. one leaked) — mints a fresh keypair and restarts
+node packages/cli/dist/cli.js daemon rotate-key
 ```
 
 > Tip: `npm link` inside `packages/cli` (or installing the package) exposes the `pi-studio` binary on
@@ -224,6 +227,12 @@ pi-studio relay start --listen 0.0.0.0:7000
 The client then pairs via a pairing URL (carrying the daemon's public key + relay session id) and
 swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API works unchanged. See
 [`packages/relay/README.md`](packages/relay/README.md) for the full protocol and library API.
+
+> **Treat a pairing link like a password.** On a relay connection its `offer=` key *is* the
+> credential, and the relay session id is derived from that key — so a leaked link keeps working
+> until the key is replaced. Run `pi-studio daemon rotate-key` to revoke it: the daemon mints a new
+> keypair, restarts, and prints a fresh QR (all clients must re-pair; your password and relay
+> settings are untouched).
 
 ## Run with Docker
 

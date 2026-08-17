@@ -266,7 +266,8 @@ TUI.
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
 pi-studio.pid         PID lock (prevents duplicate daemons)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
-daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600
+daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
+                       replace via `pi-studio daemon rotate-key` (revokes all pairing links)
 extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
                        lastSync (features/preinstalled-extensions.md § State file)
 logs/                 Rotating NDJSON log files (pino)

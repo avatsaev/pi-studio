@@ -33,7 +33,14 @@ Both channels expose an identical API so the daemon and client use symmetric cod
   additionally) carries the relay's client-facing endpoint: `#offer=<...>&relay=<endpoint>
   &relayTls=<0|1>`. A pairing URL carries EITHER `host=<direct-host>` OR `relay=`/`relayTls=`, never
   both — a relay-only daemon (behind a firewall/NAT) has no reachable direct host to offer.
-- The QR/link is the trust anchor; treat it like a password.
+- The QR/link is the trust anchor; treat it like a password. On a relay-routed connection the
+  `offer=` key IS the credential — no password is consulted — and the rendezvous id is
+  `deriveRelaySessionId(publicKey)`, deterministic for the life of the key. A leaked link therefore
+  stays valid until the key is replaced: **`pi-studio daemon rotate-key`** is the revocation path
+  (stops the daemon, deletes `daemon-keypair.json`, restarts so a fresh identity is minted, prints
+  the new QR). Every previously-issued link/QR dies with the old key — its derived session id is no
+  longer registered on the relay — so all clients must re-pair. `config.json` (password hash, relay
+  config) is untouched.
 
 ### Handshake frames (plaintext, observed by relay)
 | Frame | Direction | Contents |
@@ -94,7 +101,7 @@ receive → split nonce/ciphertext → box_open → reject if authentication fai
 
 ## Data & Persistence
 - `$PI_STUDIO_HOME/daemon-keypair.json` — `{ v: 2, publicKeyB64, secretKeyB64 }`, mode `0600`,
-  regenerated if unreadable.
+  regenerated if unreadable or absent (the latter is how `daemon rotate-key` forces rotation).
 
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |

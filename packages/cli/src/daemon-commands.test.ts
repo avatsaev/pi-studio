@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import {
   type DaemonRuntime,
   daemonStatus,
   persistRelayEnvOverrides,
+  rotateDaemonKeypair,
   setDaemonPassword,
   stopDaemon,
   waitForDaemon,
@@ -394,5 +395,59 @@ describe("ensureLocalDaemonAndPair", () => {
     expect(code).toBe(0);
     expect(started).toBe(false);
     expect(out.join("\n")).toContain("already running");
+  });
+});
+
+// ─── rotate-key ───────────────────────────────────────────────────────────────
+
+describe("rotateDaemonKeypair", () => {
+  it("removes the keypair so the daemon mints a fresh identity on next boot", () => {
+    const home = tmpHome();
+    const path = join(home, "daemon-keypair.json");
+    writeFileSync(path, JSON.stringify({ publicKeyB64: "LEAKED", secretKeyB64: "S" }));
+    expect(readDaemonPublicKey(home)).toBe("LEAKED");
+
+    expect(rotateDaemonKeypair(home)).toBe(true);
+    expect(existsSync(path)).toBe(false);
+    expect(readDaemonPublicKey(home)).toBeNull();
+  });
+
+  it("reports false when there was no keypair to revoke", () => {
+    expect(rotateDaemonKeypair(tmpHome())).toBe(false);
+  });
+
+  it("invalidates the leaked pairing link: the next boot's link carries a different offer key", async () => {
+    const home = tmpHome();
+    writeFileSync(
+      join(home, "daemon-keypair.json"),
+      JSON.stringify({ publicKeyB64: "LEAKED", secretKeyB64: "S" }),
+    );
+    const leakedLink = buildPairingUrl(readDaemonPublicKey(home)!, { host: "127.0.0.1:6767" });
+
+    rotateDaemonKeypair(home);
+    // Stand in for the daemon's own boot-time regeneration
+    // (server/src/daemon/bootstrap.ts#resolveDaemonKeypair regenerates when the file is missing).
+    writeFileSync(
+      join(home, "daemon-keypair.json"),
+      JSON.stringify({ publicKeyB64: "FRESH", secretKeyB64: "S2" }),
+    );
+
+    const { ctx, out } = ctxWith(home, fakeRuntime({ probe: async () => true }));
+    const code = await printPairing(ctx, home, "127.0.0.1:6767");
+    expect(code).toBe(0);
+    const printed = out.join("\n");
+    expect(printed).toContain("FRESH");
+    expect(printed).not.toContain("LEAKED");
+    expect(printed).not.toContain(leakedLink);
+  });
+
+  it("leaves config.json (password hash, relay config) untouched — only the identity rotates", () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));
+    setDaemonPassword(home, "pw", fakeRuntime());
+    const before = readFileSync(join(home, "config.json"), "utf8");
+
+    rotateDaemonKeypair(home);
+    expect(readFileSync(join(home, "config.json"), "utf8")).toBe(before);
   });
 });

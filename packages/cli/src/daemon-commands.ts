@@ -11,6 +11,7 @@ import {
   daemonPaths,
   defaultDaemonRuntime,
   persistRelayEnvOverrides,
+  rotateDaemonKeypair,
   setDaemonPassword,
   stopDaemon,
   waitForDaemon,
@@ -169,6 +170,23 @@ export function registerDaemonCommands(
       setDaemonPassword(resolveCtxHome(ctx, g()), password, runtimeOf(ctx));
       ctx.sink.write("password set; restart the daemon to enforce it.");
       setExit(EXIT_OK);
+    });
+
+  daemon
+    .command("rotate-key")
+    .description("replace the daemon's pairing keypair (revokes every existing pairing link)")
+    .action(async () => {
+      const home = resolveCtxHome(ctx, g());
+      // Stop first: a live daemon holds the old key in memory and keeps answering on the old relay
+      // session id, so deleting the file under it would revoke nothing until it exited anyway.
+      stopDaemon(home, runtimeOf(ctx));
+      const rotated = rotateDaemonKeypair(home);
+      ctx.sink.write(
+        rotated
+          ? "keypair rotated — every previously-issued pairing link/QR is now invalid; re-pair all clients."
+          : "no existing keypair found — a new one will be generated.",
+      );
+      setExit(await ensureLocalDaemonAndPair(ctx, g()));
     });
 
   // top-level `onboard` — start/connect + show QR.

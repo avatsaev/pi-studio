@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 
@@ -275,6 +275,27 @@ export function stopDaemon(home: string, runtime: DaemonRuntime): boolean {
   const pid = readDaemonPid(home);
   if (pid === null) return false;
   return runtime.kill(pid);
+}
+
+/**
+ * Delete `$PI_STUDIO_HOME/daemon-keypair.json` so the daemon mints a fresh Curve25519 identity on
+ * its next boot (`packages/server/src/daemon/bootstrap.ts#resolveDaemonKeypair` regenerates when the
+ * file is missing/unreadable). Returns true when a keypair was actually removed.
+ *
+ * This is credential revocation, not housekeeping: a pairing link's `offer=` key IS the credential
+ * for a relay-routed connection (the password is not consulted on that path), and the relay
+ * rendezvous id is `deriveRelaySessionId(publicKey)` — deterministic for the life of the key. So a
+ * leaked link stays valid forever until the key behind it is replaced. Rotating invalidates every
+ * previously-issued pairing link/QR; all clients must re-pair (relay-e2ee.md § Pairing).
+ *
+ * The daemon reads the keypair once at startup, so a rotation only takes effect after a restart —
+ * callers are expected to stop the daemon first (see `daemon rotate-key`).
+ */
+export function rotateDaemonKeypair(home: string): boolean {
+  const path = daemonPaths(home).keypair;
+  if (!existsSync(path)) return false;
+  rmSync(path, { force: true });
+  return true;
 }
 
 /** Poll the health endpoint until the daemon is up or attempts are exhausted. */

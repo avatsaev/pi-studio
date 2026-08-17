@@ -53,7 +53,7 @@ src/
   agent-commands.ts      Agent command group (run/ls/attach/send/stop/wait/logs/…).
   agent-commands.test.ts
 
-  daemon-commands.ts     Daemon command group (start/stop/status/set-password/pair).
+  daemon-commands.ts     Daemon command group (start/stop/status/set-password/pair/rotate-key).
   daemon-commands.test.ts
 
   extensions-commands.ts `extensions` command group (list/select/sync) + daemon-free `list
@@ -198,6 +198,7 @@ the file both the CLI and every future agent spawn read, before any agent needs 
 | `daemon status`                           | Print health + PID                                                                                                           |
 | `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
 | `daemon pair`                             | Print the pairing URL / QR for an already-running daemon                                                                     |
+| `daemon rotate-key`                       | Mint a fresh pairing keypair (stop → delete key → restart → print new QR); revokes every previously-issued pairing link |
 | `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR                                 |
 
 `ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
@@ -232,6 +233,19 @@ actually present get overwritten.
 Both `setDaemonPassword` and `persistRelayEnvOverrides` write `config.json` through a shared
 `writeConfigFile` helper that enforces owner-only `0600` (the file can carry the daemon password
 hash) — including an explicit `chmod` to re-tighten configs written before this was enforced.
+
+`rotateDaemonKeypair(home)` (`daemon-control.ts`) — deletes `$PI_STUDIO_HOME/daemon-keypair.json`;
+returns whether a key was actually removed. Credential revocation, not housekeeping: a pairing
+link's `offer=` key IS the credential on a relay-routed connection (`connection-store.ts` ignores
+the password field in that mode), and the relay rendezvous id is
+`deriveRelaySessionId(publicKey)` — deterministic for the life of the key. A leaked pairing
+link/QR therefore grants access forever until the key behind it is replaced, which is what
+`daemon rotate-key` exists for. The command stops the daemon FIRST (a live daemon holds the old key
+in memory and keeps answering on the old relay session id, so deleting the file under it would
+revoke nothing), deletes the key, then goes through `ensureLocalDaemonAndPair` — the daemon mints a
+fresh identity on boot (`server/src/daemon/bootstrap.ts#resolveDaemonKeypair` regenerates when the
+file is missing/unreadable) and the new QR is printed. Deliberately touches nothing in
+`config.json`: the password hash and relay config survive a rotation.
 
 ### `extensions` group (`extensions-commands.ts`)
 
