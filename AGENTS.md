@@ -35,8 +35,8 @@ packages/
 
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
-docs/               Monorepo-wide documentation (build layering, validation conventions). Server
-                    architecture docs live in `packages/server/docs/`.
+docs/               Monorepo-wide documentation (build layering, validation conventions, agent
+                    stream events). Server architecture docs live in `packages/server/docs/`.
 docker/             Dockerfiles + compose for the daemon, relay, and web UI (see docker/README.md).
 ```
 

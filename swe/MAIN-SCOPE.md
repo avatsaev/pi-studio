@@ -250,6 +250,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/agent-sessions.md](features/agent-sessions.md)                 | feature      | Create/run/stop/resume agents; prompts, modes, models, thinking, attachments  |
 | [features/agent-providers.md](features/agent-providers.md)               | feature      | Pi provider adapter, modes/models/features, configuration                     |
 | [features/timeline-streaming.md](features/timeline-streaming.md)         | feature      | Append-only timeline, live stream, authoritative paged catch-up sync          |
+| [features/tool-output-streaming.md](features/tool-output-streaming.md)   | feature      | Live in-flight tool output: ephemeral coalesced `tool_call` partial snapshots (+ small protocol amendment) |
 | [features/tool-permissions.md](features/tool-permissions.md)             | feature      | Tool-call permission request/approve/deny flow                                |
 | [features/projects-workspaces.md](features/projects-workspaces.md)       | feature      | Project/workspace registries, reconciliation, open-project                    |
 | [features/worktrees.md](features/worktrees.md)                           | feature      | Pi-Studio-managed git worktrees, setup/teardown, auto-archive                 |
