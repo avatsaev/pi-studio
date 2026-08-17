@@ -125,3 +125,16 @@ keep-non-empty semantics. While `running`, merge behavior is unchanged.
 - The output-authority rule intentionally makes an old client and a new client render *different*
   finals in the empty-output edge (old keeps the last partial). That is acceptable drift on a
   cosmetic path; do not try to fix old clients.
+- **Cross-sprint overlap with sprint-059 (chat timeline redesign).** `sprint-059/task-001` and
+  `task-004` edit four of the same files: `row-model.ts` (adds an optional `statusText` field —
+  additive, orthogonal to this task's `"canceled"` union member), `reducer.ts` (passes the wire's
+  raw status through; the normalized status logic this task relies on is unchanged), and
+  `ToolCard.tsx` + `rows.module.css` (rebuilt chrome: kind badge, inline status text instead of
+  `StatusBadge`, a `surface0` output strip). Neither sprint blocks the other and neither
+  invalidates the other — this task is behavior, that one is presentation. Sprint-059/task-004
+  deliberately keeps the output strip a **distinct element** below the header and the status
+  treatment a **lookup keyed by status**, so if it lands first the live tail slots in beside the
+  strip and `"canceled"` is one new entry rather than a new branch. If this task lands first,
+  sprint-059/task-004 rebuilds the header around the tail and carries `"canceled"` into its status
+  lookup. Whichever is second reconciles `ToolCard.tsx` by hand — check the other sprint's state
+  before starting.

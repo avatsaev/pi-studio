@@ -1,0 +1,65 @@
+/* RowShell — gutter-rail scaffold (design spec § 04). See RowShell.tsx for the layout rationale
+ * (padding-bottom lives on `.content`, not `.shellRow`, so the connector — a stretched flex
+ * sibling — spans through the gap down to the next row's disc; see Notes in task-002). */
+
+.shellRow {
+  display: flex;
+  gap: var(--pi-spacing-12);
+}
+
+.rail {
+  width: 20px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.disc {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: var(--pi-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.connector {
+  flex: 1;
+  width: var(--pi-border-width-2);
+  background: var(--pi-color-surface3);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: var(--pi-spacing-8);
+}
+
+.metaLine {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-7);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+  margin-bottom: var(--pi-spacing-3);
+}
+
+/* Meta-line timestamp (User/Assistant/Reasoning rows) — dimmed at rest so it doesn't clutter the
+ * timeline, full opacity on hover over the row. A hover reveal, not a click-to-copy affordance —
+ * there is no copy button (§ Row treatments). */
+.metaTime {
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+
+.shellRow:hover .metaTime {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metaTime {
+    transition: none;
+  }
+}

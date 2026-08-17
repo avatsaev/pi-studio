@@ -73,3 +73,10 @@
     transform: translateY(-3px);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .workingDots span {
+    animation: none;
+    opacity: 1;
+  }
+}

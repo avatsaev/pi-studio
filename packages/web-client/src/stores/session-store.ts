@@ -49,7 +49,7 @@ interface SessionStoreState {
   setModelByAgentId(agentId: string, model: string | undefined, modelProvider?: string): void;
   setTitle(sessionId: string, title: string): void;
   setCwd(sessionId: string, cwd: string): void;
-  applyStreamEvent(sessionId: string, event: AgentStreamEvent): void;
+  applyStreamEvent(sessionId: string, event: AgentStreamEvent, timestamp?: string): void;
   addOptimisticUserMessage(
     sessionId: string,
     clientMessageId: string,
@@ -155,11 +155,11 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
     });
   },
 
-  applyStreamEvent(sessionId, event) {
+  applyStreamEvent(sessionId, event, timestamp) {
     set((s) => {
       const entry = s.sessions[sessionId];
       if (!entry) return s;
-      const timeline = applyStreamEventToTimeline(entry.timeline, event);
+      const timeline = applyStreamEventToTimeline(entry.timeline, event, timestamp);
       let title = entry.title;
       if (event.kind === "turn_completed" && title === "New chat") {
         const lastAssistant = timeline.rows
@@ -184,6 +184,7 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
         text,
         images,
         queued,
+        new Date().toISOString(),
       );
       return {
         sessions: {

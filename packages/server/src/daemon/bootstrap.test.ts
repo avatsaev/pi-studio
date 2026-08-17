@@ -33,6 +33,7 @@ import { WorkspaceGitService } from "../projects/workspace-git-service.js";
 import { FileWatchService } from "../files/file-watch-service.js";
 import { INLINE_IMAGE_INSTRUCTIONS } from "../agent/inline-image-instructions.js";
 import { FILE_LINK_INSTRUCTIONS } from "../agent/file-link-instructions.js";
+import { MERMAID_DIAGRAM_INSTRUCTIONS } from "../agent/mermaid-diagram-instructions.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
 import { persistedConfigSchema } from "../config/daemon-config.js";
@@ -302,6 +303,53 @@ describe("production daemon bootstrap", () => {
     const onDisk = await loadAllAgents(booted.home);
     const record = onDisk.find((a) => a.id === agentId);
     const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
+    expect(record?.config?.systemPrompt).toBe(expected);
+
+    client.close();
+  }, 15000);
+
+  it("composes the mermaid-diagram instruction into a persisted record's systemPrompt when the connecting client advertised mermaid_diagram_markdown — proves the hello -> session -> handleCreate chain", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port, { [CLIENT_CAPS.mermaid_diagram_markdown]: true });
+
+    const cwd = booted.home;
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
+    expect(created.type).toBe("create_agent_response");
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const onDisk = await loadAllAgents(booted.home);
+    const record = onDisk.find((a) => a.id === agentId);
+    expect(record?.config?.systemPrompt).toBe(MERMAID_DIAGRAM_INSTRUCTIONS);
+
+    client.close();
+  }, 15000);
+
+  it("composes all three instructions in stable order when the connecting client advertised all three capabilities", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port, {
+      [CLIENT_CAPS.inline_image_markdown]: true,
+      [CLIENT_CAPS.file_link_markdown]: true,
+      [CLIENT_CAPS.mermaid_diagram_markdown]: true,
+    });
+
+    const cwd = booted.home;
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd },
+    });
+    expect(created.type).toBe("create_agent_response");
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const onDisk = await loadAllAgents(booted.home);
+    const record = onDisk.find((a) => a.id === agentId);
+    const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}\n\n${MERMAID_DIAGRAM_INSTRUCTIONS}`;
     expect(record?.config?.systemPrompt).toBe(expected);
 
     client.close();

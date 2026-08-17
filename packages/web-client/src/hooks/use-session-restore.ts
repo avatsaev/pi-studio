@@ -28,7 +28,7 @@ import {
   normalizeCwd,
 } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
 import { openChatTab } from "@pi-studio-ui/features/sessions/open-chat-tab.js";
-import { EMPTY_TIMELINE, applyStreamEvent } from "@pi-studio-ui/timeline/reducer.js";
+import { EMPTY_TIMELINE, replayEvents } from "@pi-studio-ui/timeline/reducer.js";
 import { fetchTimelineEvents } from "@pi-studio-ui/lib/protocol/timeline-paging.js";
 import type { AgentStatus } from "@av-pi-studio/protocol";
 
@@ -134,7 +134,7 @@ async function restoreAgents(client: PiStudioClient): Promise<void> {
           limit: 200,
         }),
       );
-      timeline = events.reduce(applyStreamEvent, EMPTY_TIMELINE);
+      timeline = replayEvents(events);
     } catch {
       // Best-effort: an unreadable timeline still gets an (empty) restored session.
     }

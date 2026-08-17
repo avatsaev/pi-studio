@@ -50,6 +50,52 @@ describe("timeline reducer — tool-call detail merge", () => {
   });
 });
 
+describe("timeline reducer — tool statusText passthrough", () => {
+  it("carries an unrecognized wire status as statusText while normalizing status to running", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(
+      s,
+      toolCall("c3", { kind: "shell", command: "echo hi" }, "awaiting_approval"),
+    );
+    const row = s.rows[0];
+    if (row?.kind !== "tool") throw new Error("expected tool row");
+    expect(row.status).toBe("running");
+    expect(row.statusText).toBe("awaiting_approval");
+  });
+
+  it("omits statusText when no event for the row has carried a wire status", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, {
+      kind: "tool_call",
+      callId: "c4",
+      tool: { kind: "shell", command: "echo hi" },
+    });
+    const row = s.rows[0];
+    if (row?.kind !== "tool") throw new Error("expected tool row");
+    expect(row.statusText).toBeUndefined();
+    expect(row.status).toBe("running");
+  });
+
+  it("sets statusText once a later event carries one, and overwrites it on the next status change", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, {
+      kind: "tool_call",
+      callId: "c5",
+      tool: { kind: "shell", command: "echo hi" },
+    });
+    s = applyStreamEvent(s, toolCall("c5", { kind: "shell" }, "awaiting_approval"));
+    let row = s.rows[0];
+    if (row?.kind !== "tool") throw new Error("expected tool row");
+    expect(row.statusText).toBe("awaiting_approval");
+
+    s = applyStreamEvent(s, toolCall("c5", { kind: "shell" }, "completed"));
+    row = s.rows[0];
+    if (row?.kind !== "tool") throw new Error("expected tool row");
+    expect(row.status).toBe("completed");
+    expect(row.statusText).toBe("completed");
+  });
+});
+
 /**
  * `streaming` is what `AssistantRow` reads to decide plain text vs rendered markdown. The reducer
  * used to clear only the streaming *index* on `tool_call`, leaving the row's flag set — so any
@@ -124,7 +170,7 @@ describe("timeline reducer — streaming finalization", () => {
       { kind: "assistant_message", final: true },
       { kind: "turn_completed" },
     ];
-    const s = events.reduce(applyStreamEvent, EMPTY_TIMELINE);
+    const s = events.reduce((state, event) => applyStreamEvent(state, event), EMPTY_TIMELINE);
 
     const stillStreaming = s.rows.filter((r) => "streaming" in r && r.streaming);
     expect(stillStreaming).toEqual([]);
@@ -151,6 +197,54 @@ describe("timeline reducer — streaming finalization", () => {
   });
 });
 
+describe("timeline reducer — row timestamp (meta-line display)", () => {
+  it("stamps an assistant row's timestamp only on the chunk that creates it", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(
+      s,
+      { kind: "assistant_message", text: "hello " },
+      "2026-08-17T13:00:00.000Z",
+    );
+    s = applyStreamEvent(
+      s,
+      { kind: "assistant_message", text: "world", final: true },
+      "2026-08-17T13:00:05.000Z", // later chunk of the SAME row — must not move its timestamp
+    );
+
+    expect(s.rows).toHaveLength(1);
+    expect(s.rows[0]).toMatchObject({
+      kind: "assistant",
+      text: "hello world",
+      timestamp: "2026-08-17T13:00:00.000Z",
+    });
+  });
+
+  it("stamps a reasoning row's timestamp only on the chunk that creates it", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "reasoning", text: "thinking " }, "2026-08-17T13:00:00.000Z");
+    s = applyStreamEvent(
+      s,
+      { kind: "reasoning", text: "more", final: true },
+      "2026-08-17T13:00:05.000Z",
+    );
+
+    expect(s.rows[0]).toMatchObject({
+      kind: "reasoning",
+      timestamp: "2026-08-17T13:00:00.000Z",
+    });
+  });
+
+  it("gives a fresh assistant row its own timestamp once the prior one finalizes", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "a", final: true }, "t1");
+    s = applyStreamEvent(s, { kind: "assistant_message", text: "b" }, "t2");
+
+    expect(s.rows).toHaveLength(2);
+    expect(s.rows[0]).toMatchObject({ timestamp: "t1" });
+    expect(s.rows[1]).toMatchObject({ timestamp: "t2" });
+  });
+});
+
 describe("timeline reducer — optimistic user-message echo", () => {
   it("reconciles the pending optimistic row in place instead of appending a duplicate", () => {
     let s = EMPTY_TIMELINE;
@@ -172,6 +266,41 @@ describe("timeline reducer — optimistic user-message echo", () => {
       pending: false,
       clientMessageId: "cm-1",
     });
+  });
+
+  it("prefers the server's canonical timestamp over the optimistic echo's client-clock guess", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(
+      s,
+      "cm-ts",
+      "hello",
+      undefined,
+      undefined,
+      "2026-08-17T13:00:00.000Z",
+    );
+    expect(s.rows[0]).toMatchObject({ timestamp: "2026-08-17T13:00:00.000Z" });
+
+    s = applyStreamEvent(
+      s,
+      { kind: "user_message", messageId: "cm-ts", text: "hello" },
+      "2026-08-17T13:00:02.500Z", // arrives slightly later than the optimistic guess
+    );
+
+    expect(s.rows[0]).toMatchObject({ timestamp: "2026-08-17T13:00:02.500Z" });
+  });
+
+  it("keeps the optimistic echo's timestamp when the confirming event carries none", () => {
+    let s = EMPTY_TIMELINE;
+    s = addOptimisticUserMessage(
+      s,
+      "cm-ts-2",
+      "hello",
+      undefined,
+      undefined,
+      "2026-08-17T13:00:00.000Z",
+    );
+    s = applyStreamEvent(s, { kind: "user_message", messageId: "cm-ts-2", text: "hello" });
+    expect(s.rows[0]).toMatchObject({ timestamp: "2026-08-17T13:00:00.000Z" });
   });
 
   it("appends a fresh confirmed row when no pending optimistic row matches (session-restore replay)", () => {

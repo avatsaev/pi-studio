@@ -16,6 +16,8 @@ import { invalidateAfterToolCompletion } from "@pi-studio-ui/lib/connection/file
 export interface ApplyAgentStreamEventArgs {
   sessionId: string;
   event: AgentStreamEvent;
+  /** Daemon-owned timestamp of this event's timeline row, forwarded from the SDK's stream meta. */
+  timestamp?: string;
   client: PiStudioClient;
   queryClient: QueryClient;
 }
@@ -23,11 +25,12 @@ export interface ApplyAgentStreamEventArgs {
 export function applyAgentStreamEvent({
   sessionId,
   event,
+  timestamp,
   client,
   queryClient,
 }: ApplyAgentStreamEventArgs): void {
   const sessionStore = useSessionStore.getState();
-  sessionStore.applyStreamEvent(sessionId, event);
+  sessionStore.applyStreamEvent(sessionId, event, timestamp);
   switch (event.kind) {
     case "turn_started":
       sessionStore.setStatus(sessionId, "running");

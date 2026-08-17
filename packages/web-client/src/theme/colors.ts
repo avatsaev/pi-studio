@@ -85,6 +85,12 @@ export type ThemeColors = {
   statusDanger: string;
   statusWarning: string;
   statusMerged: string;
+  // A fixed, vivid, theme-invariant blue for "informational" signals that need to stay legible
+  // regardless of the variant's own accent tint (e.g. shell/read/search/fetch tool-kind badges) —
+  // same rationale as statusSuccess/statusWarning: `accent` varies wildly across variants (a dark
+  // muted navy on `dark`, a near-white gray on `zinc`), so a badge that needs to always read
+  // clearly can't be built on it.
+  statusInfo: string;
   // Diff
   diffAddition: string;
   diffDeletion: string;
@@ -114,12 +120,14 @@ const DARK_STATUS = {
   statusDanger: "#dc2626", // red-600
   statusWarning: "#f59e0b", // amber-500
   statusMerged: "#9333ea", // purple-600
+  statusInfo: "#3b82f6", // blue-500
 } as const;
 const LIGHT_STATUS = {
   statusSuccess: "#15803d", // green-700
   statusDanger: "#b91c1c", // red-700
   statusWarning: "#d97706", // amber-600
   statusMerged: "#7c3aed", // purple-600
+  statusInfo: "#2563eb", // blue-600
 } as const;
 
 function darkSyntax(): SyntaxColors {
