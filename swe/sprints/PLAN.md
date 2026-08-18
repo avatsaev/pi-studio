@@ -91,8 +91,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 059 | `sprint-059-chat-timeline-redesign` | web-client only: the **chat timeline** half of the 0.1.0 UI redesign (`swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html`), and the first of six PRs from that handoff spec. The timeline stops being a chat-bubble log and becomes a threaded event rail: a 20px gutter with an 18px disc per row and a continuous connector, full-width content, and a meta line replacing the uppercase `.who` label. The assistant row loses its bubble entirely; the user's becomes an `inline-block` accent-tinted one that hugs short prompts; reasoning goes frameless italic with a `final` chip; the tool card is rebuilt around a kind badge (READ/EDIT/SHELL/…), the tool's full primary field, inline status, a `surface0` `output · N lines` strip, and `+N −N` diff counts with an open-file affordance. **Nothing is invented:** every row maps 1:1 onto a `TimelineRow` the reducer already produces — no plan/checklist row, no batched action log, neither of which exists in `AgentStreamEvent` (and neither of which this codebase ever built). **No new tokens and no protocol work:** every value in the mock already exists in `theme/tokens.ts`/`colors.ts`, verified rung by rung during planning. Two token traps drive real decisions rather than footnotes: `success` aliases the accent on dark variants, so every green signal uses `statusSuccess` (else the WRITE badge is indistinguishable from READ), and the `zinc` variant's near-white accent means content on accent fills must use `accentForeground`, never a hardcoded white. Free-form wire status is the third: `reducer.ts` collapses it to `running`/`completed`/`error`, so the raw string rides along as `statusText` for the card to render unknown values as muted text instead of mislabelling them `running`. Display logic that deserves a test lands in pure `.ts` modules (no jsdom, per project convention); the components stay thin and are verified in a real browser across `dark`/`light`/`zinc`, compact width, and a live streaming turn | 5 |
 | 060 | `sprint-060-turn-progress-bar` | web-client only: the **turn-progress indicator** from § 05 of the same 0.1.0 handoff spec — the top-of-chat loading bar, taken out of § 05 ahead of the rest of that section because it is the one piece with no dependency on the composer/`ModelMenu` move. An indeterminate 2px bar (track `accent` 22%, a 38%-wide accent→`accentBright` gradient sweeping on a 1.5s linear loop) appears across the top of a chat pane's body for exactly as long as that pane's session is running, and retires the "Agent is working…" bouncing dots that `sprint-059/task-002` deliberately kept alive until this sprint existed. Three planning decisions the mock could not make: the bar mounts at the top of **`ChatPanel`**, not in pane chrome (`TabPanelHost` already lays each panel out directly beneath its pane's `TabStrip`, `ChatPanel` already holds the session, and § 06's pane-header sprint rewrites that chrome — a chrome mount would collide with it); it is **absolutely positioned**, because a 2px flex child would reflow the virtualized timeline on every `turn_started` and fight stick-to-bottom autoscroll for a decorative element; and its trigger is **`session.status === "running"`** rather than a `turn_started` listener, which is both exactly § 05's mount rule (`hooks/agent-stream-events.ts:32-43` maps the four turn events onto status) and the only version that survives a mid-turn page reload (`use-session-restore.ts:151` hydrates the daemon's own status). Also the codebase's first `prefers-reduced-motion` block (§ 05 specifies the static fallback) and the first a11y-parity question of the redesign: the dots were a `role="status"` live region, so the bar must expose the running state by name instead of silently dropping it. No protocol change, no new token, no new scale key — `--pi-border-width-2` and `--pi-opacity-50` already exist, and durations stay CSS literals because this project has no motion-token family and § 07 forbids inventing scale keys. § 05's queue chips, the composer/`ModelMenu` move and stripping `StatusBar`'s model chip are **not** here — they are the composer sprint. | 3 |
 | 061 | `sprint-061-workspace-tab-strip-redesign` | web-client only: § 07 of the same 0.1.0 handoff spec (`swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html`) — the **workspace tab strip**, taken next because it is the last § of that spec with no dependency on the sidebar (§ 03), the composer (§ 05) or the Files panel (§ 06), and because it fixes a live defect rather than only restyling one: `.tab` is `flex-shrink: 0` with a 160px label clamp, so a long file name reserves ~210px and refuses to give any of it back, and § 07 names that "the single worst defect of the current strip". Tabs become 24px soft pills (`radius-md`, `spacing-10` padding, `spacing-7` gaps, `2xs` rung, `surface2` fill when active, no border and no underline — the underline treatment stays exclusive to § 06's Files/Changes tabs so the two never read as one control) that shrink and ellipsise their own label, with a floor and a 200px cap so `.tabs`' horizontal scroll survives as the last-resort fallback written scope has always specified. The 33px band becomes the 36px `WORKSPACE_SECONDARY_HEADER_HEIGHT` the constant and `features/workspace-ui.md` have both always said, declared **once** as `--pane-strip-height` (deliberately not a `--pi-*` name: `token-integrity.test.ts` fails any `var(--pi-…)` the theme does not emit) so `pane-layout-view`'s symbolic `calc()`s and its tests need no edit; ＋ moves back beside the last pill with the split buttons pinned right via a `.stripActions` cluster, and every glyph routes through the `Icon` primitive at `icon-size-xs`/`sm` instead of raw lucide `size={13}`. Two decisions the mock could not make: § 07's 26px pill lands as `spacing-24` (no `26` rung exists, the spec's own CSS block writes `spacing-24`, and § 07 forbids scale churn), and the attention `StatusDot` is a **projection of session status** for background chat tabs only — there is no per-tab unread state to invent, `TurnProgressBar` already covers the active tab, and this app's protocol enum has no `waiting`, so only running/errored are shown. The bar itself does not move: § 07's "hangs off the strip's bottom edge" is already literally where sprint-060 mounted it (a panel's rect starts at `calc(<pane top> + var(--pane-strip-height))`). Five tasks: band geometry, pill tabs + truncation, row model + trailing chrome, attention dot (the sprint's one unit-tested pure module), docs + § 07 pre-ship sweep. | 5 |
+| 062 | `sprint-062-workspace-sidebar-redesign` | web-client only: § 03 of the same 0.1.0 handoff spec (`swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html`) — the **workspace/sessions sidebar**, and § 07's own step 1 ("largest visual win, no protocol work"), now unblocked because 059/060/061 took the sections that did not depend on it. Workspace headers become full-bleed `surface2` bands (1px `border` top and bottom, no card frame, no radius, identical expanded or collapsed — only the chevron rotates), carrying a 16px `surface3` chevron tile, a 20px `Avatar`, a bold ellipsised name, a `radius-full` `surface3` count pill, and an attention `StatusDot` **only** while collapsed. Session rows lose their frame, their border and their indent: a 60%-`surface0` mix that hovers to solid, `radius-sm`, even `spacing-7`/`spacing-10` padding, and a two-line body whose meta carries **status only** — today's `cwd · agentId · N msgs` is exactly what § 03's "no timestamps, no cost" forbids. Selection becomes unmistakable (34% accent fill + 32% `accentBright` inset ring + `accentForeground` bold title + a 2px `accentBright` left bar) and is deliberately orthogonal to activity: a running-but-unselected row keeps the idle fill and gets the ring plus a half-opacity bar, so fill means *selected* and ring means *working*. Three decisions the mock could not make. **(a)** § 03's `needs input` state has **no source** — nothing in `packages/web-client/src` touches the daemon's `agent.permission.*` RPCs and the stored status enum (`initializing\|idle\|running\|error\|closed`) has no `waiting`, so it is documented as unsourced, exactly as sprint-061/task-004 handled the same dot on tabs. **(b)** `turn failed · <short reason>`, by contrast, needs **no** protocol work: `agent-stream-events.ts:41-42` already sets `status: "error"` and `reducer.ts:202-205` already appends the failure text as an error row to the timeline the sidebar entry carries, so the reason is the last error row's first line, looked up only in the failed branch. **(c)** The mock's header `＋` and its footer `＋ Add workspace` are one action in this app (`openCwdPicker`) and its `⚙` is the reference app's Settings route, which this client does not have at all — so the sidebar ships **one** labeled, pinned footer affordance and no gear, with the gap recorded rather than faked. The band moves to `surface2` per § 02, which retires `surfaceWorkspace` (its only two consumers are the rules being rewritten; the theme key stays emitted). Header stays 36px to keep sitting flush with sprint-061's tab strip. No new token, no new scale key, no store field, no protocol change; the one piece of real logic — status → row state, meta, dot, failure reason — lands as a pure `session-presentation.ts` with a unit test, components stay thin and are verified in a real browser. | 5 |
 
-Total: **59 sprints, 294 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **60 sprints, 299 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -1301,6 +1302,86 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-004 | Attention `StatusDot` on background chat tabs: a pure `tab-attention.ts` (+ test) deciding running/error/nothing from kind × pane-active × session status via `toDotStatus`, rendered between label and × with a primitive-valued store selector so a stream event cannot re-render every tab; no per-tab unread state, no `waiting` invention, no dot on the active tab, and `TurnProgressBar` left where sprint-060 mounted it | feature | task-002 | packages/web-client (tab-attention + test, TabStrip.tsx, TabStrip.module.css); design spec § 07; features/workspace-ui |
 | task-005 | Docs sync + stale-path sweep + § 07 pre-ship verification: `features/workspace-ui.md`'s § Desktop tab strip rewritten to the shipped strip with skeleton bars, per-tab context menu and the unsourced needs-input dot marked unimplemented rather than deleted; six invariants into `packages/web-client/AGENTS.md` (single height declaration and why it is `--pane-*`, shrink-then-scroll, reserved × box, ＋ outside `SortableContext`, `Icon`-only glyphs, dot-as-projection); `swe/design/…` → `swe/UI design/…` fixed in living docs only, with PLAN.md explaining why `done/` files keep the old path; then theme guards, full gates from clean, six variants with `light`/`zinc` deliberate, compact <576px, eight tabs in 300px, split-pane drag + independent body scroll, and a live turn — all recorded as observations | docs + test | task-001, task-002, task-003, task-004 | packages/web-client (AGENTS.md); features/workspace-ui; swe/sprints/PLAN.md; design spec § 07 |
 
+### sprint-062-workspace-sidebar-redesign
+> **Where this comes from.** § 03 of the 0.1.0 handoff spec
+> (`swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html`). § 07's suggested sequence puts the
+> sidebar **first** ("largest visual win, no protocol work"); sprints 059–061 took the sections that
+> did not depend on it (timeline, progress bar, tab strip), so this is the sequence catching up, not
+> a reordering. What remains after it: the rest of § 05 (composer + `ModelMenu` move, queue chips,
+> `StatusBar`'s model chip) and § 06's FileExplorer chrome.
+>
+> **What actually changes.** The sidebar already is a collapsible workspace tree
+> (`SessionList`/`WorkspaceGroupHeader`/`SessionItem` + one 129-line CSS module), so § 03's
+> "one combined tree" is structurally already true — this is a treatment change plus one deletion of
+> invented information. Bands: `surface2`, 1px `border` top and bottom, edge-to-edge, identical
+> expanded or collapsed (only the chevron rotates, replacing the current two-glyph swap), holding a
+> 16px `surface3` chevron tile, a 20px `Avatar` (replacing `FolderClosed`), a bold ellipsised name, a
+> collapsed-only attention `StatusDot`, and a `radius-full` `surface3` count pill. Rows: frameless,
+> `radius-sm`, 60%-`surface0` fill hovering to solid, even `spacing-7`/`spacing-10` padding, and no
+> left indent (`padding-left: spacing-12` goes — the band already expresses hierarchy and the indent
+> only costs label width).
+>
+> **The deletion is the point.** The meta line reads `cwd · agentId · N msgs` today
+> (`SessionItem.tsx:44-48`), and § 03 states plainly: "No timestamps, no cost in the sidebar. The
+> meta line carries status only (plus a short failure reason)." Three of those four fields are
+> redundant with the band, the status bar and the tab strip.
+>
+> **Selection and activity become orthogonal.** Today's active row is a `surface0` fill plus a 2px
+> inset accent shadow, and every row carries an always-on `showInactive` dot — so "selected" and
+> "working" render at nearly the same strength. § 03: fill means selected (34% accent + 32%
+> `accentBright` inset ring + `accentForeground` bold title + a 2px `accentBright` bar), ring means
+> working (a running, unselected row keeps the idle fill and gets a half-opacity bar). `accentForeground`,
+> not white — § 07 names the `zinc` variant's near-white accent explicitly.
+>
+> **Three decisions the mock could not make, each grounded in this app:**
+>
+> **(a) `needs input` has no source and is not faked.** Nothing under `packages/web-client/src`
+> references the daemon's `agent.permission.*` RPCs, and the status this client stores
+> (`SessionEntry.status: AgentStatus | "idle"` = `initializing|idle|running|error|closed`) has no
+> `waiting` member — `status-map.ts` is the single translation point and never emits one. Documented
+> as unsourced, exactly as sprint-061/task-004 handled the same § 07 dot on tabs. The collapsed
+> band's attention dot therefore keys off `error` only; running is activity, not attention.
+>
+> **(b) `turn failed · <short reason>` is free.** `hooks/agent-stream-events.ts:41-42` already sets
+> `status: "error"` on `turn_failed`, and `timeline/reducer.ts:202-205` already appends
+> `{ kind: "error", text: event.error || "turn failed" }` to the very timeline the sidebar entry
+> carries (`SessionEntry.timeline`). So the reason is the **last** error row's first line — no
+> protocol field, no store field, and the backwards scan runs only in the failed branch because
+> `SessionList` re-renders every row on every stream event (it selects the whole `sessions` record).
+>
+> **(c) One open-workspace affordance, and no gear.** § 03's mock has both a header `＋` and a footer
+> `＋ Add workspace`; in this app both would call the same `openCwdPicker()`, and since "Open
+> Workspace" left the `Toolbar` it is the sidebar's only entry point to `OpenWorkspaceDialog`. It
+> ships once, as the labeled footer row, pinned outside the scroll container; the header becomes pure
+> information (`WORKSPACES · N`). The mock's `⚙` is the reference app's sidebar Settings route
+> (`features/app-navigation-screens.md` § Sidebar content: "footer icon buttons (Add project, Home,
+> Settings, host switcher)") — this client has **no** settings surface at all, so the gear is omitted
+> and recorded as unimplemented rather than rendered dead.
+>
+> **Token consequences, both small and deliberate.** § 02 maps the band to `surface2`, which retires
+> `surfaceWorkspace` — its only two consumers in the package are the two rules being rewritten
+> (`SessionList.module.css:83,93`); the theme key stays emitted (theme contract, and
+> `token-integrity.test.ts` only checks reference → emitted, never the reverse), and
+> `IconButton.tsx`'s doc comment citing it gets corrected in task 005. The header band stays 36px —
+> `WORKSPACE_SECONDARY_HEADER_HEIGHT` (`platform/breakpoints.ts:41`), i.e. flush with sprint-061's
+> tab strip, an existing product decision that § 03's own padding numbers land within 2px of anyway.
+>
+> **No new token, no new scale key, no store field, no protocol work, no test infrastructure.** The
+> one piece of real logic — status → row state, meta text, failure reason, dot — lands as a pure
+> `session-presentation.ts` beside `workspace-grouping.ts`/`status-map.ts`, unit-tested in the node
+> environment; components stay thin and are verified in a real browser, per project convention. Both
+> `⋮` menus keep every action they have (§ 03's mock shows no menu affordance; deleting shipped
+> functionality is not a restyle), following `TabStrip`'s reserved-box/compact-visible pattern so a
+> hover never shifts a label's truncation point.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Pure `session-presentation.ts` (+ test): `SessionEntry` → row state (`running`/`failed`/`empty`/`idle` with `initializing`/`closed` folded into idle), meta label, italic-title flag, `StatusDot` input built through `toDotStatus` (running → the primitive's own `accentBright` ring, failed → `statusDanger`, idle/empty → no dot at all), and the short failure reason read backwards out of the session's own timeline error rows — capped, single-line, computed only in the failed branch; plus `workspaceAttentionDot` for the collapsed band. No `needs input`, no `waiting`, no React/store import | feature | none | packages/web-client (session-presentation + test); design spec § 03,§ 02,§ 07; features/app-navigation-screens |
+| task-002 | Workspace header as a full-bleed band: `surface2` with 1px `border` top and bottom, no radius/margin/card frame, hover lift only when collapsed; a single `ChevronRight` rotated 90° in a 16px `surface3` tile (reduced-motion guarded) replacing the two-glyph swap, a 20px `Avatar` replacing `FolderClosed`, bold ellipsised label, collapsed-only attention `StatusDot`, `radius-full` `surface3` count pill at the `4xs` rung, and the `⋮` moved onto `TabStrip`'s reserved-box/compact-visible pattern; `.workspaceGroup`'s border and every `surfaceWorkspace` reference retired | feature | task-001 | packages/web-client (WorkspaceGroupHeader, SessionList.module.css, SessionList); design spec § 03,§ 02,§ 07 |
+| task-003 | Frameless session rows: two lines, `radius-sm`, 60%-`surface0` fill hovering to solid, even padding, no indent; meta reduced to status (+ failure reason) with `cwd`/`agentId`/message-count deleted; selection = 34% accent fill + 32% `accentBright` inset ring + `accentForeground` bold title + 2px left bar; running-unselected = idle fill + ring + half-opacity bar; failed = destructive 10% tint; empty = italic title + `no messages` at `opacity-50`; `⋮` in flow with a reserved box; drag payload, click-to-open and both context menus frozen | feature | task-001, task-002 | packages/web-client (SessionItem, SessionList.module.css); design spec § 03,§ 02,§ 07; features/workspace-split-panes (drag sources) |
+| task-004 | Sidebar chrome: `WORKSPACES · N` header at the `3xs` rung with the 36px band height kept flush with the pane tab strip (via `WORKSPACE_SECONDARY_HEADER_HEIGHT`, never an invented `--pi-*` name), a trailing `＋ New session` row per expanded workspace dispatching the same `openNewChat(cwd)` the band menu already uses, and one pinned `＋ Add workspace` footer row replacing the header's icon button — connection-gated with today's copy, `⚙` deliberately absent, every glyph through `Icon` + lucide | feature | task-002, task-003 | packages/web-client (SessionList, SessionList.module.css); design spec § 03,§ 07; features/app-navigation-screens |
+| task-005 | Docs sync + § 03/§ 07 pre-ship verification: `features/app-navigation-screens.md` § Sidebar content rewritten to the shipped sidebar with the unimplemented pieces named (footer Home/Settings/host-switcher, grouping selector, shortcut indices, skeletons, `needs input`) rather than deleted; seven invariants into `packages/web-client/AGENTS.md`; `IconButton.tsx`'s stale `surfaceWorkspace`/absolutely-positioned-`⋮` comment corrected with a usage search proving the token has no consumer; then theme guards, full gates from clean, six variants with `light`/`zinc` deliberate, compact <576px, 60-char names and long failure reasons, a live turn on a non-selected row, and reduced motion — all recorded as observations | docs + test | task-001, task-002, task-003, task-004 | packages/web-client (AGENTS.md, IconButton comment); features/app-navigation-screens, features/file-explorer-quick-wins; swe/sprints/PLAN.md; design spec § 03,§ 07 |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, **except** one deliberately
@@ -1318,12 +1399,15 @@ The 0.1.0 UI redesign (`swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.ht
 `swe/design/…` after sprints 059/060 ran, so their `done/` task files still cite the old path and are
 deliberately left as written) is a **design handoff, not a `swe/features/*.md` scope**, so it is
 tracked per-sprint rather than as a coverage row: sprint-059 implements its § 04 (chat timeline),
-sprint-060 the turn-progress bar out of § 05, and sprint-061 its § 07 (workspace tab strip).
-What remains unplanned is the sidebar (§ 03), the rest of § 05 (composer + `ModelMenu` move, queue
-chips, `StatusBar`'s model chip), and § 06's FileExplorer chrome — one sprint each when they are
-taken up. Sprint-059/task-005, sprint-060/task-003 and sprint-061/task-005 keep the affected scope
-docs honest against the new visual language (row treatments, the running footer, and the tab strip
-respectively) rather than letting the shipped UI and the written scope diverge.
+sprint-060 the turn-progress bar out of § 05, sprint-061 its § 07 (workspace tab strip), and
+sprint-062 its § 03 (workspace/sessions sidebar — § 07's own step 1, reached last of the four
+because the other three had no dependency on it).
+What remains unplanned is the rest of § 05 (composer + `ModelMenu` move, queue chips, `StatusBar`'s
+model chip) and § 06's FileExplorer chrome — one sprint each when they are taken up.
+Sprint-059/task-005, sprint-060/task-003, sprint-061/task-005 and sprint-062/task-005 keep the
+affected scope docs honest against the new visual language (row treatments, the running footer, the
+tab strip, and the sidebar respectively) rather than letting the shipped UI and the written scope
+diverge.
 
 | Scope file | Covered by |
 |------------|-----------|
