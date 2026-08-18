@@ -41,6 +41,16 @@ The Electron shell (`@av-pi-studio/desktop`, currently a placeholder — see its
 meant to consume this package's `build:electron` output as its renderer and own daemon supervision;
 this package stays a pure renderer and must not gain Node-only dependencies.
 
+**Packaging: every entry in `package.json` is a `devDependency`, not a runtime `dependency`.**
+This package has no `main`, no `exports`, and no `bin` — it ships only the prebuilt static assets
+under `files: ["dist", ...]`; nothing at a consumer's runtime ever resolves `@av-pi-studio/client`,
+`react`, `mermaid`, etc. through `node_modules` (`vite.config.ts` aliases `@av-pi-studio/protocol`/
+`client` to sibling `src/index.ts` at build time; `tsconfig.json` uses project references). Keeping
+them as `dependencies` made every `npm install @av-pi-studio/cli` pull this package's entire
+build-only tree (627 MB / 824 packages) even though only `dist/web` is ever used. If a future
+consumer needs to `import` this package's source as a JS module rather than serve its static build,
+it must declare those libraries itself.
+
 ---
 
 ## Stack

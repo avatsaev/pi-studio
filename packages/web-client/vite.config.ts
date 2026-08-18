@@ -91,6 +91,41 @@ export default defineConfig(() => {
             ) {
               return "vendor-react";
             }
+            // mermaid is dynamically imported by `MermaidBlock` in src/timeline/markdown.tsx
+            // ("nobody should pay for mermaid until a message actually contains a diagram").
+            // Left unhandled here, its whole dependency subtree fell through to the final
+            // `return "vendor"` below and was force-merged into the eagerly modulepreloaded
+            // vendor chunk — ~3 MB of mermaid/cytoscape/dagre/langium/roughjs/etc. downloaded on
+            // every page load regardless of whether a diagram was ever rendered. Returning
+            // `undefined` (not a fixed chunk name) hands placement back to Rollup, which then
+            // assigns modules reachable only from the dynamic import into that lazy chunk — same
+            // technique as @shikijs/langs/@shikijs/themes above. A fixed "vendor-mermaid" name
+            // would not work: any subtree dep left unmatched would still fall through to
+            // `vendor` and drag the whole chunk back in with it.
+            if (
+              id.includes("mermaid") ||
+              id.includes("@mermaid-js") ||
+              id.includes("langium") ||
+              id.includes("chevrotain") ||
+              id.includes("cytoscape") ||
+              id.includes("layout-base") ||
+              id.includes("cose-base") ||
+              id.includes("/d3-") ||
+              id.includes("/d3/") ||
+              id.includes("dagre-d3-es") ||
+              id.includes("khroma") ||
+              id.includes("roughjs") ||
+              id.includes("@upsetjs/venn.js") ||
+              id.includes("ts-dedent") ||
+              id.includes("@braintree/sanitize-url") ||
+              id.includes("@iconify/utils") ||
+              id.includes("marked") ||
+              id.includes("stylis") ||
+              id.includes("dompurify") ||
+              id.includes("dayjs")
+            ) {
+              return undefined;
+            }
             if (id.includes("@molviewer/core") || id.includes("molstar")) return "vendor-molviewer";
             return "vendor";
           },

@@ -5,7 +5,9 @@
     "pi-studio": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.map",
+    "!dist/.tsbuildinfo"
   ],
   "type": "module",
   "main": "./dist/index.js",

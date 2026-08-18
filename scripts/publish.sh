@@ -79,9 +79,10 @@ if [[ "$BUMP" == true ]]; then
       const path = 'packages/$pkg/package.json';
       const p = JSON.parse(fs.readFileSync(path, 'utf8'));
       p.version = '$NEXT_VERSION';
-      if (p.dependencies) {
-        for (const dep of Object.keys(p.dependencies)) {
-          if (dep.startsWith('@av-pi-studio/')) p.dependencies[dep] = '^$NEXT_VERSION';
+      for (const depsKey of ['dependencies', 'devDependencies']) {
+        if (!p[depsKey]) continue;
+        for (const dep of Object.keys(p[depsKey])) {
+          if (dep.startsWith('@av-pi-studio/')) p[depsKey][dep] = '^$NEXT_VERSION';
         }
       }
       fs.writeFileSync(path, JSON.stringify(p, null, 2) + '\n');
