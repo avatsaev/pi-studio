@@ -2,7 +2,7 @@
  * Workspace context menu — Radix DropdownMenu anchored at cursor/button coordinates, mirroring
  * `SessionContextMenu.tsx`'s pattern. Opened via `WorkspaceGroupHeader`'s "⋮" button (a single
  * consolidated menu, replacing two always-visible icon buttons — file-explorer quick-wins-1).
- * Actions: New conversation, Delete workspace (all conversations — a real remote RPC per session,
+ * Actions: New session, Delete workspace (all conversations — a real remote RPC per session,
  * `client.agent(id).delete()`; local state only drops after each one confirms).
  */
 
@@ -47,7 +47,7 @@ export function WorkspaceContextMenu() {
     if (!next) closeWorkspaceMenu();
   }
 
-  function newConversation() {
+  function newSession() {
     if (!menu) return;
     closeWorkspaceMenu();
     openNewChat(menu.cwd);
@@ -84,9 +84,9 @@ export function WorkspaceContextMenu() {
         <MenuCursorTrigger ref={triggerRef} x={menu.x} y={menu.y} />
       </DropdownMenu.Trigger>
       <MenuContent minWidth={160}>
-        <MenuItem onSelect={newConversation}>
+        <MenuItem onSelect={newSession}>
           <Plus size={13} />
-          New conversation
+          New session
         </MenuItem>
         <MenuSeparator />
         <MenuItem danger onSelect={deleteWorkspace}>

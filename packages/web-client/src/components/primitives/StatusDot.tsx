@@ -40,7 +40,11 @@ export function StatusDot({ className, ...input }: StatusDotProps) {
       style={
         spinning
           ? { borderTopColor: color, borderRightColor: color }
-          : { width: STATUS_DOT_SIZE, height: STATUS_DOT_SIZE, backgroundColor: color }
+          : {
+              width: `var(--status-dot-size, ${STATUS_DOT_SIZE}px)`,
+              height: `var(--status-dot-size, ${STATUS_DOT_SIZE}px)`,
+              backgroundColor: color,
+            }
       }
       role="presentation"
     />

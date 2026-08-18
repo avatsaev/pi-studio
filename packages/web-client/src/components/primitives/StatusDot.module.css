@@ -15,10 +15,10 @@
    muted accent color all but disappeared against the dark background. */
 .spinner {
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: var(--status-dot-size, 12px);
+  height: var(--status-dot-size, 12px);
   border-radius: var(--pi-radius-full);
-  border: 2px solid var(--pi-color-border);
+  border: var(--status-dot-border-width, 2px) solid var(--pi-color-border);
   flex-shrink: 0;
   animation: statusSpin 0.7s linear infinite;
 }

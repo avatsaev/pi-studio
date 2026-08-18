@@ -27,7 +27,7 @@ export interface UiStoreState {
 
   cwdPickerOpen: boolean;
   sessionMenu: { sessionId: string; x: number; y: number } | null;
-  /** Per-workspace "⋮" menu (sidebar workspace header — New conversation / Delete workspace). */
+  /** Per-workspace "⋮" menu (sidebar workspace header — New session / Delete workspace). */
   workspaceMenu: { cwd: string; x: number; y: number } | null;
   /** `background: true` is the empty-space variant (right-click below the last row, or a
    * selected directory's "New File"/"New Folder") — `path` is the target directory, not a

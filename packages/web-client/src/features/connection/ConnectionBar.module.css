@@ -1,0 +1,158 @@
+/* ConnectionBar — design spec § 08. Row geometry: 42px, spacing-14 side padding, spacing-12 gap,
+   1px bottom border, no background of its own (sits on the app's surface0).
+
+   Shrink order is the whole point of the flex setup here: ONLY `.field` may shrink (`flex: 0 1
+   <basis>` + a min-width floor). Title, pill, action and panel toggles are all `flex: none`, so a
+   narrow window eats the url/password fields first and never truncates the controls; once the
+   fields hit their floor the bar scrolls horizontally rather than wrapping to a second row. */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-12);
+  height: 42px;
+  padding: 0 var(--pi-spacing-14);
+  border-bottom: var(--pi-border-width-1) solid var(--pi-color-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.title {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--pi-spacing-4);
+}
+.brand {
+  font-weight: 600;
+  font-size: var(--pi-font-size-sm);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.version {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: nowrap;
+}
+
+/* ---- Status pill ---- */
+
+.statusPill {
+  flex: none;
+  max-width: 340px;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-7);
+  height: var(--pi-spacing-26);
+  padding: 0 var(--pi-spacing-11);
+  background: var(--pi-color-surface1);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-full);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: nowrap;
+}
+
+/* Host / separator / state form one tight cluster, held at a smaller internal gap than the pill's
+   dot gap. Putting the "·" inside the state span instead left the host→state spacing at
+   "gap + glyph + space" (~13px) against the dot's even 7px, which read as broken alignment. */
+.statusText {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+}
+/* The host is the only part allowed to ellipsize; the state word after it always stays readable,
+   which a single combined label span could not do (it would truncate "· connected" off the end). */
+.statusHost {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--pi-font-mono);
+  color: var(--pi-color-foreground);
+}
+.statusSep {
+  flex: none;
+}
+.statusLabel {
+  flex: none;
+}
+.statusDot,
+.statusSpinner {
+  flex: none;
+}
+
+.statusPillError {
+  color: var(--pi-color-destructive);
+  border-color: color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
+  background: color-mix(in srgb, var(--pi-color-destructive) 12%, var(--pi-color-surface1));
+}
+
+/* ---- Url / password fields ----
+   Element+class selectors (`input.field`) so these win over `TextInput`'s own `.input` rules
+   regardless of CSS-module bundle order — the bar restyles the primitive substantially (26px tall,
+   2xs text, surface1, mono url) rather than just resizing it. */
+
+input.field {
+  flex: 0 1 auto;
+  min-width: 40px;
+  width: auto;
+  height: var(--pi-spacing-26);
+  padding: 0 var(--pi-spacing-11);
+  background: var(--pi-color-surface1);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foreground);
+  text-overflow: ellipsis;
+}
+input.fieldUrl {
+  flex-basis: 220px;
+  font-family: var(--pi-font-mono);
+}
+input.fieldPassword {
+  flex-basis: 120px;
+}
+input.field:focus {
+  border-color: var(--pi-color-accentBright);
+  outline: none;
+}
+input.fieldInvalid,
+input.fieldInvalid:focus {
+  border-color: var(--pi-color-destructive);
+}
+/* Frozen mid-handshake — readOnly, dimmed, and unfocusable so a click can't edit values in flight
+   or fire a second connect. */
+input.field:read-only {
+  opacity: var(--pi-opacity-50);
+  pointer-events: none;
+}
+
+/* ---- Primary action ----
+   Sits directly after the pill/fields (NOT pushed to the far edge) so it reads as part of the
+   connection control rather than a global toolbar action. `Button`'s smallest size floors at 28px
+   (ui/button.ts BUTTON_MIN_HEIGHT.xs), so the bar's 26px control height is applied inline at the
+   call site — Button spreads `style` last, which makes that override supported. */
+
+.action {
+  flex: none;
+}
+
+/* ---- Panel toggles ----
+   The only thing at margin-left:auto — an unrelated control group pinned to the far right,
+   identical in all connection states. */
+
+.panelToggles {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+}
+.panelToggle {
+  flex: none;
+  border-color: var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}

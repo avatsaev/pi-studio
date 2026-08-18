@@ -331,8 +331,9 @@ export function openNewMolecule(workspaceCwd: string, targetPaneId?: string): vo
 }
 
 /** Open a brand-new chat: creates a session against a workspace cwd and opens/focuses its chat
- * tab. Shared by the sidebar's "+ New conversation" button, `open-workspace.ts`'s create-new
- * path, and the TabStrip's "+" button — so every caller mints identical tab ids/labels (mirrors
+ * tab. Shared by the sidebar's "+ New session" affordances (workspace context-menu item and
+ * each workspace group's trailing row), `open-workspace.ts`'s create-new path, and the
+ * TabStrip's "+" button — so every caller mints identical tab ids/labels (mirrors
  * `openNewTerminal` above). `workspaceCwd` MUST already be normalized by the caller (same
  * contract as `openNewTerminal`).
  *
