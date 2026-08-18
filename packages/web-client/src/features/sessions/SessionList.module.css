@@ -1,110 +1,202 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--pi-spacing-6) var(--pi-spacing-10);
-  border-bottom: 1px solid var(--pi-color-border);
+  padding: 0 var(--pi-spacing-10);
   flex-shrink: 0;
-}
-.openBtn {
-  width: 20px !important;
-  min-height: 20px !important;
 }
 .header h3 {
   margin: 0;
-  font-size: var(--pi-font-size-xs);
-  font-weight: 600;
+  font-size: var(--pi-font-size-3xs);
+  font-weight: var(--pi-font-weight-bold);
   color: var(--pi-color-foregroundMuted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
 }
 .list {
   flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
 }
+.newSessionRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-4);
+  width: 100%;
+  margin: 0;
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border: none;
+  border-radius: var(--pi-radius-sm);
+  background: none;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.newSessionRow:hover {
+  background: var(--pi-color-surface0);
+}
+.newSessionRow:disabled {
+  cursor: default;
+  opacity: var(--pi-opacity-50);
+}
+.newSessionRow:disabled:hover {
+  background: none;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-4);
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  border: none;
+  border-top: var(--pi-border-width-1) solid var(--pi-color-border);
+  background: none;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.footer:hover {
+  background: var(--pi-color-surface0);
+}
+.footer:disabled {
+  cursor: default;
+  opacity: var(--pi-opacity-50);
+}
+.footer:disabled:hover {
+  background: none;
+}
 .item {
   position: relative;
-  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  padding: var(--pi-spacing-7) var(--pi-spacing-10);
+  border-radius: var(--pi-radius-sm);
   cursor: pointer;
-  border-bottom: 1px solid transparent;
+  background: color-mix(in srgb, var(--pi-color-surface0) 60%, transparent);
 }
 .item:hover {
-  background: color-mix(
-    in srgb,
-    var(--pi-color-surfaceSidebar) 85%,
-    var(--pi-color-foreground) 15%
-  );
-}
-.item.active {
   background: var(--pi-color-surface0);
-  box-shadow: inset 2px 0 0 var(--pi-color-accent);
+}
+/* Failed-turn tint. Deliberately loses to `.item.active`'s selection fill below (source order +
+   equal specificity) — a selected row always reads as selected first. */
+.itemFailed {
+  background: color-mix(in srgb, var(--pi-color-destructive) 10%, transparent);
+}
+/* Selection is unmistakable: fill + inset ring + a full-height left bar (`.activeBar` below) +
+   bold `accentForeground` title (see `.title .titleLabel` under `.active`). */
+.item.active {
+  background: color-mix(in srgb, var(--pi-color-accent) 34%, transparent);
+  box-shadow: inset 0 0 0 var(--pi-border-width-1)
+    color-mix(in srgb, var(--pi-color-accentBright) 32%, transparent);
+}
+.activeBar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--pi-color-accentBright);
 }
 .title {
   display: flex;
   align-items: center;
   gap: var(--pi-spacing-6);
   font-size: var(--pi-font-size-sm);
+}
+.titleLabel {
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.item.active .titleLabel {
+  color: var(--pi-color-accentForeground);
+  font-weight: var(--pi-font-weight-bold);
+}
+/* Never-used session (task-001's `empty` state) — no dot, no messages yet. */
+.titleItalic {
+  font-style: italic;
 }
 .meta {
-  margin-top: var(--pi-spacing-2);
-  font-size: var(--pi-font-size-2xs);
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  font-size: var(--pi-font-size-3xs);
   color: var(--pi-color-foregroundMuted);
+  overflow: hidden;
+}
+.metaDot {
+  flex-shrink: 0;
+  --status-dot-size: 9px;
+  --status-dot-border-width: 1.5px;
+}
+.metaLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.metaFailed {
+  color: var(--pi-color-destructive);
+}
+.metaEmpty {
+  opacity: var(--pi-opacity-50);
+}
+/* Reserved either way so the title's truncation point never shifts on hover — mirrors
+   `TabStrip.module.css`'s `.tabClose`. */
 .menuBtn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+  flex-shrink: 0;
   opacity: 0;
 }
-.item:hover .menuBtn {
+.item:hover .menuBtn,
+.item:focus-within .menuBtn {
   opacity: 1;
 }
-.workspaceGroup {
-  border-bottom: 1px solid var(--pi-color-border);
+@media (max-width: 575px), (hover: none) {
+  .menuBtn {
+    opacity: 1;
+  }
 }
 .workspaceHeader {
   display: flex;
   align-items: center;
-  gap: var(--pi-spacing-6);
-  padding: var(--pi-spacing-7) var(--pi-spacing-10);
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
   cursor: pointer;
   font-size: var(--pi-font-size-xs);
-  font-weight: 600;
   color: var(--pi-color-foreground);
-  /* Distinct from the sidebar background (surfaceSidebar) so the group header reads as a
-     header rather than blending into the row list below it. */
-  background: var(--pi-color-surfaceWorkspace);
+  /* Full-bleed band (design spec § 03): `surface2` fill, 1px border top and bottom, no side
+     margin, no radius, no card frame. Same band whether expanded or collapsed — expansion is
+     expressed only by the chevron rotation and the presence of session rows below it. */
+  background: var(--pi-color-surface2);
+  border-top: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-bottom: var(--pi-border-width-1) solid var(--pi-color-border);
 }
 .workspaceHeader:hover {
-  /* `--pi-color-surfaceHover` isn't a real emitted token (no such key exists in ThemeColors —
-     this always silently used the literal fallback); with an explicit rest background above,
-     that literal read as nearly identical to it and hover became invisible. Mixing in
-     `foreground` instead of a second hardcoded literal keeps the hover lift theme-adaptive:
-     foreground is light on dark themes (lightens) and dark on the light theme (darkens). */
-  background: color-mix(
-    in srgb,
-    var(--pi-color-surfaceWorkspace) 85%,
-    var(--pi-color-foreground) 15%
-  );
+  /* Deliberate deviation from the design spec's reference CSS, which scopes this hover lift to
+     the collapsed band only: the band toggles collapse either way it's clicked, so the lift
+     applies expanded or collapsed alike — suppressing it on an expanded band would hide a real
+     action. */
+  background: color-mix(in srgb, var(--pi-color-surface2) 85%, var(--pi-color-foreground) 15%);
 }
 .workspaceChevron {
   flex-shrink: 0;
+  background: var(--pi-color-surface3);
+  border-radius: var(--pi-radius-base);
 }
-/* Deliberately no hover background — `.workspaceHeader:hover` above already lifts the whole
-   row; a second box just on the chevron would read as a double affordance. */
+/* Deliberately static — `.workspaceHeader:hover` above already lifts the whole row; letting
+   `IconButton`'s own hover fill layer on top of the tile's permanent `surface3` fill would read
+   as a double affordance. */
 .workspaceHeader .workspaceChevron:hover {
-  background: transparent;
+  background: var(--pi-color-surface3);
 }
-.workspaceIcon {
-  color: var(--pi-color-foregroundMuted);
-  flex-shrink: 0;
+/* No `transition` on `.chevronGlyphExpanded` — the 90° rotation is instant by design (recorded
+   deviation from the mock, which implies an animated turn); nothing here for
+   `prefers-reduced-motion` to suppress. */
+.chevronGlyphExpanded {
+  transform: rotate(90deg);
 }
 .workspaceLabel {
   flex: 1 1 auto;
@@ -113,9 +205,12 @@
   white-space: nowrap;
 }
 .workspaceCount {
-  font-size: var(--pi-font-size-2xs);
-  font-weight: 400;
+  flex-shrink: 0;
+  font-size: var(--pi-font-size-4xs);
   color: var(--pi-color-foregroundMuted);
+  background: var(--pi-color-surface3);
+  border-radius: var(--pi-radius-full);
+  padding: var(--pi-spacing-1) var(--pi-spacing-6);
 }
 .workspaceMenuBtn {
   flex-shrink: 0;
@@ -124,6 +219,14 @@
 .workspaceHeader:hover .workspaceMenuBtn {
   opacity: 1;
 }
+@media (max-width: 575px), (hover: none) {
+  .workspaceMenuBtn {
+    opacity: 1;
+  }
+}
 .workspaceSessions {
-  padding-left: var(--pi-spacing-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-3);
+  padding: var(--pi-spacing-5) var(--pi-spacing-8) var(--pi-spacing-8);
 }

@@ -1,7 +1,7 @@
 # Task 001 — Sidebar session presentation model (pure)
 
 - **Sprint:** sprint-062-workspace-sidebar-redesign
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client — features/sessions
 - **Priority:** P1
@@ -17,7 +17,7 @@ sessions into the collapsed band's attention dot — unit-tested, with no React 
 ## Context / why
 
 Design spec § 03 replaces today's meta line (`cwd · agentId · N msgs`,
-`SessionItem.tsx:44-48`) with **status only**, and defines five row states:
+`SessionItem.tsx:49-52`) with **status only**, and defines five row states:
 
 | § 03 state | Visual |
 |---|---|
@@ -127,7 +127,9 @@ Rules:
 - [ ] `titleItalic` is true only for `empty`.
 - [ ] `workspaceAttentionDot` returns a `statusDanger` input when any child failed, `null` for a
       mix of running/idle/empty children, and `null` for an empty array.
-- [ ] No import of React, zustand, or any store module in `session-presentation.ts`.
+- [ ] No React or zustand import in `session-presentation.ts`, and no runtime store access. The
+      only store touch-point is the type-only `import type { SessionEntry }` from
+      `stores/session-store.js` — the exact shape `workspace-grouping.ts:7` already uses.
 
 ## Test / verification plan
 

@@ -1,7 +1,7 @@
 # Task 003 — Frameless session rows + selection / activity states
 
 - **Sprint:** sprint-062-workspace-sidebar-redesign
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client — features/sessions
 - **Priority:** P1
@@ -17,7 +17,7 @@ menu.
 
 ## Context / why
 
-Today's row (`SessionItem.tsx`, `SessionList.module.css:26-66`) is a full-bleed strip with a
+Today's row (`SessionItem.tsx`, `SessionList.module.css:26-68`) is a full-bleed strip with a
 `border-bottom: 1px solid transparent`, an always-on `StatusDot showInactive`, a meta line reading
 `cwd · agentId · N msgs`, an absolutely-positioned `⋮`, and an active state that is only a
 `surface0` fill plus a 2px inset accent shadow. § 03 rewrites every one of those:
@@ -62,14 +62,14 @@ already expresses hierarchy, so the extra indent only costs label width.
 - `swe/features/app-navigation-screens.md` § Global navigation shell (§ Sidebar content)
 - `swe/features/workspace-split-panes.md` § Drag sources — the sidebar row as a pane drop source
 - `packages/web-client/src/features/sessions/SessionItem.tsx` — rewrite
-- `packages/web-client/src/features/sessions/SessionList.module.css:26-66,125-128` — `.item`,
+- `packages/web-client/src/features/sessions/SessionList.module.css:26-68,127-129` — `.item`,
   `.title`, `.meta`, `.menuBtn`, `.workspaceSessions`
-- `packages/web-client/src/features/sessions/SessionList.tsx:43-62,96-110` — `handleSelect`,
+- `packages/web-client/src/features/sessions/SessionList.tsx:43-61,100-109` — `handleSelect`,
   `handleDragStart`, row props
 - `packages/web-client/src/features/sessions/session-presentation.ts` (task-001)
 - `packages/web-client/src/components/primitives/StatusDot.tsx`,
   `components/primitives/Icon.tsx`, `components/primitives/IconButton.tsx`
-- `packages/web-client/src/features/workspace/TabStrip.module.css:74-96` — reserved-box pattern
+- `packages/web-client/src/features/workspace/TabStrip.module.css:73-97` — reserved-box pattern
 
 ## What to build
 
@@ -87,9 +87,10 @@ already expresses hierarchy, so the extra indent only costs label width.
    var(--pi-color-accentBright) 32%, transparent)`, `color: var(--pi-color-accentForeground)` +
    `font-weight: var(--pi-font-weight-bold)` on the title, and a 2px full-height `accentBright`
    left bar (`::before` or an `.activeBar` span — § 03 allows either).
-4. **Running, not selected**: normal fill, `StatusDot`'s ring, plus the same left bar at
-   `color-mix(in srgb, var(--pi-color-accentBright) 45%, transparent)`. Selection must remain
-   readable as *fill*, activity as *ring*.
+4. **Running, not selected**: normal fill plus `StatusDot`'s ring — **no left bar** (deliberate
+   deviation from § 03's half-opacity bar: the spinner is the sole activity signal, which keeps
+   "selection is fill; activity is the ring" strict and drops a whole state-combination class).
+   Selection must remain readable as *fill*, activity as *ring*.
 5. **Failed**: row tint `color-mix(in srgb, var(--pi-color-destructive) 10%, transparent)`
    (loses to the selected fill when both apply), meta label in `--pi-color-destructive`, reason in
    `foregroundMuted`.
@@ -119,8 +120,8 @@ Frozen behavior: `onClick` → `activate` + `setCwd` + `openChatTab`; `draggable
 - [ ] Idle fill is the 60% `surface0` mix; hover is solid `surface0`.
 - [ ] The selected row shows all four selection signals (fill, inset ring, `accentForeground` bold
       title, 2px `accentBright` left bar) and no hardcoded white.
-- [ ] A running, unselected row keeps the idle fill, shows the spinning ring, and shows a
-      half-opacity left bar; it is never mistaken for the selected row.
+- [ ] A running, unselected row keeps the idle fill and shows the spinning ring — no left bar; it
+      is never mistaken for the selected row.
 - [ ] A failed row shows the destructive tint, `turn failed`, and the short reason when one exists;
       the reason ellipsises instead of wrapping.
 - [ ] A never-used session renders an italic title and `no messages` at `opacity-50`.
@@ -147,6 +148,9 @@ Frozen behavior: `onClick` → `activate` + `setCwd` + `openChatTab`; `draggable
 - On the selected row the ring is `accentBright` on a 34% accent fill (`StatusDot` hardcodes
   `accentBright` for the running ring), not § 03's mock white-on-accent. Acceptable and
   intentional — one primitive over a bespoke variant; note it in the summary.
+- The running-unselected row ships **without** § 03's half-opacity left bar — recorded deviation
+  (planning decision): the ring alone signals activity; the bar was a second signal costing an
+  extra state class. The selected row's bar stays. Note it in the summary.
 - `SessionList` already subscribes to the whole `sessions` record, so every stream event re-renders
   every row. Do not add a per-row store subscription; keep `SessionItem` presentational and call
   `sidebarSessionView(session)` in the row body.

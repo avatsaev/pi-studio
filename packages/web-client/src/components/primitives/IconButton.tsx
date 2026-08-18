@@ -3,10 +3,10 @@
  * "⋮", session-row "⋮", workspace-header chevron/"⋮", Dialog's inline close, TabStrip's "+").
  * Distinct from `Button`'s `iconOnly` mode: `Button` sizes from 28px up (a labeled-CTA minimum
  * tap target) and hovers to a fixed `surface1` — too large and the wrong hover color for a tiny
- * hover-reveal affordance sitting inside an already-compact row (20px tall, absolutely
- * positioned, opacity-on-row-hover) against a variety of ambient backgrounds
- * (`surfaceSidebar`/`surfaceWorkspace`/page `background`/`surface1`, matching each row's own
- * container — see `--icon-btn-hover-base` below). ui-components.md § Pressables
+ * hover-reveal affordance sitting inside an already-compact row (20px tall, in flow, reserved
+ * box + opacity-on-row-hover, sprint-062) against a variety of ambient backgrounds
+ * (`surfaceSidebar`/`surface2`/page `background`/`surface1`, matching each row's own container —
+ * see `--icon-btn-hover-base` below). ui-components.md § Pressables
  */
 
 import { type ButtonHTMLAttributes, type CSSProperties } from "react";

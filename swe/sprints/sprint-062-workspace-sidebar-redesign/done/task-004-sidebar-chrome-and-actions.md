@@ -1,7 +1,7 @@
 # Task 004 — Sidebar chrome: counted header, per-workspace "New session", pinned footer
 
 - **Sprint:** sprint-062-workspace-sidebar-redesign
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client — features/sessions
 - **Priority:** P1
@@ -20,17 +20,18 @@ with exactly one open-workspace affordance in the whole sidebar.
 
 | § 03 mock | Today |
 |---|---|
-| `WORKSPACES · 2` header, `11px`/bold/`.1em`, with a `＋` | `Workspaces` (`xs`, 600, `.04em`) + a `FolderOpen` `IconButton` (`SessionList.tsx:65-78`) |
+| `WORKSPACES · 2` header, `11px`/bold/`.1em`, with a `＋` | `Workspaces` (`xs`, 600, `.04em`) + a `FolderOpen` ghost `Button` (`size="xs" variant="ghost" iconOnly`, `SessionList.tsx:66-79`) |
 | A `＋ New session` row at the end of each workspace's rows | "New conversation" only inside the band's `⋮` menu |
 | A footer row: `＋ Add workspace` … `⚙` | nothing |
 
 Decisions this app forces:
 
-**(a) One affordance for "open a workspace", not two.** The mock shows both a header `＋` and a
-footer `＋ Add workspace`; both would call the same `openCwdPicker()`. Ship the **labeled footer
-row** (discoverable — this is the only entry point to `OpenWorkspaceDialog` since "Open Workspace"
-left the `Toolbar`) and leave the header as pure information (`WORKSPACES · N`). Pinned outside the
-scroll container so it stays reachable with many workspaces.
+**(a) One affordance for "open a workspace", not two — in the sidebar.** The mock shows both a
+header `＋` and a footer `＋ Add workspace`; both would call the same `openCwdPicker()`. Ship the
+**labeled footer row** (discoverable — the sidebar's only entry point to `OpenWorkspaceDialog`;
+`TabPanelHost.tsx:152-156`'s no-workspace empty state keeps its own "Open Workspace" button, which
+is a different surface and stays) and leave the header as pure information (`WORKSPACES · N`).
+Pinned outside the scroll container so it stays reachable with many workspaces.
 
 **(b) The `⚙` is omitted, not faked.** In the reference app that gear is the sidebar footer's
 Settings route (`features/app-navigation-screens.md` § Global navigation shell: "footer icon buttons
@@ -72,9 +73,10 @@ redesign — declare the height explicitly rather than letting padding decide it
    `min-height` pinned to 36px via the same `WORKSPACE_SECONDARY_HEADER_HEIGHT` value the strip uses
    (a local CSS custom property or an inline `min-height` from the constant — do **not** invent a
    `--pi-*` name; `token-integrity.test.ts` fails any `var(--pi-…)` the theme does not emit).
-   Remove the `FolderOpen` `IconButton` and `.openBtn`; keep the bottom `border` only if the first
-   band's top border does not already read as the separator (§ 03 implies it does — verify in the
-   browser and keep whichever renders as one line, not two).
+   Remove the `FolderOpen` ghost `Button` and `.openBtn`. Delete the header's `border-bottom` —
+   the first band's own top border is the separator (§ 03 implies exactly this; decided at
+   planning time, no browser A/B needed). With zero workspaces there is no band, so the header
+   sits borderless above the empty-state hint — fine, the hint has its own padding.
 2. **`＋ New session` row**: last child of each expanded workspace's row container — full-row,
    centered, `--pi-font-size-2xs`, `foregroundMuted`, `radius-sm`, `spacing-6`/`spacing-10` padding,
    hover lift to `surface0`, lucide `Plus` through `Icon` at `icon-size-xs`. Dispatches

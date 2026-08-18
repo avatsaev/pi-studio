@@ -1,7 +1,7 @@
 # Task 005 — Docs sync + § 03 pre-ship verification
 
 - **Sprint:** sprint-062-workspace-sidebar-redesign
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs + test
 - **Area:** packages/web-client — docs, theme guards, verification
 - **Priority:** P1
@@ -30,9 +30,9 @@ unimplemented in the scope doc rather than deleted from it or quietly faked.
 - `swe/features/app-navigation-screens.md` § Global navigation shell (§ Sidebar content, § Sidebar
   groups references to Settings)
 - `swe/features/file-explorer-quick-wins.md:29-33` — `collapsedWorkspaces` description
-- `packages/web-client/AGENTS.md:265-275` (source-layout `sessions/` block), `:560-562` (empty-state
+- `packages/web-client/AGENTS.md:264-279` (source-layout `sessions/` block), `:560-562` (empty-state
   copy), Invariants section
-- `packages/web-client/src/components/primitives/IconButton.tsx:7-9` — doc comment citing
+- `packages/web-client/src/components/primitives/IconButton.tsx:6-9` — doc comment citing
   `surfaceWorkspace` and the "absolutely positioned" session-row `⋮`
 - `packages/web-client/src/theme/token-integrity.test.ts`,
   `packages/web-client/src/theme/font-scale.test.ts`
@@ -77,8 +77,9 @@ unimplemented in the scope doc rather than deleted from it or quietly faked.
      shift;
    - a live turn: idle → running → completed on a **non-selected** row (fill unchanged, ring
      appears), plus a failed turn showing the tinted row and its short reason;
-   - `prefers-reduced-motion: reduce`: chevron rotation transition suppressed, ring/spinner behavior
-     matching whatever sprint-060 established for the progress bar.
+   - `prefers-reduced-motion: reduce`: nothing new animates — the chevron rotation is instant by
+     design (task-002 ships no transition, so there is nothing to suppress); the `StatusDot` ring's
+     animation behavior is the primitive's pre-existing contract, not this sprint's.
 6. **Full gates from a clean state** (`npm run clean` first — incremental `tsc` hides errors after
    signature changes): `npm run build`, `npm run typecheck`, `npm run lint`, `npm test`,
    `npm run fmt:check`.
@@ -118,6 +119,9 @@ unimplemented in the scope doc rather than deleted from it or quietly faked.
 
 - Record deviations from § 03's mock in the summary, with reasons: single-initial `Avatar` vs the
   mock's two-letter/brand mark, `accentBright` ring on the selected row's accent fill, the omitted
-  `⚙`, the single (footer-only) open-workspace affordance, and the 36px header band.
+  `⚙`, the single (footer-only) open-workspace affordance in the sidebar, the 36px header band,
+  the 20px chevron tile (mock: 16px), the instant untransitioned chevron rotation, the hover lift
+  applying to both band states (mock comment: collapsed-only), and the dropped half-opacity
+  activity bar on running-unselected rows (the spinner is the sole activity signal).
 - § 03's "the icon rail is removed" has no counterpart in this client; say so once rather than
   leaving a reader hunting for a rail that never existed.

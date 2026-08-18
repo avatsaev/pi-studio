@@ -2,27 +2,29 @@
  * Left sidebar session list (POC `#session-list`/`renderSessions`, POC_TO_APP_PLAN_UI.md §4.3).
  * Sessions are grouped into a collapsible tree by workspace (project `cwd`): clicking a workspace
  * header toggles that workspace's collapsed state; clicking a nested session opens that session.
- * New conversation / Delete workspace live behind the header's "⋮" button
+ * New session / Delete workspace live behind the header's "⋮" button
  * (`WorkspaceContextMenu.tsx`) rather than always-visible icon buttons.
  */
 
 import type { DragEvent } from "react";
-import { FolderOpen } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import { useTabStore, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
+import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu.js";
 import { groupSessionsByWorkspace, workspaceLabel } from "./workspace-grouping.js";
+import { workspaceAttentionDot } from "./session-presentation.js";
 import { openChatTab } from "./open-chat-tab.js";
 import { EXTERNAL_DRAG_MIME } from "@pi-studio-ui/features/workspace/external-drag.js";
+import { WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@pi-studio-ui/platform/breakpoints.js";
 import styles from "./SessionList.module.css";
 
 export function SessionList() {
@@ -63,19 +65,8 @@ export function SessionList() {
   const groups = groupSessionsByWorkspace(order, sessions, homeDir);
   return (
     <Panel>
-      <div className={styles.header}>
-        <h3>Workspaces</h3>
-        <Button
-          size="xs"
-          variant="ghost"
-          iconOnly
-          className={styles.openBtn}
-          title={status !== "open" ? "Connect to open a workspace" : "Open a workspace folder"}
-          disabled={status !== "open"}
-          onClick={() => openCwdPicker()}
-        >
-          <FolderOpen size={13} />
-        </Button>
+      <div className={styles.header} style={{ minHeight: WORKSPACE_SECONDARY_HEADER_HEIGHT }}>
+        <h3>Workspaces · {groups.length}</h3>
       </div>
       <div className={styles.list}>
         {groups.length === 0 && (
@@ -86,12 +77,13 @@ export function SessionList() {
         {groups.map((group) => {
           const collapsed = collapsedWorkspaces.has(group.cwd);
           return (
-            <div key={group.cwd} className={styles.workspaceGroup}>
+            <div key={group.cwd}>
               <WorkspaceGroupHeader
                 label={workspaceLabel(group.cwd)}
                 cwd={group.cwd}
                 sessionCount={group.sessions.length}
                 collapsed={collapsed}
+                attentionDot={collapsed ? workspaceAttentionDot(group.sessions) : null}
                 onToggleCollapsed={() => toggleWorkspaceCollapsed(group.cwd)}
                 onOpenMenu={(x, y) => openWorkspaceMenu(group.cwd, x, y)}
               />
@@ -108,12 +100,32 @@ export function SessionList() {
                       onDragStartRow={(e) => handleDragStart(session.id, group.cwd, e)}
                     />
                   ))}
+                  <button
+                    type="button"
+                    className={styles.newSessionRow}
+                    disabled={status !== "open"}
+                    title={status !== "open" ? "Connect to start a new session" : undefined}
+                    onClick={() => openNewChat(group.cwd)}
+                  >
+                    <Icon icon={Plus} size="xs" />
+                    New session
+                  </button>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+      <button
+        type="button"
+        className={styles.footer}
+        disabled={status !== "open"}
+        title={status !== "open" ? "Connect to open a workspace" : "Open a workspace folder"}
+        onClick={() => openCwdPicker()}
+      >
+        <Icon icon={Plus} size="xs" />
+        Add workspace
+      </button>
       <SessionContextMenu />
       <WorkspaceContextMenu />
     </Panel>

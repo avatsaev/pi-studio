@@ -267,12 +267,19 @@ src/
                             over a workspace's sessions, confirms conversations-only/files-
                             untouched, closes their tabs — file-explorer quick-wins-1; its rows are
                             also the drag source for chat→pane drops, and only for the workspace in
-                            view), SessionItem (presentational; `draggable` is decided by SessionList),
-                            SessionContextMenu, WorkspaceGroupHeader (per-workspace delete button
-                            alongside "New conversation"), open-chat-tab.ts (shared "open a session
-                            as a chat tab" dispatch — the sibling of files/open-file-tab.ts, and
-                            required for the same reason: three call sites had grown their own copy
-                            of the tab literal that `tabIdentity` keys the persisted layout off),
+                            view; also renders the per-workspace "+ New session" row and the
+                            pinned "+ Add workspace" footer, sprint-062), session-presentation.ts
+                            (+ test — `sidebarSessionView`/`workspaceAttentionDot`, the single
+                            SessionEntry→sidebar-row-state module, sprint-062), SessionItem
+                            (presentational frameless row — status-only meta, `draggable` decided
+                            by SessionList, sprint-062 redesign), SessionContextMenu,
+                            WorkspaceGroupHeader (full-bleed `surface2` band — chevron/avatar/bold
+                            name/collapsed-only attention dot/count pill, sprint-062 redesign; its
+                            "⋮" keeps the per-workspace delete button alongside "New
+                            conversation"), open-chat-tab.ts (shared "open a session as a chat
+                            tab" dispatch — the sibling of files/open-file-tab.ts, and required
+                            for the same reason: three call sites had grown their own copy of the
+                            tab literal that `tabIdentity` keys the persisted layout off),
                             open-workspace, status-map,
                             workspace-grouping (+ collapseInactiveWorkspaces, used by
                             use-session-restore.ts to seed the sidebar's collapsed set on connect
@@ -1381,3 +1388,46 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     of its newly revealed body rather than its header — the anchor cannot distinguish growth the
     user clicked for from growth the agent streamed, and special-casing one of them is what made
     the previous design unmaintainable.
+- **Sidebar row/dot presentation has one source (sprint-062).**
+  `features/sessions/session-presentation.ts`'s `sidebarSessionView`/`workspaceAttentionDot` are
+  the only place a `SessionEntry`/workspace becomes a sidebar row state, meta string, failure
+  reason, or `StatusDot` input; `status-map.ts`'s `toDotStatus` remains the single
+  protocol-status→dot-vocabulary translation point underneath it — neither `SessionItem.tsx` nor
+  `WorkspaceGroupHeader.tsx` derives status independently.
+- **No cwd, agent id, message count, timestamp, or cost in the sidebar meta line.** § 03's row
+  redesign reduced the meta line to status only (plus a short failure reason for a failed turn);
+  do not reintroduce any of those fields into `SessionItem`'s meta row.
+- **The workspace band is `surface2`, edge-to-edge, with a top+bottom `border`, and its hover lift
+  applies in both expanded and collapsed states.** `surfaceWorkspace` (the token the band used
+  before sprint-062) has no remaining consumer in `SessionList.module.css` — it stays emitted in
+  `ThemeColors` (part of the theme contract; `token-integrity.test.ts` only checks
+  reference → emitted, never the reverse) but must not be reintroduced for the band.
+- **Session-row selection is fill + inset ring + `accentForeground` + a left bar; activity is the
+  `StatusDot` ring, never the fill.** A running-but-unselected row keeps the idle fill and shows
+  only the ring — sprint-062 deliberately dropped § 03's mock's half-opacity activity bar so
+  "selected" and "running" stay two independent, unambiguous signals.
+- **`SessionItem`'s `StatusDot` renders in the meta row, immediately before the status text — not
+  in the title row.** Stacking it against the title row's reserved `⋮` box left it floating with
+  dead space before the row's true right edge once the label's `flex: 1 1 auto` pushed that
+  cluster flush right; the title row is label + reserved `⋮` only. `.meta`/`.metaDot`/`.metaLabel`
+  in `SessionList.module.css` lay the dot directly before `view.meta` and shrink it via the
+  `--status-dot-size`/`--status-dot-border-width` custom properties `StatusDot.tsx`/
+  `.module.css` read with their normal 8px/12px fallbacks — every other `StatusDot` call site
+  (`TabStrip`'s tab dot, `WorkspaceGroupHeader`'s attention dot) is unaffected since it never sets
+  those properties.
+- **`needs input` is unsourced in this client and must not be faked.** The web client has no
+  `agent.permission.*` plumbing and the stored `AgentStatus` enum
+  (`initializing|idle|running|error|closed`) has no `waiting` member; do not invent a fifth
+  sidebar row state or a permission-derived dot without first landing the underlying RPC/store
+  support.
+- **The sidebar's reserved-`⋮` pattern mirrors `TabStrip.module.css`'s `.tabClose`.** Both the
+  workspace band's and the session row's `⋮` occupy a fixed box (`opacity`-toggled, never
+  `display`-toggled) so hover/focus never shifts the label's truncation point, and both are
+  unconditionally visible below the `575px` breakpoint or on a coarse pointer
+  (`@media (max-width: 575px), (hover: none)`) — a new hover-reveal affordance in this file should
+  follow the same box-reservation contract rather than inventing a new visibility rule.
+- **Exactly one open-workspace affordance lives in the sidebar: the pinned footer row.**
+  `SessionList.tsx`'s footer (`+ Add workspace`, outside the scrolling `.list` container) is the
+  sidebar's sole `openCwdPicker()` entry point since sprint-062 removed the header's icon button;
+  `TabPanelHost.tsx`'s "No workspace open" empty-state button is a separate surface (a different
+  empty state, not the sidebar) and is unaffected by this rule.

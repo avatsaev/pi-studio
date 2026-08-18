@@ -215,9 +215,21 @@ project`. Each route file is thin (parse params → render the settings view).
   a known host. Settings and welcome routes have no sidebar.
 - **Left sidebar placement:** wide = pinned, resizable column (hidden in focus mode); compact = absolute
   overlay opened by an edge-swipe gesture (web: only the leftmost ~32px starts it; vertical scroll cancels).
-- **Sidebar content:** active host resolution from path (else first host); a grouped workspace list (with a
-  grouping selector, refresh, initial-load skeleton, per-workspace shortcut indices); footer icon buttons
-  (Add project, Home, Settings, host switcher) and a new-workspace button.
+- **Sidebar content (web client, as shipped — sprint-062):** active host resolution from path (else
+  first host); one scrolling workspace tree — a full-bleed `surface2` band per workspace (collapse
+  chevron, `Avatar`, bold ellipsised name, a collapsed-only attention dot when a child session
+  failed, session-count pill) over frameless session rows (status-only meta — `running` / `turn
+  failed` + a short reason / `no messages` / `idle`, never cwd/agent id/message count/timestamp/
+  cost; selection = accent fill + inset ring + `accentForeground` bold title + a left bar; activity
+  is the `StatusDot` ring alone, never the fill — design spec § 03); a per-workspace `+ New
+  session` row; and one pinned `+ Add workspace` footer row, the sidebar's only open-workspace
+  affordance. **Unimplemented, deliberately named rather than deleted from this doc:** the
+  grouping selector, refresh action, initial-load skeleton, and per-workspace shortcut indices this
+  section described before sprint-062; the footer's Home/Settings/host-switcher icons (this client
+  is single-connection — no settings surface, no cross-host aggregation, no host switcher exist at
+  all); and § 03's `needs input` row/dot state (the stored protocol status enum has no `waiting`
+  member and there is no permission-RPC plumbing — `packages/web-client/src/features/sessions/
+  session-presentation.ts` is the single place this decision is recorded).
 - **Host switching:** translates the current route onto the new host (settings→host settings,
   sessions→sessions, open-project→open-project, workspace→same workspace id, agent→same agent path, else host
   root), then navigates.
