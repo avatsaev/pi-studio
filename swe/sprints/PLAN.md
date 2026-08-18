@@ -1402,6 +1402,12 @@ tracked per-sprint rather than as a coverage row: sprint-059 implements its § 0
 sprint-060 the turn-progress bar out of § 05, sprint-061 its § 07 (workspace tab strip), and
 sprint-062 its § 03 (workspace/sessions sidebar — § 07's own step 1, reached last of the four
 because the other three had no dependency on it) — **shipped**, all five tasks done.
+§ 08 (main toolbar → connection bar) was added to the handoff spec after sprint-062 closed and
+shipped **outside the sprint sequence**, as a single reviewed pass rather than a sprint: it is one
+component plus one pure module (`features/connection/ConnectionBar.tsx` +
+`connection-presentation.ts`, retiring `Toolbar`/`ConnectionStatus`), with zero protocol, server or
+persistence work — too small to justify five task files. Two spacing rungs (`11`, `26`) were added
+to `theme/tokens.ts`, which § 08's CSS references but the scale lacked.
 What remains unplanned is the rest of § 05 (composer + `ModelMenu` move, queue chips, `StatusBar`'s
 model chip) and § 06's FileExplorer chrome — one sprint each when they are taken up.
 Sprint-059/task-005, sprint-060/task-003, sprint-061/task-005 and sprint-062/task-005 keep the

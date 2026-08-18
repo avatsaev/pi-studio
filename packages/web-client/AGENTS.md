@@ -262,7 +262,12 @@ src/
                            identically to use-provider-models, see AGENTS.md § Invariants
                            "Slash-command picker")
   features/
-    connection/            Toolbar, ConnectionStatus
+    connection/            ConnectionBar (the 42px top row: brand/version, status pill, url+password
+                            fields, one primary connect/disconnect action, the two panel toggles —
+                            design spec § 08; replaced Toolbar + ConnectionStatus),
+                            connection-presentation.ts (+ test — `connectionBarView`/
+                            `connectionDot`/`shortConnectionReason`/`isDialableTarget`, the single
+                            ConnectionState→bar-state module)
     sessions/               SessionList (handleDeleteWorkspace — loops `client.agent(id).delete()`
                             over a workspace's sessions, confirms conversations-only/files-
                             untouched, closes their tabs — file-explorer quick-wins-1; its rows are
@@ -1431,3 +1436,22 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   sidebar's sole `openCwdPicker()` entry point since sprint-062 removed the header's icon button;
   `TabPanelHost.tsx`'s "No workspace open" empty-state button is a separate surface (a different
   empty state, not the sidebar) and is unaffected by this rule.
+- **The connection bar's state shape lives in `connection-presentation.ts`, not in the component.**
+  `ConnectionBar.tsx` binds stores to DOM only; which of the five states is active, the pill text,
+  whether the url/password fields render or freeze, and the primary action's label/variant/disabled
+  flag all come from `connectionBarView()` (design spec § 08). `closing` is a real `ConnectionState`
+  the spec doesn't draw — it renders as the connected shape with a disabled action rather than a
+  sixth visual.
+- **The bar's 26px control height and `2xs` action font are deliberate `Button` overrides.**
+  `ui/button.ts` floors `xs` at 28px and inlines both `minHeight` and `fontSize`, so class rules
+  cannot win; § 08's geometry is applied through `style` at the call site (`Button` spreads `style`
+  last). Removing those overrides silently regrows the action out of alignment with the pill/fields.
+- **A failed WebSocket never yields a reason, so the pill must not print the raw error.** A browser
+  WS failure rejects with an `Event`, which `connection-store`'s `String(error)` fallback turns into
+  `"[object Event]"`; `shortConnectionReason()` filters that (and any `[object …]`) to
+  "connection failed", and the pill's `title` falls back to the same text instead of the internals.
+- **Only the url/password fields may shrink in the bar.** Title, status pill, action and panel
+  toggles are all `flex: none`; the fields carry `flex: 0 1 <basis>` plus a `min-width` floor, and
+  the bar itself scrolls horizontally once that floor is hit — it never wraps to a second row.
+  `input.field` uses element+class selectors so the bar's restyle of the `TextInput` primitive wins
+  regardless of CSS-module bundle order.

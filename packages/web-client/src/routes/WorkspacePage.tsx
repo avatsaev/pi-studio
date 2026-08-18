@@ -1,7 +1,7 @@
 /**
  * WorkspacePage — the 3-column shell (POC `.main`: sidebar-left / center / sidebar-right,
  * POC_TO_APP_PLAN_UI.md §3). Feature panels are mounted here once each lands. Either sidebar can
- * be hidden via the Toolbar's panel toggles (`ui-store.ts` `leftSidebarCollapsed`/
+ * be hidden via the ConnectionBar's panel toggles (`ui-store.ts` `leftSidebarCollapsed`/
  * `rightSidebarCollapsed`) — collapsed just means the `aside` isn't rendered, so `TabPanelHost`'s
  * `.center` column simply grows to fill the freed width. Each visible sidebar is resizable via a
  * `ResizeHandle` on its inner edge, dragging `ui-store.ts`'s `leftSidebarWidth`/
@@ -9,7 +9,7 @@
  * delta-based `resizeLeftSidebar`/`resizeRightSidebar` actions.
  */
 
-import { Toolbar } from "@pi-studio-ui/features/connection/Toolbar.js";
+import { ConnectionBar } from "@pi-studio-ui/features/connection/ConnectionBar.js";
 import { SessionList } from "@pi-studio-ui/features/sessions/SessionList.js";
 // No TabStrip here since sprint-049: strips are per pane and live inside TabPanelHost, positioned
 // across the top of each pane's rect (features/workspace/pane-layout-view.ts).
@@ -31,7 +31,7 @@ export function WorkspacePage() {
 
   return (
     <div className={styles.shell}>
-      <Toolbar />
+      <ConnectionBar />
       <div className={styles.main}>
         {!leftSidebarCollapsed && (
           <aside className={styles.sidebarLeft} style={{ width: leftSidebarWidth }}>
