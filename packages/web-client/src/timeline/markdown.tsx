@@ -18,6 +18,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { randomId } from "@pi-studio-ui/lib/random-id.js";
 import { highlightToHtml } from "./highlight.js";
 import { readMermaidThemeVariables } from "./mermaid-theme.js";
 import styles from "./markdown.module.css";
@@ -71,7 +72,7 @@ type MermaidRenderState =
  * message, rather than losing the rest of the message.
  */
 function MermaidBlock({ code }: { code: string }) {
-  const [id] = useState(() => `mermaid-${crypto.randomUUID()}`);
+  const [id] = useState(() => `mermaid-${randomId()}`);
   const [state, setState] = useState<MermaidRenderState>({ status: "pending" });
 
   useEffect(() => {

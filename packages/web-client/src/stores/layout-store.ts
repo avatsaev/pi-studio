@@ -50,6 +50,7 @@ import {
   type SplitRegion,
 } from "@pi-studio-ui/features/workspace/pane-tree.js";
 import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
+import { randomId } from "@pi-studio-ui/lib/random-id.js";
 
 export interface WorkspacePaneLayout {
   tree: PaneNode;
@@ -171,7 +172,7 @@ export interface LayoutStoreState {
 
 /** Unique per tree, and never derived from a tab id — a pane outlives the tabs that pass through. */
 function mintPaneId(): string {
-  return `pane-${crypto.randomUUID()}`;
+  return `pane-${randomId()}`;
 }
 
 export function createPaneLayout(): WorkspacePaneLayout {

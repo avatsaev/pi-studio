@@ -53,6 +53,7 @@ import { ArrowUp, ChevronDown, Navigation, Plus, Slash, Square } from "lucide-re
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { randomId } from "@pi-studio-ui/lib/random-id.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
 import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
@@ -254,7 +255,7 @@ export function Composer({ sessionId }: ComposerProps) {
     // RPC below and echoed back verbatim as the broadcast event's `messageId`, which is how the
     // reducer reconciles this row instead of appending a duplicate once the server confirms it.
     // Steered rows are additionally marked `queued: true` (cleared by a later `queue_update`).
-    const clientMessageId = crypto.randomUUID();
+    const clientMessageId = randomId();
     addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages, mode === "steer");
 
     const setBusy = mode === "steer" ? setSteering : setSending;

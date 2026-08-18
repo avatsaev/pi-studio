@@ -142,6 +142,12 @@ src/
                            stays byte-identical for its existing callers)
   lib/clipboard.ts         copyText — Clipboard-API write with an execCommand("copy") fallback
                            for non-secure-context LAN access (file-explorer quick-wins-1)
+  lib/random-id.ts         randomId — portable id generator (pane ids, optimistic-echo
+                           `clientMessageId`s, Mermaid DOM ids) using crypto.getRandomValues
+                           (works in non-secure contexts, unlike crypto.randomUUID) with a
+                           timestamp+Math.random fallback when crypto itself is unavailable;
+                           same non-secure-context LAN-access rationale as lib/clipboard.ts —
+                           never call crypto.randomUUID() directly in this package, use this
   lib/inline-image-cache.ts ref-counted, LRU-bounded (32-entry) object-URL cache for inline chat
                            images (task-003 sprint-045); revokes only on LRU eviction or
                            connection teardown, never on row unmount — deliberately NOT
@@ -515,6 +521,16 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
 
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
+- **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
+  LAN access to a self-hosted daemon (`pi-studio web`'s documented deployment mode) does not
+  satisfy — `crypto.randomUUID` is `undefined` there, throwing `TypeError: crypto.randomUUID is
+not a function` (real regression: pane-id minting, chat's optimistic-echo `clientMessageId`,
+  and Mermaid block DOM ids all hit this). Use `lib/random-id.ts`'s `randomId()` instead, which
+  prefers `crypto.getRandomValues` (no secure-context requirement) and falls back further only
+  if `crypto` itself is absent. Mirrors `lib/clipboard.ts`'s `navigator.clipboard` fallback and
+  `@av-pi-studio/client`'s own `randomId()` (a separate copy — this package intentionally does
+  not import client's, to keep this pure-`lib/` module free of a cross-package runtime/build
+  dependency for a one-line vitest-collected pure helper).
 - **`statusSuccess`, never `success`, for green signals.** `theme/colors.ts`'s `buildDarkColors`
   aliases `success` to the accent color on dark variants, so a `success`-tinted element is
   indistinguishable from an accent-tinted one there.
