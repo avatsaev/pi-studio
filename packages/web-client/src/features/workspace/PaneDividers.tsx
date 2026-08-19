@@ -14,6 +14,9 @@
  * pointer-to-fraction math would need the sizes captured at drag start and drift against the store's
  * clamping; deltas simply cannot.
  *
+ * Each drag explicitly captures its pointer to the handle (`setPointerCapture`) so it keeps
+ * receiving moves across a pane whose content is a *separate document* — see `startDrag`.
+ *
  * swe/features/workspace-split-panes.md § Resizing
  */
 
@@ -46,6 +49,17 @@ export function PaneDividers({ cwd, dividers, hostRef }: PaneDividersProps) {
       : divider.splitRect.height * host.height;
     if (extentPx <= 0) return;
 
+    // Route the whole gesture to the handle itself, not to whatever the cursor happens to be over.
+    // Load-bearing for panes that host a cross-document child: `HtmlViewer`'s preview iframe is a
+    // separate document that hit-tests and consumes `pointermove`/`pointerup` itself, so without
+    // explicit capture the window listeners below stop firing the instant the cursor crosses into
+    // it — the divider sticks mid-drag, and never even ends, because `pointerup` is swallowed too
+    // and `onUp` never runs. Chrome grants *implicit* capture for touch only, never for mouse,
+    // which is exactly why the bug only showed up with a mouse. Capture retargets dispatch to
+    // `handle`, and the events still bubble from there to the window listeners.
+    const handle = ev.currentTarget;
+    handle.setPointerCapture(ev.pointerId);
+
     lastRef.current = horizontal ? ev.clientX : ev.clientY;
     document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
     document.body.style.userSelect = "none";
@@ -56,14 +70,17 @@ export function PaneDividers({ cwd, dividers, hostRef }: PaneDividersProps) {
       lastRef.current = position;
       resizeDivider(cwd, divider.splitPath, divider.boundaryIndex, deltaPx / extentPx);
     };
-    const onUp = (): void => {
+    const onUp = (end: PointerEvent): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      if (handle.hasPointerCapture(end.pointerId)) handle.releasePointerCapture(end.pointerId);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   return dividers.map((divider) => {

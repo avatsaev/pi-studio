@@ -41,6 +41,7 @@ import {
   resolveDropRegion,
   type DropOutcome,
 } from "@pi-studio-ui/features/workspace/pane-dnd.js";
+import { armDragGuard, disarmDragGuard } from "@pi-studio-ui/lib/drag-guard.js";
 import { useLayoutStore, type WorkspacePaneLayout } from "@pi-studio-ui/stores/layout-store.js";
 import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
 
@@ -164,6 +165,9 @@ export function usePaneDrag(cwd: string | null): PaneDrag {
   );
 
   const onDragStart = useCallback((event: DragStartEvent) => {
+    // dnd-kit's sensor listens on the owner document and never captures the pointer, so a drag
+    // crossing into a preview iframe would otherwise go silent — see `lib/drag-guard.ts`.
+    armDragGuard();
     setDraggedId(String(event.active.id));
   }, []);
 
@@ -179,12 +183,14 @@ export function usePaneDrag(cwd: string | null): PaneDrag {
   );
 
   const onDragCancel = useCallback(() => {
+    disarmDragGuard();
     setDraggedId(null);
     setPreview(null);
   }, []);
 
   const onDragEnd = useCallback(
     (event: DragEndEvent) => {
+      disarmDragGuard();
       setDraggedId(null);
       setPreview(null);
       const { active, over } = event;

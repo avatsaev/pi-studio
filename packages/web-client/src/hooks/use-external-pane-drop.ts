@@ -20,10 +20,14 @@
  * `activeTabId` needs no manual resync here: it is a projection, and `tab-store`'s subscription on the
  * layout store follows every layout mutation, including these.
  *
+ * This hook also owns the app-wide iframe drag guard (`lib/drag-guard.ts`), mounted here because it
+ * is where a native drag's document-level lifecycle is already understood — it applies to the
+ * dnd-kit half too, which arms it from its own callbacks.
+ *
  * swe/features/workspace-split-panes.md § Drop regions, § Splitting
  */
 
-import { useCallback, useState, type DragEvent, type RefObject } from "react";
+import { useCallback, useEffect, useState, type DragEvent, type RefObject } from "react";
 import {
   externalDragKind,
   readExternalDrag,
@@ -40,6 +44,7 @@ import {
 } from "@pi-studio-ui/features/workspace/pane-dnd.js";
 import { openFileTab } from "@pi-studio-ui/features/files/open-file-tab.js";
 import { openChatTab } from "@pi-studio-ui/features/sessions/open-chat-tab.js";
+import { armDragGuard, disarmDragGuard } from "@pi-studio-ui/lib/drag-guard.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
@@ -153,6 +158,27 @@ export function useExternalPaneDrop(
 ): ExternalPaneDrop {
   const [preview, setPreview] = useState<DropOutcome | null>(null);
   const homeDir = useHomeDir();
+
+  // Armed from `document`, not from the handlers below: by the time a native drag reaches this
+  // host's `dragover` it is already too late — a drag that enters a preview iframe first never
+  // reaches the host at all, because the iframe's own document consumes the event. `dragstart`
+  // bubbles from every draggable in the app (Files rows, session rows, timeline file links), so one
+  // listener pair arms the guard for all of them without touching a single drag source.
+  // `dragend` always fires on the source when the gesture finishes, cancelled or not; `drop` is
+  // belt-and-braces for the same gesture, which is why disarming is idempotent.
+  useEffect(() => {
+    const arm = (): void => armDragGuard();
+    const disarm = (): void => disarmDragGuard();
+    document.addEventListener("dragstart", arm);
+    document.addEventListener("dragend", disarm);
+    document.addEventListener("drop", disarm);
+    return () => {
+      document.removeEventListener("dragstart", arm);
+      document.removeEventListener("dragend", disarm);
+      document.removeEventListener("drop", disarm);
+      disarmDragGuard();
+    };
+  }, []);
 
   /** The pane and already-degraded region under this pointer, or `null` when a drop would do nothing. */
   const outcomeAt = useCallback(

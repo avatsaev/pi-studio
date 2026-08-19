@@ -143,6 +143,14 @@ src/
                            stays byte-identical for its existing callers)
   lib/clipboard.ts         copyText — Clipboard-API write with an execCommand("copy") fallback
                            for non-secure-context LAN access (file-explorer quick-wins-1)
+  lib/drag-guard.ts        armDragGuard/disarmDragGuard + DRAG_GUARD_ATTR — sets `data-pi-dragging`
+                           on <body> for the duration of ANY drag, which global.css pairs with
+                           `body[data-pi-dragging] iframe { pointer-events: none }` so a
+                           cross-document child (HtmlViewer's preview) stops hit-testing and the
+                           pane drop targets beneath it stay reachable; armed by use-pane-drag's
+                           dnd-kit callbacks and by use-external-pane-drop's document-level
+                           dragstart/dragend/drop listeners (+ test — guards the attribute against
+                           drifting from the CSS selector)
   lib/random-id.ts         randomId — portable id generator (pane ids, optimistic-echo
                            `clientMessageId`s, Mermaid DOM ids) using crypto.getRandomValues
                            (works in non-secure contexts, unlike crypto.randomUUID) with a
@@ -315,7 +323,9 @@ src/
                             exactly once and absolutely positioned at its pane's fractional rect, so
                             rearranging panes never remounts a panel — sprint-049), PaneDividers
                             (one hit target per divider from pane-tree's `dividers()`; dragging
-                            calls layout-store.resizeDivider), DropPreview (drag chip + the resolved
+                            calls layout-store.resizeDivider, with the gesture pinned to the handle
+                            via setPointerCapture so it survives crossing an iframe — see
+                            § Invariants), DropPreview (drag chip + the resolved
                             drop region's ghost rect), pane-dnd.ts (pure drop resolution: pointer →
                             pane + region, and whether that means split, move, reorder, or nothing,
                             plus `containsPoint` for the native drag's own hit-testing)
@@ -742,6 +752,28 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   so the _MIME name_ carries the kind and the payload is read at `drop` — which is also why a row
   outside the workspace in view withholds its MIME entirely instead of being refused at drop time: a
   pane could not tell it apart in time to suppress the preview.
+- **An iframe must never hit-test during a drag.** An `<iframe>` is a separate document that
+  hit-tests independently: while the pointer is over one, the parent document receives neither
+  `pointermove` (dnd-kit's `PointerSensor` listens on the owner document and its bundle calls
+  `setPointerCapture` nowhere) nor `dragover`/`drop` (native DnD dispatches into the frame's own
+  document). Both drag systems above therefore went silent the moment a tab or file crossed into
+  `HtmlViewer`'s preview, stranding the drag over the very pane it was aimed at. `lib/drag-guard.ts`
+  removes every iframe from hit-testing for the duration of a drag, via a `<body>` attribute plus one
+  `global.css` rule — deliberately NOT React state: it costs no re-render mid-gesture and never
+  re-sets the iframe's `srcDoc`, which would reload the previewed document and re-run its scripts
+  (see § "HTML preview sandbox"). Arm it from any new drag system, and never make a viewer's own
+  component responsible for it — the guard is viewer-agnostic on purpose, so a future embedded frame
+  needs no new wiring. Note this is a DIFFERENT mechanism from the divider/sidebar-handle fix below,
+  because neither dnd-kit nor native DnD exposes pointer capture to us.
+- **A pointer-driven resize drag must capture its pointer.** `PaneDividers.tsx` and
+  `primitives/ResizeHandle.tsx` own their gesture directly, so they take the sharper fix: an explicit
+  `setPointerCapture(ev.pointerId)` on the handle at `pointerdown`. Without it the same iframe
+  swallowed the `pointermove`s *and* the terminating `pointerup`, so a divider dragged across an HTML
+  preview stuck mid-resize and never released — leaving the move/up listeners, `col-resize` cursor and
+  `user-select: none` installed. Chrome grants *implicit* capture for touch only, never for mouse,
+  which is why this only ever reproduced with a mouse. Capture retargets dispatch to the handle, from
+  which events still bubble to the existing `window` listeners, so no listener restructuring is needed;
+  both also clean up on `pointercancel` and release via a `hasPointerCapture` guard.
 - **A pane-layout write must never drop a claim that has not been consumed yet.**
   `writePaneLayout` is otherwise a projection of _live_ tabs, and writes fire throughout the restore
   window — the client-side replay causes one immediately. Seeding `placement`/`activeByPane` from
@@ -1136,6 +1168,11 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   re-setting `srcDoc`, or React unmounting/remounting the iframe element, reloads the document and
   re-runs its scripts — real double side effects (a duplicate analytics beacon, a chart re-init) on
   every unrelated re-render or Preview↔Source round trip otherwise.
+
+  Because it is a real cross-document child, the preview iframe also swallows the pointer and native
+  drag events the pane machinery above it depends on — see § Invariants "An iframe must never
+  hit-test during a drag" and "A pointer-driven resize drag must capture its pointer" for the two
+  mechanisms that fix that. Neither belongs in `HtmlViewer` itself: both are viewer-agnostic.
 
 - **Framework-free testing convention: no jsdom.** This package has no jsdom/React-Testing-Library
   DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config

@@ -33,6 +33,15 @@ body {
   box-sizing: border-box;
 }
 
+/* While any drag gesture is in flight, no iframe may hit-test. A cross-document child otherwise
+   consumes the `pointermove`/`dragover`/`drop` events that the pane drop targets beneath it need,
+   which strands a tab or file dragged over the HTML preview (see lib/drag-guard.ts for the full
+   mechanism). Attribute is lib/drag-guard.ts's DRAG_GUARD_ATTR; drag-guard.test.ts fails the build
+   if the two drift apart. */
+body[data-pi-dragging] iframe {
+  pointer-events: none;
+}
+
 /* Scrollbar theming */
 ::-webkit-scrollbar {
   width: 6px;
