@@ -1,7 +1,7 @@
 /**
  * Portable random-id generator (pane ids, optimistic-echo `clientMessageId`s, Mermaid DOM ids).
  * `crypto.randomUUID` requires a secure context, which plain-http access to a self-hosted daemon
- * over a LAN — the deployment `pi-studio web` documents and defaults to (127.0.0.1, but users
+ * over a LAN — the deployment `pi-studio ui` documents and defaults to (127.0.0.1, but users
  * routinely reach it via a LAN IP or hostname to view it from another device) — does not satisfy;
  * there `crypto.randomUUID` is `undefined` and calling it throws
  * `TypeError: crypto.randomUUID is not a function` (real regression, not hypothetical — mirrors

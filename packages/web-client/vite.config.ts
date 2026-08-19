@@ -108,7 +108,7 @@ export default defineConfig(() => {
               // unist-util-stringify-position back out of vendor-markdown — which Rollup resolves
               // with the wrong module init order in production builds: `Cannot access '<var>'
               // before initialization` on load. Dev-mode Vite serves unbundled ESM and never
-              // hits this, so it only reproduces in built output (`pi-studio web`/vite preview).
+              // hits this, so it only reproduces in built output (`pi-studio ui`/vite preview).
               id.includes("property-information") ||
               id.includes("rehype-katex") ||
               id.includes("vfile")

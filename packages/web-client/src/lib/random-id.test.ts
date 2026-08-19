@@ -16,7 +16,7 @@ describe("randomId", () => {
     const original = globalThis.crypto;
     // Simulates a plain-http/non-secure-context environment, where `crypto.getRandomValues` (and
     // `crypto.randomUUID`) are absent — the exact condition that broke `crypto.randomUUID()`
-    // call sites when `pi-studio web` is reached over a LAN IP instead of localhost.
+    // call sites when `pi-studio ui` is reached over a LAN IP instead of localhost.
     // @ts-expect-error -- deliberately deleting a global for the test
     delete globalThis.crypto;
     try {

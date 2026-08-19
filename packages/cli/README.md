@@ -151,11 +151,11 @@ come before `pi` on the command line) redirects the bundled CLI's `.pi` config d
 does for a locally-spawned daemon. Falls back to a global `pi` on `$PATH` if the bundled
 dependency isn't installed. Never touches the daemon or the wire protocol.
 
-### `web`
+### `ui`
 
-| Command                                                              | Description                                        |
-| -------------------------------------------------------------------- | -------------------------------------------------- |
-| `web [--web-host <host>] [--web-port <port>] [--daemon-host <host>]` | Serve the prebuilt web-client SPA as a static site |
+| Command                                                            | Description                                        |
+| ------------------------------------------------------------------- | --------------------------------------------------- |
+| `ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` | Serve the prebuilt web-client SPA as a static site |
 
 Serves the built `@av-pi-studio/web-client` UI (`dist/web`) via a minimal static file server with
 SPA fallback — no vite/dev dependency at runtime, works from any install shape. `--daemon-host`

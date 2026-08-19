@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildServeUrl, runServeWeb, DEFAULT_WEB_HOST } from "./web-commands.js";
+import { buildServeUrl, runServeUi, DEFAULT_UI_HOST } from "./ui-commands.js";
 import type { CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
 import * as webServer from "./web-server.js";
@@ -29,13 +29,13 @@ describe("buildServeUrl", () => {
   });
 });
 
-describe("runServeWeb", () => {
+describe("runServeUi", () => {
   it("reports an error and exits nonzero when the web-client build cannot be resolved", async () => {
     const { ctx, err } = ctxWith();
     const spy = vi.spyOn(webServer, "resolveWebClientDist").mockImplementation(() => {
       throw new Error("no build found");
     });
-    const { code, handle } = await runServeWeb(ctx, {});
+    const { code, handle } = await runServeUi(ctx, {});
     expect(code).toBe(1);
     expect(handle).toBeUndefined();
     expect(err.some((l) => l.includes("no build found"))).toBe(true);
@@ -51,14 +51,14 @@ describe("runServeWeb", () => {
     const resolveSpy = vi.spyOn(webServer, "resolveWebClientDist").mockReturnValue("/tmp/dist");
     const startSpy = vi.spyOn(webServer, "startWebServer").mockResolvedValue(fakeHandle);
 
-    const { code, handle } = await runServeWeb(ctx, { host: DEFAULT_WEB_HOST, port: "4173" });
+    const { code, handle } = await runServeUi(ctx, { host: DEFAULT_UI_HOST, port: "4173" });
 
     expect(code).toBe(0);
     expect(handle).toBe(fakeHandle);
     expect(out.some((l) => l.includes("http://127.0.0.1:4173/"))).toBe(true);
     expect(startSpy).toHaveBeenCalledWith({
       dir: "/tmp/dist",
-      host: DEFAULT_WEB_HOST,
+      host: DEFAULT_UI_HOST,
       port: 4173,
     });
 

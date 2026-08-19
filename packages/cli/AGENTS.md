@@ -71,8 +71,8 @@ src/
   pi-commands.ts         `pi` pass-through command — proxies argv/exit-code to the embedded Pi CLI.
   pi-commands.test.ts
 
-  web-commands.ts        `web` command — serve the prebuilt web-client SPA as a static site.
-  web-commands.test.ts
+  ui-commands.ts          `ui` command — serve the prebuilt web-client SPA as a static site.
+  ui-commands.test.ts
   web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
   web-server.test.ts
 
@@ -363,22 +363,22 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
 
 ---
 
-### `web` command (`web-commands.ts`)
+### `ui` command (`ui-commands.ts`)
 
-`pi-studio web [--web-host <host>] [--web-port <port>] [--daemon-host <host>]` — serves the
+`pi-studio ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` — serves the
 prebuilt `@av-pi-studio/web-client` SPA (`dist/web`, built by `npm run build:web -w
 packages/web-client`) as a static site via a minimal `node:http` server (`web-server.ts`;
 `resolveWebClientDist()` locates the installed package, `startWebServer()` serves it with SPA
 fallback to `index.html` for client-side routes).
 
-Intentionally decoupled from daemon lifecycle: `web` never probes or starts a daemon.
+Intentionally decoupled from daemon lifecycle: `ui` never probes or starts a daemon.
 `--daemon-host` (falls back to the global `--host`) only pre-fills the printed URL's
 `?host=<ws-url>&connect=1` query params (`buildServeUrl()`) so the browser tab auto-connects —
 mirroring the POC `chat.html` quick-launch params. The command blocks until `SIGINT`/`SIGTERM`,
 then closes the server and exits `EXIT_OK`.
 
 `@av-pi-studio/web-client` is a runtime dependency of `cli` purely for its built static assets
-(no JS from it is imported) — the CLI ships the SPA build so `pi-studio web` works from any
+(no JS from it is imported) — the CLI ships the SPA build so `pi-studio ui` works from any
 install shape (npm link, global `npm i -g`) without a separate vite/dev toolchain.
 
 ---

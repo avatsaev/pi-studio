@@ -5,21 +5,21 @@ import { parseHost, hostToUrl } from "./connection.js";
 import { resolveWebClientDist, startWebServer, type WebServerHandle } from "./web-server.js";
 
 /**
- * `web` command group (features/cli.md § Command tree — `web`): serves the prebuilt
+ * `ui` command group (features/cli.md § Command tree — `ui`): serves the prebuilt
  * `@av-pi-studio/web-client` SPA as a static site. Serving is intentionally decoupled from daemon
- * lifecycle — `pi-studio web` never starts/probes a daemon; `--daemon-host` only pre-fills the
+ * lifecycle — `pi-studio ui` never starts/probes a daemon; `--daemon-host` only pre-fills the
  * printed URL's `?host=&connect=1` query params so the browser tab auto-connects, mirroring the
  * POC's `chat.html` quick-launch params.
  */
 
-export interface WebCommandOptions {
+export interface UiCommandOptions {
   host?: string;
   port?: string;
   daemonHost?: string;
 }
 
-export const DEFAULT_WEB_HOST = "127.0.0.1";
-export const DEFAULT_WEB_PORT = 4173;
+export const DEFAULT_UI_HOST = "127.0.0.1";
+export const DEFAULT_UI_PORT = 4173;
 
 /** Build the browser-facing URL, optionally pre-filled with daemon connection query params. */
 export function buildServeUrl(baseUrl: string, daemonHostArg?: string): string {
@@ -33,9 +33,9 @@ export function buildServeUrl(baseUrl: string, daemonHostArg?: string): string {
 }
 
 /** Serve the web-client UI; returns an exit code and (on success) the running server handle. */
-export async function runServeWeb(
+export async function runServeUi(
   ctx: CliContext,
-  opts: WebCommandOptions,
+  opts: UiCommandOptions,
 ): Promise<{ code: number; handle?: WebServerHandle }> {
   let dir: string;
   try {
@@ -45,8 +45,8 @@ export async function runServeWeb(
     return { code: EXIT_ERROR };
   }
 
-  const host = opts.host ?? DEFAULT_WEB_HOST;
-  const port = Number(opts.port ?? DEFAULT_WEB_PORT);
+  const host = opts.host ?? DEFAULT_UI_HOST;
+  const port = Number(opts.port ?? DEFAULT_UI_PORT);
 
   let handle: WebServerHandle;
   try {
@@ -62,7 +62,7 @@ export async function runServeWeb(
   return { code: EXIT_OK, handle };
 }
 
-export function registerWebCommands(
+export function registerUiCommands(
   program: Command,
   ctx: CliContext,
   setExit: (code: number) => void,
@@ -70,18 +70,18 @@ export function registerWebCommands(
   const g = (): GlobalOptions => program.opts<GlobalOptions>();
 
   program
-    .command("web")
+    .command("ui")
     .description("serve the Pi-Studio web UI (prebuilt static build)")
-    .option("--web-host <host>", "interface to bind", DEFAULT_WEB_HOST)
-    .option("--web-port <port>", "port to bind", String(DEFAULT_WEB_PORT))
+    .option("--ui-host <host>", "interface to bind", DEFAULT_UI_HOST)
+    .option("--ui-port <port>", "port to bind", String(DEFAULT_UI_PORT))
     .option(
       "--daemon-host <host>",
       "daemon to auto-connect the served UI to (fills ?host=&connect=1)",
     )
-    .action(async (cmdOpts: { webHost?: string; webPort?: string; daemonHost?: string }) => {
-      const { code, handle } = await runServeWeb(ctx, {
-        host: cmdOpts.webHost,
-        port: cmdOpts.webPort,
+    .action(async (cmdOpts: { uiHost?: string; uiPort?: string; daemonHost?: string }) => {
+      const { code, handle } = await runServeUi(ctx, {
+        host: cmdOpts.uiHost,
+        port: cmdOpts.uiPort,
         daemonHost: cmdOpts.daemonHost ?? g().host,
       });
       if (!handle) {

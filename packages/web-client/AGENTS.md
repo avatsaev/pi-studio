@@ -585,7 +585,7 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   (`getActiveBrand()` always returns `DEFAULT_BRAND`) and is out of scope until a colors/logo
   override is actually requested — do not conflate the two or wire one through the other.
 - **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
-  LAN access to a self-hosted daemon (`pi-studio web`'s documented deployment mode) does not
+  LAN access to a self-hosted daemon (`pi-studio ui`'s documented deployment mode) does not
   satisfy — `crypto.randomUUID` is `undefined` there, throwing `TypeError: crypto.randomUUID is
 not a function` (real regression: pane-id minting, chat's optimistic-echo `clientMessageId`,
   and Mermaid block DOM ids all hit this). Use `lib/random-id.ts`'s `randomId()` instead, which

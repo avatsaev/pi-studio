@@ -3,7 +3,7 @@
 The production React/Vite browser UI for Pi-Studio — connects to a daemon over WebSocket
 (`@av-pi-studio/client`) and renders chat sessions, agent-stream timelines, tool calls, terminals,
 a file/diff viewer, and git status. Ships as a prebuilt static SPA (`dist/web`), served by
-`pi-studio web`, `docker/web-client.Dockerfile`, or any static file host.
+`pi-studio ui`, `docker/web-client.Dockerfile`, or any static file host.
 
 ---
 

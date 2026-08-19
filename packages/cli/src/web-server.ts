@@ -6,7 +6,7 @@ import { extname, join, normalize, sep } from "node:path";
 
 /**
  * Static file server for the prebuilt `@av-pi-studio/web-client` SPA (features/cli.md § Command
- * tree — `web`). The CLI ships no dev-server dependency (vite, etc.); it serves the already-built
+ * tree — `ui`). The CLI ships no dev-server dependency (vite, etc.); it serves the already-built
  * `dist/web` output from the `web-client` package and falls back to `index.html` for unknown
  * paths (client-side routing via react-router).
  *
