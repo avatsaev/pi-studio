@@ -56,15 +56,40 @@ A lazily-loaded, single-column indented **tree**. Selecting a file opens a separ
 #### File preview pane
 Opening a file mounts a `file` tab (label = filename, subtitle = path, file icon). Resolve the read target
 (handles `~`-relative, workspace-relative, absolute-within-root, absolute-outside-root → derived fs root),
-read via the daemon, and render by result kind:
-- **markdown** (`.md`/`.markdown`, when not a line deep-link) → markdown with code highlighting + external
-  links.
+read via the daemon, and render by result kind — dispatched through the client's descriptor-driven
+`VIEWER_REGISTRY` (`packages/web-client/src/features/files/viewer-registry.ts`; adding a file type is one
+descriptor entry, never a change to this pane): `text`, `markdown`, `image`, `video`, `html`, `binary`.
+- **markdown** (`.md`/`.markdown`/`.mdx`, when not a line deep-link) → sanitized markdown with code
+  highlighting, external links, and relative-image resolution against the file's own workspace, with a
+  Preview/Source toggle.
 - **text/code** → syntax-highlighted line-by-line with a line-number gutter, selectable; mobile = vertical
   scroll only, desktop = nested horizontal scroll for long lines; a `lineStart`/`lineEnd` deep-link
-  highlights + auto-scrolls to those lines.
+  highlights + auto-scrolls to those lines. Files over the daemon's inline-read cap transparently stream
+  instead of erroring (a muted "N.N MB file streamed" note), with a terminal download-only state above a
+  higher display ceiling — the same three-tier ladder backs markdown and HTML too.
 - **image** → contained image in a centered scroll (spinner until the preview URL resolves).
-- **binary** → "Binary preview unavailable" + file size.
+- **video** → contained `<video controls>`, not watched for live refresh (a refetch would restart
+  playback from zero).
+- **html** (`.html`/`.htm`/`.xhtml`) → rendered inside a sandboxed, isolated `<iframe>` (the document
+  cannot reach the app's DOM, `localStorage`, or WebSocket — see
+  [html-file-preview.md](html-file-preview.md) for the full security model and browser-measured
+  constraints), with a Preview/Source toggle, a per-tab "Block remote resources" network toggle
+  (remote loading is allowed by default), and Reload. Relative local assets the document references
+  (`./style.css`, `./app.js`, `./logo.png`, and one nested level into an inlined stylesheet's own
+  `url(...)`) are resolved through the daemon and inlined as `data:` URIs — never fetched if the
+  resolved path falls outside the tab's workspace root, a hard confinement gate (not a display
+  filter), with anything skipped surfaced in a muted, expandable "N references not inlined" note.
+  `.svg` deliberately stays under **image**, not
+  **html** — an `<img>`-rendered SVG cannot execute scripts, and routing it through the sandboxed
+  iframe would be a security regression dressed as a feature.
+- **binary** → "Binary preview unavailable" + file size, with an on-demand download action.
 Error → red text; loading → spinner + "Loading file…".
+
+A molecular-structure file (`.pdb`/`.cif`/`.xyz`/… , or an extension-less `POSCAR`/`CONTCAR`) opens as a
+**separate tab kind** (`molecule`, not `file`) with its own dedicated viewer — a second, deliberately
+un-unified dispatch path chosen at tab-open time via `isMoleculeFile`, before any preview-pane viewer
+kind is resolved; see `packages/web-client/AGENTS.md` (no dedicated `swe/features/` spec exists for
+molecule viewing; it predates this doc — see sprint-044's task files).
 
 ### Git: changes / diff / PR
 Appears as the explorer sidebar **Changes** tab (mobile shows the branch/actions header; the desktop sidebar
@@ -246,7 +271,7 @@ composer. (Membership/policy semantics are in [subagents.md](subagents.md); this
 
 ## Acceptance Criteria
 - [ ] The file explorer lazily lists directories, persists expansion per workspace, sorts (name/modified/
-      size, dirs first), and opens files into a preview pane (text/code/markdown/image/binary).
+      size, dirs first), and opens files into a preview pane (text/code/markdown/image/video/html/binary).
 - [ ] The diff panel shows uncommitted vs committed, unified vs split (desktop web), whitespace toggle, and
       virtualized sticky file headers; empty/loading/not-git messages are correct.
 - [ ] Git actions surface the right primary action with reasons for unavailable ones and per-action pending/

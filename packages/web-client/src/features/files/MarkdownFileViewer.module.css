@@ -18,3 +18,17 @@
   padding: var(--pi-spacing-16) var(--pi-spacing-20);
   max-width: 860px;
 }
+.streamedNote {
+  padding: var(--pi-spacing-4) var(--pi-spacing-14);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  background: var(--pi-color-surface1);
+  border-bottom: 1px solid var(--pi-color-border);
+  flex-shrink: 0;
+}
+.tooLarge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-spacing-12);
+}

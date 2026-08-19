@@ -10,14 +10,19 @@ import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping
 import { collapseDotSegments, resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
 
 /** Matches a leading `scheme:` (e.g. `http:`, `file:`, `mailto:`) — not a Windows drive letter
- *  (`C:\...`) or a bare `:` with no scheme name. */
-const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+ *  (`C:\...`) or a bare `:` with no scheme name. Exported for `html-assets.ts` (sprint-064), which
+ *  needs the identical scheme test to classify a raw HTML asset ref as external — a second copy
+ *  would drift from this one exactly as `lib/paths.ts`'s doc comment warns against for path joins. */
+export const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
 
 /**
  * Try to percent-decode a string using decodeURIComponent. On malformed sequences (e.g. `%E0%`),
- * return the original string unchanged rather than throwing.
+ * return the original string unchanged rather than throwing. Exported for `html-assets.ts`
+ * (sprint-064): its confinement gate must decode a raw ref before resolving/normalizing it (the
+ * reverse order lets a percent-encoded traversal survive the gate — see that module's doc
+ * comment), and non-throwing behavior on a malformed sequence is exactly this function's contract.
  */
-function percentDecode(str: string): string {
+export function percentDecode(str: string): string {
   try {
     return decodeURIComponent(str);
   } catch {
