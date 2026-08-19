@@ -7,6 +7,14 @@
 # The daemon URL is entered at runtime in the toolbar (or via ?host=…), NOT baked at build time.
 # Optionally set PI_STUDIO_DAEMON_UPSTREAM at container start to enable a same-origin /daemon-ws
 # proxy (browser connects to ws://<web-host>/daemon-ws instead of the daemon port directly).
+#
+# Build-time white-label override (packages/web-client's README.md § Brand configuration):
+#   docker build --build-arg PI_STUDIO_BRAND_TITLE="Acme Coder" \
+#     --build-arg PI_STUDIO_BRAND_ICON=... -f docker/web-client.Dockerfile -t my-web-client .
+# Both default to empty, which vite.config.ts's resolver treats as unset — the default image is
+# byte-for-byte the stock Pi-Studio branding. `PI_STUDIO_BRAND_ICON` must be a path INSIDE the
+# build context (it is read by the Vite build running in Stage 1, not the host) — COPY it in
+# before the `RUN npm run build:web` line if you need one.
 
 # ── Stage 1: build the static bundle ──────────────────────────────────────────
 FROM node:22-bookworm AS build
@@ -26,6 +34,11 @@ COPY packages/protocol   packages/protocol
 COPY packages/relay       packages/relay
 COPY packages/client     packages/client
 COPY packages/web-client packages/web-client
+
+ARG PI_STUDIO_BRAND_TITLE=""
+ARG PI_STUDIO_BRAND_ICON=""
+ENV PI_STUDIO_BRAND_TITLE=$PI_STUDIO_BRAND_TITLE
+ENV PI_STUDIO_BRAND_ICON=$PI_STUDIO_BRAND_ICON
 RUN npm run build:web -w @av-pi-studio/web-client
 
 # ── Stage 2: nginx static server ──────────────────────────────────────────────

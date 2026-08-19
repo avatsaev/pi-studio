@@ -60,6 +60,23 @@ docker build -f docker/web-client.Dockerfile -t pi-studio-web-client .
 docker build -f docker/daemon.Dockerfile --build-arg INSTALL_GH=true -t pi-studio-daemon .
 ```
 
+### Brand builds (white-label title/favicon)
+
+`web-client.Dockerfile` accepts `PI_STUDIO_BRAND_TITLE`/`PI_STUDIO_BRAND_ICON` build args,
+forwarded into the `npm run build:web` build stage (`packages/web-client`'s README.md § Brand
+configuration has the full env var contract). Neither `docker-compose.yml` nor
+`scripts/docker-publish.sh` expose these — they always build/push the default Pi-Studio
+branding. For a one-off branded image, build and push it directly, then deploy it with a
+distinct tag via `scripts/dokploy-deploy.sh` (never reuse an already-deployed tag — see § Deploying
+to production below for why):
+
+```bash
+docker build --build-arg PI_STUDIO_BRAND_TITLE="Acme Coder" \
+  -f docker/web-client.Dockerfile -t avatsaev/pi-studio-web-client:0.0.87-acme .
+docker push avatsaev/pi-studio-web-client:0.0.87-acme
+bash scripts/dokploy-deploy.sh web-client --tag 0.0.87-acme
+```
+
 > **`npm ci`'s cache mount is per-image and locked, deliberately.** Each Dockerfile's
 > `--mount=type=cache,target=/root/.npm` carries its own `id=` (`npm-relay`/`npm-daemon`/
 > `npm-web-client`) and `sharing=locked`. Without an explicit `id`, BuildKit derives it from the

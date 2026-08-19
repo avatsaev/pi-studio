@@ -91,12 +91,20 @@ src/
                              app-wide with no error; this shipped once, see theme/tokens.ts's
                              spacing comment)
   css-modules.d.ts          ambient CSS-module typings
-  vite-env.d.ts             ambient `__APP_VERSION__` typing (vite.config.ts `define` — own
-                             package.json version, shown in Toolbar.tsx after the brand title)
+  vite-env.d.ts             ambient `__APP_VERSION__`/`__BRAND_TITLE__` typing (vite.config.ts
+                             `define`s — own package.json version and the build-time brand-title
+                             override, both shown in ConnectionBar.tsx)
   providers/               AppProviders (ThemeBoundary + QueryClientProvider), kv-store (localStorage-backed KeyValueStore)
   theme/                   tokens, palette, color-utils, variants, appearance-store, css-bridge, theme.ts, ThemeBoundary
-  brand/                   brand config (zod-validated), theme-injection (accent-only white-label seam;
-                            unused by default — no caller passes ThemeBoundary a brandConfig today)
+  brand/                   build-brand.ts (+ test) — the LIVE build-time title/favicon override
+                            (`PI_STUDIO_BRAND_TITLE`/`PI_STUDIO_BRAND_ICON`, wired in
+                            vite.config.ts's `brandHtmlPlugin`, see § Invariants "Build-time brand
+                            override"); config.ts (zod BrandConfig: colors/logo triplet/links/
+                            legal) + theme-injection.ts (accent-only injection seam) are a
+                            separate, broader scaffold ported from `white-label-branding.md`'s
+                            clean-room spec that is NOT wired to any loader — `getActiveBrand()`
+                            always returns `DEFAULT_BRAND`; no caller passes `ThemeBoundary` a
+                            `brandConfig` today
   ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar tokens)
   platform/                breakpoints (window-chrome metrics)
   components/primitives/   React design-system components (Button, IconButton — compact
@@ -539,6 +547,13 @@ npm run build:electron -w @av-pi-studio/web-client # Electron renderer build (re
 Dev-server WS proxy env: `PI_STUDIO_DAEMON_HOST` / `PI_STUDIO_DAEMON_PORT` (default `127.0.0.1:6767`),
 dev host/port via `WEB_CLIENT_DEV_HOST` / `WEB_CLIENT_DEV_PORT` (default `0.0.0.0:5173`).
 
+Build-time brand override (both build:web/build:electron and `npm run dev`, `src/brand/
+build-brand.ts` — title + favicon only, unset ⇒ byte-identical default Pi-Studio output):
+`PI_STUDIO_BRAND_TITLE` (default "Pi-Studio" — `index.html`'s `<title>` and `ConnectionBar.tsx`'s
+brand label) and `PI_STUDIO_BRAND_ICON` (unset ⇒ the default `public/favicon.svg`; a path to a
+`.svg`/`.png`/`.ico` file replacing the favicon — an unsupported extension or a missing file fails
+the build).
+
 Docker: `docker/web-client.Dockerfile` builds the `build:web` output into an `nginx:alpine` static
 image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_DAEMON_UPSTREAM`);
 `docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
@@ -559,6 +574,16 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
 
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
+- **Build-time brand override (title + favicon only).** `PI_STUDIO_BRAND_TITLE`/
+  `PI_STUDIO_BRAND_ICON` (`src/brand/build-brand.ts`, wired into `vite.config.ts`'s
+  `brandHtmlPlugin`) rewrite `index.html`'s `<title>`/favicon `<link>` and bake
+  `ConnectionBar.tsx`'s brand label via the `__BRAND_TITLE__` define, in both `npm run dev` and
+  every build target. Both are optional and independent — unset ⇒ byte-identical default
+  Pi-Studio output. This is intentionally narrower than `src/brand/config.ts`'s `BrandConfig`
+  scaffold (accent colors + logo triplet + links/legal, ported from `swe/features/
+  white-label-branding.md`'s clean-room spec): that scaffold has no build-time loader wired to it
+  (`getActiveBrand()` always returns `DEFAULT_BRAND`) and is out of scope until a colors/logo
+  override is actually requested — do not conflate the two or wire one through the other.
 - **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
   LAN access to a self-hosted daemon (`pi-studio web`'s documented deployment mode) does not
   satisfy — `crypto.randomUUID` is `undefined` there, throwing `TypeError: crypto.randomUUID is

@@ -107,7 +107,7 @@ export function ConnectionBar() {
   return (
     <div className={styles.bar}>
       <span className={styles.title}>
-        <span className={styles.brand}>Pi-Studio</span>
+        <span className={styles.brand}>{__BRAND_TITLE__}</span>
         <span className={styles.version}>v{__APP_VERSION__}</span>
       </span>
 

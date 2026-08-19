@@ -1,7 +1,8 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
+import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
 
 // Two build targets from one source:
 //   - web:      served over HTTP, absolute base, /daemon-ws dev proxy.
@@ -12,19 +13,63 @@ const { version: APP_VERSION }: { version: string } = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf8"),
 );
 
+// Build-time white-label override (title + favicon only — see AGENTS.md § Invariants "Build-time
+// brand override" and `src/brand/build-brand.ts`'s header comment for why this is intentionally
+// narrower than the unwired `BrandConfig` colors/logo scaffold). Unset → byte-identical default
+// Pi-Studio output.
+const BRAND_TITLE = resolveBrandTitle(process.env);
+const BRAND_ICON = resolveBrandIcon(process.env);
+// Read once at config-eval time: doubles as the "does this file actually exist" fail-fast check,
+// and avoids re-reading the file on every dev-server request.
+const BRAND_ICON_BUFFER = BRAND_ICON ? readFileSync(resolve(BRAND_ICON.sourcePath)) : null;
+
+/** Rewrites index.html's <title> and (when overridden) favicon <link>; serves/emits the custom
+ *  favicon in dev and build respectively. */
+function brandHtmlPlugin(): Plugin {
+  return {
+    name: "pi-studio-brand-html",
+    transformIndexHtml(html) {
+      let out = html.replace(/<title>[^<]*<\/title>/, `<title>${BRAND_TITLE}</title>`);
+      if (BRAND_ICON) {
+        out = out.replace(
+          /<link rel="icon"[^>]*>/,
+          `<link rel="icon" type="${BRAND_ICON.mime}" href="/${BRAND_ICON.fileName}" />`,
+        );
+      }
+      return out;
+    },
+    configureServer(server) {
+      if (!BRAND_ICON || !BRAND_ICON_BUFFER) return;
+      const urlPath = `/${BRAND_ICON.fileName}`;
+      server.middlewares.use((req, res, next) => {
+        if (req.url !== urlPath) return next();
+        res.setHeader("Content-Type", BRAND_ICON.mime);
+        res.end(BRAND_ICON_BUFFER);
+      });
+    },
+    generateBundle() {
+      if (!BRAND_ICON || !BRAND_ICON_BUFFER) return;
+      this.emitFile({ type: "asset", fileName: BRAND_ICON.fileName, source: BRAND_ICON_BUFFER });
+    },
+  };
+}
+
 export default defineConfig(() => {
   const target = process.env.VITE_TARGET ?? "web";
   const isElectron = target === "electron";
 
   return {
-    plugins: [react()],
+    plugins: [react(), brandHtmlPlugin()],
     root: resolve(__dirname),
     base: isElectron ? "./" : "/",
     define: {
       "import.meta.env.VITE_TARGET": JSON.stringify(target),
-      // Own package.json version, baked in at build time (Toolbar.tsx — displayed after the
-      // brand title). Ambient type in `src/vite-env.d.ts`.
+      // Own package.json version, baked in at build time (ConnectionBar.tsx — displayed after
+      // the brand title). Ambient type in `src/vite-env.d.ts`.
       __APP_VERSION__: JSON.stringify(APP_VERSION),
+      // Build-time brand title override, resolved above from `PI_STUDIO_BRAND_TITLE`. Ambient
+      // type in `src/vite-env.d.ts`.
+      __BRAND_TITLE__: JSON.stringify(BRAND_TITLE),
     },
     build: {
       outDir: isElectron ? "dist/electron" : "dist/web",
