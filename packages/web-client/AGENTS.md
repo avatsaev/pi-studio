@@ -95,7 +95,8 @@ src/
                              package.json version, shown in Toolbar.tsx after the brand title)
   providers/               AppProviders (ThemeBoundary + QueryClientProvider), kv-store (localStorage-backed KeyValueStore)
   theme/                   tokens, palette, color-utils, variants, appearance-store, css-bridge, theme.ts, ThemeBoundary
-  brand/                   brand config (zod-validated), brand-logo, theme-injection
+  brand/                   brand config (zod-validated), theme-injection (accent-only white-label seam;
+                            unused by default — no caller passes ThemeBoundary a brandConfig today)
   ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar tokens)
   platform/                breakpoints (window-chrome metrics)
   components/primitives/   React design-system components (Button, IconButton — compact

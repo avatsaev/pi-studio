@@ -276,9 +276,6 @@ mount and tears it down on unmount.
 - **`buildBrandedThemes(brand)`** produces all six branded `Theme`s in one call.
 - **`DEFAULT_BRAND`**: Pi-Studio's own accent (`#2e5cb8`/`#a2b4d7`/`#ffffff`, swatch `#3b62b0`) and
   asset paths — the fallback when no brand config is supplied.
-- **`resolveBrandLogoAsset(brand, variant, colorScheme)`** (`brand/brand-logo.ts`) resolves which
-  asset path a `<BrandLogo variant>` should render: `"auto"` picks light/dark by `colorScheme`,
-  `"light"`/`"dark"` are explicit, `"mark"` prefers `logoMark` and falls back to the auto wordmark.
 - `getActiveBrand()`/`resolveBrandConfig(rawConfig)` — runtime resolver + frozen-after-first-call
   accessor; `_setActiveBrand`/`_resetActiveBrand` exist for tests and the build-time bootstrap.
 

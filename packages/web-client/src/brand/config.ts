@@ -118,13 +118,12 @@ export type BrandResolution =
   | { ok: false; errors: string[] };
 
 /**
- * Resolve the active brand config.
+ * Resolve the active brand config from an already-loaded raw value.
  *
- * At build time: reads PI_STUDIO_BRAND_DIR from the environment, loads and
- * validates <dir>/brand.config.json, fails fast with field-level errors.
- * When unset: returns the default Pi-Studio brand.
- *
- * In Node unit tests `rawConfig` is injected directly to skip file I/O.
+ * This resolver never touches the filesystem or `PI_STUDIO_BRAND_DIR` itself — no build-time
+ * loader currently calls it with disk-sourced JSON, so in practice `getActiveBrand()` always
+ * returns `DEFAULT_BRAND`. `rawConfig` injection exists for tests and as the seam a future
+ * brand-loading bootstrap would use.
  */
 export function resolveBrandConfig(rawConfig?: unknown): BrandResolution {
   if (rawConfig === undefined) {
