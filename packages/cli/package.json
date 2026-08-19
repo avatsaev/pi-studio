@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/cli",
-  "version": "0.0.87",
+  "version": "0.0.88",
   "bin": {
     "pi-studio": "dist/cli.js"
   },
@@ -23,11 +23,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/client": "^0.0.87",
-    "@av-pi-studio/protocol": "^0.0.87",
-    "@av-pi-studio/relay": "^0.0.87",
-    "@av-pi-studio/server": "^0.0.87",
-    "@av-pi-studio/web-client": "^0.0.87",
+    "@av-pi-studio/client": "^0.0.88",
+    "@av-pi-studio/protocol": "^0.0.88",
+    "@av-pi-studio/relay": "^0.0.88",
+    "@av-pi-studio/server": "^0.0.88",
+    "@av-pi-studio/web-client": "^0.0.88",
     "@earendil-works/pi-coding-agent": "^0.84.1",
     "@inquirer/prompts": "^8.5.2",
     "bcryptjs": "^3.0.3",
