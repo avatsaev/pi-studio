@@ -19,9 +19,17 @@
   overflow-x: auto;
 }
 /* Pane-scoped placement: TabPanelHost positions each strip across the top of its pane's rect
-   (`pane-layout-view.paneChrome`). `min-height` stays for the single-pane case's exact 36px row. */
+   (`pane-layout-view.paneChrome`) via an inline `left`/`top`/`width`, which — being inline —
+   always wins over these. The defaults below matter for the ONE case with no inline style at
+   all: `TabPanelHost`'s `chrome.length === 0` fallback (`<TabStrip paneId={null} />`, rendered
+   before any workspace is open) — without them this strip has no explicit width and, per CSS
+   absolute-positioning rules, shrinks to fit its content instead of spanning the host, leaving a
+   gap down the right edge. `min-height` stays for the single-pane case's exact 36px row. */
 .paneStrip {
   position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
   z-index: 1;
 }
 /* Focused-pane indicator — only ever rendered with more than one pane. */
