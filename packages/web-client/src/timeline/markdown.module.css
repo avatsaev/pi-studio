@@ -43,6 +43,28 @@
     animation: none;
   }
 }
+
+/* Streaming fade-in — each block rendered while a row is still streaming (a just-completed
+ * paragraph/list/heading from `StreamingMarkdown`'s `blocks`, or the lean tail block still being
+ * written) eases in from slightly below and fully transparent instead of popping in mid-flow.
+ * React keeps the DOM node in place across token deltas that only grow existing text (same tag,
+ * same position), so the animation fires once per new element — not once per keystroke. Finalized
+ * `Markdown` output (no `.streaming` class) is unaffected. `prefers-reduced-motion: reduce` holds
+ * it static, consistent with the caret above. */
+.streaming > * {
+  animation: streamBlockIn 180ms ease-out;
+}
+@keyframes streamBlockIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .streaming > * {
+    animation: none;
+  }
+}
 .prose p {
   margin: 0.5em 0;
 }
