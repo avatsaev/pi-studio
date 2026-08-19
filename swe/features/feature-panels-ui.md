@@ -74,7 +74,12 @@ descriptor entry, never a change to this pane): `text`, `markdown`, `image`, `vi
   cannot reach the app's DOM, `localStorage`, or WebSocket — see
   [html-file-preview.md](html-file-preview.md) for the full security model and browser-measured
   constraints), with a Preview/Source toggle, a per-tab "Block remote resources" network toggle
-  (remote loading is allowed by default), and Reload. `.svg` deliberately stays under **image**, not
+  (remote loading is allowed by default), and Reload. Relative local assets the document references
+  (`./style.css`, `./app.js`, `./logo.png`, and one nested level into an inlined stylesheet's own
+  `url(...)`) are resolved through the daemon and inlined as `data:` URIs — never fetched if the
+  resolved path falls outside the tab's workspace root, a hard confinement gate (not a display
+  filter), with anything skipped surfaced in a muted, expandable "N references not inlined" note.
+  `.svg` deliberately stays under **image**, not
   **html** — an `<img>`-rendered SVG cannot execute scripts, and routing it through the sandboxed
   iframe would be a security regression dressed as a feature.
 - **binary** → "Binary preview unavailable" + file size, with an on-demand download action.

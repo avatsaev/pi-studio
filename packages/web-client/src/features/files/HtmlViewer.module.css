@@ -42,6 +42,30 @@
   border-bottom: 1px solid var(--pi-color-border);
   flex-shrink: 0;
 }
+.skippedNote {
+  padding: var(--pi-spacing-4) var(--pi-spacing-14);
+  font-size: var(--pi-font-size-2xs);
+  background: var(--pi-color-surface1);
+  border-bottom: 1px solid var(--pi-color-border);
+  flex-shrink: 0;
+}
+.skippedToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.skippedToggle:hover {
+  color: var(--pi-color-foreground);
+}
+.skippedList {
+  margin: var(--pi-spacing-4) 0 0;
+  padding-left: var(--pi-spacing-14);
+  color: var(--pi-color-foregroundMuted);
+}
 .body {
   flex: 1;
   min-height: 0;

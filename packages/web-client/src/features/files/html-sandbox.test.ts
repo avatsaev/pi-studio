@@ -138,17 +138,17 @@ describe("assembleHtmlPreview — <head> detection", () => {
 });
 
 describe("assembleHtmlPreview — asset substitution", () => {
-  it("substitutes a supplied asset ref only inside a quoted attribute value", () => {
+  it("substitutes a supplied asset ref only inside a scanned attribute context", () => {
     const source = '<html><body><img src="logo.png" alt="logo.png"></body></html>';
     const out = assembleHtmlPreview(source, {
       blockRemote: false,
       assets: { "logo.png": "data:image/png;base64,AAAA" },
     });
     expect(out).toContain('src="data:image/png;base64,AAAA"');
-    // The `alt` attribute's text content happens to equal the same string; since it is itself an
-    // attribute *value*, the substitution intentionally applies there too — the seam guarantees
-    // "attribute values only", not "only the ref's original semantic role".
-    expect(out).toContain('alt="data:image/png;base64,AAAA"');
+    // `alt` is not one of the tag/attribute contexts `html-assets.ts` scans (sprint-064) — the
+    // seam is "the scanned attribute contexts only", never a blind whole-document value match, so
+    // `alt`'s text happening to equal the same ref string is left exactly as authored.
+    expect(out).toContain('alt="logo.png"');
   });
 
   it("does not touch document text that happens to match a ref", () => {
@@ -168,12 +168,15 @@ describe("assembleHtmlPreview — asset substitution", () => {
     expect(assembleHtmlPreview(source, { blockRemote: false })).toContain('src="logo.png"');
   });
 
-  it("supports single-quoted attribute values", () => {
+  it("supports single-quoted source attribute values, normalized to double quotes on rewrite", () => {
     const source = "<html><body><img src='logo.png'></body></html>";
     const out = assembleHtmlPreview(source, {
       blockRemote: false,
       assets: { "logo.png": "data:image/png;base64,AAAA" },
     });
-    expect(out).toContain("src='data:image/png;base64,AAAA'");
+    // `html-assets.ts`'s rewrite always emits double-quoted values regardless of the original
+    // quote style — the same substitution has to work for an unquoted source value too, and a
+    // `data:` URI is never safe unquoted.
+    expect(out).toContain('src="data:image/png;base64,AAAA"');
   });
 });

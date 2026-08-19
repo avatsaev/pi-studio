@@ -1,7 +1,7 @@
 # Task 003 — Fixture verification + docs sync
 
 - **Sprint:** sprint-064-html-preview-local-assets
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs + test
 - **Area:** web-client / docs
 - **Priority:** P1

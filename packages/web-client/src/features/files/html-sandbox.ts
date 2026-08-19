@@ -20,6 +20,8 @@
  *    document may reach the *network* — a per-tab convenience toggle, not a safety mechanism.
  */
 
+import { rewriteHtmlAssetRefs } from "./html-assets.js";
+
 /** The iframe's `sandbox` attribute token list. `allow-scripts` only — see invariant 1 above. */
 export const HTML_SANDBOX_TOKENS: readonly string[] = Object.freeze(["allow-scripts"]);
 
@@ -73,30 +75,6 @@ const HEAD_OPEN_RE = /<head(\s[^>]*)?>/i;
 const HTML_OPEN_RE = /<html(\s[^>]*)?>/i;
 const HAS_BASE_RE = /<base[\s/>]/i;
 
-/**
- * Replaces attribute values that exactly match a key in `assets` with its substitution — never
- * document text, and never a value that merely *contains* a key (a bare `String.replace` over the
- * whole document would also rewrite refs sitting in visible text, comments, or scripts). Inert
- * (returns `source` unchanged) when `assets` is empty, which is this sprint's case: sprint-064
- * populates the map from `extractLocalAssetRefs`/`confineAssetRef`; this sprint only wires the
- * seam through so that work needs no changes here.
- */
-function substituteAssets(source: string, assets: Readonly<Record<string, string>>): string {
-  const keys = Object.keys(assets);
-  if (keys.length === 0) return source;
-  return source.replace(
-    /=("([^"]*)"|'([^']*)')/g,
-    (whole, _quoted: string, dq?: string, sq?: string) => {
-      const value = dq !== undefined ? dq : sq;
-      if (value === undefined) return whole;
-      const replacement = assets[value];
-      if (replacement === undefined) return whole;
-      const quote = dq !== undefined ? '"' : "'";
-      return `=${quote}${replacement}${quote}`;
-    },
-  );
-}
-
 export interface AssembleHtmlPreviewOptions {
   /** Resolved local-asset substitutions (sprint-064): raw ref string → `data:` URI. Applied as an
    *  attribute-value substitution regardless of sprint; empty/absent here is a no-op. */
@@ -122,7 +100,7 @@ export interface AssembleHtmlPreviewOptions {
  * uppercase `<HEAD>` is still found and used rather than triggering a second, conflicting one.
  */
 export function assembleHtmlPreview(source: string, opts: AssembleHtmlPreviewOptions): string {
-  const substituted = substituteAssets(source, opts.assets ?? {});
+  const substituted = rewriteHtmlAssetRefs(source, opts.assets ?? {});
 
   const parts: string[] = [];
   if (opts.blockRemote) {

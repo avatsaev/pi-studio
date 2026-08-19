@@ -292,28 +292,28 @@ kind, so persisted pane layouts (`file:<path>` identity) keep working with no mi
 
 ## Acceptance criteria
 
-- [ ] Adding a viewer is one `VIEWER_DESCRIPTOR` entry; `VIEWER_BY_KIND`, extension/MIME lookup and
+- [x] Adding a viewer is one `VIEWER_DESCRIPTOR` entry; `VIEWER_BY_KIND`, extension/MIME lookup and
       the live-refresh set are all derived, and `liveRefresh` is a required field (a new kind cannot
       silently inherit a default).
-- [ ] `detectViewerKind` and `isMoleculeFile` return identical results to today for every extension,
+- [x] `detectViewerKind` and `isMoleculeFile` return identical results to today for every extension,
       filename and MIME hint already covered by tests, plus `html`/`htm`/`xhtml` → `"html"`.
-- [ ] No extension is claimed by two descriptors (enforced by test).
-- [ ] A previewed markdown file's relative image (`![x](./shot.png)`) resolves and renders.
-- [ ] Opening an `.html` file shows the rendered document; `Source` shows highlighted source.
-- [ ] The previewed document cannot reach the app: `parent.document` and `localStorage` throw, and
+- [x] No extension is claimed by two descriptors (enforced by test).
+- [x] A previewed markdown file's relative image (`![x](./shot.png)`) resolves and renders.
+- [x] Opening an `.html` file shows the rendered document; `Source` shows highlighted source.
+- [x] The previewed document cannot reach the app: `parent.document` and `localStorage` throw, and
       `HTML_SANDBOX_TOKENS` contains no `allow-same-origin`/`allow-top-navigation*`/`allow-popups`.
-- [ ] A document with `./style.css`, `./app.js`, `./logo.png` renders styled, scripted and imaged.
-- [ ] A document referencing a path outside the workspace root triggers no fetch for it and reports
+- [x] A document with `./style.css`, `./app.js`, `./logo.png` renders styled, scripted and imaged.
+- [x] A document referencing a path outside the workspace root triggers no fetch for it and reports
       it as not inlined.
-- [ ] A CDN `<script src="https://…">` executes by default; with "Block remote resources" on, it and
+- [x] A CDN `<script src="https://…">` executes by default; with "Block remote resources" on, it and
       every other remote load are blocked while inline/`data:` content still works.
-- [ ] An HTML file over 5 MiB renders via the streamed tier; over 30 MiB shows the terminal state.
-- [ ] Editing the open file on disk re-renders the preview within ~1s.
-- [ ] A hostile ref using `%2F`-encoded separators (`..%2F..%2F..%2F.ssh%2Fid_rsa`) and a sibling
+- [x] An HTML file over 5 MiB renders via the streamed tier; over 30 MiB shows the terminal state.
+- [x] Editing the open file on disk re-renders the preview within ~1s.
+- [x] A hostile ref using `%2F`-encoded separators (`..%2F..%2F..%2F.ssh%2Fid_rsa`) and a sibling
       directory sharing the root as a string prefix are both rejected without a fetch.
-- [ ] A home-rooted tab (`workspaceCwd` = `~`) inlines only refs under the document's own directory.
-- [ ] A source change loads the preview document exactly once — no assetless intermediate render.
-- [ ] An in-page anchor link scrolls the preview instead of navigating the frame away.
+- [x] A home-rooted tab (`workspaceCwd` = `~`) inlines only refs under the document's own directory.
+- [x] A source change loads the preview document exactly once — no assetless intermediate render.
+- [x] An in-page anchor link scrolls the preview instead of navigating the frame away.
 
 ## TODO(verify)
 
@@ -324,14 +324,25 @@ kind, so persisted pane layouts (`file:<path>` identity) keep working with no mi
   `data:`-sourced `<img>` all load and apply correctly under `HTML_PREVIEW_BLOCKING_CSP` as shipped
   (`style-src`/`script-src` both need the explicit `data:` token — `'unsafe-inline'` alone does
   **not** cover a `data:`-sourced element, only a literal inline `<style>`/`<script>` body — which
-  is exactly the failure mode this policy was written to avoid). `font-src`/`media-src` were not
-  independently measured but follow the identical `data:`-in-directive pattern and are exercised for
-  real once sprint-064 starts inlining `@font-face`/`<video>`/`<audio>` assets.
+  is exactly the failure mode this policy was written to avoid). **Resolved for real (sprint-064/
+  task-003, measured against a live daemon with actual inlined assets, not synthetic strings):** a
+  real `report.html` with its `link[rel=stylesheet]` and `script[src]` both inlined as `data:` URIs
+  by `html-asset-loader.ts` continued to apply/execute correctly with "Block remote resources" on —
+  `font-src`/`media-src` were not independently exercised (the fixture carried no `@font-face`/
+  `<video>`/`<audio>` assets) but follow the identical `data:`-in-directive pattern already proven
+  for the other two channels.
 - **Resolved (sprint-063/task-003, measured in headless Chromium against a live daemon).** With the
   injected `.invalid` base, `<a href="#target">` did attempt a frame navigation and replace the
   preview with a network-error page — see the edge-case table's "in-page anchor link" row for the
   root cause and the fix (`html-sandbox.ts`'s `FRAGMENT_ANCHOR_SCRIPT`, injected alongside the base).
-- Non-Chromium parity (Firefox/Safari) for `data:` script subresources inside a sandboxed frame is
-  unverified; the app ships Chromium-first (Electron shell) but a Firefox check is cheap.
-- Whether the not-inlined note should list refs individually or only count them is a UI judgement
-  left to the implementing task.
+- **Unresolved.** Non-Chromium parity (Firefox/Safari) for `data:` script subresources inside a
+  sandboxed frame remains unchecked — no Firefox/Safari binary was available in either sprint's
+  verification environment. The app ships Chromium-first (the Electron shell embeds Chromium), so
+  this is accepted as a known gap rather than fabricated as verified; a real check needs a
+  developer machine or CI runner with Firefox installed.
+- **Resolved (sprint-064/task-002).** The not-inlined note lists a muted single-line summary — count
+  plus reasons aggregated by category ("N references not inlined (2 outside workspace, 1 over
+  cap)") — that expands on click to the individual ref list with each one's reason
+  (`HtmlViewer.tsx`'s `summarizeSkipReasons`/`SKIP_REASON_LABEL`). Chosen over listing every ref
+  inline by default because a hostile or pathological document could name dozens of refs, and a
+  collapsed summary keeps the toolbar area bounded regardless.

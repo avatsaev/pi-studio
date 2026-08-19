@@ -1,7 +1,7 @@
 # Task 001 — Pure asset-ref extraction, confinement and rewriting
 
 - **Sprint:** sprint-064-html-preview-local-assets
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/files
 - **Priority:** P1

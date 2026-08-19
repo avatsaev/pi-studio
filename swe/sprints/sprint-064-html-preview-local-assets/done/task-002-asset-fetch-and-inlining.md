@@ -1,7 +1,7 @@
 # Task 002 — Asset fetch orchestration + `data:` inlining in `HtmlViewer`
 
 - **Sprint:** sprint-064-html-preview-local-assets
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/files
 - **Priority:** P1

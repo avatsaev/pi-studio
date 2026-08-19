@@ -460,7 +460,17 @@ src/
                             iframe preview for `.html`/`.htm`/`.xhtml`; see AGENTS.md § Invariants
                             "HTML preview sandbox"), html-sandbox.ts (`assembleHtmlPreview` +
                             `HTML_SANDBOX_TOKENS`/`HTML_PREVIEW_BLOCKING_CSP` — pure, no React,
-                            see the same invariant) (+ test), viewer-registry (single
+                            see the same invariant) (+ test), html-assets.ts (sprint-064 — pure
+                            local-asset-inlining core: `extractLocalAssetRefs`/`confineAssetRef`/
+                            `confinementRoot`/`rewriteHtmlAssetRefs`/`extractCssUrlRefs`/
+                            `rewriteCssUrls`/`dataUri`/`mimeForAssetPath`/`ASSET_LIMITS`/
+                            `withinAssetCaps`; the tag/attribute scanner extraction and rewriting
+                            share, so they can never disagree on which refs count; see the same
+                            invariant) (+ test), html-asset-loader.ts (sprint-064 —
+                            `loadHtmlAssetBundle`: the framework-free fetch orchestration over
+                            `html-assets.ts`'s pure core — bounded parallelism, caps enforced as
+                            bytes arrive, one nested pass into an inlined stylesheet's own
+                            `url()` refs; see the same invariant) (+ test), viewer-registry (single
                             `VIEWER_REGISTRY: readonly ViewerDescriptor[]` table — `kind`, lazy
                             `component`, `extensions`, optional `mimePrefixes`, required
                             `liveRefresh` — sprint-063; `VIEWER_BY_KIND`, the extension/MIME
@@ -1057,7 +1067,7 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object URL as the document
   (measured, headless Chromium 2026-08-19: a sandboxed opaque-origin document cannot `fetch()` a
   parent-created `blob:` URL — `data:` is the only inlining vehicle, which is why sprint-064
-  inlines local assets as `data:` URIs rather than rewriting them to blobs). Three invariants a
+  inlines local assets as `data:` URIs rather than rewriting them to blobs). Four invariants a
   future change must not quietly break:
   1. **Never `allow-same-origin`.** Paired with `allow-scripts` it re-grants the previewed document
      the app's own origin — its DOM, its `localStorage` (which holds the daemon password and
@@ -1088,8 +1098,38 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
      of attempting a frame navigation to that `.invalid` host, which is what the injected base
      alone measurably caused (a `chrome-error://` page replacing the whole preview) before the
      interceptor was added.
+  4. **Local-asset confinement is a hard security gate, not a convenience filter (sprint-064).**
+     With remote loading on by default, a document naming `../../../.ssh/id_rsa` and fetched on
+     its behalf could read the bytes back out of its own inlined `data:` URI and post them
+     anywhere — `data:` is used for *every* asset kind (images, stylesheets, scripts, fonts,
+     media), never an object URL, for the same fetch-a-`blob:`-from-a-sandbox reason as the
+     document itself. `confineAssetRef` (`html-assets.ts`) percent-decodes a candidate **exactly
+     once, non-throwing** — *before* any resolution or normalization — then resolves it, lexically
+     collapses `.`/`..` segments (`lib/paths.ts`'s `collapseDotSegments`), and requires the result
+     sit under the confinement root via a segment-aware check (`path === root ||
+     path.startsWith(root + "/")`, never a bare string prefix, which would wrongly accept a
+     `/ws-evil` sibling of `/ws`). The decode-before-normalize order is load-bearing: the reverse
+     order lets `foo%2F..%2F..%2F..%2Fetc%2Fpasswd` pass the root check as one opaque segment (no
+     literal `/` yet) and only decode back into a real traversal afterward. The confinement root
+     is the tab's workspace root — narrowed to the document's own directory
+     (`confinementRoot`) when that root **is** the home directory itself (a workspace-less tab
+     falls back to `cwd = "~"`, `FilePanel.tsx`; with all of `$HOME` as the root, `~/.ssh/id_rsa`
+     would sit *inside* it and the gate would be vacuous exactly where it matters most). Caps
+     (`ASSET_LIMITS`: 64 assets, 2 MiB per asset, 16 MiB inlined total — `withinAssetCaps` is the
+     one pure predicate that enforces them, driven by `html-asset-loader.ts` as bytes arrive) keep
+     a skip visible rather than a silent multi-hundred-MB `srcDoc` allocation. Known limitations,
+     recorded rather than papered over: only the top-level `<link rel=stylesheet>`/`<script src>`/
+     `<img>`/`<source>`/`<video>`/`<audio>` attribute contexts and one nested level into an inlined
+     stylesheet's own `url(...)` are resolved — `@import` chains beyond that one level, refs inside
+     the document's own inline `<style>` blocks, and `<iframe src>` are never rewritten; only the
+     document itself is watched for live refresh, so an edited *asset* (not the document) updates
+     on the toolbar's Reload, not automatically (`htmlAssetBundleByPath` invalidation, distinct
+     from the document's own content-hash-keyed refetch); an HTML-entity-bearing ref
+     (`a&amp;b.png`) is matched **as authored** — no entity decoding happens anywhere in the
+     confinement path — so it simply fails to inline rather than resolving to the real file.
 
-  The assembled `srcDoc` is memoized on exactly its real inputs (source content, `blockRemote`) and
+  The assembled `srcDoc` is memoized on exactly its real inputs (source content, the resolved
+  local-asset map, `blockRemote`) and
   the `<iframe>` stays permanently mounted once content is available — the Preview/Source toggle
   hides it via `display: none` rather than unmounting it. Both matter for the same reason: React
   re-setting `srcDoc`, or React unmounting/remounting the iframe element, reloads the document and
@@ -1102,7 +1142,11 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   real branching logic extract their logic into plain functions/factories (`watchFile`,
   `resolveWorkspacePath`, `createExplorerWatcher`, `loadInlineImage`,
   `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`,
-  `assembleHtmlPreview`) that
+  `assembleHtmlPreview`, `extractLocalAssetRefs`/`confineAssetRef`/`confinementRoot`/
+  `rewriteHtmlAssetRefs`/`extractCssUrlRefs`/`rewriteCssUrls` (`html-assets.ts`), and
+  `loadHtmlAssetBundle` (`html-asset-loader.ts`, driven with an injected fake `fetchBytes` —
+  bounded-parallelism assertions use `Promise.withResolvers()` + deterministic microtask-tick
+  draining rather than real timers)) that
   are unit-tested directly rather than via `renderHook` or mounting. This is now an established
   convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —
   existing precedent since sprint-043).
