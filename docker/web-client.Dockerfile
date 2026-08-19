@@ -19,7 +19,7 @@ COPY packages/protocol/package.json   packages/protocol/package.json
 COPY packages/client/package.json     packages/client/package.json
 COPY packages/relay/package.json      packages/relay/package.json
 COPY packages/web-client/package.json packages/web-client/package.json
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-web-client,sharing=locked \
     npm ci --workspace @av-pi-studio/web-client --include-workspace-root
 
 COPY packages/protocol   packages/protocol

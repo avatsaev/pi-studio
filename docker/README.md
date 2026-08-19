@@ -60,6 +60,20 @@ docker build -f docker/web-client.Dockerfile -t pi-studio-web-client .
 docker build -f docker/daemon.Dockerfile --build-arg INSTALL_GH=true -t pi-studio-daemon .
 ```
 
+> **`npm ci`'s cache mount is per-image and locked, deliberately.** Each Dockerfile's
+> `--mount=type=cache,target=/root/.npm` carries its own `id=` (`npm-relay`/`npm-daemon`/
+> `npm-web-client`) and `sharing=locked`. Without an explicit `id`, BuildKit derives it from the
+> mount's `target` path — identical (`/root/.npm`) across all three Dockerfiles — so they were
+> silently sharing one cache store under the default `sharing=shared` mode. Real incident
+> (2026-08-19): `docker:publish`'s sequential `relay` → `daemon` → `web-client` builds hit that
+> shared, unlocked cache back-to-back — `web-client`'s `npm ci` started against the same cache
+> milliseconds after `daemon`'s last `npm prune` step named its image, and its `esbuild`
+> postinstall exec raced BuildKit's still-settling cache-mount teardown from the daemon build:
+> `spawnSync .../esbuild/bin/esbuild ETXTBSY` (moby/buildkit#1818 is the same class of bug).
+> `sharing=locked` makes BuildKit take an exclusive lock per mount instead of racing; the distinct
+> `id`s mean the three images no longer contend for the same store at all. If this resurfaces, the
+> fix is here, not in the npm/esbuild versions.
+
 > **Full release pipeline**: `npm run release` (`scripts/release.sh`) chains npm publish + this
 > Docker build/push + the Dokploy deploy below into one command, tagged consistently end-to-end.
 > See root `AGENTS.md` § Release & production deployment. The sections below cover each script

@@ -24,7 +24,7 @@ COPY packages/highlight/package.json packages/highlight/package.json
 COPY packages/relay/package.json     packages/relay/package.json
 COPY packages/client/package.json    packages/client/package.json
 COPY packages/server/package.json    packages/server/package.json
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-daemon,sharing=locked \
     npm ci --workspace @av-pi-studio/server --include-workspace-root
 
 # Build the server's dependency chain: protocol → highlight → relay → client → server.
@@ -40,7 +40,7 @@ RUN npm run build:protocol \
  && npm run build:server
 
 # Drop dev dependencies from node_modules (keeps the compiled node-pty addon).
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-daemon,sharing=locked \
     npm prune --omit=dev --workspace @av-pi-studio/server --include-workspace-root
 
 # ── Stage 2: runtime (slim + git, no compilers) ───────────────────────────────

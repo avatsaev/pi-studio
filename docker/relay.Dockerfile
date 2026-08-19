@@ -13,7 +13,7 @@ WORKDIR /repo
 # (relay has no @av-pi-studio/* deps, but tsc -b + the root lockfile drive the install.)
 COPY package.json package-lock.json ./
 COPY packages/relay/package.json packages/relay/package.json
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-relay,sharing=locked \
     npm ci --workspace @av-pi-studio/relay --include-workspace-root
 
 COPY tsconfig.base.json tsconfig.base.json
