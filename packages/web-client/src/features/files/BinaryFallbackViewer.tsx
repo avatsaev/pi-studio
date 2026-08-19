@@ -13,7 +13,7 @@ import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./BinaryFallbackViewer.module.css";
 
-export function BinaryFallbackViewer({ path }: ViewerProps) {
+export function BinaryFallbackViewer({ path, workspaceCwd }: ViewerProps) {
   const [requested, setRequested] = useState(false);
   const query = useFileDownload(path, requested);
   const name = path.split("/").pop() || path;

@@ -279,6 +279,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/mermaid-diagram-rendering.md](features/mermaid-diagram-rendering.md) | feature (UI) | Fenced `mermaid` code blocks in chat rendered as live diagrams, capability-gated agent instruction |
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
+| [features/html-file-preview.md](features/html-file-preview.md)           | feature (UI) | HTML files previewed in a sandboxed iframe; descriptor-driven file-viewer registry; workspace-confined local asset inlining |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 | [features/rewind.md](features/rewind.md)                                 | feature (UI) | Rewind conversation/files/both to a prior message (+ small protocol amendment) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |

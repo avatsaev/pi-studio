@@ -255,13 +255,20 @@ src/
                            subscription shared by the molecule viewer's reload gate and
                            use-file-live-refresh below), use-explorer-watch (live file-tree
                            subscription, one per expanded directory), use-file-live-refresh
-                           (drives live refetch for text/markdown/image FilePanel tabs —
-                           sprint-044, see AGENTS.md § Invariants "Live file watching"),
-                           use-file-text (tier-2 streamed-text fallback for TextViewer, files
-                           over the inline read cap, decode query keyed on the download's
-                           object URL so it follows a live refetch automatically), use-inline-image
-                           (loadInlineImage — the framework-free effect core, per the jsdom-less
-                           testing convention below — over inline-image-cache, task-003 sprint-045;
+                           (drives live refetch for FilePanel tabs whose `ViewerKind` is in the
+                           registry-derived `LIVE_REFRESH_KINDS` set — sprint-044, see AGENTS.md
+                           § Invariants "Live file watching"),
+                           use-file-text (tier-2 streamed-text fallback: decodes a chunked binary
+                           download to text, decode query keyed on the download's object URL so
+                           it follows a live refetch automatically), use-file-source (task-002
+                           sprint-063 — the shared three-tier size ladder every text-shaped viewer
+                           now goes through: `useFileRead` → `useFileText` when over the inline
+                           cap and under `MAX_DISPLAY_BYTES` → a terminal download-only state
+                           above it; decision core is the pure `text-viewer-state.ts` selector,
+                           unmoved; consumed by TextViewer, MarkdownFileViewer, and HtmlViewer),
+                           use-inline-image (loadInlineImage — the framework-free effect core,
+                           per the jsdom-less testing convention below — over
+                           inline-image-cache, task-003 sprint-045;
                            consumed by timeline/InlineImage.tsx, task-004)
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
                            query), use-agent-commands (composer `/` picker RPC query — cached
@@ -449,7 +456,17 @@ src/
                             dotfiles ghost, which looks exactly like "ignored folders aren't
                             dimming"), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
-                            BinaryFallbackViewer, TextViewer, viewer-registry,
+                            BinaryFallbackViewer, TextViewer, HtmlViewer (sprint-063 — sandboxed
+                            iframe preview for `.html`/`.htm`/`.xhtml`; see AGENTS.md § Invariants
+                            "HTML preview sandbox"), html-sandbox.ts (`assembleHtmlPreview` +
+                            `HTML_SANDBOX_TOKENS`/`HTML_PREVIEW_BLOCKING_CSP` — pure, no React,
+                            see the same invariant) (+ test), viewer-registry (single
+                            `VIEWER_REGISTRY: readonly ViewerDescriptor[]` table — `kind`, lazy
+                            `component`, `extensions`, optional `mimePrefixes`, required
+                            `liveRefresh` — sprint-063; `VIEWER_BY_KIND`, the extension/MIME
+                            lookup tables, and the live-refresh set are all DERIVED from it at
+                            module load, not separately maintained; see AGENTS.md § Invariants
+                            "Adding a file viewer"),
                             MoleculeViewer (molstar WebGL canvas for structure files, wires
                             `@molviewer/core`'s `onSave` to `write-file.ts` and its
                             `onPolymerBuild` to create-entry + upload), MoleculeViewerPanel
@@ -992,9 +1009,10 @@ tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded
   sprint-044) is the third consumer: it watches a `kind:"file"`/`kind:"diff"` tab's own file —
   resolving a diff tab's git-relative `path` against its workspace `cwd` via the pure
   `resolveWorkspacePath` helper (`lib/paths.ts` — lifted out of this hook, task-002 sprint-045,
-  now shared with `timeline/image-src.ts`'s `classifyImageSrc`) — for `text`/`markdown`/`image`
-  `ViewerKind`s only (`LIVE_REFRESH_KINDS`; `video` is excluded because a refetch would restart
-  playback from zero,
+  now shared with `timeline/image-src.ts`'s `classifyImageSrc`) — gated on the registry-derived
+  `LIVE_REFRESH_KINDS` set (`viewer-registry.ts`, sprint-063 — see AGENTS.md § Invariants "Adding
+  a file viewer"; currently `text`/`markdown`/`image`/`html`; `video` is excluded because a
+  refetch would restart playback from zero,
   `binary` fetches nothing eagerly so there is nothing to refresh), and unconditionally
   invalidates that path's `fileRead`/`fileDownload`/`fileDiffByPath` queries on each push — a
   watched tab's File/Diff toggle can show any of them, and invalidating a key with no live query
@@ -1002,27 +1020,89 @@ tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded
   `shouldApplyRefresh` unsaved-edits gate stays the only reload path for molecule tabs. All three
   hooks' subscribe/diff/route/dispose core is framework-free (`watchFile`, `createExplorerWatcher`,
   `resolveWorkspacePath`) for the same jsdom-less reason below.
-- **TextViewer three-tier file-size behavior + streaming fallback.** Files are now categorized by
-  size: (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
-limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
-  `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB local constant in `TextViewer.tsx`) — transparently
-  refetch via the uncapped chunked binary `useFileText` (wraps `useFileDownload` + decodes blob
-  to text; the decode query is keyed on `(path, objectUrl)` so a `fileDownload` invalidation's new
-  object URL is picked up automatically) and render `CodeView` with a muted **"N.N MB file
-  streamed"** note; (3)
+- **Shared file-source size ladder (`use-file-source`) + streaming fallback.** Every text-shaped
+  viewer (`TextViewer`, `MarkdownFileViewer`, `HtmlViewer` — sprint-063 task-002) reads its content
+  through one hook instead of each re-implementing tier 1 alone. Files are categorized by size:
+  (1) `size ≤ MAX_INLINE_FILE_READ_BYTES` (5 MiB server-side, `packages/server/src/files/
+limits.ts`) — the plain `useFileRead` path, unchanged; (2)
+  `5 MiB < size ≤ MAX_DISPLAY_BYTES` (30 MiB, exported from `use-file-source.ts` — not a
+  per-component local constant) — transparently refetch via the uncapped chunked binary
+  `useFileText` (wraps `useFileDownload` + decodes blob to text; the decode query is keyed on
+  `(path, objectUrl)` so a `fileDownload` invalidation's new object URL is picked up
+  automatically) and render with a muted **"N.N MB file streamed"** note; (3)
   `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why/download action
   (reusing `BinaryFallbackViewer`'s pattern). The pure state-selection logic `selectTextViewerState`
-  lives in `text-viewer-state.ts` (framework-free, unit-tested directly). When `useFileRead`
+  still lives in `text-viewer-state.ts` (framework-free, unit-tested directly, unmoved) — the hook
+  is a thin composition of `useFileRead`/`useFileText`/`useFileDownload` around it, plus a bound
+  `requestDownload()` on the terminal tier. When `useFileRead`
   throws `FileTooLargeError` (thrown by `parseFileReadResponse` when the server returns
-  `error: "file_too_large"`), it carries `size` and optional `maxBytes` (new additive RPC field),
+  `error: "file_too_large"`), it carries `size` and optional `maxBytes` (additive RPC field),
   replacing string-code matching for a caller to decide whether to stream or show the terminal
   state.
+- **Adding a file viewer.** `viewer-registry.ts`'s `VIEWER_REGISTRY: readonly ViewerDescriptor[]`
+  (sprint-063) is the single registration point — `{ kind, component (lazy), extensions,
+  mimePrefixes?, liveRefresh }`. `liveRefresh` is a **required** field: a new `ViewerKind` cannot
+  compile without an explicit choice, closing the gap where the pre-sprint-063 registry silently
+  defaulted a forgotten kind to no live refresh. `VIEWER_BY_KIND`, the extension/MIME lookup
+  tables, and `LIVE_REFRESH_KINDS` are all DERIVED from this one table at module load — never
+  maintain a second list anywhere else. A file type that needs its own **tab kind** (not just a
+  viewer inside the existing `file` tab kind) — the shape `MoleculeViewer` uses, with its own
+  `tabIds.molecule`/`mol-<path>` identity and dispatch through `isMoleculeFile` at open-time,
+  bypassing `detectViewerKind`/`VIEWER_BY_KIND` entirely — needs an explicit justification: it is
+  a second dispatch path with real cost (persisted-tab-identity surface, a second place drag/drop
+  and context menus must know about) and the registry is the default, cheaper path for anything
+  that can render inside an ordinary `file` tab.
+- **HTML preview sandbox (sprint-063/064).** `.html`/`.htm`/`.xhtml` files render through
+  `HtmlViewer` inside a sandboxed `<iframe sandbox="allow-scripts" srcDoc={…}
+  referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object URL as the document
+  (measured, headless Chromium 2026-08-19: a sandboxed opaque-origin document cannot `fetch()` a
+  parent-created `blob:` URL — `data:` is the only inlining vehicle, which is why sprint-064
+  inlines local assets as `data:` URIs rather than rewriting them to blobs). Three invariants a
+  future change must not quietly break:
+  1. **Never `allow-same-origin`.** Paired with `allow-scripts` it re-grants the previewed document
+     the app's own origin — its DOM, its `localStorage` (which holds the daemon password and
+     connection state, `providers/kv-store.ts`), and its live authenticated WebSocket. Measured:
+     with `allow-scripts` alone, the child's `location.origin` is `"null"` and both
+     `parent.document` and `localStorage` throw `SecurityError`. `HTML_SANDBOX_TOKENS`
+     (`html-sandbox.ts`) is a single frozen constant with a guard test
+     (`html-sandbox.test.ts`) asserting `allow-same-origin`, every `allow-top-navigation*` form,
+     and `allow-popups` never appear in it.
+  2. **The injected CSP is a network policy, never the isolation boundary.** The `sandbox`
+     attribute alone is what keeps the previewed document out of the app (invariant 1). The
+     optional `<meta http-equiv="Content-Security-Policy">` `assembleHtmlPreview` injects when the
+     per-tab "Block remote resources" toggle is on only decides whether the document may reach the
+     *network* — remote loading is **allowed by default** (a recorded product decision: the common
+     case is an agent-produced report pulling a charting library from a CDN, and the residual risk
+     the sandbox already bounds to "the document can talk to the network", never to app state).
+     `HTML_PREVIEW_BLOCKING_CSP` carries `data:` in every directive an inlined asset can hit
+     (`img-src`/`style-src`/`script-src`/`font-src`/`media-src`) — measured: `'unsafe-inline'`
+     alone does **not** cover a `data:`-sourced element (a `<link href="data:text/css,…">`
+     stylesheet needs `style-src`'s explicit `data:` token; a `data:`-sourced `<script src>` needs
+     `script-src`'s), only a literal inline body.
+  3. **`srcdoc`'s base URL is the app's own URL, not `about:srcdoc`** (measured) — so an
+     un-rewritten relative ref would otherwise resolve against the app origin, where the SPA's
+     history-fallback routing answers with `index.html` (a silently wrong 200, not a clean
+     failure). `assembleHtmlPreview` injects `<base href="https://pi-studio-preview.invalid/">`
+     whenever the source declares none of its own — paired with a small inline click-interceptor
+     script (`FRAGMENT_ANCHOR_SCRIPT`) that keeps in-page `<a href="#…">` links scrolling instead
+     of attempting a frame navigation to that `.invalid` host, which is what the injected base
+     alone measurably caused (a `chrome-error://` page replacing the whole preview) before the
+     interceptor was added.
+
+  The assembled `srcDoc` is memoized on exactly its real inputs (source content, `blockRemote`) and
+  the `<iframe>` stays permanently mounted once content is available — the Preview/Source toggle
+  hides it via `display: none` rather than unmounting it. Both matter for the same reason: React
+  re-setting `srcDoc`, or React unmounting/remounting the iframe element, reloads the document and
+  re-runs its scripts — real double side effects (a duplicate analytics beacon, a chart re-init) on
+  every unrelated re-render or Preview↔Source round trip otherwise.
+
 - **Framework-free testing convention: no jsdom.** This package has no jsdom/React-Testing-Library
   DOM render tests despite `@testing-library/react` being a devDependency (the root Vitest config
   only discovers `.test.ts`, not `.test.tsx`, under a node environment). Hooks and components with
   real branching logic extract their logic into plain functions/factories (`watchFile`,
   `resolveWorkspacePath`, `createExplorerWatcher`, `loadInlineImage`,
-  `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`) that
+  `mergeFileTextState`, `shouldApplyRefresh`, `moleculeSource`, `selectTextViewerState`,
+  `assembleHtmlPreview`) that
   are unit-tested directly rather than via `renderHook` or mounting. This is now an established
   convention for this package (extended from `ModelMenu`'s own `sortCurrentFirst` pattern —
   existing precedent since sprint-043).
@@ -1033,7 +1113,8 @@ limits.ts`) — the existing `useFileRead` path to `CodeView`, unchanged; (2)
   `homeDir` unknown); `./…`/`../…`/bare relative → joined via `lib/paths.ts`'s
   `resolveWorkspacePath` against `base` (unresolvable with no base); final gate —
   `detectViewerKind(candidate) !== "image"` → unresolvable (so `.pdf`/`.txt` etc. never trigger a
-  download; `.webp`/`.svg` both admit per `viewer-registry.ts`'s `EXT_TO_VIEWER`).
+  download; `.webp`/`.svg` both admit per `viewer-registry.ts`'s `VIEWER_REGISTRY` descriptor
+  table (`EXT_TO_VIEWER` is a derived, module-internal lookup — not itself exported).
   `lib/inline-image-cache.ts` + `hooks/use-inline-image.ts`'s `useInlineImage`/`loadInlineImage`
   fetch over the same `transferFor(daemon).download(path)` primitive `use-file-download.ts` uses,
   but with a DIFFERENT retention policy: a module-scoped, ref-counted, ~32-entry LRU cache that

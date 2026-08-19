@@ -9,18 +9,17 @@
  * `LIVE_REFRESH_KINDS` is the scope gate: only `"text"`, `"markdown"`, and `"image"` tabs watch.
  * `"video"` is excluded because a refetch mints a new object URL, which restarts playback from
  * zero mid-watch; `"binary"` fetches nothing at all until the user clicks its Download button, so
- * there is nothing to refresh. Exported so the gate itself is unit-testable — a new `ViewerKind`
- * must make an explicit choice here, not inherit one.
+ * there is nothing to refresh. The set is derived from the viewer registry at module load and
+ * enforced by the type — a new `ViewerKind` cannot silently inherit a default.
  */
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
+import { LIVE_REFRESH_KINDS } from "@pi-studio-ui/features/files/viewer-registry.js";
 import type { ViewerKind } from "@pi-studio-ui/features/files/viewer-registry.js";
 import { useFileWatch } from "./use-file-watch.js";
-
-export const LIVE_REFRESH_KINDS: ReadonlySet<ViewerKind> = new Set(["text", "markdown", "image"]);
 
 /**
  * Invalidates `path`'s `fileRead`/`fileDownload`/`fileDiffByPath` queries on every `file_changed`

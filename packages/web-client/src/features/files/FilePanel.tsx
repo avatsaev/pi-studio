@@ -94,7 +94,7 @@ export function FilePanel({ tab }: FilePanelProps) {
               </EmptyState>
             }
           >
-            <Viewer path={path} />
+            <Viewer path={path} workspaceCwd={cwd} />
           </Suspense>
         ) : diffQuery.isLoading ? (
           <EmptyState>

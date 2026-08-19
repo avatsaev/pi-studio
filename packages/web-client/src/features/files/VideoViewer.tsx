@@ -10,7 +10,7 @@ import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./VideoViewer.module.css";
 
-export function VideoViewer({ path }: ViewerProps) {
+export function VideoViewer({ path, workspaceCwd }: ViewerProps) {
   const query = useFileDownload(path);
 
   if (query.isLoading) {
