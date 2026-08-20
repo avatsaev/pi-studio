@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/client",
-  "version": "0.0.90",
+  "version": "0.0.91",
   "files": [
     "dist",
     "!dist/**/*.map",
@@ -20,7 +20,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/protocol": "^0.0.90",
-    "@av-pi-studio/relay": "^0.0.90"
+    "@av-pi-studio/protocol": "^0.0.91",
+    "@av-pi-studio/relay": "^0.0.91"
   }
 }
