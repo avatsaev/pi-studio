@@ -1,255 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DaemonClient } from "./daemon-client.js";
-import { PiStudioClient } from "./pistudio-client.js";
-import type { Transport } from "./transport.js";
-
-/**
- * Scripted in-memory daemon transport. It speaks just enough of the protocol for the facade tests:
- * completes the handshake, echoes responses correlated by requestId, and can push broadcasts.
- */
-function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }): {
-  transport: Transport;
-  sent: Array<Record<string, unknown>>;
-  push: (sessionMessage: Record<string, unknown>) => void;
-  /** Simulate the socket dying mid-session (distinct from a clean RPC response). */
-  drop: (reason?: string) => void;
-} {
-  const sent: Array<Record<string, unknown>> = [];
-  let agentSeq = 0;
-  const features = opts?.features ?? { providersSnapshot: true, providerAuth: true };
-
-  const transport: Transport = {
-    onMessage: null,
-    onClose: null,
-    onError: null,
-    isOpen: true,
-    connect: () => Promise.resolve(),
-    sendBinary: () => {},
-    close: () => {},
-    sendText: (data) => {
-      const frame = JSON.parse(data) as Record<string, unknown>;
-      if (frame.type === "hello") {
-        queueMicrotask(() =>
-          transport.onMessage?.(
-            JSON.stringify({
-              type: "status",
-              payload: {
-                status: "server_info",
-                serverId: "srv-mock",
-                capabilities: {},
-                features,
-              },
-            }),
-          ),
-        );
-        return;
-      }
-      if (frame.type === "session") {
-        const msg = frame.message as Record<string, unknown>;
-        sent.push(msg);
-        respond(msg);
-      }
-    },
-  };
-
-  function reply(message: Record<string, unknown>): void {
-    queueMicrotask(() => transport.onMessage?.(JSON.stringify({ type: "session", message })));
-  }
-
-  function respond(msg: Record<string, unknown>): void {
-    const requestId = msg.requestId as string;
-    // The `provider_auth_*` family is driven manually by each test via `fake.push()` — real
-    // flows are ordering-sensitive (buffering-before-response, prompt races), so an automatic
-    // reply here would hide exactly the bugs those tests exist to catch.
-    if (typeof msg.type === "string" && msg.type.startsWith("provider_auth_")) {
-      return;
-    }
-    switch (msg.type) {
-      case "create_agent_request": {
-        const agentId = `agent-${++agentSeq}`;
-        reply({ type: "create_agent_response", requestId, payload: { agentId } });
-        // Simulate a streamed turn for the new agent.
-        if (msg.initialPrompt) {
-          reply({
-            type: "agent_stream",
-            agentId,
-            event: { kind: "turn_started" },
-          });
-          reply({
-            type: "agent_stream",
-            agentId,
-            event: { kind: "assistant_message", text: "hello from mock" },
-          });
-          reply({ type: "agent_stream", agentId, event: { kind: "turn_completed" } });
-          reply({ type: "agent_update", agentId, status: "idle" });
-        }
-        return;
-      }
-      case "fetch_agent_timeline_request": {
-        reply({
-          type: "fetch_agent_timeline_response",
-          requestId,
-          payload: {
-            agentId: msg.agentId,
-            items: [{ kind: "assistant_message", text: "hello from mock" }],
-            startCursor: "c0",
-            endCursor: "c1",
-            hasOlder: false,
-            hasNewer: false,
-            seqStart: 1,
-            seqEnd: 1,
-          },
-        });
-        return;
-      }
-      case "update_agent": {
-        reply({ type: "update_agent_response", requestId, payload: { ok: true } });
-        reply({
-          type: "agent_update",
-          agentId: msg.agentId,
-          title: msg.title,
-        });
-        return;
-      }
-      case "agent_session_stats_request": {
-        reply({
-          type: "agent_session_stats_response",
-          requestId,
-          payload: { sessionId: "s1", totalMessages: 3 },
-        });
-        return;
-      }
-      case "agent_compact_request": {
-        reply({
-          type: "agent_compact_response",
-          requestId,
-          payload: { summary: "compacted", tokensBefore: 1000 },
-        });
-        return;
-      }
-      case "agent_list_commands_request": {
-        reply({
-          type: "agent_list_commands_response",
-          requestId,
-          payload: {
-            commands: [
-              {
-                name: "fix-tests",
-                description: "Fix failing tests",
-                source: "prompt",
-                scope: "project",
-                path: "/w/.pi/agent/prompts/fix-tests.md",
-              },
-              { name: "skill:brave-search", source: "skill", scope: "user" },
-            ],
-          },
-        });
-        return;
-      }
-      case "list_provider_models": {
-        reply({
-          type: "list_provider_models_response",
-          requestId,
-          payload: { models: [{ id: "m1" }, { id: "m2" }] },
-        });
-        return;
-      }
-      case "list_provider_modes": {
-        reply({
-          type: "list_provider_modes_response",
-          requestId,
-          payload: { modes: [{ id: "plan" }, { id: "default" }] },
-        });
-        return;
-      }
-      case "providers.snapshot.refresh.request": {
-        reply({
-          type: "providers.snapshot.refresh.response",
-          requestId,
-          payload: { refreshed: true },
-        });
-        return;
-      }
-      case "resolve_default_model": {
-        reply({
-          type: "resolve_default_model_response",
-          requestId,
-          provider: msg.provider,
-          model: "claude-sonnet-5",
-          modelProvider: "anthropic",
-        });
-        return;
-      }
-      case "extension_packs_list_request": {
-        // Flat fields on the message — the real wire schema (packages/protocol/src/messages.ts)
-        // has no `payload` wrapper for this pair, unlike several older RPCs above.
-        reply({
-          type: "extension_packs_list_response",
-          requestId,
-          autoSync: true,
-          selected: ["swe"],
-          packs: [
-            { id: "core", title: "Core", description: "Always-on core pack", packages: [] },
-            { id: "swe", title: "Software Engineering", description: "SWE tools", packages: [] },
-          ],
-        });
-        return;
-      }
-      case "extension_packs_set_request": {
-        const packs = msg.packs as string[] | undefined;
-        if (packs?.includes("unknown")) {
-          reply({
-            type: "extension_packs_set_response",
-            requestId,
-            autoSync: true,
-            selected: ["swe"],
-            packs: [],
-            ok: false,
-            error: "unknown pack: unknown",
-          });
-          return;
-        }
-        reply({
-          type: "extension_packs_set_response",
-          requestId,
-          autoSync: true,
-          selected: packs ?? ["swe"],
-          packs: [],
-          ok: true,
-          report: { at: new Date().toISOString(), outcome: "ok", installed: [], failures: [] },
-        });
-        return;
-      }
-      default:
-        reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
-    }
-  }
-
-  return {
-    transport,
-    sent,
-    push: (sessionMessage) => reply(sessionMessage),
-    drop: (reason = "test drop") => transport.onClose?.(1006, reason),
-  };
-}
-
-async function makeFacade(opts?: { features?: Record<string, boolean> }): Promise<{
-  client: PiStudioClient;
-  daemon: DaemonClient;
-  fake: ReturnType<typeof makeScriptedDaemon>;
-}> {
-  const fake = makeScriptedDaemon(opts);
-  const daemon = new DaemonClient({
-    url: "ws://mock/ws",
-    clientId: "c1",
-    clientType: "cli",
-    transport: fake.transport,
-    rpcTimeoutMs: 1000,
-  });
-  await daemon.connect();
-  return { client: new PiStudioClient(daemon), daemon, fake };
-}
+import * as clientIndex from "./index.js";
+import {
+  AgentUiError,
+  isAgentArchived,
+  isAgentDeleted,
+  isAgentUiRequest,
+  isAgentUiResolved,
+  PiStudioClient,
+} from "./pistudio-client.js";
+import { makeFacade, makeScriptedDaemon } from "./test-support/scripted-daemon.js";
 
 describe("PiStudioClient — agent create + stream", () => {
   it("creates an agent and returns its agentId", async () => {
@@ -935,5 +696,213 @@ describe("PiStudioClient — provider auth remote login (sprint-065/task-001)", 
 
     expect(internals.sessionHandlers.size).toBe(sessionHandlersBefore);
     expect(internals.stateHandlers.size).toBe(stateHandlersBefore);
+  });
+});
+
+describe("PiStudioClient — extension UI SDK surface (sprint-067/task-001)", () => {
+  const flush = flushProviderAuthMicrotasks;
+
+  it("all five facade members and the four guards/error class are reachable from the package root", () => {
+    const client = new PiStudioClient(
+      new DaemonClient({
+        url: "ws://mock/ws",
+        clientId: "c1",
+        clientType: "cli",
+        transport: makeScriptedDaemon().transport,
+      }),
+    );
+    expect(typeof client.onAgentUiRequest).toBe("function");
+    expect(typeof client.onAgentUiResolved).toBe("function");
+    expect(typeof client.respondToUi).toBe("function");
+    expect(typeof client.listAgentUi).toBe("function");
+    expect(typeof client.extensionUiAvailable).toBe("function");
+    expect(clientIndex.isAgentUiRequest).toBe(isAgentUiRequest);
+    expect(clientIndex.isAgentUiResolved).toBe(isAgentUiResolved);
+    expect(clientIndex.isAgentArchived).toBe(isAgentArchived);
+    expect(clientIndex.isAgentDeleted).toBe(isAgentDeleted);
+    expect(clientIndex.AgentUiError).toBe(AgentUiError);
+  });
+
+  it("extensionUiAvailable() reflects the daemon's extensionUi flag in both directions", async () => {
+    const { client: withFlag } = await makeFacade({ features: { extensionUi: true } });
+    const { client: withoutFlag } = await makeFacade({ features: {} });
+    expect(withFlag.extensionUiAvailable()).toBe(true);
+    expect(withoutFlag.extensionUiAvailable()).toBe(false);
+  });
+
+  it("onAgentUiRequest fires once per matching push with a finite local receivedAt, ignores non-matching messages, and stops after unsubscribe", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const events: Array<{ requestId: string }> = [];
+    const metas: Array<{ receivedAt: number }> = [];
+    const unsubscribe = client.onAgentUiRequest((event, meta) => {
+      events.push(event as unknown as { requestId: string });
+      metas.push(meta);
+    });
+    fake.push({
+      type: "agent_ui_request",
+      requestId: "req-1",
+      agentId: "agent-1",
+      method: "confirm",
+      expectsResponse: true,
+      payload: { message: "Proceed?" },
+      createdAt: Date.now(),
+    });
+    // Non-matching: missing agentId, and an unrelated type — neither should fire the handler.
+    fake.push({ type: "agent_ui_request", requestId: "req-2" });
+    fake.push({ type: "agent_update", agentId: "agent-1", status: "idle" });
+    await flush();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.requestId).toBe("req-1");
+    expect(metas[0]?.receivedAt).toBeTypeOf("number");
+    expect(Number.isFinite(metas[0]?.receivedAt)).toBe(true);
+
+    unsubscribe();
+    fake.push({
+      type: "agent_ui_request",
+      requestId: "req-3",
+      agentId: "agent-1",
+      method: "confirm",
+      expectsResponse: true,
+      payload: {},
+      createdAt: Date.now(),
+    });
+    await flush();
+    expect(events).toHaveLength(1);
+  });
+
+  it("onAgentUiResolved fires only for agent_ui_resolved pushes", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const events: unknown[] = [];
+    client.onAgentUiResolved((event) => events.push(event));
+    fake.push({
+      type: "agent_ui_resolved",
+      requestId: "req-1",
+      agentId: "agent-1",
+      reason: "answered",
+    });
+    fake.push({ type: "agent_update", agentId: "agent-1", status: "idle" });
+    await flush();
+    expect(events).toHaveLength(1);
+  });
+
+  it("respondToUi resolves { ok: true } on { ok: true }", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const resultPromise = client.respondToUi("req-1", { confirmed: true });
+    await flush();
+    const req = fake.sent.find((m) => m.type === "agent_ui_respond_request");
+    expect(req?.uiRequestId).toBe("req-1");
+    fake.push({
+      type: "agent_ui_respond_response",
+      requestId: req?.requestId,
+      payload: { ok: true },
+    });
+    await expect(resultPromise).resolves.toEqual({ ok: true });
+  });
+
+  it('respondToUi resolves { ok: false, reason: "not_found" } without throwing', async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const resultPromise = client.respondToUi("req-1", { confirmed: true });
+    await flush();
+    const req = fake.sent.find((m) => m.type === "agent_ui_respond_request");
+    fake.push({
+      type: "agent_ui_respond_response",
+      requestId: req?.requestId,
+      payload: { ok: false, error: "not_found" },
+    });
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("respondToUi forwards an undocumented error string verbatim", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const resultPromise = client.respondToUi("req-1", { confirmed: true });
+    await flush();
+    const req = fake.sent.find((m) => m.type === "agent_ui_respond_request");
+    fake.push({
+      type: "agent_ui_respond_response",
+      requestId: req?.requestId,
+      payload: { ok: false, error: "surface_gone_mid_flight" },
+    });
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: "surface_gone_mid_flight" });
+  });
+
+  it("respondToUi rejects on a transport-level RpcError (domain vs. transport failure stay distinguishable)", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const resultPromise = client.respondToUi("req-1", { confirmed: true });
+    await flush();
+    const req = fake.sent.find((m) => m.type === "agent_ui_respond_request");
+    fake.push({ type: "rpc_error", requestId: req?.requestId, message: "boom" });
+    await expect(resultPromise).rejects.toThrow("boom");
+  });
+
+  it("listAgentUi() throws AgentUiError carrying the daemon's message on payload.ok === false", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+    const listPromise = client.listAgentUi();
+    await flush();
+    const req = fake.sent.find((m) => m.type === "agent_ui_list_request");
+    fake.push({
+      type: "agent_ui_list_response",
+      requestId: req?.requestId,
+      payload: { ok: false, error: "daemon unreachable" },
+    });
+    await expect(listPromise).rejects.toThrow("daemon unreachable");
+    await expect(listPromise).rejects.toBeInstanceOf(AgentUiError);
+  });
+
+  it("listAgentUi(agentId) sends agentId; listAgentUi() omits the key entirely", async () => {
+    const { client, fake } = await makeFacade({ features: { extensionUi: true } });
+
+    const scoped = client.listAgentUi("agent-1");
+    await flush();
+    const scopedReq = fake.sent.find((m) => m.type === "agent_ui_list_request");
+    expect(scopedReq?.agentId).toBe("agent-1");
+    fake.push({
+      type: "agent_ui_list_response",
+      requestId: scopedReq?.requestId,
+      payload: { ok: true, pending: [], surfaces: [] },
+    });
+    await scoped;
+
+    const all = client.listAgentUi();
+    await flush();
+    const allReq = fake.sent.filter((m) => m.type === "agent_ui_list_request")[1];
+    expect("agentId" in (allReq ?? {})).toBe(false);
+    fake.push({
+      type: "agent_ui_list_response",
+      requestId: allReq?.requestId,
+      payload: { ok: true, pending: [], surfaces: [] },
+    });
+    await all;
+  });
+
+  it("isAgentUiRequest / isAgentUiResolved reject a same-type message missing requestId or agentId", () => {
+    expect(isAgentUiRequest({ type: "agent_ui_request", requestId: "r1", agentId: "a1" })).toBe(
+      true,
+    );
+    expect(isAgentUiRequest({ type: "agent_ui_request", agentId: "a1" })).toBe(false);
+    expect(isAgentUiRequest({ type: "agent_ui_request", requestId: "r1" })).toBe(false);
+    expect(isAgentUiResolved({ type: "agent_ui_resolved", requestId: "r1", agentId: "a1" })).toBe(
+      true,
+    );
+    expect(isAgentUiResolved({ type: "agent_ui_resolved", agentId: "a1" })).toBe(false);
+    expect(isAgentUiResolved({ type: "agent_ui_resolved", requestId: "r1" })).toBe(false);
+  });
+
+  it("isAgentArchived / isAgentDeleted accept their real shapes, reject each other's type, and reject agent_update", () => {
+    expect(
+      isAgentArchived({
+        type: "agent_archived",
+        agentId: "a1",
+        archivedAt: "2026-08-21T00:00:00Z",
+      }),
+    ).toBe(true);
+    expect(isAgentArchived({ type: "agent_archived", agentId: "a1" })).toBe(true);
+    expect(isAgentArchived({ type: "agent_archived" })).toBe(false);
+    expect(isAgentDeleted({ type: "agent_deleted", agentId: "a1" })).toBe(true);
+    expect(isAgentDeleted({ type: "agent_deleted" })).toBe(false);
+
+    expect(isAgentArchived({ type: "agent_deleted", agentId: "a1" })).toBe(false);
+    expect(isAgentDeleted({ type: "agent_archived", agentId: "a1" })).toBe(false);
+    expect(isAgentArchived({ type: "agent_update", agentId: "a1", status: "idle" })).toBe(false);
+    expect(isAgentDeleted({ type: "agent_update", agentId: "a1", status: "idle" })).toBe(false);
   });
 });

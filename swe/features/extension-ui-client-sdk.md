@@ -44,7 +44,11 @@ subscriptions returning an unsubscribe thunk; `daemon.request(...)` under the ho
 | `extensionUiAvailable()` | `boolean` | reads `serverInfo.features.extensionUi` |
 
 Plus type guards `isAgentUiRequest` / `isAgentUiResolved` for narrowing raw `onSessionMessage`
-traffic, mirroring `isProviderAuthFlowEvent`.
+traffic, mirroring `isProviderAuthFlowEvent` — and `isAgentArchived` / `isAgentDeleted` for the two
+lifecycle messages § Agent lifecycle prunes on. Those two are exported rather than kept module-local
+(the `isFileChangedMessage` convention) because they narrow real `sessionMessageSchema` union members
+with published protocol schemas, and because the same narrowing is duplicated today in two separate
+web-client hooks — a third copy in the renderer is worth pre-empting.
 
 ```ts
 /** Local-clock anchor. The daemon may run on another host; see § Timeout display. */
@@ -79,17 +83,36 @@ reduce(state: AgentUiState, action: AgentUiAction): { state: AgentUiState; effec
 
 - `AgentUiAction` — `{ type: "ui_request", event, meta }` | `{ type: "ui_resolved", event }` |
   `{ type: "snapshot", pending, surfaces }` | `{ type: "disconnected" }` |
-  `{ type: "agent_removed", agentId }` (see § Agent lifecycle)
+  `{ type: "agent_removed", agentId }` (see § Agent lifecycle) |
+  `{ type: "respond_sent", requestId, response }` | `{ type: "respond_failed", requestId }`
+  (sprint-067/task-005, see below)
 - `AgentUiState` — `pending` keyed by `requestId` (daemon-minted, globally unique); `surfaces` keyed
-  by the composite `(agentId, surfaceKey)`, because `surfaceKey` is only unique within an agent
+  by the composite `(agentId, surfaceKey)`, because `surfaceKey` is only unique within an agent;
+  `resolved` keyed by `requestId`, same as `pending` (task-005)
 - `AgentUiEffect` — returned, never performed: `{ type: "replace_composer_text", agentId, text }` |
   `{ type: "notify", agentId, message, level }`
 - Selectors — `pendingForAgent`, `pendingByAgent` (the attention-badge derivation, so badging is a
-  subscription rather than UI logic), `surfacesForAgent`, `remainingMs(entry, now)`
+  subscription rather than UI logic), `surfacesForAgent`, `resolvedForAgent` (task-005, same
+  `createdAt`/`requestId` ordering as `pendingForAgent`), `remainingMs(entry, now)`
+
+**Resolved retention (task-005).** `ui_resolved` moves the entry from `pending` into `resolved`
+instead of deleting it, so a resolved dialog can collapse in place and stay visible for the life of
+the page — the daemon has no resolved history to re-serve (`agent_ui_list_response` only ever
+carries live `pending`/`surfaces`), so once a client drops an entry on resolution there is no way to
+recover it later, including after this same client's own reconnect. Kept at its **original**
+`createdAt` (no `resolvedAt` field), so a list merging `pendingForAgent`/`resolvedForAgent` by that
+key never reshuffles when an entry resolves. Bounded per agent (`RESOLVED_HISTORY_LIMIT = 50`) —
+page-lifetime state still must not grow without limit against a chatty extension. `respond_sent`/
+`respond_failed` track one client's own in-flight `respond` (`pending[id].submitting`) for a
+pressed-control spinner; `select`/`confirm` answers are retained on the resolved entry for display,
+`input`/`editor` answers never are — a storage rule, since those two methods can carry a secret the
+user typed and the value must be unrepresentable in state, not merely unrendered by convention.
 
 ### Controller
 
-`createAgentUiController(client)` → `{ getState, subscribe, respond, resync, dispose }`. A small
+`createAgentUiController(client)` → `{ getState, subscribe, respond, resync, dispose }`, where
+`subscribe(listener: (state, effects) => void)` is also how effects reach a consumer — the reducer
+returns them, the controller forwards them per transition, and nobody performs them here. A small
 framework-agnostic wiring layer that owns everything a consumer could get wrong:
 
 - **The subscribe-then-list ordering** described in § Rehydration. Without it, every client (web,
@@ -102,13 +125,17 @@ framework-agnostic wiring layer that owns everything a consumer could get wrong:
   an escape hatch but is never required. (Transport-lifecycle coupling is not a cost here: the
   controller already takes `client` as its dependency and is the impure wiring layer by design —
   purity lives in the reducer.)
-- **Agent-lifecycle pruning.** The controller feeds `agent_removed` from `onAgentUpdate`
-  archive/delete transitions (see § Agent lifecycle for why the daemon cannot do this for us).
+- **Agent-lifecycle pruning.** The controller feeds `agent_removed` from the `agent_archived` /
+  `agent_deleted` session messages (see § Agent lifecycle for the wire detail, and for why the
+  daemon cannot do this for us).
 - `dispose()` tears down all of the above subscriptions.
 
-`respond` delegates to `client.respondToUi` and lets the resulting broadcast drive state. **No
-optimistic update** — an optimistic dismissal that loses the first-answer-wins race would show the
-user a resolved dialog that the agent never received an answer for.
+`respond` dispatches `respond_sent` before the RPC (so `pending[id].submitting` can drive a
+pressed-control spinner immediately) and `respond_failed` only on a domain failure (task-005); it
+still delegates the actual outcome to `client.respondToUi` and lets the resulting
+`agent_ui_resolved` broadcast drive removal into `resolved`. **No optimistic resolution** — an
+optimistic dismissal that loses the first-answer-wins race would show the user a resolved dialog
+that the agent never received an answer for.
 
 ### Capability gating
 
@@ -185,9 +212,10 @@ postdates every broadcast already sent on that socket. Therefore:
   drain.
 - **Queued transients are NOT in any snapshot** (nothing retains them) and were received on this
   connection, so they are genuinely new — apply them, exactly once.
-- **No tombstones.** A `resolved` for an unknown `requestId` is a plain no-op in the reducer
-  (deleting an absent key); ordered delivery makes the "resolved raced ahead of its snapshot twin"
-  scenario unconstructible from the wire, so no bookkeeping exists for it.
+- **No tombstones.** A `resolved` for an unknown `requestId` is a plain no-op in the reducer — there
+  is no pending entry to move into `resolved`, so nothing is synthesised; ordered delivery makes the
+  "resolved raced ahead of its snapshot twin" scenario unconstructible from the wire, so no
+  bookkeeping exists for it.
 
 ### Timeout display
 
@@ -244,10 +272,31 @@ reach clients differently, and one does not reach them at all:
   which never re-snapshots — would retain the archived agent's status strip and widgets forever.
 
 So surface pruning is client-side by necessity: the reducer's `agent_removed` action drops all
-surfaces (and, defensively, pending entries) for that agent, and the controller feeds it from
-`onAgentUpdate` archive/delete transitions. This is the one piece of agent-lifecycle logic in this
-scope, and it exists because the server's sweep is silent for surfaces — if a future server change
-broadcasts surface removals on sweep, this becomes a harmless no-op, not a conflict.
+surfaces (and, defensively, pending entries) for that agent, and the controller feeds it from the
+**`agent_archived` / `agent_deleted`** session messages — the two real `sessionMessageSchema` union
+members (`messages.ts`'s `agentArchivedSchema` / `agentDeletedSchema`) that the daemon fans out to
+every session on archive/delete (`bootstrap.ts` and `dev-bootstrap.ts`, the same
+`manager.subscribe` block that triggers the server-side sweep).
+
+**Not `agent_update`.** `AgentManager.archiveAgent`/`deleteAgent` call `broadcastArchived`/
+`broadcastDeleted` **exclusively**; neither touches the `agent_update`-emitting `broadcast(record)`
+path, so archiving an agent produces **zero** `agent_update` traffic and a pruner wired to
+`PiStudioClient.onAgentUpdate` (which filters `type === "agent_update"`) would never fire. Getting
+this wrong is silent: dialogs would still clear, because the daemon broadcasts `agent_ui_resolved`
+for those, and only the surfaces would leak — invisibly, until someone noticed an archived agent's
+status strip still pinned to a live view.
+
+`PiStudioClient` exposes no `onAgentArchived`/`onAgentDeleted` facade, and this scope deliberately
+does **not** add one: these are pre-existing lifecycle events this scope merely *observes*, not part
+of the `agent_ui_*` family it owns, and adding facade subscriptions for them would invite the same
+for `agent_status`/`agent_list` next. Instead the controller narrows
+`client.connection.onSessionMessage` with the two exported guards from § Public contract — the
+established convention for message types with no dedicated facade method (`use-checkout-status.ts`,
+`use-file-watch.ts`, `use-explorer-watch.ts` all do exactly this).
+
+This is the one piece of agent-lifecycle logic in this scope, and it exists because the server's
+sweep is silent for surfaces — if a future server change broadcasts surface removals on sweep, this
+becomes a harmless no-op, not a conflict.
 
 ## Data & persistence touchpoints
 
@@ -273,12 +322,15 @@ sprint-066 wire contract **exactly as shipped** and adds no schema.
 
 | File | Change |
 |---|---|
-| `packages/client/src/pistudio-client.ts` | SDK surface: two subscriptions, two RPCs, capability check, guards, `AgentUiError` |
+| `packages/client/src/pistudio-client.ts` | SDK surface: two subscriptions, two RPCs, capability check, four guards (`isAgentUiRequest`/`isAgentUiResolved` + `isAgentArchived`/`isAgentDeleted`), `AgentUiError` |
 | `packages/client/src/agent-ui-state.ts` | **new** — pure reducer, effects, selectors |
 | `packages/client/src/agent-ui-state.test.ts` | **new** — reducer/selector unit tests (Node) |
 | `packages/client/src/agent-ui-controller.ts` | **new** — subscribe-then-list wiring, reconnect resync, agent-lifecycle pruning |
-| `packages/client/src/index.ts` | exports for the above |
-| `packages/client/AGENTS.md` | document the new surface |
+| `packages/client/src/agent-ui-controller.test.ts` | **new** — controller tests over the scripted transport (`push`/`drop`) |
+| `packages/client/src/index.ts` | exports for the above — verify only; it already re-exports `pistudio-client.js` wholesale |
+| `packages/server/src/daemon/index.ts` | one line: re-export `dev-bootstrap.js`. Server's `exports` map allows the root subpath only and the daemon barrel re-exports only `bootstrap.js`, so `startDevDaemon` is otherwise unreachable from the E2E below |
+| `packages/cli/src/agent-ui-sdk-e2e.test.ts` | **new** — SDK + controller against a real dev daemon. Lives in `cli` because `client` and `server` have **no** dependency edge in either direction, while `cli` already depends on (and references) both — so this costs zero new edges |
+| `packages/client/AGENTS.md`, root `AGENTS.md` | document the new surface, and state plainly that nothing renders it yet |
 
 ## Dependencies on other specs
 

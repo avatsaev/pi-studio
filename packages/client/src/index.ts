@@ -21,6 +21,12 @@ export * from "./daemon-client.js";
 // High-level PiStudioClient SDK facade + handles.
 export * from "./pistudio-client.js";
 
+// Extension-UI pure state module (reducer/selectors, sprint-067).
+export * from "./agent-ui-state.js";
+
+// Extension-UI controller (subscribe-then-list, reconnect resync, agent pruning, sprint-067).
+export * from "./agent-ui-controller.js";
+
 // Terminal-stream router (binary frame demux per slot).
 export * from "./terminal-stream-router.js";
 

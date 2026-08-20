@@ -286,7 +286,12 @@ All communication uses a **single WebSocket connection** per client.
   client **disconnecting** never cancels a pending dialog (opposite of `provider_auth_*`), and
   **interrupting** an agent touches nothing (opposite of tool-call permissions) — dialogs and
   surfaces are agent-lifetime state, swept only on archive/delete/respawn
-  (`packages/server/AGENTS.md`'s "Extension UI" subsystem section).
+  (`packages/server/AGENTS.md`'s "Extension UI" subsystem section). **Sprint-066 shipped only the
+  daemon side**; sprint-067 gave `packages/client` a consumer — `PiStudioClient`'s five-member
+  facade surface, a pure reducer/controller (`agent-ui-state.ts`/`agent-ui-controller.ts`), proven
+  end to end against both a real dev daemon and a real `pi --mode rpc` process
+  (`packages/client/AGENTS.md`'s Extension UI sections) — but **nothing renders it yet**; that is
+  a deliberately deferred sibling scope.
 
 ---
 

@@ -24,12 +24,21 @@ export type DaemonRuntimeInfo = {
   mode: "production" | "development";
 };
 
-export function createDaemonRuntimeInfo(input: { listen?: string; mode?: "production" | "development" } = {}): DaemonRuntimeInfo {
+export function createDaemonRuntimeInfo(
+  input: { listen?: string; mode?: "production" | "development" } = {},
+): DaemonRuntimeInfo {
   return {
-    listen: parseDaemonListen(input.listen ?? process.env.PI_STUDIO_LISTEN ?? DEFAULT_DAEMON_LISTEN),
+    listen: parseDaemonListen(
+      input.listen ?? process.env.PI_STUDIO_LISTEN ?? DEFAULT_DAEMON_LISTEN,
+    ),
     mode: input.mode ?? "production",
   };
 }
 
 // Production daemon bootstrap: startDaemon(), DaemonOptions, DaemonHandle, wrapSessionEnvelope().
 export * from "./bootstrap.js";
+
+// Dev daemon bootstrap (mock provider, in-memory): reachable from outside the package so
+// cross-package E2E (e.g. packages/cli's extension-UI SDK test, sprint-067/task-004) can host a
+// real dev daemon without a second, duplicated bootstrap.
+export * from "./dev-bootstrap.js";
