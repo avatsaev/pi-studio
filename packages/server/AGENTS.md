@@ -25,7 +25,8 @@ src/
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only).
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
-                                   schedules/chat/loops, rewind, optional outbound relay).
+                                   schedules/chat/loops, rewind, provider auth, optional outbound
+                                   relay).
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
                                    auth; a small handler subset for local testing.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
@@ -51,6 +52,9 @@ src/
                                    by both the spawn path (provider-registry.ts, which re-exports
                                    it) and extensions/extensions-state.ts's effectivePiHomeKey /
                                    the CLI's `extensions list --local` (sprint-057/task-005).
+                                   resolvePiAuthPaths(config) (sprint-055) derives auth.json/
+                                   models.json from the same resolvePiAgentDir — the provider-auth
+                                   RPC family's one intentional coupling to the spawn path.
                                    `~`-expands and resolves both non-default branches to an
                                    absolute path (against the daemon's own cwd) so every consumer
                                    derives the same directory for a `~`-prefixed or relative
@@ -58,6 +62,14 @@ src/
                                    node:path + files/resolve-path.ts) — extracted out of
                                    provider-registry.ts specifically so a pure-planning consumer
                                    never pulls in the real PiAgentClient/MockAgentClient runtime.
+    provider-auth/                Remote-driven Pi login flows over the WS (sprint-055) — see
+                                   "Provider auth" below.
+      pi-auth-runtime.ts          createPiAuthRuntime(paths) — lazy seam onto Pi's real
+                                   ModelRuntime; listProviders/checkAuth(bounded)/login/logout.
+      provider-auth-service.ts    ProviderAuthService — flow registry + AuthInteraction bridge;
+                                   owns its SessionSubscriptions entry directly (see below).
+      provider-auth-rpc.ts        registerProviderAuthHandlers — the five provider_auth_* RPCs
+                                   (bootstrap.ts only), pure pass-through onto the service.
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
                                    re-exports pi-home.ts's resolvePiAgentDir for its existing
                                    import surface (provider-registry.test.ts's path-parity tests).
@@ -576,6 +588,61 @@ creation" above.
 - Parks tool-call permission requests with a `requestId`.
 - `park(request)` — store and broadcast `agent_permission_request`.
 - `resolve(permissionRequestId, decision)` — fulfill the parked request.
+
+### Provider auth (`agent/provider-auth/`)
+
+Remote-driven Pi login flows over the WebSocket (sprint-055, swe/features/provider-auth-rpc.md) —
+lets a browser/relay-remote client without CLI shell access run the same login Pi's `ModelRuntime`
+drives for `pi-studio auth login` (`packages/cli`'s independent, local-only sibling — the two share
+no code, only the same underlying `auth.json`/`models.json` files via `resolvePiAuthPaths`).
+
+- **`pi-home.ts`'s `resolvePiAuthPaths(config)`** derives `<agentDir>/auth.json` /
+  `<agentDir>/models.json` from the same `resolvePiAgentDir(config)` every spawned `pi --mode rpc`
+  process's `PI_CODING_AGENT_DIR` is built from (`piHomeEnv`) — the one intentional coupling point
+  that guarantees a credential written over this RPC family is the exact credential a
+  daemon-spawned agent reads. Verified live (not just unit-tested): sprint-055/task-005 wrote a
+  fake key through the wire flow, then spawned a real `pi` agent against the same daemon+config and
+  observed it fail with a real OpenAI `401` citing that exact key — proof the two paths agree, not
+  just an assertion that they should.
+- **`pi-auth-runtime.ts`**: the lazy `PiAuthRuntime` seam onto Pi's real `ModelRuntime` —
+  constructed on first use only, from the paths above; `listProviders`/`checkAuth` (bounded, like
+  `checkAuthBounded` in sprint-054's CLI sibling)/`login`/`logout`. Structural type mirrors of
+  `AuthPrompt`/`AuthEvent`/`AuthInteraction` are declared locally (not imported from
+  `@earendil-works/pi-ai`, which doesn't export them) — `ModelRuntime.login()` accepts anything
+  shaped like `AuthInteractionLike`.
+- **`provider-auth-service.ts`**'s `ProviderAuthService` turns Pi's callback-style
+  `AuthInteraction` into daemon-side flow state: one active flow per session (a second `login`
+  cancels the first), a per-session push (`provider_auth_flow_event`, deliberately outside
+  `sessionMessageSchema`'s union — a passthrough family like `checkout_status_update`/
+  `file_changed`, never "fixed" with a dedicated schema entry), and a parked promise resolved by
+  `provider_auth_respond_request`. **Domain errors never throw** — `login`/`respond`/`logout` all
+  return `{ ok: false, error: "unknown_provider" | "unsupported_auth_type" | "not_found" | … }`
+  instead, the same convention `slash-command-operations.ts`/`extensions-rpc.ts` use; a thrown
+  `rpc_error`/`handler_error` is reserved for a genuine bug, not an expected domain outcome.
+  `respond` returns the identical opaque `not_found` for an unknown flowId, a stale promptId, and a
+  flowId owned by a different session — existence is never leaked. `cancel` is unconditionally
+  idempotent instead (`{ ok: true }` always — the wire schema has no `error` field for it).
+- **Owns its `SessionSubscriptions` entry directly**, not the RPC layer — `login` registers
+  `provider_auth_flow:<flowId>` synchronously, in the same tick the flow is created, and
+  `settleFlow` removes it when the flow ends any way at all (explicit cancel, TTL, or the runtime
+  settling on its own). This is *not* the file-watch/checkout precedent (their `-rpc.ts` module
+  owns the subscription): an RPC layer that only adds the entry *after* awaiting `login()`'s result
+  has a real race against the fire-and-forget flow settling first, which can register a disposer
+  for a flow that already ended — caught by a failing test in sprint-055/task-004, not by
+  inspection. **Disconnect-cancels-flow is then free**: `SessionSubscriptions.disposeSession`,
+  already called from `ws-server`'s socket-close hook for every subscription family, aborts the
+  flow and emits a terminal `done { ok: false, error: "cancelled" }` — confirmed live, including
+  that the daemon stays healthy and accepts new connections afterward.
+- **`provider-auth-rpc.ts`**'s `registerProviderAuthHandlers` is a pure pass-through onto the
+  service for exactly this reason — no `SessionSubscriptions` dep, no policy, only wire-input
+  coercion (the router never validates a session message's shape before dispatch).
+- **Production bootstrap only**, like file-watch/checkout/extensions — `dev-bootstrap.ts`
+  deliberately never registers this family; the dev daemon answers `unknown_message_type` for
+  every `provider_auth_*` type.
+- **Secrets never appear in a log line or a wire event.** `notify`/`prompt` bridge events carry
+  `promptKind`/`message`/`promptId`, never a value; log calls carry `flowId`/`provider`/`promptId`
+  only. Confirmed live: a captured fake credential appeared in the written `auth.json` (by design)
+  but in zero WebSocket frames and zero daemon log lines across the full session.
 
 ### Terminal subsystem (`terminal/`)
 

@@ -48,3 +48,28 @@ export function piHomeEnv(config: PersistedConfig): Record<string, string> {
     PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
   };
 }
+
+/** Resolved `auth.json`/`models.json` paths; `undefined` fields let Pi's own defaults decide.
+ *  Mirrors {@link PiAuthPaths} in `packages/cli/src/auth-runtime.ts` — this is the daemon-side
+ *  sibling, deliberately not a shared import (that module belongs to a different package). */
+export interface PiAuthPaths {
+  authPath?: string;
+  modelsPath?: string;
+}
+
+/**
+ * Derive `auth.json`/`models.json` from {@link resolvePiAgentDir} — the single intentional
+ * coupling point between the provider-auth RPC family and the spawn path
+ * (features/provider-auth-rpc.md § New/changed files). A credential written at this path MUST be
+ * the one a daemon-spawned `pi --mode rpc` child reads via `piHomeEnv()`'s
+ * `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`, which is why this derives from the same
+ * `resolvePiAgentDir` rather than re-deriving the precedence independently.
+ */
+export function resolvePiAuthPaths(config: PersistedConfig): PiAuthPaths {
+  const agentDir = resolvePiAgentDir(config);
+  if (!agentDir) return {};
+  return {
+    authPath: join(agentDir, "auth.json"),
+    modelsPath: join(agentDir, "models.json"),
+  };
+}
