@@ -36,6 +36,10 @@ import { registerTimelineHandler } from "../agent/timeline-rpc.js";
 import { PermissionService } from "../agent/permissions.js";
 import { ProviderRegistry, resolveProviderClient } from "../agent/provider-registry.js";
 import type { AgentClient } from "../agent/provider-contract.js";
+import { resolvePiAuthPaths } from "../agent/pi-home.js";
+import { createPiAuthRuntime } from "../agent/provider-auth/pi-auth-runtime.js";
+import { ProviderAuthService } from "../agent/provider-auth/provider-auth-service.js";
+import { registerProviderAuthHandlers } from "../agent/provider-auth/provider-auth-rpc.js";
 import { saveAgent, loadAllAgents } from "../persistence/entity-stores.js";
 
 import { FileExplorerService } from "../files/file-explorer.js";
@@ -467,6 +471,16 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const fileWatchService = new FileWatchService({ logger });
   registerFileWatchHandlers(registry, { fileWatchService, subscriptions, logger });
   registerExtensionsHandlers(registry, { service: extensionsService, logger: extensionsLogger });
+
+  // ── Provider auth: remote-driven Pi login flows (sprint-055) ─────────────────
+  const providerAuthLogger = logger.child({ component: "provider-auth" });
+  const providerAuthRuntime = createPiAuthRuntime(resolvePiAuthPaths(config));
+  const providerAuthService = new ProviderAuthService({
+    runtime: providerAuthRuntime,
+    logger: providerAuthLogger,
+    subscriptions,
+  });
+  registerProviderAuthHandlers(registry, { providerAuthService, logger: providerAuthLogger });
 
   // Simple file diff RPC for the POC UI (returns unified diff for a single file). Untracked
   // (brand-new) files have no git-tracked "before" state, so a plain `git diff` against them is

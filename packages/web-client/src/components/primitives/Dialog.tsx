@@ -6,7 +6,7 @@
  * Content` again — only the body content and footer actions vary per use.
  */
 
-import { type ReactNode } from "react";
+import { type ComponentPropsWithoutRef, type ReactNode } from "react";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { clsx } from "clsx";
@@ -32,6 +32,14 @@ export interface DialogProps {
    * (visually hidden) label for the dialog.
    */
   bare?: boolean;
+  /**
+   * Forwarded to Radix `Dialog.Content`. Call `preventDefault()` to keep this dialog open —
+   * REQUIRED when a second dialog is stacked on top of this one: the two contents are DOM
+   * siblings (each portals to `body`), so a pointerdown inside the upper dialog reads as an
+   * outside-interaction on this one and would otherwise dismiss both at once.
+   */
+  onInteractOutside?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onInteractOutside"];
+  onEscapeKeyDown?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onEscapeKeyDown"];
 }
 
 /** Re-exported so callers can wrap a footer button in `<Dialog.Close asChild>` to auto-dismiss
@@ -47,6 +55,8 @@ export function Dialog({
   width,
   className,
   bare = false,
+  onInteractOutside,
+  onEscapeKeyDown,
 }: DialogProps) {
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -56,6 +66,8 @@ export function Dialog({
           <RadixDialog.Content
             className={clsx(styles.dialog, bare && styles.bare, className)}
             style={width !== undefined ? { width } : undefined}
+            onInteractOutside={onInteractOutside}
+            onEscapeKeyDown={onEscapeKeyDown}
           >
             {bare ? (
               <RadixDialog.Title className={styles.visuallyHidden}>{title}</RadixDialog.Title>

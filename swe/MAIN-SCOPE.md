@@ -283,7 +283,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 | [features/rewind.md](features/rewind.md)                                 | feature (UI) | Rewind conversation/files/both to a prior message (+ small protocol amendment) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
-| [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + Model Providers settings panel and login dialog |
+| [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + settings dialog shell (Model Providers category), login dialog, onboarding nudge |
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
 | [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |
 | [features/white-label-branding.md](features/white-label-branding.md)     | feature (UI) | Build-time brand config: product name/title, accent colors, logo/icons        |

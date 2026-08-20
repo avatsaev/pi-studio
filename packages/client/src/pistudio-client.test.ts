@@ -8,13 +8,16 @@ import type { Transport } from "./transport.js";
  * Scripted in-memory daemon transport. It speaks just enough of the protocol for the facade tests:
  * completes the handshake, echoes responses correlated by requestId, and can push broadcasts.
  */
-function makeScriptedDaemon(): {
+function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }): {
   transport: Transport;
   sent: Array<Record<string, unknown>>;
   push: (sessionMessage: Record<string, unknown>) => void;
+  /** Simulate the socket dying mid-session (distinct from a clean RPC response). */
+  drop: (reason?: string) => void;
 } {
   const sent: Array<Record<string, unknown>> = [];
   let agentSeq = 0;
+  const features = opts?.features ?? { providersSnapshot: true, providerAuth: true };
 
   const transport: Transport = {
     onMessage: null,
@@ -35,7 +38,7 @@ function makeScriptedDaemon(): {
                 status: "server_info",
                 serverId: "srv-mock",
                 capabilities: {},
-                features: { providersSnapshot: true },
+                features,
               },
             }),
           ),
@@ -56,6 +59,12 @@ function makeScriptedDaemon(): {
 
   function respond(msg: Record<string, unknown>): void {
     const requestId = msg.requestId as string;
+    // The `provider_auth_*` family is driven manually by each test via `fake.push()` — real
+    // flows are ordering-sensitive (buffering-before-response, prompt races), so an automatic
+    // reply here would hide exactly the bugs those tests exist to catch.
+    if (typeof msg.type === "string" && msg.type.startsWith("provider_auth_")) {
+      return;
+    }
     switch (msg.type) {
       case "create_agent_request": {
         const agentId = `agent-${++agentSeq}`;
@@ -221,15 +230,16 @@ function makeScriptedDaemon(): {
     transport,
     sent,
     push: (sessionMessage) => reply(sessionMessage),
+    drop: (reason = "test drop") => transport.onClose?.(1006, reason),
   };
 }
 
-async function makeFacade(): Promise<{
+async function makeFacade(opts?: { features?: Record<string, boolean> }): Promise<{
   client: PiStudioClient;
   daemon: DaemonClient;
   fake: ReturnType<typeof makeScriptedDaemon>;
 }> {
-  const fake = makeScriptedDaemon();
+  const fake = makeScriptedDaemon(opts);
   const daemon = new DaemonClient({
     url: "ws://mock/ws",
     clientId: "c1",
@@ -538,5 +548,358 @@ describe("PiStudioClient — extension pack actions (sprint-057)", () => {
     expect(payload.ok).toBe(false);
     expect(payload.error).toBe("unknown pack: unknown");
     expect(payload.report).toBeUndefined();
+  });
+});
+
+// Deterministic microtask drain — no real wall-clock wait. The scripted daemon delivers every
+// message via `queueMicrotask`, and the SDK's own event handling is synchronous once a message is
+// delivered; a handful of chained ticks comfortably drains any nesting this harness produces.
+async function flushProviderAuthMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
+describe("PiStudioClient — provider auth remote login (sprint-065/task-001)", () => {
+  const flush = flushProviderAuthMicrotasks;
+
+  it("hasProviderAuthCapability reflects the daemon's providerAuth flag; nothing is sent when it is false", async () => {
+    const { client: withFlag } = await makeFacade();
+    expect(withFlag.hasProviderAuthCapability()).toBe(true);
+
+    const { client: withoutFlag, fake } = await makeFacade({
+      features: { providersSnapshot: true },
+    });
+    expect(withoutFlag.hasProviderAuthCapability()).toBe(false);
+    expect(fake.sent.some((m) => String(m.type).startsWith("provider_auth_"))).toBe(false);
+  });
+
+  it("listProviderAuth returns the provider list on ok:true", async () => {
+    const { client, fake } = await makeFacade();
+    const listPromise = client.listProviderAuth();
+    await flush();
+    const req = fake.sent.find((m) => m.type === "provider_auth_list_request");
+    expect(req).toBeDefined();
+    fake.push({
+      type: "provider_auth_list_response",
+      requestId: req?.requestId,
+      payload: {
+        ok: true,
+        providers: [{ id: "openai", name: "OpenAI", authTypes: ["api_key"], configured: false }],
+      },
+    });
+    const providers = await listPromise;
+    expect(providers).toHaveLength(1);
+    expect(providers[0]?.id).toBe("openai");
+  });
+
+  it("listProviderAuth throws ProviderAuthError on a payload-level ok:false (never a silent empty list)", async () => {
+    const { client, fake } = await makeFacade();
+    const listPromise = client.listProviderAuth();
+    await flush();
+    const req = fake.sent.find((m) => m.type === "provider_auth_list_request");
+    fake.push({
+      type: "provider_auth_list_response",
+      requestId: req?.requestId,
+      payload: { ok: false, error: "boom" },
+    });
+    await expect(listPromise).rejects.toThrow("boom");
+  });
+
+  it("logoutProvider reports stillConfigured", async () => {
+    const { client, fake } = await makeFacade();
+    const logoutPromise = client.logoutProvider("openai");
+    await flush();
+    const req = fake.sent.find((m) => m.type === "provider_auth_logout_request");
+    expect(req?.provider).toBe("openai");
+    fake.push({
+      type: "provider_auth_logout_response",
+      requestId: req?.requestId,
+      payload: { ok: true, stillConfigured: true },
+    });
+    expect(await logoutPromise).toEqual({ stillConfigured: true });
+  });
+
+  it("secret-prompt round-trip: prompt resolves, respond is sent, done ok:true settles the promise", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: unknown[] = [];
+    const loginPromise = client.loginProvider(
+      "openai",
+      "api_key",
+      {
+        prompt: async (p) => {
+          seen.push(p);
+          return "sk-test-123";
+        },
+      },
+      undefined,
+    );
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    expect(loginReq).toMatchObject({ provider: "openai", authType: "api_key" });
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-1" },
+    });
+    await flush();
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-1",
+      event: { kind: "prompt", promptId: "p1", promptKind: "secret", message: "Enter API key" },
+    });
+    await flush();
+    expect(seen).toEqual([
+      {
+        promptId: "p1",
+        promptKind: "secret",
+        message: "Enter API key",
+        placeholder: undefined,
+        options: undefined,
+        // Every prompt carries the per-prompt cancellation signal a view needs to retire its input
+        // when `prompt_cancelled` arrives out of band (see `ProviderAuthPromptUi.signal`).
+        signal: expect.any(AbortSignal),
+      },
+    ]);
+    expect(seen[0]?.signal?.aborted).toBe(false);
+    const respondReq = fake.sent.find((m) => m.type === "provider_auth_respond_request");
+    expect(respondReq).toMatchObject({ flowId: "flow-1", promptId: "p1", value: "sk-test-123" });
+    fake.push({
+      type: "provider_auth_respond_response",
+      requestId: respondReq?.requestId,
+      payload: { ok: true },
+    });
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-1",
+      event: { kind: "done", ok: true },
+    });
+    expect(await loginPromise).toEqual({ ok: true });
+    // Never let a secret value leak into a presentation event.
+    expect(JSON.stringify(seen)).not.toContain("sk-test-123");
+  });
+
+  it("a flow event delivered before the login response is buffered and still reaches the caller", async () => {
+    const { client, fake } = await makeFacade();
+    const promptsSeen: string[] = [];
+    const loginPromise = client.loginProvider("openai", "api_key", {
+      prompt: async (p) => {
+        promptsSeen.push(p.promptId);
+        return "value";
+      },
+    });
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    // The daemon starts the flow the instant it handles the login RPC — push the flow event
+    // BEFORE the login response, simulating that race.
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-2",
+      event: { kind: "prompt", promptId: "p-early", promptKind: "text", message: "early" },
+    });
+    await flush();
+    expect(promptsSeen).toEqual([]); // buffered — flowId not yet known
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-2" },
+    });
+    await flush();
+    expect(promptsSeen).toEqual(["p-early"]); // drained the instant flowId is learned
+    const respondReq = fake.sent.find((m) => m.type === "provider_auth_respond_request");
+    fake.push({
+      type: "provider_auth_respond_response",
+      requestId: respondReq?.requestId,
+      payload: { ok: true },
+    });
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-2",
+      event: { kind: "done", ok: true },
+    });
+    await loginPromise;
+  });
+
+  it("prompt_cancelled retires the pending prompt out of band; the flow continues and a later done settles the call", async () => {
+    const { client, fake } = await makeFacade();
+    const seenSignals: AbortSignal[] = [];
+    const loginPromise = client.loginProvider("openai", "oauth", {
+      // Never resolves on its own — only the daemon's out-of-band `prompt_cancelled` retires it
+      // (an OAuth callback answered it a different way). The view's notice is the prompt's own
+      // signal, which is why it is captured here.
+      prompt: (prompt) => {
+        if (prompt.signal) seenSignals.push(prompt.signal);
+        return new Promise<string>(() => {});
+      },
+    });
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-3" },
+    });
+    await flush();
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-3",
+      event: { kind: "prompt", promptId: "p-manual", promptKind: "manual_code", message: "code?" },
+    });
+    await flush();
+    expect(seenSignals).toHaveLength(1);
+    expect(seenSignals[0]?.aborted).toBe(false);
+    // A stale/non-matching id is a no-op.
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-3",
+      event: { kind: "prompt_cancelled", promptId: "stale-id" },
+    });
+    await flush();
+    expect(seenSignals[0]?.aborted).toBe(false);
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-3",
+      event: { kind: "prompt_cancelled", promptId: "p-manual" },
+    });
+    await flush();
+    // The view's only notice that its input is dead — without it a `manual_code` field stays on
+    // screen after the OAuth callback already won the race.
+    expect(seenSignals[0]?.aborted).toBe(true);
+    // Cancelling the SPECIFIC prompt must not cancel the whole flow.
+    expect(fake.sent.some((m) => m.type === "provider_auth_cancel_request")).toBe(false);
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-3",
+      event: { kind: "done", ok: true },
+    });
+    expect(await loginPromise).toEqual({ ok: true });
+  });
+
+  it("opts.signal abort sends provider_auth_cancel_request; the promise still settles from done ok:false", async () => {
+    const { client, fake } = await makeFacade();
+    const controller = new AbortController();
+    const loginPromise = client.loginProvider(
+      "openai",
+      "api_key",
+      { prompt: async () => "unused" },
+      { signal: controller.signal },
+    );
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-4" },
+    });
+    await flush();
+    controller.abort();
+    await flush();
+    const cancelReq = fake.sent.find((m) => m.type === "provider_auth_cancel_request");
+    expect(cancelReq?.flowId).toBe("flow-4");
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-4",
+      event: { kind: "done", ok: false, error: "cancelled" },
+    });
+    expect(await loginPromise).toEqual({ ok: false, error: "cancelled" });
+  });
+
+  it("a socket drop mid-flow settles ok:false connection_lost — no hang, no unhandled rejection", async () => {
+    const { client, fake } = await makeFacade();
+    const loginPromise = client.loginProvider("openai", "api_key", { prompt: async () => "x" });
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-5" },
+    });
+    await flush();
+    fake.drop();
+    expect(await loginPromise).toEqual({ ok: false, error: "connection_lost" });
+  });
+
+  it("events for an unknown/stale flowId are dropped with no callback invocation", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: unknown[] = [];
+    const loginPromise = client.loginProvider("openai", "api_key", {
+      prompt: async () => "x",
+      onEvent: (e) => seen.push(e),
+    });
+    await flush();
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-6" },
+    });
+    await flush();
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "some-other-flow",
+      event: { kind: "info", message: "not mine" },
+    });
+    await flush();
+    expect(seen).toEqual([]);
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-6",
+      event: { kind: "done", ok: true },
+    });
+    await loginPromise;
+  });
+
+  it("a second concurrent loginProvider rejects locally without sending a second login request", async () => {
+    const { client, fake } = await makeFacade();
+    const first = client.loginProvider("openai", "api_key", { prompt: async () => "x" });
+    await flush();
+    await expect(
+      client.loginProvider("anthropic", "api_key", { prompt: async () => "y" }),
+    ).rejects.toThrow(/already in progress/);
+    const loginReqs = fake.sent.filter((m) => m.type === "provider_auth_login_request");
+    expect(loginReqs).toHaveLength(1);
+    const loginReq = loginReqs[0];
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-7" },
+    });
+    await flush();
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-7",
+      event: { kind: "done", ok: true },
+    });
+    await first;
+  });
+
+  it("every subscription is released once the flow settles", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const internals = daemon as unknown as {
+      sessionHandlers: Set<unknown>;
+      stateHandlers: Set<unknown>;
+    };
+    const sessionHandlersBefore = internals.sessionHandlers.size;
+    const stateHandlersBefore = internals.stateHandlers.size;
+
+    const loginPromise = client.loginProvider("openai", "api_key", { prompt: async () => "x" });
+    await flush();
+    expect(internals.sessionHandlers.size).toBe(sessionHandlersBefore + 1);
+    expect(internals.stateHandlers.size).toBe(stateHandlersBefore + 1);
+
+    const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+    fake.push({
+      type: "provider_auth_login_response",
+      requestId: loginReq?.requestId,
+      payload: { ok: true, flowId: "flow-8" },
+    });
+    await flush();
+    fake.push({
+      type: "provider_auth_flow_event",
+      flowId: "flow-8",
+      event: { kind: "done", ok: true },
+    });
+    await loginPromise;
+
+    expect(internals.sessionHandlers.size).toBe(sessionHandlersBefore);
+    expect(internals.stateHandlers.size).toBe(stateHandlersBefore);
   });
 });

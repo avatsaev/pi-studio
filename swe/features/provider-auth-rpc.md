@@ -83,11 +83,12 @@ it does not invent semantics.
 a slot in `sessionMessageSchema`. The flow-event push rides the `sessionMessageBaseSchema`
 passthrough family with a local type guard at the point of use, exactly like
 `checkout_status_update`. A `providerAuth` flag is added to `SERVER_FEATURES`
-(`packages/protocol/src/client-capabilities.ts`, camelCase like `checkoutRefresh`) with its
-`SERVER_FEATURE_COMPAT` entry; the daemon already folds every `SERVER_FEATURES` value into
-`server_info.features` (`ws-server.ts` `defaultFeatures()`, `bootstrap.ts` relay path), so no
-emission code is needed — but `client-capabilities.test.ts` asserts the **exact key set** and will
-fail until updated.
+(`packages/protocol/src/client-capabilities.ts`, camelCase — freshest precedent is sprint-057's
+`extensionPacks`; the set currently holds 7 keys) with its `SERVER_FEATURE_COMPAT` entry; the
+daemon already folds every `SERVER_FEATURES` value into `server_info.features` (`ws-server.ts`
+`defaultFeatures()`, `bootstrap.ts` relay path), so no emission code is needed — but
+`client-capabilities.test.ts` asserts the **exact key set** (all 7, sorted) and will fail until
+updated.
 
 **Error convention (verified against `ws/router.ts`).** A handler returns a value, which the router
 wraps and stamps with `requestId`; a throw becomes an `rpc_error` with the fixed code
@@ -104,9 +105,9 @@ following `file_watch_subscribe_response`'s `{ ok: false, error: "too_many_watch
 | `packages/protocol/src/messages.ts` (+ tests) | Request/response schemas + union entries |
 | `packages/protocol/src/client-capabilities.ts` (+ test) | `providerAuth` server feature flag + COMPAT entry |
 | `packages/server/src/agent/provider-auth/pi-auth-runtime.ts` | Lazy `ModelRuntime` seam: structural type mirrors, `listProviders`, bounded `checkAuth`, `login`, `logout` |
-| `packages/server/src/agent/provider-auth/provider-auth-service.ts` | Flow registry + `AuthInteraction` bridge |
-| `packages/server/src/agent/provider-auth/provider-auth-rpc.ts` | `registerProviderAuthHandlers(registry, deps)`, mirroring `registerFileWatchHandlers` |
-| `packages/server/src/agent/provider-registry.ts` | Export the `piHomeEnv()` path derivation as `resolvePiAgentDir(config)` (currently module-private) — the single intentional coupling point |
+| `packages/server/src/agent/provider-auth/provider-auth-service.ts` | Flow registry + `AuthInteraction` bridge; also owns the `provider_auth_flow:<flowId>` `SessionSubscriptions` entry directly (`login`/`settleFlow`) — see the pseudocode's ownership note above |
+| `packages/server/src/agent/provider-auth/provider-auth-rpc.ts` | `registerProviderAuthHandlers(registry, { providerAuthService, logger? })`, mirroring `registerFileWatchHandlers` / sprint-057's `registerExtensionsHandlers` (the service + `-rpc` module-pair precedent). Unlike its two siblings, takes **no** `subscriptions` dep — pure pass-through, no `SessionSubscriptions` calls of its own |
+| `packages/server/src/agent/pi-home.ts` | ~~Export the path derivation~~ **Already done** (sprint-056/057): `resolvePiAgentDir(config)` is exported here and re-exported by `provider-registry.ts`. Remaining work: derive `authPath`/`modelsPath` (`<agentDir>/auth.json`, `<agentDir>/models.json`) beside it — e.g. `resolvePiAuthPaths(config)` — the single intentional coupling point |
 | `packages/server/src/daemon/bootstrap.ts` | Construct the service, register handlers (**production bootstrap only**, like file-watch/checkout; `dev-bootstrap.ts` deliberately omits the family) |
 
 ## Behavior & Algorithms
@@ -119,6 +120,13 @@ class ProviderAuthService:
         #   > daemon.piHome > Pi default. Credentials written here MUST be the ones spawned agents read.
         ModelRuntime.create({ authPath, modelsPath, refreshOnCreate: false })  # dynamic import
 
+    subscriptions: SessionSubscriptions          # owned directly by this service, not the RPC
+        # layer (task-004 deviation from an earlier draft of this pseudocode — see that task's
+        # summary). The RPC layer deciding whether to subscriptions.add() based on the *result* of
+        # an awaited login() call races the fire-and-forget flow settling before that await
+        # returns, which can add a disposer for a flow that already ended. Doing both inside
+        # login()/settleFlow()'s own synchronous stretches removes the race by construction.
+
     flows: Map<flowId, { provider, session, abort: AbortController,
                          pendingPrompt?: { promptId, resolve, reject }, deadline }>
 
@@ -126,10 +134,12 @@ class ProviderAuthService:
         validate provider exists and supports authType   -> { ok:false, error:"unknown_provider"|"unsupported_auth_type" }
         cancel any existing flow owned by this session   (one active flow per connection)
         flowId = uuid; register flow with TTL timer (10 min)
+        subscriptions.add(session, "provider_auth_flow:"+flowId, () => cancel(session, flowId))
+            # Synchronous, in the same tick as flow registration — before the fire-and-forget
+            # login below is even started. SessionSubscriptions is ALREADY drained by ws-server's
+            # session-close hook (disposeSession) — that's the whole disconnect-cancels-flow
+            # mechanism, no new wiring.
         interaction = bridge(session, flowId)            # see below
-        subscriptions.add(session, "provider_auth_flow:"+flowId, () => cancel(flowId))
-            # SessionSubscriptions is ALREADY drained by ws-server's session-close hook
-            # (disposeSession) — this is the whole disconnect-cancels-flow mechanism, no new wiring
         fire-and-forget:
             try:    await runtime.login(provider, authType, interaction)
                     emit { kind: "done", ok: true }
@@ -159,9 +169,13 @@ class ProviderAuthService:
         abort controller; reject pending prompt; emit done(ok:false, error:"cancelled"|"timeout") if not yet terminal
 ```
 
-- **Ownership:** flow events go **only** to the initiating session; `respond`/`cancel` naming a
-  flow owned by another session get `{ ok: false, error: "not_found" }` — identical to an unknown
-  flowId, so existence is not leaked.
+- **Ownership:** flow events go **only** to the initiating session. `respond` naming a flowId/
+  promptId owned by another session gets the same opaque `{ ok: false, error: "not_found" }` as an
+  unknown flowId — existence is never leaked. `cancel` cannot express an error at all
+  (`provider_auth_cancel_response`'s payload is `{ ok: boolean }`, no `error` field — see the RPC
+  table's "Idempotent" note) and is unconditionally idempotent: a non-owned or already-gone flowId
+  is a silent no-op, always `{ ok: true }` — which achieves the same non-leaking goal without a
+  dedicated error code.
 - **Disconnect = cancel**, for free, via `SessionSubscriptions`. No flow survives its socket; there
   is no resume (a login retry is cheap).
 - **`list`** composes `getProviders()` (filtered to login-capable: `auth.oauth` or
@@ -216,26 +230,33 @@ class ProviderAuthService:
 
 ## Acceptance Criteria
 
-- [ ] `provider_auth_list_request` returns login-capable providers with correct
+- [x] `provider_auth_list_request` returns login-capable providers with correct
       configured/type/source against a temp `auth.json` fixture (configured, env-sourced, empty),
       and degrades a hung provider to `configured: "unknown"` without stalling the response.
-- [ ] An api_key login driven purely over WS (login → `prompt(secret)` event → respond → `done ok`)
-      persists the credential into the daemon-resolved `auth.json` at mode 0600.
-- [ ] An OAuth-style flow (stubbed runtime) round-trips `auth_url`, `manual_code` prompt, and
+- [x] An api_key login driven purely over WS (login → `prompt(secret)` event → respond → `done ok`)
+      persists the credential into the daemon-resolved `auth.json` at mode 0600. Live-confirmed
+      (sprint-055/task-005): real daemon, real `openai` provider, real `auth.json` at mode `0600`.
+- [x] An OAuth-style flow (stubbed runtime) round-trips `auth_url`, `manual_code` prompt, and
       `done`; `prompt_cancelled` is emitted when the prompt's own signal aborts.
-- [ ] `cancel`, socket disconnect, and TTL each terminate the flow with `done ok:false` and reject
-      the pending prompt; the flow registry is empty afterward (no leak).
-- [ ] A cancel is reported as `"cancelled"` even though Pi's `login()` throws its own `AbortError`
+- [x] `cancel`, socket disconnect, and TTL each terminate the flow with `done ok:false` and reject
+      the pending prompt; the flow registry is empty afterward (no leak). Cancel and disconnect
+      live-confirmed against a real daemon (task-005); TTL confirmed via fake timers (task-003).
+- [x] A cancel is reported as `"cancelled"` even though Pi's `login()` throws its own `AbortError`
       (the service tests `signal.aborted`, not the error type).
-- [ ] Cross-session `respond`/`cancel` returns `not_found`; flow events are never delivered to a
+- [x] Cross-session `respond`/`cancel` returns `not_found`; flow events are never delivered to a
       non-owner session.
-- [ ] Secrets appear in no log line and in no outbound message (asserted via log capture and a
-      full outbound-frame scan in tests).
-- [ ] `server_info.features.providerAuth` is advertised on both the direct and relay handshake
-      paths, and `client-capabilities.test.ts`'s exact-key-set assertion is updated.
-- [ ] The resolved `authPath` is byte-identical to what `buildPiClient` gives a spawned agent for
+- [x] Secrets appear in no log line and in no outbound message (asserted via log capture and a
+      full outbound-frame scan in tests). Live-confirmed too: a real fake credential scanned across
+      every captured WS frame and the full daemon log — zero matches (task-005).
+- [x] `server_info.features.providerAuth` is advertised on both the direct and relay handshake
+      paths, and `client-capabilities.test.ts`'s exact-key-set assertion is updated. Direct path
+      live-confirmed (task-005); relay path shares the identical `SERVER_FEATURES`-driven
+      computation in `bootstrap.ts` (not separately live-exercised for this specific flag).
+- [x] The resolved `authPath` is byte-identical to what `buildPiClient` gives a spawned agent for
       the same config (asserted directly, incl. the `agents.providers.pi.env` override case).
-- [ ] All service/flow unit tests run against an injected fake runtime — no network, no real Pi.
+      Live-confirmed beyond the unit assertion: a real spawned `pi` agent read back the exact fake
+      credential written over the wire (task-005's path-parity proof, the strong form).
+- [x] All service/flow unit tests run against an injected fake runtime — no network, no real Pi.
 
 ## TODO(verify)
 
@@ -248,6 +269,21 @@ class ProviderAuthService:
       `packages/protocol/src/client-capabilities.ts`, folded into `server_info.features` by
       `ws-server.ts` `defaultFeatures()` and `bootstrap.ts`'s relay path; no per-feature emission
       code, but the exact-key-set test must be updated.
+- [x] Re-verified against the codebase (2026-08-20, post sprints 056–058): `resolvePiAgentDir` is
+      **already exported** from `agent/pi-home.ts` (re-exported by `provider-registry.ts`) — only
+      the `authPath`/`modelsPath` derivation remains; `SessionSubscriptions`
+      (`add`/`remove`/`keysOf`/`disposeSession`) is still drained via `bootstrap.ts`'s
+      `onSessionClose: (session) => subscriptions.disposeSession(session)`; router codes unchanged;
+      `registerExtensionsHandlers` (sprint-057, `extensions/extensions-{service,rpc}.ts`, wired in
+      `bootstrap.ts` only) is the freshest module-pair precedent; server and cli both pin
+      `@earendil-works/pi-coding-agent@0.84.1`, one copy, no `auth.json` shape skew.
 - [ ] Whether any bundled OAuth flow binds a fixed localhost callback port that could collide with
       the daemon's own listener (inherited unresolved from sprint-054/task-004 — needs a real
-      provider account to close).
+      provider account to close). **Still open after sprint-055/task-005's live run**: that run's
+      ten-step sequence (swe/sprints/sprint-055-provider-auth-rpc/done/task-005-*-summary.md)
+      exercised the api_key path end-to-end against a real daemon + real Pi `ModelRuntime` — login,
+      respond, list, path-parity (a spawned agent read back the exact credential written over the
+      wire), logout, cancel, and disconnect all confirmed live — but deliberately did **not**
+      attempt a real OAuth login (task-005's own scope excludes it: "needs live provider
+      credentials"). This question remains unanswered; still needs a real OAuth-capable provider
+      account to close.

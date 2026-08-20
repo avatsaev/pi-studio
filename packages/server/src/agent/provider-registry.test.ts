@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { persistedConfigSchema } from "../config/daemon-config.js";
 import { effectivePiHomeKey } from "../extensions/extensions-state.js";
 import { PROVIDER_MANIFEST } from "./manifest.js";
+import { resolvePiAuthPaths } from "./pi-home.js";
 import {
   ProviderRegistry,
   resolvePiAgentDir,
@@ -91,6 +92,40 @@ describe("resolveProviderClient", () => {
     });
     expect(resolvePiAgentDir(overridden)).toBe("/explicit/agent");
     expect(resolvePiAgentDir(overridden)).toBe(spawns2[0]?.env.PI_CODING_AGENT_DIR);
+  });
+
+  it("resolvePiAuthPaths derives auth.json/models.json from resolvePiAgentDir, byte-identical to the spawned PI_CODING_AGENT_DIR (plain + override)", async () => {
+    const config = persistedConfigSchema.parse({ daemon: { piHome: "/custom/.pi" } });
+    const { deps, spawns } = fakeDeps();
+    await resolveProviderClient("pi", config, deps).createSession({ provider: "pi", cwd: "/w" });
+    expect(resolvePiAuthPaths(config)).toEqual({
+      authPath: join("/custom/.pi", "agent", "auth.json"),
+      modelsPath: join("/custom/.pi", "agent", "models.json"),
+    });
+    expect(resolvePiAuthPaths(config).authPath).toBe(
+      join(spawns[0]?.env.PI_CODING_AGENT_DIR ?? "", "auth.json"),
+    );
+
+    const overridden = persistedConfigSchema.parse({
+      daemon: { piHome: "/custom/.pi" },
+      agents: { providers: { pi: { env: { PI_CODING_AGENT_DIR: "/explicit/agent" } } } },
+    });
+    const { deps: deps2, spawns: spawns2 } = fakeDeps();
+    await resolveProviderClient("pi", overridden, deps2).createSession({
+      provider: "pi",
+      cwd: "/w",
+    });
+    expect(resolvePiAuthPaths(overridden)).toEqual({
+      authPath: "/explicit/agent/auth.json",
+      modelsPath: "/explicit/agent/models.json",
+    });
+    expect(resolvePiAuthPaths(overridden).authPath).toBe(
+      join(spawns2[0]?.env.PI_CODING_AGENT_DIR ?? "", "auth.json"),
+    );
+  });
+
+  it("resolvePiAuthPaths is empty (Pi's own defaults) with no piHome/override set", () => {
+    expect(resolvePiAuthPaths(persistedConfigSchema.parse({}))).toEqual({});
   });
 
   it("resolvePiAgentDir and effectivePiHomeKey are byte-identical to the spawned PI_CODING_AGENT_DIR for a tilde-prefixed piHome", async () => {

@@ -1,7 +1,7 @@
 # Task 002 — Daemon Pi auth runtime seam + `resolvePiAgentDir` path parity
 
 - **Sprint:** sprint-055-provider-auth-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent/provider-auth, agent/provider-registry)
 - **Priority:** P1

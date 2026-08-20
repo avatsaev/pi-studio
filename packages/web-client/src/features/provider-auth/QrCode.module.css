@@ -1,0 +1,15 @@
+.qr,
+.placeholder {
+  /* Intrinsic size of a scannable code, in rem so it tracks the user's font-scale setting like
+     every other dimension in the app. Not a font size, so no `--pi-font-size-*` token applies.
+     Sized to balance the action column beside it — a smaller code left the panel looking like an
+     afterthought with dead space under the url, and a QR that is hard to scan is pointless. */
+  width: 10rem;
+  height: 10rem;
+  border-radius: var(--pi-radius-sm);
+  flex: none;
+}
+
+.placeholder {
+  background: var(--pi-color-surface2);
+}

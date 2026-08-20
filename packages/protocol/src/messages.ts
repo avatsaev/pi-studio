@@ -972,6 +972,154 @@ export const extensionPacksSetResponseSchema = z
 export type ExtensionPacksSetResponse = z.infer<typeof extensionPacksSetResponseSchema>;
 
 // ===========================================================================
+// Provider auth (sprint-055, features/provider-auth-rpc.md) — remote-driven Pi login flows.
+// Five request/response pairs get real schemas + union membership (durable, multi-client RPC
+// surface). The per-session progress push, `provider_auth_flow_event`, is deliberately NOT a
+// union member — like `checkout_status_update`/`file_changed`, it rides
+// `sessionMessageBaseSchema`'s passthrough fallback. Do not "fix" that by adding a schema for it.
+//
+// Every response requires `ok`; a domain failure is `{ ok: false, error: "<reason>" }` in the
+// payload, never a chosen `rpc_error` code (`ws/router.ts` only emits `unknown_message_type` /
+// `handler_error`, both reserved for transport-level failures).
+// ===========================================================================
+
+export const providerAuthTypeSchema = z.enum(["api_key", "oauth"]);
+export type ProviderAuthType = z.infer<typeof providerAuthTypeSchema>;
+
+/** One provider's auth capability + current state (`configured: "unknown"` = a bounded
+ *  `checkAuth()` timed out — see sprint-054's `checkAuthBounded` precedent). */
+export const providerAuthInfoSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    authTypes: z.array(providerAuthTypeSchema),
+    oauthLoginLabel: z.string().optional(),
+    oauthIsSubscription: z.boolean().optional(),
+    configured: z.union([z.boolean(), z.literal("unknown")]),
+    configuredType: providerAuthTypeSchema.optional(),
+    configuredSource: z.string().optional(),
+  })
+  .passthrough();
+export type ProviderAuthInfo = z.infer<typeof providerAuthInfoSchema>;
+
+export const providerAuthListRequestSchema = z
+  .object({
+    type: z.literal("provider_auth_list_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type ProviderAuthListRequest = z.infer<typeof providerAuthListRequestSchema>;
+
+export const providerAuthListResponseSchema = z
+  .object({
+    type: z.literal("provider_auth_list_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        providers: z.array(providerAuthInfoSchema).default([]),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ProviderAuthListResponse = z.infer<typeof providerAuthListResponseSchema>;
+
+export const providerAuthLoginRequestSchema = z
+  .object({
+    type: z.literal("provider_auth_login_request"),
+    requestId: z.string(),
+    provider: z.string(),
+    authType: providerAuthTypeSchema,
+  })
+  .passthrough();
+export type ProviderAuthLoginRequest = z.infer<typeof providerAuthLoginRequestSchema>;
+
+export const providerAuthLoginResponseSchema = z
+  .object({
+    type: z.literal("provider_auth_login_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        flowId: z.string().optional(),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ProviderAuthLoginResponse = z.infer<typeof providerAuthLoginResponseSchema>;
+
+export const providerAuthRespondRequestSchema = z
+  .object({
+    type: z.literal("provider_auth_respond_request"),
+    requestId: z.string(),
+    flowId: z.string(),
+    promptId: z.string(),
+    value: z.string(),
+  })
+  .passthrough();
+export type ProviderAuthRespondRequest = z.infer<typeof providerAuthRespondRequestSchema>;
+
+export const providerAuthRespondResponseSchema = z
+  .object({
+    type: z.literal("provider_auth_respond_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ProviderAuthRespondResponse = z.infer<typeof providerAuthRespondResponseSchema>;
+
+export const providerAuthCancelRequestSchema = z
+  .object({
+    type: z.literal("provider_auth_cancel_request"),
+    requestId: z.string(),
+    flowId: z.string(),
+  })
+  .passthrough();
+export type ProviderAuthCancelRequest = z.infer<typeof providerAuthCancelRequestSchema>;
+
+/** Idempotent — `ok: true` even when the named flow was already gone. */
+export const providerAuthCancelResponseSchema = z
+  .object({
+    type: z.literal("provider_auth_cancel_response"),
+    requestId: z.string(),
+    payload: z.object({ ok: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type ProviderAuthCancelResponse = z.infer<typeof providerAuthCancelResponseSchema>;
+
+export const providerAuthLogoutRequestSchema = z
+  .object({
+    type: z.literal("provider_auth_logout_request"),
+    requestId: z.string(),
+    provider: z.string(),
+  })
+  .passthrough();
+export type ProviderAuthLogoutRequest = z.infer<typeof providerAuthLogoutRequestSchema>;
+
+/** `stillConfigured` flags an ambient credential (e.g. an env var) surviving the logout. */
+export const providerAuthLogoutResponseSchema = z
+  .object({
+    type: z.literal("provider_auth_logout_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        stillConfigured: z.boolean().optional(),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ProviderAuthLogoutResponse = z.infer<typeof providerAuthLogoutResponseSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -1044,6 +1192,16 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   extensionPacksListResponseSchema,
   extensionPacksSetRequestSchema,
   extensionPacksSetResponseSchema,
+  providerAuthListRequestSchema,
+  providerAuthListResponseSchema,
+  providerAuthLoginRequestSchema,
+  providerAuthLoginResponseSchema,
+  providerAuthRespondRequestSchema,
+  providerAuthRespondResponseSchema,
+  providerAuthCancelRequestSchema,
+  providerAuthCancelResponseSchema,
+  providerAuthLogoutRequestSchema,
+  providerAuthLogoutResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

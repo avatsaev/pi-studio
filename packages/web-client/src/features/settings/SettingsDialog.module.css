@@ -1,0 +1,56 @@
+/* `.dialog`'s own `max-height: 70vh` (Dialog.module.css) is the outer cap; this chain of
+   `flex: 1 1 auto` + `min-height: 0` lets `.content` alone scroll internally — a ~40-provider
+   list must never push the dialog card itself past the viewport. Edge padding matches
+   `Dialog.module.css`'s `.header` (`--pi-spacing-14` horizontal) and the `OpenWorkspaceDialog`
+   precedent, since `Dialog`'s own `.body` carries none. */
+
+.shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 60vh;
+}
+
+.sidebar {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  border-right: 1px solid var(--pi-color-border);
+  padding: var(--pi-spacing-12) var(--pi-spacing-8) var(--pi-spacing-12) var(--pi-spacing-14);
+  overflow-y: auto;
+}
+
+.category {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: var(--pi-spacing-6) var(--pi-spacing-10);
+  border-radius: var(--pi-radius-base);
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+
+.category:hover {
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
+  color: var(--pi-color-foreground);
+}
+
+.categoryActive {
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foreground);
+  font-weight: 600;
+}
+
+.content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--pi-spacing-12) var(--pi-spacing-14);
+}

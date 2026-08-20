@@ -1,0 +1,201 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-12);
+  /* `Dialog`'s own `.body` carries no padding (`Dialog.module.css`) — every dialog body supplies
+     its own, matching `SettingsDialog.module.css`/`OpenWorkspaceDialog.module.css`'s
+     `--pi-spacing-14` horizontal edge convention. */
+  padding: var(--pi-spacing-14);
+}
+
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+}
+
+.statusLine,
+.statusLineProgress {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pi-spacing-6);
+  font-size: var(--pi-font-size-xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* Message above its links: side by side, a long message squeezes the link into a narrow,
+   unreadable column. */
+.statusText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pi-spacing-2);
+}
+
+.statusLine a,
+.statusLineProgress a {
+  color: var(--pi-color-accent);
+}
+
+.prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+}
+
+.promptMessage {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pi-spacing-2);
+  appearance: none;
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  background: transparent;
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
+  border-color: var(--pi-color-accent);
+}
+
+.optionLabel {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.optionDescription {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.success {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-statusSuccess);
+}
+
+.error {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-statusDanger);
+}
+
+/* A filled panel rather than an outlined one: nested inside the dialog's own border, a second
+   1px frame read as a box-in-a-box. */
+.oauth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-10);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface2);
+  padding: var(--pi-spacing-12);
+}
+
+.oauthInstructions {
+  font-size: var(--pi-font-size-xs);
+  line-height: 1.45;
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* Vertically centred, not top-aligned: the action column is shorter than the code beside it, and
+   top-aligning left an obvious block of dead space under the url. */
+.oauthMain {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-14);
+}
+
+/* Everything in this column shares one left edge — the previous layout put the link, the copy
+   button's own padding and the url at three different indents. */
+.oauthActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pi-spacing-8);
+  /* Lets the url ellipsize instead of widening the dialog. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Mirrors `Button.module.css`'s `.btn`/`.default`: the primary action must be an anchor (see the
+   component) and `Button` renders only a `<button>`. */
+.openButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  border-radius: var(--pi-radius-lg);
+  border: 1px solid var(--pi-color-accent);
+  background-color: var(--pi-color-accent);
+  color: var(--pi-color-accentForeground);
+  padding: var(--pi-spacing-6) var(--pi-spacing-12);
+  font-family: var(--pi-font-ui);
+  font-size: var(--pi-font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: filter 120ms ease;
+}
+
+.openButton:hover {
+  filter: brightness(1.08);
+}
+
+.urlRow {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.oauthUrl {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.oauthQr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  flex: none;
+}
+
+/* Matches the QR's own width so the caption wraps under it instead of stretching the row. */
+.oauthQrCaption {
+  width: 10rem;
+  text-align: center;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.deviceCode {
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-lg);
+  letter-spacing: var(--pi-spacing-1);
+  color: var(--pi-color-foreground);
+}
+
+.countdown {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}

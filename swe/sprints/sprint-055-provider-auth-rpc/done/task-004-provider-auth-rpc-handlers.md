@@ -1,7 +1,7 @@
 # Task 004 — RPC handlers + production bootstrap wiring + disconnect cancellation
 
 - **Sprint:** sprint-055-provider-auth-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent/provider-auth, daemon/bootstrap)
 - **Priority:** P1

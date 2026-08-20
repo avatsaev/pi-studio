@@ -187,6 +187,10 @@ const client = new PiStudioClient(daemonClient);
 | `providers`                  | `PiStudioProviderActions`  | List providers/models/modes, refresh snapshot  |
 | `onAgentUpdate(handler)`     | unsubscribe fn             | Subscribe to all `agent_update` broadcasts     |
 | `onWorkspaceUpdate(handler)` | unsubscribe fn             | Subscribe to all `workspace_update` broadcasts |
+| `listProviderAuth()`         | `Promise<ProviderAuthEntry[]>` | `provider_auth_list_request` RPC           |
+| `loginProvider(p, t, cb, o)` | `Promise<{ ok, error? }>`  | Drives one login flow (see below)               |
+| `logoutProvider(provider)`   | `Promise<{ stillConfigured }>` | `provider_auth_logout_request` RPC          |
+| `hasProviderAuthCapability()`| `boolean`                  | Whether the daemon advertised `providerAuth`    |
 | `connection`                 | `DaemonClient`             | Escape hatch to the underlying driver          |
 
 ### `PiStudioAgentActions` (from `agent(id)`)
@@ -245,6 +249,29 @@ above (the pi-studio `AgentClient` id). Conflating the two was a real shipped bu
 to `setModel` made every `agent_set_model_request` fail server-side with `"Model not found:
 pi/<modelId>"`. Like the RPC itself, both types exist only in this package — no `packages/protocol`
 schema backs them, matching `list_providers`/`list_agents_request`'s untyped-ad-hoc-RPC convention.
+
+### Provider auth (`loginProvider`, sprint-065)
+
+`loginProvider(provider, authType, callbacks, opts?)` drives one Pi login flow over the
+`provider_auth_*` RPC family, hiding flowId/promptId correlation. Only one flow may be active per
+client; a second call rejects locally without sending anything. Key behaviours, each of which has a
+regression test in `pistudio-client.test.ts`:
+
+- **Subscribes before requesting.** The daemon starts Pi's flow while handling the login request, so
+  an `auth_url` or `prompt` can arrive before the response carrying `flowId` is processed. Events are
+  buffered until the flowId is known — written the natural way (await, then subscribe) the first
+  prompt is silently dropped and the caller waits forever.
+- **`callbacks.prompt(prompt)`** returns the answer; `callbacks.onEvent(event)` receives the
+  `notify`-sourced events (`info`/`auth_url`/`device_code`/`progress`, plus unknown future kinds).
+  `prompt`, `prompt_cancelled` and `done` are consumed by this driver and never reach `onEvent`.
+- **`ProviderAuthPromptUi.signal` aborts when that prompt is retired** — the callback-wins race, or
+  the flow ending. This is the *only* notice a view gets: `prompt_cancelled` rejects the driver's
+  internal race and the promise the view returned is discarded, so nothing else tells it the
+  question is gone. A view that ignores it leaves a dead `manual_code` input on screen (real bug,
+  fixed in sprint-065/task-005).
+- **`opts.signal`** cancels the whole flow server-side; a socket drop settles
+  `{ ok: false, error: "connection_lost" }` rather than hanging; events for a stale flowId are
+  dropped; every subscription is released exactly once when the flow settles.
 
 ### `importAgentSession(daemon, args)` (named export)
 

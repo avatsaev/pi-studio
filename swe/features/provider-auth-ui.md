@@ -42,6 +42,14 @@ client.logoutProvider(provider: string): Promise<void>;
 client.hasProviderAuthCapability(): boolean;          // from server_info capability flag
 ```
 
+Grounded in the current facade (verified 2026-08-20): the methods live directly on
+`PiStudioClient`, following the `listExtensionPacks`/`setExtensionPacks` precedent
+(`packages/client/src/pistudio-client.ts`); internally they use only existing `DaemonClient` seams
+— `request<T>(type, params, timeoutMs?)` for the RPC pairs, `onSessionMessage(handler)` with a
+type-guard filter (as `TimelineHandle.subscribe` does for `agent_stream`) for
+`provider_auth_flow_event`, and `hasFeature("providerAuth")` for the capability check. No
+`DaemonClient` change is needed.
+
 SDK responsibilities (all invisible to callers):
 
 - Correlates `provider_auth_login_response.flowId` with subsequent `provider_auth_flow_event`
@@ -59,9 +67,23 @@ SDK responsibilities (all invisible to callers):
 
 | Surface | Behavior |
 |---------|----------|
-| Settings → **Model Providers** panel | Lists providers from `listProviderAuth()`: name, configured badge (`api key` / `oauth` / `env: VAR` / `not configured`), subscription tag, `Log in` / `Re-login` / `Log out` actions. Hidden entirely when `hasProviderAuthCapability()` is false |
+| **Settings dialog** (modal shell) | Opened from a gear icon button at the **top-right of the ConnectionBar** (rightmost control, next to the panel-toggle cluster, same `iconOnly`/ghost pattern). A large `Dialog`-primitive modal with a **category sidebar** (left) + content area (right). Ships with exactly one category — **Model Providers** — but the sidebar/content split is the point: future categories (Appearance is the obvious next — `theme/appearance-store.ts` already exists with no panel) add an entry, not a new surface. While only this capability-gated category exists, the gear itself is hidden when `hasProviderAuthCapability()` is false; once a capability-independent category ships, the gear becomes unconditional and only the Model Providers category hides |
+| **Model Providers** (settings category) | Lists providers from `listProviderAuth()`: name, configured badge (`api key` / `oauth` / `env: VAR` / `not configured`), subscription tag, `Log in` / `Re-login` / `Log out` actions. Absent entirely when `hasProviderAuthCapability()` is false |
 | **Login dialog** (modal overlay) | Step-driven by flow events; see state machine below. Esc/Cancel aborts the flow (existing overlay keyboard conventions) |
-| **Onboarding nudge** | When connected and `listProviderAuth()` reports zero configured providers, the composer/empty-session area shows a "Connect a model provider" call-to-action opening the panel |
+| **Onboarding nudge** | When connected and `listProviderAuth()` reports zero configured providers, the empty chat timeline shows a "Connect a model provider" call-to-action opening the panel |
+
+**Where the panel lives (resolved 2026-08-20, refined same day):** the web-client has **no settings
+screen and no router today** — `routes/WorkspacePage.tsx` is a single shell (ConnectionBar /
+SessionList / TabPanelHost / RightSidebar / StatusBar), and the only settings-like state is
+`theme/appearance-store.ts`, which itself has no panel. `app-navigation-screens.md`'s
+`/settings/hosts/[serverId]/providers` route is spec-only. Rather than a one-off provider modal
+that would need migrating later, this ships the **settings dialog shell itself**: a `Dialog`
+primitive (`components/primitives/Dialog.tsx`, `OpenWorkspaceDialog` pattern) sized large, with a
+thin category sidebar and a content pane, categories declared in a small local registry array.
+Model Providers is the first and only category. This is barely more work than a bare modal — no
+router, still one lazy chunk — and it *is* the settings IA rather than something that folds into
+one later; `app-navigation-screens.md`'s settings route, when it lands, renders these same
+category panels. Building any further category is explicitly out of scope here.
 
 Login dialog step rendering:
 
@@ -80,9 +102,11 @@ Login dialog step rendering:
 
 | File | Responsibility |
 |------|----------------|
-| `packages/client/src/…` (SDK facade + types) | Methods above; local TS types for the flow-event push (per-session passthrough family — type guard, no protocol schema needed) |
-| `packages/web-client/src/…/provider-auth/` | Panel, dialog components (thin), CSS modules with design tokens |
-| `packages/web-client/src/…/provider-auth/login-flow.ts` | **Pure** reducer: `(dialogState, flowUiEvent) -> dialogState` — all step/ordering logic lives here, unit-testable under the node-env vitest setup (no jsdom, per project convention) |
+| `packages/client/src/pistudio-client.ts` (+ `pistudio-client.test.ts`) | The four SDK methods + local TS types/type guard for the flow-event push (per-session passthrough family — no protocol schema needed); tests follow the existing `makeScriptedDaemon()` injected-transport pattern |
+| `packages/web-client/src/features/provider-auth/login-flow.ts` (+ test) | **Pure** reducer: `(dialogState, flowUiEvent) -> dialogState` — all step/ordering logic lives here, unit-testable under the node-env vitest setup (no jsdom; same pure-module/thin-component split as `timeline/reducer.ts` vs `Timeline.tsx`) |
+| `packages/web-client/src/features/settings/SettingsDialog.tsx` (+ CSS module) | The settings shell: large `Dialog`-primitive modal, category sidebar + content pane, categories declared in a small local registry array (one entry today: Model Providers). Opened from a gear icon at the ConnectionBar's top-right; the gear is hidden while every registered category is capability-gated off |
+| `packages/web-client/src/features/provider-auth/` (`ModelProvidersPanel`, `LoginDialog`, QR, `*.module.css`) | Thin components over the reducer: the Model Providers category panel rendered inside `SettingsDialog`, the `Dialog`-primitive login overlay, `EmptyState`-based nudge, design-token CSS modules (`--pi-color-*` / `--pi-spacing-*` / `--pi-font-size-*`, no raw literals); a small new QR component wrapping `qrcode`'s browser `toDataURL` (no QR component exists in web-client — the CLI's is terminal-side), loaded only inside the lazy dialog chunk |
+| `packages/web-client/package.json` | `qrcode` devDependency (web-client ships no runtime deps; Vite bundles it into the code-split chunk) |
 
 ## Behavior & Algorithms
 
@@ -106,7 +130,9 @@ on done            -> phase = "done", store result
   client-side cache or store; auth state is rare-change, low-volume data.
 - Reconnect mid-flow: the SDK's flow promise settles `ok:false` ("connection lost"); the dialog
   shows the error state. No resume (matches server: flows die with the socket).
-- The dialog mounts lazily (code-split with the settings surface); no auth code on the hot path.
+- The dialog and panel mount lazily via the established
+  `lazy(() => import(…).then(m => ({ default: m.X })))` registry pattern (`panel-registry.ts` /
+  `viewer-registry.ts`); no auth code — and no `qrcode` — on the hot path.
 
 ## Data & Persistence
 
@@ -117,7 +143,7 @@ on done            -> phase = "done", store result
 
 | Condition | Expected behavior |
 |-----------|-------------------|
-| Server lacks `provider_auth` capability (old daemon) | Panel and nudge absent; zero RPCs issued |
+| Server lacks the `providerAuth` capability (old daemon) | Settings gear, panel, and nudge all absent (the only settings category is provider auth today); zero RPCs issued |
 | `rpc_error` on login start (unknown provider, pi unavailable) | Inline error in the panel row; dialog never opens |
 | Flow event for an unknown/stale flowId | SDK drops it silently |
 | User closes dialog mid-prompt | Abort → cancel RPC → pending prompt promise rejects; no dangling handlers |
@@ -137,10 +163,12 @@ on done            -> phase = "done", store result
 - [ ] `PiStudioClient` exposes `listProviderAuth` / `loginProvider` / `logoutProvider` /
       `hasProviderAuthCapability`, fully typed, tested against a mocked transport (prompt
       round-trip, cancel, disconnect, stale-event drop).
-- [ ] Settings shows the Model Providers panel with accurate badges against a daemon fixture in
-      all four states (key, oauth, env-sourced, unconfigured).
-- [ ] API-key login end-to-end in a real browser against a dev daemon: open dialog → masked input →
-      success badge, credential visible to `pi-studio auth status` on the daemon host.
+- [ ] The Model Providers category inside the Settings dialog (gear at the ConnectionBar's
+      top-right) shows accurate badges against a daemon fixture in all four states (key, oauth,
+      env-sourced, unconfigured).
+- [ ] API-key login end-to-end in a real browser against a **production-bootstrap** daemon (the
+      dev daemon deliberately omits this RPC family): open dialog → masked input → success badge,
+      credential visible to `pi-studio auth status` on the daemon host.
 - [ ] OAuth-shaped flow renders auth_url + QR and a manual_code input concurrently, and completes
       through the manual path (stub provider acceptable).
 - [ ] Cancel (button and Esc) aborts server-side (verified by daemon flow-registry test hook/logs).
@@ -153,8 +181,17 @@ on done            -> phase = "done", store result
 
 ## TODO(verify)
 
-- [ ] Where the settings panel slots into the current web-client navigation IA
-      (app-navigation-screens.md) — dedicated route vs. section in the existing settings screen.
-- [ ] Whether an existing QR component is shared between pairing UI and this dialog or needs a
-      small extraction.
-- [ ] Exact UX for the onboarding nudge placement (composer empty state vs. banner) — designer pass.
+- [x] Where the panel slots into the web-client navigation IA — **answered** (2026-08-20, refined
+      same day per user direction): no settings screen or router exists in web-client at all; ship
+      the **settings dialog shell itself** — gear icon at the ConnectionBar's top-right opening a
+      large `Dialog`-primitive modal with a category sidebar (`OpenWorkspaceDialog` precedent for
+      the primitive), Model Providers as the sole category. This *is* the settings IA;
+      `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` route renders the same
+      category panels when that scope lands.
+- [x] QR component reuse — **answered**: none exists in web-client (`qrcode` usage is daemon/CLI
+      terminal-side only), so nothing to extract; a small new component wraps `qrcode`'s browser
+      `toDataURL` inside the lazy dialog chunk.
+- [x] Onboarding nudge placement — **answered**: the empty chat timeline
+      (`features/chat/Timeline.tsx` renders "No messages yet — say something to start." when the
+      row list is empty) is the slot; augment it with an `EmptyState`-primitive CTA when connected
+      and zero providers are configured. No banner — no app-wide banner pattern exists to reuse.

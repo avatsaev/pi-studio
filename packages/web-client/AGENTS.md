@@ -358,6 +358,29 @@ src/
                             StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
                             bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
+    settings/               SettingsDialog (+ module.css) — the settings shell (sprint-065): a
+                            900px `Dialog` with an icon+label category sidebar and a scrollable
+                            content pane, opened by ConnectionBar's gear. `SETTINGS_CATEGORIES`
+                            is a local registry (`{ id, label, icon, component, available(caps) }`)
+                            whose entries are capability-gated; Model Providers is the only one
+                            today. Also owns the stacked-dialog dismissal guard — see AGENTS.md
+                            § Invariants "Stacked dialogs"
+    provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
+                            row per provider with an auth-state badge, subscription tag, and
+                            login/re-login/logout actions), LoginDialog (+ module.css — drives one
+                            login flow: every prompt kind, the status region, the OAuth
+                            presentation (`auth_url` link + copy + QR, `device_code` with a
+                            view-local countdown) rendered *concurrently* with a live
+                            `manual_code` prompt, terminal success/error with `Try again`),
+                            QrCode (+ module.css — wraps `qrcode`'s browser `toDataURL`; the only
+                            browser-side QR in the app, and deliberately unthemed so it stays
+                            scannable), login-flow.ts (+ test — the pure
+                            reducer owning all step/ordering logic),
+                            provider-auth-presentation.ts (+ test —
+                            `providerAuthBadge`/`providerAuthLoginChoices`),
+                            provider-auth-store.ts (the one-flow-at-a-time hand-off between the
+                            panel's action and the dialog: pending login + `AbortController` +
+                            `attempt`, which `LoginDialog` keys on so a retry remounts clean)
     chat/                   ChatPanel, Timeline, TurnProgressBar (indeterminate 2px running-turn
                             bar, mounted absolutely at the top of ChatPanel — see AGENTS.md
                             § Invariants "Turn progress bar"), Composer (bordered card: textarea +
@@ -1659,3 +1682,51 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   the bar itself scrolls horizontally once that floor is hit — it never wraps to a second row.
   `input.field` uses element+class selectors so the bar's restyle of the `TextInput` primitive wins
   regardless of CSS-module bundle order.
+- **Stacked dialogs: the lower one MUST suppress dismissal that belongs to the upper one
+  (sprint-065).** Every `Dialog` portals its content to `body`, so two open dialogs are DOM
+  siblings, not nested — a pointerdown inside the upper dialog is an *outside* interaction on the
+  lower one, and Radix dismisses it. Clicking the login dialog's Cancel therefore closed the
+  Settings dialog with it. `Dialog` forwards `onInteractOutside`/`onEscapeKeyDown` to
+  `Dialog.Content` for exactly this; `SettingsDialog` uses two rules, and both are needed:
+  `preventDefault()` while a login is pending, **and** `preventDefault()` when the interaction's
+  original target is no longer `isConnected`. The second rule is not belt-and-braces — Radix
+  defers a non-mouse `pointerdown` to the following `click`, so by dispatch time the upper dialog's
+  own handler has already closed it and cleared the pending state, making the first rule test
+  false. Any future second-level dialog needs the same treatment.
+- **A flow started in an effect must gate its terminal dispatch on a ref, never a closure flag
+  (sprint-065).** `<StrictMode>` is on (`main.tsx`), so effects run mount → cleanup → remount on
+  the same fiber. `LoginDialog` needs a `startedRef` so the phantom remount does not start a second
+  login (`loginProvider()` throws when one is active), but that guard means the *only* live flow is
+  the one the phantom cleanup already tore down. Gating its `done` dispatch on a per-closure `live`
+  flag silently swallowed the terminal event: prompts still rendered and answered, the credential
+  reached `auth.json`, and the dialog sat on the last prompt forever. Use a `mountedRef` the
+  remount restores instead. (Related dev-only trap: editing such a component mid-flow makes Fast
+  Refresh re-run the effect, rejecting the prompt resolver while reducer state survives — hard-reload
+  before verifying a flow.)
+- **A prompt's own `signal` is the only notice that it was retired (sprint-065).** Pi races a
+  `manual_code` prompt against its OAuth callback server, so the callback winning cancels the
+  question while the flow carries on. The SDK consumes `prompt_cancelled` itself — it rejects its
+  internal race and *discards* the promise the view returned — so `onEvent` never sees it and the
+  view has no other signal. `ProviderAuthPromptUi.signal` (added in `packages/client`) aborts for
+  exactly that prompt; `LoginDialog` listens and drops the input, leaving the auth url, QR and
+  status region up. Without it the paste field stayed on screen after the callback had already won.
+- **Never gate a prompt's Submit on a non-empty input (sprint-065).** Blank is a meaningful answer:
+  GitHub Copilot's OAuth flow opens with "GitHub Enterprise URL/domain (blank for github.com)", and
+  disabling Submit on `length === 0` made that flow impossible to advance at all. The provider
+  decides what it accepts — `pi-studio auth login` puts no non-empty validation on its own input
+  either.
+- **An answered prompt must be retired by the view, not the reducer (sprint-065).** `login-flow.ts`
+  keeps `state.prompt` until the next prompt or `done` arrives, which is correct for a pure log of
+  what the daemon said — but flows can sit in a progress step for seconds afterwards, leaving an
+  already-answered question and an empty box next to the device code the user is reading.
+  `LoginDialog` tracks `answeredPromptId` locally and renders only the prompt still awaiting an
+  answer.
+- **`lib/clipboard.ts`'s fallback must append its scratch textarea inside the active focus scope
+  (sprint-065).** Every caller sits inside a Radix overlay, and those trap focus: appended to
+  `document.body`, the trap synchronously pulls focus back out on `focus()`, collapsing the
+  selection — and `execCommand("copy")` then returns **`true`** having copied nothing, so the caller
+  reports success with an empty clipboard. It now hosts the textarea in the nearest
+  `[role="dialog"]`/`[role="menu"]`, asserts the selection really covers the text before trusting
+  the return value, and restores focus afterwards. This affected the pre-existing file-explorer
+  "Copy Path" actions too, on any non-secure context (plain-http LAN) where the fallback is the
+  only path.

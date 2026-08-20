@@ -27,6 +27,7 @@ import {
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
+import { startDevDaemon } from "./dev-bootstrap.js";
 import { createLogger, silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
 import { WorkspaceGitService } from "../projects/workspace-git-service.js";
@@ -104,17 +105,24 @@ async function connect(port: number, capabilities?: Record<string, boolean>): Pr
  * `daemon.extensions.autoSync: false` gates it off entirely for every `boot()`-started daemon.
  * The dedicated extensions-sync tests below override this explicitly with their own config +
  * an injected `extensionsInstallSpawn` fake, never the real one.
+ *
+ * `daemon.piHome` is likewise pinned to a fresh temp directory (sprint-055/task-004): without it,
+ * `provider_auth_*` RPCs would fall through to `resolvePiAuthPaths`'s "undefined → Pi's own
+ * default" branch and construct a real `ModelRuntime` against the developer's actual `~/.pi/agent`
+ * tree — this isolates that to an empty, disposable directory instead (the real-Pi-runtime E2E is
+ * task-005's deliberately separate, explicitly-real-home job).
  */
-function boot(): { handle: DaemonHandle; port: number; home: string } {
+function boot(): { handle: DaemonHandle; port: number; home: string; piHome: string } {
   const home = mkdtempSync(join(tmpdir(), "pi-studio-prod-"));
+  const piHome = mkdtempSync(join(tmpdir(), "pi-studio-prod-pihome-"));
   writeFileSync(
     join(home, "config.json"),
-    JSON.stringify({ daemon: { extensions: { autoSync: false } } }),
+    JSON.stringify({ daemon: { piHome, extensions: { autoSync: false } } }),
     "utf8",
   );
   const port = 6800 + Math.floor(Math.random() * 200);
   const h = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
-  return { handle: h, port, home };
+  return { handle: h, port, home, piHome };
 }
 
 /** Instant, offline success for every action — no network, no real pi process. */
@@ -147,6 +155,7 @@ describe("production daemon bootstrap", () => {
       { type: "file_move_request", path: "", destination: "" },
       { type: "checkout_status_subscribe", cwd: booted.home },
       { type: "extension_packs_list_request" },
+      { type: "provider_auth_list_request" },
     ];
     for (const probe of probes) {
       const res = await client.rpc(probe);
@@ -977,6 +986,63 @@ describe("file_watch session-close cleanup", () => {
       await vi.waitFor(() => expect(unsubCalled).toBe(true), { timeout: 2000 });
     } finally {
       spy.mockRestore();
+    }
+  }, 15000);
+});
+
+describe("provider_auth (sprint-055/task-004)", () => {
+  it("server_info.features.providerAuth is true on a production daemon (direct handshake path)", async () => {
+    const booted = boot();
+    handle = booted.handle;
+
+    const status = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${booted.port}`);
+      ws.once("open", () => {
+        ws.send(
+          JSON.stringify({
+            type: "hello",
+            clientId: "feature-probe",
+            clientType: "cli",
+            protocolVersion: 1,
+          }),
+        );
+      });
+      ws.on("message", (data: Buffer) => {
+        const env = JSON.parse(data.toString("utf8"));
+        if (env.type === "status") {
+          ws.close();
+          resolve(env);
+        }
+      });
+      ws.once("error", reject);
+    });
+
+    const payload = status.payload as { features?: Record<string, boolean> };
+    expect(payload.features?.providerAuth).toBe(true);
+  }, 15000);
+
+  it("answers provider_auth_list_request on a production daemon", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const res = await client.rpc({ type: "provider_auth_list_request" });
+    expect(res.type).toBe("provider_auth_list_response");
+
+    client.close();
+  }, 15000);
+
+  it("a dev daemon does not register provider_auth_* — answers unknown_message_type, never wires the family", async () => {
+    const port = 6900 + Math.floor(Math.random() * 200);
+    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    try {
+      const client = await connect(port);
+      const res = await client.rpc({ type: "provider_auth_list_request" });
+      expect(res.type).toBe("rpc_error");
+      expect(res.code).toBe("unknown_message_type");
+      client.close();
+    } finally {
+      await dev.close();
     }
   }, 15000);
 });
