@@ -264,7 +264,29 @@ All communication uses a **single WebSocket connection** per client.
   (`packages/cli/AGENTS.md`'s `auth` group) — the daemon now runs Pi's `ModelRuntime` auth engine
   in-process too, lazily (only once the first `provider_auth_*` RPC arrives), writing Pi's
   `auth.json` on the **daemon host** at the same path a daemon-spawned `pi --mode rpc` agent reads
-  (`packages/server/AGENTS.md`'s "Provider auth" subsystem section).
+  (`packages/server/AGENTS.md`'s "Provider auth" subsystem section). **Shipped, not just
+  wire-capable**: `web-client`'s Settings dialog (gear at `ConnectionBar`'s top-right → Model
+  Providers, sprint-065, `packages/web-client/AGENTS.md`'s Provider auth invariants) is the
+  concrete browser client for this family — live-verified end to end including over the relay
+  transport (task-007): a credential entered in the browser lands in the exact `auth.json` a
+  daemon-spawned `pi --mode rpc` child reads, with no secret leaking into any log, frame beyond its
+  own `provider_auth_respond_request`, `localStorage`, or the DOM.
+- **`agent_ui_*`** (sprint-066, `swe/features/extension-ui-rpc.md`) bridges Pi's generic extension
+  UI protocol (`docs/rpc.md` § Extension UI Protocol) onto the daemon: **every** extension dialog
+  (`select`/`confirm`/`input`/`editor`) and retained surface (`setStatus`/`setWidget`/`setTitle`)
+  is forwarded as an opaque `agent_ui_request` broadcast — the daemon never interprets `payload`,
+  all Pi-specific semantics (surface-key namespacing, clear-by-omission, dialog-vs-fire-and-forget)
+  live entirely in the Pi provider adapter. Unlike `provider_auth_*` above, this family is a real
+  **`sessionMessageSchema` union member**, not a passthrough push — six schemas
+  (`agentUiRequestSchema`, `agentUiResolvedSchema`, `agentUiRespondRequestSchema`/`-ResponseSchema`,
+  `agentUiListRequestSchema`/`-ResponseSchema`) plus the `extensionUi` server feature flag
+  (`packages/protocol/AGENTS.md`). Wire ids are always **daemon-minted** (a fresh UUID per
+  emission), never the provider's own request id — the one field a client must never source from
+  Pi's own protocol. Two lifecycle rules invert the family's nearest neighbours on purpose: a
+  client **disconnecting** never cancels a pending dialog (opposite of `provider_auth_*`), and
+  **interrupting** an agent touches nothing (opposite of tool-call permissions) — dialogs and
+  surfaces are agent-lifetime state, swept only on archive/delete/respawn
+  (`packages/server/AGENTS.md`'s "Extension UI" subsystem section).
 
 ---
 

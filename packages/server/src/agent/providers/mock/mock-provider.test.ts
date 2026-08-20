@@ -2,7 +2,7 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
 import type { AgentClient } from "../../provider-contract.js";
-import { MOCK_CAPABILITIES, MockAgentClient } from "./mock-provider.js";
+import { MOCK_CAPABILITIES, MockAgentClient, MockAgentSession } from "./mock-provider.js";
 
 function collect(session: { subscribe: (cb: (e: AgentStreamEvent) => void) => void }): {
   events: AgentStreamEvent[];
@@ -139,5 +139,63 @@ describe("mock provider", () => {
     // exportHtml stays deliberately omitted (see the sprint-037 test above) so the
     // unsupported-provider-method → rpc_error path remains covered now that listCommands exists.
     expect(session.exportHtml).toBeUndefined();
+  });
+});
+
+describe("extension UI (sprint-066, task-002)", () => {
+  it("advertises supportsExtensionUi: true", async () => {
+    const client = new MockAgentClient();
+    expect(client.capabilities.supportsExtensionUi).toBe(true);
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+    expect(session.capabilities.supportsExtensionUi).toBe(true);
+  });
+
+  it("emitUiRequest pushes a scripted request to every subscriber, filling sensible defaults", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+    const received: unknown[] = [];
+    session.onUiRequest((req) => received.push(req));
+
+    const emitted = session.emitUiRequest({ method: "confirm", payload: { message: "Proceed?" } });
+
+    expect(received).toEqual([emitted]);
+    expect(emitted.method).toBe("confirm");
+    expect(emitted.expectsResponse).toBe(true);
+    expect(emitted.payload).toEqual({ message: "Proceed?" });
+    expect(typeof emitted.requestId).toBe("string");
+  });
+
+  it("respondToUi records the answer so a test can assert what the provider received", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+
+    const req = session.emitUiRequest({ method: "select" });
+    session.respondToUi(req.requestId, { value: "Allow" });
+
+    expect(session.uiResponses).toEqual([
+      { providerRequestId: req.requestId, response: { value: "Allow" } },
+    ]);
+  });
+
+  it("onUiRequest's Unsubscribe detaches the callback", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+    const received: unknown[] = [];
+    const unsub = session.onUiRequest((req) => received.push(req));
+
+    session.emitUiRequest({ method: "notify" });
+    unsub();
+    session.emitUiRequest({ method: "notify" });
+
+    expect(received.length).toBe(1);
   });
 });

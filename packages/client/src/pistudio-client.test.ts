@@ -817,6 +817,40 @@ describe("PiStudioClient — provider auth remote login (sprint-065/task-001)", 
     expect(await loginPromise).toEqual({ ok: false, error: "connection_lost" });
   });
 
+  it(
+    "a respond RPC that times out (peer unreachable but the socket itself stays open — e.g. a " +
+      "relay-mediated daemon death) settles ok:false connection_lost — no hang (sprint-065/task-007, " +
+      "found live: the daemon's own WS to the relay had died, but the browser's WS to the relay had " +
+      "not, so no `onStateChange('closed')` ever fired; only a genuine RPC timeout can detect this)",
+    async () => {
+      const { client, fake } = await makeFacade();
+      const loginPromise = client.loginProvider("openai", "api_key", {
+        prompt: async () => "typed-value",
+      });
+      await flush();
+      const loginReq = fake.sent.find((m) => m.type === "provider_auth_login_request");
+      fake.push({
+        type: "provider_auth_login_response",
+        requestId: loginReq?.requestId,
+        payload: { ok: true, flowId: "flow-timeout" },
+      });
+      await flush();
+      fake.push({
+        type: "provider_auth_flow_event",
+        flowId: "flow-timeout",
+        event: { kind: "prompt", promptId: "p-timeout", promptKind: "api_key", message: "key?" },
+      });
+      await flush();
+      // Never reply to provider_auth_respond_request — the daemon is unreachable, but nothing closes
+      // the transport (`fake.drop()` is deliberately NOT called here; that is the other test above).
+      // rpcTimeoutMs is 1000 in this harness; wait past it for the real setTimeout to fire.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      expect(await loginPromise).toEqual({ ok: false, error: "connection_lost" });
+      // The best-effort cancel still fires — it just must not be what the flow's own promise waits on.
+      expect(fake.sent.some((m) => m.type === "provider_auth_cancel_request")).toBe(true);
+    },
+  );
+
   it("events for an unknown/stale flowId are dropped with no callback invocation", async () => {
     const { client, fake } = await makeFacade();
     const seen: unknown[] = [];

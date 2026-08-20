@@ -614,7 +614,11 @@ export class PiStudioClient {
 
   /** Ask the caller for a value, racing its answer against an out-of-band `prompt_cancelled`
    *  (an OAuth callback can win first). Never lets an unanswered promise dangle: a caller refusal
-   *  or a failed respond RPC cancels the whole flow. */
+   *  or a failed `respond` RPC settles the whole flow as `connection_lost` — a best-effort
+   *  server-side cancel is fired alongside, but the flow's OWN promise does not wait on it (that
+   *  RPC is just as unreachable as the one that failed, so awaiting it left the dialog stuck
+   *  forever — the live defect this comment now documents, sprint-065/task-007).
+   */
   private async handleProviderAuthPrompt(
     flow: ActiveProviderAuthFlow,
     event: Record<string, unknown>,
@@ -667,6 +671,7 @@ export class PiStudioClient {
           .request("provider_auth_cancel_request", { flowId: flow.flowId })
           .catch(() => {});
       }
+      this.settleProviderAuthFlow(flow, { ok: false, error: "connection_lost" });
     }
   }
 

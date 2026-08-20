@@ -17,6 +17,8 @@ import type {
   PendingPermission,
   PersistenceHandle,
   ProviderRuntimeInfo,
+  ProviderUiRequest,
+  ProviderUiResponse,
   Unsubscribe,
 } from "../../provider-contract.js";
 
@@ -34,6 +36,7 @@ export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
+  supportsExtensionUi: true,
 };
 
 const MOCK_MODES: AgentModeDefinition[] = [
@@ -46,7 +49,10 @@ export interface MockSessionOptions {
   turnDelayMs?: number;
 }
 
-class MockAgentSession implements AgentSession {
+/** Exported so tests (this file's, and downstream sprint-066 task-003/004 daemon-level tests) can
+ *  cast a created session to reach `emitUiRequest`/`uiResponses`, which are deliberately not part
+ *  of the provider-neutral `AgentSession` contract. */
+export class MockAgentSession implements AgentSession {
   readonly provider = "mock";
   readonly id = randomUUID();
   readonly capabilities = MOCK_CAPABILITIES;
@@ -58,6 +64,12 @@ class MockAgentSession implements AgentSession {
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private mode = "default";
   private closed = false;
+
+  // Extension UI (features/extension-ui-rpc.md, sprint-066): no `pi` process exists to script this
+  // family, so the mock provider exposes a scripted emitter (`emitUiRequest`) plus a recorder for
+  // `respondToUi` calls, letting tasks 003-004 drive/assert the whole family without a child process.
+  private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
+  readonly uiResponses: { providerRequestId: string; response: ProviderUiResponse }[] = [];
 
   constructor(
     private readonly config: AgentSessionConfig,
@@ -183,6 +195,32 @@ class MockAgentSession implements AgentSession {
 
   respondToPermission(): Promise<void> {
     return Promise.resolve();
+  }
+
+  onUiRequest(cb: (req: ProviderUiRequest) => void): Unsubscribe {
+    this.uiSubscribers.add(cb);
+    return () => this.uiSubscribers.delete(cb);
+  }
+
+  respondToUi(providerRequestId: string, response: ProviderUiResponse): void {
+    this.uiResponses.push({ providerRequestId, response });
+  }
+
+  /** Test-only: push a scripted UI request to every subscriber, with sensible defaults for any
+   *  field the caller omits. Returns the request actually emitted (its `requestId` in particular),
+   *  so a test can answer it via `respondToUi` or assert against it directly. */
+  emitUiRequest(partial: Partial<ProviderUiRequest> = {}): ProviderUiRequest {
+    const req: ProviderUiRequest = {
+      requestId: partial.requestId ?? randomUUID(),
+      method: partial.method ?? "confirm",
+      expectsResponse: partial.expectsResponse ?? true,
+      payload: partial.payload ?? {},
+      ...(partial.surfaceKey !== undefined ? { surfaceKey: partial.surfaceKey } : {}),
+      ...(partial.removed !== undefined ? { removed: partial.removed } : {}),
+      ...(partial.timeoutMs !== undefined ? { timeoutMs: partial.timeoutMs } : {}),
+    };
+    for (const cb of this.uiSubscribers) cb(req);
+    return req;
   }
 
   describePersistence(): PersistenceHandle | null {

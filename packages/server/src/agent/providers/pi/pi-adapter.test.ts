@@ -5,7 +5,9 @@ import { join } from "node:path";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import { PiAgentClient } from "./agent.js";
+import type { ProviderUiRequest, ProviderUiResponse } from "../../provider-contract.js";
+
+import { PI_CAPABILITIES, PiAgentClient } from "./agent.js";
 import { createPiEventMapper, mapPiEvent, mapToolCall } from "./event-mapper.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./rpc-transport.js";
 
@@ -217,6 +219,37 @@ function clientWithFake(extra?: Record<string, unknown>): {
     },
     binaryResolver: () => true,
     ...extra,
+  });
+  return { client, spawns };
+}
+
+/** Exposes `fire` publicly (protected on `FakeTransport`) so extension-UI tests can inject a raw
+ *  `extension_ui_request` event without scripting a full turn, and captures full `(command, params)`
+ *  pairs — the base `notifies: string[]` only records command names, dropping `params`, which is
+ *  exactly what the envelope-stamping assertions need to inspect. */
+class UiFakeTransport extends FakeTransport {
+  readonly notifyCalls: { command: string; params?: Record<string, unknown> }[] = [];
+
+  override notify(command: string, params?: Record<string, unknown>): void {
+    this.notifyCalls.push({ command, params });
+    super.notify(command);
+  }
+
+  fireRaw(event: unknown): void {
+    this.fire(event);
+  }
+}
+
+function clientWithUiFake(): { client: PiAgentClient; spawns: UiFakeTransport[] } {
+  const spawns: UiFakeTransport[] = [];
+  const client = new PiAgentClient({
+    command: ["pi", "--mode", "rpc"],
+    transportFactory: (args) => {
+      const t = new UiFakeTransport(args);
+      spawns.push(t);
+      return t;
+    },
+    binaryResolver: () => true,
   });
   return { client, spawns };
 }
@@ -985,6 +1018,259 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
     await session.run("do it");
 
     expect(spawns[0]?.notifies).toContain("prompt");
+    expect(events.map((e) => e.kind)).toContain("turn_completed");
+  });
+});
+
+describe("extension UI (sprint-066, task-002)", () => {
+  it("advertises supportsExtensionUi: true", () => {
+    expect(PI_CAPABILITIES.supportsExtensionUi).toBe(true);
+  });
+
+  it("the auto-cancel POC is gone: a dialog request gets no automatic response", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    session.onUiRequest!(() => {});
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "u1", method: "confirm", title: "t" });
+    expect(spawns[0]!.notifyCalls.map((c) => c.command)).not.toContain("extension_ui_response");
+  });
+
+  it("translates all nine documented methods with the correct expectsResponse", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    const fixtures: Record<string, boolean> = {
+      select: true,
+      confirm: true,
+      input: true,
+      editor: true,
+      notify: false,
+      setStatus: false,
+      setWidget: false,
+      setTitle: false,
+      set_editor_text: false,
+    };
+    let i = 0;
+    for (const method of Object.keys(fixtures)) {
+      spawns[0]!.fireRaw({ type: "extension_ui_request", id: `id-${i++}`, method });
+    }
+    expect(received.map((r) => r.method)).toEqual(Object.keys(fixtures));
+    for (const req of received) {
+      expect(req.expectsResponse, req.method).toBe(fixtures[req.method]);
+    }
+  });
+
+  it("namespaces setStatus/setWidget surface keys so the same extension key never collides", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "s1",
+      method: "setStatus",
+      statusKey: "my-ext",
+      statusText: "running",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "w1",
+      method: "setWidget",
+      widgetKey: "my-ext",
+      widgetLines: ["a"],
+    });
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "t1", method: "setTitle", title: "pi" });
+
+    expect(received[0]!.surfaceKey).toBe("status:my-ext");
+    expect(received[1]!.surfaceKey).toBe("widget:my-ext");
+    expect(received[0]!.surfaceKey).not.toBe(received[1]!.surfaceKey);
+    expect(received[2]!.surfaceKey).toBe("title");
+  });
+
+  it("notify and set_editor_text produce no surfaceKey", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "n1", method: "notify", message: "hi" });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "e1",
+      method: "set_editor_text",
+      text: "prefill",
+    });
+
+    expect(received[0]!.surfaceKey).toBeUndefined();
+    expect(received[1]!.surfaceKey).toBeUndefined();
+  });
+
+  it("setStatus without statusText and setWidget without widgetLines set removed: true; present ⇒ falsy", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "s1",
+      method: "setStatus",
+      statusKey: "k",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "s2",
+      method: "setStatus",
+      statusKey: "k",
+      statusText: "running",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "w1",
+      method: "setWidget",
+      widgetKey: "k",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "w2",
+      method: "setWidget",
+      widgetKey: "k",
+      widgetLines: ["a"],
+    });
+
+    expect(received[0]!.removed).toBe(true);
+    expect(received[1]!.removed).toBeFalsy();
+    expect(received[2]!.removed).toBe(true);
+    expect(received[3]!.removed).toBeFalsy();
+  });
+
+  it("payload excludes type/id/method and retains every other field verbatim", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "sel1",
+      method: "select",
+      options: ["Allow", "Block"],
+      title: "Allow?",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "n1",
+      method: "notify",
+      message: "blocked",
+      notifyType: "warning",
+    });
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "w1",
+      method: "setWidget",
+      widgetKey: "k",
+      widgetLines: ["a"],
+      widgetPlacement: "belowEditor",
+    });
+
+    expect(received[0]!.payload).toEqual({ options: ["Allow", "Block"], title: "Allow?" });
+    expect(received[0]!.payload).not.toHaveProperty("id");
+    expect(received[0]!.payload).not.toHaveProperty("method");
+    expect(received[0]!.payload).not.toHaveProperty("type");
+    expect(received[1]!.payload).toEqual({ message: "blocked", notifyType: "warning" });
+    expect(received[2]!.payload).toEqual({
+      widgetKey: "k",
+      widgetLines: ["a"],
+      widgetPlacement: "belowEditor",
+    });
+  });
+
+  it("timeoutMs is populated from Pi's timeout when present, absent otherwise", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({
+      type: "extension_ui_request",
+      id: "c1",
+      method: "confirm",
+      timeout: 5000,
+    });
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "c2", method: "confirm" });
+
+    expect(received[0]!.timeoutMs).toBe(5000);
+    expect(received[1]!.timeoutMs).toBeUndefined();
+  });
+
+  it("respondToUi writes extension_ui_response with the entry's own id; a response body carrying id/type cannot override it", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+
+    const malicious = {
+      confirmed: true,
+      id: "some-other-dialog",
+      type: "not_extension_ui_response",
+    } as unknown as ProviderUiResponse;
+    session.respondToUi!("real-dialog-id", malicious);
+
+    const call = spawns[0]!.notifyCalls.find((c) => c.command === "extension_ui_response");
+    expect(call).toBeDefined();
+    expect(call!.command).toBe("extension_ui_response");
+    expect(call!.params?.id).toBe("real-dialog-id");
+    expect(call!.params?.confirmed).toBe(true);
+  });
+
+  it("an unknown method still emits with expectsResponse: false and no surfaceKey, and does not throw", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    session.onUiRequest!((req) => received.push(req));
+
+    expect(() =>
+      spawns[0]!.fireRaw({
+        type: "extension_ui_request",
+        id: "u1",
+        method: "someFutureThing",
+        anything: "kept",
+      }),
+    ).not.toThrow();
+
+    expect(received[0]).toMatchObject({
+      requestId: "u1",
+      method: "someFutureThing",
+      expectsResponse: false,
+    });
+    expect(received[0]!.surfaceKey).toBeUndefined();
+    expect(received[0]!.payload).toEqual({ anything: "kept" });
+  });
+
+  it("onUiRequest's returned Unsubscribe actually detaches the callback", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const received: ProviderUiRequest[] = [];
+    const unsub = session.onUiRequest!((req) => received.push(req));
+
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "u1", method: "notify" });
+    unsub();
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "u2", method: "notify" });
+
+    expect(received.map((r) => r.requestId)).toEqual(["u1"]);
+  });
+
+  it("non-UI events still flow through the ordinary event mapper unaffected", async () => {
+    const { client, spawns } = clientWithUiFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/tmp" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    session.onUiRequest!(() => {});
+
+    spawns[0]!.fireRaw({ type: "extension_ui_request", id: "u1", method: "notify" });
+    await session.run("hello");
+
     expect(events.map((e) => e.kind)).toContain("turn_completed");
   });
 });

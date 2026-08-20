@@ -38,6 +38,16 @@ describe("provider manifest types", () => {
     expect(agentCapabilityFlagsSchema.safeParse(partial).success).toBe(false);
   });
 
+  it("accepts supportsExtensionUi: true, false, and absent", () => {
+    expect(
+      agentCapabilityFlagsSchema.safeParse({ ...flags, supportsExtensionUi: true }).success,
+    ).toBe(true);
+    expect(
+      agentCapabilityFlagsSchema.safeParse({ ...flags, supportsExtensionUi: false }).success,
+    ).toBe(true);
+    expect(agentCapabilityFlagsSchema.safeParse(flags).success).toBe(true);
+  });
+
   it("enforces the provider id pattern", () => {
     expect(providerIdSchema.safeParse("pi").success).toBe(true);
     expect(providerIdSchema.safeParse("my-fork-1").success).toBe(true);

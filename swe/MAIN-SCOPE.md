@@ -204,7 +204,7 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
 | Relay       | Remote access                               | WebSocket + NaCl box   | Hosted or self-hosted (Go impl available)                                                    |
 | SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | Electron-only; daemon remains bound to remote `127.0.0.1:6767`; see `architecture/ssh-gateway-connections.md` |
-| MCP clients | Agent-to-agent control                      | Model Context Protocol | Daemon hosts MCP server at `/mcp/agents`                                                     |
+| MCP clients | Agent-to-agent control                      | Model Context Protocol | **Not implemented.** `agent/mcp-server.ts` holds a tool registry (17 tools) but nothing serves `/mcp/agents`, no `McpBackend` is implemented, no `daemon.mcp` config exists, and no spawned agent receives `--mcp-config` — so agents cannot reach it and `features/subagents.md` orchestration has never run |
 
 ### Configuration surface (selected env vars)
 
@@ -267,6 +267,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/cli.md](features/cli.md)                                       | feature      | Commander.js CLI command surface                                              |
 | [features/provider-auth-cli.md](features/provider-auth-cli.md)           | feature      | `pi-studio auth` login/status/logout reusing Pi's ModelRuntime locally (no daemon) |
 | [features/provider-auth-rpc.md](features/provider-auth-rpc.md)           | feature      | Daemon-side provider auth RPCs: list/login/respond/cancel/logout + flow-event push |
+| [features/extension-ui-rpc.md](features/extension-ui-rpc.md)             | feature      | Daemon-side generic `agent_ui_*` bridge for Pi extension UI (dialogs, retained widget/status surfaces) |
 | [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
 | [features/preinstalled-extensions.md](features/preinstalled-extensions.md) | feature      | Curated Pi extension packs auto-installed/updated by the daemon (additive-only sync) |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |

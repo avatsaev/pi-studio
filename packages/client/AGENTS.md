@@ -179,19 +179,19 @@ const client = new PiStudioClient(daemonClient);
 
 ### Methods
 
-| Method                       | Returns                    | Description                                    |
-| ---------------------------- | -------------------------- | ---------------------------------------------- |
-| `createAgent(req)`           | `Promise<{ agentId, … }>`  | `create_agent_request` RPC                     |
-| `agent(agentId)`             | `PiStudioAgentActions`     | Scoped handle for an existing agent            |
-| `workspace(workspaceId)`     | `PiStudioWorkspaceActions` | Scoped handle for a workspace                  |
-| `providers`                  | `PiStudioProviderActions`  | List providers/models/modes, refresh snapshot  |
-| `onAgentUpdate(handler)`     | unsubscribe fn             | Subscribe to all `agent_update` broadcasts     |
-| `onWorkspaceUpdate(handler)` | unsubscribe fn             | Subscribe to all `workspace_update` broadcasts |
-| `listProviderAuth()`         | `Promise<ProviderAuthEntry[]>` | `provider_auth_list_request` RPC           |
-| `loginProvider(p, t, cb, o)` | `Promise<{ ok, error? }>`  | Drives one login flow (see below)               |
-| `logoutProvider(provider)`   | `Promise<{ stillConfigured }>` | `provider_auth_logout_request` RPC          |
-| `hasProviderAuthCapability()`| `boolean`                  | Whether the daemon advertised `providerAuth`    |
-| `connection`                 | `DaemonClient`             | Escape hatch to the underlying driver          |
+| Method                        | Returns                        | Description                                    |
+| ----------------------------- | ------------------------------ | ---------------------------------------------- |
+| `createAgent(req)`            | `Promise<{ agentId, … }>`      | `create_agent_request` RPC                     |
+| `agent(agentId)`              | `PiStudioAgentActions`         | Scoped handle for an existing agent            |
+| `workspace(workspaceId)`      | `PiStudioWorkspaceActions`     | Scoped handle for a workspace                  |
+| `providers`                   | `PiStudioProviderActions`      | List providers/models/modes, refresh snapshot  |
+| `onAgentUpdate(handler)`      | unsubscribe fn                 | Subscribe to all `agent_update` broadcasts     |
+| `onWorkspaceUpdate(handler)`  | unsubscribe fn                 | Subscribe to all `workspace_update` broadcasts |
+| `listProviderAuth()`          | `Promise<ProviderAuthEntry[]>` | `provider_auth_list_request` RPC               |
+| `loginProvider(p, t, cb, o)`  | `Promise<{ ok, error? }>`      | Drives one login flow (see below)              |
+| `logoutProvider(provider)`    | `Promise<{ stillConfigured }>` | `provider_auth_logout_request` RPC             |
+| `hasProviderAuthCapability()` | `boolean`                      | Whether the daemon advertised `providerAuth`   |
+| `connection`                  | `DaemonClient`                 | Escape hatch to the underlying driver          |
 
 ### `PiStudioAgentActions` (from `agent(id)`)
 
@@ -216,7 +216,7 @@ method on this facade.
 | `delete()`                     | `delete_agent` (hard delete — no trace, cannot resume)                                                                                                                                                              |
 | `onUpdate(handler)`            | Subscribe to `agent_update` for this agent only                                                                                                                                                                     |
 | `timeline.fetch(opts?)`        | `fetch_agent_timeline_request` — **one bounded page** (≤ `limit`, server default 200); refetch from `endCursor` while `hasNewer` to get the whole history                                                           |
-| `timeline.subscribe(handler)`  | Subscribe to `agent_stream` for this agent only — `handler(event, meta)`, `meta.timestamp`/`meta.seq` forward the daemon-stamped row metadata alongside the event                                                  |
+| `timeline.subscribe(handler)`  | Subscribe to `agent_stream` for this agent only — `handler(event, meta)`, `meta.timestamp`/`meta.seq` forward the daemon-stamped row metadata alongside the event                                                   |
 | `sessionStats()`               | `agent_session_stats_request` (`/session` — tokens/cost/context-window usage)                                                                                                                                       |
 | `compact(customInstructions?)` | `agent_compact_request` (`/compact`)                                                                                                                                                                                |
 | `newSession()`                 | `agent_new_session_request` (`/new`)                                                                                                                                                                                |
@@ -265,13 +265,27 @@ regression test in `pistudio-client.test.ts`:
   `notify`-sourced events (`info`/`auth_url`/`device_code`/`progress`, plus unknown future kinds).
   `prompt`, `prompt_cancelled` and `done` are consumed by this driver and never reach `onEvent`.
 - **`ProviderAuthPromptUi.signal` aborts when that prompt is retired** — the callback-wins race, or
-  the flow ending. This is the *only* notice a view gets: `prompt_cancelled` rejects the driver's
+  the flow ending. This is the _only_ notice a view gets: `prompt_cancelled` rejects the driver's
   internal race and the promise the view returned is discarded, so nothing else tells it the
   question is gone. A view that ignores it leaves a dead `manual_code` input on screen (real bug,
   fixed in sprint-065/task-005).
 - **`opts.signal`** cancels the whole flow server-side; a socket drop settles
   `{ ok: false, error: "connection_lost" }` rather than hanging; events for a stale flowId are
-  dropped; every subscription is released exactly once when the flow settles.
+  dropped; every subscription is released exactly once when the flow settles. This guarantee used
+  to have a gap: a `respond`/`provider_auth_respond_request` RPC that timed out (the daemon peer
+  unreachable but the client's own socket never closing — e.g. the daemon dying behind a relay,
+  where the client's WS to the relay itself stays open) left `handleProviderAuthPrompt`'s catch
+  block firing a best-effort `provider_auth_cancel_request` and swallowing the outcome, never
+  calling `settleProviderAuthFlow` — the dialog hung forever with no error, discovered live during
+  sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
+  `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
+  alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
+  way — `web-client`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
+  agent turns), so a relay-mediated daemon death is _correctly_ reported now, just not _quickly_;
+  the relay protocol has no peer-liveness signal for the client to react to sooner
+  (`@av-pi-studio/relay`'s `RelaySessionBridge` only logs `onUnregister` server-side, it never
+  forwards a "peer left" frame to the remaining peer) — a real gap, but a relay-protocol design
+  question outside a login-dialog bug fix's scope.
 
 ### `importAgentSession(daemon, args)` (named export)
 

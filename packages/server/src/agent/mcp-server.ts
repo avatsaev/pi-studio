@@ -3,16 +3,39 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import type { AgentUiPendingRequest, AgentUiResponse } from "@av-pi-studio/protocol";
+
 import { PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
 
 /**
- * Daemon MCP server (features/mcp-server.md). Hosts orchestration tools at `/mcp/agents` so agents
- * can control other agents + the daemon. The tool set mirrors the WS/CLI control plane. When
- * `daemon.mcp.injectIntoAgents` is enabled, a per-agent `--mcp-config` is generated for Pi (adapter
- * OAuth disabled); user/project MCP files are never touched.
+ * Daemon MCP tool registry (features/mcp-server.md). Defines the orchestration tools that are
+ * *intended* to be hosted at `/mcp/agents` so agents can control other agents + the daemon, and
+ * mirrors the WS/CLI control plane. Owns the tool registry, `create_agent` semantics, and
+ * injection-config generation, all injectable for tests.
  *
- * The transport (HTTP server) is wired in bootstrap; this module owns the tool registry, the
- * `create_agent` semantics, and the injection-config generation, all injectable for tests.
+ * NOT REACHABLE AT RUNTIME. Nothing in this repo constructs an `McpServer` outside
+ * `mcp-server.test.ts`. Specifically missing:
+ *   - no HTTP route serving `MCP_ENDPOINT_PATH` in either bootstrap;
+ *   - no `McpBackend` implementation anywhere in production code;
+ *   - no `daemon.mcp` config section (`enabled`/`injectIntoAgents` are read from deps only);
+ *   - `buildPiArgs` accepts `mcpConfigPath`, but all three Pi spawn sites pass only
+ *     `appendSystemPrompt`, so no agent is ever handed a `--mcp-config`.
+ * Sprint-010/task-001 built this registry and deferred the transport as "a bootstrap step"; that
+ * step was never taken. Consequence: every tool here is dormant — including
+ * `list_pending_permissions`/`respond_to_permission` (sprint-010) and
+ * `list_pending_ui_requests`/`respond_to_ui_request` (sprint-066/task-005) — and the
+ * agent-to-agent orchestration in `features/subagents.md` has never run.
+ *
+ * Two things a future wiring task must handle, neither of which is a simple hookup:
+ *   1. `callTool()` is a plain dispatcher, NOT an MCP protocol implementation. A real endpoint
+ *      needs JSON-RPC plus the `initialize`/`tools/list`/`tools/call` handshake over streamable
+ *      HTTP or SSE. That layer does not exist here.
+ *   2. `injectionConfig()` hardcodes `auth: false, oauth: false`, but the daemon's HTTP server is
+ *      built with `authenticate: (req) => auth.authenticateHttp(req)` (bootstrap.ts) and production
+ *      binds `0.0.0.0:6767` by default. Serving these tools unauthenticated would expose
+ *      `create_agent`/`kill_agent`/`send_agent_prompt` to the network. Bind the route to loopback
+ *      or carry a token in the injected config — the two existing code paths contradict each other
+ *      today only because neither runs.
  */
 
 export const MCP_ENDPOINT_PATH = "/mcp/agents";
@@ -63,6 +86,15 @@ export interface McpBackend {
     agentId?: string,
   ): Array<{ requestId: string; agentId: string; toolName?: string }>;
   respondToPermission(requestId: string, response: unknown): { resolved: boolean };
+  /** Extension UI (features/extension-ui-rpc.md § MCP mirror) — closes the deadlock where an
+   *  orchestrating agent can't answer a child's extension questionnaire. Mirrors the permission
+   *  pair's shape; its own error vocabulary ("unknown_ui_request"/"unsupported") is intentionally
+   *  distinct — see the tool registration below for why. */
+  listPendingUiRequests(agentId?: string): AgentUiPendingRequest[];
+  respondToUiRequest(
+    requestId: string,
+    response: AgentUiResponse,
+  ): { resolved: boolean; error?: string };
   listProviders(): unknown;
   inspectProvider?(providerId: string): unknown;
   listModels(providerId: string): unknown;
@@ -256,6 +288,31 @@ export class McpServer {
       (args) => {
         const result = b.respondToPermission(args.requestId, args.response);
         return result.resolved ? { ok: true } : { ok: false, error: "unknown_permission" };
+      },
+    );
+
+    // Extension UI (features/extension-ui-rpc.md § MCP mirror). Error vocabulary intentionally
+    // differs from `respond_to_permission`'s `unknown_permission`/the WS side's `not_found`: a
+    // `resolved:false` with no `error` (never happens for this backend) and an `unsupported`
+    // result are distinct outcomes a caller must not conflate with "unknown" — collapsing a live
+    // dialog on a provider without `respondToUi` into `unknown_ui_request` would report it as
+    // gone when it is actually still answerable over WS by a human.
+    this.registerTool(
+      "list_pending_ui_requests",
+      z.object({ agentId: z.string().optional() }),
+      (args) => ({ ok: true, requests: b.listPendingUiRequests(args.agentId) }),
+    );
+
+    this.registerTool(
+      "respond_to_ui_request",
+      z.object({ requestId: z.string(), response: z.unknown() }),
+      (args) => {
+        const result = b.respondToUiRequest(args.requestId, args.response as AgentUiResponse);
+        if (result.resolved) return { ok: true };
+        return {
+          ok: false,
+          error: result.error === "unsupported" ? "unsupported" : "unknown_ui_request",
+        };
       },
     );
 

@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ProviderAuthInfo } from "@av-pi-studio/protocol";
 import {
   Button,
@@ -18,6 +18,7 @@ import {
   Spinner,
   StatusBadge,
 } from "@pi-studio-ui/components/primitives/index.js";
+import { useProviderAuthList } from "@pi-studio-ui/hooks/use-provider-auth-list.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { providerAuthBadge, providerAuthLoginChoices } from "./provider-auth-presentation.js";
@@ -33,19 +34,7 @@ export function ModelProvidersPanel() {
   const [loggingOutId, setLoggingOutId] = useState<string | null>(null);
   const [rowNotes, setRowNotes] = useState<Record<string, string>>({});
 
-  const {
-    data: providers,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: rpcKeys.providerAuthList(),
-    queryFn: () => {
-      if (!client) throw new Error("not connected");
-      return client.listProviderAuth();
-    },
-    enabled: Boolean(client),
-  });
+  const { data: providers, isLoading, isError, error } = useProviderAuthList();
 
   async function handleLogout(provider: ProviderAuthInfo) {
     if (!client) return;

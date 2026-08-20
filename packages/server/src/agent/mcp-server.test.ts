@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
+import { AgentUiService } from "./agent-ui/agent-ui-service.js";
 import { McpServer, MCP_SERVER_KEY, type McpBackend } from "./mcp-server.js";
+import type { AgentSession, ProviderUiRequest, ProviderUiResponse } from "./provider-contract.js";
 
 function makeBackend(overrides: Partial<McpBackend> = {}): {
   backend: McpBackend;
@@ -29,6 +31,18 @@ function makeBackend(overrides: Partial<McpBackend> = {}): {
     },
     listPendingPermissions: () => [{ requestId: "p1", agentId: "a1", toolName: "bash" }],
     respondToPermission: (requestId) => ({ resolved: requestId === "p1" }),
+    listPendingUiRequests: () => [
+      {
+        requestId: "u1",
+        agentId: "a1",
+        method: "select",
+        expectsResponse: true,
+        payload: { question: "which?" },
+        createdAt: Date.now(),
+      },
+    ],
+    respondToUiRequest: (requestId) =>
+      requestId === "u1" ? { resolved: true } : { resolved: false, error: "unknown_ui_request" },
     listProviders: () => [{ id: "mock" }],
     listModels: () => [{ id: "mock-1" }],
     ...overrides,
@@ -114,6 +128,156 @@ describe("respond_to_permission", () => {
   });
 });
 
+describe("extension UI mirror (sprint-066/task-005)", () => {
+  it("list_pending_ui_requests returns the backend's pending set", async () => {
+    const { backend } = makeBackend();
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    const result = await mcp.callTool("list_pending_ui_requests", {});
+    expect(result).toMatchObject({ ok: true, requests: [{ requestId: "u1", agentId: "a1" }] });
+  });
+
+  it("respond_to_ui_request resolves a pending id, errors unknown_ui_request on a stale one", async () => {
+    const { backend } = makeBackend();
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    expect(
+      (await mcp.callTool("respond_to_ui_request", { requestId: "u1", response: { value: "ok" } }))
+        .ok,
+    ).toBe(true);
+    const unknown = await mcp.callTool("respond_to_ui_request", {
+      requestId: "nope",
+      response: {},
+    });
+    expect(unknown).toMatchObject({ ok: false, error: "unknown_ui_request" });
+  });
+
+  it("distinguishes unsupported from unknown_ui_request, never collapsing the two", async () => {
+    const { backend } = makeBackend({
+      respondToUiRequest: () => ({ resolved: false, error: "unsupported" }),
+    });
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    const result = await mcp.callTool("respond_to_ui_request", { requestId: "u1", response: {} });
+    expect(result).toMatchObject({ ok: false, error: "unsupported" });
+  });
+});
+
+/** The exact delegation a future bootstrap-wiring task must paste into the real `McpBackend`
+ *  object: `listPending` directly, `respond` mapped so `unsupported` never collapses into
+ *  `unknown_ui_request` (task's own "Notes"). Proven here against the real service, not a fake. */
+function backendOver(
+  service: AgentUiService,
+): Pick<McpBackend, "listPendingUiRequests" | "respondToUiRequest"> {
+  return {
+    listPendingUiRequests: (agentId) => service.listPending(agentId),
+    respondToUiRequest: (requestId, response) => {
+      const result = service.respond(requestId, response);
+      return { resolved: result.ok, error: result.error };
+    },
+  };
+}
+
+function wireService(): {
+  service: AgentUiService;
+  fire: (req: ProviderUiRequest) => void;
+  calls: unknown[][];
+  broadcast: ReturnType<typeof vi.fn>;
+} {
+  const broadcast = vi.fn();
+  const service = new AgentUiService({ broadcast, getActiveSessions: () => [] });
+  let cb: ((req: ProviderUiRequest) => void) | undefined;
+  const calls: unknown[][] = [];
+  const session = {
+    onUiRequest(callback: (req: ProviderUiRequest) => void) {
+      cb = callback;
+      return () => {
+        cb = undefined;
+      };
+    },
+    respondToUi(providerRequestId: string, response: ProviderUiResponse) {
+      calls.push([providerRequestId, response]);
+    },
+  } as unknown as AgentSession;
+  service.attach("a1", session);
+  return { service, fire: (req) => cb?.(req), calls, broadcast };
+}
+
+describe("extension UI mirror against a real AgentUiService (sprint-066/task-005)", () => {
+  it("mirrors listPending/respond exactly: resolve, receive the answer, broadcast agent_ui_resolved", async () => {
+    const { service, fire, calls, broadcast } = wireService();
+    fire({ requestId: "p1", method: "select", expectsResponse: true, payload: { q: "which?" } });
+    const { backend } = makeBackend(backendOver(service));
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+
+    const listed = await mcp.callTool("list_pending_ui_requests", { agentId: "a1" });
+    const wireId = (listed.requests as Array<{ requestId: string }>)[0].requestId;
+
+    const result = await mcp.callTool("respond_to_ui_request", {
+      requestId: wireId,
+      response: { value: "yes" },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([["p1", { value: "yes" }]]);
+    const resolved = broadcast.mock.calls
+      .map((c) => (c[1] as { message: Record<string, unknown> }).message)
+      .find((m) => m.type === "agent_ui_resolved");
+    expect(resolved).toMatchObject({ requestId: wireId, agentId: "a1", reason: "answered" });
+  });
+
+  it("a fire-and-forget request was never pending: answering it reports unknown_ui_request", async () => {
+    const { service, fire } = wireService();
+    fire({ requestId: "p1", method: "notify", expectsResponse: false, payload: {} });
+    const { backend } = makeBackend(backendOver(service));
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    expect(await mcp.callTool("list_pending_ui_requests", {})).toMatchObject({
+      ok: true,
+      requests: [],
+    });
+    const result = await mcp.callTool("respond_to_ui_request", { requestId: "p1", response: {} });
+    expect(result).toMatchObject({ ok: false, error: "unknown_ui_request" });
+  });
+
+  it("a dialog on a provider without respondToUi reports unsupported, not unknown_ui_request", async () => {
+    const broadcast = vi.fn();
+    const service = new AgentUiService({ broadcast, getActiveSessions: () => [] });
+    let cb: ((req: ProviderUiRequest) => void) | undefined;
+    const session = {
+      onUiRequest(callback: (req: ProviderUiRequest) => void) {
+        cb = callback;
+        return () => {};
+      },
+    } as unknown as AgentSession;
+    service.attach("a1", session);
+    cb?.({ requestId: "p1", method: "select", expectsResponse: true, payload: {} });
+
+    const { backend } = makeBackend(backendOver(service));
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    const listed = await mcp.callTool("list_pending_ui_requests", {});
+    const wireId = (listed.requests as Array<{ requestId: string }>)[0].requestId;
+    const result = await mcp.callTool("respond_to_ui_request", { requestId: wireId, response: {} });
+    expect(result).toMatchObject({ ok: false, error: "unsupported" });
+  });
+
+  it("MCP and WS race for the same dialog: the loser gets a not-found style error on its own surface", async () => {
+    const { service, fire, calls } = wireService();
+    fire({ requestId: "p1", method: "select", expectsResponse: true, payload: {} });
+    const { backend } = makeBackend(backendOver(service));
+    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
+    const listed = await mcp.callTool("list_pending_ui_requests", {});
+    const wireId = (listed.requests as Array<{ requestId: string }>)[0].requestId;
+
+    // WS answers first (direct service call, as the router would).
+    const wsResult = service.respond(wireId, { value: "ws-wins" });
+    expect(wsResult.ok).toBe(true);
+
+    // MCP's answer for the same id loses: unknown_ui_request, not a second delivery.
+    const mcpResult = await mcp.callTool("respond_to_ui_request", {
+      requestId: wireId,
+      response: { value: "mcp-loses" },
+    });
+    expect(mcpResult).toMatchObject({ ok: false, error: "unknown_ui_request" });
+    expect(calls).toEqual([["p1", { value: "ws-wins" }]]);
+  });
+});
+
 describe("MCP injection config", () => {
   it("writes a per-agent --mcp-config under <home>/mcp with OAuth disabled", async () => {
     const { backend } = makeBackend();
@@ -164,6 +328,8 @@ describe("MCP disabled", () => {
       "respond_to_permission",
       "list_agents",
       "list_providers",
+      "list_pending_ui_requests",
+      "respond_to_ui_request",
     ]) {
       expect(names).toContain(expected);
     }

@@ -96,6 +96,13 @@ src/
 | `providerAuthRespondRequestSchema` / `ProviderAuthRespondRequest`, `providerAuthRespondResponseSchema` / `ProviderAuthRespondResponse` | schema + type | `provider_auth_respond_request` (`flowId`, `promptId`, `value`) — answers a pending prompt; `{ ok: false, error: "not_found" }` for an unknown/stale/not-owned flowId or promptId (never leaks which) |
 | `providerAuthCancelRequestSchema` / `ProviderAuthCancelRequest`, `providerAuthCancelResponseSchema` / `ProviderAuthCancelResponse` | schema + type | `provider_auth_cancel_request` (`flowId`) — unconditionally idempotent, `{ ok: boolean }` only, **no `error` field on the wire** even for an unknown/not-owned flowId |
 | `providerAuthLogoutRequestSchema` / `ProviderAuthLogoutRequest`, `providerAuthLogoutResponseSchema` / `ProviderAuthLogoutResponse` | schema + type | `provider_auth_logout_request` (`provider`) — response `{ ok, stillConfigured?, error? }`; `stillConfigured` flags an ambient credential (e.g. env var) surviving the logout |
+| `agentUiPendingRequestSchema` / `AgentUiPendingRequest` | schema + type | One pending extension-UI dialog: `requestId` (daemon-minted), `agentId`, `method`, `expectsResponse`, `payload`, optional `surfaceKey`/`timeoutMs`, `createdAt` |
+| `agentUiSurfaceSchema` / `AgentUiSurface` | schema + type | One retained, last-value-wins extension-UI surface (status/widget/title): `agentId`, `method`, `surfaceKey`, `payload`, `updatedAt` |
+| `agentUiRequestSchema` / `AgentUiRequest` | schema + type | `agent_ui_request` — daemon→client broadcast, one per provider UI event (dialog or fire-and-forget); `payload` is opaque, never interpreted by the daemon |
+| `agentUiResolvedSchema` / `AgentUiResolved` | schema + type | `agent_ui_resolved` — broadcast that a dialog is no longer answerable; `reason: "answered" \| "aborted" \| "timeout"` |
+| `agentUiResponseSchema` / `AgentUiResponse` | schema + type | The answer body forwarded to the provider verbatim — every field optional/passthrough, no per-method shape validation (mirrors `respondToPermission`'s `response: unknown`) |
+| `agentUiRespondRequestSchema` / `AgentUiRespondRequest`, `agentUiRespondResponseSchema` / `AgentUiRespondResponse` | schema + type | `agent_ui_respond_request` (`uiRequestId`, `response`) — answers a pending dialog; response `{ ok, error? }`, `error: "not_found" \| "unsupported"` (open string, not enumerated) |
+| `agentUiListRequestSchema` / `AgentUiListRequest`, `agentUiListResponseSchema` / `AgentUiListResponse` | schema + type | `agent_ui_list_request` (optional `agentId`) — reconnect catch-up: current pending dialogs + retained surfaces, one agent or all |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -124,12 +131,21 @@ progress push for the `provider_auth_*` RPC family (`kind: "info" | "auth_url" |
 it is the established pattern for a per-session progress push that is not itself a durable,
 multi-client RPC response.
 
+**`agent_ui_*` — real union members, not a passthrough push.** Unlike every family above,
+`agentUiRequestSchema`/`agentUiResolvedSchema`/`agentUiRespondRequestSchema`/`-ResponseSchema`/
+`agentUiListRequestSchema`/`-ResponseSchema` are all registered directly in `sessionMessageSchema`'s
+discriminated union (root `AGENTS.md`'s § Protocol overview). `payload` on `agentUiRequestSchema`/
+`agentUiPendingRequestSchema` is intentionally `z.unknown()` (well, an untyped passthrough object) —
+the daemon forwards whatever the provider adapter produced without validating per-method shape; only
+the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, optional `surfaceKey`/
+`removed`/`timeoutMs`) are real schema.
+
 ### `client-capabilities.ts`
 
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`
@@ -176,7 +192,11 @@ Parses a daemon target string into an `EndpointDescriptor`:
 ### `provider-manifest.ts`
 
 UI-only scaffolding types:
-- `ProviderDefinition`, `ProviderMode`, `AgentCapabilityFlags`
+- `ProviderDefinition`, `ProviderMode`, `AgentCapabilityFlags` — includes `supportsExtensionUi?:
+  boolean` (sprint-066): UI-presentation metadata only, like every other flag in this file (see its
+  own header comment) — it does **not** gate whether the daemon forwards extension UI traffic (the
+  Pi adapter and the mock provider both do so unconditionally); both `pi` and `mock`
+  (`PI_CAPABILITIES`/`MOCK_CAPABILITIES`, `packages/server/AGENTS.md`) set it `true`
 - `colorTierSchema` — `safe | moderate | dangerous | planning` (drives UI color)
 - `providerIdSchema` — must match `/^[a-z][a-z0-9-]*$/`
 

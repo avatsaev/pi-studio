@@ -28,6 +28,8 @@ import { expandHome } from "../files/resolve-path.js";
 
 import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
+import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
+import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService, getTimeline } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
@@ -231,13 +233,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const resolveClient = (provider: string): AgentClient =>
     resolveProviderClient(provider, config, { logger });
 
-  // ── Disk-persisted agent manager (recovers agents on boot) ───────────────────
-  const manager = new AgentManager({
-    home,
-    saveAgent: (record) => saveAgent(home, record),
-    loadAllAgents: () => loadAllAgents(home),
-  });
-
   // ── Broadcast helper ─────────────────────────────────────────────────────────
   // See `wrapSessionEnvelope` above for the full rationale.
   const broadcast = (sessions: Iterable<Session>, message: unknown) => {
@@ -256,13 +251,28 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = (): Session[] => [...sessionsHolder.sessions, ...relaySessions];
 
+  // ── Extension UI bridge (features/extension-ui-rpc.md) — constructed before the manager so
+  // `onSessionAttached` below can close over it.
+  const agentUiService = new AgentUiService({ broadcast, getActiveSessions, logger });
+
+  // ── Disk-persisted agent manager (recovers agents on boot) ───────────────────
+  const manager = new AgentManager({
+    home,
+    saveAgent: (record) => saveAgent(home, record),
+    loadAllAgents: () => loadAllAgents(home),
+    onSessionAttached: (agentId, session) => agentUiService.attach(agentId, session),
+    logger,
+  });
+
   // Forward archive/delete lifecycle events to every connected client (multi-tab/multi-client
   // sync) — `agent_update` for status changes is already broadcast per-call-site; these two are
-  // manager-internal and only reach clients via this subscription.
+  // manager-internal and only reach clients via this subscription. Also sweeps the extension-UI
+  // bridge: every pending dialog and retained surface for the agent is cancelled/dropped.
   manager.subscribe((event) => {
     if (event.type === "agent_archived" || event.type === "agent_deleted") {
       logger.info({ agentId: event.agentId }, event.type.replace("_", " "));
       broadcast(getActiveSessions(), { type: "session", message: event });
+      agentUiService.sweep(event.agentId, "aborted");
     }
   });
 
@@ -292,6 +302,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   const permissionService = new PermissionService({ manager, broadcast });
   permissionService.registerHandlers(registry, getActiveSessions);
+
+  registerAgentUiHandlers(registry, { service: agentUiService, logger });
 
   // ── Directory listing (agents) ────────────────────────────────────────────────
   registry.register("list_agents_request", (ctx) => ({

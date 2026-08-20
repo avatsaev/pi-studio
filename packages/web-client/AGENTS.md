@@ -290,7 +290,10 @@ src/
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
                            query), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
-                           "Slash-command picker")
+                           "Slash-command picker"), use-provider-auth-list (sprint-065/task-006 —
+                           wraps `listProviderAuth()` under `rpcKeys.providerAuthList()`; shared by
+                           `ModelProvidersPanel` and `Timeline`'s onboarding nudge so a login/logout
+                           in either surface invalidates one cache, never two fetch paths)
   features/
     connection/            ConnectionBar (the 42px top row: brand/version, status pill, url+password
                             fields, one primary connect/disconnect action, the two panel toggles —
@@ -381,16 +384,23 @@ src/
                             provider-auth-store.ts (the one-flow-at-a-time hand-off between the
                             panel's action and the dialog: pending login + `AbortController` +
                             `attempt`, which `LoginDialog` keys on so a retry remounts clean)
-    chat/                   ChatPanel, Timeline, TurnProgressBar (indeterminate 2px running-turn
-                            bar, mounted absolutely at the top of ChatPanel — see AGENTS.md
-                            § Invariants "Turn progress bar"), Composer (bordered card: textarea +
-                            bottom action toolbar), ModelMenu (that toolbar's model-selector
-                            searchable popup, sprint-043 — see AGENTS.md § Invariants "Model
-                            selector"), CommandMenu (composer's `/` slash-command popup — see
-                            AGENTS.md § Invariants "Slash-command picker") + slash-commands.ts
-                            (pure token/filter/apply logic, unit-tested), use-bottom-anchor (the
-                            timeline's bottom-anchor controller: gesture/scroll/resize listeners
-                            over timeline/bottom-anchor.ts's pure state machine), Attachments,
+    chat/                   ChatPanel, Timeline (+ onboarding-nudge.ts — sprint-065/task-006's
+                            pure `shouldShowProviderOnboardingNudge`: the empty-timeline slot
+                            doubles as the "connect a model provider" CTA when the daemon has the
+                            capability and every provider is a confirmed `configured: false`;
+                            `"unknown"` — a bounded-out `checkAuth()` — suppresses the nudge exactly
+                            like a confirmed `true` does, kept out of the `.tsx` for the same
+                            jsdom-less reason as `slash-commands.ts` below), TurnProgressBar
+                            (indeterminate 2px running-turn bar, mounted absolutely at the top of
+                            ChatPanel — see AGENTS.md § Invariants "Turn progress bar"), Composer
+                            (bordered card: textarea + bottom action toolbar), ModelMenu (that
+                            toolbar's model-selector searchable popup, sprint-043 — see AGENTS.md
+                            § Invariants "Model selector"), CommandMenu (composer's `/`
+                            slash-command popup — see AGENTS.md § Invariants "Slash-command
+                            picker") + slash-commands.ts (pure token/filter/apply logic,
+                            unit-tested), use-bottom-anchor (the timeline's bottom-anchor
+                            controller: gesture/scroll/resize listeners over
+                            timeline/bottom-anchor.ts's pure state machine), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
@@ -604,7 +614,7 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   every build target. Both are optional and independent — unset ⇒ byte-identical default
   Pi-Studio output. This is intentionally narrower than `src/brand/config.ts`'s `BrandConfig`
   scaffold (accent colors + logo triplet + links/legal, ported from `swe/features/
-  white-label-branding.md`'s clean-room spec): that scaffold has no build-time loader wired to it
+white-label-branding.md`'s clean-room spec): that scaffold has no build-time loader wired to it
   (`getActiveBrand()` always returns `DEFAULT_BRAND`) and is out of scope until a colors/logo
   override is actually requested — do not conflate the two or wire one through the other.
 - **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
@@ -816,9 +826,9 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
 - **A pointer-driven resize drag must capture its pointer.** `PaneDividers.tsx` and
   `primitives/ResizeHandle.tsx` own their gesture directly, so they take the sharper fix: an explicit
   `setPointerCapture(ev.pointerId)` on the handle at `pointerdown`. Without it the same iframe
-  swallowed the `pointermove`s *and* the terminating `pointerup`, so a divider dragged across an HTML
+  swallowed the `pointermove`s _and_ the terminating `pointerup`, so a divider dragged across an HTML
   preview stuck mid-resize and never released — leaving the move/up listeners, `col-resize` cursor and
-  `user-select: none` installed. Chrome grants *implicit* capture for touch only, never for mouse,
+  `user-select: none` installed. Chrome grants _implicit_ capture for touch only, never for mouse,
   which is why this only ever reproduced with a mouse. Capture retargets dispatch to the handle, from
   which events still bubble to the existing `window` listeners, so no listener restructuring is needed;
   both also clean up on `pointercancel` and release via a `hasPointerCapture` guard.
@@ -1132,7 +1142,7 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   state.
 - **Adding a file viewer.** `viewer-registry.ts`'s `VIEWER_REGISTRY: readonly ViewerDescriptor[]`
   (sprint-063) is the single registration point — `{ kind, component (lazy), extensions,
-  mimePrefixes?, liveRefresh }`. `liveRefresh` is a **required** field: a new `ViewerKind` cannot
+mimePrefixes?, liveRefresh }`. `liveRefresh` is a **required** field: a new `ViewerKind` cannot
   compile without an explicit choice, closing the gap where the pre-sprint-063 registry silently
   defaulted a forgotten kind to no live refresh. `VIEWER_BY_KIND`, the extension/MIME lookup
   tables, and `LIVE_REFRESH_KINDS` are all DERIVED from this one table at module load — never
@@ -1145,7 +1155,7 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   that can render inside an ordinary `file` tab.
 - **HTML preview sandbox (sprint-063/064).** `.html`/`.htm`/`.xhtml` files render through
   `HtmlViewer` inside a sandboxed `<iframe sandbox="allow-scripts" srcDoc={…}
-  referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object URL as the document
+referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object URL as the document
   (measured, headless Chromium 2026-08-19: a sandboxed opaque-origin document cannot `fetch()` a
   parent-created `blob:` URL — `data:` is the only inlining vehicle, which is why sprint-064
   inlines local assets as `data:` URIs rather than rewriting them to blobs). Four invariants a
@@ -1162,7 +1172,7 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
      attribute alone is what keeps the previewed document out of the app (invariant 1). The
      optional `<meta http-equiv="Content-Security-Policy">` `assembleHtmlPreview` injects when the
      per-tab "Block remote resources" toggle is on only decides whether the document may reach the
-     *network* — remote loading is **allowed by default** (a recorded product decision: the common
+     _network_ — remote loading is **allowed by default** (a recorded product decision: the common
      case is an agent-produced report pulling a charting library from a CDN, and the residual risk
      the sandbox already bounds to "the document can talk to the network", never to app state).
      `HTML_PREVIEW_BLOCKING_CSP` carries `data:` in every directive an inlined asset can hit
@@ -1182,20 +1192,20 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   4. **Local-asset confinement is a hard security gate, not a convenience filter (sprint-064).**
      With remote loading on by default, a document naming `../../../.ssh/id_rsa` and fetched on
      its behalf could read the bytes back out of its own inlined `data:` URI and post them
-     anywhere — `data:` is used for *every* asset kind (images, stylesheets, scripts, fonts,
+     anywhere — `data:` is used for _every_ asset kind (images, stylesheets, scripts, fonts,
      media), never an object URL, for the same fetch-a-`blob:`-from-a-sandbox reason as the
      document itself. `confineAssetRef` (`html-assets.ts`) percent-decodes a candidate **exactly
-     once, non-throwing** — *before* any resolution or normalization — then resolves it, lexically
+     once, non-throwing** — _before_ any resolution or normalization — then resolves it, lexically
      collapses `.`/`..` segments (`lib/paths.ts`'s `collapseDotSegments`), and requires the result
      sit under the confinement root via a segment-aware check (`path === root ||
-     path.startsWith(root + "/")`, never a bare string prefix, which would wrongly accept a
+path.startsWith(root + "/")`, never a bare string prefix, which would wrongly accept a
      `/ws-evil` sibling of `/ws`). The decode-before-normalize order is load-bearing: the reverse
      order lets `foo%2F..%2F..%2F..%2Fetc%2Fpasswd` pass the root check as one opaque segment (no
      literal `/` yet) and only decode back into a real traversal afterward. The confinement root
      is the tab's workspace root — narrowed to the document's own directory
      (`confinementRoot`) when that root **is** the home directory itself (a workspace-less tab
      falls back to `cwd = "~"`, `FilePanel.tsx`; with all of `$HOME` as the root, `~/.ssh/id_rsa`
-     would sit *inside* it and the gate would be vacuous exactly where it matters most). Caps
+     would sit _inside_ it and the gate would be vacuous exactly where it matters most). Caps
      (`ASSET_LIMITS`: 64 assets, 2 MiB per asset, 16 MiB inlined total — `withinAssetCaps` is the
      one pure predicate that enforces them, driven by `html-asset-loader.ts` as bytes arrive) keep
      a skip visible rather than a silent multi-hundred-MB `srcDoc` allocation. Known limitations,
@@ -1203,7 +1213,7 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
      `<img>`/`<source>`/`<video>`/`<audio>` attribute contexts and one nested level into an inlined
      stylesheet's own `url(...)` are resolved — `@import` chains beyond that one level, refs inside
      the document's own inline `<style>` blocks, and `<iframe src>` are never rewritten; only the
-     document itself is watched for live refresh, so an edited *asset* (not the document) updates
+     document itself is watched for live refresh, so an edited _asset_ (not the document) updates
      on the toolbar's Reload, not automatically (`htmlAssetBundleByPath` invalidation, distinct
      from the document's own content-hash-keyed refetch); an HTML-entity-bearing ref
      (`a&amp;b.png`) is matched **as authored** — no entity decoding happens anywhere in the
@@ -1684,7 +1694,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   regardless of CSS-module bundle order.
 - **Stacked dialogs: the lower one MUST suppress dismissal that belongs to the upper one
   (sprint-065).** Every `Dialog` portals its content to `body`, so two open dialogs are DOM
-  siblings, not nested — a pointerdown inside the upper dialog is an *outside* interaction on the
+  siblings, not nested — a pointerdown inside the upper dialog is an _outside_ interaction on the
   lower one, and Radix dismisses it. Clicking the login dialog's Cancel therefore closed the
   Settings dialog with it. `Dialog` forwards `onInteractOutside`/`onEscapeKeyDown` to
   `Dialog.Content` for exactly this; `SettingsDialog` uses two rules, and both are needed:
@@ -1693,10 +1703,31 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   defers a non-mouse `pointerdown` to the following `click`, so by dispatch time the upper dialog's
   own handler has already closed it and cleared the pending state, making the first rule test
   false. Any future second-level dialog needs the same treatment.
+- **`SettingsDialog` mounts on `settingsOpen`, not on the gear's own click handler
+  (sprint-065/task-006).** `ConnectionBar` lazy-imports the settings chunk only once it has ever
+  been opened, latched by a local `settingsEverOpened` boolean. That boolean is an `useEffect` on
+  `ui-store`'s shared `settingsOpen` field, not a side effect of the gear button's `onClick` —
+  `openSettings()` called from anywhere else (`Timeline`'s onboarding nudge is the first other
+  caller) must also trigger the first-mount import and render the dialog `open`. A latch owned
+  only by the click handler would leave the nudge's `openSettings()` silently no-op the first time
+  a session never touches the gear.
+- **Provider auth goes through SDK methods only, never `client.connection.request` directly, and
+  no secret ever enters a store or `localStorage` (sprint-065, live-verified task-007).** Every
+  `ModelProvidersPanel`/`LoginDialog` call goes through `listProviderAuth`/`loginProvider`/
+  `logoutProvider` on the `PiStudioClient` facade (`packages/client/AGENTS.md`'s Provider auth
+  section). A live sweep entering a real key through the browser confirmed: on a **direct**
+  connection the typed value appears in exactly one outbound WS frame
+  (`provider_auth_respond_request`, the wire's only legitimate carrier) and nowhere else; over the
+  **relay** transport it appears in zero frames at all (E2EE-wrapped before it ever reaches the
+  wire); in both cases `localStorage` and the DOM contain zero copies after submit, and the
+  daemon's own debug-level logs never print it. `qrcode` (`QrCode.tsx`) is a `devDependencies`
+  entry, not a runtime dependency — bundled only into the lazy `features/settings`/
+  `features/provider-auth` chunk (`ConnectionBar.tsx`'s comment on why the settings import is
+  deferred until the gear is first used).
 - **A flow started in an effect must gate its terminal dispatch on a ref, never a closure flag
   (sprint-065).** `<StrictMode>` is on (`main.tsx`), so effects run mount → cleanup → remount on
   the same fiber. `LoginDialog` needs a `startedRef` so the phantom remount does not start a second
-  login (`loginProvider()` throws when one is active), but that guard means the *only* live flow is
+  login (`loginProvider()` throws when one is active), but that guard means the _only_ live flow is
   the one the phantom cleanup already tore down. Gating its `done` dispatch on a per-closure `live`
   flag silently swallowed the terminal event: prompts still rendered and answered, the credential
   reached `auth.json`, and the dialog sat on the last prompt forever. Use a `mountedRef` the
@@ -1706,7 +1737,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
 - **A prompt's own `signal` is the only notice that it was retired (sprint-065).** Pi races a
   `manual_code` prompt against its OAuth callback server, so the callback winning cancels the
   question while the flow carries on. The SDK consumes `prompt_cancelled` itself — it rejects its
-  internal race and *discards* the promise the view returned — so `onEvent` never sees it and the
+  internal race and _discards_ the promise the view returned — so `onEvent` never sees it and the
   view has no other signal. `ProviderAuthPromptUi.signal` (added in `packages/client`) aborts for
   exactly that prompt; `LoginDialog` listens and drops the input, leaving the auth url, QR and
   status region up. Without it the paste field stayed on screen after the callback had already won.

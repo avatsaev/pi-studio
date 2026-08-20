@@ -41,6 +41,16 @@
   font-size: var(--pi-font-size-sm);
 }
 
+/* Onboarding nudge (sprint-065/task-006): the empty-timeline CTA when no model provider is
+   configured. Composes on top of `EmptyState`'s own `.emptyState` class (centered, muted, gap) —
+   only overrides the axis and fills the viewport the way `.empty` above does. */
+.nudge {
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  font-size: var(--pi-font-size-sm);
+}
+
 /* Shown only while the bottom anchor is detached (features/timeline-rendering.md § Autoscroll).
    Inset to match the viewport's own padding, so it lines up with the content column. */
 .jumpToLatest {

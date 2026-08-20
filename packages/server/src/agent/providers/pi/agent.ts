@@ -26,6 +26,8 @@ import type {
   PendingPermission,
   PersistenceHandle,
   ProviderRuntimeInfo,
+  ProviderUiRequest,
+  ProviderUiResponse,
   RunOptions,
   Unsubscribe,
 } from "../../provider-contract.js";
@@ -55,6 +57,7 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
+  supportsExtensionUi: true,
 };
 
 export interface PiClientDeps {
@@ -104,12 +107,56 @@ function modelIdFrom(model: unknown): string | undefined {
   return undefined;
 }
 
+/** Dialog methods block for a client answer; every other extension UI method is fire-and-forget
+ * (docs/rpc.md § Extension UI Protocol). The single place the blocking set is encoded — a future Pi
+ * release that adds a method only ever touches this constant. */
+const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+
+/**
+ * Translate a raw Pi `extension_ui_request` event onto the provider-neutral UI channel
+ * (features/extension-ui-rpc.md § Provider contract extension). All Pi-specific knowledge — which
+ * methods block, surface-key namespacing, clear-by-omission, the `timeout` field name — lives here;
+ * nothing above this adapter learns Pi's vocabulary.
+ *
+ * Surface-key namespacing is mandatory, not cosmetic: Pi's own docs reuse the same key
+ * (`"my-ext"`) for both `statusKey` and `widgetKey` (rpc.md:1273,1289) because the natural pattern
+ * is an extension naming everything after itself. Un-namespaced, a status tick would silently
+ * delete that extension's own widget.
+ */
+function translateUiRequest(rec: Record<string, unknown>): ProviderUiRequest {
+  const { type: _type, id, method, ...payload } = rec;
+  const methodName = method as string;
+
+  let surfaceKey: string | undefined;
+  let removed = false;
+  if (methodName === "setStatus") {
+    surfaceKey = `status:${rec.statusKey as string}`;
+    removed = rec.statusText === undefined;
+  } else if (methodName === "setWidget") {
+    surfaceKey = `widget:${rec.widgetKey as string}`;
+    removed = rec.widgetLines === undefined;
+  } else if (methodName === "setTitle") {
+    surfaceKey = "title";
+  }
+
+  return {
+    requestId: id as string,
+    method: methodName,
+    expectsResponse: DIALOG_METHODS.has(methodName),
+    payload,
+    ...(surfaceKey !== undefined ? { surfaceKey } : {}),
+    ...(removed ? { removed: true } : {}),
+    ...(typeof rec.timeout === "number" ? { timeoutMs: rec.timeout } : {}),
+  };
+}
+
 class PiAgentSession implements AgentSession {
   readonly provider: string;
   readonly id = randomUUID();
   readonly capabilities = PI_CAPABILITIES;
 
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
+  private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
   private readonly history: AgentStreamEvent[] = [];
   private readonly eventMapper = createPiEventMapper();
   private modes: AgentModeDefinition[] = [];
@@ -125,19 +172,12 @@ class PiAgentSession implements AgentSession {
     this.mode = opts.config.modeId ?? null;
     this.sessionFile = opts.sessionFile;
     transport.onEvent((raw) => {
-      // Auto-respond to extension UI dialogs so the agent never blocks waiting on a client that
-      // isn't wired for them (POC). Safe default: cancel (extension receives undefined/false).
       const rec = raw as Record<string, unknown>;
       if (rec?.type === "extension_ui_request") {
-        const method = rec.method as string | undefined;
-        if (
-          method === "select" ||
-          method === "confirm" ||
-          method === "input" ||
-          method === "editor"
-        ) {
-          this.transport.notify("extension_ui_response", { id: rec.id as string, cancelled: true });
-        }
+        // Forward to the daemon's UI channel — write no response here; the daemon answers, or
+        // nobody does (features/extension-ui-rpc.md § Behavior & algorithms).
+        const req = translateUiRequest(rec);
+        for (const cb of this.uiSubscribers) cb(req);
         return;
       }
       const event = this.eventMapper.map(raw);
@@ -317,6 +357,17 @@ class PiAgentSession implements AgentSession {
   respondToPermission(requestId: string, response: unknown): Promise<void> {
     this.transport.notify("respond_to_permission", { requestId, response });
     return Promise.resolve();
+  }
+
+  onUiRequest(cb: (req: ProviderUiRequest) => void): Unsubscribe {
+    this.uiSubscribers.add(cb);
+    return () => this.uiSubscribers.delete(cb);
+  }
+
+  /** Body spread first, `id` stamped last — a response containing an `id`/`type` key cannot
+   *  redirect which dialog it resolves (features/extension-ui-rpc.md § Public contract). */
+  respondToUi(providerRequestId: string, response: ProviderUiResponse): void {
+    this.transport.notify("extension_ui_response", { ...response, id: providerRequestId });
   }
 
   describePersistence(): PersistenceHandle | null {

@@ -25,10 +25,16 @@ import { useEffect, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 import { measureElement as measureElementDefault, useVirtualizer } from "@tanstack/react-virtual";
 import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
+import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { useProviderAuthList } from "@pi-studio-ui/hooks/use-provider-auth-list.js";
+import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { AT_BOTTOM_THRESHOLD_PX, lastRowUserId } from "@pi-studio-ui/timeline/bottom-anchor.js";
 import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
+import { shouldShowProviderOnboardingNudge } from "./onboarding-nudge.js";
 import { AssistantRow } from "./rows/AssistantRow.js";
 import { ReasoningRow } from "./rows/ReasoningRow.js";
 import { ToolCard } from "./rows/ToolCard.js";
@@ -102,6 +108,25 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
   const assetBase = normalizeCwd(session.cwd, homeDir);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Onboarding nudge (sprint-065/task-006): the empty-timeline slot doubles as the "you have no
+  // model provider configured" affordance. Mirrors `ConnectionBar`'s own capability check — see
+  // its comment for why `serverInfo` (a tracked field) is read reactively here instead of the
+  // imperative `client.hasProviderAuthCapability()`.
+  const connectionOpen = useConnectionStore((s) => s.status === "open");
+  const serverInfo = useConnectionStore((s) => s.serverInfo);
+  const providerAuthCapable = Boolean(serverInfo?.features?.["providerAuth"]);
+  const openSettings = useUiStore((s) => s.openSettings);
+  // Gated on capability so a daemon without the feature never sees this RPC issued from this
+  // path; gated on `rows.length === 0` because that is the only state this nudge can ever show
+  // in, keeping the query idle for the rest of a conversation's lifetime.
+  const { data: providersForNudge } = useProviderAuthList(
+    rows.length === 0 && connectionOpen && providerAuthCapable,
+  );
+  const showOnboardingNudge = shouldShowProviderOnboardingNudge(
+    providerAuthCapable,
+    providersForNudge,
+  );
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -153,7 +178,17 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
           and re-attach the virtualizer (and its listeners) on the first message of a chat. */}
       <div className={styles.viewport} ref={scrollRef}>
         {rows.length === 0 ? (
-          !running && <div className={styles.empty}>No messages yet — say something to start.</div>
+          !running &&
+          (showOnboardingNudge ? (
+            <EmptyState className={styles.nudge}>
+              <span>No messages yet — connect a model provider to get started.</span>
+              <Button size="xs" variant="secondary" onClick={() => openSettings()}>
+                Connect a model provider
+              </Button>
+            </EmptyState>
+          ) : (
+            <div className={styles.empty}>No messages yet — say something to start.</div>
+          ))
         ) : (
           <div className={styles.inner} style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {

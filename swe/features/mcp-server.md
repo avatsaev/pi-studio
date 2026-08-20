@@ -5,6 +5,30 @@
 > [schedules-heartbeats.md](schedules-heartbeats.md), [terminals.md](terminals.md),
 > [worktrees.md](worktrees.md), [agent-providers.md](agent-providers.md)
 
+> **Implementation status (verified 2026-08-20): NOT DELIVERED — surface only.**
+> Everything below is the intended contract, not shipped behavior. `packages/server/src/agent/
+> mcp-server.ts` holds the tool registry, `create_agent` semantics, and the injection-config
+> generator (sprint-010/task-001, fully unit-tested). **Nothing else exists**: no HTTP route serves
+> `/mcp/agents` in either bootstrap, no `McpBackend` is implemented in production code, there is no
+> `daemon.mcp` config section, and although `buildPiArgs` accepts a `mcpConfigPath`, all three Pi
+> spawn sites pass only `appendSystemPrompt` — so no agent is ever handed a `--mcp-config`.
+> Sprint-010/task-001's own summary deferred the transport as "a bootstrap step"; that step was
+> never taken, so **no agent has ever called any tool listed here.**
+>
+> Two non-trivial problems a wiring sprint must solve (neither is a simple hookup):
+> 1. `McpServer.callTool()` is a plain dispatcher, **not** an MCP protocol implementation — a real
+>    endpoint needs JSON-RPC plus the `initialize`/`tools/list`/`tools/call` handshake over
+>    streamable HTTP or SSE. That layer does not exist.
+> 2. `injectionConfig()` hardcodes `auth: false, oauth: false`, but the daemon's HTTP server is
+>    built with `authenticate: (req) => auth.authenticateHttp(req)` and production binds
+>    `0.0.0.0:6767` by default. Serving these tools unauthenticated would expose `create_agent`/
+>    `kill_agent`/`send_agent_prompt` to the network. Bind to loopback or carry a token.
+>
+> Knock-on: [subagents.md](subagents.md)'s agent-initiated spawning has never run either —
+> `PARENT_AGENT_ID_LABEL` is written by exactly one production line (`mcp-server.ts:196`, inside the
+> dormant `create_agent` tool). The parent-label cascade and workspace rollup that consume it are
+> real and tested, and would work the moment MCP is mounted.
+
 ## Purpose
 
 The daemon hosts a Model Context Protocol (MCP) server so agents can orchestrate other agents and

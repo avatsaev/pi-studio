@@ -1,7 +1,7 @@
 # Task 006 — Onboarding nudge in the empty chat timeline
 
 - **Sprint:** sprint-065-provider-auth-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/chat
 - **Priority:** P2
