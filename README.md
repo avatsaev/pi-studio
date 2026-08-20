@@ -1,77 +1,91 @@
 # Pi-Studio
 
-Self-hosted, local-first system for running and controlling [**Pi**](https://pi.dev), the terminal
-AI coding agent, locally or remotely. A long-lived **daemon** runs on your machine, manages agent
-processes, terminals, git worktrees, and projects, and exposes a WebSocket API. Two clients drive
-it — a **CLI** and a **React/Vite web UI** today, native desktop/mobile apps in later sprints —
-connecting to the daemon to observe and drive agents. An optional **E2EE relay** lets a client
-reach a daemon behind NAT/firewall without exposing it directly.
+Pi-Studio drives [**Pi**](https://pi.dev) — the terminal coding agent by Earendil — **locally or
+remotely**. A long-lived daemon runs on your machine and manages agent processes, terminals, git
+worktrees, and projects; two clients talk to it: a CLI and a full browser UI.
 
 Your code never leaves your machine.
 
-## Requirements
-
-- **Node.js ≥ 20** (developed on Node 24)
-- **npm** (workspaces)
-- For the real `pi` provider: **pi credentials** only — the `pi` CLI itself is bundled as a dependency
-  (`@earendil-works/pi-coding-agent`), so no global install is needed. Set an API key
-  (`ANTHROPIC_API_KEY`, etc.) or configure `~/.pi/agent/auth.json`. A built-in `mock` provider works
-  with no credentials at all.
-
-## Install & build
-
 ```bash
-npm install
-npm run build          # builds all workspace packages in dependency order (protocol → … → cli)
+npm install -g @av-pi-studio/cli
+
+pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
+pi-studio ui             # serve the browser UI, connected to that daemon
 ```
 
-You can also build just the daemon:
+<p align="center">
+  <img src="packages/cli/assets/screenshots/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" width="850">
+</p>
+
+---
+
+## Quick start
 
 ```bash
-npm run build:server
+# log in to a model provider (the `pi` provider needs one before it can run a turn)
+pi-studio auth login
+
+# start a local daemon (if one isn't already running) and print a pairing QR code
+pi-studio daemon start
+
+# open the full browser UI, pointed at that daemon
+pi-studio ui
+
+# ...or stay in the terminal: run an agent, list it, attach to stream live output
+pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
+pi-studio agent ls
+pi-studio agent attach <agentId>
+
+# target a remote daemon instead of the local one
+pi-studio --host workstation.local:6767 agent ls
 ```
 
-## Start the daemon (server)
+Run `pi-studio --help` (or `<command> --help`) for the full command tree, and see
+[`packages/cli/README.md`](packages/cli/README.md) for the complete CLI reference — every command
+group, global option, and the library API.
 
-The daemon is the server. The simplest way to start it:
+## The web UI
+
+`pi-studio ui` serves the production browser UI — a three-column workspace (sessions on the left,
+chat/terminal/code in the middle, files and git changes on the right) — as a static site, with no
+separate install or build step. Point it at any daemon, local or remote:
 
 ```bash
-npm start              # builds the server, then starts the daemon in the foreground
+pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
+pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
 ```
 
-`npm start` runs `build:server` first and then launches the daemon. If the server is already built,
-start it directly without rebuilding:
+Every tool call an agent makes (read/edit/write/shell) renders as its own card, with live diff
+stats, right in the chat — that's the screenshot above. Review what it changed without leaving the
+tab:
 
-```bash
-npm run start:server   # node packages/server/dist/daemon/main.js
-```
+<p align="center">
+  <img src="packages/cli/assets/screenshots/git-diff.webp" alt="Pi-Studio web UI — git changes diff view" width="850">
+</p>
 
-By default the production daemon:
+Split the workspace into multiple panes — chat next to a live terminal (backed by `node-pty`), a
+file, or another session — and the layout persists across reloads:
 
-- listens on **`0.0.0.0:6767`** (reachable over the LAN; override with `PI_STUDIO_LISTEN`)
-- stores all state under **`$PI_STUDIO_HOME`** (default **`~/.pi-studio`**)
-- writes rotating NDJSON logs to **`$PI_STUDIO_HOME/logs/`**
-- writes a PID lock at **`$PI_STUDIO_HOME/pi-studio.pid`**
-- generates a persistent Curve25519 keypair at **`$PI_STUDIO_HOME/daemon-keypair.json`** (used for
-  relay pairing; see [Relay](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall))
-- registers the **full** RPC surface (agents, terminals, git/worktrees, projects, chat, loops,
-  schedules, files, providers) — this is the real daemon (`bootstrap.ts`), not a stub
+<p align="center">
+  <img src="packages/cli/assets/screenshots/split-panes.webp" alt="Pi-Studio web UI — split panes with chat and a live terminal side by side" width="850">
+</p>
 
-It runs in the foreground; press **Ctrl-C** (SIGINT) or send SIGTERM to shut down cleanly (the PID
-lock is released and the HTTP/WS servers close).
+Every file opens with full syntax highlighting:
 
-### Verify it's running
+<p align="center">
+  <img src="packages/cli/assets/screenshots/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" width="850">
+</p>
 
-```bash
-curl http://127.0.0.1:6767/api/health
-# → {"status":"ok"}
-```
+An optional **E2EE relay** lets a client reach a daemon behind NAT/firewall without exposing it
+directly — see [below](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall).
 
-`GET /api/health` is exempt from the Host-header allowlist and password auth.
+---
 
-### Configuration (environment variables)
+## Daemon configuration
 
-All are optional; the daemon also reads `$PI_STUDIO_HOME/config.json`.
+The daemon reads `$PI_STUDIO_HOME/config.json` and these environment variables — set them before
+`pi-studio daemon start`, or pass them to `docker compose` (see [Docker](#run-with-docker) below).
+All are optional.
 
 | Variable                   | Default                 | Purpose                                                   |
 | -------------------------- | ----------------------- | --------------------------------------------------------- |
@@ -91,72 +105,12 @@ Example — run on a different port with a password and an isolated home:
 PI_STUDIO_HOME=/tmp/pi-studio-dev \
 PI_STUDIO_LISTEN=127.0.0.1:6790 \
 PI_STUDIO_PASSWORD=hunter2 \
-npm run start:server
+pi-studio daemon start
 ```
 
-## Drive it from the CLI
-
-The `@av-pi-studio/cli` package provides a `pi-studio` command. After `npm run build`, run it through
-the workspace bin:
-
-```bash
-# log in to a model provider (the `pi` provider needs one — see "The `pi` provider" below)
-node packages/cli/dist/cli.js auth login
-
-# start a local daemon (if one isn't already running) and print a pairing QR code
-node packages/cli/dist/cli.js daemon start
-
-# report daemon health / stop it
-node packages/cli/dist/cli.js daemon status
-node packages/cli/dist/cli.js daemon stop
-
-# set a daemon password (bcrypt-hashed into config.json; enforced on next start)
-node packages/cli/dist/cli.js daemon set-password hunter2
-
-# revoke every pairing link/QR ever issued (e.g. one leaked) — mints a fresh keypair and restarts
-node packages/cli/dist/cli.js daemon rotate-key
-```
-
-> Tip: `npm link` inside `packages/cli` (or installing the package) exposes the `pi-studio` binary on
-> your `PATH` so you can run `pi-studio daemon start` directly.
-
-Once a daemon is running, drive agents:
-
-```bash
-node packages/cli/dist/cli.js run --provider pi/<model> "implement user authentication"
-node packages/cli/dist/cli.js ls                 # list agents
-node packages/cli/dist/cli.js attach <agentId>   # stream the live timeline
-node packages/cli/dist/cli.js --host workstation.local:6767 ls   # target a remote daemon
-```
-
-Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`run`/`ls`/`attach`,
-`auth`, `daemon`, `relay`, `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,
-`worktree`).
-
-## Web UI (`packages/web-client`)
-
-`@av-pi-studio/web-client` is the production React 19 + Vite 6 browser UI — a three-column workspace
-(sessions sidebar, tabbed chat/terminal center, files/changes sidebar). It talks to the daemon only
-through the `@av-pi-studio/client` SDK (never a raw WebSocket).
-
-```bash
-# run the dev daemon (all features + mock provider available) in one terminal
-npm run dev:daemon
-
-# run the Vite dev server in another
-npm run dev -w packages/web-client        # http://localhost:5173
-```
-
-Enter the daemon URL and optional password in the toolbar and click **Connect**. The URL accepts a
-bare `host:port`, a `ws://`/`wss://` URL, or `http://`/`https://` (mapped to `ws`/`wss` — the daemon
-upgrades HTTP to WebSocket on the same port), e.g. `127.0.0.1:6767` or `https://box.local:6767`. The
-password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
-static bundle: `npm run build:web-client` (or `build:electron -w packages/web-client` for the
-future Electron shell in `packages/desktop`).
-
-> `npm run dev:daemon` runs `dev-main.js` → `dev-bootstrap.ts`, a **minimal** dev daemon (mock
-> provider, a small handler subset) for iterating on the UI without credentials. It is **not** the
-> production daemon — `npm start` / `main.ts` / `bootstrap.ts` is.
+A password can also be set on an already-running daemon: `pi-studio daemon set-password hunter2`
+(bcrypt-hashed into `config.json`, enforced on next start). To revoke every pairing link/QR ever
+issued (e.g. one leaked), mint a fresh keypair: `pi-studio daemon rotate-key`.
 
 ## Optional: E2EE relay (reaching a daemon behind NAT/firewall)
 
@@ -284,45 +238,10 @@ the `pi` provider runs an actual model turn and streams `assistant_message` delt
 `turn_completed`. A literal `~` in the `cwd` field is expanded to your home directory. For a
 dependency-free smoke test, use the `mock` provider instead.
 
-## Development
+## More
 
-```bash
-npm test            # run the full test suite (Vitest)
-npm run typecheck   # tsc -b across all packages
-npm run lint        # oxlint
-npm run fmt:check   # oxfmt --check
-```
-
-Per-package tests run with `npx vitest run packages/<pkg>` (this repo has no vitest
-`--project` workspace config).
-
-## Project layout
-
-```
-packages/
-  protocol/    wire schemas + shared protocol types (zero workspace deps)
-  client/      low-level daemon WS driver + PiStudioClient SDK facade
-  server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
-  cli/         pi-studio terminal client + local daemon/relay lifecycle control
-  highlight/   server-side syntax-highlight helper
-  relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
-  web-client/  production React/Vite browser UI
-  desktop/     Electron wrapper (later sprint — placeholder)
-swe/   specifications + the sprint implementation plan
-```
-
-Compile-time dependency graph:
-
-```
-protocol  ─────────────────────────────► (no workspace deps)
-highlight ─────────────────────────────► (no workspace deps)
-relay     ─────────────────────────────► (no workspace deps)
-client    ──────► protocol, relay
-server    ──────► protocol, highlight, relay
-cli       ──────► protocol, client, relay  (+ resolves server/web-client paths, no runtime import)
-web-client──────► protocol, client
-```
-
-The detailed specifications live under [`swe/`](swe/) —
-[`MAIN-SCOPE.md`](swe/MAIN-SCOPE.md) is the entry point. Each package also has its own
-`README.md` and `AGENTS.md`.
+- Full CLI command reference and library API: [`packages/cli/README.md`](packages/cli/README.md)
+- Building from source, running tests, and the monorepo layout:
+  [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- Architecture and feature specs: [`swe/`](swe/) — [`MAIN-SCOPE.md`](swe/MAIN-SCOPE.md) is the
+  entry point. Each package also has its own `README.md` and `AGENTS.md`.

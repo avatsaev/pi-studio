@@ -84,8 +84,9 @@ Every file opens with full syntax highlighting:
   <img src="assets/screenshots/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" width="850">
 </p>
 
-See the [`ui`](#ui) command below for every flag, and the root [README](../../README.md#web-ui-packagesweb-client)
-for how to run the UI from source in dev mode.
+See the [`ui`](#ui) command below for every flag, and
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md#web-ui-dev-server) for how to run the UI from source in
+dev mode.
 
 ## Global options
 
