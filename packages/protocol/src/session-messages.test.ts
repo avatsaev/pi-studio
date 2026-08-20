@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   agentCloneRequestSchema,
@@ -36,10 +37,22 @@ import {
   extensionPacksSetResponseSchema,
   fetchAgentTimelineResponseSchema,
   legacyRespondToPermissionSchema,
+  providerAuthCancelRequestSchema,
+  providerAuthCancelResponseSchema,
+  providerAuthInfoSchema,
+  providerAuthListRequestSchema,
+  providerAuthListResponseSchema,
+  providerAuthLoginRequestSchema,
+  providerAuthLoginResponseSchema,
+  providerAuthLogoutRequestSchema,
+  providerAuthLogoutResponseSchema,
+  providerAuthRespondRequestSchema,
+  providerAuthRespondResponseSchema,
   respondToPermissionRequestSchema,
   respondToPermissionResponseSchema,
   rpcErrorSchema,
   rpcName,
+  sessionEnvelopeSchema,
   sessionMessageSchema,
   toolCallDetailSchema,
 } from "./messages.js";
@@ -669,5 +682,192 @@ describe("extension packs (sprint-057)", () => {
         packs: ["core"],
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("provider auth (sprint-055)", () => {
+  it("all five request/response pairs parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      provider_auth_list_request: { type: "provider_auth_list_request", requestId: "r1" },
+      provider_auth_list_response: {
+        type: "provider_auth_list_response",
+        requestId: "r1",
+        payload: { ok: true, providers: [] },
+      },
+      provider_auth_login_request: {
+        type: "provider_auth_login_request",
+        requestId: "r1",
+        provider: "openai",
+        authType: "api_key",
+      },
+      provider_auth_login_response: {
+        type: "provider_auth_login_response",
+        requestId: "r1",
+        payload: { ok: true, flowId: "f1" },
+      },
+      provider_auth_respond_request: {
+        type: "provider_auth_respond_request",
+        requestId: "r1",
+        flowId: "f1",
+        promptId: "p1",
+        value: "sk-test",
+      },
+      provider_auth_respond_response: {
+        type: "provider_auth_respond_response",
+        requestId: "r1",
+        payload: { ok: true },
+      },
+      provider_auth_cancel_request: {
+        type: "provider_auth_cancel_request",
+        requestId: "r1",
+        flowId: "f1",
+      },
+      provider_auth_cancel_response: {
+        type: "provider_auth_cancel_response",
+        requestId: "r1",
+        payload: { ok: true },
+      },
+      provider_auth_logout_request: {
+        type: "provider_auth_logout_request",
+        requestId: "r1",
+        provider: "openai",
+      },
+      provider_auth_logout_response: {
+        type: "provider_auth_logout_response",
+        requestId: "r1",
+        payload: { ok: true },
+      },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("every response payload requires ok — missing ok fails validation", () => {
+    const responseSchemas = [
+      providerAuthListResponseSchema,
+      providerAuthLoginResponseSchema,
+      providerAuthRespondResponseSchema,
+      providerAuthCancelResponseSchema,
+      providerAuthLogoutResponseSchema,
+    ] as const;
+    const bases: Record<string, unknown> = {
+      provider_auth_list_response: {},
+      provider_auth_login_response: {},
+      provider_auth_respond_response: {},
+      provider_auth_cancel_response: {},
+      provider_auth_logout_response: {},
+    };
+    for (const schema of responseSchemas) {
+      const type = (schema.shape.type as z.ZodLiteral<string>).value;
+      const missingOk = schema.safeParse({
+        type,
+        requestId: "r1",
+        payload: bases[type],
+      });
+      expect(missingOk.success, `${type} without ok should fail`).toBe(false);
+
+      const withOk = schema.safeParse({
+        type,
+        requestId: "r1",
+        payload: { ...(bases[type] as object), ok: false, error: "boom" },
+      });
+      expect(withOk.success, `${type} with ok should pass`).toBe(true);
+    }
+  });
+
+  it('providerAuthInfoSchema accepts configured: true/false/"unknown" and rejects other values', () => {
+    const base = { id: "openai", name: "OpenAI", authTypes: ["api_key"] as const };
+    expect(providerAuthInfoSchema.safeParse({ ...base, configured: true }).success).toBe(true);
+    expect(providerAuthInfoSchema.safeParse({ ...base, configured: false }).success).toBe(true);
+    expect(providerAuthInfoSchema.safeParse({ ...base, configured: "unknown" }).success).toBe(true);
+    expect(providerAuthInfoSchema.safeParse({ ...base, configured: "yes" }).success).toBe(false);
+    expect(providerAuthInfoSchema.safeParse({ ...base, configured: 1 }).success).toBe(false);
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [providerAuthListRequestSchema, { type: "provider_auth_list_request", requestId: "r1" }],
+      [
+        providerAuthListResponseSchema,
+        {
+          type: "provider_auth_list_response",
+          requestId: "r1",
+          payload: { ok: true, providers: [] },
+        },
+      ],
+      [
+        providerAuthLoginRequestSchema,
+        {
+          type: "provider_auth_login_request",
+          requestId: "r1",
+          provider: "openai",
+          authType: "api_key",
+        },
+      ],
+      [
+        providerAuthLoginResponseSchema,
+        { type: "provider_auth_login_response", requestId: "r1", payload: { ok: true } },
+      ],
+      [
+        providerAuthRespondRequestSchema,
+        {
+          type: "provider_auth_respond_request",
+          requestId: "r1",
+          flowId: "f1",
+          promptId: "p1",
+          value: "v",
+        },
+      ],
+      [
+        providerAuthRespondResponseSchema,
+        { type: "provider_auth_respond_response", requestId: "r1", payload: { ok: true } },
+      ],
+      [
+        providerAuthCancelRequestSchema,
+        { type: "provider_auth_cancel_request", requestId: "r1", flowId: "f1" },
+      ],
+      [
+        providerAuthCancelResponseSchema,
+        { type: "provider_auth_cancel_response", requestId: "r1", payload: { ok: true } },
+      ],
+      [
+        providerAuthLogoutRequestSchema,
+        { type: "provider_auth_logout_request", requestId: "r1", provider: "openai" },
+      ],
+      [
+        providerAuthLogoutResponseSchema,
+        { type: "provider_auth_logout_response", requestId: "r1", payload: { ok: true } },
+      ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success, `${message.type} should parse with an unknown field`).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).fromTheFuture).toBe("kept");
+      }
+    }
+  });
+
+  it("provider_auth_flow_event validates through the session envelope via the passthrough fallback, not a union entry", () => {
+    // Deliberately NOT in `sessionMessageSchema` — this proves the passthrough fallback covers it.
+    expect(
+      sessionMessageSchema.safeParse({
+        type: "provider_auth_flow_event",
+        flowId: "f1",
+        event: { kind: "info", message: "hi" },
+      }).success,
+    ).toBe(false);
+
+    const envelope = sessionEnvelopeSchema.safeParse({
+      type: "session",
+      message: {
+        type: "provider_auth_flow_event",
+        flowId: "f1",
+        event: { kind: "info", message: "hi" },
+      },
+    });
+    expect(envelope.success).toBe(true);
   });
 });

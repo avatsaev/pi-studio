@@ -89,6 +89,13 @@ src/
 | `extensionPacksSetRequestSchema` / `ExtensionPacksSetRequest` | schema + type | `extension_packs_set_request` — optional `packs?: string[]`; **absent** is the manual-sync trigger (no persistence, ungated), **present** replaces the selection then syncs |
 | `extensionPacksSetResponseSchema` / `ExtensionPacksSetResponse` | schema + type | List-response fields plus `ok: boolean`, optional `error` (domain failure, e.g. unknown slug — never `rpc_error`), optional `report: ExtensionSyncReport` (present only when `ok: true`) |
 | `extensionPackInfoSchema` / `ExtensionPackInfo`, `extensionEntryInfoSchema` / `ExtensionEntryInfo`, `extensionSyncReportSchema` / `ExtensionSyncReport` | schema + type | Nested shapes for the pair above; `status`/`outcome`/`reason` fields are plain `z.string()`, never narrowed enums (`EntryStatus`/`SyncOutcome` exported as documentation-only TS unions) — an older client must still parse a status value a later daemon introduces |
+| `providerAuthTypeSchema` / `ProviderAuthType` | schema + type | `"api_key" \| "oauth"` |
+| `providerAuthInfoSchema` / `ProviderAuthInfo` | schema + type | One provider's login capability + current state: `id`/`name`/`authTypes`, optional `oauthLoginLabel`/`oauthIsSubscription`, `configured: boolean \| "unknown"` (bounded probe timed out), optional `configuredType`/`configuredSource` |
+| `providerAuthListRequestSchema` / `ProviderAuthListRequest`, `providerAuthListResponseSchema` / `ProviderAuthListResponse` | schema + type | `provider_auth_list_request` — list every login-capable provider with current auth state |
+| `providerAuthLoginRequestSchema` / `ProviderAuthLoginRequest`, `providerAuthLoginResponseSchema` / `ProviderAuthLoginResponse` | schema + type | `provider_auth_login_request` (`provider`, `authType`) — starts a flow; response `{ ok, flowId?, error? }` returns immediately, before the login itself settles |
+| `providerAuthRespondRequestSchema` / `ProviderAuthRespondRequest`, `providerAuthRespondResponseSchema` / `ProviderAuthRespondResponse` | schema + type | `provider_auth_respond_request` (`flowId`, `promptId`, `value`) — answers a pending prompt; `{ ok: false, error: "not_found" }` for an unknown/stale/not-owned flowId or promptId (never leaks which) |
+| `providerAuthCancelRequestSchema` / `ProviderAuthCancelRequest`, `providerAuthCancelResponseSchema` / `ProviderAuthCancelResponse` | schema + type | `provider_auth_cancel_request` (`flowId`) — unconditionally idempotent, `{ ok: boolean }` only, **no `error` field on the wire** even for an unknown/not-owned flowId |
+| `providerAuthLogoutRequestSchema` / `ProviderAuthLogoutRequest`, `providerAuthLogoutResponseSchema` / `ProviderAuthLogoutResponse` | schema + type | `provider_auth_logout_request` (`provider`) — response `{ ok, stillConfigured?, error? }`; `stillConfigured` flags an ambient credential (e.g. env var) surviving the logout |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -109,12 +116,20 @@ persisted block is complete by definition. Renderers use it to leave their cheap
 is one `agent_end` — an entire tool loop — away. Append-only-safe: a client that ignores `final`
 sees a textless `assistant_message` and no-ops on it.
 
+**`provider_auth_flow_event` — passthrough push, deliberately no union entry.** The per-flow
+progress push for the `provider_auth_*` RPC family (`kind: "info" | "auth_url" | "device_code" |
+"progress" | "prompt" | "prompt_cancelled" | "done"`, `flowId`, an event-shaped payload) rides
+`sessionMessageBaseSchema`'s structural `{ type: string }.passthrough()` fallback, exactly like
+`checkout_status_update` and `file_changed`. Do not "fix" this by adding a dedicated schema entry —
+it is the established pattern for a per-session progress push that is not itself a durable,
+multi-client RPC response.
+
 ### `client-capabilities.ts`
 
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`
