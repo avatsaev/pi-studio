@@ -17,6 +17,8 @@ import type {
   ExtensionPacksListResponse,
   ExtensionPacksSetResponse,
   FetchAgentTimelineResponse,
+  ProviderAuthInfo,
+  ProviderAuthType,
   SessionMessage,
   TimelineDirection,
 } from "@av-pi-studio/protocol";
@@ -209,9 +211,143 @@ export interface PiStudioProviderActions {
   refreshSnapshot(): Promise<unknown>;
 }
 
+// ─── Provider auth (remote login flows) ─────────────────────────────────────────
+
+/**
+ * The five `provider_auth_*` request/response pairs have real protocol schemas (sprint-055), but the
+ * per-flow progress push does **not** — it rides `sessionMessageBaseSchema`'s passthrough fallback,
+ * the established convention for this family (see `swe/features/provider-auth-rpc.md`
+ * § Registration style, and `checkout_status_update` / `file_changed` before it). So the push's
+ * shape is narrowed here with a local interface + type guard, mirroring how `TimelineHandle`
+ * narrows `agent_stream`.
+ */
+export interface ProviderAuthFlowEventPush {
+  type: "provider_auth_flow_event";
+  flowId: string;
+  event: { kind: string } & Record<string, unknown>;
+}
+
+/** Narrows an inbound session message to the `provider_auth_flow_event` push. */
+export function isProviderAuthFlowEvent(message: unknown): message is ProviderAuthFlowEventPush {
+  const m = message as { type?: unknown; flowId?: unknown; event?: unknown } | null;
+  if (!m || m.type !== "provider_auth_flow_event" || typeof m.flowId !== "string") return false;
+  const event = m.event as { kind?: unknown } | null;
+  return typeof event === "object" && event !== null && typeof event.kind === "string";
+}
+
+/** One question Pi's auth engine asks mid-flow. `promptKind` decides the input control; a `select`
+ *  carries its own option list. Answering means resolving `ProviderAuthCallbacks.prompt`. */
+export interface ProviderAuthPromptUi {
+  promptId: string;
+  promptKind: "text" | "secret" | "select" | "manual_code";
+  message: string;
+  placeholder?: string;
+  options?: readonly { id: string; label: string; description?: string }[];
+  /**
+   * Aborts when this specific prompt is cancelled out of band — Pi races a `manual_code` prompt
+   * against its own OAuth callback server, so the callback winning cancels the question while the
+   * flow carries on. A view MUST drop the input when this fires (and keep the rest of the flow's
+   * presentation): the promise it returned from `prompt` is discarded by the SDK, so nothing else
+   * tells it the question is gone. Also aborts when the flow itself ends.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * The `notify()`-sourced events the daemon forwards verbatim. Carries no secret by construction —
+ * a prompt *value* travels only in the `provider_auth_respond_request` payload, never in an event.
+ * Unknown future kinds still reach `onEvent` (append-only wire rule), so a view must tolerate them.
+ */
+export type ProviderAuthNotifyEvent =
+  | { kind: "info"; message: string; links?: readonly { url: string; label?: string }[] }
+  | { kind: "auth_url"; url: string; instructions?: string }
+  | {
+      kind: "device_code";
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { kind: "progress"; message: string };
+
+/**
+ * Every event a login-flow view reduces over: the daemon's notify events plus the three the SDK
+ * driver consumes itself (`prompt` is delivered through `callbacks.prompt`, `prompt_cancelled`
+ * rejects that pending prompt, `done` settles `loginProvider`). A view re-dispatches those three
+ * into its own reducer from the callback/promise boundary.
+ */
+export type ProviderAuthFlowUiEvent =
+  | ProviderAuthNotifyEvent
+  | ({ kind: "prompt" } & ProviderAuthPromptUi)
+  | { kind: "prompt_cancelled"; promptId: string }
+  | { kind: "done"; ok: boolean; error?: string };
+
+export interface ProviderAuthCallbacks {
+  /**
+   * Ask the user for a value. Resolve with the answer; **reject to cancel the whole flow**.
+   * The returned promise is also rejected by the SDK when the daemon cancels the prompt
+   * out-of-band (an OAuth callback won the race) or the flow otherwise ends — a view should treat
+   * a rejection as "stop showing this input", not as an error to report.
+   */
+  prompt(prompt: ProviderAuthPromptUi): Promise<string>;
+  /** Presentation/progress events. Never carries a secret. */
+  onEvent?(event: ProviderAuthNotifyEvent): void;
+}
+
+export interface ProviderAuthLoginOptions {
+  /** Abort to cancel the flow server-side. The promise still settles from the terminal `done`. */
+  signal?: AbortSignal;
+}
+
+/** How a login flow ended. `error` is a daemon-sanitized reason, never a credential. */
+export interface ProviderAuthLoginResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * A domain failure reported *in a response payload* rather than as an `rpc_error`. This family
+ * puts domain errors in payloads by design (`swe/features/provider-auth-rpc.md`), so a caller that
+ * only catches `RpcError` would silently read an empty provider list as "nothing configured".
+ */
+export class ProviderAuthError extends Error {
+  constructor(
+    message: string,
+    readonly operation: "list" | "logout",
+  ) {
+    super(message);
+    this.name = "ProviderAuthError";
+  }
+}
+
+/** Rejection used for a prompt the daemon cancelled out-of-band — distinguishes "the user refused"
+ *  (cancel the flow) from "this question is moot now" (let the flow continue). */
+class PromptCancelledError extends Error {
+  constructor(readonly promptId: string) {
+    super("prompt_cancelled");
+    this.name = "PromptCancelledError";
+  }
+}
+
+/** Live state of the one login flow a client may run at a time. */
+interface ActiveProviderAuthFlow {
+  /** `null` until the login response lands — events that arrive first are buffered, not dropped. */
+  flowId: string | null;
+  buffered: ProviderAuthFlowEventPush[];
+  pendingPrompt: { promptId: string; reject: (error: Error) => void } | null;
+  /** An abort that arrived before `flowId` was known; the cancel RPC is sent once it is. */
+  cancelRequested: boolean;
+  terminal: boolean;
+  settle: (result: ProviderAuthLoginResult) => void;
+  unsubscribe: (() => void) | null;
+}
+
 // ─── Facade implementation ──────────────────────────────────────────────────────
 
 export class PiStudioClient {
+  /** Exactly one login flow per client instance, per `swe/features/provider-auth-rpc.md`. */
+  private activeProviderAuthFlow: ActiveProviderAuthFlow | null = null;
+
   constructor(private readonly daemon: DaemonClient) {}
 
   get connection(): DaemonClient {
@@ -294,6 +430,261 @@ export class PiStudioClient {
         handler(msg as unknown as WorkspaceUpdateMessage);
       }
     });
+  }
+
+  // ─── Provider auth ──────────────────────────────────────────────────────────
+
+  /** True iff the daemon advertised the `providerAuth` capability in `server_info.features`. */
+  hasProviderAuthCapability(): boolean {
+    return this.daemon.hasFeature("providerAuth");
+  }
+
+  /** Every provider's login capability + current state. */
+  async listProviderAuth(): Promise<ProviderAuthInfo[]> {
+    const payload = await this.daemon.request<{
+      ok: boolean;
+      providers: ProviderAuthInfo[];
+      error?: string;
+    }>("provider_auth_list_request", {});
+    if (!payload.ok) {
+      throw new ProviderAuthError(payload.error ?? "failed to list provider auth state", "list");
+    }
+    return payload.providers;
+  }
+
+  /** Clear a provider's stored credential. `stillConfigured` flags a surviving ambient one
+   *  (e.g. an env var) — the provider may still show as configured after this resolves. */
+  async logoutProvider(provider: string): Promise<{ stillConfigured?: boolean }> {
+    const payload = await this.daemon.request<{
+      ok: boolean;
+      stillConfigured?: boolean;
+      error?: string;
+    }>("provider_auth_logout_request", { provider });
+    if (!payload.ok) {
+      throw new ProviderAuthError(payload.error ?? "failed to log out", "logout");
+    }
+    return { stillConfigured: payload.stillConfigured };
+  }
+
+  /**
+   * Drive one remote provider login end to end. `callbacks` answers Pi's questions and observes
+   * presentation events; the returned promise settles only once — from the flow's terminal `done`
+   * event, an immediate login rejection, or a lost connection — never left hanging.
+   *
+   * Only one flow may run per client instance; a second concurrent call rejects locally without
+   * sending a second `provider_auth_login_request`.
+   */
+  async loginProvider(
+    provider: string,
+    authType: ProviderAuthType,
+    callbacks: ProviderAuthCallbacks,
+    opts?: ProviderAuthLoginOptions,
+  ): Promise<ProviderAuthLoginResult> {
+    if (this.activeProviderAuthFlow) {
+      throw new Error("a provider-auth login is already in progress for this client");
+    }
+
+    let settleResult!: (result: ProviderAuthLoginResult) => void;
+    const resultPromise = new Promise<ProviderAuthLoginResult>((resolve) => {
+      settleResult = resolve;
+    });
+    const flow: ActiveProviderAuthFlow = {
+      flowId: null,
+      buffered: [],
+      pendingPrompt: null,
+      cancelRequested: opts?.signal?.aborted ?? false,
+      terminal: false,
+      settle: settleResult,
+      unsubscribe: null,
+    };
+    this.activeProviderAuthFlow = flow;
+
+    // Subscribe BEFORE sending the login request: the daemon starts Pi's flow the moment it
+    // handles the RPC, so a `prompt`/`auth_url` can legitimately arrive before this request's own
+    // response does. Subscribing after the await would silently drop it and hang the dialog.
+    const unsubMessages = this.daemon.onSessionMessage((message) => {
+      if (isProviderAuthFlowEvent(message)) this.routeProviderAuthEvent(flow, message, callbacks);
+    });
+    const unsubState = this.daemon.onStateChange((state) => {
+      if (state === "closed") {
+        this.settleProviderAuthFlow(flow, { ok: false, error: "connection_lost" });
+      }
+    });
+    let onAbort: (() => void) | null = null;
+    if (opts?.signal) {
+      const signal = opts.signal;
+      onAbort = () => {
+        flow.cancelRequested = true;
+        if (flow.flowId && !flow.terminal) {
+          this.daemon
+            .request("provider_auth_cancel_request", { flowId: flow.flowId })
+            .catch(() => {});
+        }
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      flow.unsubscribe = () => {
+        unsubMessages();
+        unsubState();
+        signal.removeEventListener("abort", onAbort as () => void);
+      };
+    } else {
+      flow.unsubscribe = () => {
+        unsubMessages();
+        unsubState();
+      };
+    }
+
+    try {
+      const response = await this.daemon.request<{
+        ok: boolean;
+        flowId?: string;
+        error?: string;
+      }>("provider_auth_login_request", { provider, authType });
+      if (flow.terminal) return resultPromise;
+      if (!response.ok || !response.flowId) {
+        this.settleProviderAuthFlow(flow, { ok: false, error: response.error });
+        return resultPromise;
+      }
+      flow.flowId = response.flowId;
+      const buffered = flow.buffered;
+      flow.buffered = [];
+      for (const message of buffered) {
+        if (message.flowId === flow.flowId) {
+          this.dispatchProviderAuthEvent(flow, message.event, callbacks);
+        }
+      }
+      if (flow.cancelRequested && !flow.terminal) {
+        this.daemon
+          .request("provider_auth_cancel_request", { flowId: flow.flowId })
+          .catch(() => {});
+      }
+    } catch {
+      if (!flow.terminal) {
+        this.settleProviderAuthFlow(flow, { ok: false, error: "connection_lost" });
+      }
+    }
+
+    return resultPromise;
+  }
+
+  /** Route one inbound flow-event push: buffer until `flowId` is known, drop stale/unknown flows,
+   *  else dispatch by `kind`. */
+  private routeProviderAuthEvent(
+    flow: ActiveProviderAuthFlow,
+    message: ProviderAuthFlowEventPush,
+    callbacks: ProviderAuthCallbacks,
+  ): void {
+    if (flow.terminal) return;
+    if (flow.flowId === null) {
+      flow.buffered.push(message);
+      return;
+    }
+    if (message.flowId !== flow.flowId) return;
+    this.dispatchProviderAuthEvent(flow, message.event, callbacks);
+  }
+
+  private dispatchProviderAuthEvent(
+    flow: ActiveProviderAuthFlow,
+    event: { kind: string } & Record<string, unknown>,
+    callbacks: ProviderAuthCallbacks,
+  ): void {
+    switch (event.kind) {
+      case "done":
+        this.settleProviderAuthFlow(flow, {
+          ok: Boolean(event.ok),
+          error: typeof event.error === "string" ? event.error : undefined,
+        });
+        return;
+      case "prompt_cancelled": {
+        const promptId = event.promptId as string;
+        if (flow.pendingPrompt && flow.pendingPrompt.promptId === promptId) {
+          flow.pendingPrompt.reject(new PromptCancelledError(promptId));
+          flow.pendingPrompt = null;
+        }
+        return;
+      }
+      case "prompt":
+        void this.handleProviderAuthPrompt(flow, event, callbacks);
+        return;
+      default:
+        callbacks.onEvent?.(event as unknown as ProviderAuthNotifyEvent);
+        return;
+    }
+  }
+
+  /** Ask the caller for a value, racing its answer against an out-of-band `prompt_cancelled`
+   *  (an OAuth callback can win first). Never lets an unanswered promise dangle: a caller refusal
+   *  or a failed respond RPC cancels the whole flow. */
+  private async handleProviderAuthPrompt(
+    flow: ActiveProviderAuthFlow,
+    event: Record<string, unknown>,
+    callbacks: ProviderAuthCallbacks,
+  ): Promise<void> {
+    // Aborted when this prompt is cancelled out of band (or the flow ends). The view cannot learn
+    // that any other way: `prompt_cancelled` is consumed here rather than forwarded to `onEvent`,
+    // and the promise the view returned is simply discarded by the race below — so without this
+    // signal a `manual_code` input stays on screen after the OAuth callback already won.
+    const cancelledController = new AbortController();
+    const prompt: ProviderAuthPromptUi = {
+      promptId: event.promptId as string,
+      promptKind: event.promptKind as ProviderAuthPromptUi["promptKind"],
+      message: event.message as string,
+      placeholder: event.placeholder as string | undefined,
+      options: event.options as ProviderAuthPromptUi["options"],
+      signal: cancelledController.signal,
+    };
+
+    let rejectCancelled!: (error: Error) => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      rejectCancelled = reject;
+    });
+    cancelled.catch(() => {});
+    flow.pendingPrompt = {
+      promptId: prompt.promptId,
+      reject: (error) => {
+        cancelledController.abort();
+        rejectCancelled(error);
+      },
+    };
+
+    const answered = callbacks.prompt(prompt);
+    answered.catch(() => {});
+
+    try {
+      const value = await Promise.race([answered, cancelled]);
+      if (flow.terminal) return;
+      flow.pendingPrompt = null;
+      await this.daemon.request("provider_auth_respond_request", {
+        flowId: flow.flowId,
+        promptId: prompt.promptId,
+        value,
+      });
+    } catch (err) {
+      flow.pendingPrompt = null;
+      if (flow.terminal || err instanceof PromptCancelledError) return;
+      if (flow.flowId) {
+        this.daemon
+          .request("provider_auth_cancel_request", { flowId: flow.flowId })
+          .catch(() => {});
+      }
+    }
+  }
+
+  /** The single place a flow ends. Idempotent — whichever path (a `done` event, a lost connection,
+   *  an immediate login rejection) settles it first wins; releases every subscription exactly once. */
+  private settleProviderAuthFlow(
+    flow: ActiveProviderAuthFlow,
+    result: ProviderAuthLoginResult,
+  ): void {
+    if (flow.terminal) return;
+    flow.terminal = true;
+    if (flow.pendingPrompt) {
+      flow.pendingPrompt.reject(new Error("provider-auth: flow ended"));
+      flow.pendingPrompt = null;
+    }
+    flow.unsubscribe?.();
+    if (this.activeProviderAuthFlow === flow) this.activeProviderAuthFlow = null;
+    flow.settle(result);
   }
 }
 
