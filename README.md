@@ -1,10 +1,11 @@
 # Pi-Studio
 
-Self-hosted, local-first system for running and controlling the **Pi** AI coding agent. A long-lived
-**daemon** runs on your machine, manages agent processes, terminals, git worktrees, and projects, and
-exposes a WebSocket API. Clients — a **CLI** and a **React/Vite web UI** today, native desktop/mobile
-apps in later sprints — connect to the daemon to observe and drive agents. An optional **E2EE relay**
-lets a client reach a daemon behind NAT/firewall without exposing it directly.
+Self-hosted, local-first system for running and controlling [**Pi**](https://pi.dev), the terminal
+AI coding agent, locally or remotely. A long-lived **daemon** runs on your machine, manages agent
+processes, terminals, git worktrees, and projects, and exposes a WebSocket API. Two clients drive
+it — a **CLI** and a **React/Vite web UI** today, native desktop/mobile apps in later sprints —
+connecting to the daemon to observe and drive agents. An optional **E2EE relay** lets a client
+reach a daemon behind NAT/firewall without exposing it directly.
 
 Your code never leaves your machine.
 

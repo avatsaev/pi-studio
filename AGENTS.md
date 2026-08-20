@@ -151,6 +151,18 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    reads; do not add one back, or it will silently drift from the real version. Every published
 #    package's "files" excludes "dist/**/*.map" and "dist/.tsbuildinfo" — build caches and source
 #    maps with no consumer at runtime — so tarballs only ship usable output.
+#    Immediately before publishing it also rewrites relative README image paths (`src="assets/…"`)
+#    to absolute, version-pinned jsDelivr URLs
+#    (`cdn.jsdelivr.net/npm/@av-pi-studio/<pkg>@<version>/assets/…`) in the tarball only, restoring
+#    the working-tree files via an EXIT trap, and aborting if a README references `assets/` while
+#    that package's "files" omits "assets" (the images would 404 on the CDN). npmjs.com renders
+#    READMEs through GitHub's GFM API, which has no repo context, so a relative image path renders
+#    broken there even though it works on github.com; `repository.directory` (on packages/cli) only
+#    fixes the source link, not image URLs. raw.githubusercontent is NOT an option — this repo is
+#    private, so those URLs 404 for anonymous package-page visitors. jsDelivr mirrors published npm
+#    packages publicly, so the screenshots ship in the cli tarball (`assets`, ~470 KB of webp) and
+#    are served from there. Screenshots are webp at 2x their README display width: PNG at this size
+#    was 1.9 MB for the same four images.
 #    Requires: npm login. Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`

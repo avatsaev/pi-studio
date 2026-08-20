@@ -1,13 +1,19 @@
 {
   "name": "@av-pi-studio/cli",
   "version": "0.0.90",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/cli"
+  },
   "bin": {
     "pi-studio": "dist/cli.js"
   },
   "files": [
     "dist",
     "!dist/**/*.map",
-    "!dist/.tsbuildinfo"
+    "!dist/.tsbuildinfo",
+    "assets"
   ],
   "type": "module",
   "main": "./dist/index.js",

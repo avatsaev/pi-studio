@@ -1,8 +1,18 @@
 # `@av-pi-studio/cli`
 
-`pi-studio` — the terminal client for Pi-Studio. Drives a daemon (local or remote) over its
-WebSocket API: run and manage agents, control the local daemon's lifecycle, and drive terminals,
-chat rooms, schedules, loops, worktrees, and permissions from the command line.
+Pi-Studio's job is to drive [Pi](https://pi.dev) — the terminal coding agent by Earendil — locally
+or remotely, through a long-lived daemon that manages agent processes, terminals, and git
+worktrees. Two clients talk to that daemon: this CLI, and a full browser UI. `pi-studio` starts
+the daemon and gets you into either one:
+
+```bash
+pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
+pi-studio ui             # serve the browser UI, connected to that daemon
+```
+
+<p align="center">
+  <img src="assets/screenshots/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" width="850">
+</p>
 
 ---
 
@@ -27,13 +37,11 @@ pi-studio auth login
 # start a local daemon (if one isn't already running) and print a pairing QR code
 pi-studio daemon start
 
-# check daemon health
-pi-studio daemon status
+# open the full browser UI, pointed at that daemon
+pi-studio ui
 
-# run an agent
+# ...or stay in the terminal: run an agent, list it, attach to stream live output
 pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
-
-# list agents, attach to stream live output
 pi-studio agent ls
 pi-studio agent attach <agentId>
 
@@ -42,6 +50,42 @@ pi-studio --host workstation.local:6767 agent ls
 ```
 
 Run `pi-studio --help` (or `<command> --help`) for the full command tree.
+
+## The web UI
+
+`pi-studio ui` serves the production Pi-Studio browser UI — a three-column workspace (sessions on
+the left, chat/terminal/code in the middle, files and git changes on the right) — as a static site,
+no separate install or build step needed. Point it at any daemon, local or remote:
+
+```bash
+pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
+pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
+```
+
+The hero shot above is real: every tool call an agent makes (read/edit/write/shell) renders as its
+own card, with live diff stats, right in the chat.
+
+Review what it changed without leaving the tab — a full diff view, line by line:
+
+<p align="center">
+  <img src="assets/screenshots/git-diff.webp" alt="Pi-Studio web UI — git changes diff view" width="850">
+</p>
+
+Split the workspace into multiple panes — chat next to a live terminal (backed by `node-pty`), a
+file, or another session — and the layout persists across reloads:
+
+<p align="center">
+  <img src="assets/screenshots/split-panes.webp" alt="Pi-Studio web UI — split panes with chat and a live terminal side by side" width="850">
+</p>
+
+Every file opens with full syntax highlighting:
+
+<p align="center">
+  <img src="assets/screenshots/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" width="850">
+</p>
+
+See the [`ui`](#ui) command below for every flag, and the root [README](../../README.md#web-ui-packagesweb-client)
+for how to run the UI from source in dev mode.
 
 ## Global options
 
@@ -68,21 +112,31 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 ### `agent`
 
-| Command                                               | Description                               |
-| ----------------------------------------------------- | ----------------------------------------- |
-| `agent run --provider pi/<model> "prompt"`            | Create an agent and run the first turn    |
-| `agent ls`                                            | List all agents                           |
-| `agent attach <agentId>`                              | Stream an agent's live events             |
-| `agent send <agentId> "prompt"`                       | Send a follow-up prompt                   |
-| `agent stop <agentId>`                                | Interrupt the current turn                |
-| `agent wait <agentId>`                                | Block until the agent goes idle or closes |
-| `agent timeline <agentId>`                            | Print paged timeline history              |
-| `agent inspect <agentId>`                             | Print the full agent record               |
-| `agent archive <agentId>`                             | Soft-delete                               |
-| `agent delete <agentId>`                              | Hard delete                               |
-| `agent update <agentId>`                              | Update model/mode/features/title/labels   |
-| `agent resume <agentId>`                              | Resume a closed session                   |
-| `agent import --provider pi --cwd /path --handle <h>` | Import a provider-native session          |
+| Command                                              | Description                                    |
+| ---------------------------------------------------- | ----------------------------------------------- |
+| `agent run --provider pi/<model> "prompt"`           | Create an agent and run the first turn         |
+| `agent ls`                                           | List all agents                                |
+| `agent attach <agentId>`                             | Stream an agent's live events                  |
+| `agent send <agentId> "prompt"`                      | Send a follow-up prompt                        |
+| `agent steer <agentId> "message"`                    | Steer a running turn (after current tool calls) |
+| `agent follow-up <agentId> "message"`                | Queue a message for after the agent stops      |
+| `agent stop <agentId>`                               | Interrupt the current turn                     |
+| `agent wait <agentId>`                               | Block until the agent goes idle or closes      |
+| `agent logs <agentId> [-n <limit>]`                  | Print paged timeline history                   |
+| `agent inspect <agentId>`                            | Print the full agent record                    |
+| `agent update <agentId>`                             | Update model/mode/thinking/title               |
+| `agent archive <agentId>`                            | Soft-delete                                    |
+| `agent delete <agentId>`                             | Hard delete                                    |
+| `agent reload <agentId>`                             | Resume a closed session                        |
+| `agent import <sessionRef>`                          | Import a provider-native session by handle     |
+
+`run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
+(`pi-studio ls`, `pi-studio run …`).
+
+Session management mirrors Pi's own slash commands — `agent session` (/session), `compact`,
+`new-session`, `resume-session`, `fork`, `fork-messages`, `clone`, `name`, `export`, `model`,
+`cycle-model`, `last-message`, and `commands` (list extensions/prompts/skills); run
+`pi-studio agent --help` for the full set.
 
 Provider spec parsing (`--provider`): `pi/claude-3-5-sonnet` → provider `pi`, model
 `claude-3-5-sonnet`; bare `pi` → provider only; `mock` → the credential-free mock provider.
@@ -114,13 +168,18 @@ explicit provider for non-interactive setups. Secrets are never echoed, and the 
 
 ### `daemon`
 
-| Command                    | Description                                                                |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `daemon start`             | Spawn a local daemon if one isn't already running, then print a pairing QR |
-| `daemon stop`              | Send SIGTERM to the local daemon                                           |
-| `daemon status`            | Print health + PID                                                         |
-| `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json`                  |
-| `daemon pair`              | Print the pairing URL/QR for an already-running daemon                     |
+| Command                    | Description                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `daemon start`             | Spawn a local daemon if one isn't already running, then print a pairing QR      |
+| `daemon stop`              | Send SIGTERM to the local daemon                                                |
+| `daemon restart`           | Stop then start the local daemon                                                |
+| `daemon status`            | Print health + PID                                                              |
+| `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json`                       |
+| `daemon pair`              | Print the pairing URL/QR for an already-running daemon                          |
+| `daemon rotate-key`        | Mint a fresh pairing keypair — revokes every previously issued pairing link/QR |
+
+`pi-studio onboard` (top-level) is an alias for `daemon start`'s behavior, and bare `pi-studio`
+does the same thing.
 
 ### `relay`
 
@@ -162,6 +221,8 @@ SPA fallback — no vite/dev dependency at runtime, works from any install shape
 (falls back to the global `--host`) pre-fills the printed URL's `?host=&connect=1` so the browser
 tab auto-connects; the command never itself probes or starts a daemon. Blocks until
 `SIGINT`/`SIGTERM`.
+
+See [The web UI](#the-web-ui) above for screenshots.
 
 ### `update`
 

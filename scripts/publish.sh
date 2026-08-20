@@ -108,6 +108,61 @@ npm run typecheck
 log "Test suite"
 npm test
 
+# --- README image URLs -------------------------------------------------------------------------
+#
+# npmjs.com renders README.md through GitHub's GFM API, which carries no repo context: a relative
+# image path (`assets/screenshots/x.webp`) resolves against nothing there and renders broken, even
+# though it works on github.com. npm's old marky-markdown used to rewrite relative image paths to
+# raw.githubusercontent equivalents; the current GFM-API rendering does not, and
+# `repository.directory` only improves the source link (npm RFC #10), not image URLs.
+#
+# raw.githubusercontent is NOT usable here: this repo is PRIVATE, so those URLs 404 for the
+# anonymous visitors reading the package page. Instead the images ship inside the tarball (each
+# such package lists "assets" in its "files") and the registry README points at jsDelivr, which
+# mirrors published npm packages publicly and needs no auth:
+#   https://cdn.jsdelivr.net/npm/@av-pi-studio/<pkg>@<version>/assets/...
+# Pinned to the exact version being published, so a given package page always renders the images
+# that shipped with it and can never drift.
+#
+# The in-repo README keeps its relative paths (what github.com needs). The trap restores every
+# rewritten file unconditionally, so an aborted or failed publish never leaves a rewritten README
+# behind in the working tree.
+REWRITTEN_READMES=()
+restore_readmes() {
+  local f
+  for f in ${REWRITTEN_READMES[@]+"${REWRITTEN_READMES[@]}"}; do
+    [[ -f "$f.orig" ]] && mv -f "$f.orig" "$f"
+  done
+}
+trap restore_readmes EXIT
+
+log "Rewriting relative README image URLs for the registry"
+for pkg in "${PUBLISH_ORDER[@]}"; do
+  readme="packages/$pkg/README.md"
+  [[ -f "$readme" ]] || continue
+  grep -q 'src="assets/' "$readme" || continue
+  node -e "
+    const p = require('./packages/$pkg/package.json');
+    const files = p.files ?? [];
+    if (!files.includes('assets')) {
+      console.error('packages/$pkg/README.md references assets/ but packages/$pkg/package.json');
+      console.error('does not list \"assets\" in \"files\" — the images would 404 on jsDelivr.');
+      process.exit(1);
+    }
+  " || die "packages/$pkg: add \"assets\" to \"files\" before publishing"
+  cp "$readme" "$readme.orig"
+  REWRITTEN_READMES+=("$readme")
+  CDN_BASE="https://cdn.jsdelivr.net/npm/@av-pi-studio/$pkg@$NEXT_VERSION"
+  node -e "
+    const fs = require('fs');
+    const path = 'packages/$pkg/README.md';
+    const base = '$CDN_BASE';
+    const src = fs.readFileSync(path, 'utf8');
+    fs.writeFileSync(path, src.replaceAll('src=\"assets/', \`src=\"\${base}/assets/\`));
+  "
+  echo "  $readme -> $CDN_BASE/assets/..."
+done
+
 # --- Publish -------------------------------------------------------------------------------------
 
 log "Publishing to npm (dependency order: ${PUBLISH_ORDER[*]})"
