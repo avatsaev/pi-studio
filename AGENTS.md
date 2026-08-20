@@ -254,6 +254,17 @@ All communication uses a **single WebSocket connection** per client.
   `send()` shape, `packages/server/src/files/file-watch-service.ts`) both follow this pattern. Not
   every push type needs a protocol-package schema entry — a local TypeScript interface + type guard
   at the point of use is the established convention for this family.
+- **`provider_auth_*`** (sprint-055) is the one RPC family that both gets real `messages.ts` request/
+  response schemas AND has a passthrough-only push: the five `provider_auth_list/login/respond/
+  cancel/logout` request/response pairs are real, durable, multi-client RPC schemas, while the
+  per-flow progress push (`provider_auth_flow_event` — prompts, `auth_url`/`device_code` info,
+  terminal `done`) rides the same `sessionMessageBaseSchema` passthrough fallback as
+  `checkout_status_update`/`file_changed` above. Lets a client without CLI shell access (browser,
+  relay-remote) drive the same Pi login flow `pi-studio auth login` drives locally
+  (`packages/cli/AGENTS.md`'s `auth` group) — the daemon now runs Pi's `ModelRuntime` auth engine
+  in-process too, lazily (only once the first `provider_auth_*` RPC arrives), writing Pi's
+  `auth.json` on the **daemon host** at the same path a daemon-spawned `pi --mode rpc` agent reads
+  (`packages/server/AGENTS.md`'s "Provider auth" subsystem section).
 
 ---
 
@@ -272,7 +283,10 @@ Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"`
 `pi` needs a model-provider credential before it can run a turn — `pi-studio auth login` (CLI-local,
 no daemon required; `packages/cli/AGENTS.md`'s `auth` group) is the supported way to provide one
 without hand-editing Pi's `auth.json` or discovering `/login` inside `pi-studio pi`'s pass-through
-TUI.
+TUI. A remote client without shell access reaches the same underlying Pi auth engine over the
+WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview above,
+`packages/server/AGENTS.md`'s "Provider auth" subsystem section); both paths write to the same
+`auth.json`/`models.json` a daemon-spawned `pi --mode rpc` process reads (`resolvePiAuthPaths`).
 
 ---
 

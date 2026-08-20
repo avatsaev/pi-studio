@@ -1,7 +1,7 @@
 # Task 005 — Live E2E over a real daemon with real Pi + docs sync
 
 - **Sprint:** sprint-055-provider-auth-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** test + docs
 - **Area:** packages/server (daemon E2E), AGENTS.md (root, protocol, server)
 - **Priority:** P1

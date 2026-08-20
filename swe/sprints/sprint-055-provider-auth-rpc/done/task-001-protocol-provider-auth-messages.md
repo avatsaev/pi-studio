@@ -1,7 +1,7 @@
 # Task 001 — Protocol: provider-auth RPC schemas + `providerAuth` feature flag
 
 - **Sprint:** sprint-055-provider-auth-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (wire contract)
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 003 — `ProviderAuthService`: flow registry + `AuthInteraction` bridge
 
 - **Sprint:** sprint-055-provider-auth-rpc
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent/provider-auth)
 - **Priority:** P1
