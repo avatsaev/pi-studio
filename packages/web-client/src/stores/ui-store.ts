@@ -26,6 +26,8 @@ export interface UiStoreState {
   cwd: string;
 
   cwdPickerOpen: boolean;
+  /** Settings dialog (gear at the ConnectionBar's top-right, sprint-065). */
+  settingsOpen: boolean;
   sessionMenu: { sessionId: string; x: number; y: number } | null;
   /** Per-workspace "⋮" menu (sidebar workspace header — New session / Delete workspace). */
   workspaceMenu: { cwd: string; x: number; y: number } | null;
@@ -54,6 +56,8 @@ export interface UiStoreState {
   setCwd(cwd: string): void;
   openCwdPicker(): void;
   closeCwdPicker(): void;
+  openSettings(): void;
+  closeSettings(): void;
   openSessionMenu(sessionId: string, x: number, y: number): void;
   closeSessionMenu(): void;
   openWorkspaceMenu(cwd: string, x: number, y: number): void;
@@ -85,6 +89,7 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   cwd: "~",
 
   cwdPickerOpen: false,
+  settingsOpen: false,
   sessionMenu: null,
   workspaceMenu: null,
   fileMenu: null,
@@ -100,6 +105,8 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   setCwd: (cwd) => set({ cwd }),
   openCwdPicker: () => set({ cwdPickerOpen: true }),
   closeCwdPicker: () => set({ cwdPickerOpen: false }),
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
   openSessionMenu: (sessionId, x, y) => set({ sessionMenu: { sessionId, x, y } }),
   closeSessionMenu: () => set({ sessionMenu: null }),
   openWorkspaceMenu: (cwd, x, y) => set({ workspaceMenu: { cwd, x, y } }),

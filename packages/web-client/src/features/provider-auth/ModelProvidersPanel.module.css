@@ -1,0 +1,57 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-10) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag {
+  flex-shrink: 0;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  flex-shrink: 0;
+}
+
+.pendingNote {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.note {
+  flex-basis: 100%;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.errorState {
+  color: var(--pi-color-statusDanger);
+}

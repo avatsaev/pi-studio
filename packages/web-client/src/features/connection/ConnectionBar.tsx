@@ -15,8 +15,14 @@
  * show that as placeholder text, so it lives in the field's `title` tooltip.
  */
 
-import { useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { lazy, Suspense, useRef, useState } from "react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Settings,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
@@ -27,6 +33,12 @@ import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-stor
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
 import styles from "./ConnectionBar.module.css";
+
+// Lazy: the settings shell + Model Providers panel must not ship in the initial bundle chunk.
+// Only imported once the gear is actually clicked (see `settingsEverOpened` below).
+const SettingsDialog = lazy(() =>
+  import("../settings/SettingsDialog.js").then((m) => ({ default: m.SettingsDialog })),
+);
 
 /**
  * The bar's control height per § 08. `Button`'s smallest size floors at 28px
@@ -52,6 +64,7 @@ export function ConnectionBar() {
   const error = useConnectionStore((s) => s.error);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
+  const serverInfo = useConnectionStore((s) => s.serverInfo);
 
   const host = useUiStore((s) => s.host);
   const setHost = useUiStore((s) => s.setHost);
@@ -61,6 +74,18 @@ export function ConnectionBar() {
   const toggleLeftSidebar = useUiStore((s) => s.toggleLeftSidebar);
   const rightSidebarCollapsed = useUiStore((s) => s.rightSidebarCollapsed);
   const toggleRightSidebar = useUiStore((s) => s.toggleRightSidebar);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const openSettings = useUiStore((s) => s.openSettings);
+  const closeSettings = useUiStore((s) => s.closeSettings);
+
+  // Mirrors `PiStudioClient#hasProviderAuthCapability()`, read reactively off the tracked
+  // `serverInfo` field rather than the imperative method (the store's `client` reference stays
+  // stable across a reconnect while its internal feature map mutates in place).
+  const providerAuthCapable = Boolean(serverInfo?.features?.["providerAuth"]);
+  // Defers the settings chunk's `import()` until the gear is actually clicked once, while still
+  // letting `Dialog`'s close animation play out afterward (an `open && <SettingsDialog/>` guard
+  // would unmount it mid-close instead).
+  const [settingsEverOpened, setSettingsEverOpened] = useState(false);
 
   const view = connectionBarView({ status, error, url: host });
   const dot = connectionDot(view.kind);
@@ -208,7 +233,33 @@ export function ConnectionBar() {
         >
           <Icon icon={rightSidebarCollapsed ? PanelRightOpen : PanelRightClose} size="sm" />
         </Button>
+        {providerAuthCapable && (
+          <Button
+            className={styles.panelToggle}
+            size="xs"
+            variant="ghost"
+            iconOnly
+            style={{ minHeight: CONTROL_HEIGHT, width: CONTROL_HEIGHT }}
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => {
+              setSettingsEverOpened(true);
+              openSettings();
+            }}
+          >
+            <Icon icon={Settings} size="sm" />
+          </Button>
+        )}
       </div>
+
+      {settingsEverOpened && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={(next) => (next ? openSettings() : closeSettings())}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -26,4 +26,6 @@ export const rpcKeys = {
   providerModels: (provider: string) => ["providers", "models", provider] as const,
   agentTimeline: (agentId: string) => ["agents", "timeline", agentId] as const,
   agentCommands: (sessionId: string) => ["agents", "commands", sessionId] as const,
+  /** sprint-065: `listProviderAuth()` result — invalidated after a login (task-004) or logout. */
+  providerAuthList: () => ["providers", "auth", "list"] as const,
 };

@@ -121,6 +121,12 @@ export default defineConfig(() => {
             // them here lets Rollup's default per-dynamic-import chunking split each into its
             // own tiny lazy chunk instead of forcing all 744 of them into one eager bundle.
             if (id.includes("@shikijs/langs") || id.includes("@shikijs/themes")) return undefined;
+            // `qrcode` is reachable only from the lazily loaded settings/provider-auth chunk (the
+            // login dialog's OAuth QR, sprint-065). The catch-all below would file it under the
+            // eager `vendor` bucket, making every user who never opens Settings download it;
+            // returning undefined lets Rollup co-locate it with its only importer instead.
+            // Matched on the path segment so `@types/qrcode` cannot be confused for it.
+            if (id.includes("node_modules/qrcode")) return undefined;
             if (id.includes("shiki") || id.includes("@shikijs")) return "vendor-highlight";
             if (id.includes("@xterm")) return "vendor-terminal";
             if (id.includes("framer-motion")) return "vendor-motion";
