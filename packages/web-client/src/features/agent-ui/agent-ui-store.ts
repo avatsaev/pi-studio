@@ -24,10 +24,25 @@
  * … only a fresh snapshot resets it"). Disposal happens only when `client` itself changes — a real
  * switch of daemon, or a transition to no client at all.
  *
- * **Effects (`AgentUiEffect`) are deliberately ignored here** — the controller emits `notify` and
- * `replace_composer_text` on every transition, and this sprint does not wire either to a toast or
- * the composer (sprint-069 does). This is the status quo (nothing consumes them today), stated here
- * explicitly so it reads as a decision, not an oversight.
+ * **Effects (`AgentUiEffect`) are routed from exactly one seam** — `dispatchEffects`, called from
+ * this module's single `controller.subscribe` callback with that commit's own `effects` array, in
+ * order. Exactly-once follows from the controller itself: `agent-ui-controller.ts`'s `commit()` is
+ * the only place a listener ever fires, called exactly once per action (including once each for
+ * queued transients replayed during `resync()`), and this module registers exactly one listener —
+ * so there is no path that could process the same effects twice. `"notify"` routes to a toast
+ * (`notify-effect.ts`'s pure decision helpers; sprint-069/task-006); `"replace_composer_text"`
+ * routes to `draft-store.ts` (sprint-069/task-007), the target SESSION's draft resolved from the
+ * effect's own `agentId` — never whichever composer currently has focus; any other/future kind is
+ * ignored, never thrown — the SDK's own `onUnknownMethod` above establishes the same "log or
+ * ignore, never crash" posture for methods this client doesn't know.
+ *
+ * **§ 08/§ 11 announcements are a second, separate consumer of the same commit** (sprint-069/
+ * task-008) — `announceTransitions`, called right after `dispatchEffects` from the same
+ * `subscribe` callback, diffs the just-committed `uiState` against the one before it
+ * (`announce.ts`'s pure `computeAnnouncements`) for § 08 pending-question arrivals/resolutions,
+ * while `notifyEffect`/`composerTextEffect` themselves additionally `speak()` their own § 11
+ * copy. Both write through `stores/announcer-store.ts`'s one shared live region — never a second,
+ * divergent one.
  *
  * **Retained surfaces are deliberately not exposed** — no `useAgentUiSurfaces` hook exists yet.
  * Sprint-070 renders them; an unused public selector today would invite a second, divergent
@@ -38,9 +53,11 @@ import { create } from "zustand";
 import {
   createAgentUiController,
   initialAgentUiState,
+  pendingByAgent,
   pendingForAgent,
   resolvedForAgent,
   type AgentUiController,
+  type AgentUiEffect,
   type AgentUiPendingEntry,
   type AgentUiResolvedEntry,
   type AgentUiRespondResult,
@@ -49,6 +66,18 @@ import {
 } from "@av-pi-studio/client";
 import type { AgentUiResponse } from "@av-pi-studio/protocol";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { clearWhenIdle, speak } from "@pi-studio-ui/stores/announcer-store.js";
+import { isTabVisible, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+import { computeAnnouncements } from "./announce.js";
+import {
+  notifyAnnouncement,
+  notifyDurationMs,
+  notifyToastCopy,
+  notifyVariant,
+} from "./notify-effect.js";
 
 export interface AgentUiStoreState {
   controller: AgentUiController | null;
@@ -73,10 +102,15 @@ let activeTeardown: (() => void) | null = null;
 // whenever the controller instance changes (new client, or capability-less → none).
 let pendingCache = new Map<string, readonly AgentUiPendingEntry[]>();
 let resolvedCache = new Map<string, readonly AgentUiResolvedEntry[]>();
+// Stable-reference cache for `selectAgentUiPendingAgentIds` (sprint-069/task-003) — same "reuse
+// the previous value when the content is unchanged" contract as `stableList` below, but for a Set
+// keyed by content rather than a per-agent-id cache.
+let pendingAgentIdsCache: ReadonlySet<string> = new Set();
 
 function resetCaches(): void {
   pendingCache = new Map();
   resolvedCache = new Map();
+  pendingAgentIdsCache = new Set();
 }
 
 function shallowArrayEqual<T>(a: readonly T[], b: readonly T[]): boolean {
@@ -100,6 +134,91 @@ function stableList<T>(
   return next;
 }
 
+/** Routes one commit's effects, in order — see this module's header for the exactly-once
+ *  argument. Unknown/not-yet-handled kinds are ignored, never thrown. */
+function dispatchEffects(effects: readonly AgentUiEffect[]): void {
+  for (const effect of effects) {
+    switch (effect.type) {
+      case "notify":
+        notifyEffect(effect);
+        break;
+      case "replace_composer_text":
+        composerTextEffect(effect);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+function notifyEffect(effect: Extract<AgentUiEffect, { type: "notify" }>): void {
+  const sessionState = useSessionStore.getState();
+  const activeSession = sessionState.activeSessionId
+    ? sessionState.sessions[sessionState.activeSessionId]
+    : undefined;
+  const effectSession = Object.values(sessionState.sessions).find(
+    (s) => s.agentId === effect.agentId,
+  );
+  const activeAgentId = activeSession?.agentId ?? null;
+  const sessionTitle = effectSession?.title ?? null;
+  useToastStore
+    .getState()
+    .show(notifyToastCopy(effect.message, effect.agentId, activeAgentId, sessionTitle), {
+      variant: notifyVariant(effect.level),
+      durationMs: notifyDurationMs(effect.level),
+    });
+  const announcement = notifyAnnouncement(
+    effect.message,
+    effect.level,
+    effect.agentId,
+    activeAgentId,
+    sessionTitle,
+  );
+  speak(announcement.text, announcement.politeness);
+}
+
+/** Routes a `replace_composer_text` effect to the SESSION's draft, never whichever composer
+ *  currently has focus (sprint-069/task-007's "Notes": routing by focus silently clobbers the
+ *  wrong draft as soon as two panes are open). Visibility is resolved fresh, right here, from the
+ *  effect's own agent id — never cached — so a background replacement is correctly deferred even
+ *  if some OTHER session's chat happens to be focused at this exact moment. A lookup miss (an
+ *  effect naming an agent with no locally-tracked session) is a defensive no-op, mirroring
+ *  `notifyEffect`'s own posture: an effect should always name a real, known agent, but this must
+ *  never throw on a miss. */
+function composerTextEffect(
+  effect: Extract<AgentUiEffect, { type: "replace_composer_text" }>,
+): void {
+  const effectSession = Object.values(useSessionStore.getState().sessions).find(
+    (s) => s.agentId === effect.agentId,
+  );
+  if (effectSession === undefined) return;
+  const visible = isTabVisible(tabIds.chat(effectSession.id));
+  useDraftStore.getState().replaceDraft(effectSession.id, effect.text, visible);
+  // § 11 "the visible case is not announced — the on-screen note is the feedback".
+  if (!visible) speak(`Draft replaced in ${effectSession.title || "Chat"}`, "polite");
+}
+
+/** § 08 announcements — a second, separate consumer of the same `subscribe` commit as
+ *  `dispatchEffects`, diffing this commit's `uiState` against the one before it. Global pending
+ *  count reaching zero additionally schedules the region to empty itself
+ *  (`announcer-store.ts`'s `clearWhenIdle`) — "nothing pending anywhere" has no announcement
+ *  string of its own (`announce.ts`'s header), so that decision lives here, not in `announce.ts`. */
+function announceTransitions(prev: AgentUiState, next: AgentUiState): void {
+  const sessionState = useSessionStore.getState();
+  const activeSession = sessionState.activeSessionId
+    ? sessionState.sessions[sessionState.activeSessionId]
+    : undefined;
+  const announcements = computeAnnouncements(prev, next, {
+    activeAgentId: activeSession?.agentId ?? null,
+    sessionTitle: (agentId) =>
+      Object.values(sessionState.sessions).find((s) => s.agentId === agentId)?.title ?? null,
+  });
+  for (const announcement of announcements) speak(announcement.text, announcement.politeness);
+  if (Object.keys(prev.pending).length > 0 && Object.keys(next.pending).length === 0) {
+    clearWhenIdle();
+  }
+}
+
 const reportedUnknownMethods = new Set<string>();
 
 function createControllerFor(client: PiStudioClient): void {
@@ -114,8 +233,11 @@ function createControllerFor(client: PiStudioClient): void {
       console.warn(`agent-ui: unrecognised extension-UI method "${method}"`);
     },
   });
-  const unsubscribeController = controller.subscribe((state) => {
+  const unsubscribeController = controller.subscribe((state, effects) => {
+    const prevUiState = useAgentUiStore.getState().uiState;
     useAgentUiStore.setState({ uiState: state });
+    dispatchEffects(effects);
+    announceTransitions(prevUiState, state);
   });
   useAgentUiStore.setState({ controller, uiState: controller.getState() });
   activeTeardown = () => {
@@ -197,6 +319,33 @@ export function selectAgentUiResolved(
   if (!s.controller) return EMPTY_RESOLVED;
   const list = stableList(resolvedCache, agentId, () => resolvedForAgent(s.uiState, agentId));
   return list.length === 0 ? EMPTY_RESOLVED : list;
+}
+
+const EMPTY_PENDING_AGENT_IDS: ReadonlySet<string> = new Set();
+
+/** Pure selector core for the set of agent ids with at least one pending question, across every
+ *  agent — sprint-069/task-003's workspace-header aggregation and task-004's tab strip both need
+ *  "does this session have a pending question" without subscribing to `useAgentUiPending` per
+ *  session (which would call a hook a variable number of times across a group's session list).
+ *  Stable-reference cached like `stableList` above, so an unrelated agent's transition does not
+ *  re-render every consumer of this selector. */
+export function selectAgentUiPendingAgentIds(s: AgentUiStoreState): ReadonlySet<string> {
+  if (!s.controller) return EMPTY_PENDING_AGENT_IDS;
+  const next = new Set(Object.keys(pendingByAgent(s.uiState)));
+  if (
+    next.size === pendingAgentIdsCache.size &&
+    [...next].every((id) => pendingAgentIdsCache.has(id))
+  ) {
+    return pendingAgentIdsCache;
+  }
+  pendingAgentIdsCache = next;
+  return next.size === 0 ? EMPTY_PENDING_AGENT_IDS : next;
+}
+
+/** The set of agent ids with at least one pending question. Empty (a stable, shared empty set)
+ *  when no controller exists (capability absent) or nothing is pending anywhere. */
+export function useAgentUiPendingAgentIds(): ReadonlySet<string> {
+  return useAgentUiStore(selectAgentUiPendingAgentIds);
 }
 
 /** Every pending dialog for `agentId`, oldest first. Empty (a stable, shared empty array) when no

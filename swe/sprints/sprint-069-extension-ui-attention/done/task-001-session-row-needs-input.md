@@ -1,7 +1,7 @@
 # Task 001 — Session row carries the needs-input signal
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/sessions, ui
 - **Priority:** P1
@@ -92,9 +92,11 @@ the row returns to its normal status. Also check a **running** session with a pe
 spinner must give way to needs-input.
 
 ## Notes
-**§ 08 contradicts itself on the row wash** and sprint-068/task-009 filed it with the designer: the
-section banner says "no row tint for needs-input (tints stay reserved for the failed state)" and § 01
-disclaims a session-row tint, but § 08's own `Row fill` entry specifies a `statusWarning` 10% wash.
-If the designer has answered by the time this task runs, follow the answer. If not, ship the accent
+**§ 08 contradicts itself on the row wash**, filed by sprint-068/task-009 as correction 1 in
+`swe/UI design/redesign 0.1.0/spec-corrections.md` (unanswered as of sprint-068's close,
+2026-08-21): the section banner says "no row tint for needs-input (tints stay reserved for the
+failed state)" and § 01 disclaims a session-row tint, but § 08's own `Row fill` entry specifies a
+`statusWarning` 10% wash. If the corrections doc carries the designer's answer by the time this
+task runs, follow it. If not, ship the accent
 bar **without** the wash — that is what the banner and § 01 both promise — and record the decision so
 the sprint does not stall on a one-line question.

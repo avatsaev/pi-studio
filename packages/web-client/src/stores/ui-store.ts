@@ -31,6 +31,9 @@ export interface UiStoreState {
   sessionMenu: { sessionId: string; x: number; y: number } | null;
   /** Per-workspace "⋮" menu (sidebar workspace header — New session / Delete workspace). */
   workspaceMenu: { cwd: string; x: number; y: number } | null;
+  /** Per-tab "right-click → Close" menu (sprint-069/task-004 — the minimal escape hatch for
+   * closing a tab whose `×` the tight-strip rule has replaced with an attention dot). */
+  tabMenu: { tabId: string; x: number; y: number } | null;
   /** `background: true` is the empty-space variant (right-click below the last row, or a
    * selected directory's "New File"/"New Folder") — `path` is the target directory, not a
    * specific row; the menu renders New File/New Folder/Copy Path only, no Open/Download/Delete. */
@@ -62,6 +65,8 @@ export interface UiStoreState {
   closeSessionMenu(): void;
   openWorkspaceMenu(cwd: string, x: number, y: number): void;
   closeWorkspaceMenu(): void;
+  openTabMenu(tabId: string, x: number, y: number): void;
+  closeTabMenu(): void;
   openFileMenu(
     path: string,
     isDirectory: boolean,
@@ -92,6 +97,7 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   settingsOpen: false,
   sessionMenu: null,
   workspaceMenu: null,
+  tabMenu: null,
   fileMenu: null,
   rightSidebarTab: "files",
   collapsedWorkspaces: new Set(),
@@ -111,6 +117,8 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   closeSessionMenu: () => set({ sessionMenu: null }),
   openWorkspaceMenu: (cwd, x, y) => set({ workspaceMenu: { cwd, x, y } }),
   closeWorkspaceMenu: () => set({ workspaceMenu: null }),
+  openTabMenu: (tabId, x, y) => set({ tabMenu: { tabId, x, y } }),
+  closeTabMenu: () => set({ tabMenu: null }),
   openFileMenu: (path, isDirectory, x, y, background) =>
     set({ fileMenu: { path, isDirectory, x, y, background } }),
   closeFileMenu: () => set({ fileMenu: null }),

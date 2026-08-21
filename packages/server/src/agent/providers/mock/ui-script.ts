@@ -21,9 +21,11 @@
  *   #ui select:empty           an empty `options` array
  *   #ui select:long            self-numbered options, captured verbatim from a live run
  *   #ui input:multiline        a title with a hard line break and a bracketed extension prefix
+ *   #ui notify                 a transient info-level `notify` — no dialog, no answer, no echo
+ *   #ui notify:warning         a transient warning-level `notify`
+ *   #ui notify:error           a transient error-level `notify`
+ *   #ui set_editor_text        a transient `set_editor_text` — replaces the composer draft
  *   #ui <method> timeout=<s>   adds a deadline in seconds (rejected for `editor` — see Notes)
- *   #ui multi <n>              raises `n` dialogs at once, none awaited individually
- *   #ui help                   no dialog — lists this grammar as assistant text
  *
  * Notes: `editor` has no `timeout` field on Pi's real wire (the visual spec's § 00 wire table lists
  * one in error — sprint-068/task-009 files the correction), so `#ui editor timeout=5` is rejected
@@ -39,7 +41,9 @@ export interface UiScriptStep {
   timeoutMs?: number;
   /** True: this dialog is raised and its answer is awaited before the turn can complete — the
    *  normal, single-dialog case. False: raised without individually waiting — used only by
-   *  `#ui multi`, where every step is raised up front and the turn waits on all of them together. */
+   *  `#ui multi`, where every step is raised up front and the turn waits on all of them together.
+   *  Unrelated to `expectsResponse: false` (a transient like `notify`) — those never produce an
+   *  answer to await regardless of this field; see `mock-provider.ts`'s `raiseScriptedDialog`. */
   await: boolean;
 }
 
@@ -104,6 +108,27 @@ const INPUT_MULTILINE: Record<string, unknown> = {
   title: "[Color] Which color do you pick?\n\nType your answer:",
 };
 
+// § 00's wire table: `notify`'s `message` is required, `level` optional (absent ⇒ the client
+// normalizes to "info" — `agent-ui-state.ts`'s `buildTransientEffects`). These three exercise all
+// three levels § 11 treats distinctly.
+const NOTIFY_INFO: Record<string, unknown> = {
+  message: "Sync complete.",
+};
+const NOTIFY_WARNING: Record<string, unknown> = {
+  message: "Rate limit approaching — 80% of quota used.",
+  level: "warning",
+};
+const NOTIFY_ERROR: Record<string, unknown> = {
+  message: "Failed to reach the remote index.",
+  level: "error",
+};
+
+// § 00's wire table: `set_editor_text` carries only `text` — captured verbatim from § 11's own
+// mock ("REPLACEMENT LANDED").
+const SET_EDITOR_TEXT: Record<string, unknown> = {
+  text: "retry the dns lookups with a 2s backoff",
+};
+
 const HELP_TEXT = `#ui script recipes:
   #ui select                one dialog, two short options (Allow / Block)
   #ui confirm                title + message
@@ -114,6 +139,10 @@ const HELP_TEXT = `#ui script recipes:
   #ui select:empty           an empty options array
   #ui select:long            self-numbered options, captured verbatim from a live run
   #ui input:multiline        a title with a hard break and a bracketed extension prefix
+  #ui notify                 a transient info-level notify — no dialog, no answer, no echo
+  #ui notify:warning         a transient warning-level notify
+  #ui notify:error           a transient error-level notify
+  #ui set_editor_text        a transient set_editor_text — replaces the composer draft
   #ui <method> timeout=<s>   adds a deadline in seconds (rejected for editor)
   #ui multi <n>              raises n dialogs at once, none awaited individually
   #ui help                   this list`;
@@ -134,6 +163,12 @@ function buildStep(
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     await: true,
   };
+}
+
+/** Like `buildStep`, but for a fire-and-forget transient (`notify`) — `expectsResponse: false`,
+ *  no `timeoutMs` (transients have no deadline field on the real wire). */
+function buildTransientStep(method: string, payload: Record<string, unknown>): UiScriptStep {
+  return { method, payload, expectsResponse: false, await: true };
 }
 
 /** Parses a `#ui ...` prompt into the dialog(s) it describes. Returns `null` when `prompt` is not a
@@ -196,6 +231,19 @@ export function parseUiScript(prompt: string): UiScriptStep[] | null {
       else if (variant !== undefined) return null;
       return [buildStep("input", payload, timeoutMs)];
     }
+
+    case "notify": {
+      if (timeoutMs !== undefined) return null; // transients have no deadline field on the wire
+      let payload = NOTIFY_INFO;
+      if (variant === "warning") payload = NOTIFY_WARNING;
+      else if (variant === "error") payload = NOTIFY_ERROR;
+      else if (variant !== undefined) return null;
+      return [buildTransientStep("notify", payload)];
+    }
+
+    case "set_editor_text":
+      if (variant !== undefined || timeoutMs !== undefined) return null;
+      return [buildTransientStep("set_editor_text", SET_EDITOR_TEXT)];
 
     default:
       return null;

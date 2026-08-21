@@ -45,6 +45,57 @@ describe("parseUiScript", () => {
     });
   });
 
+  it("#ui notify produces a transient (expectsResponse: false) info-level request", () => {
+    const steps = parseUiScript("#ui notify");
+    expect(steps).toEqual([
+      {
+        method: "notify",
+        payload: { message: "Sync complete." },
+        expectsResponse: false,
+        await: true,
+      },
+    ]);
+  });
+
+  it("#ui notify:warning and #ui notify:error select the warning/error payloads", () => {
+    expect(parseUiScript("#ui notify:warning")![0]!.payload).toEqual({
+      message: "Rate limit approaching — 80% of quota used.",
+      level: "warning",
+    });
+    expect(parseUiScript("#ui notify:error")![0]!.payload).toEqual({
+      message: "Failed to reach the remote index.",
+      level: "error",
+    });
+  });
+
+  it("rejects timeout= on notify — transients have no deadline field on the wire", () => {
+    expect(parseUiScript("#ui notify timeout=5")).toBeNull();
+  });
+
+  it("rejects an unrecognised notify variant", () => {
+    expect(parseUiScript("#ui notify:bogus")).toBeNull();
+  });
+
+  it("#ui set_editor_text produces a transient (expectsResponse: false) request carrying only text", () => {
+    const steps = parseUiScript("#ui set_editor_text");
+    expect(steps).toEqual([
+      {
+        method: "set_editor_text",
+        payload: { text: "retry the dns lookups with a 2s backoff" },
+        expectsResponse: false,
+        await: true,
+      },
+    ]);
+  });
+
+  it("rejects timeout= on set_editor_text — transients have no deadline field on the wire", () => {
+    expect(parseUiScript("#ui set_editor_text timeout=5")).toBeNull();
+  });
+
+  it("rejects an unrecognised set_editor_text variant", () => {
+    expect(parseUiScript("#ui set_editor_text:bogus")).toBeNull();
+  });
+
   it("#ui input produces a placeholder field", () => {
     const steps = parseUiScript("#ui input");
     expect(steps![0]!.payload).toEqual({ title: "Enter a release tag", placeholder: "v2.4.1" });
@@ -142,6 +193,8 @@ describe("getUiScriptHelpText", () => {
       "#ui select:empty",
       "#ui select:long",
       "#ui input:multiline",
+      "#ui notify",
+      "#ui set_editor_text",
       "#ui multi",
       "#ui help",
     ]) {

@@ -20,9 +20,16 @@ const COLOR_TOKEN_VAR: Record<string, string> = {
 
 export type StatusDotProps = StatusDotInput & {
   className?: string;
+  /** Opt-in box-shadow ring, local to the needs-input state (sprint-069/task-002) — never part of
+   * `StatusDot`'s default rendering, so every other status/caller is unaffected. Defaults off. */
+  pulse?: boolean;
+  /** When set, the dot becomes an accessible element carrying this name instead of the default
+   * `role="presentation"` (§ 08: "no dot is ever colour-only") — sprint-069/task-003. Omitted ⇒
+   * today's decorative default, unchanged for every existing caller. */
+  "aria-label"?: string;
 };
 
-export function StatusDot({ className, ...input }: StatusDotProps) {
+export function StatusDot({ className, pulse, "aria-label": ariaLabel, ...input }: StatusDotProps) {
   const colorToken = statusDotColor(input);
   if (!colorToken) return null;
 
@@ -36,7 +43,9 @@ export function StatusDot({ className, ...input }: StatusDotProps) {
 
   return (
     <span
-      className={`${spinning ? styles.spinner : styles.dot}${className ? ` ${className}` : ""}`}
+      className={`${spinning ? styles.spinner : styles.dot}${
+        pulse && !spinning ? ` ${styles.pulse}` : ""
+      }${className ? ` ${className}` : ""}`}
       style={
         spinning
           ? { borderTopColor: color, borderRightColor: color }
@@ -46,7 +55,8 @@ export function StatusDot({ className, ...input }: StatusDotProps) {
               backgroundColor: color,
             }
       }
-      role="presentation"
+      role={ariaLabel ? "img" : "presentation"}
+      aria-label={ariaLabel}
     />
   );
 }

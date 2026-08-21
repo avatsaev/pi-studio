@@ -1,7 +1,7 @@
 # Task 007 — `set_editor_text`: replacing the composer draft, visibly
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/chat, features/agent-ui
 - **Priority:** P2
@@ -34,7 +34,7 @@ the pane is next visible so the feedback is not spent on an empty room.
 - Route the composer effect through task-006's seam to **the target session's** draft — never
   whichever composer has focus.
 - **Create the draft seam this needs:** today the draft is component-local state —
-  `Composer.tsx:98`'s `const [text, setText] = useState("")` — with no per-session draft store, so
+  `Composer.tsx:99`'s `const [text, setText] = useState("")` — with no per-session draft store, so
   there is nothing an effect can write to. Lift the draft into per-session state (or give the store
   a per-session pending-replacement slot the composer consumes) rather than reaching into a mounted
   component. A session with **no chat tab open anywhere** has no composer mounted at all: the

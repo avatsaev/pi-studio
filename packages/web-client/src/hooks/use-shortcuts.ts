@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { useTabStore, openNewTerminal, closeTab } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
 
 export function useShortcuts(): void {
   useEffect(() => {
@@ -15,6 +16,17 @@ export function useShortcuts(): void {
       if (ev.key === "Escape") {
         ui.closeCwdPicker();
         ui.closeSessionMenu();
+        // A Radix `Dialog`/`AlertDialog` (`role="dialog"`/`"alertdialog"`) handles its own Escape
+        // via `DismissableLayer`'s capture-phase listener, which runs before this bubble-phase one
+        // and does not call `stopPropagation()` — so without this guard, dismissing a dialog and
+        // dismissing the top toast would both fire on the same keystroke. § 11/task-005's
+        // "with a dialog open, Esc closes the dialog first" means the dialog gets this keystroke
+        // exclusively; the toast waits for the next one. Cards (sprint-068's `AskCard.tsx`) need no
+        // such guard here — they call the real native `stopPropagation()` on their own Escape
+        // handler, which prevents this listener from observing the event at all.
+        if (!document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+          useToastStore.getState().dismissTop();
+        }
         return;
       }
 

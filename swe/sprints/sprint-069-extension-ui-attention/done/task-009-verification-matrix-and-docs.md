@@ -1,7 +1,7 @@
 # Task 009 — Verification matrix, cross-surface consistency pass, docs
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** web-client / docs, swe
 - **Priority:** P1
@@ -48,7 +48,9 @@ rather than per-task claims.
   attention badging *and* transients now render; retained surfaces (§ 09/§ 10) still do not, so say so
   rather than implying full coverage. `swe/features/ui-components.md` § Feedback: the toast entry is no
   longer aspirational — reword it to describe what exists. `PLAN.md`: mark the sprint.
-- Confirm sprint-068/task-009's filed spec corrections were resolved; in particular § 08's row-wash
+- Confirm sprint-068/task-009's filed spec corrections were resolved
+  (`swe/UI design/redesign 0.1.0/spec-corrections.md` — unanswered at sprint-068's close); in
+  particular § 08's row-wash
   contradiction, which task-001 had to decide with or without an answer. If task-001 shipped the
   fallback, say so plainly in the summary so the designer's later answer can be applied deliberately.
 
@@ -68,9 +70,16 @@ rather than per-task claims.
 
 ## Test / verification plan
 - Full suite: `npm run build`, `npm run typecheck`, `npm run lint`, `npm run fmt:check`, `npm test`.
-- Manual: the matrix above, plus one pass with a real `pi` and a real interactive extension to confirm
-  the attention signals behave against real timing (a real dialog's arrival and answer, not a scripted
-  one).
+- Manual: the matrix above, plus one pass with a real `pi` and real extensions to confirm the signals
+  behave against real timing: `@juicesharp/rpiv-ask-user-question` for a real dialog's arrival/answer
+  driving the attention surfaces (sprint-068/task-009's proven vehicle), and `@juicesharp/rpiv-todo`
+  for real `notify` traffic on `/todo`. **Correction applied during this task (2026-08-21):**
+  068/task-009's claim that rpiv-todo also "drives `setWidget`" was an unverified inference from
+  nothing rendering, not an observation — rpiv-todo's widget is TUI-only factory-form and RPC mode
+  silently drops it. A retained-surface producer audit (static source check + live `pi --mode rpc`
+  captures) found the real producers instead: `@99percentpeople/pi-background-tasks` (`setWidget`,
+  real array content, confirmed live) and `pi-powerline-footer`'s `/cd` command (`setTitle`, real
+  string, confirmed live) — see this task's own summary's "Retained-surface producer check" section.
 
 ## Hand-off for visual sign-off (user)
 This task **is** the hand-off. Deliver the matrix plus the full `#ui` recipe list, then apply whatever

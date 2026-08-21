@@ -171,3 +171,26 @@ All matched files use the correct format.
   this" outcome for these two kinds, `outcome-line.ts` needs a way to distinguish "cancelled by
   this client" from "resolved by another client" for `select`/`input`, which the wire does not
   currently carry.
+- **Superseded (2026-08-21, post-sprint-069): this task's focus mechanism was correct by keyboard
+  and broken by mouse.** The user's own live pass found three defects that originated here; all are
+  now fixed in `AskCard.tsx`/`AskCard.module.css`, with the full write-up (including why both
+  sprints' verification matrices were structurally incapable of catching them) in
+  `sprint-069-extension-ui-attention/done/task-009-verification-matrix-and-docs-summary.md`'s
+  follow-ups. Short form, since two of the three contradict statements made above:
+  1. `.hint`'s visibility toggle was `display: none → flex` ("visibility is pure CSS", line 42).
+     Correct for keyboard focus; catastrophic for mouse — revealing the line on `:focus-within`
+     reflowed every control below it down ~21px *between a real click's `mousedown` and `mouseup`*,
+     so the browser emitted **no `click` event** and every first click on a card control was
+     silently eaten. Now toggles `visibility`, keeping the box in flow. Acceptance row "Focus is
+     visible at all times a card owns keys" (line 158) stands; what no row asserted is that a
+     *mouse* could reach that state in one press.
+  2. The `.card` div never received `tabIndex`, so clicking a card's prompt/padding could not focus
+     it at all — `:focus-within` matched nothing and the card stayed visually unfocused while
+     looking like the thing the user just clicked. Now `tabIndex={-1}` + a `mousedown` handler that
+     focuses the card unless the click landed on a real control.
+  3. The § 07 initial-focus effect (line 24's `primaryRef` target) guarded on "a TEXTAREA/INPUT is
+     focused elsewhere", meaning to protect a draft mid-sentence — but the composer is *always*
+     focused-and-empty right after sending the message that triggers the card, so the guard
+     suppressed self-focus on **every** card in the normal flow. The live verification in this
+     task's acceptance rows focused cards explicitly before testing keys, which is exactly why it
+     passed. Guard now tests for unsent text, not mere focus.

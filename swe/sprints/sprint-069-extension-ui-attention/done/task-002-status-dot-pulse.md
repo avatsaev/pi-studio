@@ -1,7 +1,7 @@
 # Task 002 — `StatusDot` pulse modifier, local to needs-input
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / components/primitives, ui
 - **Priority:** P2

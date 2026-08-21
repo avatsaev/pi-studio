@@ -1,7 +1,7 @@
 # Task 003 — Collapsed workspace header carries the signal
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/sessions
 - **Priority:** P2

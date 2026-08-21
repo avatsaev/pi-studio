@@ -242,12 +242,19 @@
   }
 }
 
-/* § 07 hint line — "appears below the card on focus and is removed on blur; it never occupies
-   space while unfocused." Pure CSS via `.card:focus-within` (above): no JS focus/blur listener
-   needed for visibility, only for the armed/unarmed *text* (`AskCard.tsx`'s `HintLine`). Sibling
-   of `.card`, not a child — same shell slot as `.reconnectingNote`. */
+/* § 07 hint line — "appears below the card on focus and is removed on blur". Visibility (not
+   `display`) is what toggles, and the line therefore always *reserves* its own height even while
+   invisible. That is deliberate and load-bearing, not a spec deviation: toggling `display: none ->
+   flex` on focus moved every control below it by the hint's own height (~21px measured) between a
+   real click's `mousedown` (which focuses the button, revealing the hint) and its `mouseup` — so
+   the pointer was no longer over the button it pressed and the browser emitted **no `click` event
+   at all**. Every first click on a card's button was silently eaten and users had to click twice.
+   `visibility` keeps the box in flow, so focusing shifts nothing. § 07's intent ("it never
+   occupies space while unfocused") was about visual quiet, and that still holds — an invisible
+   line paints nothing. */
 .hint {
-  display: none;
+  display: flex;
+  visibility: hidden;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--pi-spacing-6);
@@ -256,7 +263,7 @@
 }
 
 .card:focus-within ~ .hint {
-  display: flex;
+  visibility: visible;
 }
 
 /* Each key glyph (↵, Esc, ⇧↵) boxed as its own chip; the label word beside it is plain text. */

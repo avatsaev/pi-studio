@@ -51,6 +51,7 @@ import { PaneDividers } from "./PaneDividers.js";
 import { useExternalPaneDrop, paneDropProps } from "@pi-studio-ui/hooks/use-external-pane-drop.js";
 import { DragChip, DropPreview } from "./DropPreview.js";
 import { TabStrip } from "./TabStrip.js";
+import { TabContextMenu } from "./TabContextMenu.js";
 import styles from "./TabPanelHost.module.css";
 
 /**
@@ -125,6 +126,9 @@ export function TabPanelHost() {
             />
           ))
         )}
+        {/* Once for the whole host, not once per strip — mirrors `SessionContextMenu`'s single
+          mount inside `SessionList` (sprint-069/task-004). */}
+        <TabContextMenu />
         {activeWorkspaceCwd !== null && dividers.length > 0 && (
           <PaneDividers cwd={activeWorkspaceCwd} dividers={dividers} hostRef={areaRef} />
         )}

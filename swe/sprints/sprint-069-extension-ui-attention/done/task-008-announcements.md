@@ -1,7 +1,7 @@
 # Task 008 — Announcements: live region, the seven strings, and the card's group name
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui, features/sessions
 - **Priority:** P2
@@ -33,6 +33,9 @@ it needs deciding once rather than per surface.
 - `swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html` (the existing `aria-live` status
   precedent and explicit `aria-label` conventions)
 - `packages/web-client/src/features/agent-ui/` (sprint-068's cards and store; task-006's seam)
+- `packages/web-client/src/features/agent-ui/outcome-line.ts` (sprint-068's answered/declined/
+  "no longer pending" derivation — classify resolutions for announcement the same way, not via a
+  second mapping)
 - `packages/web-client/src/features/sessions/SessionItem.tsx` (task-001's status region)
 
 ## What to build
@@ -93,3 +96,9 @@ distinctive string and confirm it is never spoken.
 "Never announce absence" is easy to violate accidentally: writing an empty string into a live region
 is silent, but writing a placeholder like "no questions pending" is not, and neither is toggling the
 region's presence in a way that re-reads its previous content.
+
+A wire limitation from sprint-068/task-008's follow-up constrains the answered/dismissed split: for
+populated `select` and `input`, a second-Esc dismissal resolves as a bare `{ cancelled: true }`,
+which the wire cannot distinguish from a resolution by another client — `outcome-line.ts` renders
+both as "no longer pending". Announce what the store can actually prove (the same classification
+outcome-line uses); do not promise a "dismissed" string for a case the wire cannot attribute.

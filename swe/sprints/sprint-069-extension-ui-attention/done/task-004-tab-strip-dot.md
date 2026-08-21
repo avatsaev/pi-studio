@@ -1,7 +1,7 @@
 # Task 004 — Pane tab strip attention dot
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/workspace
 - **Priority:** P2

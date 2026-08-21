@@ -1,7 +1,7 @@
 # Task 006 — Effect routing seam + `notify` toasts
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui
 - **Priority:** P1
@@ -40,6 +40,8 @@ dropped, never escalated.
 - `packages/web-client/src/features/agent-ui/agent-ui-store.ts` (sprint-068's deliberate
   non-consumption — the comment to replace)
 - `packages/web-client/src/ui/toast.ts` + task-005's host
+- `packages/server/src/agent/providers/mock/ui-script.ts` + `mock-provider.ts` (sprint-068/task-001's
+  `#ui` grammar and help text — the hand-off recipes below extend these)
 
 ## What to build
 - An effect-routing seam in the agent-ui store: for each committed transition, dispatch that
@@ -91,5 +93,10 @@ hovering pauses dismissal on the others.
 
 ## Notes
 The mock provider's script currently covers dialogs only. Extending it here rather than in task-005
-keeps the grammar change next to the consumer that needs it — and it is the only way you can raise a
-`notify` at all, since no real extension in the tested set emits one.
+keeps the grammar change next to the consumer that needs it. Two facts from sprint-068 to carry:
+the mock parses `#ui` only on a **fresh send**, never a mid-turn steer (068/task-008 observed this —
+fire recipes as separate sends), and one real extension in the tested set **does** emit `notify` —
+068/task-009's real-`pi` pass verified `@juicesharp/rpiv-todo` drives `ui.notify` (plus `setWidget`),
+currently rendering nothing. Once this task lands those notifies become visible toasts — a real
+traffic source for task-009's pass, and why the "extension spams notify" case in Out of scope is not
+hypothetical.

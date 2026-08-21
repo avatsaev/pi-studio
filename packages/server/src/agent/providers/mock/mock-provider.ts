@@ -160,10 +160,14 @@ export class MockAgentSession implements AgentSession {
     if (this.activeTurn !== turnId) return; // interrupted while dialogs were pending
 
     for (let i = 0; i < steps.length; i++) {
+      const response = responses[i];
+      // `null`: a transient step (e.g. `notify`) — fire-and-forget, never resolved, nothing to
+      // echo. Only a real answered dialog gets an "ui X resolved: …" line.
+      if (response === null || response === undefined) continue;
       this.emit({
         kind: "assistant_message",
         messageId: randomUUID(),
-        text: `ui ${steps[i]!.method} resolved: ${describeUiResponse(responses[i]!)}`,
+        text: `ui ${steps[i]!.method} resolved: ${describeUiResponse(response)}`,
         final: true,
       });
     }
@@ -171,10 +175,13 @@ export class MockAgentSession implements AgentSession {
     this.activeTurn = null;
   }
 
-  /** Raises one scripted dialog and returns a promise that resolves once `respondToUi` is called
-   *  for its (mock-minted) `requestId`. Deliberately separate from the public `emitUiRequest` —
-   *  that method fills defaults for ad-hoc test use and tracks nothing. */
-  private raiseScriptedDialog(step: UiScriptStep): Promise<ProviderUiResponse> {
+  /** Raises one scripted step. A dialog (`expectsResponse: true`) returns a promise that resolves
+   *  once `respondToUi` is called for its (mock-minted) `requestId`. A transient
+   *  (`expectsResponse: false`, e.g. `notify`) resolves immediately with `null` — it is never
+   *  answered, so waiting on `pendingScriptedResponses` for one would hang `runUiScript`'s
+   *  `Promise.all` forever. Deliberately separate from the public `emitUiRequest` — that method
+   *  fills defaults for ad-hoc test use and tracks nothing. */
+  private raiseScriptedDialog(step: UiScriptStep): Promise<ProviderUiResponse | null> {
     const req: ProviderUiRequest = {
       requestId: randomUUID(),
       method: step.method,
@@ -182,9 +189,10 @@ export class MockAgentSession implements AgentSession {
       payload: step.payload,
       ...(step.timeoutMs !== undefined ? { timeoutMs: step.timeoutMs } : {}),
     };
+    for (const cb of this.uiSubscribers) cb(req);
+    if (!step.expectsResponse) return Promise.resolve(null);
     const { promise, resolve } = Promise.withResolvers<ProviderUiResponse>();
     this.pendingScriptedResponses.set(req.requestId, resolve);
-    for (const cb of this.uiSubscribers) cb(req);
     return promise;
   }
 

@@ -294,10 +294,15 @@ All communication uses a **single WebSocket connection** per client.
   for the four dialog kinds (`select`/`confirm`/`input`/`editor`, plus an unrecognised-method
   fallback) — every lifecycle state (pending, in-flight, resolved, non-answerable, multiple at
   once, recovered-after-reload) and full keyboard/focus ownership, composed inline into the chat
-  transcript (`packages/web-client/AGENTS.md`'s "Extension UI dialogs" invariant). **Still
-  unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`), the `notify`/
-  `replace_composer_text` effects, and the sidebar/tab/workspace attention signals the dialogs'
-  own presence should eventually drive — those are later sprints' scope, not yet wired to anything.
+  transcript (`packages/web-client/AGENTS.md`'s "Extension UI dialogs" invariant). **Sprint-069
+  gave `web-client` discoverability and transients** — § 08's attention signals on four surfaces
+  (session row, collapsed workspace header, pane tab strip, plus an `aria-live` screen-reader
+  announcement region) so a pending dialog raised anywhere is no longer invisible outside its own
+  transcript, and § 11's two fire-and-forget effects (`notify` toasts via a new app-wide toast
+  host, and `set_editor_text` composer replacement) (`packages/web-client/AGENTS.md`'s "Toast
+  host", "Both transient effects are now wired", and "Announcements" invariants). **Still
+  unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`, § 09/§ 10) — sprint-070's
+  scope, not yet wired to anything.
 
 ---
 

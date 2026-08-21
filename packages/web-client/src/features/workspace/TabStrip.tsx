@@ -47,6 +47,8 @@ import {
   type ChatTabData,
 } from "@pi-studio-ui/stores/tab-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useAgentUiPending } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
+import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
 import { tabAttentionStatus } from "./tab-attention.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
@@ -69,14 +71,20 @@ const MONO_LABEL_KINDS: Partial<Record<TabKind, true>> = { file: true, diff: tru
 
 function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
   const activate = useTabStore((s) => s.activate);
+  const openTabMenu = useUiStore((s) => s.openTabMenu);
   const KindIcon = ICON_BY_KIND[tab.kind];
-  // Primitive-valued selector (a string or undefined, never the `SessionEntry` object) so a
-  // stream event that mutates timeline/model/etc. on some OTHER session never re-renders every
-  // tab in the strip — only a `status` change on this tab's own session does.
+  // Primitive-valued selectors (never the `SessionEntry` object) so a stream event that mutates
+  // timeline/model/etc. on some OTHER session never re-renders every tab in the strip — only a
+  // `status`/`agentId` change on this tab's own session does.
   const sessionStatus = useSessionStore((s) =>
     tab.kind === "chat" ? s.sessions[(tab.data as ChatTabData).sessionId]?.status : undefined,
   );
-  const attention = tabAttentionStatus(tab, sessionStatus, active);
+  const sessionAgentId = useSessionStore((s) =>
+    tab.kind === "chat" ? s.sessions[(tab.data as ChatTabData).sessionId]?.agentId : undefined,
+  );
+  const pending = useAgentUiPending(sessionAgentId ?? "");
+  const attention = tabAttentionStatus(tab, sessionStatus, active, pending.length > 0);
+  const needsInput = attention?.attentionReason === "question";
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.id,
@@ -86,7 +94,7 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
   return (
     <div
       ref={setNodeRef}
-      className={clsx(styles.tab, active && styles.tabActive)}
+      className={clsx(styles.tab, active && styles.tabActive, needsInput && styles.tabNeedsInput)}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -95,6 +103,11 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
       onClick={() => activate(tab.id)}
       onAuxClick={(ev) => {
         if (ev.button === 1 && tab.closable) closeTab(tab.id);
+      }}
+      onContextMenu={(ev) => {
+        if (!tab.closable) return;
+        ev.preventDefault();
+        openTabMenu(tab.id, ev.clientX, ev.clientY);
       }}
       title={tab.label}
       {...attributes}
@@ -111,7 +124,14 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
       <span className={clsx(styles.tabLabel, MONO_LABEL_KINDS[tab.kind] && styles.tabLabelMono)}>
         {tab.label}
       </span>
-      <StatusDot status={attention} className={styles.tabDot} />
+      {attention && (
+        <StatusDot
+          {...attention}
+          className={styles.tabDot}
+          pulse={needsInput}
+          aria-label={needsInput ? "Needs input" : undefined}
+        />
+      )}
       {tab.closable && (
         <span
           className={styles.tabClose}

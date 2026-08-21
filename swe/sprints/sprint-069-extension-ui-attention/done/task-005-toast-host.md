@@ -1,7 +1,7 @@
 # Task 005 — Build the toast host (the primitive that was specified but never implemented)
 
 - **Sprint:** sprint-069-extension-ui-attention
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / components/primitives, ui
 - **Priority:** P1

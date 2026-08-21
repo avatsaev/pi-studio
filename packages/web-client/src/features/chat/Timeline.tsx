@@ -143,6 +143,7 @@ function renderComposedItem(
   workspaceCwd: string | undefined,
   onExpandMoreAsks: () => void,
   autoFocusRequestId: string | null,
+  sessionTitle: string,
 ) {
   if (item.kind === "ask")
     return (
@@ -151,6 +152,7 @@ function renderComposedItem(
         collapsed={item.collapsed}
         connector={!isLast}
         autoFocus={item.item.kind === "pending" && item.item.entry.requestId === autoFocusRequestId}
+        sessionTitle={sessionTitle}
       />
     );
   if (item.kind === "ask-more")
@@ -309,6 +311,7 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
                     workspaceCwd,
                     () => setExpandedAsks(true),
                     autoFocusRequestId,
+                    session.title,
                   )}
                 </div>
               );

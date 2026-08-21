@@ -294,6 +294,62 @@ describe("#ui script trigger (sprint-068, task-001)", () => {
     expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
   });
 
+  it("#ui notify raises a fire-and-forget request and completes without an echo (sprint-069/task-006)", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: { requestId: string; method: string; expectsResponse: boolean }[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui notify");
+    await completed;
+
+    expect(uiRequests).toHaveLength(1);
+    expect(uiRequests[0]?.method).toBe("notify");
+    expect(uiRequests[0]?.expectsResponse).toBe(false);
+    // Fire-and-forget: never answered via respondToUi, yet the turn still completed (this is
+    // exactly the hang this task fixed — `raiseScriptedDialog` no longer waits on a response for
+    // an `expectsResponse: false` step), and nothing is echoed as assistant text for it.
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("#ui notify:warning and #ui notify:error select the warning/error payloads", async () => {
+    for (const [variant, level] of [
+      ["warning", "warning"],
+      ["error", "error"],
+    ] as const) {
+      const session = await makeMockSession();
+      const raised: { payload: Record<string, unknown> }[] = [];
+      session.onUiRequest((req) => raised.push(req));
+      await session.startTurn(`#ui notify:${variant}`);
+      expect(raised[0]?.payload.level).toBe(level);
+    }
+  });
+
+  it("#ui set_editor_text raises a fire-and-forget request carrying only text and completes without an echo (sprint-069/task-007)", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: {
+      requestId: string;
+      method: string;
+      expectsResponse: boolean;
+      payload: Record<string, unknown>;
+    }[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui set_editor_text");
+    await completed;
+
+    expect(uiRequests).toHaveLength(1);
+    expect(uiRequests[0]?.method).toBe("set_editor_text");
+    expect(uiRequests[0]?.expectsResponse).toBe(false);
+    expect(uiRequests[0]?.payload).toEqual({ text: "retry the dns lookups with a 2s backoff" });
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
   it("an ordinary prompt is unaffected and still echoes normally", async () => {
     const session = await makeMockSession();
     const { events } = collect(session);

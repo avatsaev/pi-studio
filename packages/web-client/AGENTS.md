@@ -116,7 +116,9 @@ src/
                             every right-click context menu plus TabStrip's "+" menu and
                             ModelMenu/CommandMenu's outer chrome —, TextInput, Switch,
                             Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
-                            Shortcut, Spinner, ScreenTitle, Divider, Icon, …)
+                            Shortcut, Spinner, ScreenTitle, Divider, Icon, ToastViewport,
+                            Announcer — the app's one § 08/§ 11 `aria-live` region, sprint-069/
+                            task-008, see AGENTS.md § Invariants "Announcements" —, …)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
                            relay-transport pairing-link connections; constructs
                            ReconnectionManager with createWorkerTimers()'s injected timers —
@@ -193,15 +195,23 @@ src/
                            layout-store's focused pane and its active tab, written only by
                            `syncActiveFromLayout()`; every lifecycle method routes through
                            layout-store, and `useIsTabVisible(tabId)` — not `=== activeTabId` — is
-                           what panels ask, since with splits several tabs are visible at once;
-                           `tabIdentity()` lives here because `open` calls it on every open to
-                           resolve a persisted claim; the `openNew*` helpers take an optional target
-                           pane; openNewChat materializes eagerly; closeTab wraps the store's
-                           close action + materialize.ts's discardIfEmpty; closeByPathPrefix closes
-                           every file/diff/molecule tab nested under a deleted path), session-store
+                           what panels ask, since with splits several tabs are visible at once
+                           (`isTabVisible(tabId)` is the same rule's non-hook counterpart, for
+                           callers outside React — agent-ui-store.ts's `set_editor_text` effect
+                           routing, sprint-069/task-007); `tabIdentity()` lives here because `open`
+                           calls it on every open to resolve a persisted claim; the `openNew*`
+                           helpers take an optional target pane; openNewChat materializes eagerly;
+                           closeTab wraps the store's close action + materialize.ts's
+                           discardIfEmpty; closeByPathPrefix closes every file/diff/molecule tab
+                           nested under a deleted path), session-store
                            (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
-                           agent_update), materialize (eager draft materialization + default-model
-                           resolution + discardIfEmpty, + test), git-store (branch/ahead/behind/
+                           agent_update), draft-store (per-session composer draft text lifted out
+                           of Composer.tsx's own useState — sprint-069/task-007 — plus a one-shot
+                           `pendingFeedback` queue Composer.tsx consumes to show the § 11
+                           `set_editor_text` border-flash/note; exists precisely so an extension
+                           effect can write a session's draft even with no composer for it
+                           currently mounted) (+ test), materialize (eager draft materialization +
+                           default-model resolution + discardIfEmpty, + test), git-store (branch/ahead/behind/
                            detached/upstream/conflictCount alongside changes[]; plus `ignored[]`,
                            the projection's gitignored paths — kept OUT of `changes[]` so it can
                            never inflate the Changes tab or the status bar's dirty count, and read
@@ -213,7 +223,10 @@ src/
                            subtree to its new prefix instead of pointing at dead paths —
                            sprint-046) (+ test), layout-store (pane structure per workspace:
                            pane tree, tab→pane `placement`, per-pane active tabs, focused pane,
-                           plus the restore claim/settle-point machinery — sprint-048) (+ test)
+                           plus the restore claim/settle-point machinery — sprint-048) (+ test),
+                           announcer-store (the app's one § 08/§ 11 `aria-live` region's current
+                           text — `speak`/`clearWhenIdle`, sprint-069/task-008 — see AGENTS.md §
+                           Invariants "Announcements") (+ test)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
@@ -328,8 +341,13 @@ src/
                             targeting THIS pane — then a `.stripActions` cluster: SplitActions' Split
                             right / Split down, each disabled with a reason from pane-tree's
                             `canSplit`) stays outside that scroll container so it's reachable in a
-                            narrow pane — sprint-049), tab-attention.ts (pure: which chat tab, if any,
-                            gets the background-turn `StatusDot`) (+ test), TabPanelHost (flat host:
+                            narrow pane — sprint-049), tab-attention.ts (pure: which chat tab, if
+                            any, gets the background `StatusDot` — running/error from session
+                            status, or needs-input from sprint-068's agent-ui store, sourced by the
+                            caller; sprint-069/task-004) (+ test), TabContextMenu (per-tab
+                            right-click menu — single Close action, Radix cursor-anchored like
+                            SessionContextMenu, mounted once in TabPanelHost; sprint-069/task-004),
+                            TabPanelHost (flat host:
                             every open tab's panel is mounted
                             exactly once and absolutely positioned at its pane's fractional rect, so
                             rearranging panes never remounts a panel — sprint-049), PaneDividers
@@ -412,7 +430,11 @@ src/
                             detection), ask-placement.ts (pure: where cards sit among timeline rows
                             — chronological insertion, never a sort; rows never reorder),
                             outcome-line.ts/option-layout.ts/prompt-text.ts/deadline.ts
-                            (pure presentation decisions the card renders, no DOM/React)
+                            (pure presentation decisions the card renders, no DOM/React),
+                            notify-effect.ts (pure `notify` effect → toast copy/variant/duration +
+                            § 11 announcement copy, sprint-069/task-006/008), announce.ts (pure §
+                            08 pending-question-transition → announcement decision, task-008 — see
+                            AGENTS.md § Invariants "Announcements")
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -999,6 +1021,27 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Circular buttons override `.btn`'s radius through `.card .roundBtn`, not `!important`** —
     CSS-module file order across chunks isn't guaranteed, so a bare `.roundBtn` rule ties with
     `Button.module.css`'s own single-class `.btn` rule and may lose.
+- **`set_editor_text` composer feedback (sprint-069/task-007, § 11).** The draft is no longer
+  `Composer.tsx`'s own `useState` — it reads/writes `stores/draft-store.ts`'s `drafts[sessionId]`
+  directly, so a `set_editor_text` effect can replace a session's draft even while no composer for
+  it is mounted (no chat tab ever opened for that session). `draft-store.ts` also queues a
+  one-shot `pendingFeedback` entry per session (`{ copy: "replaced" | "filled", flash: boolean }`)
+  that `Composer.tsx` consumes in a `useEffect` gated on `useIsTabVisible(tabIds.chat(sessionId))`
+  — the copy decision (`Your draft was replaced` vs `Your message was filled in`) is read from
+  whether the PRIOR draft was empty, never from the incoming text's own emptiness, so an empty
+  incoming `text` clearing a non-empty draft still reads "replaced" through the same standard
+  path, no special case. `flash` is decided once, at write time, by
+  `agent-ui-store.ts`'s `composerTextEffect` calling `isTabVisible` (the same module's non-hook
+  helper) on the EFFECT's own session — never on whichever composer currently has focus, and
+  never replayed later: a background replacement gets note-only feedback, shown once the pane is
+  next brought on screen, then it expires. The border flash (`.card.flash` in
+  `Composer.module.css`) reuses `.card`'s existing `border-color` transition rather than adding a
+  keyframe — the class is held for 400ms then removed by a JS timer, so the transition plays in,
+  holds, and plays back out; `prefers-reduced-motion: reduce` disables the transition on that
+  class specifically (an instant cut) and the JS timer switches to a 1s hold to compensate. Caret
+  is moved to the end of the new text via `textareaRef.current.setSelectionRange(...)` — never
+  `.focus()` — so this can never steal focus from a pending-question card (sprint-068/task-008) or
+  a composer the user is actively typing in.
 - **Extension UI dialogs (sprint-068).** `features/agent-ui/` renders every `agent_ui_request`
   dialog (`select`/`confirm`/`input`/`editor`, plus an unrecognised-method fallback) inline in the
   transcript, through pending, in-flight, resolved-collapsed, non-answerable, and multi-pending
@@ -1012,12 +1055,18 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     is never present for a client, no controller is ever created — not merely inert, genuinely
     absent. A controller is never torn down for an in-connection blip (its own disconnected/resync
     handling covers that); disposal happens only when `client` itself changes.
-  - **Two effects are deliberately unwired.** The controller's `notify` and `replace_composer_text`
-    effects are emitted but ignored here — nothing toasts a `notify`, nothing writes into the
-    composer. `setStatus`/`setWidget`/`setTitle` (retained surfaces) have no consumer either; no
-    `useAgentUiSurfaces` hook is exposed. This is the status quo, not an oversight — sprint-069/070
-    are the ones that wire them. Do not add a second, divergent consumer of the SDK's surface state
-    ahead of that design.
+  - **Both transient effects are now wired (sprint-069/tasks 006-007); retained surfaces are
+    not.** `dispatchEffects` (`agent-ui-store.ts`) routes every commit's effects from the
+    controller's own `subscribe` callback — the one seam, called exactly once per action,
+    documented in that file's header. `"notify"` → a toast (`notify-effect.ts`'s pure level/copy/
+    duration decisions, task-006). `"replace_composer_text"` → the target SESSION's draft in
+    `stores/draft-store.ts` (never whichever composer has focus — resolved from the effect's own
+    `agentId`, task-007); `Composer.tsx` no longer owns its draft as local `useState` for exactly
+    this reason — a `set_editor_text` effect must be able to write a session's draft even with no
+    composer for it currently mounted. `setStatus`/`setWidget`/`setTitle` (retained surfaces)
+    still have no consumer; no `useAgentUiSurfaces` hook is exposed yet — sprint-070 is what wires
+    those. Do not add a second, divergent consumer of the SDK's surface state ahead of that
+    design.
   - **No optimistic update, anywhere.** Submitting a response fires `respondToUi` and nothing
     else — a card stays pending until the daemon's `agent_ui_resolved` arrives. `submitting`/
     `submittedAnswer`/`answerable` are read straight off `AgentUiPendingEntry`; `AskCard.tsx`
@@ -1038,6 +1087,22 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     dismissal is byte-for-byte the same outcome as a mouse click on that same control — see
     `AskCard.tsx`'s `PendingAskCard` for why this matters (`confirm`'s outcome line only reads
     "declined" from `answer.confirmed === false`, not from a bare cancellation flag).
+  - **Three things make that focus contract reachable with a mouse — all three are load-bearing,
+    and all three were live-test regressions found after sprint-069 shipped (fixed 2026-08-21).**
+    (a) The card carries `tabIndex={-1}` and focuses itself on a body `mousedown` (skipping clicks
+    that land on a real control, which focus themselves). A `div` is not focusable, so before this,
+    clicking a card's prompt or padding did *nothing* — no amber border, no hint, and Esc still
+    belonged to whatever was topmost, even though the card looked like the thing you just clicked.
+    (b) `.hint` toggles **`visibility`, never `display`** — it always reserves its own height. With
+    `display: none -> flex`, revealing the hint on focus moved every control below it down by ~21px
+    *between a real click's `mousedown` and its `mouseup`*, so the pointer was no longer over the
+    button it pressed and the browser emitted **no `click` event at all**: every first click on a
+    card button was silently eaten and users had to click twice. Any future "hide it completely
+    when unfocused" change must keep the box in flow. (c) Initial autofocus yields only to a text
+    field holding **unsent text**, not merely to whichever field happens to be focused — the
+    composer is always focused-and-empty immediately after sending the `#ui …` message that
+    triggered the card, so the old `active.tagName === "TEXTAREA"` guard skipped self-focus on
+    *every* card in the normal flow. The guard's real purpose is not losing a draft mid-sentence.
   - **Ordering never re-derives, it re-sorts by the SDK's own key.** `ask-list.ts`'s
     `mergeAskEntries` unions pending + resolved and sorts by `pendingForAgent`/`resolvedForAgent`'s
     own `compareByTimeThenId` — the same comparator both source lists already use — so a card's
@@ -1055,11 +1120,85 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     no row provably newer than it, **degrades to trailing** — the old behaviour, never index 0.
     `ToolRow`/`ErrorRow`/`SystemRow` carry `timestamp` for exactly this; the tool row is stamped at
     the call's **start** and never on a status upsert, or it would overtake the dialogs it spawned.
-  - **Not built this sprint:** the sidebar/tab/workspace attention signals (§ 08 of the visual
-    spec — StatusDot/SessionRow/TabStrip pulse, row tint, collapsed-header dot; sprint-069),
-    `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10; sprint-070), `notify` toasts (§ 11),
-    and `set_editor_text` (§ 11). None of the wiring for those exists yet — this sprint is
-    dialogs only.
+  - **Not built this sprint (sprint-068 itself; see below for what has since landed):** the
+    sidebar/tab/workspace attention signals (§ 08 of the visual spec — StatusDot/SessionRow/
+    TabStrip pulse, row tint, collapsed-header dot), `setWidget`/`setStatus`/`setTitle` rendering
+    (§ 09/§ 10; sprint-070), `notify` toasts (§ 11), and `set_editor_text` (§ 11). None of the
+    wiring for those existed at sprint-068's close — sprint-069/tasks 001–004 have since built the
+    § 08 attention signals (sidebar row, collapsed workspace header, tab strip dot + pulse + a new
+    minimal per-tab context menu — see the "Workspace tab strip" bullet below); tasks 005–007
+    (toast host, `notify` routing, `set_editor_text` — see the bullet above) and task-008
+    (announcements — see the bullet below) have since landed too; only sprint-070's
+    `setWidget`/`setStatus`/`setTitle` rendering remains open.
+  - **§ 08's `role="group"` accessible name on the pending card is the SESSION's title, threaded
+    down as a prop, not read from any store inside `AskCard.tsx` itself** (sprint-069/task-008).
+    `Timeline.tsx` is the one place that already holds `session.title`; it flows through
+    `renderComposedItem` into `AskCard`'s `sessionTitle` prop and only `PendingAskCard` renders it
+    (`aria-label={\`Question in ${sessionTitle}\`}`) — a resolved/collapsed card is a static row,
+    not an interactive group, so neither gets the attribute. The ASK badge span is `aria-hidden`
+    on the pending card for the same reason: the group's own name already conveys it, so
+    exposing both would announce "ASK" twice.
+- **Toast host (sprint-069/task-005).** `stores/toast-store.ts` + `components/primitives/
+  ToastViewport.tsx` — the first consumer of `ui/toast.ts`'s previously-unimported pure logic, and
+  the app's one toast queue: a top-anchored, `Portal`-rendered viewport (`Dialog.tsx`'s existing
+  portal precedent), at most `MAX_VISIBLE_TOASTS` (3) ever visible at once out of a FIFO queue the
+  store never trims — `ToastViewport.tsx` itself slices `toasts.slice(0, MAX_VISIBLE_TOASTS)`.
+  Four variants (`ui/toast.ts`'s `ToastVariant`: `default`/`success`/`error`/`warning` — `warning`
+  is new this sprint, mapping to the existing `statusWarning` theme token, the same token
+  `status-badge.ts`'s own `warning` variant already uses). Durations are per call
+  (`ToastOptions.durationMs`; `null` = sticky, never auto-dismisses — `notify-effect.ts`'s `error`
+  level uses this). **Dismiss timers are real `setTimeout`s kept in a module-level `Map`, never in
+  reactive state** (`toast-store.ts`'s own header — a timer handle is not display data; mirrors
+  `agent-ui-store.ts`'s module-level cache convention for the identical reason). **A queued (not
+  yet visible) toast's dismiss countdown starts at promotion, not at `show()`** — sliding into one
+  of the `MAX_VISIBLE_TOASTS` slots resets its `shownAt`, so a toast that waited behind others
+  still gets its full nominal duration once actually shown. Hover pauses the countdown on web
+  desktop only. `"Top"` — what Esc's `dismissTop()` removes, and the visually topmost slot — is
+  `toasts[0]`, the longest-visible entry; new toasts append below it, growing the stack downward
+  from the anchor edge. `notify-effect.ts` (task-006, bullet above) is the toast host's one caller
+  today; nothing else in the app has been retrofitted onto it.
+- **Announcements (sprint-069/task-008, § 08/§ 11).** One shared off-screen live region for the
+  whole app (`components/primitives/Announcer.tsx`, mounted once in `WorkspacePage.tsx` next to
+  `ToastViewport`) — never one per row/tab/header. Two always-mounted spans, `role="status"`
+  (`aria-live="polite"`) and `role="alert"` (implicit `aria-live="assertive"`); `stores/
+  announcer-store.ts`'s `politeness` field picks which one ever receives text, since toggling a
+  single element's `aria-live` value at runtime is not reliably picked up by assistive tech.
+  - **`features/agent-ui/announce.ts` is the pure decision module** — `computeAnnouncements(prev,
+    next, ctx)` diffs one `AgentUiState` commit against the one before it for all seven § 08
+    events (arrival in the active session with its prompt, arrival elsewhere with the session-name
+    locator, second-and-later same-session arrivals in count form, and the four resolution rows).
+    It reuses `outcome-line.ts`'s own tone/text classification for resolutions rather than
+    re-deriving one — including that module's wire-limitation posture (a populated `select`/
+    `input`'s second-Esc dismissal is indistinguishable on the wire from a resolution by another
+    client, so both read "No longer pending", never a promised "Dismissed"). **Never echoes a
+    typed or extension-chosen value** — every `tone: "success"` outcome collapses to the generic
+    word "Answered" regardless of method or answer, unlike the card's own outcome line, which MAY
+    print a `select` answer. **Never announces absence** — this module has nothing to say about
+    "nothing pending anywhere"; there is no string for it.
+  - **An arriving pending entry only announces when observed live**
+    (`entry.receivedAt !== undefined` — absent for a snapshot/resync-recovered entry, per
+    `agent-ui-state.ts`'s own field doc), so a reconnect's resync never re-announces every
+    already-pending question. A resolved entry always announces on first appearance in
+    `next.resolved` — `agent-ui-state.ts`: "Resolved entries are never 'recovered'", so anything
+    newly there happened live while this page was open.
+  - **`agent-ui-store.ts`'s `announceTransitions` is the impure caller**, a second consumer of the
+    same `controller.subscribe` commit as `dispatchEffects` (that file's own header) — captures
+    `uiState` before the commit, calls `computeAnnouncements` after, and `speak()`s each result
+    through `announcer-store.ts`. It also owns the one decision `announce.ts` deliberately leaves
+    out: when the global pending count reaches zero, it calls `clearWhenIdle()` rather than
+    emptying the region inline — doing that in the SAME `setState` as the resolution's own
+    `speak()` would let React coalesce both writes into one commit, so the resolution's text would
+    never actually reach the DOM for a screen reader to read. `ANNOUNCE_CLEAR_DELAY_MS` (4s) is the
+    gap that makes the resolution announcement observable before the region goes quiet; a fresh
+    `speak()` inside that window (e.g. a new question arriving right after the last one resolved)
+    cancels the scheduled clear rather than losing the race to it.
+  - **§ 11 lives here too, not in tasks 006/007.** `notifyEffect` additionally calls
+    `notify-effect.ts`'s new `notifyAnnouncement` (bare message in the active session, `"<session>:
+    <message>"` elsewhere — a colon locator, deliberately distinct from the toast's own em-dash
+    prefix; `error` is `"assertive"`, `info`/`warning` `"polite"`). `composerTextEffect` speaks
+    `"Draft replaced in <session>"` **only for the background case** — the visible case's on-screen
+    note (the bullet above) already is the feedback; § 11 specifies no announcement for it.
+
 - **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
   `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
   molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at
@@ -1550,10 +1689,19 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
     issue #8: a sortable "+" poisons `closestCenter` collision detection).
   - Every glyph in this file routes through the `Icon` primitive at a token size
     (`icon-size-xs`/`sm`) — never a raw lucide element with a literal `size={n}`.
-  - A tab's attention `StatusDot` is a projection of its session's status via
-    `tab-attention.ts` (running/error only), never new per-tab state — there is no unread/dirty flag
-    on `Tab`, and the pane's active chat tab deliberately shows no dot because `TurnProgressBar`
-    already states that case under the strip.
+  - A tab's attention `StatusDot` is a projection of its session's status **plus** sprint-068's
+    agent-ui store via `tab-attention.ts`, never new per-tab state — there is no unread/dirty flag
+    on `Tab`, and the pane's active chat tab deliberately shows no dot (for any of the three
+    reasons) because `TurnProgressBar`/`ErrorRow`/the active session's own extension cards already
+    state that case under/in the strip. `tab-attention.ts` returns a `StatusDotInput`, not a bare
+    status: needs-input (`hasPendingQuestion`, sourced by the caller from `useAgentUiPending`) is
+    checked *before* the `sessionStatus === undefined` gap — it's independent of `sessionStatus`
+    entirely, so an offline-restore session-store gap must not suppress it (sprint-069/task-004).
+    Below the tab's 128px `min-width` floor a CSS container query on `.tab` itself hides the close
+    control in favor of the dot for a needs-input tab (`TabStrip.module.css`'s `@container`
+    concession) — closing then goes through the new per-tab right-click menu
+    (`TabContextMenu.tsx`, `ui-store.ts`'s `tabMenu` slot), the same Radix cursor-anchored pattern
+    `SessionContextMenu.tsx` established.
 
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
@@ -1729,11 +1877,19 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   `.module.css` read with their normal 8px/12px fallbacks — every other `StatusDot` call site
   (`TabStrip`'s tab dot, `WorkspaceGroupHeader`'s attention dot) is unaffected since it never sets
   those properties.
-- **`needs input` is unsourced in this client and must not be faked.** The web client has no
-  `agent.permission.*` plumbing and the stored `AgentStatus` enum
-  (`initializing|idle|running|error|closed`) has no `waiting` member; do not invent a fifth
-  sidebar row state or a permission-derived dot without first landing the underlying RPC/store
-  support.
+- **`needs input` is sourced from sprint-068's `agent-ui-store.ts`, never from `AgentStatus`.**
+  The stored session-status enum (`initializing|idle|running|error|closed`) still has no
+  `waiting`/needs-input member and never gains one for this purpose — a pending extension question
+  is orthogonal to a session's own status (a session can be `idle` with a question pending), so
+  every needs-input signal (`sidebarSessionView`'s `needsInput` state, `workspaceAttentionDot`'s
+  `"question"` reason, `tabAttentionStatus`'s dot) reads `useAgentUiPending`/
+  `useAgentUiPendingAgentIds` directly, keeping `status-dot.ts`'s `AttentionReason: "question"`
+  strictly separate from `"permission"` even though both currently resolve to the same
+  `statusWarning` color (sprint-069/tasks 001/003/004). Do not invent a sixth attention-dot signal
+  source without the same discipline — `notify` toasts (task-006) and § 08's announcements
+  (task-008) are now built, but neither is a *dot* signal, so this discipline is unaffected by
+  either landing; `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10) remains the one open
+  surface, deferred to sprint-070.
 - **The sidebar's reserved-`⋮` pattern mirrors `TabStrip.module.css`'s `.tabClose`.** Both the
   workspace band's and the session row's `⋮` occupy a fixed box (`opacity`-toggled, never
   `display`-toggled) so hover/focus never shifts the label's truncation point, and both are

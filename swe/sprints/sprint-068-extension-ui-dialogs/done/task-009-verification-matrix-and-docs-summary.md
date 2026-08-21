@@ -141,11 +141,19 @@ above the reply that consumed them. Also passed:
   18 had only ever been exercised on the mock).
 - Two tabs on one session — answering in one collapses the other as answered-elsewhere, no error.
 - Daemon stopped mid-dialog — card greys out, survives, and becomes answerable again on reconnect.
-- `@juicesharp/rpiv-todo` as a negative test: it drives `setWidget` + `ui.notify`, i.e. the
-  surfaces/toasts half that sprint-068 deliberately did not build. Nothing renders, no console
-  error, agent unaffected — confirming surfaces route to the store's `surfaces` map and never leak
-  into `pending`, where task-005's unrecognised-method fallback would have drawn a raw-JSON card
-  for every todo update.
+- `@juicesharp/rpiv-todo` as a negative test: it calls `ui.notify` (on `/todo`) and registers a
+  widget, but **only via the TUI-only factory-function form of `setWidget`** — RPC mode's own
+  source (`rpc-mode.js`: "Only support string arrays in RPC mode - factory functions are ignored")
+  drops that call before it ever reaches the wire, so no `setWidget` frame was ever sent or
+  received here. **Correction (sprint-069/task-009, 2026-08-21):** this entry originally claimed
+  "it drives `setWidget` + `ui.notify`" and read the resulting silence as proof surfaces route to
+  the store's `surfaces` map — that inference was unfounded; "nothing appeared on screen" cannot
+  distinguish "a frame arrived and nothing renders it" from "no frame was ever sent", and this was
+  the latter. What this negative test actually confirms: `ui.notify` reaching the toast-less UI
+  produced no console error and left the agent unaffected — nothing about `setWidget` routing was
+  ever exercised by it. A real `setWidget` array-content producer (`@99percentpeople/pi-background-
+  tasks`, part of the same core pack) was live-verified in sprint-069/task-009 — see that sprint's
+  summary for the corrected finding and the real payload shape.
 
 ## Files created / changed
 

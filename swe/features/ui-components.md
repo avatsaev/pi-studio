@@ -132,10 +132,17 @@ per feature from views + tokens. The shared primitives are:
   split container. `TODO(verify)`.
 
 ### Feedback
-- **Toasts** — a host exposes `show(content,{icon,variant,durationMs,nativeAndroid})`, `copied(label?)`,
-  `error(message)` (default ~2200ms; null = sticky; Android can delegate to the native toast). A single
-  top-anchored viewport animates opacity + slide, pauses the dismiss timer on web hover, and portals into
-  the overlay root on web; variants default/success/error.
+- **Toasts** — built for web in sprint-069/task-005 (`packages/web-client/src/stores/toast-store.ts` +
+  `ui/toast.ts` + `components/primitives/ToastViewport.tsx`; see `packages/web-client/AGENTS.md`'s
+  "Toast host" invariant for the full detail). A host store exposes `show(content, {icon, variant,
+  durationMs, nativeAndroid})`, `copied(label?)`, `error(message)` (default ~2200ms; `null` = sticky,
+  never auto-dismisses; `nativeAndroid` is reserved for a future native client — no consumer exists
+  today, this app is web-only). A single top-anchored viewport, portaled into the overlay root,
+  animates opacity + slide and pauses the dismiss timer on web hover; at most 3 are ever visible out
+  of a FIFO queue that never trims — a queued entry's countdown starts at promotion into a visible
+  slot, not at `show()` time, so waiting behind others never shortens its shown duration. Variants:
+  `default`/`success`/`error`/`warning` (the `warning` rail maps to the `statusWarning` token, same
+  as `status-badge.ts`'s own `warning` variant).
 - **Spinner** — a thin activity-indicator wrapper (`color` required, `size`); many primitives use the raw
   indicator. A longer-running "synced loader" exists for sync states.
 - **Skeleton** — a pulsing placeholder (opacity loop) of bars/dots/title shapes (`surface2` views with token

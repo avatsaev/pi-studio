@@ -27,3 +27,24 @@
     transform: rotate(360deg);
   }
 }
+
+/* Needs-input pulse — a local modifier, not new `StatusDot` behaviour (§ 08): opted into only by
+   the needs-input state (sprint-069/task-002); `.dot`'s own box (width/height) is untouched, so
+   nothing shifts or resizes. Box-shadow is paint-only — it cannot affect layout metrics of
+   surrounding content, which is what "must not affect surrounding metrics" requires. */
+.pulse {
+  animation: statusDotPulse 1.8s ease-in-out infinite;
+}
+@keyframes statusDotPulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pi-color-statusWarning) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}

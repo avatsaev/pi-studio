@@ -22,6 +22,15 @@
  * `stopPropagation()`. The card border/ring and the hint line's visibility are pure CSS
  * (`.card:focus-within`, `AskCard.module.css`) — no focus/blur listener needed for those; `armed`
  * is the one piece of real state, because the hint's *text* has to change mid-flow.
+ *
+ * Three things make that contract actually reachable with a mouse, all fixed after sprint-069's
+ * live pass found the card "clunky to focus" (and every first click on a button silently eaten):
+ * the card carries `tabIndex={-1}` and focuses itself on a body mousedown (a `div` is otherwise
+ * unfocusable, so clicking the prompt did nothing at all); the hint line toggles `visibility`
+ * rather than `display`, so revealing it cannot move the button being clicked out from under the
+ * pointer between `mousedown` and `mouseup`; and initial autofocus yields only to a text field
+ * holding *unsent text*, not merely to whichever field happens to be focused — the composer is
+ * always focused-and-empty right after sending the message that triggered the card.
  */
 
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -30,6 +39,7 @@ import type {
   CSSProperties,
   FocusEvent as ReactFocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   RefObject,
 } from "react";
 import { Check, HelpCircle } from "lucide-react";
@@ -60,6 +70,10 @@ export interface AskCardProps {
    *  exactly one card (or none): the active session's focused pane's first pending entry. Ignored
    *  for a resolved/collapsed entry, neither of which has anything focusable. */
   autoFocus?: boolean;
+  /** § 08's `role="group"` accessible name is "Question in {session name}" — the owning session's
+   *  own title, never an extension identity (none exists on the wire). Only `PendingAskCard`
+   *  actually renders it; resolved/collapsed cards are static rows, not an interactive group. */
+  sessionTitle: string;
 }
 
 // How often the deadline bar re-derives its fraction while shown — a display tick only; nothing
@@ -78,10 +92,23 @@ function readStringArray(payload: Record<string, unknown>, key: string): string[
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
-export function AskCard({ item, connector, collapsed = false, autoFocus = false }: AskCardProps) {
+export function AskCard({
+  item,
+  connector,
+  collapsed = false,
+  autoFocus = false,
+  sessionTitle,
+}: AskCardProps) {
   if (item.kind === "resolved") return <ResolvedAskCard entry={item.entry} connector={connector} />;
   if (collapsed) return <CollapsedPendingCard entry={item.entry} connector={connector} />;
-  return <PendingAskCard entry={item.entry} connector={connector} autoFocus={autoFocus} />;
+  return (
+    <PendingAskCard
+      entry={item.entry}
+      connector={connector}
+      autoFocus={autoFocus}
+      sessionTitle={sessionTitle}
+    />
+  );
 }
 
 /** § 06 "still waiting" — a pending entry recovered from a daemon snapshot rather than observed
@@ -210,10 +237,12 @@ function PendingAskCard({
   entry,
   connector,
   autoFocus = false,
+  sessionTitle,
 }: {
   entry: AgentUiPendingEntry;
   connector: boolean;
   autoFocus?: boolean;
+  sessionTitle: string;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const bar = deadline(entry, now);
@@ -237,19 +266,37 @@ function PendingAskCard({
     return () => clearInterval(id);
   }, [entry.requestId, entry.timeoutMs, bar.show]);
 
-  // § 07 initial focus. Never steals focus from a text field the user is already typing in
-  // (the composer, or — defensively — any other editable surface) even though `Timeline.tsx`
-  // only ever sets `autoFocus` on the active session's focused pane, because a card can newly
-  // become "first pending" (an earlier one resolved) while the user is mid-sentence elsewhere.
+  // § 07 initial focus. Never steals focus from a text field the user is genuinely *mid-sentence*
+  // in — but "focused" alone is not that test, and using it meant the card never self-focused in
+  // the normal flow at all: sending the `#ui …` message leaves the composer focused (and empty),
+  // so every arriving card hit this guard and came up unfocused, with no amber border and no hint.
+  // The real condition is unsent text: a field holding a draft is one the user is composing in and
+  // must not lose; an empty one is just where focus happened to be resting.
   useEffect(() => {
     if (!autoFocus || !entry.answerable) return;
     const active = document.activeElement;
     const editingElsewhere =
-      active instanceof HTMLElement &&
-      (active.tagName === "TEXTAREA" || active.tagName === "INPUT") &&
+      (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
+      active.value.length > 0 &&
       !cardRef.current?.contains(active);
     if (!editingElsewhere) primaryRef.current?.focus();
   }, [autoFocus, entry.answerable]);
+
+  // Clicking a card's body (its prompt text, its padding — anywhere that isn't itself a control)
+  // has to make the card look and behave focused, because § 07's whole focus contract is drawn in
+  // terms of "focus is inside the card": the amber border/ring, the hint line, and Esc ownership
+  // all hang off `:focus-within`. A plain `div` is not focusable, so before this every such click
+  // did visibly nothing — no border, no hint, and Esc still belonged to whatever was topmost.
+  // `tabIndex={-1}` makes the card click-focusable without adding a Tab stop (the controls inside
+  // remain the only tab targets, so the tab order § 07 specifies is untouched).
+  function handleMouseDown(ev: ReactMouseEvent<HTMLDivElement>): void {
+    if (!entry.answerable) return;
+    // A click that lands on (or inside) a real control focuses that control by itself — never
+    // pull focus out to the card and undo it.
+    if ((ev.target as HTMLElement).closest("button, input, textarea, a, select")) return;
+    if (cardRef.current?.contains(document.activeElement)) return;
+    cardRef.current?.focus();
+  }
 
   function submit(response: AgentUiResponse): void {
     void respondToUi(entry.requestId, response);
@@ -302,7 +349,12 @@ function PendingAskCard({
       <div
         ref={cardRef}
         className={clsx(styles.card, !entry.answerable && styles.cardInert)}
+        role="group"
+        aria-label={`Question in ${sessionTitle}`}
+        // Click-focusable, but not a Tab stop — see `handleMouseDown`.
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
+        onMouseDown={handleMouseDown}
         onBlur={handleBlur}
       >
         {bar.show && (
@@ -312,7 +364,10 @@ function PendingAskCard({
           />
         )}
         <div className={styles.header}>
-          <span className={clsx(styles.askBadge, !entry.answerable && styles.askBadgeNeutral)}>
+          <span
+            className={clsx(styles.askBadge, !entry.answerable && styles.askBadgeNeutral)}
+            aria-hidden="true"
+          >
             ASK
           </span>
           <span className={styles.methodName}>{entry.method}</span>
