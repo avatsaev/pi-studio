@@ -59,3 +59,26 @@ export function shouldClaimSize(next: Grid | null, believed: Grid | null): next 
   if (!isMeasurable(next)) return false;
   return !sameGrid(next, believed);
 }
+
+/**
+ * The grid to re-seed `believedSizeRef` with, given a `terminals_update` broadcast's `terminals`
+ * list and the slot this panel is subscribed to (sprint-053/task-007). Returns `undefined` — not
+ * `null`, which means "known to be unmeasurable" elsewhere in this module — when the broadcast says
+ * nothing usable: no matching slot, or a matching entry with a missing/unmeasurable size (an old
+ * daemon omitting `cols`/`rows`, or a slot not yet subscribed).
+ *
+ * Pure by design: re-seeding a belief is not a claim. The caller (`TerminalPanel.tsx`) must apply
+ * the result directly to the ref and must never route it through `claimSize`/send a `Resize` frame
+ * — that would turn every OTHER client's resize into a redundant echo storm, and would let a
+ * background/non-authority tab claim size it has no permission to touch.
+ */
+export function believedSizeFromBroadcast(
+  terminals: ReadonlyArray<{ slot: number; cols?: number; rows?: number }>,
+  slot: number | null,
+): Grid | undefined {
+  if (slot === null) return undefined;
+  const entry = terminals.find((t) => t.slot === slot);
+  if (!entry) return undefined;
+  const proposed = { cols: entry.cols, rows: entry.rows };
+  return isMeasurable(proposed) ? proposed : undefined;
+}

@@ -1,7 +1,26 @@
 # Task 006 Summary — Live E2E proof of the size contract + docs sync
 
 - **Sprint:** sprint-052-terminal-sizing
-- **Status:** in_progress — docs + automated gates complete; **live browser pass outstanding (owner: user)**
+- **Status:** done — docs + automated gates complete; the live browser pass was **waived by the user
+  on 2026-08-21** (§ Closure). Sprint-052 is closed.
+
+## Closure (2026-08-21)
+
+The live acceptance sequence recorded in § Verification below was never run and will not be: the user
+waived it. Sprint-052's product code, tests and docs shipped in `d18187c` and are unchanged since —
+`packages/web-client/src/features/terminal/` and `packages/server/src/terminal/` have had no commits
+after that merge, so nothing has drifted away from what the automated gates proved.
+
+What that means for anyone reading this later:
+
+- The size contract is **automatically** verified only at the pure-logic and daemon layers
+  (`terminal-size.test.ts`, `terminal-manager.test.ts`, `terminal-rpcs.test.ts`). The composed
+  browser behaviour — ghost characters, wrap column, frame counts at rest, two-client hand-off — rests
+  on the field-report confirmations recorded in Part 1, not on a systematic pass.
+- `swe/features/terminals.md` § Acceptance Criteria keeps its size-ownership boxes unticked
+  deliberately. They are unproven, not pending.
+- The follow-ups in § Follow-ups recorded are unaffected and still live (sprint-053/task-007, the two
+  CLI defects).
 
 ## Outcome
 

@@ -34,6 +34,11 @@ class FakePty implements PtyProcess {
     this.killed = true;
     this.exitCb?.(0);
   }
+  /** Simulates the PTY exiting on its own (the `exit` command, a crash) — unlike `kill()`, this
+   * does not set `killed`, so a test can assert the manager took the self-exit path. */
+  simulateExit(code: number | null = 0): void {
+    this.exitCb?.(code);
+  }
   onData(cb: (d: Uint8Array) => void): void {
     this.dataCb = cb;
   }
@@ -85,6 +90,45 @@ describe("TerminalManager", () => {
       .map((f) => (f.opcode === "Output" ? new TextDecoder().decode(f.data) : ""))
       .join("");
     expect(text).toContain("hello world"); // coalesced
+  });
+
+  it("subscribing with restoreMode: reflowable yields exactly one Restore frame, never Snapshot", async () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 1 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+    backend.last().emit("\x1b[31mcolored\x1b[0m screen");
+    await wait(5);
+
+    const frames: ReturnType<typeof decodeTerminalFrame>[] = [];
+    mgr.subscribe(entry.slot, (f) => frames.push(decodeTerminalFrame(f)), {
+      restoreMode: "reflowable",
+    });
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.opcode).toBe("Restore");
+    if (frames[0]!.opcode === "Restore") {
+      const text = new TextDecoder().decode(frames[0]!.data);
+      expect(text).toContain("colored");
+      expect(text).toContain("\x1b[31m"); // SGR colour survives, unlike the plain-text capture()
+    }
+  });
+
+  it("subscribing with no restoreMode (or 'basic') still yields exactly one Snapshot, never Restore", () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+
+    const noOptFrames: ReturnType<typeof decodeTerminalFrame>[] = [];
+    mgr.subscribe(entry.slot, (f) => noOptFrames.push(decodeTerminalFrame(f)));
+    expect(noOptFrames).toHaveLength(1);
+    expect(noOptFrames[0]!.opcode).toBe("Snapshot");
+
+    const basicFrames: ReturnType<typeof decodeTerminalFrame>[] = [];
+    mgr.subscribe(entry.slot, (f) => basicFrames.push(decodeTerminalFrame(f)), {
+      restoreMode: "basic",
+    });
+    expect(basicFrames).toHaveLength(1);
+    expect(basicFrames[0]!.opcode).toBe("Snapshot");
   });
 
   it("input frames reach the PTY", () => {
@@ -149,6 +193,45 @@ describe("TerminalManager", () => {
     expect(mgr.kill(entry.slot)).toBe(true);
     expect(backend.ptys[0]!.killed).toBe(true);
     expect(mgr.get(entry.slot)).toBeUndefined();
+  });
+
+  it("onTerminalExit fires exactly once when the PTY exits on its own (not via kill())", () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+    const exits: number[] = [];
+    mgr.onTerminalExit((slot) => exits.push(slot));
+
+    backend.last().simulateExit(0); // `exit` in the shell / a crash — never went through kill()
+
+    expect(exits).toEqual([entry.slot]);
+    expect(backend.last().killed).toBe(false); // proves this was the self-exit path
+    expect(mgr.get(entry.slot)).toBeUndefined();
+  });
+
+  it("onTerminalExit fires exactly once for kill(), even though kill() also calls onExit directly", () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+    const exits: number[] = [];
+    mgr.onTerminalExit((slot) => exits.push(slot));
+
+    mgr.kill(entry.slot);
+
+    expect(exits).toEqual([entry.slot]);
+  });
+
+  it("onTerminalExit unsubscribe stops further notifications", () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+    const exits: number[] = [];
+    const unsubscribe = mgr.onTerminalExit((slot) => exits.push(slot));
+    unsubscribe();
+
+    mgr.kill(entry.slot);
+
+    expect(exits).toEqual([]);
   });
 
   it("logs open, kill and exit lifecycle to the injected logger", () => {
@@ -342,12 +425,14 @@ describe("safeReplayStart", () => {
     expect(dec.decode(buf.slice(result))).toBe("CD");
   });
 
-  it("drops to the end when no terminator appears in the remaining buffer", () => {
+  it("falls back to the naive cut (sprint-053/task-007) when no terminator appears in the remaining buffer", () => {
     const prefix = enc.encode("AB");
     const unterminatedOsc = bytes([0x1b, 0x5d], enc.encode("0;never terminated"));
     const buf = bytes(prefix, unterminatedOsc);
     const cut = prefix.length + 3;
-    expect(safeReplayStart(buf, cut)).toBe(buf.length);
+    // Previously dropped everything (`buf.length`); now falls back to the naive cut instead —
+    // strictly more readable than an empty snapshot, even though the cut lands mid-OSC.
+    expect(safeReplayStart(buf, cut)).toBe(cut);
   });
 });
 
@@ -405,6 +490,26 @@ describe("snapshot ring", () => {
     expect(snapshot.data.length).toBeLessThanOrEqual(8);
     expect(text).toBe("KLMNOP");
     expect(text).not.toContain("old");
+  });
+
+  it("retains readable content instead of an empty snapshot when the ring's whole retained region is one unterminated sequence (sprint-053/task-007)", async () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0, snapshotBytes: 10 });
+    const entry = mgr.createTerminal({ workspaceId: "ws1" });
+    // A single chunk >= the 10-byte cap forces the wholesale-replace path in `append`. The chunk is
+    // "AB" followed by an OSC (ESC ]) that never terminates (no BEL/ST) anywhere in the chunk, so
+    // `safeReplayStart` cannot find any safe boundary and must fall back to the naive cut rather
+    // than dropping the entire retained region to empty.
+    backend.last().emit("AB\x1b]0;never terminated by BEL or ST, way beyond ring cap");
+    await wait(2);
+
+    const frames: ReturnType<typeof decodeTerminalFrame>[] = [];
+    mgr.subscribe(entry.slot, (f) => frames.push(decodeTerminalFrame(f)));
+    const snapshot = frames[0]!;
+    if (snapshot.opcode !== "Snapshot") throw new Error("expected a Snapshot frame");
+    // Previously this was empty (`data.length === 0`); now it retains the low-water tail.
+    expect(snapshot.data.length).toBeGreaterThan(0);
+    expect(new TextDecoder().decode(snapshot.data)).toBe("ing cap");
   });
 });
 

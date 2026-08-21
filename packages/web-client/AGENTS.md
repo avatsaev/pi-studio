@@ -276,7 +276,12 @@ src/
                            restart or a terminal created outside this UI; both restore hooks
                            export their one-shot body as `runSessionRestore`/`runTerminalRestore`,
                            each reporting its half of layout-store's initial-hydration settle
-                           point in a `finally` — restore-hydration.test.ts), use-shortcuts,
+                           point in a `finally` — restore-hydration.test.ts), use-terminal-exit-watch
+                           (sprint-053/task-003 — connection-lifetime `terminals_update` listener;
+                           marks a terminal tab `exited` once its known slot disappears from the
+                           daemon's live list, exporting the pure reconcile step
+                           `reconcileLiveTerminals` for direct testing, same pattern as
+                           `runTerminalRestore` above), use-shortcuts,
                            use-explorer, use-explorer-tree (one query per expanded tree directory,
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
@@ -584,9 +589,24 @@ src/
                             spawning a new one), terminal-size.ts (pure PTY size predicates:
                             `isMeasurable`/`sameGrid`/`shouldClaimSize` — validity + dedupe only;
                             the *permission* gate `isSizeAuthority` lives in TerminalPanel and is
-                            deliberately kept separate — see § Invariants "PTY sizing"). No
-                            dedicated "Terminals" management view — orphaned terminals reopen
-                            automatically as tabs on connect.
+                            deliberately kept separate — see § Invariants "PTY sizing" — plus
+                            `believedSizeFromBroadcast`, sprint-053/task-007's pure helper for
+                            picking a `terminals_update` entry's grid to re-seed belief from). The
+                            emulator's colours/font size/font family follow `useAppearance()`'s
+                            resolved theme (sprint-053/task-002), not a hardcoded palette or the
+                            app's unscaled `baseFontSize.sm` — only a font-size/family change
+                            (real cell-metric change) triggers a refit+claim, a colour-only change
+                            never does. A tab whose PTY has exited (`data.exited`, sprint-053/
+                            task-003) shows a "Terminal exited" banner over — never replacing —
+                            the last rendered screen, disables input, and stays open/closable. Every
+                            `subscribe_terminal_request` unconditionally requests the reflowable
+                            restore tier (`restoreMode: "reflowable"`, sprint-053/task-005) — safe
+                            even against a daemon/session that can't serve it, since the response
+                            always echoes back whichever tier was actually served (never the
+                            requested one blindly) — and `onSnapshot`/`onRestore` share one
+                            reset-then-write `replay` helper so both tiers get identical frame
+                            handling. No dedicated "Terminals" management view — orphaned terminals
+                            reopen automatically as tabs on connect.
   routes/                  WorkspacePage (the 3-column shell: sidebar-left / center / sidebar-right,
                            plus the full-width `StatusBar` pinned to the bottom of `.shell`)
   components/              (reserved for non-design-system reusable components; currently empty)
@@ -596,6 +616,11 @@ src/
 The theme system + `components/primitives/` design system were ported from the prior web app and are
 the canonical UI foundation. Color/type tokens are injected at runtime as `--pi-*` CSS variables by
 `theme/css-bridge.ts`, applied before first paint by `ThemeBoundary` (wired in `AppProviders`).
+`ThemeBoundary` also publishes the resolved theme through React context (sprint-053/task-001):
+`useAppearance()` returns `{ settings, resolvedTheme }`, and `useResolvedTheme()` is the
+`resolvedTheme`-only shortcut — the seam a component that cannot consume CSS variables (xterm,
+which rasterises to canvas) uses instead of `getComputedStyle`/string parsing. `TerminalPanel` is
+its first real consumer (task-002, § Source layout "terminal/" above).
 
 ---
 
@@ -757,6 +782,15 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
     omit `cols`/`rows`, and a `{cols: undefined}` belief matches no real measurement, so every later
     fit would re-send a resize the PTY already has. `null` ("unknown") is handled everywhere; a
     half-populated grid is not.
+  - **Belief is re-seeded, not just seeded, from `terminals_update` (sprint-053/task-007).** The
+    daemon broadcasts that push on every size-changing resize (any client's, not just this one), not
+    only on create/rename/kill/exit. `TerminalPanel` has its own `useEffect` (separate from
+    `use-terminal-exit-watch.ts`'s global listener — `believedSizeRef` is a component-local ref, out
+    of reach from that store-based hook) that finds the matching slot via the pure
+    `believedSizeFromBroadcast` helper (`terminal-size.ts`) and assigns the result straight to the
+    ref. This must NEVER route through `claimSize`/send a `Resize` frame: re-seeding corrects a
+    belief left stale by ANOTHER client's resize, and doing it via a claim would turn every resize
+    into an echo storm and let a background/non-authority tab send frames it has no permission to.
   - The pre-slot input queue is bounded in **bytes** (`MAX_PENDING_INPUT_BYTES`), not chunks: one
     `onData` chunk is a whole paste, so a chunk-count cap bounds nothing useful.
 - **`tab-store.activeTabId` is derived, and per-pane visibility is a different question.**
@@ -932,7 +966,9 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
   fallback is a second, silently-stale copy of the scale (`markdown.module.css` shipped mistyped
   var names for months, quietly rendering its hardcoded fallbacks instead). `ui/button.ts`'s
   `BUTTON_FONT_SIZE` holds `var(…)` references too; only `TerminalPanel.tsx`'s xterm config reads
-  a raw number (`baseFontSize.sm`), because xterm rasterises to canvas and cannot take a CSS var.
+  a raw number — `theme.fontSize.code` from `useAppearance()`'s resolved `Theme` (sprint-053/
+  task-002; previously the unscaled `baseFontSize.sm` literal, which ignored the appearance
+  font-size setting) — because xterm rasterises to canvas and cannot take a CSS var.
   `theme/font-scale.test.ts` enforces both halves — every referenced rung exists, and no CSS
   module reintroduces a px/rem literal (relative `em`/`%` is fine).
   The rungs are a dense, mostly 1px-step ladder (`4xs`→`4xl` plus `code`) matching what the UI

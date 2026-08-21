@@ -161,7 +161,14 @@ Binary frame layout: `[1-byte opcode][1-byte slot][payload]`.
 
 - `slot` (0–255) demuxes multiple terminals on one WebSocket.
 - `Resize` payload is UTF-8 JSON `{ rows, cols }`.
-- All other payloads are raw bytes (pass-through).
+- All other payloads are raw bytes (pass-through) — **except** `Restore`, whose payload is a
+  `ScreenBuffer.serialize()` result (a redraw of the daemon's screen model), not a byte-ring replay
+  (sprint-053/task-004). `Restore` is live and emitted, not reserved: a subscription negotiates it by
+  requesting `restoreMode: "reflowable"` on `subscribe_terminal_request` while both
+  `CLIENT_CAPS.terminal_reflowable_snapshot` (sent) and `SERVER_FEATURES["terminal-restore-modes"]`
+  (advertised) hold; any other combination — including a request the daemon doesn't support — is
+  served the basic `Snapshot` tier instead, and `SubscribeTerminalResponse.restoreMode` echoes
+  whichever tier was actually served (`packages/server/AGENTS.md`'s Terminal subsystem section).
 - Uses `Uint8Array` (not `Buffer`) — runs in browser/RN.
 
 ### `binary-frames/file-transfer-protocol.ts`

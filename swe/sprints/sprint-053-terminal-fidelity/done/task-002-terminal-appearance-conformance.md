@@ -1,7 +1,7 @@
 # Task 002 — Terminal follows the theme, mono font, and font-size setting
 
 - **Sprint:** sprint-053-terminal-fidelity
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Estimated size:** S
 - **Depends on:** task-001
@@ -15,10 +15,10 @@ when a font change alters cell metrics.
 `feature-panels-ui.md` § Terminal pane already requires this — "theme from the terminal color tokens,
 user mono font, code font size, configured scrollback" — and `design-system.md` § Colors already
 defines `colors.terminal` as "the full xterm theme (background/foreground/cursor/selection + 16 ANSI
-colors)", built per variant by `colors.ts:196` with a light-mode override at `:311`. So this is
+colors)", built per variant by `colors.ts:204` (`terminalFrom`) with a light-mode override at `:319`. So this is
 conformance to written scope, not a new feature.
 
-What ships instead: `TerminalPanel.tsx:51-73` is a hardcoded 19-colour dark literal with the comment
+What ships instead: `TerminalPanel.tsx:120-143` is a hardcoded 19-colour dark literal with the comment
 "Dark palette matching the app's github-dark-ish default theme", plus
 `fontSize: baseFontSize.sm` — the raw token, not the appearance-scaled one — and a literal
 `fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"` that ignores
@@ -47,7 +47,7 @@ how many columns fit — which makes it a **genuine viewport change** under
 ## What to build
 - Read the resolved theme via task-001's hook. Pass `theme.colors.terminal` straight through as the
   emulator's theme, and `theme.fontSize.code` + `theme.fontFamily.mono` as its font options —
-  `code` is the spec's "code font size" rung (`tokens.ts:68`; 13 px at the default setting, where
+  `code` is the spec's "code font size" rung (`tokens.ts:70`; 13 px at the default setting, where
   today's unscaled `baseFontSize.sm` is 14 px — a deliberate 1 px conformance change, not a
   regression). Delete the `TERMINAL_THEME` literal and the direct `baseFontSize` import — a second
   palette beside `colors.terminal` is exactly the duplicate convention the design system exists to
@@ -70,18 +70,18 @@ how many columns fit — which makes it a **genuine viewport change** under
 - The WebGL/canvas renderer addon (see the sprint's open questions).
 
 ## Acceptance criteria
-- [ ] Grep shows no palette literal and no `baseFontSize` import in `features/terminal/`; the only
+- [x] Grep shows no palette literal and no `baseFontSize` import in `features/terminal/`; the only
       sources are the resolved theme's `colors.terminal`, `fontSize`, and `fontFamily.mono`.
-- [ ] Switching to the light theme turns the terminal light — background, foreground, cursor, and ANSI
+- [x] Switching to the light theme turns the terminal light — background, foreground, cursor, and ANSI
       colours all change, and the wrapper's `--pi-terminal-bg` matches the emulator's background with
       no seam.
-- [ ] Changing the appearance font size rescales the terminal's text, refits it, and claims the new
+- [x] Changing the appearance font size rescales the terminal's text, refits it, and claims the new
       grid: `stty size` reports fewer/more columns accordingly.
-- [ ] Setting a custom mono font applies to the terminal, refits, and claims.
-- [ ] A theme change that alters only colours sends **no** `Resize` frame.
-- [ ] Scrollback, subscription, and the size-claim triggers from sprint-052 are unaffected: a live
+- [x] Setting a custom mono font applies to the terminal, refits, and claims.
+- [x] A theme change that alters only colours sends **no** `Resize` frame.
+- [x] Scrollback, subscription, and the size-claim triggers from sprint-052 are unaffected: a live
       terminal keeps its history across a theme change, and no PTY is recreated.
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
 
 ## Test / verification plan
 - Unit: `npx vitest run packages/web-client/src/theme packages/web-client/src/features/terminal` —
@@ -94,6 +94,9 @@ how many columns fit — which makes it a **genuine viewport change** under
      `stty size` tracks each time, and the shell's wrap column matches the new width.
   3. Set a custom mono font → applies, refits, claims.
   4. Confirm with `pi-studio terminal ls` that the daemon's recorded cols/rows match after each change.
+  (No appearance settings UI exists — the sprint-065 Settings dialog is Model Providers only. Drive
+  the changes through the appearance controller, or edit the persisted `pi-studio-appearance`
+  localStorage key and reload; both are the supported paths per task-001's out-of-scope note.)
 
 ## Notes
 `ThemeBoundary` applies CSS variables synchronously before first paint, but the emulator is

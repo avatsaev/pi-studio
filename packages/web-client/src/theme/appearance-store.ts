@@ -45,6 +45,8 @@ export interface AppearanceController {
   apply(): void;
   /** Start system-follow listener; returns cleanup. */
   listen(): () => void;
+  /** Subscribe to state changes (mode/settings/system-follow). Returns an unsubscribe function. */
+  subscribe(listener: () => void): () => void;
 }
 
 export function createAppearanceController(
@@ -53,6 +55,7 @@ export function createAppearanceController(
 ): AppearanceController {
   let state: AppearanceState = loadInitial(store);
   let mediaCleanup: (() => void) | null = null;
+  const listeners = new Set<() => void>();
 
   function resolveThemeName(mode: AppearanceMode): ThemeName {
     if (mode === "system") {
@@ -103,6 +106,7 @@ export function createAppearanceController(
   function update(): void {
     state = { ...state, resolvedTheme: buildResolved(state.mode, state.settings) };
     persist();
+    for (const listener of listeners) listener();
   }
 
   const controller: AppearanceController = {
@@ -134,6 +138,10 @@ export function createAppearanceController(
       mq.addEventListener("change", handler);
       mediaCleanup = () => mq.removeEventListener("change", handler);
       return mediaCleanup;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 

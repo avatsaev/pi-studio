@@ -253,7 +253,12 @@ All communication uses a **single WebSocket connection** per client.
   `file_watch_subscribe`/`_unsubscribe` + `file_changed` (filesystem changes, same per-session
   `send()` shape, `packages/server/src/files/file-watch-service.ts`) both follow this pattern. Not
   every push type needs a protocol-package schema entry — a local TypeScript interface + type guard
-  at the point of use is the established convention for this family.
+  at the point of use is the established convention for this family. `terminals_update`
+  (`packages/server/src/terminal/terminal-rpc.ts`) is a variant of the same convention with no
+  subscribe RPC at all: the daemon broadcasts it to **every** active session unconditionally on
+  five terminal lifecycle events (create/rename/kill/self-exit/`start_workspace_script`,
+  sprint-053/task-003), and a client just listens (`packages/web-client`'s
+  `use-terminal-exit-watch.ts`) rather than subscribing per path.
 - **`provider_auth_*`** (sprint-055) is the one RPC family that both gets real `messages.ts` request/
   response schemas AND has a passthrough-only push: the five `provider_auth_list/login/respond/
   cancel/logout` request/response pairs are real, durable, multi-client RPC schemas, while the

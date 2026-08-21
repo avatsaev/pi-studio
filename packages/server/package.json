@@ -28,6 +28,7 @@
     "@av-pi-studio/protocol": "^0.0.93",
     "@av-pi-studio/relay": "^0.0.93",
     "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "lru-cache": "^11.5.1",

@@ -3,7 +3,7 @@ import { tryDecodeTerminalFrame } from "@av-pi-studio/protocol";
 import { readProjectConfig } from "../config/project-config.js";
 import type { Session } from "../ws/session.js";
 import type { BinaryHandler, HandlerRegistry } from "../ws/router.js";
-import type { TerminalManager } from "./terminal-manager.js";
+import type { RestoreMode, TerminalManager } from "./terminal-manager.js";
 
 /**
  * Terminal control RPC surface + capture/restore semantics (features/terminals.md § Control RPCs,
@@ -29,6 +29,13 @@ export function registerTerminalHandlers(
   // Per (session, slot) stream unsubscribers.
   const streamUnsubs = new Map<string, () => void>();
   const key = (session: Session, slot: number) => `${session.id}:${slot}`;
+  // A terminal exit — self-exit (`exit`, a crash) or `kill()` — always broadcasts the same
+  // `terminals_update` signal, unconditionally to every active session. This is the ONLY exit
+  // broadcast: `kill_terminal_request` below relies on it rather than sending its own, since
+  // `manager.kill()` invokes this listener synchronously and a second broadcast would duplicate it.
+  manager.onTerminalExit(() => {
+    deps.broadcast(getActiveSessions(), { type: "terminals_update", terminals: manager.list() });
+  });
 
   registry.register("list_terminals_request", () => ({
     type: "list_terminals_response",
@@ -69,11 +76,16 @@ export function registerTerminalHandlers(
     const slot = Number(ctx.message.slot);
     const session = ctx.session;
     // Restore mode is honored only when the daemon advertises the feature AND the client advertised
-    // the reflowable-snapshot capability. Otherwise fall back to the basic snapshot (ignore mode).
+    // the reflowable-snapshot capability AND asked for it by name. The wire literal is exactly
+    // "reflowable" (sprint-053/task-004) — any other requested value (including a future/typo'd
+    // one) is served and echoed as "basic", so the response never names a tier that was not
+    // actually served.
     const requestedMode = ctx.message.restoreMode as string | undefined;
     const clientReflowable = session.supports("terminal_reflowable_snapshot");
-    const restoreMode =
-      deps.restoreModesEnabled && clientReflowable ? (requestedMode ?? "basic") : "basic";
+    const restoreMode: RestoreMode =
+      deps.restoreModesEnabled && clientReflowable && requestedMode === "reflowable"
+        ? "reflowable"
+        : "basic";
 
     streamUnsubs.get(key(session, slot))?.(); // replace existing subscription
     try {
@@ -93,9 +105,18 @@ export function registerTerminalHandlers(
       //
       // Validation and the same-size no-op both live in `manager.resize` — the one choke point every
       // size path funnels through — so this passes the raw values straight through rather than
-      // growing a second, drifting copy of those rules here.
-      manager.resize(slot, Number(ctx.message.cols), Number(ctx.message.rows));
-      const unsub = manager.subscribe(slot, (frame) => session.sendBinary(frame));
+      // growing a second, drifting copy of those rules here. Broadcasts `terminals_update` when the
+      // grid actually changed (sprint-053/task-007), so an already-attached second client's stale
+      // belief gets corrected without it having to guess from a redundant `Resize` of its own.
+      resizeAndBroadcast(
+        manager,
+        deps.broadcast,
+        getActiveSessions,
+        slot,
+        Number(ctx.message.cols),
+        Number(ctx.message.rows),
+      );
+      const unsub = manager.subscribe(slot, (frame) => session.sendBinary(frame), { restoreMode });
       streamUnsubs.set(key(session, slot), unsub);
       // Echo the PTY's real size so the client can seed its belief instead of guessing. Without
       // this a reattaching client cannot know what it is attaching to, and has to send a blind
@@ -134,7 +155,6 @@ export function registerTerminalHandlers(
   registry.register("kill_terminal_request", (ctx) => {
     const slot = Number(ctx.message.slot);
     const ok = manager.kill(slot);
-    deps.broadcast(getActiveSessions(), { type: "terminals_update", terminals: manager.list() });
     return { type: "kill_terminal_response", slot, ok };
   });
 
@@ -172,12 +192,46 @@ export function registerTerminalHandlers(
   });
 }
 
+/**
+ * Apply a resize and broadcast the refreshed inventory to every active session, but only when the
+ * grid actually changed (sprint-053/task-007). An unknown slot, an invalid grid, and a same-size
+ * no-op must all stay silent — the binary `Resize` frame path is the hot path of every coalesced
+ * pane-divider drag, and a broadcast per intermediate frame would defeat that coalescing.
+ *
+ * Compares `TerminalManager.get(slot)` before and after rather than trusting `resize`'s boolean
+ * return (which is `true` for both an applied change and a same-size no-op) — `get` returns the
+ * live entry object, which `resize` mutates in place, so the cols/rows are captured into locals
+ * before the call rather than held as a stale reference to the same object.
+ */
+function resizeAndBroadcast(
+  manager: TerminalManager,
+  broadcast: TerminalRpcDeps["broadcast"],
+  getActiveSessions: () => Iterable<Session>,
+  slot: number,
+  cols: number,
+  rows: number,
+): void {
+  const before = manager.get(slot);
+  const beforeCols = before?.cols;
+  const beforeRows = before?.rows;
+  if (!manager.resize(slot, cols, rows)) return;
+  const after = manager.get(slot);
+  if (after && (after.cols !== beforeCols || after.rows !== beforeRows)) {
+    broadcast(getActiveSessions(), { type: "terminals_update", terminals: manager.list() });
+  }
+}
+
 /** Binary terminal-input frame handler for the frame dispatcher (Input/Resize opcodes). */
-export function makeTerminalBinaryHandler(manager: TerminalManager): BinaryHandler {
+export function makeTerminalBinaryHandler(
+  manager: TerminalManager,
+  broadcast: TerminalRpcDeps["broadcast"],
+  getActiveSessions: () => Iterable<Session>,
+): BinaryHandler {
   return (_session, bytes) => {
     const frame = tryDecodeTerminalFrame(bytes);
     if (!frame) return;
     if (frame.opcode === "Input") manager.input(frame.slot, frame.data);
-    else if (frame.opcode === "Resize") manager.resize(frame.slot, frame.cols, frame.rows);
+    else if (frame.opcode === "Resize")
+      resizeAndBroadcast(manager, broadcast, getActiveSessions, frame.slot, frame.cols, frame.rows);
   };
 }

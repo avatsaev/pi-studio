@@ -96,8 +96,10 @@ wrapping, misplaced cursor moves on backspace and history recall, ghost characte
 colour that stops short of the rendered columns, and progressively scrambled redraws — the terminal
 looks broken while every individual frame is in fact delivered correctly.
 
-- The server does **not** broadcast resize ownership; the resized PTY redraws via normal Output, and
-  every attached client renders that output in its own local viewport.
+- The server broadcasts `terminals_update` (the full inventory, as create/rename/kill already do)
+  whenever a resize actually changes a terminal's size (sprint-053/task-007) — a same-size resize
+  broadcasts nothing. The resized PTY also redraws via normal Output, and every attached client
+  renders that output in its own local viewport.
 - Resize frames SHOULD be coalesced client-side — one frame once the size settles, not one per
   animation frame — so a divider drag does not produce a `SIGWINCH` storm and a full shell redraw
   per intermediate width.
@@ -111,11 +113,12 @@ looks broken while every individual frame is in fact delivered correctly.
   through — not per call site, and reject rather than clamp-and-guess so a bug stays visible. The
   screen model's own minimum (2×1) is the floor; a generous ceiling (a few hundred each way) bounds
   the memory a resize can ask a headless grid to allocate.
-- Because ownership is never broadcast, a client's *belief* about the PTY size goes stale the moment
-  another client resizes the same terminal, and its dedupe can then suppress a frame it should send.
-  Broadcasting the new size on resize (as create/rename/kill already broadcast their entry changes)
-  is the clean fix; until then this is a known limitation of multi-client sizing, not a bug in the
-  gating rules above.
+- A client's *belief* about the PTY size is corrected by the `terminals_update` broadcast above:
+  receiving one re-seeds `believedSizeRef` for the matching slot from the broadcast entry, without
+  sending a `Resize` frame or bypassing the authority gate above (re-seeding is not a claim). This
+  closes the multi-client belief-drift gap sprint-052 left open: previously, another client resizing
+  the same terminal left a client's cached belief stale, so its own dedupe could suppress a `Resize`
+  it should have sent once its viewport genuinely changed back.
 
 ### Restore / snapshot
 Two tiers, negotiated per subscription:
@@ -126,6 +129,14 @@ Two tiers, negotiated per subscription:
    of an escape sequence (a byte-boundary trim can cut one in half and corrupt everything after it),
    and the replay reproduces the wrapping of whatever width the PTY had when those bytes were
    written — so replaying at a different width is approximate by construction.
+
+   The escape-safe trim degrades gracefully (sprint-053/task-007) when the sequence straddling the
+   cut never terminates before the end of the retained bytes (e.g. an unterminated DCS from `cat`ing
+   a binary file) — no boundary is provably safe in that case, but falling back to the naive
+   byte-offset cut instead of discarding the whole retained region is strictly more useful: the
+   emulator eats at most one sequence's worth of garbage on replay rather than showing a blank
+   screen. A legitimate mid-sequence cut with a real boundary later in the buffer is unaffected —
+   only the "no safe boundary exists at all" case takes this fallback.
 
    Because of that width-dependence, `SubscribeTerminalRequest` carries the attaching client's
    measured `cols`/`rows`, and the daemon MUST apply them **before** emitting the `Snapshot`. A
@@ -232,8 +243,10 @@ browser pass against a real daemon confirms them.
 ## TODO(verify)
 - [x] Restore opcode value — `0x05`, confirmed against the live codec
       (`packages/protocol/src/binary-frames/terminal-stream-protocol.ts`). The reflowable payload
-      format is unconstrained by any external peer (both ends are ours) and is fixed by the task that
-      implements tier 2.
+      format is now fixed (sprint-053/task-004): `ScreenBuffer.serialize()` via
+      `@xterm/addon-serialize` (UMD, loaded through the same `createRequire` route as
+      `@xterm/headless`), bounded to 200 lines of scrollback beyond the viewport, computed on
+      subscribe rather than maintained continuously.
 - [ ] Whether the production PTY runs in a dedicated worker process (`terminal-worker-protocol.ts`)
       or in-process; the clean-room build runs `node-pty` in-process behind the `PtyBackend`
       interface.

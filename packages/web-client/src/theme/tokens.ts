@@ -130,6 +130,27 @@ export const DEFAULT_UI_FONT =
 export const DEFAULT_MONO_FONT =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
+/**
+ * Terminal-only font stack (`features/terminal/TerminalPanel.tsx`).
+ *
+ * Separate from `DEFAULT_MONO_FONT` on purpose: the app's mono surfaces render *our* text, where a
+ * platform font is the right default, while the terminal renders a real shell whose prompt may
+ * paint Nerd Font glyphs (powerlevel10k's own docs recommend MesloLGS NF). Those glyphs live in
+ * the private-use planes and simply do not exist in `ui-monospace`.
+ *
+ * Order is the whole design:
+ *   1-2. A locally installed MesloLGS NF — a user who followed the p10k font instructions gets
+ *        exactly what their desktop terminal shows, and downloads nothing.
+ *   3.   "Cascadia Mono NF", the bundled webfont (`theme/fonts.css`) — the guaranteed floor, so
+ *        icons render on a machine that has no Nerd Font installed at all.
+ *   4+.  Platform monospace, for the case where even the bundled face fails to load.
+ * Fallback is resolved by the browser per character, which is what makes 1-3 compose: MesloLGS NF
+ * has no braille glyphs, so a spinner falls through to the bundled face while the rest of the line
+ * stays Meslo.
+ */
+export const TERMINAL_FONT_STACK =
+  '"MesloLGS NF", "MesloLGS Nerd Font Mono", "Cascadia Mono NF", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
 export type Shadow = {
   color: string;
   offsetX: number;

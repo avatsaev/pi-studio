@@ -12,7 +12,11 @@ import { z } from "zod";
  * Uses `Uint8Array` (not Node `Buffer`) so the codec runs in browser/RN as well as Node.
  */
 
-/** Terminal frame opcodes. `Restore` value is TODO(verify) against the live codec. */
+/**
+ * Terminal frame opcodes. `Restore` (0x05) carries a reflowable-tier snapshot — a serialization of
+ * the daemon's screen model, not raw bytes — for a subscription that negotiated the reflowable
+ * restore mode (`terminals.md` § Restore / snapshot tier 2, sprint-053/task-004/005).
+ */
 export const TerminalOpcode = {
   Output: 0x01,
   Input: 0x02,

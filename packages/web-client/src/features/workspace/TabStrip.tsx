@@ -45,6 +45,7 @@ import {
   type Tab,
   type TabKind,
   type ChatTabData,
+  type TerminalTabData,
 } from "@pi-studio-ui/stores/tab-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useAgentUiPending } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
@@ -85,6 +86,9 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
   const pending = useAgentUiPending(sessionAgentId ?? "");
   const attention = tabAttentionStatus(tab, sessionStatus, active, pending.length > 0);
   const needsInput = attention?.attentionReason === "question";
+  // sprint-053/task-003: a terminal whose PTY has exited (self-exit or `kill()`) stays open and
+  // closable, but is visibly dimmed — the panel itself carries the "Terminal exited" text.
+  const exited = tab.kind === "terminal" && (tab.data as TerminalTabData).exited === true;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.id,
@@ -98,7 +102,7 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.5 : 1,
+        opacity: isDragging ? 0.5 : exited ? 0.6 : 1,
       }}
       onClick={() => activate(tab.id)}
       onAuxClick={(ev) => {
@@ -109,7 +113,7 @@ function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
         ev.preventDefault();
         openTabMenu(tab.id, ev.clientX, ev.clientY);
       }}
-      title={tab.label}
+      title={exited ? `${tab.label} (exited)` : tab.label}
       {...attributes}
       {...listeners}
     >

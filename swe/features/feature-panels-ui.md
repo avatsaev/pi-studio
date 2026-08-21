@@ -288,8 +288,9 @@ composer. (Membership/policy semantics are in [subagents.md](subagents.md); this
 
 ## TODO(verify)
 - [ ] Byte-transfer/save path for file downloads (download store internals).
-- [ ] Terminal snapshot serialization format — the basic tier is the daemon's raw byte ring; the
-      reflowable tier's payload format is fixed by the task that implements it
-      ([terminals.md](terminals.md) § Restore / snapshot, tier 2).
+- [x] Terminal snapshot serialization format — the basic tier is the daemon's raw byte ring; the
+      reflowable tier's format is now fixed (sprint-053/task-004):
+      `ScreenBuffer.serialize()` (`@xterm/addon-serialize`), bounded to 200 lines of scrollback
+      beyond the viewport ([terminals.md](terminals.md) § Restore / snapshot, tier 2).
 - [ ] Full PR activity/check data shape and the exact daemon RPC for fetching a failed check's logs.
 - [ ] Explorer-sidebar open/pin/overlay mechanics (mobile overlay vs desktop pinned).

@@ -1,0 +1,60 @@
+/* Bundled terminal typeface — "Cascadia Mono NF".
+ *
+ * WHY A BUNDLED FONT AT ALL: the terminal renders a real shell, and a prompt like powerlevel10k
+ * (whose own docs recommend MesloLGS NF) paints Nerd Font glyphs from the private-use planes. A
+ * browser has no access to the user's installed terminal font unless it happens to be installed
+ * system-wide AND named in the font stack, so without a webfont every icon in that prompt is a
+ * tofu box. MesloLGS NF itself is a *desktop* distribution — 2.5 MB TTFs, four separate static
+ * faces, no woff2, and (measured) no braille coverage at all, which is what most CLI spinners
+ * draw with. Microsoft publishes official woff2 builds of Cascadia, including Nerd-Font-patched
+ * variants, so that is what ships here. `theme/tokens.ts`'s TERMINAL_FONT_STACK still names
+ * MesloLGS NF *first*, so a user who installed it per the p10k instructions keeps their own font
+ * and downloads nothing.
+ *
+ * WHY TWO FACES OF ONE FAMILY: the NF file carries ~9.2k icon glyphs and costs 976 KB; the plain
+ * one is 210 KB and already covers latin + all 128 box-drawing + 32 block + 256 braille glyphs.
+ * Splitting them by `unicode-range` under a single family name means a plain `bash` session
+ * fetches 210 KB and the icon file is fetched only when a glyph in the icon planes is actually
+ * painted — the browser resolves per character, so this is real laziness, not a heuristic.
+ *
+ * WHY THIS IS SAFE FOR CELL ALIGNMENT: xterm.js assumes one advance width for every glyph in a
+ * row. Both files are the same typeface at unitsPerEm 2048 with an advance of exactly 0.5859 em
+ * for every glyph — latin, box drawing, powerline and Material icons alike — so a row that mixes
+ * the two stays on the grid. This is also why the standalone "Symbols Nerd Font Mono" is NOT used
+ * here despite being the obvious icon-only candidate: its glyphs advance a full 1.0 em (it has no
+ * host font to match), which is 1.7x this cell and shifts the rest of the line.
+ *
+ * Both files are variable-weight (`wght` 200-700), so xterm's bold attribute is synthesised from
+ * the same download rather than pulling a second file.
+ *
+ * `font-display: block`: the alternative (`swap`) paints one frame in a fallback font of a
+ * different width, which for a terminal means the whole grid visibly reflows. Blocking briefly is
+ * the lesser evil, and `TerminalPanel.tsx` waits for this face before it measures a cell anyway.
+ */
+
+@font-face {
+  font-family: "Cascadia Mono NF";
+  src:
+    local("Cascadia Mono NF"),
+    url("../assets/fonts/CascadiaMono.woff2") format("woff2");
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: block;
+  /* Everything except the icon planes below. Excluding U+E000-F8FF costs nothing: the plain file
+     has zero glyphs mapped in that range. */
+  unicode-range: U+0-DFFF, U+F900-FFFD;
+}
+
+/* Nerd Font icons: powerline separators (U+E0A0-E0D4), devicons/octicons/font-awesome/weather
+   (U+E000-F8FF) and Material Design Icons (U+F0000-FFFFD). Declared second and range-restricted,
+   so it is the only candidate for those characters and never a candidate for text. */
+@font-face {
+  font-family: "Cascadia Mono NF";
+  src:
+    local("Cascadia Mono NF"),
+    url("../assets/fonts/CascadiaMonoNF.woff2") format("woff2");
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+E000-F8FF, U+F0000-FFFFD;
+}

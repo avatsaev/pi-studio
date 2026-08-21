@@ -199,6 +199,33 @@ describe("TerminalStreamRouter — inbound demux", () => {
     expect(slot7).toEqual(["out:xyz"]);
   });
 
+  // Regression guard (sprint-053/task-005): `onRestore` has existed since sprint-007 but no
+  // server path ever emitted a `Restore` frame until sprint-053/task-004, so this branch of
+  // `dispatch()` had never actually been exercised end to end.
+  it("delivers a Restore frame to the correct slot's onRestore, not onSnapshot", async () => {
+    const fake = makeFakeTransport();
+    const client = makeClient(fake.transport);
+    await client.connect();
+    const router = new TerminalStreamRouter(client);
+    router.start();
+
+    const events: string[] = [];
+    router.subscribeSlot(4, {
+      onSnapshot: (d) => events.push(`snap:${new TextDecoder().decode(d)}`),
+      onRestore: (d) => events.push(`restore:${new TextDecoder().decode(d)}`),
+    });
+
+    fake.pushBinary(
+      encodeTerminalFrame({
+        opcode: "Restore",
+        slot: 4,
+        data: new TextEncoder().encode("reflowed screen"),
+      }),
+    );
+
+    expect(events).toEqual(["restore:reflowed screen"]);
+  });
+
   it("drops frames for slots with no subscriber", async () => {
     const fake = makeFakeTransport();
     const client = makeClient(fake.transport);

@@ -768,8 +768,11 @@ silently unusable in RPC mode.
   as the `Snapshot` frame; distinct from `ScreenBuffer` below.
   - Trimmed at an **escape-safe** boundary (`safeReplayStart`) rather than a raw byte offset — a
     naive cut frequently lands mid-CSI/OSC/DCS sequence or mid-UTF-8, which the emulator then
-    consumes as garbage on replay. The scan runs forward to the sequence's terminator (or drops the
-    whole unterminated tail) so the retained ring always starts at a safe boundary.
+    consumes as garbage on replay. The scan runs forward to the sequence's terminator; if none
+    exists before the end of the retained bytes (sprint-053/task-007: an unterminated sequence, e.g.
+    `cat` on a binary file), it falls back to the naive cut rather than dropping the whole retained
+    region — strictly more readable than an empty snapshot, at the cost of at most one sequence's
+    worth of garbage bytes at the start of the replay.
   - Both O(ring) costs are **amortized, deliberately** — this is the hottest path the daemon has
     (every byte of every terminal). `append` memcpys only the new chunk behind a write cursor;
     compaction (escape-safe scan + `copyWithin`) runs only when the cap would be exceeded, and then
@@ -778,9 +781,11 @@ silently unusable in RPC mode.
     full copy or scan.
   - Bytes must stay contiguous: `safeReplayStart` parses from the start of the retained region, so a
     chunk-list representation could not answer "is this offset mid-sequence?" without flattening.
-- **`ScreenBuffer`** (`screen-buffer.ts`, `@xterm/headless`): a live headless terminal grid fed every
-  output byte as it arrives. Used **only** by `capture(slot)` for one-shot screen-accurate text
-  (CLI/MCP); it does not participate in `subscribe`'s replay and never sees the byte ring.
+- **`ScreenBuffer`** (`screen-buffer.ts`, `@xterm/headless` + `@xterm/addon-serialize`): a live
+  headless terminal grid fed every output byte as it arrives. Two consumers: `capture(slot)`'s
+  one-shot screen-accurate text (CLI/MCP), and — as of sprint-053/task-004 — `serialize()`, which
+  the reflowable restore tier calls on `subscribe` to build the `Restore` frame's payload. Neither
+  path touches the byte ring; the ring stays the basic tier's payload source exclusively.
 - **Size validation is centralized** in `resize`/`createTerminal` via `isValidGrid` (integers,
   2–1000 cols × 1–1000 rows). Every size path funnels through the manager — create, binary `Resize`
   frame, subscribe payload — and the binary path in particular arrives with whatever was decoded off
@@ -792,10 +797,24 @@ silently unusable in RPC mode.
 - **Size ownership**: last-interacting-client-wins. `TerminalManager` itself never resizes on
   subscribe — but `subscribe_terminal_request` does, before it calls `manager.subscribe()`, when the
   attaching client supplied `cols`/`rows` (see the handler note below). Beyond that the manager
-  resizes only on an explicit binary `Resize` frame.
-- `subscribe(slot, sink)` — attach a raw-binary-frame sink; replays the snapshot ring first,
-  **synchronously**, which is why any size correction must happen before this call rather than after
-  the RPC resolves.
+  resizes only on an explicit binary `Resize` frame. Neither path broadcasts by itself — that is
+  `terminal-rpc.ts`'s `resizeAndBroadcast` wrapper, below.
+- `subscribe(slot, sink, opts?)` — attach a raw-binary-frame sink; replays exactly one restore-tier
+  frame first, **synchronously** (which is why any size correction must happen before this call
+  rather than after the RPC resolves): the byte-ring `Snapshot` by default, or a `Restore` frame
+  carrying `ScreenBuffer.serialize()` when `opts.restoreMode === "reflowable"` (sprint-053/
+  task-004) — never both, never neither. Reflowable is a redraw correct at any client width;
+  basic reproduces the wrapping of whatever width the PTY had when those bytes were written.
+  Serialization is computed on subscribe, not maintained continuously, so an idle terminal costs
+  nothing extra.
+- `onTerminalExit(listener)` — subscribe to every terminal exit, self-exit (the `exit` command, a
+  crash) or an explicit `kill()` alike (sprint-053/task-003). Fires exactly once per terminal, from
+  inside the private `onExit` (after the map entry is already removed and subscribers cleared) —
+  `kill()` calls `onExit` a second time as before, but `onExit`'s own `entry.closed` guard means
+  listeners still fire once. This is the ONLY seam that can observe a self-exit; `terminal-rpc.ts`
+  wires it to the same `terminals_update` broadcast `create`/`rename`/`start_workspace_script`
+  already send, rather than `kill_terminal_request` sending its own (which would now duplicate the
+  one `manager.kill()` triggers through this listener).
 - `killAll()` — kill every live terminal and clear its pending flush timer; called from
   `startDaemon(...).close()` so a stray PTY can't emit output after the transports it would
   flush through (relay/WS) have already been torn down on shutdown.
@@ -810,14 +829,40 @@ Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed
   full-screen app's paint replayed at the wrong width renders scrambled, and a client `Resize` sent
   after the response is always too late. Validation and the same-size no-op are the manager's job,
   not this handler's. The response echoes the PTY's resulting `cols`/`rows` so a subscriber that
-  sent nothing still learns the real size.
-- `kill_terminal_request` — kill a PTY. (There is no `resize_terminal`/`close_terminal` RPC: resize
-  arrives **only** as a binary frame, opcode `0x03`, decoded by `makeTerminalBinaryHandler` below;
-  "close" is this handler, not a separately named one.)
+  sent nothing still learns the real size. `restoreMode` is negotiated here — reflowable requires
+  BOTH `restoreModesEnabled` (daemon feature) AND the session advertising
+  `terminal_reflowable_snapshot` AND the client literally requesting `"reflowable"` (sprint-053/
+  task-004: any other requested value, including a typo, is served AND echoed as `"basic"` — the
+  response never names a tier that was not actually served).
+- `kill_terminal_request` — kill a PTY; the `terminals_update` broadcast comes from
+  `manager.onTerminalExit` above, not from this handler directly (There is no
+  `resize_terminal`/`close_terminal` RPC: resize arrives **only** as a binary frame, opcode `0x03`,
+  decoded by `makeTerminalBinaryHandler` below; "close" is this handler, not a separately named
+  one.)
 - `capture_terminal_request` — one-shot screen-accurate text via `ScreenBuffer`.
 - `start_workspace_script_request` — spawn a project-config-defined workspace script as a terminal.
 - Binary `Input`/`Resize` frames (opcode `0x02`/`0x03`) → `makeTerminalBinaryHandler` writes to the
-  PTY / calls `manager.resize()`; neither has a text-RPC equivalent.
+  PTY / calls `manager.resize()` through the same `resizeAndBroadcast` wrapper
+  `subscribe_terminal_request` uses (sprint-053/task-007); neither opcode has a text-RPC equivalent.
+  `resizeAndBroadcast` compares `manager.get(slot)`'s cols/rows before and after the call — not
+  `resize`'s boolean return, which is `true` for both an applied change and a same-size no-op — and
+  broadcasts only when they actually differ, so a rejected/invalid/same-size resize (the hot path of
+  every coalesced pane-divider drag) never triggers one. `makeTerminalBinaryHandler` gained
+  `broadcast`/`getActiveSessions` parameters for this, mirroring `registerTerminalHandlers`'s own
+  shape rather than giving `TerminalManager` itself a session dependency.
+- `terminals_update` (JSON push, not a discriminated `sessionMessageSchema` member — same
+  local-interface-plus-type-guard convention as `checkout_status_update`/`file_changed`, but
+  unconditional rather than per-path: no subscribe RPC exists, see root AGENTS.md § Protocol
+  overview) broadcasts to **every** active session on create, rename, kill, self-exit,
+  `start_workspace_script`, and — as of sprint-053/task-007 — a size-changing resize from either
+  size path. The web client has two consumers today: `use-terminal-exit-watch.ts`'s
+  `useTerminalExitWatch` (sprint-053/task-003, `packages/web-client/AGENTS.md`), reconciling open
+  terminal tabs against the live list to mark an exited PTY's tab `exited`; and
+  `TerminalPanel.tsx`'s own per-panel listener (sprint-053/task-007), which re-seeds
+  `believedSizeRef` from a matching entry's `cols`/`rows` so a second attached client's stale belief
+  about the PTY size gets corrected without sending a `Resize` frame of its own. The two stay
+  separate subscriptions rather than one shared hook because their state is split the same way: a
+  global tab store vs. a component-local ref that cannot be reached from outside its own panel.
 
 
 ### File watching (`files/`)

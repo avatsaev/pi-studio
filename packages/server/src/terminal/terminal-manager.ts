@@ -9,6 +9,8 @@ import {
 } from "./pty-backend.js";
 import { ScreenBuffer } from "./screen-buffer.js";
 
+const textEncoder = new TextEncoder();
+
 /**
  * Workspace-scoped PTY terminal manager (features/terminals.md § Behavior, § PTY size ownership,
  * § Output coalescing). PTYs are multiplexed over the binary terminal stream protocol by `slot`.
@@ -27,6 +29,14 @@ import { ScreenBuffer } from "./screen-buffer.js";
 
 /** A subscriber sink receives fully-encoded binary terminal frames. */
 export type TerminalFrameSink = (frame: Uint8Array) => void;
+
+/**
+ * Tier negotiated per subscription (`terminals.md` § Restore / snapshot). `"basic"` is the raw
+ * byte-ring `Snapshot` (always available); `"reflowable"` is a `Restore` frame carrying
+ * `ScreenBuffer.serialize()` — correct at any client width, gated on both sides supporting it
+ * (`terminal-rpc.ts`'s negotiation). Exactly one of the two is ever sent per subscribe.
+ */
+export type RestoreMode = "basic" | "reflowable";
 
 export interface TerminalRuntimeEntry {
   slot: number;
@@ -126,6 +136,9 @@ export class TerminalManager {
   private readonly logger?: Logger;
   /** Rotating hand-out point in the one-byte slot space (see `nextFreeSlot`). */
   private slotCursor = 1;
+  /** Exit listeners (`onTerminalExit`) — fired once per terminal, covering both `kill()` and a
+   * PTY exiting on its own (`exit`, a crash). See `onExit` below for the single call site. */
+  private readonly exitListeners = new Set<(slot: number) => void>();
 
   constructor(options: TerminalManagerOptions = {}) {
     this.backend = options.backend ?? createDefaultPtyBackend();
@@ -142,6 +155,19 @@ export class TerminalManager {
 
   get(slot: number): TerminalRuntimeEntry | undefined {
     return this.terminals.get(slot)?.entry;
+  }
+
+  /**
+   * Subscribe to every terminal exit — self-exit (the `exit` command, a crash) or an explicit
+   * `kill()` — regardless of which session, if any, triggered it. Fires exactly once per
+   * terminal, after its entry has already been removed from `list()`. The daemon has no
+   * dedicated close opcode on the binary terminal stream (`onExit` below); this is the seam a
+   * caller uses to relay the fact out-of-band, e.g. `registerTerminalHandlers` broadcasting
+   * `terminals_update`. Returns an unsubscribe fn.
+   */
+  onTerminalExit(listener: (slot: number) => void): () => void {
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
   }
 
   /**
@@ -227,15 +253,27 @@ export class TerminalManager {
   }
 
   /**
-   * Subscribe to a slot: emit a Snapshot frame (current screen) immediately, then live Output frames.
-   * Does NOT resize the PTY (passive attach must not claim size). Returns an unsubscribe fn.
+   * Subscribe to a slot: emit exactly one restore frame (current screen) immediately, then live
+   * Output frames. `restoreMode: "reflowable"` (default `"basic"`) sends a `Restore` frame
+   * carrying `ScreenBuffer.serialize()` instead of the raw byte-ring `Snapshot` — computed here,
+   * on subscribe, not maintained continuously (an idle terminal must cost nothing extra). Does
+   * NOT resize the PTY (passive attach must not claim size). Returns an unsubscribe fn.
    */
-  subscribe(slot: number, sink: TerminalFrameSink): () => void {
+  subscribe(
+    slot: number,
+    sink: TerminalFrameSink,
+    opts?: { restoreMode?: RestoreMode },
+  ): () => void {
     const managed = this.terminals.get(slot);
     if (!managed) throw new Error(`no terminal in slot ${slot}`);
 
-    // Snapshot first (rebuilds screen state), then live output.
-    sink(encodeTerminalFrame({ opcode: "Snapshot", slot, data: managed.screen.bytes() }));
+    // Exactly one restore-tier frame first (rebuilds screen state), then live output.
+    if (opts?.restoreMode === "reflowable") {
+      const data = textEncoder.encode(managed.screenModel.serialize());
+      sink(encodeTerminalFrame({ opcode: "Restore", slot, data }));
+    } else {
+      sink(encodeTerminalFrame({ opcode: "Snapshot", slot, data: managed.screen.bytes() }));
+    }
     managed.subscribers.add(sink);
 
     return () => {
@@ -344,6 +382,7 @@ export class TerminalManager {
     // Notify subscribers the terminal closed (empty Output then drop). Clients treat an exited
     // terminal as closed; no dedicated close opcode exists in the binary protocol.
     managed.subscribers.clear();
+    for (const listener of this.exitListeners) listener(managed.entry.slot);
   }
 }
 
@@ -353,7 +392,8 @@ export class TerminalManager {
  * the sequence's tail — parameter digits, an SGR/cursor final byte, an OSC payload — which the
  * emulator on replay consumes as garbage input instead of the printable text it actually is,
  * corrupting everything after it. `safeReplayStart` finds the nearest safe boundary at or after the
- * naive cut instead; `SnapshotRing.compact` is its only caller.
+ * naive cut instead; `SnapshotRing.compact` AND the oversized-single-chunk path in
+ * `SnapshotRing.append` both call it.
  */
 const ESC = 0x1b;
 const BEL = 0x07;
@@ -380,9 +420,14 @@ type ReplayScanState = "normal" | "esc" | "csi" | "osc" | "osc-esc" | "string" |
  * whether `from` lands inside a sequence depends on where that sequence began, which may be
  * before `from` — the exact case a raw byte-offset cut produces.
  *
- * Bounded: if the sequence straddling `from` never terminates before `buffer.length`, drops to
- * `buffer.length` (nothing left of that unterminated tail is safe to replay) rather than scanning
- * past the buffer or emitting a partial sequence.
+ * Fallback (sprint-053/task-007): if the sequence straddling `from` never terminates before
+ * `buffer.length`, no position from `from` onward is provably safe — but returning `buffer.length`
+ * (dropping the entire retained region) is needlessly pessimistic for what is usually a few stray
+ * bytes, e.g. `cat` on a binary file leaving one unterminated DCS. Falls back to the naive cut
+ * (`from` itself) instead: the emulator eats whatever garbage remains of that one sequence on
+ * replay (bounded — at most one sequence's worth), which is strictly more readable than an empty
+ * snapshot. This fallback only applies when no safe boundary exists at all; a legitimate
+ * mid-sequence cut with a real boundary later in the buffer still returns that boundary unchanged.
  */
 export function safeReplayStart(buffer: Uint8Array, from: number): number {
   if (from <= 0) return 0;
@@ -425,8 +470,9 @@ export function safeReplayStart(buffer: Uint8Array, from: number): number {
   }
 
   // Ran off the end still inside an unterminated sequence (or a run of continuation bytes with no
-  // following lead byte) — nothing from `from` onward is a safe start.
-  return buffer.length;
+  // following lead byte) — no position is provably safe. Fall back to the naive cut rather than
+  // dropping everything (see the function doc comment's "Fallback" paragraph).
+  return from;
 }
 
 /**

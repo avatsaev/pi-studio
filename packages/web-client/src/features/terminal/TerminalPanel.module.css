@@ -27,3 +27,18 @@
   color: var(--pi-color-foregroundMuted);
   font-size: var(--pi-font-size-sm);
 }
+.exitedBanner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-4) var(--pi-spacing-8);
+  border-top: var(--pi-border-width-1) solid var(--pi-color-border);
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-xs);
+}

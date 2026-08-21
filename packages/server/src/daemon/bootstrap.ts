@@ -565,7 +565,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     },
     getActiveSessions,
   );
-  const terminalBinaryHandler = makeTerminalBinaryHandler(terminalManager);
+  const terminalBinaryHandler = makeTerminalBinaryHandler(
+    terminalManager,
+    broadcast,
+    getActiveSessions,
+  );
 
   // ── Orchestration: schedules / chat / loops (real, disk-backed) ───────────────
   const scheduleExecutor: ScheduleExecutor = {

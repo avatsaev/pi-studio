@@ -88,6 +88,12 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
         [CLIENT_CAPS.inline_image_markdown]: true,
         [CLIENT_CAPS.file_link_markdown]: true,
         [CLIENT_CAPS.mermaid_diagram_markdown]: true,
+        // Connection-wide claim (sprint-053/task-005): once advertised, EVERY terminal
+        // subscription on this connection is eligible for the daemon's reflowable `Restore`
+        // tier (terminals.md § Restore / snapshot) — TerminalPanel.tsx requests it and shares
+        // one reset-then-write replay path for both tiers, so this is safe to claim
+        // unconditionally rather than per-subscription.
+        [CLIENT_CAPS.terminal_reflowable_snapshot]: true,
       },
       transport,
       // The PiStudioClient facade has no per-call timeout override for

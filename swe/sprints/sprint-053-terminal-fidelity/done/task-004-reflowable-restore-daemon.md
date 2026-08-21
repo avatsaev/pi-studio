@@ -1,7 +1,7 @@
 # Task 004 — Daemon: serve a reflowable `Restore` frame from the headless screen model
 
 - **Sprint:** sprint-053-terminal-fidelity
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Estimated size:** M
 - **Depends on:** none
@@ -22,8 +22,8 @@ The protocol has been carrying the machinery for the fix, unused, since sprint-0
 - `TerminalOpcode.Restore = 0x05` exists and encodes/decodes
   (`packages/protocol/src/binary-frames/terminal-stream-protocol.ts:21,80-81`), but **no server code
   path ever emits it** — `TerminalManager.subscribe` only sends `Snapshot`.
-- `SERVER_FEATURES["terminal-restore-modes"]` is advertised (`bootstrap.ts:519` passes
-  `restoreModesEnabled: true`) and `terminal-rpc.ts:71-82` already negotiates a `restoreMode`, echoing
+- `SERVER_FEATURES["terminal-restore-modes"]` is advertised (`bootstrap.ts:563` passes
+  `restoreModesEnabled: true`) and `terminal-rpc.ts:71-76` already negotiates a `restoreMode`, echoing
   it in the response — but the value is then ignored, and every subscriber gets the same byte ring.
 - `CLIENT_CAPS.terminal_reflowable_snapshot` exists and `session.supports(...)` is consulted; no client
   advertises it (task-005 does).
@@ -41,8 +41,8 @@ cursor position — so this task adds a grid **serialization** alongside it.
 - `swe/architecture/websocket-protocol.md` § Binary frames
 - `packages/server/src/terminal/screen-buffer.ts` (the `@xterm/headless` grid; note the
   `createRequire` loading workaround and why it exists)
-- `packages/server/src/terminal/terminal-manager.ts:184-198` (`subscribe`)
-- `packages/server/src/terminal/terminal-rpc.ts:68-86` (`subscribe_terminal_request`, the existing
+- `packages/server/src/terminal/terminal-manager.ts:229-244` (`subscribe`)
+- `packages/server/src/terminal/terminal-rpc.ts:68-114` (`subscribe_terminal_request`, the existing
   `restoreMode` negotiation)
 - `packages/server/package.json` (`@xterm/headless` is already a dependency)
 - `packages/protocol/src/binary-frames/terminal-stream-protocol.ts` (no change expected — verify)
@@ -83,18 +83,18 @@ cursor position — so this task adds a grid **serialization** alongside it.
 - Reflow-on-resize of an already-attached client (that is a live redraw the PTY performs itself).
 
 ## Acceptance criteria
-- [ ] Subscribing with the reflowable mode yields exactly one `Restore` (`0x05`) frame and **no**
+- [x] Subscribing with the reflowable mode yields exactly one `Restore` (`0x05`) frame and **no**
       `Snapshot`, followed by live `Output`.
-- [ ] Subscribing without the capability, or with the feature disabled, yields exactly one `Snapshot`
+- [x] Subscribing without the capability, or with the feature disabled, yields exactly one `Snapshot`
       and no `Restore` — byte-identical behaviour to today.
-- [ ] `subscribe_terminal_response.restoreMode` reports the tier actually served, never a tier the
+- [x] `subscribe_terminal_response.restoreMode` reports the tier actually served, never a tier the
       subscriber did not get.
-- [ ] The serialized payload restores colour/attribute state and cursor position, not just text: a
+- [x] The serialized payload restores colour/attribute state and cursor position, not just text: a
       screen written with SGR colours round-trips coloured.
-- [ ] Serialization is bounded — a terminal with a full scrollback produces a payload of predictable
+- [x] Serialization is bounded — a terminal with a full scrollback produces a payload of predictable
       size, not the entire history.
-- [ ] `capture` and `snapshotText()` are unchanged and still pass their existing tests.
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
+- [x] `capture` and `snapshotText()` are unchanged and still pass their existing tests.
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
 
 ## Test / verification plan
 - Unit: extend `packages/server/src/terminal/screen-buffer.test.ts` — write SGR-coloured output plus
@@ -110,5 +110,7 @@ cursor position — so this task adds a grid **serialization** alongside it.
 
 ## Notes
 `@xterm/headless` ships a UMD bundle Node's ESM loader cannot statically read, which is why
-`screen-buffer.ts:5-10` loads it through `createRequire`. Any addon loaded into it will very likely
-need the same treatment — expect it rather than discovering it as a runtime failure.
+`screen-buffer.ts:6-9` loads it through `createRequire`. Any addon loaded into it will very likely
+need the same treatment — expect it rather than discovering it as a runtime failure. Version note:
+the server ships `@xterm/headless` **^6.0.0** — pick the `@xterm/addon-serialize` release line that
+matches xterm 6.x (the 0.x line targets xterm 5), and verify the pairing at runtime, not just install.

@@ -47,6 +47,10 @@ export interface TerminalTabData {
   /** Cwd captured at shortcut-fire time — the terminal launches here regardless of which
    * session/workspace becomes active before its `create_terminal_request` resolves. */
   cwd: string;
+  /** Set once a `terminals_update` broadcast shows this slot is no longer live (sprint-053/
+   * task-003, `use-terminal-exit-watch.ts`). Sticky — never cleared; there is no "restart
+   * terminal" affordance. Absent/`undefined` means still alive. */
+  exited?: boolean;
 }
 
 /** `path: null` is the empty ("+"-menu) molecule tab — molviewer's own drag-drop empty state. */
