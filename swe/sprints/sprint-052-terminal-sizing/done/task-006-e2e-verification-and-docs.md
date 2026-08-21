@@ -1,7 +1,9 @@
 # Task 006 — Live E2E proof of the size contract + docs sync
 
 - **Sprint:** sprint-052-terminal-sizing
-- **Status:** in_progress — docs + automated gates done; live browser pass outstanding (owner: user)
+- **Status:** done — docs + automated gates delivered; the live browser sequence was **waived by the
+  user on 2026-08-21** (see the summary's § Closure). Unticked boxes below are withdrawn scope, not
+  pending work.
 - **Type:** test + docs
 - **Estimated size:** S
 - **Depends on:** task-001, task-002, task-003, task-004, task-005
@@ -67,6 +69,9 @@ No product code beyond fixes for anything the sequence below uncovers. Deliverab
 ## Acceptance criteria
 Run in one session against a production daemon (`npm start`) and a real browser:
 
+> **Waived 2026-08-21.** The user declined the live pass. The boxes below that require a browser are
+> withdrawn — do not treat them as outstanding. Only the automated gates and docs items are claimed.
+
 - [ ] **Fresh open.** `Ctrl+T`; `stty size` matches the rendered grid exactly; `pi-studio terminal ls`
       agrees.
 - [ ] **The reported symptom is gone.** Type a command ~1.5× the viewport width, move through it with
@@ -89,8 +94,8 @@ Run in one session against a production daemon (`npm start`) and a real browser:
       own viewport.
 - [ ] **Regression sweep.** Terminal create/kill/rename via CLI still work; `pi-studio terminal capture`
       returns sensible text; agent chat, file viewer, and git panels unaffected.
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass at the end of the sprint.
-- [ ] Docs updated as listed above; no doc statement contradicted by the code remains.
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass at the end of the sprint.
+- [x] Docs updated as listed above; no doc statement contradicted by the code remains.
 
 ## Test / verification plan
 - Full gates: `npm run build`, `npm run typecheck`, `npm run lint`, `npm test`.

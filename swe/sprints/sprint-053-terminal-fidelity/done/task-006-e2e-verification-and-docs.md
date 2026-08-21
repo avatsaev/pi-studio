@@ -1,7 +1,9 @@
 # Task 006 — Live E2E proof of fidelity + docs sync
 
 - **Sprint:** sprint-053-terminal-fidelity
-- **Status:** backlog
+- **Status:** done — docs sync + scope-item closure delivered; the live browser sequence was
+  **waived by the user on 2026-08-21** (same treatment as sprint-052/task-006's equivalent live
+  pass), so the acceptance criteria below stay accurately unticked where they depend on it.
 - **Type:** test + docs
 - **Estimated size:** S
 - **Depends on:** task-001, task-002, task-003, task-004, task-005
@@ -46,8 +48,8 @@ No product code beyond fixes for what the sequence uncovers. Deliverables:
     scope and, as of this sprint, exercised live.
   - `packages/server/AGENTS.md` § Terminal subsystem — the two restore tiers, which frame each serves,
     where the serialization comes from (`ScreenBuffer` + the addon/mechanism chosen in task-004) and its
-    scrollback bound; the new exit notification seam and the four paths that broadcast
-    `terminals_update`.
+    scrollback bound; the new exit notification seam and the five paths that broadcast
+    `terminals_update` (create/rename/kill/start_workspace_script/exit).
   - `packages/client/AGENTS.md` — `TerminalStreamRouter.onRestore` is a live path now, not a
     forward-declaration.
   - `packages/web-client/AGENTS.md` — the terminal follows the appearance system (theme
@@ -57,8 +59,9 @@ No product code beyond fixes for what the sequence uncovers. Deliverables:
 - **Close the scope items:** tick the tier-2 acceptance criteria in `terminals.md`, resolve
   `feature-panels-ui.md` § TODO(verify) "Terminal snapshot serialization format" with the format actually
   implemented, and tick § Acceptance Criteria "The terminal attaches/streams/reconnects with snapshot
-  restore, sends resize only from the claiming focused pane" (its size half was proven in
-  sprint-052/task-006; its restore half is proven here).
+      restore, sends resize only from the claiming focused pane" — **both halves are proven here**: the
+      size half's live pass was waived when sprint-052/task-006 closed (2026-08-21), so this task's
+      regression sweep is the size contract's first systematic live proof, not a re-run of one.
 
 ## Out of scope
 - The mobile virtual key bar, xterm link provider, and search addon from `feature-panels-ui.md`
@@ -84,12 +87,15 @@ Run in one session against `npm start` and a real browser:
       (`use-terminal-restore.ts` skips closed entries), and no phantom subscription is attempted.
 - [ ] **Fallback.** With `restoreModesEnabled: false` (temporarily), everything still works via
       `Snapshot`, including after a width change (approximate layout is expected and acceptable there).
-- [ ] **Regression sweep.** Everything sprint-052 proved still holds: fresh-open sizing, long-command
+- [ ] **Regression sweep.** Everything sprint-052 shipped still holds: fresh-open sizing, long-command
       editing with no ghosts, one `Resize` per drag, no `Resize` on passive attach, escape-safe replay.
       Plus: `pi-studio terminal ls/create/capture/send-keys` unaffected, agent chat / file viewer / git
       panels unaffected.
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass at the end of the sprint.
-- [ ] Docs updated as listed; no doc statement contradicted by the code remains.
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass at the end of the sprint.
+      (2553 tests, 194 files, full monorepo; `npx tsc -b --force` clean; `npm run lint` exit 0, no new
+      warnings in any file this sprint touched; `npm run build` succeeds for every package.)
+- [x] Docs updated as listed; no doc statement contradicted by the code remains. See this task's
+      summary for the full per-file list of what changed and why.
 
 ## Test / verification plan
 - Full gates: `npm run build`, `npm run typecheck`, `npm run lint`, `npm test`.
@@ -98,6 +104,13 @@ Run in one session against `npm start` and a real browser:
 - Record everything in `done/task-006-e2e-verification-and-docs-summary.md`.
 
 ## Notes
-Re-run sprint-052's regression items here rather than trusting them: task-002 changes the emulator's
+Re-run sprint-052's regression items here rather than trusting them — doubly so since that sprint's own
+live sequence was waived at close (its automated gates and ad-hoc field reports are what stand behind
+it): task-002 changes the emulator's
 construction options and task-005 changes what arrives on subscribe, both of which sit directly on the
 size path that sprint fixed.
+
+Task-007 (resize broadcast + ring degradation) executes **after** this task in numeric order — it was
+appended from sprint-052's review, not part of the original plan shape. It carries its own unit tests,
+manual sequence, and `terminals.md` updates, so this task must not tick or touch the two
+known-limitation bullets (multi-client belief drift, drop-all ring trim) that task-007 removes.

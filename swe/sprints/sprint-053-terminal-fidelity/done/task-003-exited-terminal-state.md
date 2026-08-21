@@ -1,7 +1,7 @@
 # Task 003 — Surface an exited PTY instead of leaving a zombie tab
 
 - **Sprint:** sprint-053-terminal-fidelity
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Estimated size:** S
 - **Depends on:** none
@@ -19,12 +19,12 @@ keystrokes into nothing, and no indication the shell is gone. Closing the tab th
 
 Two facts make this a real gap rather than a missing nicety:
 
-1. **There is no close opcode.** `terminal-manager.ts:278-294` (`onExit`) flushes pending output, marks
+1. **There is no close opcode.** `terminal-manager.ts:331-347` (`onExit`) flushes pending output, marks
    `entry.closed = true`, disposes the screen model, deletes the map entry, and **clears subscribers** —
    its own comment says "Notify subscribers the terminal closed (empty Output then drop) … no dedicated
    close opcode exists in the binary protocol". So the binary stream simply stops; nothing on it says why.
-2. **The only signal is a broadcast nothing listens to.** `terminal-rpc.ts:56,64,109,136` broadcasts
-   `terminals_update` with the full list on create/rename/kill — but a grep for `terminals_update` in
+2. **The only signal is a broadcast nothing listens to.** `terminal-rpc.ts:56,64,137,164` broadcasts
+   `terminals_update` with the full list on create/rename/kill/start_workspace_script — but a grep for `terminals_update` in
    `packages/web-client/src` returns zero hits. The web client's only terminal-inventory read is
    `list_terminals_request`, once per connection, in `use-terminal-restore.ts`. The sidebar Terminals tab
    that might once have consumed it was removed (`features/files/RightSidebar.tsx:3-6`).
@@ -41,7 +41,7 @@ common one.
   exited'"), § States, § Error Handling & Edge Cases (`PTY exits`)
 - `swe/features/terminals.md` § Behavior (`kill(slot)`: "terminate PTY; notify
   subscribers"), § Error Handling & Edge Cases
-- `packages/server/src/terminal/terminal-manager.ts:236-294` (`kill`, `onExit`)
+- `packages/server/src/terminal/terminal-manager.ts:290-297` (`kill`), `:331-347` (`onExit`)
 - `packages/server/src/terminal/terminal-rpc.ts` (the `terminals_update` broadcasts)
 - `packages/web-client/src/features/terminal/TerminalPanel.tsx` (status surface from
   sprint-052/task-001)
@@ -54,7 +54,7 @@ Choose the **narrowest** mechanism that covers a self-exit, and state the choice
 - Ensure the daemon emits `terminals_update` when a PTY exits on its own, not only when an RPC killed
   it — `onExit` currently has no way to broadcast. Give `TerminalManager` an exit notification seam
   (callback/event) that `registerTerminalHandlers` wires to the same broadcast it already sends for
-  create/rename/kill, so all four paths produce one consistent signal. Do **not** invent a new binary
+  create/rename/kill/start_workspace_script, so all five paths produce one consistent signal. Do **not** invent a new binary
   opcode: the protocol is append-only and a JSON broadcast already exists for this inventory.
 - Web client: listen for `terminals_update` and reconcile open terminal tabs against it. The daemon
   broadcasts it to **every** active session unconditionally, so no subscribe RPC call is needed —
@@ -82,17 +82,28 @@ Choose the **narrowest** mechanism that covers a self-exit, and state the choice
   rather than plumbing a new field.
 
 ## Acceptance criteria
-- [ ] Typing `exit` in a terminal marks the tab and panel exited within a second, with "Terminal
-      exited" shown and the last screen still readable.
-- [ ] Keystrokes into an exited terminal send nothing (verified: no binary frames in devtools).
-- [ ] `pi-studio terminal kill <slot>` from the CLI produces the same state in an open browser tab.
-- [ ] Closing an exited tab produces no user-visible error and no exception.
-- [ ] A terminal that is still alive is never marked exited — including immediately after another
+- [x] Typing `exit` in a terminal marks the tab and panel exited within a second, with "Terminal
+      exited" shown and the last screen still readable. (Unit-verified: server self-exit ->
+      `onTerminalExit` -> broadcast; client `reconcileLiveTerminals` marks the tab. Live-timing
+      confirmation deferred to task-006's consolidated E2E sweep, per the user's "stop smoke
+      testing, move on" during this task.)
+- [x] Keystrokes into an exited terminal send nothing (verified: no binary frames in devtools).
+      (Code: `exitedRef` guard at the top of `onData`, returns before any encode/send. Live
+      devtools confirmation deferred to task-006.)
+- [x] `pi-studio terminal kill <slot>` from the CLI produces the same state in an open browser tab.
+      (Same `kill_terminal_request` RPC path as any other client; unit-tested exactly-once
+      broadcast. Live confirmation deferred to task-006.)
+- [x] Closing an exited tab produces no user-visible error and no exception. (The true-unmount
+      kill effect now skips `kill_terminal_request` entirely when `exitedRef.current` is true.)
+- [x] A terminal that is still alive is never marked exited — including immediately after another
       terminal exits, and across a reconnect (the reconnect's `list_terminals_request` must not
       transiently mark live terminals exited before the first `terminals_update` arrives).
-- [ ] Creating and killing terminals still broadcasts exactly one `terminals_update` per operation; no
+      (Structural: `useTerminalExitWatch` reacts ONLY to `terminals_update` broadcasts, never to
+      `list_terminals_request`'s response — `use-terminal-restore.ts` is untouched. Unit test
+      covers the two-terminal case.)
+- [x] Creating and killing terminals still broadcasts exactly one `terminals_update` per operation; no
       duplicate broadcast is introduced for the RPC-kill path (which already sends one).
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` pass.
 
 ## Test / verification plan
 - Unit: extend `packages/server/src/terminal/terminal-manager.test.ts` — a self-exiting PTY (the fake

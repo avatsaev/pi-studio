@@ -40,8 +40,16 @@ import { useIsTabVisible, useTabStore } from "@pi-studio-ui/stores/tab-store.js"
 import type { Tab, TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
 import { isPaneActiveTab, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { baseFontSize } from "@pi-studio-ui/theme/tokens.js";
-import { isMeasurable, shouldClaimSize, type Grid } from "./terminal-size.js";
+import { TERMINAL_FONT_STACK } from "@pi-studio-ui/theme/tokens.js";
+import { useAppearance } from "@pi-studio-ui/theme/ThemeBoundary.js";
+import { isTerminalsUpdate } from "@pi-studio-ui/hooks/use-terminal-exit-watch.js";
+import { isTerminalFontReady, terminalFontReady } from "./terminal-font.js";
+import {
+  believedSizeFromBroadcast,
+  isMeasurable,
+  shouldClaimSize,
+  type Grid,
+} from "./terminal-size.js";
 import styles from "./TerminalPanel.module.css";
 
 export interface TerminalPanelProps {
@@ -56,10 +64,14 @@ interface CreateTerminalResponse {
 }
 
 /** `cols`/`rows` echo the PTY's real size; both optional so an older daemon that omits them is
- * handled without a version check (the client falls back to what it asked for). */
+ * handled without a version check (the client falls back to what it asked for). `restoreMode`
+ * echoes the tier the daemon actually served (sprint-053/task-005) — the source of truth for
+ * which frame (`Snapshot` vs `Restore`) to expect; requesting `"reflowable"` never guarantees it
+ * was honoured (older daemon, feature disabled, or an ineligible session on this connection). */
 interface SubscribeTerminalResponse {
   cols?: number;
   rows?: number;
+  restoreMode?: "basic" | "reflowable";
 }
 
 /** Status surface for the attach overlay (feature-panels-ui.md § Terminal pane → States). */
@@ -117,37 +129,24 @@ function isSizeAuthority(tabId: string): boolean {
   return isPaneActiveTab(useLayoutStore.getState().layouts[tab.workspaceCwd], tabId);
 }
 
-/** Dark palette matching the app's github-dark-ish default theme (theme/variants.ts "dark"). */
-const TERMINAL_THEME = {
-  background: "#181b1a",
-  foreground: "#fafafa",
-  cursor: "#a2b4d7",
-  cursorAccent: "#181b1a",
-  selectionBackground: "rgba(255,255,255,0.18)",
-  black: "#18181b",
-  red: "#ef4444",
-  green: "#22c55e",
-  yellow: "#f59e0b",
-  blue: "#3b82f6",
-  magenta: "#a855f7",
-  cyan: "#14b8a6",
-  white: "#d4d4d8",
-  brightBlack: "#52525b",
-  brightRed: "#f87171",
-  brightGreen: "#4ade80",
-  brightYellow: "#fbbf24",
-  brightBlue: "#60a5fa",
-  brightMagenta: "#c084fc",
-  brightCyan: "#2dd4bf",
-  brightWhite: "#fafafa",
-};
-
 export function TerminalPanel({ tab }: TerminalPanelProps) {
   const data = tab.data as TerminalTabData;
   const client = useConnectionStore((s) => s.client);
   // Per-pane, not `=== activeTabId`: with splits this terminal can be on screen in one pane while
   // another pane holds the workspace-active tab, and it must refit when it appears either way.
   const isVisible = useIsTabVisible(tab.id);
+  // feature-panels-ui.md § Terminal pane: the emulator follows the app's theme, mono font, and
+  // font-size setting — the same appearance source every other surface uses, not a second one
+  // (task-002). `settings.monoFont` (not `resolvedTheme.fontFamily.mono`) is the signal for "the
+  // user configured a custom mono font": `applyAppearance` falls the *unset* case back to
+  // `DEFAULT_MONO_FONT`, which has no Nerd Font glyphs, and a real shell prompt (starship,
+  // powerlevel10k) routinely paints them — `TERMINAL_FONT_STACK` (tokens.ts) is the terminal's own
+  // default for exactly that reason. Once the user sets a custom font, honor it verbatim.
+  const { settings, resolvedTheme: theme } = useAppearance();
+  const terminalFontFamily =
+    settings.monoFont && settings.monoFont.trim() !== ""
+      ? theme.fontFamily.mono
+      : TERMINAL_FONT_STACK;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -167,6 +166,12 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
   // a *restored* terminal whose PTY predates this client, and is precisely the case that most
   // needs a resize (that PTY is usually still at its 80×24 spawn default).
   const believedSizeRef = useRef<Grid | null>(null);
+  // Which restore tier the daemon actually served on last (re)subscribe (sprint-053/task-005) —
+  // the response's echo, never assumed from what was requested. Not read by any branching logic
+  // today (`onSnapshot`/`onRestore` already share one reset-then-write `replay` path below,
+  // sprint-052/task-005), but kept for the live verification this task's own test plan calls for
+  // (devtools/console inspection of which tier a given subscription got).
+  const restoreModeRef = useRef<"basic" | "reflowable" | null>(null);
   // Set by the mount effect once `claimSize` exists, cleared on its cleanup, so the separate
   // visibility effect below can reuse the one claim path instead of duplicating its logic.
   const claimSizeRef = useRef<((next: Grid | null) => void) | null>(null);
@@ -180,14 +185,39 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
   const refitTimerRef = useRef<number | null>(null);
   const refitRafRef = useRef<number | null>(null);
   const isFittingRef = useRef(false);
+  // Last font size/family applied to the live emulator (task-002's appearance-sync effect below).
+  // `null` until that effect has run once against a real terminal — guards its very first run
+  // (which fires in the same commit as the mount effect, applying the just-constructed values
+  // right back) from mistaking that redundant application for a font *change* and refitting twice.
+  const prevFontRef = useRef<{ size: number; family: string } | null>(null);
   // Mirrors `use-checkout-status.ts`'s convention: kept in sync every render so the unmount-only
   // kill effect below always sends the CURRENT client, never a stale mount-time closure (e.g.
   // after a reconnect swaps in a new `PiStudioClient` instance).
   const clientRef = useRef(client);
   clientRef.current = client;
+  // Read fresh every render (like `clientRef` above) so the onData handler and the true-unmount
+  // kill effect below — both attached once by effects with stable deps — see the CURRENT exited
+  // state (sprint-053/task-003), not whatever it was when their effect happened to run.
+  const exitedRef = useRef(data.exited ?? false);
+  exitedRef.current = data.exited ?? false;
 
   const [slot, setSlot] = useState<number | null>(data.slot);
   const [status, setStatus] = useState<TerminalStatus>({ isAttaching: true, error: null });
+  // Whether the bundled terminal face is painted-ready. Gates the emulator mount below, because
+  // xterm derives its cell size from a single measurement inside `terminal.open()` and cannot be
+  // made to re-measure afterwards (see terminal-font.ts). Seeded synchronously, so the usual case
+  // — any terminal after the page's first — mounts on the very first render with no delay at all.
+  const [isFontReady, setIsFontReady] = useState(isTerminalFontReady);
+  useEffect(() => {
+    if (isFontReady) return;
+    let cancelled = false;
+    void terminalFontReady.then(() => {
+      if (!cancelled) setIsFontReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isFontReady]);
 
   /**
    * Measure the panel's current grid and offer it to `claimSize`. The one shape every reconcile
@@ -236,22 +266,27 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
   // current slot/router from refs (not a closure) because this effect has an empty deps array and
   // outlives every slot/client change; `claimSize` below is the size-claim logic behind
   // `sendResize` this ordering fix exists to make deliverable at all.
+  // Waits for `isFontReady` (see above) before constructing anything: the alternative is a grid
+  // measured against a fallback font and wrong for the emulator's whole life. The effect re-runs
+  // exactly once when the flag flips, and the pre-font pass builds nothing to tear down.
   useEffect(() => {
     // Captured once: the cleanup below must detach from the same element it attached to, and reading
     // the ref again at teardown would be reading it after React may have already nulled it.
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !isFontReady) return;
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: terminalFontFamily,
       // An absolute px number, not a CSS var: xterm measures a cell from the computed style of its
       // own element and cannot resolve a var it was never given. The root font-size is left at the
       // browser default, so a rung's px value renders 1:1. (xterm 5.x renders to the DOM by
-      // default — canvas/WebGL are addons this app does not load.)
-      fontSize: baseFontSize.sm,
+      // default — canvas/WebGL are addons this app does not load.) `fontSize.code`, not `.sm`: the
+      // spec's "code font size" rung (task-002) — also picks up the appearance font-size setting's
+      // scale, unlike the old unscaled `baseFontSize.sm` literal.
+      fontSize: theme.fontSize.code,
       scrollback: 5000,
-      theme: TERMINAL_THEME,
+      theme: theme.colors.terminal,
       allowProposedApi: true,
     });
     const fitAddon = new FitAddon();
@@ -275,6 +310,10 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     };
 
     const dataDisposable = terminal.onData((chunk) => {
+      // An exited PTY has nowhere to send input — silently drop it (feature-panels-ui.md §
+      // Terminal pane: "input is disabled"). No queueing either: unlike the pre-slot case below,
+      // this terminal will never attach.
+      if (exitedRef.current) return;
       const currentSlot = slotRef.current;
       const router = routerRef.current;
       if (currentSlot === null || !router) {
@@ -341,7 +380,67 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
       claimSizeRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isFontReady]);
+
+  // ─── Appearance sync: update the live emulator in place ────────────────────────────────────
+  // Runs whenever the resolved theme or mono-font choice changes (task-002). Colours are applied
+  // unconditionally and cheaply every time — xterm repaints from `options.theme` with no reflow.
+  // Font size/family are different: they change cell metrics, which is a genuine viewport change
+  // under `terminals.md` § PTY size ownership, so only THOSE trigger a refit + claim, exactly like
+  // a divider drag. `prevFontRef` starts `null`, so this effect's first run — which fires in the
+  // same commit as the mount effect above, applying the very values the constructor just used —
+  // is recognized as "nothing changed yet" rather than a font change, and skips the refit.
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.theme = theme.colors.terminal;
+    const size = theme.fontSize.code;
+    const family = terminalFontFamily;
+    const prev = prevFontRef.current;
+    const fontChanged = prev !== null && (prev.size !== size || prev.family !== family);
+    terminal.options.fontSize = size;
+    terminal.options.fontFamily = family;
+    prevFontRef.current = { size, family };
+    if (fontChanged) requestRefit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, terminalFontFamily]);
+
+  // ─── Exited: stop the cursor from looking alive ────────────────────────────────────────────
+  // A PTY that has exited (self-exit or a daemon-side `kill()`, sprint-053/task-003) leaves the
+  // panel showing its last real screen — deliberately not cleared; that final output is what the
+  // user is looking at (see the render below). The one thing that must change is the cursor: a
+  // still-blinking solid cursor over dead output reads as a live, responsive shell. `blur()`
+  // gives xterm's own hollow/unfocused cursor rendering — the same visual cue focus loss already
+  // produces elsewhere in this app, not a new affordance.
+  useEffect(() => {
+    if (!data.exited) return;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.cursorBlink = false;
+    terminal.blur();
+  }, [data.exited]);
+
+  // ─── Resize belief reseed: correct a stale belief left by ANOTHER client's resize ─────────
+  // Sprint-052 separated permission (`isSizeAuthority`) from knowledge (`believedSizeRef`), but
+  // left the daemon never telling anyone else about a resize — so a second attached client's
+  // belief went stale the moment the first one resized, and its own dedupe could later suppress
+  // a `Resize` it should have sent (`terminals.md` § PTY size ownership). The daemon now
+  // broadcasts `terminals_update` on every size-changing resize (sprint-053/task-007, same push
+  // family `use-terminal-exit-watch.ts` already listens on for exited-terminal state — reusing
+  // its `TerminalsUpdateMessage`/`isTerminalsUpdate` here rather than declaring a parallel type).
+  //
+  // This ONLY re-seeds the local belief so the next genuine viewport change reports correctly; it
+  // must never itself send a `Resize` frame or bypass `isSizeAuthority` — re-seeding is not a
+  // claim, and a background/non-authority tab must stay exactly as silent as it already was.
+  useEffect(() => {
+    if (!client) return;
+    return client.connection.onSessionMessage((msg) => {
+      const message: unknown = msg;
+      if (!isTerminalsUpdate(message)) return;
+      const next = believedSizeFromBroadcast(message.terminals, slotRef.current);
+      if (next !== undefined) believedSizeRef.current = next;
+    });
+  }, [client]);
 
   // ─── Slot lifecycle: create once, persist onto the tab so re-opening reuses it ─────────────
   // React StrictMode double-invokes effects in dev: mount → cleanup → remount, synchronously,
@@ -444,6 +543,10 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
       if (currentSlot === null) return;
       setTimeout(() => {
         if (isMountedRef.current) return; // StrictMode remounted synchronously — not a real close
+        // An exited terminal's slot is already gone from the daemon's inventory (sprint-053/
+        // task-003) — sending kill_terminal_request would just get `{ ok: false }` back for
+        // nothing; the daemon already knows.
+        if (exitedRef.current) return;
         void clientRef.current?.connection
           .request("kill_terminal_request", { slot: currentSlot })
           .catch(() => {});
@@ -494,11 +597,16 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     void client.connection
       .request<SubscribeTerminalResponse>("subscribe_terminal_request", {
         slot,
+        // The exact wire literal terminal-rpc.ts negotiates on (sprint-053/task-004/005) — any
+        // other value, including an older client's, is served+echoed back as "basic" by the
+        // daemon, so sending this unconditionally is always safe.
+        restoreMode: "reflowable",
         ...(attachGrid ? { cols: attachGrid.cols, rows: attachGrid.rows } : {}),
       })
       .then((res) => {
         if (cancelled) return;
         setStatus({ isAttaching: false, error: null });
+        restoreModeRef.current = res?.restoreMode ?? "basic";
         // Flush input queued while no slot/router existed yet (feature-panels-ui.md §
         // Input/keys: "bounded pending queue flushed once attached + error-free").
         const pending = pendingInputRef.current;
@@ -558,6 +666,9 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
           <Spinner size="sm" /> Starting terminal…
         </div>
       ) : null}
+      {/* Over the last rendered screen, not replacing it — the final output is what the user
+          wants to read (feature-panels-ui.md § Terminal pane → Streaming). */}
+      {data.exited ? <div className={styles.exitedBanner}>Terminal exited</div> : null}
     </div>
   );
 }

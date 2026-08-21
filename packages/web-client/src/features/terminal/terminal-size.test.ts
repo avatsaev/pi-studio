@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isMeasurable, sameGrid, shouldClaimSize, type Grid } from "./terminal-size.js";
+import {
+  believedSizeFromBroadcast,
+  isMeasurable,
+  sameGrid,
+  shouldClaimSize,
+  type Grid,
+} from "./terminal-size.js";
 
 const g = (cols: number, rows: number): Grid => ({ cols, rows });
 
@@ -90,5 +96,33 @@ describe("shouldClaimSize (pure validity + dedupe; permission is the caller's ga
 
   it("distinguishes a differing rows axis alone", () => {
     expect(shouldClaimSize(g(80, 25), g(80, 24))).toBe(true);
+  });
+});
+
+describe("believedSizeFromBroadcast (sprint-053/task-007)", () => {
+  it("returns undefined when the panel has no slot yet", () => {
+    expect(believedSizeFromBroadcast([{ slot: 3, cols: 80, rows: 24 }], null)).toBeUndefined();
+  });
+
+  it("returns undefined when the broadcast does not mention this slot", () => {
+    expect(believedSizeFromBroadcast([{ slot: 3, cols: 80, rows: 24 }], 7)).toBeUndefined();
+  });
+
+  it("returns undefined for a matching entry with an unmeasurable size (old daemon, or not yet subscribed)", () => {
+    expect(believedSizeFromBroadcast([{ slot: 3 }], 3)).toBeUndefined();
+    expect(believedSizeFromBroadcast([{ slot: 3, cols: 0, rows: 24 }], 3)).toBeUndefined();
+  });
+
+  it("returns the matching entry's grid when measurable", () => {
+    expect(believedSizeFromBroadcast([{ slot: 3, cols: 190, rows: 50 }], 3)).toEqual(g(190, 50));
+  });
+
+  it("picks the entry matching the given slot out of several", () => {
+    const terminals = [
+      { slot: 1, cols: 80, rows: 24 },
+      { slot: 3, cols: 190, rows: 50 },
+    ];
+    expect(believedSizeFromBroadcast(terminals, 3)).toEqual(g(190, 50));
+    expect(believedSizeFromBroadcast(terminals, 1)).toEqual(g(80, 24));
   });
 });

@@ -4,6 +4,7 @@ import { useConnectionBoot } from "./hooks/use-connection.js";
 import { usePaneLayoutBoot } from "./hooks/use-pane-layout.js";
 import { useSessionRestore } from "./hooks/use-session-restore.js";
 import { useTerminalRestore } from "./hooks/use-terminal-restore.js";
+import { useTerminalExitWatch } from "./hooks/use-terminal-exit-watch.js";
 import { useShortcuts } from "./hooks/use-shortcuts.js";
 
 function Boot() {
@@ -12,6 +13,7 @@ function Boot() {
   usePaneLayoutBoot();
   useSessionRestore();
   useTerminalRestore();
+  useTerminalExitWatch();
   useShortcuts();
   return null;
 }

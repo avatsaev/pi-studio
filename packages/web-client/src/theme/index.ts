@@ -57,4 +57,9 @@ export {
   type AppearanceMode,
   type KeyValueStore,
 } from "./appearance-store.js";
-export { ThemeBoundary, type ThemeBoundaryProps } from "./ThemeBoundary.js";
+export {
+  ThemeBoundary,
+  useAppearance,
+  useResolvedTheme,
+  type ThemeBoundaryProps,
+} from "./ThemeBoundary.js";
