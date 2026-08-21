@@ -290,8 +290,14 @@ All communication uses a **single WebSocket connection** per client.
   daemon side**; sprint-067 gave `packages/client` a consumer — `PiStudioClient`'s five-member
   facade surface, a pure reducer/controller (`agent-ui-state.ts`/`agent-ui-controller.ts`), proven
   end to end against both a real dev daemon and a real `pi --mode rpc` process
-  (`packages/client/AGENTS.md`'s Extension UI sections) — but **nothing renders it yet**; that is
-  a deliberately deferred sibling scope.
+  (`packages/client/AGENTS.md`'s Extension UI sections). **Sprint-068 gave `web-client` a renderer**
+  for the four dialog kinds (`select`/`confirm`/`input`/`editor`, plus an unrecognised-method
+  fallback) — every lifecycle state (pending, in-flight, resolved, non-answerable, multiple at
+  once, recovered-after-reload) and full keyboard/focus ownership, composed inline into the chat
+  transcript (`packages/web-client/AGENTS.md`'s "Extension UI dialogs" invariant). **Still
+  unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`), the `notify`/
+  `replace_composer_text` effects, and the sidebar/tab/workspace attention signals the dialogs'
+  own presence should eventually drive — those are later sprints' scope, not yet wired to anything.
 
 ---
 

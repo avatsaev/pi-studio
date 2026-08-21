@@ -1,7 +1,7 @@
 # Task 002 — A dialog raised during a session's first turn must be answerable
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** web-client / stores, features/chat
 - **Priority:** P1
@@ -77,15 +77,15 @@ complete normally — even when the dialog is answered minutes later, past the R
 - The deferred-draft materialize path itself — it is verified correct above; do not "fix" it.
 
 ## Acceptance criteria
-- [ ] The summary records the verified answers to step 1 (promise timing, timeout value, what is
+- [x] The summary records the verified answers to step 1 (promise timing, timeout value, what is
       gated), with file/line references.
-- [ ] With the mock provider scripted to raise a dialog in the first turn (`#ui select`, task-001)
+- [x] With the mock provider scripted to raise a dialog in the first turn (`#ui select`, task-001)
       and the dialog left unanswered past the client's `rpcTimeoutMs`: no error toast/banner, no
       composer lockup, no duplicate prompt, and the WebSocket stays connected.
-- [ ] Answering the dialog after that timeout completes the turn normally (mock echoes the answer).
-- [ ] A genuine send failure (daemon down) still surfaces the existing failure behavior — the fix
+- [x] Answering the dialog after that timeout completes the turn normally (mock echoes the answer).
+- [x] A genuine send failure (daemon down) still surfaces the existing failure behavior — the fix
       must not swallow real errors along with timeout noise.
-- [ ] Whichever branch applied, a test locks the behavior so it cannot silently regress.
+- [x] Whichever branch applied, a test locks the behavior so it cannot silently regress.
 
 ## Test / verification plan
 - Tests: pure-module coverage of whatever send-path decision logic step 2/3 touches or extracts —

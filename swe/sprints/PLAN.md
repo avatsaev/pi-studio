@@ -1836,11 +1836,13 @@ controller, cross-package E2E against a real dev daemon, plus a real-Pi smoke ru
 `select`/`input` dialog pair through `PiStudioClient.respondToUi` end to end (daemon → Pi →
 extension → tool result → model). The **rendering** half is split by surface across three sibling
 sprints against a mock-accurate visual authority, `swe/UI design/redesign 0.1.0/Extension Dialogs
-Visual Spec.html`: **sprint-068** (dialog cards, lifecycle, concurrency, keyboard — § 00–§ 07, § 12,
-§ 13) and **sprint-069** (attention badging on four surfaces plus the `notify`/`set_editor_text`
-transients — § 08, § 11) are **planned with task files**; **sprint-070** (retained surfaces: widget
-blocks, status strip, title suffix — § 09, § 10) is scoped by the same document but **not yet
-planned**, so this row claims no coverage for it. The split
+Visual Spec.html`: **sprint-068** is **shipped** (dialog cards, lifecycle, concurrency, keyboard
+ownership — § 00–§ 07, § 12, § 13 — all nine tasks done, live-verified against a real dev daemon +
+browser, four documentation defects found in the visual spec itself filed as corrections rather
+than silently worked around); **sprint-069** (attention badging on four surfaces plus the
+`notify`/`set_editor_text` transients — § 08, § 11) is **planned with task files**; **sprint-070**
+(retained surfaces: widget blocks, status strip, title suffix — § 09, § 10) is scoped by the same
+document but **not yet planned**, so this row claims no coverage for it. The split
 is by surface, matching how the 0.1.0 redesign shipped (timeline, tab strip, sidebar each took their
 own sprint), and it is ordered by evidence rather than by section number: the dialog half is proven
 live end to end (s067/t004 answered a real `select`/`input` pair through a real extension), while

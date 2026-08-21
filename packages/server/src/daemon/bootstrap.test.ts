@@ -640,8 +640,8 @@ describe("extension packs RPC (sprint-057)", () => {
     );
     expect(set2.ok).toBe(true);
     expect(set2.report?.outcome).toBe("partial");
-    // 4 offerable entries, one (`pi-web-access`) seeded to fail ⇒ 3 installed + 1 failure.
-    expect(set2.report?.installed).toHaveLength(3);
+    // 5 offerable entries, one (`pi-web-access`) seeded to fail ⇒ 4 installed + 1 failure.
+    expect(set2.report?.installed).toHaveLength(4);
     expect(set2.report?.failures).toHaveLength(1);
     expect(set2.report?.failures[0]?.source).toBe("npm:pi-web-access");
     const failedInSet = set2.packs[0]?.packages.find((p) => p.identity === "pi-web-access");

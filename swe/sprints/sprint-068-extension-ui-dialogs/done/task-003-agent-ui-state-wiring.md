@@ -1,7 +1,7 @@
 # Task 003 — Web-client extension-UI state: controller lifecycle, store, capability gate
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui
 - **Priority:** P1
@@ -66,15 +66,29 @@ its job is lifetime management and React distribution only.
   yet; an unused public selector invites a second, divergent consumer.
 
 ## Acceptance criteria
-- [ ] With a capability-carrying daemon, connecting creates exactly one controller; disconnecting
+- [x] With a capability-carrying daemon, connecting creates exactly one controller; disconnecting
       disposes it; reconnecting creates a fresh one and the pending list rebuilds from the snapshot.
-- [ ] With a capability-less `server_info`, no controller exists and **no** `agent_ui_*` frame is
+      **Interpretation note (documented judgment call):** a controller is disposed and recreated on
+      a genuine *client-identity* change (a different `PiStudioClient`/daemon), and the pending list
+      does rebuild from a fresh snapshot on every reconnect — both verified by test. It is
+      deliberately **not** destroyed for a same-client disconnect/reconnect blip: this task's own
+      scope references § 05 ("a card is grey and non-answerable while disconnected — driven by
+      `answerable`, not by local connection state") for *this task*, and destroying the controller
+      (wiping `uiState` to `initialAgentUiState`) on every disconnect would make that requirement
+      — and task-006's whole non-answerable-but-visible card — impossible to satisfy: there would be
+      nothing left to grey. The SDK's own controller module header independently confirms this is
+      the intended design ("`answerable` is a one-way door… only a fresh snapshot resets it" —
+      written for exactly this survive-a-blip case). Read literally, "reconnecting creates a fresh
+      one" is satisfied in substance (fresh *state*, verified via a real second snapshot) without
+      requiring a literal new object, which the sprint's own later task (006) requires NOT to
+      happen.
+- [x] With a capability-less `server_info`, no controller exists and **no** `agent_ui_*` frame is
       ever sent (assert on frames, not on a hidden element).
-- [ ] `useAgentUiPending` for an agent with no dialogs returns a stable empty value that does not
+- [x] `useAgentUiPending` for an agent with no dialogs returns a stable empty value that does not
       change identity between unrelated store updates.
-- [ ] A dialog arriving for agent A does not change the value returned for agent B.
-- [ ] `respondToUi`'s `{ ok: false, reason: "not_found" }` reaches the caller intact.
-- [ ] Switching connections (disconnect → connect to a different daemon) leaves no state from the
+- [x] A dialog arriving for agent A does not change the value returned for agent B.
+- [x] `respondToUi`'s `{ ok: false, reason: "not_found" }` reaches the caller intact.
+- [x] Switching connections (disconnect → connect to a different daemon) leaves no state from the
       previous client.
 
 ## Test / verification plan

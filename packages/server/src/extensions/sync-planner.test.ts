@@ -41,15 +41,15 @@ describe("planSync — fresh state", () => {
     expect(plan.entries).toHaveLength(3);
   });
 
-  it("the real catalog's four core entries all plan as pending with no selection", () => {
+  it("the real catalog's five core entries all plan as pending with no selection", () => {
     const plan = planSync({
       catalog: CURATED_PACKS,
       packs: [],
       state: emptyState(),
       settingsPackages: [],
     });
-    expect(plan.actions).toHaveLength(4);
-    expect(plan.entries.map((e) => e.status)).toEqual(Array(4).fill("pending"));
+    expect(plan.actions).toHaveLength(5);
+    expect(plan.entries.map((e) => e.status)).toEqual(Array(5).fill("pending"));
   });
 });
 

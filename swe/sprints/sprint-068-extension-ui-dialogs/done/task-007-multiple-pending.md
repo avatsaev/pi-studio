@@ -1,7 +1,7 @@
 # Task 007 — Several questions at once: ordering, recovered cards, past-four collapse
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui
 - **Priority:** P2
@@ -56,18 +56,18 @@ counter rather than pushing the conversation off screen.
 - Focus behavior across multiple cards (task 008 owns which card takes focus).
 
 ## Acceptance criteria
-- [ ] `#ui multi 3` renders three cards in a stable order, oldest first, each an ordinary timeline
+- [x] `#ui multi 3` renders three cards in a stable order, oldest first, each an ordinary timeline
       row (own gutter glyph, no shared frame); answering the middle one collapses it **in place**
       without moving the other two.
-- [ ] Reloading the page with several questions still pending re-renders them all, each carrying the
+- [x] Reloading the page with several questions still pending re-renders them all, each carrying the
       recovered marker, with approximate deadline bars.
-- [ ] A question that arrives live after a reload shows **no** recovered marker, alongside recovered
+- [x] A question that arrives live after a reload shows **no** recovered marker, alongside recovered
       ones that do.
-- [ ] `#ui multi 6` renders four full cards, the fifth and sixth as header lines, and a `2 more
+- [x] `#ui multi 6` renders four full cards, the fifth and sixth as header lines, and a `2 more
       waiting` row beneath the fourth; clicking it expands them in place; a further arrival
       increments the count.
-- [ ] No history/filter/timestamp affordance exists anywhere in the card list.
-- [ ] With many cards pending, the transcript still scrolls smoothly and the bottom-anchor still
+- [x] No history/filter/timestamp affordance exists anywhere in the card list.
+- [x] With many cards pending, the transcript still scrolls smoothly and the bottom-anchor still
       follows live output.
 
 ## Test / verification plan

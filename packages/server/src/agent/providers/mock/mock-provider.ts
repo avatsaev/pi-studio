@@ -21,6 +21,7 @@ import type {
   ProviderUiResponse,
   Unsubscribe,
 } from "../../provider-contract.js";
+import { getUiScriptHelpText, parseUiScript, type UiScriptStep } from "./ui-script.js";
 
 /**
  * In-process `mock` provider (features/agent-providers.md § Provider entry — dev/test only). It
@@ -71,6 +72,15 @@ export class MockAgentSession implements AgentSession {
   private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
   readonly uiResponses: { providerRequestId: string; response: ProviderUiResponse }[] = [];
 
+  // #ui script support (sprint-068/task-001): a scripted dialog raised via `startTurn` is tracked
+  // here so `respondToUi` can resolve the promise `runUiScript` is awaiting, in addition to (not
+  // instead of) its existing `uiResponses` recording used by direct `emitUiRequest`/`respondToUi`
+  // callers.
+  private readonly pendingScriptedResponses = new Map<
+    string,
+    (response: ProviderUiResponse) => void
+  >();
+
   constructor(
     private readonly config: AgentSessionConfig,
     options: MockSessionOptions = {},
@@ -93,6 +103,9 @@ export class MockAgentSession implements AgentSession {
   }
 
   startTurn(prompt: string): Promise<{ turnId: string }> {
+    const script = parseUiScript(prompt);
+    if (script !== null) return this.startUiScriptTurn(script);
+
     const turnId = randomUUID();
     this.activeTurn = turnId;
     this.emit({ kind: "turn_started", turnId });
@@ -111,6 +124,68 @@ export class MockAgentSession implements AgentSession {
     }, this.turnDelayMs);
 
     return Promise.resolve({ turnId });
+  }
+
+  /** `#ui ...` prompt (task-001): raise the scripted dialog(s) through the same `uiSubscribers`
+   *  channel `emitUiRequest` uses, instead of the normal echoed turn. Resolves immediately with the
+   *  turn id, exactly like the normal path — the dialog(s) and the eventual echo/`turn_completed`
+   *  happen asynchronously as `runUiScript` progresses. */
+  private startUiScriptTurn(steps: UiScriptStep[]): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    this.activeTurn = turnId;
+    this.emit({ kind: "turn_started", turnId });
+
+    if (steps.length === 0) {
+      // `#ui help` — no dialog, just the recipe list as assistant text.
+      setTimeout(() => {
+        if (this.activeTurn !== turnId) return;
+        this.emit({
+          kind: "assistant_message",
+          messageId: randomUUID(),
+          text: getUiScriptHelpText(),
+          final: true,
+        });
+        this.emit({ kind: "turn_completed", turnId });
+        this.activeTurn = null;
+      }, this.turnDelayMs);
+      return Promise.resolve({ turnId });
+    }
+
+    void this.runUiScript(turnId, steps);
+    return Promise.resolve({ turnId });
+  }
+
+  private async runUiScript(turnId: string, steps: UiScriptStep[]): Promise<void> {
+    const responses = await Promise.all(steps.map((step) => this.raiseScriptedDialog(step)));
+    if (this.activeTurn !== turnId) return; // interrupted while dialogs were pending
+
+    for (let i = 0; i < steps.length; i++) {
+      this.emit({
+        kind: "assistant_message",
+        messageId: randomUUID(),
+        text: `ui ${steps[i]!.method} resolved: ${describeUiResponse(responses[i]!)}`,
+        final: true,
+      });
+    }
+    this.emit({ kind: "turn_completed", turnId });
+    this.activeTurn = null;
+  }
+
+  /** Raises one scripted dialog and returns a promise that resolves once `respondToUi` is called
+   *  for its (mock-minted) `requestId`. Deliberately separate from the public `emitUiRequest` —
+   *  that method fills defaults for ad-hoc test use and tracks nothing. */
+  private raiseScriptedDialog(step: UiScriptStep): Promise<ProviderUiResponse> {
+    const req: ProviderUiRequest = {
+      requestId: randomUUID(),
+      method: step.method,
+      expectsResponse: step.expectsResponse,
+      payload: step.payload,
+      ...(step.timeoutMs !== undefined ? { timeoutMs: step.timeoutMs } : {}),
+    };
+    const { promise, resolve } = Promise.withResolvers<ProviderUiResponse>();
+    this.pendingScriptedResponses.set(req.requestId, resolve);
+    for (const cb of this.uiSubscribers) cb(req);
+    return promise;
   }
 
   /** Convenience: start a turn and resolve when it reaches a terminal event. */
@@ -204,6 +279,11 @@ export class MockAgentSession implements AgentSession {
 
   respondToUi(providerRequestId: string, response: ProviderUiResponse): void {
     this.uiResponses.push({ providerRequestId, response });
+    const resolve = this.pendingScriptedResponses.get(providerRequestId);
+    if (resolve) {
+      this.pendingScriptedResponses.delete(providerRequestId);
+      resolve(response);
+    }
   }
 
   /** Test-only: push a scripted UI request to every subscriber, with sensible defaults for any
@@ -392,4 +472,15 @@ export class MockAgentClient implements AgentClient {
 /** Factory matching the provider-registry signature `(logger, runtimeSettings, options)`. */
 export function createMockClient(options?: MockSessionOptions): MockAgentClient {
   return new MockAgentClient(options);
+}
+
+/** Renders a scripted dialog's answer as short, human-readable assistant text (task-001: "the mock
+ *  echoes what it received"). Dev/test-only tooling — unlike the web-client's presentation rules
+ *  (sprint-068/task-004), this deliberately may name a typed value, since it exists to prove the
+ *  round trip during manual verification. */
+function describeUiResponse(response: ProviderUiResponse): string {
+  if (response.cancelled) return "cancelled: true";
+  if (response.confirmed !== undefined) return `confirmed: ${response.confirmed}`;
+  if (response.value !== undefined) return `value: ${JSON.stringify(response.value)}`;
+  return "no answer";
 }

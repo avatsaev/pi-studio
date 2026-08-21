@@ -1,7 +1,7 @@
 # Task 006 — Card lifecycle states: in-flight, resolved-collapsed, non-answerable
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui
 - **Priority:** P1
@@ -56,18 +56,18 @@ The SDK already models all three: `submitting`/`submittedAnswer` mark a response
   resolution ends a dialog, and the bar for a snapshot-recovered card is explicitly approximate.
 
 ## Acceptance criteria
-- [ ] Pressing a control shows a spinner on that control, disables the card, and does **not** collapse
+- [x] Pressing a control shows a spinner on that control, disables the card, and does **not** collapse
       it until the resolution arrives.
-- [ ] A resolution collapses the card in place with the correct outcome line for each of: answered
+- [x] A resolution collapses the card in place with the correct outcome line for each of: answered
       here, answered elsewhere, cancelled, timed out.
-- [ ] A `select`/`confirm` outcome shows the chosen label; an `input`/`editor` outcome shows no typed
+- [x] A `select`/`confirm` outcome shows the chosen label; an `input`/`editor` outcome shows no typed
       value anywhere, including in the DOM.
-- [ ] Disconnecting while a card is pending greys it and disables its controls without removing it;
+- [x] Disconnecting while a card is pending greys it and disables its controls without removing it;
       reconnecting restores it to answerable.
-- [ ] Answering the same dialog from a second client collapses this client's card with the
+- [x] Answering the same dialog from a second client collapses this client's card with the
       answered-elsewhere outcome, not an error.
-- [ ] A dialog whose deadline bar runs out stays on screen until the daemon resolves it.
-- [ ] Reduced-motion honoured: no spinner animation, and clearing is instant.
+- [x] A dialog whose deadline bar runs out stays on screen until the daemon resolves it.
+- [x] Reduced-motion honoured: no spinner animation, and clearing is instant.
 
 ## Test / verification plan
 - Tests: state-to-presentation decisions already live in task-004's modules; extend those tests if

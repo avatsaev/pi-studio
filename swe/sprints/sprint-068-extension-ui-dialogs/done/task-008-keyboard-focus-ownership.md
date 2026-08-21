@@ -1,7 +1,7 @@
 # Task 008 — Keyboard and focus ownership between a question card and the composer
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui, features/chat
 - **Priority:** P1
@@ -56,18 +56,18 @@ guessing.
   order for anything other than an armed card.
 
 ## Acceptance criteria
-- [ ] With a pending card focused, Enter submits that card and the composer does **not** send.
-- [ ] With focus in the composer, Enter still sends the message and no card reacts.
-- [ ] In an `editor` card, Enter inserts a newline and the § 07 chord submits.
-- [ ] Esc once arms dismissal visibly; Esc again cancels the dialog and the agent unblocks (the mock
+- [x] With a pending card focused, Enter submits that card and the composer does **not** send.
+- [x] With focus in the composer, Enter still sends the message and no card reacts.
+- [x] In an `editor` card, Enter inserts a newline and the § 07 chord submits.
+- [x] Esc once arms dismissal visibly; Esc again cancels the dialog and the agent unblocks (the mock
       echoes the cancellation). One Esc alone never cancels.
-- [ ] Moving focus off an armed card disarms it; a later single Esc does not cancel.
-- [ ] While a card is armed, Esc does not also close an unrelated overlay.
-- [ ] With no card focused, Esc behaves exactly as it does today.
-- [ ] The hint line lists only the keys valid for that card's kind.
-- [ ] Tab from the transcript reaches the card's controls before the composer.
-- [ ] Keyboard submission produces the same in-flight spinner as a mouse press (task-006).
-- [ ] Focus is visible at all times a card owns keys (visible ring, not just a colour shift).
+- [x] Moving focus off an armed card disarms it; a later single Esc does not cancel.
+- [x] While a card is armed, Esc does not also close an unrelated overlay.
+- [x] With no card focused, Esc behaves exactly as it does today.
+- [x] The hint line lists only the keys valid for that card's kind.
+- [x] Tab from the transcript reaches the card's controls before the composer.
+- [x] Keyboard submission produces the same in-flight spinner as a mouse press (task-006).
+- [x] Focus is visible at all times a card owns keys (visible ring, not just a colour shift).
 
 ## Test / verification plan
 - Tests: put the arming/disarming state machine and the per-kind hint/key-map in pure modules beside

@@ -742,7 +742,11 @@ silently unusable in RPC mode.
   behavior any tool call's result gets, not a defect introduced by this family). The `core` pack's
   own extensions (`pi-background-tasks`, `rpiv-todo`, `pi-web-access`, `pi-powerline-footer`) call
   no `ctx.ui.*` method at session start, closing the sprint's pre-attach-traffic question with no
-  buffer needed. One live finding: `rpiv-todo`'s widget uses Pi's TUI-only factory-form `setWidget`
+  buffer needed. `@juicesharp/rpiv-ask-user-question` joined `core` later (sprint-068/task-009's
+  real-`pi` pass proved it out); it holds the same invariant — `registerAskUserQuestionTool` and
+  the `before_agent_start` reconciler it registers at activation call no `ctx.ui.*` method either,
+  confirmed by reading the installed source directly.
+  One live finding: `rpiv-todo`'s widget uses Pi's TUI-only factory-form `setWidget`
   (`(tui, theme) => Component`, `@earendil-works/pi-coding-agent`'s `ExtensionUIContext`), which has
   no RPC-mode representation — only the plain `string[]` form serializes to `widgetLines`. Surface
   retention/rebuild/clear-by-omission are instead proven against the mock provider

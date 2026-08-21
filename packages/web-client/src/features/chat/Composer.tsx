@@ -59,6 +59,7 @@ import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
 import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
 import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
+import { isComposerBusy } from "./composer-busy.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import {
@@ -110,7 +111,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const [highlight, setHighlight] = useState(0);
 
   const running = session?.status === "running";
-  const busy = running ? steering : sending;
+  const busy = isComposerBusy(running, sending, steering);
   const canSubmit = Boolean(client) && !busy && (text.trim().length > 0 || images.length > 0);
 
   // Read-through cached exactly like `use-provider-models.ts` (see the hook's own docstring):

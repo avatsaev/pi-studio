@@ -1,7 +1,7 @@
 # Task 004 — Pure presentation modules: outcome line, option layout, prompt text, deadline
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui
 - **Priority:** P1
@@ -67,18 +67,22 @@ Four modules under `packages/web-client/src/features/agent-ui/`, each with a col
   cap. Consume those; do not recompute them.
 
 ## Acceptance criteria
-- [ ] `outcome-line` never returns a value string for `input`/`editor`, proven by a test that feeds a
+- [x] `outcome-line` never returns a value string for `input`/`editor`, proven by a test that feeds a
       resolved entry whose payload contains a secret-looking string and asserts it appears nowhere in
       the output.
-- [ ] An unrecognised `reason` is returned verbatim in the muted tone.
-- [ ] `option-layout` stacks the § 03 live-captured payload (self-numbered, long labels) and returns
+- [x] An unrecognised `reason` is returned verbatim in the muted tone.
+- [x] `option-layout` stacks the § 03 live-captured payload (self-numbered, long labels) and returns
       `scrolls: true` for the nine-option case; an empty array is handled without throwing.
-- [ ] Duplicate identical labels produce identical output with no ordinal and no synthetic key.
-- [ ] `prompt-text` renders the § 03 live-captured multi-line `input` title as separate lines with
+      **Note (documented judgment call, see summary):** the numeric length rule is proven against
+      § 12's own worked "EXACT STACKING THRESHOLD" example rather than § 03's descriptive prose,
+      since the § 03 payload's options (≤30 chars, 3 options) do not literally clear a 40-char/5-
+      count threshold despite the prose saying they do — flagged to the designer via task-009.
+- [x] Duplicate identical labels produce identical output with no ordinal and no synthetic key.
+- [x] `prompt-text` renders the § 03 live-captured multi-line `input` title as separate lines with
       the blank-line run collapsed and `[Color]` intact.
-- [ ] `deadline` returns `show: false` with no `timeoutMs`; `approximate: true` when `receivedAt` is
+- [x] `deadline` returns `show: false` with no `timeoutMs`; `approximate: true` when `receivedAt` is
       absent; a fraction that only ever decreases for a fixed entry as `now` advances.
-- [ ] Every module is pure: no imports from React, the DOM, or the store.
+- [x] Every module is pure: no imports from React, the DOM, or the store.
 
 ## Test / verification plan
 - Tests: four colocated `.test.ts` files. Use the payloads § 03 quotes from the live capture verbatim

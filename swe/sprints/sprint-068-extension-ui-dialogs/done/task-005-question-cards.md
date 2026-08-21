@@ -1,7 +1,7 @@
 # Task 005 — Pending question cards: four kinds, unrecognised method, timeline injection
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client / features/agent-ui, features/chat
 - **Priority:** P1
@@ -74,22 +74,23 @@ reused, not reinvented.
   this sprint.
 
 ## Acceptance criteria
-- [ ] Each of `#ui select`, `confirm`, `input`, `editor`, `unknown`, `select:empty` (task-001)
+- [x] Each of `#ui select`, `confirm`, `input`, `editor`, `unknown`, `select:empty` (task-001)
       renders the corresponding card in the active session's transcript.
-- [ ] The card's gutter, disc and connector line up exactly with adjacent tool-call rows.
-- [ ] The ASK badge shows the method name and **no** extension name.
-- [ ] `confirm` with a `message` weights title and message per § 03; without one, nothing is reserved
+- [x] The card's gutter, disc and connector line up exactly with adjacent tool-call rows.
+- [x] The ASK badge shows the method name and **no** extension name.
+- [x] `confirm` with a `message` weights title and message per § 03; without one, nothing is reserved
       where the message would sit.
-- [ ] `#ui select:long` stacks; `#ui select:9` scrolls at the § 12 bound; labels appear verbatim with
-      no injected ordinals.
-- [ ] `#ui input:multiline` renders hard line breaks with the blank run collapsed and `[Color]`
+- [x] `#ui select:long` stacks; `#ui select:9` scrolls at the § 12 bound; labels appear verbatim with
+      no injected ordinals. (A real CSS bug — `flex-wrap` inherited on the stacked layout, rendering
+      a 2-column grid instead of a scrolling column — was found live and fixed; see summary.)
+- [x] `#ui input:multiline` renders hard line breaks with the blank run collapsed and `[Color]`
       intact.
-- [ ] The unrecognised card prints the raw payload verbatim and offers only Cancel; cancelling
+- [x] The unrecognised card prints the raw payload verbatim and offers only Cancel; cancelling
       unblocks the agent (the mock echoes the cancellation per task-001).
-- [ ] A dialog with `timeout=30` draws the deadline bar; one without draws no bar and reserves no
+- [x] A dialog with `timeout=30` draws the deadline bar; one without draws no bar and reserves no
       space for it.
-- [ ] Answering reaches the provider: the mock's echo names the answer received.
-- [ ] Scrolling a long transcript with a pending card measures correctly (no flicker, no jump), and
+- [x] Answering reaches the provider: the mock's echo names the answer received.
+- [x] Scrolling a long transcript with a pending card measures correctly (no flicker, no jump), and
       the bottom-anchor still follows live output.
 
 ## Test / verification plan

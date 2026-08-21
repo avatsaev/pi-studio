@@ -1,0 +1,313 @@
+/* AskCard — extension-UI dialog card (visual spec § 01–§ 03, § 05, § 12, § 13, sprint-068/task-005).
+   Rides the shared RowShell gutter/disc/connector language every timeline row uses; only the card
+   frame below is specific to this feature. All values from design tokens — no raw px/hex. */
+
+.askDisc {
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 20%, var(--pi-color-surface3));
+}
+
+.card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--pi-radius-lg);
+  background: var(--pi-color-surface1);
+  /* § 07 "the card's border drops to neutral... its ring and hint line are gone" while unfocused
+     — amber is reserved for the moment the card itself holds keyboard focus (below). The ASK
+     badge is deliberately untouched by focus state (`.askBadge` has no `:focus-within` variant),
+     staying amber regardless, so the question still reads as pending either way. */
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+}
+
+/* § 07 "Focused card: the 45% amber border stays, plus a 3px statusWarning 18% outer ring on the
+   card itself — not on the individual control". `:focus-within` (not a JS focus/blur listener)
+   drives this and the hint line's visibility (below) — a card only ever has this classed on it
+   while some descendant control genuinely holds DOM focus, which is exactly § 07's ownership
+   rule ("the card only claims Enter and Esc while focus is inside it"). */
+.card:focus-within {
+  border-color: color-mix(in srgb, var(--pi-color-statusWarning) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pi-color-statusWarning) 18%, transparent);
+}
+
+/* § 05 "renders greyed... Whole card drops to 55% opacity, border and ASK badge go neutral (amber
+   implies actionable), controls are inert." Layered on top of `.card` (must follow it here so this
+   `border-color` wins over `.card:focus-within`'s amber — a disabled control cannot itself hold
+   focus, but the card can still contain one that already did the instant it became inert) —
+   buttons keep their own full opacity (`AskCard.tsx` forces `style={{ opacity: 1 }}` on each while
+   inert) so this is the single source of dimming for the whole card, not a compounding one. */
+.cardInert {
+  opacity: 0.55;
+  border-color: var(--pi-color-border);
+}
+
+/* Non-answerable disc — same "amber implies actionable" rule applies to the rail dot. */
+.askDiscInert {
+  background: var(--pi-color-surface3);
+}
+
+/* § 05 "The one-line status sits under the card, not inside it." Sibling of `.card`, not a child. */
+.reconnectingNote {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-7);
+  margin: 0;
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.reconnectingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--pi-radius-full);
+  background: var(--pi-color-foregroundMuted);
+  flex: none;
+}
+
+/* § 05 "Deadline bar … 2px tall, flush to the card's top edge, solid statusWarning, width = time
+   remaining." Motion honours § 13: linear while animating, reduced-motion below disables it. */
+.deadlineBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: var(--pi-color-statusWarning);
+  transition: width 1s linear;
+}
+
+.deadlineApproximate {
+  /* § 05: a snapshot-recovered entry's bar must never read as an exact countdown. */
+  opacity: 0.7;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-7);
+}
+
+.askBadge {
+  font-size: var(--pi-font-size-4xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: var(--pi-radius-base);
+  padding: 0 var(--pi-spacing-5);
+  color: var(--pi-color-statusWarning);
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 18%, transparent);
+}
+
+.methodName {
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.title {
+  font-size: var(--pi-font-size-xs);
+  line-height: 1.5;
+  color: var(--pi-color-foreground);
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.titleEmphasised {
+  font-weight: 600;
+}
+
+.message {
+  font-size: var(--pi-font-size-xs);
+  line-height: 1.5;
+  color: var(--pi-color-foregroundMuted);
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.emptyOptionsNote {
+  font-size: var(--pi-font-size-xs);
+  font-style: italic;
+  color: var(--pi-color-foregroundMuted);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  flex-wrap: wrap;
+  row-gap: var(--pi-spacing-8);
+}
+
+.controlsStack {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+
+/* § 12 "Past six the stack scrolls internally at 208px so the card can't swallow the pane". */
+.controlsScroll {
+  max-height: 208px;
+  overflow-y: auto;
+}
+
+.optionButton {
+  text-align: left;
+  justify-content: flex-start;
+  white-space: normal;
+  height: auto;
+  min-height: 28px;
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-code);
+}
+
+.editorField {
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-code);
+  line-height: 1.55;
+  resize: none;
+  overflow-y: auto;
+}
+
+.rawPayload {
+  margin: 0;
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  border-radius: var(--pi-radius-base);
+  background: var(--pi-color-surface0);
+  color: var(--pi-color-foregroundMuted);
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-3xs);
+  white-space: pre;
+  overflow-x: auto;
+}
+/* § 04 "the whole card collapses in place... controls gone, border back to border, ASK badge
+   desaturated... a 10.5px outcome at the right." Reuses `.card`'s own padding/radius tokens —
+   already the nearest rung to the spec's literal 9px (sprint-068/task-006). */
+.resolvedCard {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  border-radius: var(--pi-radius-lg);
+  background: var(--pi-color-surface1);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  font-size: var(--pi-font-size-3xs);
+}
+
+/* Neutral ASK badge — resolved cards and the disconnected/non-answerable pending card both drop
+   the amber accent ("amber implies actionable"): surface3 background, muted foreground. Composes
+   with `.askBadge` for the shared size/weight/radius/padding. */
+.askBadgeNeutral {
+  color: var(--pi-color-foregroundMuted);
+  background: var(--pi-color-surface3);
+}
+
+.resolvedMethodName {
+  flex: 1;
+  font-family: var(--pi-font-mono);
+  color: var(--pi-color-foregroundMuted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-3);
+  flex: none;
+  max-width: 40%;
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* "✓ + the chosen option string verbatim, statusSuccess, ellipsised at the card's right edge (max
+   40% of card width)." `.outcome`'s own `max-width` is what does the clamping — this only recolors. */
+.outcomeSuccess {
+  color: var(--pi-color-statusSuccess);
+}
+
+.outcomeText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deadlineBar {
+    transition: none;
+  }
+}
+
+/* § 07 hint line — "appears below the card on focus and is removed on blur; it never occupies
+   space while unfocused." Pure CSS via `.card:focus-within` (above): no JS focus/blur listener
+   needed for visibility, only for the armed/unarmed *text* (`AskCard.tsx`'s `HintLine`). Sibling
+   of `.card`, not a child — same shell slot as `.reconnectingNote`. */
+.hint {
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pi-spacing-6);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.card:focus-within ~ .hint {
+  display: flex;
+}
+
+/* Each key glyph (↵, Esc, ⇧↵) boxed as its own chip; the label word beside it is plain text. */
+.hintKey {
+  font-family: var(--pi-font-mono);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--pi-color-surface2);
+}
+
+.hintSep {
+  opacity: 0.5;
+}
+/* § 06 "still waiting" chip — a pending entry recovered from a daemon snapshot rather than seen
+   live. Exact spec values: 10px text, muted, 1px border, radius 4px. `margin-left: auto` pushes it
+   to the header's right edge in both the full header (`.methodName` has no `flex:1`) and the
+   collapsed row (`.resolvedMethodName` already has one — redundant there, but harmless). */
+.recoveredChip {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--pi-font-size-4xs);
+  color: var(--pi-color-foregroundMuted);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
+  padding: 0 var(--pi-spacing-5);
+}
+
+/* § 06 "past four" — a collapsed pending card keeps the pending amber border/badge (it is still
+   actionable, unlike a resolved card, which is why it does NOT compose `.askBadgeNeutral`). */
+.collapsedPendingCard {
+  border-color: color-mix(in srgb, var(--pi-color-statusWarning) 45%, transparent);
+}
+
+/* § 06 "N more waiting" row — clicking it lifts the past-four limit and expands every collapsed
+   card in place. Left-padded to align with the cards' content column, not the rail. */
+.moreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--pi-spacing-6) var(--pi-spacing-12);
+  border: none;
+  border-radius: var(--pi-radius-base);
+  background: none;
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-3xs);
+  cursor: pointer;
+}
+
+.moreRow:hover {
+  color: var(--pi-color-foreground);
+  background: color-mix(in srgb, var(--pi-color-surface1) 85%, var(--pi-color-foreground) 15%);
+}

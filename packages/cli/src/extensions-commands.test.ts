@@ -28,18 +28,21 @@ import { connectDaemon } from "./connection.js";
 
 /**
  * A realistic curated `ExtensionPackInfo[]` fixture, matching the real wire shape
- * (`packages/protocol/src/messages.ts`) — the four `core` entries, one already failed. The source
+ * (`packages/protocol/src/messages.ts`) — the five `core` entries, one already failed. The source
  * list mirrors `CURATED_PACKS.core` on purpose: the `listExtensionsLocal` test below renders this
  * fixture through the shared renderer and compares it to output computed from the real manifest,
  * so a manifest edit must be reflected here too.
  */
+const CORE_ADDED_IN: Record<string, string> = {
+  "npm:@99percentpeople/pi-background-tasks": "0.0.73",
+  "npm:@juicesharp/rpiv-todo": "0.0.73",
+  "npm:pi-web-access": "0.0.73",
+  "npm:pi-powerline-footer": "0.0.73",
+  "npm:@juicesharp/rpiv-ask-user-question": "0.0.93",
+};
+
 function packsFixture(opts: { failWebAccess?: boolean } = {}): ExtensionPackInfo[] {
-  const names = [
-    "npm:@99percentpeople/pi-background-tasks",
-    "npm:@juicesharp/rpiv-todo",
-    "npm:pi-web-access",
-    "npm:pi-powerline-footer",
-  ];
+  const names = Object.keys(CORE_ADDED_IN);
   return [
     {
       id: "core",
@@ -51,7 +54,7 @@ function packsFixture(opts: { failWebAccess?: boolean } = {}): ExtensionPackInfo
         return {
           source,
           identity,
-          addedIn: "0.0.73",
+          addedIn: CORE_ADDED_IN[source]!,
           status: failed ? "failed" : "installed",
           ...(failed
             ? {
@@ -189,7 +192,7 @@ function connectOptsFrom(ctx: CliContext) {
 describe("buildEntryRows", () => {
   it("one row per curated entry; failed row carries reason, truncated message, and attempts when > 1", () => {
     const rows = buildEntryRows(packsFixture({ failWebAccess: true }));
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     const failedRow = rows.find((r) => r.source === "npm:pi-web-access");
     expect(failedRow?.status).toBe("failed");
     expect(failedRow?.reason).toBe("not_found");
@@ -334,7 +337,7 @@ describe("selectExtensions / syncExtensions", () => {
     const { client, ctx, out } = await connectedClient(transport);
     const code = await syncExtensions(client, ctx, {});
     expect(code).toBe(EXIT_OK);
-    expect(out[0]).toContain("installed 4 of 4 recommended extensions");
+    expect(out[0]).toContain("installed 5 of 5 recommended extensions");
     client.close();
   });
 
@@ -462,7 +465,7 @@ describe("listExtensionsLocal", () => {
 
     // `npm:pi-web-access` was already present in settings.json before Pi-Studio ever "offered" it
     // — the planner reports that as `user_modified` (never installed over), matching sprint-056's
-    // adopt-don't-install rule; the other three core entries are `pending` (offline environment).
+    // adopt-don't-install rule; the other four core entries are `pending` (offline environment).
     expect(localOut[0]).toContain("user_modified");
     const webAccessLine = localOut[0]!.split("\n").find((l) => l.includes("npm:pi-web-access"));
     expect(webAccessLine).toContain("user_modified");

@@ -1,7 +1,7 @@
 # Task 001 — Browser-reachable scripted dialog trigger (mock provider)
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** server / agent/providers/mock
 - **Priority:** P1
@@ -74,16 +74,16 @@ introduces.
   no new config surface.
 
 ## Acceptance criteria
-- [ ] `parseUiScript` returns `null` for ordinary prompts, including ones that merely contain `#ui`
+- [x] `parseUiScript` returns `null` for ordinary prompts, including ones that merely contain `#ui`
       later in the text.
-- [ ] Each documented recipe produces a `ProviderUiRequest` whose `method` and payload keys match
+- [x] Each documented recipe produces a `ProviderUiRequest` whose `method` and payload keys match
       § 00's table; `select:empty` really emits an empty array rather than omitting `options`.
-- [ ] `#ui multi 3` raises three dialogs that are all pending simultaneously.
-- [ ] `timeout=` is honoured for `select`/`confirm`/`input` and rejected for `editor`.
-- [ ] Answering a scripted dialog produces assistant text naming the answer the provider received;
+- [x] `#ui multi 3` raises three dialogs that are all pending simultaneously.
+- [x] `timeout=` is honoured for `select`/`confirm`/`input` and rejected for `editor`.
+- [x] Answering a scripted dialog produces assistant text naming the answer the provider received;
       cancelling produces text showing the cancellation.
-- [ ] `#ui help` lists every recipe and raises no dialog.
-- [ ] Existing mock-provider tests still pass unchanged.
+- [x] `#ui help` lists every recipe and raises no dialog.
+- [x] Existing mock-provider tests still pass unchanged.
 
 ## Test / verification plan
 - Tests: add `packages/server/src/agent/providers/mock/ui-script.test.ts` covering the parser

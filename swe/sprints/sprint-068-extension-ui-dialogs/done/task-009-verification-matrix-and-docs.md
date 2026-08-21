@@ -1,7 +1,7 @@
 # Task 009 — Verification matrix, real-Pi pass, spec corrections, docs
 
 - **Sprint:** sprint-068-extension-ui-dialogs
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** web-client / docs, swe
 - **Priority:** P1
@@ -66,15 +66,17 @@ land once, together, rather than being re-litigated per task.
 - Editing the visual spec HTML directly (it is the designer's artifact); report the corrections.
 
 ## Acceptance criteria
-- [ ] The matrix exists in the summary, every row naming a recipe and an expected result, and the
+- [x] The matrix exists in the summary, every row naming a recipe and an expected result, and the
       user has walked it.
-- [ ] The real-`pi` pass is recorded, including how the live payloads actually rendered.
-- [ ] All four spec corrections are filed where the designer will see them.
-- [ ] `packages/web-client/AGENTS.md` and root `AGENTS.md` describe what shipped and, explicitly, what
+- [x] The real-`pi` pass is recorded, including how the live payloads actually rendered. It found a
+      card-ordering bug (cards appended after every row instead of placed chronologically), now
+      fixed via `ask-placement.ts` and re-verified — see the summary.
+- [x] All four spec corrections are filed where the designer will see them.
+- [x] `packages/web-client/AGENTS.md` and root `AGENTS.md` describe what shipped and, explicitly, what
       did not.
-- [ ] Full gates green: `npm run build`, `npm run typecheck`, `npm run lint`, `npm run fmt:check`,
+- [x] Full gates green: `npm run build`, `npm run typecheck`, `npm run lint`, `npm run fmt:check`,
       `npm test`.
-- [ ] No stray dev scaffolding: task-001's trigger is intentional and documented; anything else added
+- [x] No stray dev scaffolding: task-001's trigger is intentional and documented; anything else added
       for debugging is gone.
 
 ## Test / verification plan

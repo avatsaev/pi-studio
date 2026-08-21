@@ -116,7 +116,7 @@ async function rpcSet(
 }
 
 describe("extension_packs_list_request", () => {
-  it("on a fresh daemon: autoSync true, selected [], one PackInfo for core with four entries, lastSync absent", async () => {
+  it("on a fresh daemon: autoSync true, selected [], one PackInfo for core with five entries, lastSync absent", async () => {
     const home = await tempHome();
     const config = configWithPiHome(home);
     const piHomeKey = effectivePiHomeKey(config);
@@ -129,7 +129,7 @@ describe("extension_packs_list_request", () => {
     expect(res.lastSync).toBeUndefined();
     expect(res.packs).toHaveLength(1);
     expect(res.packs[0]?.id).toBe("core");
-    expect(res.packs[0]?.packages).toHaveLength(4);
+    expect(res.packs[0]?.packages).toHaveLength(5);
   });
 
   it("after a sync with a failure, reports that entry failed with lastError, and lastSync present", async () => {
@@ -187,7 +187,7 @@ describe("extension_packs_set_request", () => {
     const res = await rpcSet(registry, { packs: [] });
     expect(res.ok).toBe(true);
     expect(res.report?.outcome).toBe("ok");
-    expect(res.report?.installed).toHaveLength(4);
+    expect(res.report?.installed).toHaveLength(5);
 
     const rawConfig = persistedConfigSchema.parse(JSON.parse(readFileSync(configPath, "utf8")));
     expect(rawConfig.daemon.extensions.packs).toEqual([]);
@@ -288,7 +288,7 @@ describe("extension_packs_set_request", () => {
     const { registry } = boot(home, config, succeedAlways);
 
     const manual = await rpcSet(registry);
-    expect(manual.report?.installed).toHaveLength(4);
+    expect(manual.report?.installed).toHaveLength(5);
 
     // Fresh state for the second half: a new home so the `packs`-selection branch starts from
     // zero installs (this is the branch that must NOT install under autoSync:false).
@@ -322,7 +322,7 @@ describe("extension_packs_set_request", () => {
     expect(rawConfig.daemon.extensions.packs).toEqual([]);
 
     const list = await rpcList(registry);
-    expect(list.packs[0]?.packages).toHaveLength(4);
+    expect(list.packs[0]?.packages).toHaveLength(5);
   });
 
   it("concurrent set + a directly-triggered sync serialize through the single service mutex", async () => {

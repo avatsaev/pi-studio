@@ -402,6 +402,17 @@ src/
                             controller: gesture/scroll/resize listeners over
                             timeline/bottom-anchor.ts's pure state machine), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
+    agent-ui/               Extension-UI dialog rendering (sprint-068 — see AGENTS.md § Invariants
+                            "Extension UI dialogs"): agent-ui-store.ts (the app-scoped controller
+                            wiring over `@av-pi-studio/client`'s `AgentUiController`/
+                            `agent-ui-state.ts`) + AskCard.tsx (the card itself, every method kind,
+                            every lifecycle state) + its module.css, keyboard.ts (pure: per-kind key
+                            claim, hint content, the two-step Esc state machine), ask-list.ts (pure:
+                            pending/resolved merge order, past-four collapse, recovered-marker
+                            detection), ask-placement.ts (pure: where cards sit among timeline rows
+                            — chronological insertion, never a sort; rows never reorder),
+                            outcome-line.ts/option-layout.ts/prompt-text.ts/deadline.ts
+                            (pure presentation decisions the card renders, no DOM/React)
     files/                  FilePanel, FileExplorer (tree view: lazy per-directory expansion
                             tracked in explorer-store + fetched via use-explorer-tree, rows
                             flattened by file-tree.ts and rendered through
@@ -988,6 +999,67 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Circular buttons override `.btn`'s radius through `.card .roundBtn`, not `!important`** —
     CSS-module file order across chunks isn't guaranteed, so a bare `.roundBtn` rule ties with
     `Button.module.css`'s own single-class `.btn` rule and may lose.
+- **Extension UI dialogs (sprint-068).** `features/agent-ui/` renders every `agent_ui_request`
+  dialog (`select`/`confirm`/`input`/`editor`, plus an unrecognised-method fallback) inline in the
+  transcript, through pending, in-flight, resolved-collapsed, non-answerable, and multi-pending
+  states, with full keyboard/focus ownership. It is composed into `Timeline.tsx`'s virtualized list
+  at render time from `agent-ui-store.ts`'s live SDK state — never a persisted `TimelineRow`, never
+  written to `session.timeline.rows`.
+  - **State ownership stops at lifetime management.** `agent-ui-store.ts` creates/disposes exactly
+    one app-scoped `AgentUiController` (`@av-pi-studio/client`, sprint-067) per connected client —
+    lazily, only once the connection is `"open"` and `client.extensionUiAvailable()` is true at
+    that moment (never eagerly at client-assignment, which would race the handshake). If capability
+    is never present for a client, no controller is ever created — not merely inert, genuinely
+    absent. A controller is never torn down for an in-connection blip (its own disconnected/resync
+    handling covers that); disposal happens only when `client` itself changes.
+  - **Two effects are deliberately unwired.** The controller's `notify` and `replace_composer_text`
+    effects are emitted but ignored here — nothing toasts a `notify`, nothing writes into the
+    composer. `setStatus`/`setWidget`/`setTitle` (retained surfaces) have no consumer either; no
+    `useAgentUiSurfaces` hook is exposed. This is the status quo, not an oversight — sprint-069/070
+    are the ones that wire them. Do not add a second, divergent consumer of the SDK's surface state
+    ahead of that design.
+  - **No optimistic update, anywhere.** Submitting a response fires `respondToUi` and nothing
+    else — a card stays pending until the daemon's `agent_ui_resolved` arrives. `submitting`/
+    `submittedAnswer`/`answerable` are read straight off `AgentUiPendingEntry`; `AskCard.tsx`
+    decides nothing new about resolution state.
+  - **Keyboard/focus ownership is CSS-first, not listener-first.** A card's amber border/ring and
+    its hint line's visibility are pure `.card:focus-within` CSS — no focus/blur JS drives them.
+    This is the opposite choice from `Composer.tsx`'s own `.card:has(.textarea:focus)` (`:focus-
+    within` there would wrongly light up when the toolbar's model-picker/attach buttons take
+    focus) — deliberately different, because a card's dismissing/primary CONTROLS being focused is
+    exactly what "this card owns keys" should mean, unlike the composer's toolbar. The one real
+    state is `armed` (`keyboard.ts`'s `pressEscape`) — the two-step Esc's hint text has to change,
+    which CSS cannot do. Enter never needs a global handler either: `Composer.tsx`'s Enter-submit is
+    scoped to its own `<textarea onKeyDown>`, a disjoint DOM subtree from any card, so neither can
+    ever see the other's Enter keypress. Esc is the one key with an ambient listener
+    (`use-shortcuts.ts`'s `document`-level handler) — every Esc a card handles calls
+    `stopPropagation()`. A card's second-Esc resolution calls `.click()` on its own dismissing
+    control (Cancel/No/Block) rather than resolving with an invented payload, so a keyboard
+    dismissal is byte-for-byte the same outcome as a mouse click on that same control — see
+    `AskCard.tsx`'s `PendingAskCard` for why this matters (`confirm`'s outcome line only reads
+    "declined" from `answer.confirmed === false`, not from a bare cancellation flag).
+  - **Ordering never re-derives, it re-sorts by the SDK's own key.** `ask-list.ts`'s
+    `mergeAskEntries` unions pending + resolved and sorts by `pendingForAgent`/`resolvedForAgent`'s
+    own `compareByTimeThenId` — the same comparator both source lists already use — so a card's
+    slot never moves when it resolves. Never invent a second, local ordering here.
+  - **Cards are placed chronologically among the rows, not appended after them.**
+    `ask-placement.ts` merges the ask layout into `Timeline.tsx`'s row list by comparing a card's
+    `createdAt` against row timestamps, so a card sits next to the tool call that raised it rather
+    than trailing the whole transcript. Tasks 005–007 appended unconditionally, which is
+    indistinguishable from correct under the mock provider (every `#ui` recipe ends the turn on the
+    dialog) but renders an answered question *below* the reply that consumed it on any real
+    extension turn that continues past resolution. Two rules are load-bearing and must not be
+    "simplified" into a sort: **rows never move relative to each other** (their array order is
+    daemon append order, and `timestamp` is optional on every row kind — one `undefined` makes a
+    comparator inconsistent and scrambles the transcript), and a card with no usable time, or with
+    no row provably newer than it, **degrades to trailing** — the old behaviour, never index 0.
+    `ToolRow`/`ErrorRow`/`SystemRow` carry `timestamp` for exactly this; the tool row is stamped at
+    the call's **start** and never on a status upsert, or it would overtake the dialogs it spawned.
+  - **Not built this sprint:** the sidebar/tab/workspace attention signals (§ 08 of the visual
+    spec — StatusDot/SessionRow/TabStrip pulse, row tint, collapsed-header dot; sprint-069),
+    `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10; sprint-070), `notify` toasts (§ 11),
+    and `set_editor_text` (§ 11). None of the wiring for those exists yet — this sprint is
+    dialogs only.
 - **Molecule viewer tabs and live file watching.** The new `TabKind` "molecule" holds
   `MoleculeTabData { path: string | null }` — a `null` path is an empty ("+"-menu) tab showing
   molviewer's own drag-drop UI (`FirstRunCard`). The dispatch from file-to-molecule happens at

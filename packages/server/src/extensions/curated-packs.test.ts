@@ -18,20 +18,30 @@ import {
 // editing the real manifest.
 
 describe("CURATED_PACKS (the real manifest)", () => {
-  it("core has exactly the four spec'd sources, all npm, all unpinned, addedIn 0.0.73", () => {
-    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(4);
+  it("core has exactly the five spec'd sources, all npm, all unpinned", () => {
+    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(5);
     const sources = CURATED_PACKS.core.packages.map((p) => p.source);
     expect(sources).toEqual([
       "npm:@99percentpeople/pi-background-tasks",
       "npm:@juicesharp/rpiv-todo",
       "npm:pi-web-access",
       "npm:pi-powerline-footer",
+      "npm:@juicesharp/rpiv-ask-user-question",
     ]);
     for (const entry of CURATED_PACKS.core.packages) {
       expect(parseSource(entry.source)).toMatchObject({ kind: "npm", pinned: false });
-      expect(entry.addedIn).toBe("0.0.73");
       expect(entry.deprecated).toBeUndefined();
     }
+    const addedIns = Object.fromEntries(
+      CURATED_PACKS.core.packages.map((p) => [p.source, p.addedIn]),
+    );
+    expect(addedIns).toEqual({
+      "npm:@99percentpeople/pi-background-tasks": "0.0.73",
+      "npm:@juicesharp/rpiv-todo": "0.0.73",
+      "npm:pi-web-access": "0.0.73",
+      "npm:pi-powerline-footer": "0.0.73",
+      "npm:@juicesharp/rpiv-ask-user-question": "0.0.93",
+    });
   });
 
   it("passes checkCatalogInvariants with zero violations", () => {

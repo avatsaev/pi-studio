@@ -3,7 +3,7 @@
  * ui-components.md § Pressables
  */
 
-import { type ReactNode, type ButtonHTMLAttributes } from "react";
+import { type ReactNode, type Ref, type ButtonHTMLAttributes } from "react";
 import { clsx } from "clsx";
 import { Loader2 } from "lucide-react";
 import styles from "./Button.module.css";
@@ -25,6 +25,11 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   trailing?: ReactNode;
   iconOnly?: boolean;
   children?: ReactNode;
+  // React 19: function components accept `ref` as a normal prop; this component still has to
+  // read it and place it itself (no auto-forwarding) — sprint-068/task-008 needs it to focus a
+  // card's primary/dismissing control from a plain `useRef`, the same way `TextInput`/`TextArea`
+  // already support via `forwardRef`.
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function Button({
@@ -38,6 +43,7 @@ export function Button({
   children,
   style,
   className,
+  ref,
   ...rest
 }: ButtonProps) {
   const { opacity } = resolveButtonState({
@@ -52,6 +58,7 @@ export function Button({
 
   return (
     <button
+      ref={ref}
       className={clsx(styles.btn, styles[variant], iconOnly && styles.iconOnly, className)}
       disabled={isDisabled}
       aria-busy={loading || undefined}

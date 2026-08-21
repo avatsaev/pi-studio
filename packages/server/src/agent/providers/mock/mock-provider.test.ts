@@ -12,6 +12,27 @@ function collect(session: { subscribe: (cb: (e: AgentStreamEvent) => void) => vo
   return { events };
 }
 
+/** Resolves once `predicate` matches an emitted event — deterministic in place of a wall-clock
+ *  sleep after triggering an async response (sprint-068/task-001's scripted-turn tests). */
+function waitForEvent(
+  session: { subscribe: (cb: (e: AgentStreamEvent) => void) => () => void },
+  predicate: (e: AgentStreamEvent) => boolean,
+): Promise<AgentStreamEvent> {
+  const { promise, resolve } = Promise.withResolvers<AgentStreamEvent>();
+  const unsub = session.subscribe((e) => {
+    if (predicate(e)) {
+      unsub();
+      resolve(e);
+    }
+  });
+  return promise;
+}
+
+async function makeMockSession(): Promise<MockAgentSession> {
+  const client = new MockAgentClient();
+  return (await client.createSession({ provider: "mock", cwd: "/tmp" })) as MockAgentSession;
+}
+
 describe("mock provider", () => {
   it("creates a session and streams a scripted turn", async () => {
     const client = new MockAgentClient();
@@ -197,5 +218,87 @@ describe("extension UI (sprint-066, task-002)", () => {
     session.emitUiRequest({ method: "notify" });
 
     expect(received.length).toBe(1);
+  });
+});
+
+describe("#ui script trigger (sprint-068, task-001)", () => {
+  it("a scripted prompt raises the dialog instead of the normal echoed turn", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: unknown[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    await session.startTurn("#ui select");
+
+    expect(uiRequests).toHaveLength(1);
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(false);
+  });
+
+  it("answering the scripted dialog completes the turn and echoes the answer received", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    let raised: { requestId: string } | undefined;
+    session.onUiRequest((req) => (raised = req));
+
+    await session.startTurn("#ui select");
+    expect(raised).toBeDefined();
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    session.respondToUi(raised!.requestId, { value: "Allow" });
+    await completed;
+
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain('value: "Allow"');
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("cancelling a scripted dialog produces text showing the cancellation", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    let raised: { requestId: string } | undefined;
+    session.onUiRequest((req) => (raised = req));
+
+    await session.startTurn("#ui confirm");
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    session.respondToUi(raised!.requestId, { cancelled: true });
+    await completed;
+
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain("cancelled: true");
+  });
+
+  it("#ui multi 3 raises three dialogs that are all pending simultaneously", async () => {
+    const session = await makeMockSession();
+    const raised: { requestId: string }[] = [];
+    session.onUiRequest((req) => raised.push(req));
+
+    await session.startTurn("#ui multi 3");
+
+    expect(raised).toHaveLength(3);
+    expect(new Set(raised.map((r) => r.requestId)).size).toBe(3);
+  });
+
+  it("#ui help lists every recipe as assistant text and raises no dialog", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: unknown[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui help");
+    await completed;
+
+    expect(uiRequests).toHaveLength(0);
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain("#ui select");
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("an ordinary prompt is unaffected and still echoes normally", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    await session.run("hello there");
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toBe("echo: hello there");
   });
 });
