@@ -1,0 +1,10 @@
+/* Off-screen live region — same recipe as `TurnProgressBar.module.css`'s/`Dialog.module.css`'s
+   `.visuallyHidden`. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

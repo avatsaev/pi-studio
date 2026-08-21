@@ -148,6 +148,7 @@ function mergeTool(prev: ToolCallDetail, next: ToolCallDetail): ToolCallDetail {
 function onToolCall(
   state: TimelineState,
   event: Extract<AgentStreamEvent, { kind: "tool_call" }>,
+  timestamp?: string,
 ): TimelineState {
   const key = toolCallKey(event.callId, event.tool);
   const status =
@@ -177,6 +178,9 @@ function onToolCall(
     };
   }
 
+  // Stamped ONLY here, in the create branch — never in the upsert above. The row must keep the
+  // call's start time for its whole life, or it would slide past any extension dialog raised
+  // during the call as soon as the status changed (see `ask-placement.ts`).
   const row: TimelineRow = {
     kind: "tool",
     id: nextRowId(),
@@ -184,6 +188,7 @@ function onToolCall(
     tool: event.tool,
     status,
     ...(event.status !== undefined ? { statusText: event.status } : {}),
+    timestamp,
   };
   rows.push(row);
   return {
@@ -199,20 +204,33 @@ function onTurnCompleted(state: TimelineState): TimelineState {
   return finalizeStreamingRows(state);
 }
 
-function onTurnFailed(state: TimelineState, error: string | undefined): TimelineState {
+function onTurnFailed(
+  state: TimelineState,
+  error: string | undefined,
+  timestamp?: string,
+): TimelineState {
   const finalized = onTurnCompleted(state);
-  const row: TimelineRow = { kind: "error", id: nextRowId(), text: error || "turn failed" };
+  const row: TimelineRow = {
+    kind: "error",
+    id: nextRowId(),
+    text: error || "turn failed",
+    timestamp,
+  };
   return { ...finalized, rows: [...finalized.rows, row] };
 }
 
-function onTurnCanceled(state: TimelineState): TimelineState {
+function onTurnCanceled(state: TimelineState, timestamp?: string): TimelineState {
   const finalized = onTurnCompleted(state);
-  const row: TimelineRow = { kind: "system", id: nextRowId(), text: "(canceled)" };
+  const row: TimelineRow = { kind: "system", id: nextRowId(), text: "(canceled)", timestamp };
   return { ...finalized, rows: [...finalized.rows, row] };
 }
 
-function onError(state: TimelineState, message: string | undefined): TimelineState {
-  const row: TimelineRow = { kind: "error", id: nextRowId(), text: message || "error" };
+function onError(
+  state: TimelineState,
+  message: string | undefined,
+  timestamp?: string,
+): TimelineState {
+  const row: TimelineRow = { kind: "error", id: nextRowId(), text: message || "error", timestamp };
   return { ...state, rows: [...state.rows, row] };
 }
 
@@ -293,15 +311,15 @@ export function applyStreamEvent(
     case "reasoning":
       return onReasoning(state, event.text ?? "", event.final ?? false, timestamp);
     case "tool_call":
-      return onToolCall(state, event);
+      return onToolCall(state, event, timestamp);
     case "turn_completed":
       return onTurnCompleted(state);
     case "turn_failed":
-      return onTurnFailed(state, event.error);
+      return onTurnFailed(state, event.error, timestamp);
     case "turn_canceled":
-      return onTurnCanceled(state);
+      return onTurnCanceled(state, timestamp);
     case "error":
-      return onError(state, event.message);
+      return onError(state, event.message, timestamp);
     case "queue_update":
       return onQueueUpdate(state, event.steering ?? []);
     default:

@@ -13,6 +13,11 @@ import type {
   AgentSetSessionNameResponse,
   AgentStreamEvent,
   AgentSwitchSessionResponse,
+  AgentUiPendingRequest,
+  AgentUiRequest,
+  AgentUiResolved,
+  AgentUiResponse,
+  AgentUiSurface,
   CreateAgentRequest,
   ExtensionPacksListResponse,
   ExtensionPacksSetResponse,
@@ -342,6 +347,98 @@ interface ActiveProviderAuthFlow {
   unsubscribe: (() => void) | null;
 }
 
+// ─── Extension UI (agent_ui_*, sprint-066) ───────────────────────────────────────
+
+/**
+ * Local-clock anchor stamped when the SDK receives the push. Deliberately **not** shaped like
+ * `AgentStreamEventMeta` (daemon `timestamp`/`seq`, line 49): the daemon may run on another host,
+ * and this family's whole timeout-display story (`extension-ui-client-sdk.md` § Timeout display)
+ * depends on the client noticing that its own clock and the daemon's `createdAt` may be skewed —
+ * reusing the stream shape here would bake that skew in silently.
+ */
+export interface AgentUiEventMeta {
+  receivedAt: number;
+}
+
+/**
+ * `respondToUi`'s outcome. `not_found` is the **normal** result of a multi-client broadcast race
+ * (another client answered first) — it is returned, not thrown, so a caller cannot ignore it
+ * without a type error, but also is not forced into a `try`/`catch` around the happy path. Compare
+ * `AgentUiError` below, which is used for `listAgentUi`'s genuinely-exceptional failure instead.
+ */
+export type AgentUiRespondResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "unsupported" | string };
+
+/**
+ * A domain failure reported *in a response payload* rather than as an `rpc_error` — same hazard
+ * `ProviderAuthError` (line 313) guards against. Unlike `AgentUiRespondResult` above, a failed
+ * snapshot is genuinely exceptional, so this one throws.
+ */
+export class AgentUiError extends Error {
+  constructor(
+    message: string,
+    readonly operation: "list",
+  ) {
+    super(message);
+    this.name = "AgentUiError";
+  }
+}
+
+/** Narrows an inbound session message to the `agent_ui_request` broadcast. */
+export function isAgentUiRequest(message: unknown): message is AgentUiRequest {
+  const m = message as { type?: unknown; requestId?: unknown; agentId?: unknown } | null;
+  return (
+    !!m &&
+    m.type === "agent_ui_request" &&
+    typeof m.requestId === "string" &&
+    typeof m.agentId === "string"
+  );
+}
+
+/** Narrows an inbound session message to the `agent_ui_resolved` broadcast. */
+export function isAgentUiResolved(message: unknown): message is AgentUiResolved {
+  const m = message as { type?: unknown; requestId?: unknown; agentId?: unknown } | null;
+  return (
+    !!m &&
+    m.type === "agent_ui_resolved" &&
+    typeof m.requestId === "string" &&
+    typeof m.agentId === "string"
+  );
+}
+
+/** The `agent_archived` lifecycle push (`messages.ts`'s `agentArchivedSchema`). */
+export interface AgentArchivedMessage {
+  type: "agent_archived";
+  agentId: string;
+  archivedAt?: string;
+}
+
+/** The `agent_deleted` lifecycle push (`messages.ts`'s `agentDeletedSchema`). */
+export interface AgentDeletedMessage {
+  type: "agent_deleted";
+  agentId: string;
+}
+
+/**
+ * Narrows an inbound session message to `agent_archived`. **Not** part of the `agent_ui_*` family —
+ * exported so a controller (task-003) can prune retained extension-UI state on archive/delete.
+ * Deliberately **not** `onAgentUpdate` (line 418): `AgentManager.archiveAgent`/`deleteAgent` call
+ * `broadcastArchived`/`broadcastDeleted` exclusively and never the `agent_update`-emitting
+ * `broadcast(record)` path, so `onAgentUpdate` (which filters `type === "agent_update"`) can never
+ * see an archive or delete.
+ */
+export function isAgentArchived(message: unknown): message is AgentArchivedMessage {
+  const m = message as { type?: unknown; agentId?: unknown } | null;
+  return !!m && m.type === "agent_archived" && typeof m.agentId === "string";
+}
+
+/** Narrows an inbound session message to `agent_deleted`. See `isAgentArchived`. */
+export function isAgentDeleted(message: unknown): message is AgentDeletedMessage {
+  const m = message as { type?: unknown; agentId?: unknown } | null;
+  return !!m && m.type === "agent_deleted" && typeof m.agentId === "string";
+}
+
 // ─── Facade implementation ──────────────────────────────────────────────────────
 
 export class PiStudioClient {
@@ -614,7 +711,11 @@ export class PiStudioClient {
 
   /** Ask the caller for a value, racing its answer against an out-of-band `prompt_cancelled`
    *  (an OAuth callback can win first). Never lets an unanswered promise dangle: a caller refusal
-   *  or a failed respond RPC cancels the whole flow. */
+   *  or a failed `respond` RPC settles the whole flow as `connection_lost` — a best-effort
+   *  server-side cancel is fired alongside, but the flow's OWN promise does not wait on it (that
+   *  RPC is just as unreachable as the one that failed, so awaiting it left the dialog stuck
+   *  forever — the live defect this comment now documents, sprint-065/task-007).
+   */
   private async handleProviderAuthPrompt(
     flow: ActiveProviderAuthFlow,
     event: Record<string, unknown>,
@@ -667,6 +768,7 @@ export class PiStudioClient {
           .request("provider_auth_cancel_request", { flowId: flow.flowId })
           .catch(() => {});
       }
+      this.settleProviderAuthFlow(flow, { ok: false, error: "connection_lost" });
     }
   }
 
@@ -685,6 +787,74 @@ export class PiStudioClient {
     flow.unsubscribe?.();
     if (this.activeProviderAuthFlow === flow) this.activeProviderAuthFlow = null;
     flow.settle(result);
+  }
+
+  // ─── Extension UI (agent_ui_*, sprint-066) ─────────────────────────────────
+
+  /**
+   * Subscribe to every `agent_ui_request` broadcast (any agent) — a new dialog, a fire-and-forget
+   * UI event, or a surface upsert/clear. `meta.receivedAt` is stamped here, not forwarded from the
+   * wire (see `AgentUiEventMeta`).
+   */
+  onAgentUiRequest(handler: (event: AgentUiRequest, meta: AgentUiEventMeta) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if (isAgentUiRequest(msg)) handler(msg, { receivedAt: Date.now() });
+    });
+  }
+
+  /** Subscribe to every `agent_ui_resolved` broadcast (any agent) — a dialog is no longer
+   *  answerable (answered elsewhere, cancelled, timed out, or the agent was swept). */
+  onAgentUiResolved(handler: (event: AgentUiResolved) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if (isAgentUiResolved(msg)) handler(msg);
+    });
+  }
+
+  /**
+   * Answer a pending extension-UI dialog. `uiRequestId` is the dialog's id (`AgentUiRequest.requestId`
+   * off the wire) — **not** the RPC's own `requestId`, which `daemon.request` stamps separately; do
+   * not collapse the two. Resolves `{ ok: false, reason }` rather than throwing when the daemon
+   * reports a domain failure — `reason` forwards the daemon's string verbatim (open, not
+   * relabelled: `not_found` covers answered-elsewhere, a bogus id, and an already-swept agent
+   * alike). A transport-level `RpcError` still rejects; that is not a domain outcome.
+   */
+  async respondToUi(uiRequestId: string, response: AgentUiResponse): Promise<AgentUiRespondResult> {
+    const payload = await this.daemon.request<{ ok: boolean; error?: string }>(
+      "agent_ui_respond_request",
+      { uiRequestId, response },
+    );
+    if (!payload.ok) return { ok: false, reason: payload.error ?? "unknown" };
+    return { ok: true };
+  }
+
+  /**
+   * Reconnect catch-up snapshot: every pending dialog and retained surface, for one agent or all.
+   * Throws `AgentUiError` on a failed snapshot — unlike `respondToUi`, this has no benign failure
+   * mode to return instead of throw.
+   */
+  async listAgentUi(
+    agentId?: string,
+  ): Promise<{ pending: AgentUiPendingRequest[]; surfaces: AgentUiSurface[] }> {
+    const payload = await this.daemon.request<{
+      ok: boolean;
+      pending?: AgentUiPendingRequest[];
+      surfaces?: AgentUiSurface[];
+      error?: string;
+    }>("agent_ui_list_request", agentId ? { agentId } : {});
+    if (!payload.ok) {
+      throw new AgentUiError(payload.error ?? "failed to list extension UI state", "list");
+    }
+    return { pending: payload.pending ?? [], surfaces: payload.surfaces ?? [] };
+  }
+
+  /**
+   * True iff the daemon advertised the `extensionUi` capability in `server_info.features`. **Not**
+   * named `supportsExtensionUi()` — that name is already the *provider* capability flag
+   * (`protocol/src/provider-manifest.ts`, "this provider forwards UI events"), a different question
+   * from "does this daemon speak the `agent_ui_*` RPC family at all".
+   */
+  extensionUiAvailable(): boolean {
+    return this.daemon.hasFeature("extensionUi");
   }
 }
 

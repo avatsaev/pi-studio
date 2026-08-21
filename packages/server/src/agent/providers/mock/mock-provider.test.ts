@@ -2,7 +2,7 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
 import type { AgentClient } from "../../provider-contract.js";
-import { MOCK_CAPABILITIES, MockAgentClient } from "./mock-provider.js";
+import { MOCK_CAPABILITIES, MockAgentClient, MockAgentSession } from "./mock-provider.js";
 
 function collect(session: { subscribe: (cb: (e: AgentStreamEvent) => void) => void }): {
   events: AgentStreamEvent[];
@@ -10,6 +10,27 @@ function collect(session: { subscribe: (cb: (e: AgentStreamEvent) => void) => vo
   const events: AgentStreamEvent[] = [];
   session.subscribe((e) => events.push(e));
   return { events };
+}
+
+/** Resolves once `predicate` matches an emitted event — deterministic in place of a wall-clock
+ *  sleep after triggering an async response (sprint-068/task-001's scripted-turn tests). */
+function waitForEvent(
+  session: { subscribe: (cb: (e: AgentStreamEvent) => void) => () => void },
+  predicate: (e: AgentStreamEvent) => boolean,
+): Promise<AgentStreamEvent> {
+  const { promise, resolve } = Promise.withResolvers<AgentStreamEvent>();
+  const unsub = session.subscribe((e) => {
+    if (predicate(e)) {
+      unsub();
+      resolve(e);
+    }
+  });
+  return promise;
+}
+
+async function makeMockSession(): Promise<MockAgentSession> {
+  const client = new MockAgentClient();
+  return (await client.createSession({ provider: "mock", cwd: "/tmp" })) as MockAgentSession;
 }
 
 describe("mock provider", () => {
@@ -139,5 +160,201 @@ describe("mock provider", () => {
     // exportHtml stays deliberately omitted (see the sprint-037 test above) so the
     // unsupported-provider-method → rpc_error path remains covered now that listCommands exists.
     expect(session.exportHtml).toBeUndefined();
+  });
+});
+
+describe("extension UI (sprint-066, task-002)", () => {
+  it("advertises supportsExtensionUi: true", async () => {
+    const client = new MockAgentClient();
+    expect(client.capabilities.supportsExtensionUi).toBe(true);
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+    expect(session.capabilities.supportsExtensionUi).toBe(true);
+  });
+
+  it("emitUiRequest pushes a scripted request to every subscriber, filling sensible defaults", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+    const received: unknown[] = [];
+    session.onUiRequest((req) => received.push(req));
+
+    const emitted = session.emitUiRequest({ method: "confirm", payload: { message: "Proceed?" } });
+
+    expect(received).toEqual([emitted]);
+    expect(emitted.method).toBe("confirm");
+    expect(emitted.expectsResponse).toBe(true);
+    expect(emitted.payload).toEqual({ message: "Proceed?" });
+    expect(typeof emitted.requestId).toBe("string");
+  });
+
+  it("respondToUi records the answer so a test can assert what the provider received", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+
+    const req = session.emitUiRequest({ method: "select" });
+    session.respondToUi(req.requestId, { value: "Allow" });
+
+    expect(session.uiResponses).toEqual([
+      { providerRequestId: req.requestId, response: { value: "Allow" } },
+    ]);
+  });
+
+  it("onUiRequest's Unsubscribe detaches the callback", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+    const received: unknown[] = [];
+    const unsub = session.onUiRequest((req) => received.push(req));
+
+    session.emitUiRequest({ method: "notify" });
+    unsub();
+    session.emitUiRequest({ method: "notify" });
+
+    expect(received.length).toBe(1);
+  });
+});
+
+describe("#ui script trigger (sprint-068, task-001)", () => {
+  it("a scripted prompt raises the dialog instead of the normal echoed turn", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: unknown[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    await session.startTurn("#ui select");
+
+    expect(uiRequests).toHaveLength(1);
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(false);
+  });
+
+  it("answering the scripted dialog completes the turn and echoes the answer received", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    let raised: { requestId: string } | undefined;
+    session.onUiRequest((req) => (raised = req));
+
+    await session.startTurn("#ui select");
+    expect(raised).toBeDefined();
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    session.respondToUi(raised!.requestId, { value: "Allow" });
+    await completed;
+
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain('value: "Allow"');
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("cancelling a scripted dialog produces text showing the cancellation", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    let raised: { requestId: string } | undefined;
+    session.onUiRequest((req) => (raised = req));
+
+    await session.startTurn("#ui confirm");
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    session.respondToUi(raised!.requestId, { cancelled: true });
+    await completed;
+
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain("cancelled: true");
+  });
+
+  it("#ui multi 3 raises three dialogs that are all pending simultaneously", async () => {
+    const session = await makeMockSession();
+    const raised: { requestId: string }[] = [];
+    session.onUiRequest((req) => raised.push(req));
+
+    await session.startTurn("#ui multi 3");
+
+    expect(raised).toHaveLength(3);
+    expect(new Set(raised.map((r) => r.requestId)).size).toBe(3);
+  });
+
+  it("#ui help lists every recipe as assistant text and raises no dialog", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: unknown[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui help");
+    await completed;
+
+    expect(uiRequests).toHaveLength(0);
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain("#ui select");
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("#ui notify raises a fire-and-forget request and completes without an echo (sprint-069/task-006)", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: { requestId: string; method: string; expectsResponse: boolean }[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui notify");
+    await completed;
+
+    expect(uiRequests).toHaveLength(1);
+    expect(uiRequests[0]?.method).toBe("notify");
+    expect(uiRequests[0]?.expectsResponse).toBe(false);
+    // Fire-and-forget: never answered via respondToUi, yet the turn still completed (this is
+    // exactly the hang this task fixed — `raiseScriptedDialog` no longer waits on a response for
+    // an `expectsResponse: false` step), and nothing is echoed as assistant text for it.
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("#ui notify:warning and #ui notify:error select the warning/error payloads", async () => {
+    for (const [variant, level] of [
+      ["warning", "warning"],
+      ["error", "error"],
+    ] as const) {
+      const session = await makeMockSession();
+      const raised: { payload: Record<string, unknown> }[] = [];
+      session.onUiRequest((req) => raised.push(req));
+      await session.startTurn(`#ui notify:${variant}`);
+      expect(raised[0]?.payload.level).toBe(level);
+    }
+  });
+
+  it("#ui set_editor_text raises a fire-and-forget request carrying only text and completes without an echo (sprint-069/task-007)", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const uiRequests: {
+      requestId: string;
+      method: string;
+      expectsResponse: boolean;
+      payload: Record<string, unknown>;
+    }[] = [];
+    session.onUiRequest((req) => uiRequests.push(req));
+
+    const completed = waitForEvent(session, (e) => e.kind === "turn_completed");
+    await session.startTurn("#ui set_editor_text");
+    await completed;
+
+    expect(uiRequests).toHaveLength(1);
+    expect(uiRequests[0]?.method).toBe("set_editor_text");
+    expect(uiRequests[0]?.expectsResponse).toBe(false);
+    expect(uiRequests[0]?.payload).toEqual({ text: "retry the dns lookups with a 2s backoff" });
+    expect(events.some((e) => e.kind === "assistant_message")).toBe(false);
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("an ordinary prompt is unaffected and still echoes normally", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    await session.run("hello there");
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toBe("echo: hello there");
   });
 });

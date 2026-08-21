@@ -30,6 +30,15 @@ import {
   agentStreamEventSchema,
   agentSwitchSessionRequestSchema,
   agentSwitchSessionResponseSchema,
+  agentUiListRequestSchema,
+  agentUiListResponseSchema,
+  agentUiPendingRequestSchema,
+  agentUiRequestSchema,
+  agentUiResolvedSchema,
+  agentUiRespondRequestSchema,
+  agentUiRespondResponseSchema,
+  agentUiResponseSchema,
+  agentUiSurfaceSchema,
   createAgentRequestSchema,
   extensionPacksListRequestSchema,
   extensionPacksListResponseSchema,
@@ -869,5 +878,209 @@ describe("provider auth (sprint-055)", () => {
       },
     });
     expect(envelope.success).toBe(true);
+  });
+});
+
+describe("extension UI (sprint-066)", () => {
+  const baseRequest = {
+    type: "agent_ui_request",
+    requestId: "wire-1",
+    agentId: "a1",
+    method: "confirm",
+    expectsResponse: true,
+    payload: { message: "Proceed?" },
+    createdAt: 1_700_000_000_000,
+  };
+
+  it("all six message types parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      agent_ui_request: baseRequest,
+      agent_ui_resolved: {
+        type: "agent_ui_resolved",
+        requestId: "wire-1",
+        agentId: "a1",
+        reason: "answered",
+      },
+      agent_ui_respond_request: {
+        type: "agent_ui_respond_request",
+        requestId: "r1",
+        uiRequestId: "wire-1",
+        response: { confirmed: true },
+      },
+      agent_ui_respond_response: {
+        type: "agent_ui_respond_response",
+        requestId: "r1",
+        payload: { ok: true },
+      },
+      agent_ui_list_request: { type: "agent_ui_list_request", requestId: "r1" },
+      agent_ui_list_response: {
+        type: "agent_ui_list_response",
+        requestId: "r1",
+        payload: { ok: true, pending: [], surfaces: [] },
+      },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("both response schemas require ok under payload — missing ok fails validation", () => {
+    const missingOk = agentUiRespondResponseSchema.safeParse({
+      type: "agent_ui_respond_response",
+      requestId: "r1",
+      payload: {},
+    });
+    expect(missingOk.success).toBe(false);
+
+    const withOk = agentUiRespondResponseSchema.safeParse({
+      type: "agent_ui_respond_response",
+      requestId: "r1",
+      payload: { ok: false, error: "not_found" },
+    });
+    expect(withOk.success).toBe(true);
+
+    const listMissingOk = agentUiListResponseSchema.safeParse({
+      type: "agent_ui_list_response",
+      requestId: "r1",
+      payload: { pending: [], surfaces: [] },
+    });
+    expect(listMissingOk.success).toBe(false);
+
+    const listWithOk = agentUiListResponseSchema.safeParse({
+      type: "agent_ui_list_response",
+      requestId: "r1",
+      payload: { ok: true, pending: [], surfaces: [] },
+    });
+    expect(listWithOk.success).toBe(true);
+  });
+
+  it("agent_ui_request validates with surfaceKey/removed/timeoutMs all absent, and with all three present", () => {
+    expect(agentUiRequestSchema.safeParse(baseRequest).success).toBe(true);
+    expect(
+      agentUiRequestSchema.safeParse({
+        ...baseRequest,
+        surfaceKey: "status:build",
+        removed: false,
+        timeoutMs: 30_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("createdAt/updatedAt accept both an epoch-ms number and an ISO string", () => {
+    expect(
+      agentUiRequestSchema.safeParse({ ...baseRequest, createdAt: 1_700_000_000_000 }).success,
+    ).toBe(true);
+    expect(
+      agentUiRequestSchema.safeParse({ ...baseRequest, createdAt: "2026-08-20T00:00:00.000Z" })
+        .success,
+    ).toBe(true);
+
+    const surface = {
+      agentId: "a1",
+      method: "setStatus",
+      surfaceKey: "status:build",
+      payload: { text: "building" },
+    };
+    expect(
+      agentUiSurfaceSchema.safeParse({ ...surface, updatedAt: 1_700_000_000_000 }).success,
+    ).toBe(true);
+    expect(
+      agentUiSurfaceSchema.safeParse({ ...surface, updatedAt: "2026-08-20T00:00:00.000Z" }).success,
+    ).toBe(true);
+  });
+
+  it("payload accepts an arbitrary nested record and survives a parse round-trip byte-for-byte", () => {
+    const nested = { message: "Proceed?", meta: { nested: { deep: [1, 2, { a: "b" }] } } };
+    const result = agentUiRequestSchema.safeParse({ ...baseRequest, payload: nested });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.payload).toEqual(nested);
+    }
+
+    const pendingResult = agentUiPendingRequestSchema.safeParse({
+      requestId: "wire-1",
+      agentId: "a1",
+      method: "confirm",
+      expectsResponse: true,
+      payload: nested,
+      createdAt: 1_700_000_000_000,
+    });
+    expect(pendingResult.success).toBe(true);
+    if (pendingResult.success) {
+      expect(pendingResult.data.payload).toEqual(nested);
+    }
+  });
+
+  it("agentUiResponseSchema accepts {}, {value}, {confirmed}, {cancelled}, and an unknown extra field", () => {
+    expect(agentUiResponseSchema.safeParse({}).success).toBe(true);
+    expect(agentUiResponseSchema.safeParse({ value: "hello" }).success).toBe(true);
+    expect(agentUiResponseSchema.safeParse({ confirmed: true }).success).toBe(true);
+    expect(agentUiResponseSchema.safeParse({ cancelled: true }).success).toBe(true);
+    const withExtra = agentUiResponseSchema.safeParse({ fromTheFuture: "kept" });
+    expect(withExtra.success).toBe(true);
+    if (withExtra.success) {
+      expect((withExtra.data as Record<string, unknown>).fromTheFuture).toBe("kept");
+    }
+  });
+
+  it("reason and error accept an undocumented string value (open-string rule)", () => {
+    expect(
+      agentUiResolvedSchema.safeParse({
+        type: "agent_ui_resolved",
+        requestId: "wire-1",
+        agentId: "a1",
+        reason: "some-future-reason",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentUiRespondResponseSchema.safeParse({
+        type: "agent_ui_respond_response",
+        requestId: "r1",
+        payload: { ok: false, error: "some-future-error" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [agentUiRequestSchema, baseRequest],
+      [
+        agentUiResolvedSchema,
+        { type: "agent_ui_resolved", requestId: "wire-1", agentId: "a1", reason: "answered" },
+      ],
+      [
+        agentUiRespondRequestSchema,
+        {
+          type: "agent_ui_respond_request",
+          requestId: "r1",
+          uiRequestId: "wire-1",
+          response: {},
+        },
+      ],
+      [
+        agentUiRespondResponseSchema,
+        { type: "agent_ui_respond_response", requestId: "r1", payload: { ok: true } },
+      ],
+      [agentUiListRequestSchema, { type: "agent_ui_list_request", requestId: "r1" }],
+      [
+        agentUiListResponseSchema,
+        {
+          type: "agent_ui_list_response",
+          requestId: "r1",
+          payload: { ok: true, pending: [], surfaces: [] },
+        },
+      ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(
+        result.success,
+        `${(message as { type: string }).type} should parse with an unknown field`,
+      ).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).fromTheFuture).toBe("kept");
+      }
+    }
   });
 });

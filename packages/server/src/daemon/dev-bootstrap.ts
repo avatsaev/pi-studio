@@ -15,6 +15,8 @@ import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
+import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
+import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
@@ -50,27 +52,17 @@ export interface DevBootstrapHandle {
   httpServer: HttpServer;
   serverId: string;
   logger: Logger;
+  /** Exposed for tests only (e.g. sprint-066/task-004's daemon-level extension-UI test): lets a
+   *  test reach a created agent's live `MockAgentSession` to script a UI dialog via
+   *  `emitUiRequest` — there is no WS RPC for that, by design (a real Pi process is what would
+   *  normally emit these). Not part of the RPC surface. */
+  manager: AgentManager;
   close(): Promise<void>;
 }
 
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const serverId = opts.serverId ?? randomUUID();
   const logger = opts.logger ?? createDaemonLogger(undefined);
-
-  // ── In-memory agent manager (no disk persistence in dev mode) ──────────────
-  const agentsById = new Map<string, AgentRecord>();
-  const manager = new AgentManager({
-    home: "/tmp/pi-studio-dev",
-    saveAgent: async (record) => {
-      agentsById.set(record.id, record);
-    },
-    loadAllAgents: async () => [...agentsById.values()],
-    deleteAgent: async (_cwd, id) => agentsById.delete(id),
-  });
-
-  // ── Provider resolution: mock only in dev ───────────────────────────────────
-  const mockClient = createMockClient({ turnDelayMs: opts.mockTurnDelayMs });
-  const resolveClient = (_provider: string): AgentClient => mockClient;
 
   // ── Broadcast helper ─────────────────────────────────────────────────────────
   // See `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale.
@@ -90,11 +82,37 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = () => sessionsHolder.sessions;
 
+  // ── Extension UI bridge (features/extension-ui-rpc.md) — constructed before the manager so
+  // `onSessionAttached` below can close over it. Registered here (unlike production-only
+  // `provider_auth`/`file_watch`): the mock provider is this family's designated producer, and the
+  // dev daemon is mock-only, so a UI family unexercisable here would be untestable exactly where a
+  // sibling UI scope needs to develop against it.
+  const agentUiService = new AgentUiService({ broadcast, getActiveSessions, logger });
+
+  // ── In-memory agent manager (no disk persistence in dev mode) ──────────────
+  const agentsById = new Map<string, AgentRecord>();
+  const manager = new AgentManager({
+    home: "/tmp/pi-studio-dev",
+    saveAgent: async (record) => {
+      agentsById.set(record.id, record);
+    },
+    loadAllAgents: async () => [...agentsById.values()],
+    deleteAgent: async (_cwd, id) => agentsById.delete(id),
+    onSessionAttached: (agentId, session) => agentUiService.attach(agentId, session),
+    logger,
+  });
+
+  // ── Provider resolution: mock only in dev ───────────────────────────────────
+  const mockClient = createMockClient({ turnDelayMs: opts.mockTurnDelayMs });
+  const resolveClient = (_provider: string): AgentClient => mockClient;
+
   // Forward archive/delete lifecycle events to every connected client (see bootstrap.ts's
-  // production twin for the full rationale).
+  // production twin for the full rationale). Also sweeps the extension-UI bridge: every pending
+  // dialog and retained surface for the agent is cancelled/dropped on archive or delete.
   manager.subscribe((event) => {
     if (event.type === "agent_archived" || event.type === "agent_deleted") {
       broadcast(getActiveSessions(), { type: "session", message: event });
+      agentUiService.sweep(event.agentId, "aborted");
     }
   });
 
@@ -124,6 +142,8 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   const permissionService = new PermissionService({ manager, broadcast });
   permissionService.registerHandlers(registry, getActiveSessions);
+
+  registerAgentUiHandlers(registry, { service: agentUiService, logger });
 
   // ── list_agents_request: minimal directory listing (not in scope elsewhere) ─
   registry.register("list_agents_request", (ctx) => {
@@ -344,6 +364,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     httpServer,
     serverId,
     logger,
+    manager,
     close: async () => {
       logger.info("dev daemon shutting down");
       await wsHandle.close();

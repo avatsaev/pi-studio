@@ -1,0 +1,70 @@
+.viewport {
+  position: fixed;
+  top: var(--pi-spacing-16);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  max-width: 420px;
+  padding: var(--pi-spacing-8) var(--pi-spacing-8) var(--pi-spacing-8) var(--pi-spacing-12);
+  background: var(--pi-color-surface1);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-left: var(--pi-border-width-2) solid var(--toast-rail, transparent);
+  border-radius: var(--pi-radius-base);
+  box-shadow: var(--pi-shadow-md);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foreground);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+/* Entrance — slides/fades in from above the anchor edge. Skipped under reduced motion below. */
+@starting-style {
+  .toast {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+/* Exit — `ToastViewport.tsx` applies this while a toast lingers in local state after leaving the
+   store, giving the same transition a mirrored close. */
+.toast.exiting {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pi-spacing-1);
+  border: none;
+  background: transparent;
+  border-radius: var(--pi-radius-base);
+  color: var(--pi-color-foregroundMuted);
+  cursor: pointer;
+}
+.close:hover {
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}

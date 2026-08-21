@@ -19,7 +19,7 @@ listening. Exactly one daemon may own a given `$PI_STUDIO_HOME`, enforced by a P
 | `bootstrap()` (server) | Initialize and start all subsystems; returns a handle with `close()` |
 | `daemon-worker.ts` | Process entry that runs the daemon (spawned by CLI/desktop or directly) |
 | HTTP `GET /api/health` | Liveness probe; exempt from auth and host checks |
-| HTTP `/mcp/agents` | MCP server endpoint for agents |
+| HTTP `/mcp/agents` | MCP server endpoint for agents — **specified, never implemented.** No route is registered in `bootstrap.ts` or `dev-bootstrap.ts`; sprint-010/task-001 built the tool registry and explicitly deferred the transport ("HTTP transport for `/mcp/agents` is a bootstrap step") and it was never picked up. See `features/mcp-server.md` |
 | WebSocket upgrade (root) | Client connections |
 
 ### Startup inputs

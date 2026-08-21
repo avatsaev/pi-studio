@@ -1,7 +1,7 @@
 # Task 007 — Live browser E2E + docs sync
 
 - **Sprint:** sprint-065-provider-auth-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** test + docs
 - **Area:** web-client / client / docs
 - **Priority:** P1

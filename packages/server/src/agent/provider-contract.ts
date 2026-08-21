@@ -124,6 +124,33 @@ export interface PendingPermission {
   detail?: unknown;
 }
 
+/**
+ * A provider UI request translated onto the generic channel (features/extension-ui-rpc.md § Provider
+ * contract extension). All Pi-specific knowledge (which methods block, surface-key namespacing,
+ * clear-by-omission, timeout field name) lives in the adapter that produces this — the daemon layers
+ * above never interpret `payload` or know `method`'s vocabulary.
+ */
+export interface ProviderUiRequest {
+  /** Provider-scoped id (Pi's `id`). NEVER use this as a daemon-global map key — two agents may
+   *  reuse the same provider id independently; the daemon mints its own wire id per request. */
+  requestId: string;
+  method: string;
+  expectsResponse: boolean;
+  payload: Record<string, unknown>;
+  /** Present only for retained (last-value-wins) surfaces; already namespaced by the adapter. */
+  surfaceKey?: string;
+  /** True ⇒ this update clears the surface at `surfaceKey` rather than setting it. */
+  removed?: boolean;
+  timeoutMs?: number;
+}
+
+/** The answer forwarded back to the provider for a dialog method. */
+export interface ProviderUiResponse {
+  value?: string;
+  confirmed?: boolean;
+  cancelled?: boolean;
+}
+
 /** Context passed when launching/resuming a session (cwd, env, logger, …). */
 export interface LaunchContext {
   cwd?: string;
@@ -234,6 +261,14 @@ export interface AgentSession {
   cycleModel?(): Promise<AgentCycleModelResult>;
   /** `/copy` — mirrors Pi RPC `get_last_assistant_text`. */
   getLastAssistantText?(): Promise<string | null>;
+
+  // Extension UI (features/extension-ui-rpc.md) — present only where the provider supports it
+  // (capabilities.supportsExtensionUi). The daemon never interprets `ProviderUiRequest.payload`;
+  // all method-specific semantics live in the adapter that implements these two members.
+  /** Subscribe to provider-emitted UI dialogs and fire-and-forget events. */
+  onUiRequest?(cb: (req: ProviderUiRequest) => void): Unsubscribe;
+  /** Answer a dialog by its provider-scoped `requestId` (never the daemon's minted wire id). */
+  respondToUi?(providerRequestId: string, response: ProviderUiResponse): void;
 }
 
 /** A provider client: creates/resumes sessions and exposes discovery. */

@@ -47,7 +47,9 @@ src/
                                    composeSystemPrompt(callerPrompt, supports) — generalizes the
                                    single-flag ternary `handleCreate` used to run into an
                                    N-capability, order-stable composition (sprint-051).
-    provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral).
+    provider-contract.ts          AgentClient / AgentSession interfaces (provider-neutral); the
+                                   optional `onUiRequest`/`respondToUi` pair (sprint-066) is the
+                                   generic provider UI channel — see "Extension UI" below.
     pi-home.ts                    resolvePiAgentDir(config) — the shared pi-home derivation, used
                                    by both the spawn path (provider-registry.ts, which re-exports
                                    it) and extensions/extensions-state.ts's effectivePiHomeKey /
@@ -84,13 +86,26 @@ src/
     rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
                                    time-travel; bootstrap.ts only).
     permissions.ts                PendingPermissions — park and resolve tool-call auth requests.
+    agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
+                                   — see "Extension UI" below.
+      agent-ui-service.ts         AgentUiService — wire-id minting, pending dialogs, retained
+                                   surfaces, first-wins resolution, terminal-only sweeps.
+      agent-ui-rpc.ts             registerAgentUiHandlers — agent_ui_respond_request /
+                                   agent_ui_list_request (both bootstraps).
     manifest.ts                   ProviderManifest registry.
     structured-generation.ts      Structured output / JSON schema injection.
-    mcp-server.ts                 MCP server bridge.
+    mcp-server.ts                 MCP server bridge — `McpBackend` includes
+                                   `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005,
+                                   see "Extension UI" below); no live `/mcp/agents` HTTP endpoint or
+                                   real backend is wired into either bootstrap (pre-existing gap).
     index.ts
     providers/
       pi/
-        agent.ts                  PiAgentClient — spawns pi --mode rpc, manages session.
+        agent.ts                  PiAgentClient — spawns pi --mode rpc, manages session; also
+                                   implements the generic UI channel (`onUiRequest`/`respondToUi`) —
+                                   translates raw `extension_ui_request` events and stamps
+                                   `extension_ui_response` replies (sprint-066, see "Extension UI"
+                                   below); PI_CAPABILITIES.supportsExtensionUi: true.
         event-mapper.ts           Maps raw Pi JSONL events → AgentStreamEvent.
         rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
         session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
@@ -99,7 +114,9 @@ src/
         transport-errors.test.ts
         pi-adapter.test.ts
       mock/
-        mock-provider.ts          MockAgentClient — in-process stub, no credentials needed.
+        mock-provider.ts          MockAgentClient — in-process stub, no credentials needed;
+                                   `MockAgentSession.emitUiRequest`/`uiResponses` (sprint-066) let
+                                   tests script the generic UI channel with no `pi` process.
         mock-provider.test.ts
 
   ws/
@@ -643,6 +660,97 @@ no code, only the same underlying `auth.json`/`models.json` files via `resolvePi
   `promptKind`/`message`/`promptId`, never a value; log calls carry `flowId`/`provider`/`promptId`
   only. Confirmed live: a captured fake credential appeared in the written `auth.json` (by design)
   but in zero WebSocket frames and zero daemon log lines across the full session.
+
+### Extension UI (`agent/agent-ui/`)
+
+Bridges Pi's generic extension UI protocol (`docs/rpc.md` § Extension UI Protocol) onto the daemon
+(sprint-066, `swe/features/extension-ui-rpc.md`) — a structured questionnaire or a retained status
+line/widget an extension raises via `ctx.ui.select()`/`setStatus()`/etc. reaches every connected
+client as an opaque `agent_ui_request` broadcast, and an answer from any client resolves it. This
+family **replaces a proof-of-concept auto-cancel stub** that used to answer every dialog with
+`{ cancelled: true }` the instant it arrived — before this sprint, extension questionnaires were
+silently unusable in RPC mode.
+
+- **Provider-neutral channel first.** `AgentSession` (`provider-contract.ts`) gained two optional
+  members: `onUiRequest(cb): Unsubscribe` and `respondToUi(providerRequestId, response): void`.
+  `AgentUiService` (below) is the only consumer; it never imports a provider directly.
+- **`PiAgentClient` (`providers/pi/agent.ts`) is the sole translator of Pi-specific semantics** —
+  `AgentUiService` is deliberately **payload-blind**, doing zero `method` string comparison beyond
+  one diagnostic log. Four responsibilities live in the adapter, nowhere else:
+  1. **Surface-key namespacing** — `setStatus`/`setWidget` derive `"status:" + statusKey`/
+     `"widget:" + widgetKey`; `setTitle` is the fixed key `"title"`. Two Pi extensions independently
+     using the key `"my-ext"` for a status line and a widget must not collide — namespacing by
+     method proves they don't.
+  2. **Clear-by-omission detection** — Pi signals "remove this surface" by omitting
+     `statusText`/`widgetLines` entirely (`docs/rpc.md`'s protocol), not with an explicit flag; the
+     adapter is what turns that absence into the wire's explicit `removed: true`.
+  3. **Dialog vs. fire-and-forget classification** — `DIALOG_METHODS = new Set(["select", "confirm",
+     "input", "editor"])` is the **one constant** a future Pi UI method addition ever touches;
+     everything else (`notify`, `setStatus`, `setWidget`, `setTitle`, `set_editor_text`, and any
+     method Pi ships tomorrow) is automatically fire-and-forget with no code change.
+  4. **Envelope stamping order on reply** — `respondToUi` sends `{ ...response, id: providerRequestId
+     }`, response spread **first**, `id` stamped **last**, so a malicious/buggy `response` payload
+     containing its own `id` field can never redirect which dialog it resolves.
+- **`AgentUiService`** (`agent-ui-service.ts`) is the only stateful piece of the bridge:
+  - **Wire ids are always daemon-minted** (`randomUUID()` per emission), keyed in `pending`/
+    `surfaces` — never the provider's own `requestId`, which Pi only promises unique per-process.
+    Two agents whose providers happen to emit the identical internal id stay fully independent.
+  - **First-answer-wins.** `respond()` deletes the pending entry the instant it is found, before
+    calling `respondToUi` — a second answer for the same id, from any client or from MCP, always
+    sees `not_found`. A fire-and-forget request was never inserted into `pending`, so answering one
+    reports the identical `not_found`.
+  - **Resolution broadcasts unconditionally**, even when `respondToUi` throws (dead stdin after a
+    provider crash) — the `finally` block still fires `agent_ui_resolved`, so every other client
+    drops its copy of a dialog that no longer has anywhere to go.
+  - **Sweeps are terminal-event-only — archive, delete, and re-attach (forced respawn) — never
+    interrupt.** Dialogs are not turn-scoped (`pi-background-tasks`-style extensions raise questions
+    outside any turn) and surfaces are agent-lifetime state; `sweep(agentId, reason)` cancels toward
+    the entry's own captured session (never a freshly attached one), broadcasts, then unsubscribes
+    the stored channel — so a post-sweep emission from a dying process cannot resurrect a surface
+    for an agent with no live channel. This is the deliberate **inverse of `provider_auth_*`**
+    (client disconnect there cancels the flow; here a dialog outlives every disconnect) and of tool
+    permissions (interrupt there resolves nothing left pending; here interrupt touches nothing at
+    all).
+- **`AgentManager.onSessionAttached(agentId, session)`** (optional dep, `agent-manager.ts`) is the
+  single choke point `attachSession()` invokes after every spawn/resume/import — `AgentUiService`
+  is wired here, not threaded through each call site. A throwing hook is logged and never blocks
+  attachment. Sweeps first (`attach()` calls `sweep(agentId, "aborted")` before subscribing) so a
+  forced respawn's new session never inherits a dead process's stale pending entries.
+- **`agent-ui-rpc.ts`**'s `registerAgentUiHandlers` is a pure pass-through (`agent_ui_respond_request`
+  → `service.respond`, `agent_ui_list_request` → `service.listPending`/`listSurfaces`) — never
+  throws for a domain failure (`not_found`/`unsupported` travel in `payload`), never stamps
+  `requestId` (the router does).
+- **Registered in both bootstraps** — the one deviation from `provider_auth`/`file_watch`/
+  `extensions` above. The mock provider (`MockAgentSession.emitUiRequest`) is this family's
+  designated test producer, so the dev daemon must be able to drive it end to end with no real `pi`
+  process (`packages/server/src/daemon/agent-ui-e2e.test.ts`).
+- **MCP mirror is surface-only, no live endpoint.** `mcp-server.ts`'s `McpBackend` gained
+  `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005) so an orchestrating agent can
+  unblock a child's questionnaire (closing a real deadlock: no MCP path previously existed for a
+  parent to answer a child's extension dialog). `McpServer`/`McpBackend` itself has **no live HTTP
+  endpoint or real backend implementation anywhere in the daemon** — a pre-existing gap from
+  sprint-010 (its own summary flagged "HTTP transport for `/mcp/agents` is a bootstrap step" as an
+  unresumed follow-up), unrelated to and unenlarged by this sprint. The exact delegation a future
+  bootstrap-wiring task must paste into the real `McpBackend` object is written and tested against a
+  live `AgentUiService` in `mcp-server.test.ts`.
+- **Verified against real Pi**, not only fakes (sprint-066/task-006): a live daemon + a real
+  `pi --mode rpc` process running `@juicesharp/rpiv-ask-user-question` proved the questionnaire
+  completes because a WS client answered it (the auto-cancel POC is gone from the live path),
+  interrupt-preserves and archive-sweeps both hold against a real provider, and a secret typed into
+  an `input` dialog appears in zero daemon log lines and zero `agent_ui_*` frames (it does appear in
+  the pre-existing, unrelated `agent_stream` tool-output broadcast — the same chat-transcript
+  behavior any tool call's result gets, not a defect introduced by this family). The `core` pack's
+  own extensions (`pi-background-tasks`, `rpiv-todo`, `pi-web-access`, `pi-powerline-footer`) call
+  no `ctx.ui.*` method at session start, closing the sprint's pre-attach-traffic question with no
+  buffer needed. `@juicesharp/rpiv-ask-user-question` joined `core` later (sprint-068/task-009's
+  real-`pi` pass proved it out); it holds the same invariant — `registerAskUserQuestionTool` and
+  the `before_agent_start` reconciler it registers at activation call no `ctx.ui.*` method either,
+  confirmed by reading the installed source directly.
+  One live finding: `rpiv-todo`'s widget uses Pi's TUI-only factory-form `setWidget`
+  (`(tui, theme) => Component`, `@earendil-works/pi-coding-agent`'s `ExtensionUIContext`), which has
+  no RPC-mode representation — only the plain `string[]` form serializes to `widgetLines`. Surface
+  retention/rebuild/clear-by-omission are instead proven against the mock provider
+  (`agent-ui-e2e.test.ts`), a Pi-core limitation outside this package's control, not a bridge bug.
 
 ### Terminal subsystem (`terminal/`)
 

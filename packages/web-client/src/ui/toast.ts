@@ -1,7 +1,26 @@
 // Toast system — API, variants, timer state, and Esc-stack.
 // ui-components.md § Feedback
 
-export type ToastVariant = "default" | "success" | "error";
+export type ToastVariant = "default" | "success" | "error" | "warning";
+
+// Single semantic token per variant, mirroring `status-badge.ts`'s `statusBadgeTokens` shape —
+// same rationale: never split the rail/icon color from a differently-named token family.
+// `default` carries no rail (§ 01: `surface1` is the toast surface itself; the rail is what marks
+// success/warning/error).
+export type ToastTokens = { token?: string };
+
+export function toastTokens(variant: ToastVariant): ToastTokens {
+  switch (variant) {
+    case "default":
+      return {};
+    case "success":
+      return { token: "statusSuccess" };
+    case "error":
+      return { token: "statusDanger" };
+    case "warning":
+      return { token: "statusWarning" };
+  }
+}
 
 export type ToastOptions = {
   icon?: string;
@@ -22,7 +41,14 @@ export type ToastEntry = {
   icon?: string;
   /** True while the hover-pause is active (web desktop only). */
   paused: boolean;
-  /** Epoch ms when the toast was shown (used to compute remaining time). */
+  /** Snapshot of `remainingMs` taken the instant `paused` became true, frozen until resume. Kept
+   * on the entry itself (not a parallel id-keyed map in the store) so there is exactly one place
+   * that can drift out of sync with `paused`. Undefined while not paused. */
+  pausedRemaining?: number;
+  /** Epoch ms when the toast most recently became visible (used to compute remaining time) — a
+   * queued (not-yet-visible) entry has this reset to "now" at promotion time by the store, not
+   * left at its original `show()`-time value, so it still gets its full nominal duration once
+   * actually shown (sprint-069/task-005). */
   shownAt: number;
 };
 

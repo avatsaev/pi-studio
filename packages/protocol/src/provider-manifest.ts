@@ -16,21 +16,27 @@ export const colorTierSchema = z.enum(["safe", "moderate", "dangerous", "plannin
 export type ColorTier = z.infer<typeof colorTierSchema>;
 
 /** Per-provider capability flags. */
-export const agentCapabilityFlagsSchema = z.object({
-  supportsStreaming: z.boolean(),
-  supportsSessionPersistence: z.boolean(),
-  supportsDynamicModes: z.boolean(),
-  supportsMcpServers: z.boolean(),
-  supportsReasoningStream: z.boolean(),
-  supportsToolInvocations: z.boolean(),
-  // Rewind capability flags (features/rewind.md) — additive, optional, old clients ignore.
-  supportsRewindConversation: z.boolean().optional(),
-  supportsRewindFiles: z.boolean().optional(),
-  supportsRewindBoth: z.boolean().optional(),
-  // Steering capability (features/agent-sessions.md § Steering) — additive, optional. When true,
-  // the provider accepts `steer`/`follow_up` messages injected into a live turn.
-  supportsSteering: z.boolean().optional(),
-}).passthrough();
+export const agentCapabilityFlagsSchema = z
+  .object({
+    supportsStreaming: z.boolean(),
+    supportsSessionPersistence: z.boolean(),
+    supportsDynamicModes: z.boolean(),
+    supportsMcpServers: z.boolean(),
+    supportsReasoningStream: z.boolean(),
+    supportsToolInvocations: z.boolean(),
+    // Rewind capability flags (features/rewind.md) — additive, optional, old clients ignore.
+    supportsRewindConversation: z.boolean().optional(),
+    supportsRewindFiles: z.boolean().optional(),
+    supportsRewindBoth: z.boolean().optional(),
+    // Steering capability (features/agent-sessions.md § Steering) — additive, optional. When true,
+    // the provider accepts `steer`/`follow_up` messages injected into a live turn.
+    supportsSteering: z.boolean().optional(),
+    // Extension UI capability (features/extension-ui-rpc.md) — additive, optional. When true, the
+    // provider's `AgentSession` implements `onUiRequest`/`respondToUi` and dialogs/fire-and-forget
+    // extension UI methods are forwarded to clients instead of being auto-cancelled/dropped.
+    supportsExtensionUi: z.boolean().optional(),
+  })
+  .passthrough();
 export type AgentCapabilityFlags = z.infer<typeof agentCapabilityFlagsSchema>;
 
 /** UI metadata for a provider mode (plan/default/full-access/...). */

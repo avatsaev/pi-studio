@@ -10,6 +10,7 @@ import {
   InvalidAgentTransitionError,
   PARENT_AGENT_ID_LABEL,
 } from "./agent-manager.js";
+import type { AgentSession } from "./provider-contract.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
 
@@ -180,5 +181,59 @@ describe("active list", () => {
     await mgr.add(record({ lastStatus: "closed", archivedAt: NOW }));
     expect(mgr.list()).toHaveLength(1);
     expect(mgr.listAll()).toHaveLength(2);
+  });
+});
+
+function fakeSession(): AgentSession {
+  return {} as unknown as AgentSession;
+}
+
+describe("onSessionAttached hook (sprint-066/task-004)", () => {
+  it("invokes the hook with the agent id and session on attachSession", async () => {
+    const calls: { agentId: string; session: AgentSession }[] = [];
+    const { mgr } = makeManager({
+      onSessionAttached: (agentId, session) => calls.push({ agentId, session }),
+    });
+    const { record: rec } = await mgr.add(record());
+    const session = fakeSession();
+
+    mgr.attachSession(rec.id, session);
+
+    expect(calls).toEqual([{ agentId: rec.id, session }]);
+    expect(mgr.get(rec.id)?.session).toBe(session);
+  });
+
+  it("a manager constructed without the hook behaves exactly as before", async () => {
+    const { mgr } = makeManager();
+    const { record: rec } = await mgr.add(record());
+    const session = fakeSession();
+
+    expect(() => mgr.attachSession(rec.id, session)).not.toThrow();
+    expect(mgr.get(rec.id)?.session).toBe(session);
+  });
+
+  it("a throwing hook is logged and does not prevent the session from being attached", async () => {
+    const warn = vi.fn();
+    const { mgr } = makeManager({
+      onSessionAttached: () => {
+        throw new Error("boom");
+      },
+      logger: { warn } as never,
+    });
+    const { record: rec } = await mgr.add(record());
+    const session = fakeSession();
+
+    expect(() => mgr.attachSession(rec.id, session)).not.toThrow();
+    expect(mgr.get(rec.id)?.session).toBe(session);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toMatchObject({ agentId: rec.id });
+  });
+
+  it("attaching to an unknown agent id is a no-op and never invokes the hook", () => {
+    const hook = vi.fn();
+    const { mgr } = makeManager({ onSessionAttached: hook });
+
+    expect(() => mgr.attachSession("does-not-exist", fakeSession())).not.toThrow();
+    expect(hook).not.toHaveBeenCalled();
   });
 });

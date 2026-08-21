@@ -73,6 +73,9 @@ export const CURATED_PACKS = {
       { source: "npm:pi-web-access", addedIn: "0.0.73" },
       // Powerline-style status bar.
       { source: "npm:pi-powerline-footer", addedIn: "0.0.73" },
+      // Structured questionnaire tool: typed multiple-choice/free-text prompts instead of the
+      // model guessing when it lacks information it should ask for.
+      { source: "npm:@juicesharp/rpiv-ask-user-question", addedIn: "0.0.93" },
     ],
   },
   // swe: { ... }, science: { ... }, data: { ... } — future audience packs, added over time

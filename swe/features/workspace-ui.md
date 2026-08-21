@@ -194,22 +194,35 @@ Handoff Spec.dc.html`). One strip per pane, absolutely positioned across the top
   the mono font), diff (`GitCompare`, mono label), terminal (`SquareTerminal`), molecule (`Atom`).
 - **Attention dot.** A background chat tab (not the pane's active tab) shows a `StatusDot` between
   its label and close — a spinning ring while its session has a turn running, `statusDanger` after a
-  failed turn — projected live from the session's own status, not a separate unread/dirty flag. The
-  active chat tab never shows one: `TurnProgressBar` already states that case under the strip.
+  failed turn, `statusWarning` with a pulsing box-shadow ring while an extension question is pending
+  on that session (sprint-069/task-004, sourced from the same per-agent store the sidebar row and
+  collapsed workspace header use — sprint-068/task-003, sprint-069/tasks 001/003) — projected live
+  from the session's own status plus that store, not a separate unread/dirty flag. The active chat
+  tab never shows one, for any of the three reasons: `TurnProgressBar` already states the running
+  case under the strip, an `ErrorRow` already renders a failed turn in the timeline, and the active
+  session's own extension cards already render inline.
 - **Close affordance.** Always shown on the active tab; on an inactive one it's reserved (so hovering
   never reflows the label) and opacity-gated — visible on hover/keyboard-focus, and unconditionally
   below a 576px viewport or on a coarse pointer (no live width is fed into a JS visibility check; this
-  mirrors the app's `hoverVisible` rule purely in CSS).
+  mirrors the app's `hoverVisible` rule purely in CSS). **Tight-strip concession** (sprint-069/
+  task-004): the label ellipsises first (it is the tab's only flexible flex child); only once a
+  needs-input tab has shrunk close to its 128px `min-width` floor, via a CSS container query on the
+  tab itself, does the close control yield to the dot — closing stays reachable via the tab's
+  context menu below. A tab with no dot never loses its close affordance this way.
 - **Trailing chrome, in order:** ＋ (opens the existing new-tab menu) immediately after the last pill,
   then the remaining space, then split-right / split-down (hidden when splits aren't supported). All
   three are fixed-size `IconButton`s and stay outside the tab list's scroll container.
 - Reorder via a sortable inline list with a drag handle (the split container's shared drag context owns
   cross-pane drags).
+- **Per-tab right-click context menu** (sprint-069/task-004): a single "Close" action, Radix
+  cursor-anchored (the same pattern `SessionContextMenu.tsx`/`WorkspaceContextMenu.tsx` already use),
+  mounted once in `TabPanelHost.tsx` regardless of pane count. Deliberately minimal — the reference
+  app's fuller set (copy resume command, rename, close to the left/right, …) remains unimplemented,
+  tracked below rather than silently dropped.
 - **Not implemented in `packages/web-client`** (reference-app behavior, marked rather than silently
-  dropped): loading tabs do not show a skeleton bar, and there is no per-tab right-click context menu
-  or hover tooltip beyond the native `title` attribute. The attention dot also has no "needs input"
-  state — this client's session-status enum has no `waiting`/needs-input value to project, so only a
-  running turn or a failed one earn a dot.
+  dropped): loading tabs do not show a skeleton bar, there is no hover tooltip beyond the native
+  `title` attribute, and the per-tab context menu above covers only Close (not copy resume command,
+  rename, or close-to-the-left/right).
 
 ### Mobile (compact) tab UI
 No tab strip. A single switcher trigger shows the active tab's icon + label + chevron; tapping opens a list

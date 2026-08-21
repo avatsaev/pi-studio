@@ -17,7 +17,9 @@ import { TabPanelHost } from "@pi-studio-ui/features/workspace/TabPanelHost.js";
 import { RightSidebar } from "@pi-studio-ui/features/files/RightSidebar.js";
 import { StatusBar } from "@pi-studio-ui/features/workspace/StatusBar.js";
 import { OpenWorkspaceDialog } from "@pi-studio-ui/features/workspace-picker/OpenWorkspaceDialog.js";
+import { Announcer } from "@pi-studio-ui/components/primitives/Announcer.js";
 import { ResizeHandle } from "@pi-studio-ui/components/primitives/ResizeHandle.js";
+import { ToastViewport } from "@pi-studio-ui/components/primitives/ToastViewport.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import styles from "./WorkspacePage.module.css";
 
@@ -55,6 +57,8 @@ export function WorkspacePage() {
       </div>
       <StatusBar />
       <OpenWorkspaceDialog />
+      <ToastViewport />
+      <Announcer />
     </div>
   );
 }

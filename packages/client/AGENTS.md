@@ -25,6 +25,11 @@ Provides:
 6. **`createRelayTransport`** + **`parsePairingUrl`** — the client side of the E2EE relay: connects
    through a relay server instead of directly to the daemon, using the same `Transport` interface
    as a direct WebSocket, so `DaemonClient` doesn't need to know which one it's using.
+7. **Extension UI SDK** (`agent-ui-state.ts` + `agent-ui-controller.ts`, sprint-067) — the client
+   consumer of the daemon's `agent_ui_*` wire family (sprint-066): a pure reducer/selectors module
+   (including resolved-dialog retention and in-flight submission tracking, sprint-067/task-005)
+   plus a controller wiring layer over `PiStudioClient`. **Nothing in this repo renders it yet** —
+   see § Extension UI below.
 
 ---
 
@@ -39,8 +44,14 @@ src/
   pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls).
   daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
   daemon-client.test.ts
-  pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles.
+  pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles + Extension UI SDK surface.
   pistudio-client.test.ts
+  agent-ui-state.ts           Pure Extension UI reducer/selectors + resolved-dialog retention (sprint-067) — no DOM, no I/O, no timers.
+  agent-ui-state.test.ts
+  agent-ui-controller.ts      AgentUiController — subscribe-then-list rehydration, reconnect resync, agent-lifecycle pruning.
+  agent-ui-controller.test.ts
+  test-support/
+    scripted-daemon.ts        makeScriptedDaemon()/makeFacade() — shared fake-transport harness for pistudio-client.test.ts and agent-ui-controller.test.ts.
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
   terminal-stream-router.ts   TerminalStreamRouter — binary terminal frame demux/encode by slot.
   terminal-router.test.ts
@@ -179,19 +190,24 @@ const client = new PiStudioClient(daemonClient);
 
 ### Methods
 
-| Method                       | Returns                    | Description                                    |
-| ---------------------------- | -------------------------- | ---------------------------------------------- |
-| `createAgent(req)`           | `Promise<{ agentId, … }>`  | `create_agent_request` RPC                     |
-| `agent(agentId)`             | `PiStudioAgentActions`     | Scoped handle for an existing agent            |
-| `workspace(workspaceId)`     | `PiStudioWorkspaceActions` | Scoped handle for a workspace                  |
-| `providers`                  | `PiStudioProviderActions`  | List providers/models/modes, refresh snapshot  |
-| `onAgentUpdate(handler)`     | unsubscribe fn             | Subscribe to all `agent_update` broadcasts     |
-| `onWorkspaceUpdate(handler)` | unsubscribe fn             | Subscribe to all `workspace_update` broadcasts |
-| `listProviderAuth()`         | `Promise<ProviderAuthEntry[]>` | `provider_auth_list_request` RPC           |
-| `loginProvider(p, t, cb, o)` | `Promise<{ ok, error? }>`  | Drives one login flow (see below)               |
-| `logoutProvider(provider)`   | `Promise<{ stillConfigured }>` | `provider_auth_logout_request` RPC          |
-| `hasProviderAuthCapability()`| `boolean`                  | Whether the daemon advertised `providerAuth`    |
-| `connection`                 | `DaemonClient`             | Escape hatch to the underlying driver          |
+| Method                        | Returns                          | Description                                                                                                     |
+| ----------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `createAgent(req)`            | `Promise<{ agentId, … }>`        | `create_agent_request` RPC                                                                                      |
+| `agent(agentId)`              | `PiStudioAgentActions`           | Scoped handle for an existing agent                                                                             |
+| `workspace(workspaceId)`      | `PiStudioWorkspaceActions`       | Scoped handle for a workspace                                                                                   |
+| `providers`                   | `PiStudioProviderActions`        | List providers/models/modes, refresh snapshot                                                                   |
+| `onAgentUpdate(handler)`      | unsubscribe fn                   | Subscribe to all `agent_update` broadcasts                                                                      |
+| `onWorkspaceUpdate(handler)`  | unsubscribe fn                   | Subscribe to all `workspace_update` broadcasts                                                                  |
+| `listProviderAuth()`          | `Promise<ProviderAuthEntry[]>`   | `provider_auth_list_request` RPC                                                                                |
+| `loginProvider(p, t, cb, o)`  | `Promise<{ ok, error? }>`        | Drives one login flow (see below)                                                                               |
+| `logoutProvider(provider)`    | `Promise<{ stillConfigured }>`   | `provider_auth_logout_request` RPC                                                                              |
+| `hasProviderAuthCapability()` | `boolean`                        | Whether the daemon advertised `providerAuth`                                                                    |
+| `onAgentUiRequest(handler)`   | unsubscribe fn                   | Subscribe to `agent_ui_request` broadcasts (sprint-067, see § Extension UI)                                     |
+| `onAgentUiResolved(handler)`  | unsubscribe fn                   | Subscribe to `agent_ui_resolved` broadcasts                                                                     |
+| `respondToUi(id, response)`   | `Promise<AgentUiRespondResult>`  | `agent_ui_respond_request` RPC — returns, never throws, on a domain `not_found`/`unsupported`                   |
+| `listAgentUi(agentId?)`       | `Promise<{ pending, surfaces }>` | `agent_ui_list_request` RPC — throws `AgentUiError` on failure                                                  |
+| `extensionUiAvailable()`      | `boolean`                        | Whether the daemon advertised `extensionUi` — **not** `supportsExtensionUi()`, a different, provider-level flag |
+| `connection`                  | `DaemonClient`                   | Escape hatch to the underlying driver                                                                           |
 
 ### `PiStudioAgentActions` (from `agent(id)`)
 
@@ -216,7 +232,7 @@ method on this facade.
 | `delete()`                     | `delete_agent` (hard delete — no trace, cannot resume)                                                                                                                                                              |
 | `onUpdate(handler)`            | Subscribe to `agent_update` for this agent only                                                                                                                                                                     |
 | `timeline.fetch(opts?)`        | `fetch_agent_timeline_request` — **one bounded page** (≤ `limit`, server default 200); refetch from `endCursor` while `hasNewer` to get the whole history                                                           |
-| `timeline.subscribe(handler)`  | Subscribe to `agent_stream` for this agent only — `handler(event, meta)`, `meta.timestamp`/`meta.seq` forward the daemon-stamped row metadata alongside the event                                                  |
+| `timeline.subscribe(handler)`  | Subscribe to `agent_stream` for this agent only — `handler(event, meta)`, `meta.timestamp`/`meta.seq` forward the daemon-stamped row metadata alongside the event                                                   |
 | `sessionStats()`               | `agent_session_stats_request` (`/session` — tokens/cost/context-window usage)                                                                                                                                       |
 | `compact(customInstructions?)` | `agent_compact_request` (`/compact`)                                                                                                                                                                                |
 | `newSession()`                 | `agent_new_session_request` (`/new`)                                                                                                                                                                                |
@@ -265,17 +281,140 @@ regression test in `pistudio-client.test.ts`:
   `notify`-sourced events (`info`/`auth_url`/`device_code`/`progress`, plus unknown future kinds).
   `prompt`, `prompt_cancelled` and `done` are consumed by this driver and never reach `onEvent`.
 - **`ProviderAuthPromptUi.signal` aborts when that prompt is retired** — the callback-wins race, or
-  the flow ending. This is the *only* notice a view gets: `prompt_cancelled` rejects the driver's
+  the flow ending. This is the _only_ notice a view gets: `prompt_cancelled` rejects the driver's
   internal race and the promise the view returned is discarded, so nothing else tells it the
   question is gone. A view that ignores it leaves a dead `manual_code` input on screen (real bug,
   fixed in sprint-065/task-005).
 - **`opts.signal`** cancels the whole flow server-side; a socket drop settles
   `{ ok: false, error: "connection_lost" }` rather than hanging; events for a stale flowId are
-  dropped; every subscription is released exactly once when the flow settles.
+  dropped; every subscription is released exactly once when the flow settles. This guarantee used
+  to have a gap: a `respond`/`provider_auth_respond_request` RPC that timed out (the daemon peer
+  unreachable but the client's own socket never closing — e.g. the daemon dying behind a relay,
+  where the client's WS to the relay itself stays open) left `handleProviderAuthPrompt`'s catch
+  block firing a best-effort `provider_auth_cancel_request` and swallowing the outcome, never
+  calling `settleProviderAuthFlow` — the dialog hung forever with no error, discovered live during
+  sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
+  `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
+  alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
+  way — `web-client`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
+  agent turns), so a relay-mediated daemon death is _correctly_ reported now, just not _quickly_;
+  the relay protocol has no peer-liveness signal for the client to react to sooner
+  (`@av-pi-studio/relay`'s `RelaySessionBridge` only logs `onUnregister` server-side, it never
+  forwards a "peer left" frame to the remaining peer) — a real gap, but a relay-protocol design
+  question outside a login-dialog bug fix's scope.
 
 ### `importAgentSession(daemon, args)` (named export)
 
 Sends `import_agent_session` RPC — not agent-scoped.
+
+### Extension UI facade surface (`agent_ui_*`, sprint-067)
+
+Consumes the daemon's `agent_ui_*` wire family (sprint-066, `swe/features/extension-ui-rpc.md`) —
+the five members in the table above, plus supporting types/guards, all on `pistudio-client.ts`:
+
+- **`AgentUiEventMeta`** — `{ receivedAt: number }`, a **local** clock reading stamped by the SDK
+  when `onAgentUiRequest` delivers a push. Deliberately unlike `AgentStreamEventMeta`'s daemon
+  `timestamp`/`seq`: the daemon may run on another host, and `receivedAt` exists specifically so
+  the reducer's timeout display can reason about cross-host clock skew instead of trusting it.
+- **Error convention splits, deliberately.** `respondToUi` _returns_ `AgentUiRespondResult`
+  (`{ ok: true } | { ok: false, reason }`) — a `not_found` (another client answered first) is the
+  _normal_ outcome of a multi-client broadcast race, not exceptional. `listAgentUi` _throws_
+  `AgentUiError` — a failed snapshot has no benign meaning. `reason`/the error message forward the
+  daemon's string **verbatim**, never relabelled (`not_found` covers answered-elsewhere, a bogus
+  id, and an already-swept agent alike — the client has no way to distinguish them and must not
+  assert it does).
+- **Four guards**, exported: `isAgentUiRequest`/`isAgentUiResolved` narrow the two subscriptions
+  (mirrors `isProviderAuthFlowEvent`'s structural-check style). `isAgentArchived`/`isAgentDeleted`
+  narrow the **real** `sessionMessageSchema` union members `agent_archived`/`agent_deleted` — **not**
+  part of the `agent_ui_*` family, but exported here because `agent-ui-controller.ts` needs them for
+  pruning (see below) and a third narrowing copy in a future renderer is worth pre-empting.
+  **Deliberately not `onAgentUpdate`**: `AgentManager.archiveAgent`/`deleteAgent`
+  (`packages/server`) call `broadcastArchived`/`broadcastDeleted` exclusively and never the
+  `agent_update`-emitting path, so `onAgentUpdate` (which filters `type === "agent_update"`) can
+  never see an archive or delete — verified against source, not assumed.
+- **`extensionUiAvailable()` is deliberately not named `supportsExtensionUi()`** — that name is
+  already the _provider_ capability flag (`protocol/src/provider-manifest.ts`, "this provider
+  forwards UI events to the daemon"), a different question from "does this daemon speak the
+  `agent_ui_*` RPC family at all."
+
+## Extension UI state + controller (`agent-ui-state.ts` + `agent-ui-controller.ts`, sprint-067)
+
+The client-side consumer of the family above. **Nothing in this repo renders any of it yet** —
+this is infrastructure only; a sibling scope owns rendering. Two modules, split on purity:
+
+**`agent-ui-state.ts` — pure, no DOM/timers/I/O/logging.** `reduce(state, action) → { state,
+effects }`; every transition returns a new `AgentUiState` (`{ pending, surfaces, resolved }`, all
+`Record`s) and a list of effects to _perform elsewhere_, never performs them itself.
+
+- **Routing is by wire predicate, never a `method` table**: `expectsResponse` → dialog;
+  `surfaceKey && removed` → delete a surface; `surfaceKey` → upsert a surface; otherwise →
+  transient (`method` matters only _within_ the transient category, to pick `notify` vs
+  `set_editor_text`). An unrecognised dialog method still enters `pending` (method verbatim, no
+  unknown flag — dropping it would wedge the agent's turn); an unrecognised transient produces
+  **zero** effects, which is itself the "unknown method" signal the controller reports.
+- **`snapshot` replaces `pending`/`surfaces` wholesale, never merges** — the daemon composes it
+  from state that postdates every broadcast already sent on the one ordered socket, so it is
+  authoritative. `resolved` passes through untouched instead (see below — the daemon has nothing
+  to re-serve there). `disconnected` sets every pending entry `answerable: false`; only a following
+  `snapshot` sets it back `true` (a one-way door without that round-trip).
+- **Timeouts are displayed, never acted on.** `remainingMs(entry, now)` is a pure countdown; no
+  action anywhere in this module dismisses/expires an entry — only a real `ui_resolved` moves one
+  from `pending` to `resolved` (Pi auto-resolves its own timed dialogs; two clients racing
+  independent expiry logic would diverge from each other and from the agent).
+- **Resolved dialogs are retained, not discarded** (sprint-067/task-005): `ui_resolved` moves the
+  entry into `resolved` (keyed by `requestId`, same as `pending`) instead of deleting it — a
+  resolved card collapses in place and stays for the life of the page, at its **original**
+  `createdAt` (no `resolvedAt` field exists), so merging `pendingForAgent`/`resolvedForAgent` by
+  that key never reshuffles a list when one entry resolves. `resolved` is page-lifetime state: it
+  survives `snapshot`/`disconnected` (the daemon has no resolved history to re-serve, unlike
+  `pending`) and is dropped only by `agent_removed` or a page reload. Bounded per agent by
+  `RESOLVED_HISTORY_LIMIT` (`50`) — insertion past the cap evicts that agent's oldest entry by the
+  same `createdAt`/`requestId` ordering the selectors use; other agents are never touched by one
+  agent's eviction.
+- **`respond_sent`/`respond_failed` track an in-flight `respond` for the pressed-control spinner**
+  (task-005) — `respond_sent` sets `pending[id].submitting: true` (and `submittedAnswer`, see
+  below); the entry stays in `pending` throughout — only `ui_resolved` ever resolves it, never a
+  successful RPC by itself (no optimistic resolution). `respond_failed` clears `submitting`/
+  `submittedAnswer` on a still-pending entry — this is what stops a lost first-answer-wins race
+  (an RPC that resolves `{ ok: false }`) from leaving a spinner running forever, since a
+  `not_found` response is followed by no broadcast to the losing client.
+- **`select`/`confirm` answers are retained for display; `input`/`editor` answers never are — a
+  storage rule, not routing** (the module's one other `method` read, alongside the transient-effect
+  switch). `input`/`editor` resolve to free text the user typed, and an extension asking for a
+  secret (an API token, say) is an expected, documented case, so the submitted value must be
+  **unrepresentable** in this module's state for those two methods — not merely unrendered by
+  convention. `submittedAnswer`/`resolved[id].answer` (`{ value?, confirmed? }`) are populated only
+  for `select`/`confirm`; every other method (including unrecognised ones) leaves both fields
+  entirely absent, not merely empty.
+- Selectors (`pendingForAgent`, `pendingByAgent`, `surfacesForAgent`, `resolvedForAgent`,
+  `remainingMs`) are all pure and stably ordered. `resolvedForAgent` uses the same
+  `createdAt`/`requestId` comparator as `pendingForAgent`, by design (see the merge property above).
+
+**`agent-ui-controller.ts` — the impure wiring layer**, `createAgentUiController(client, opts?) →
+{ getState, subscribe, respond, resync, dispose }`. Owns everything a consumer would otherwise get
+wrong:
+
+- **Subscribe-then-list rehydration**: attaches `onAgentUiRequest`/`onAgentUiResolved` (queueing
+  while a `listAgentUi()` is in flight) before ever calling `listAgentUi()`. On the response:
+  dispatch `snapshot`, **discard** every queued dialog/surface event (already reflected in the
+  snapshot by ordered-delivery), **replay** only queued transients (genuinely new — nothing retains
+  them).
+- **Automatic reconnect, never left to the consumer** — subscribes to `client.connection.onStateChange`
+  itself; `"open"` re-triggers `resync()` (re-checking `extensionUiAvailable()`, since the daemon
+  may have been upgraded). A generation counter guards overlapping `resync()` calls: only the
+  response matching the latest attempt commits.
+- **Agent-lifecycle pruning off `agent_archived`/`agent_deleted`** (via `isAgentArchived`/
+  `isAgentDeleted` above), never `onAgentUpdate` — see those guards' own note.
+- **`respond` dispatches `respond_sent` before the RPC, `respond_failed` only on a domain failure**
+  (task-005) — still no optimistic _resolution_: the entry leaves `pending` only when a real
+  `agent_ui_resolved` broadcast arrives, but `submitting` flips synchronously so a pressed control
+  can render a spinner immediately, before the round-trip completes.
+
+Tests: `agent-ui-state.test.ts` (pure, no jsdom), `agent-ui-controller.test.ts` (against
+`test-support/scripted-daemon.ts`'s shared harness), plus a cross-package E2E against a **real**
+dev daemon over a real WebSocket in `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/
+task-004 — lives in `cli` because `client` and `server` have no dependency edge in either
+direction; `cli` is the only package that already depends on both).
 
 ---
 
@@ -393,6 +532,12 @@ function` on upload) — never call `crypto.randomUUID()` directly in this packa
 
 ```bash
 npx vitest run packages/client
+npx vitest run packages/cli/src/agent-ui-sdk-e2e.test.ts   # cross-package Extension UI E2E (real daemon)
 ```
 
-Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets.
+Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets —
+with one exception: `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) drives a
+real `PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
+(`@av-pi-studio/server`'s `startDevDaemon`), proving interoperability beyond this package's own
+scripted-transport tests. It lives in `cli`, not here, because `client` and `server` have no
+dependency edge in either direction.

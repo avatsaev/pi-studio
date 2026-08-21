@@ -16,6 +16,7 @@ import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
 import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { useAgentUiPendingAgentIds } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
@@ -41,6 +42,7 @@ export function SessionList() {
   const collapsedWorkspaces = useUiStore((s) => s.collapsedWorkspaces);
   const toggleWorkspaceCollapsed = useUiStore((s) => s.toggleWorkspaceCollapsed);
   const homeDir = useHomeDir();
+  const pendingAgentIds = useAgentUiPendingAgentIds();
 
   function handleSelect(sessionId: string) {
     activate(sessionId);
@@ -83,7 +85,9 @@ export function SessionList() {
                 cwd={group.cwd}
                 sessionCount={group.sessions.length}
                 collapsed={collapsed}
-                attentionDot={collapsed ? workspaceAttentionDot(group.sessions) : null}
+                attentionDot={
+                  collapsed ? workspaceAttentionDot(group.sessions, pendingAgentIds) : null
+                }
                 onToggleCollapsed={() => toggleWorkspaceCollapsed(group.cwd)}
                 onOpenMenu={(x, y) => openWorkspaceMenu(group.cwd, x, y)}
               />

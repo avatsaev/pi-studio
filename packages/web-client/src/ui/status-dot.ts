@@ -11,13 +11,16 @@ export type AgentStatus =
   | "queued"
   | "archived";
 
-export type AttentionReason = "finished" | "error" | "permission";
+export type AttentionReason = "finished" | "error" | "permission" | "question";
 
 export type StatusDotInput = {
   status: AgentStatus | undefined | null;
   requiresAttention?: boolean;
   attentionReason?: AttentionReason;
-  pendingPermissionCount?: number;
+  /** Count backing an attention reason that is inherently plural (e.g. multiple pending
+   * questions/permissions on one target) — method-neutral so it is not tied to `"permission"`
+   * specifically (sprint-069/task-001). */
+  pendingCount?: number;
   showInactive?: boolean;
 };
 
@@ -41,6 +44,7 @@ export function statusDotColor(input: StatusDotInput): StatusDotColor | null {
   if (requiresAttention) {
     switch (attentionReason) {
       case "permission":
+      case "question":
         return "statusWarning";
       case "error":
         return "statusDanger";

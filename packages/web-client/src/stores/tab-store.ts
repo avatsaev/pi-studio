@@ -259,6 +259,20 @@ export function tabIdentity(tab: Tab): string | null {
   }
 }
 
+/** Shared "workspace in view AND own pane's active tab" resolution behind both
+ *  `useIsTabVisible` and `isTabVisible` below — returns the tab's cwd when it counts as visible,
+ *  `null` otherwise (including when no tab with this id exists at all, e.g. no chat tab ever
+ *  opened for a session — sprint-069/task-007's background/no-tab case). */
+function tabVisibilityCwd(
+  tabs: Tab[],
+  activeWorkspaceCwd: string | null,
+  tabId: string,
+): string | null {
+  return tabs.find((t) => t.id === tabId)?.workspaceCwd === activeWorkspaceCwd
+    ? activeWorkspaceCwd
+    : null;
+}
+
 /**
  * Whether a tab is on screen: its workspace is in view **and** it is its own pane's active tab.
  *
@@ -269,12 +283,17 @@ export function tabIdentity(tab: Tab): string | null {
 export function useIsTabVisible(tabId: string): boolean {
   // Both selectors return primitives on purpose: a panel must not re-render every time some
   // unrelated tab's label changes or another pane is rearranged.
-  const cwd = useTabStore((s) =>
-    s.tabs.find((t) => t.id === tabId)?.workspaceCwd === s.activeWorkspaceCwd
-      ? s.activeWorkspaceCwd
-      : null,
-  );
+  const cwd = useTabStore((s) => tabVisibilityCwd(s.tabs, s.activeWorkspaceCwd, tabId));
   return useLayoutStore((s) => (cwd === null ? false : isPaneActiveTab(s.layouts[cwd], tabId)));
+}
+
+/** Non-hook counterpart of `useIsTabVisible`, same visibility rule, for callers outside React
+ *  (`agent-ui-store.ts`'s effect routing needs a point-in-time answer when a `set_editor_text`
+ *  effect arrives — sprint-069/task-007). */
+export function isTabVisible(tabId: string): boolean {
+  const { tabs, activeWorkspaceCwd } = useTabStore.getState();
+  const cwd = tabVisibilityCwd(tabs, activeWorkspaceCwd, tabId);
+  return cwd === null ? false : isPaneActiveTab(useLayoutStore.getState().layouts[cwd], tabId);
 }
 
 // ─── Tab id / open helpers (POC id conventions: "chat-<id>", "file-<path>", …) ────────────

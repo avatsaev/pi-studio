@@ -48,17 +48,28 @@
  * live agent — never triggers materialization itself.
  */
 
-import { useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
+import { clsx } from "clsx";
 import { ArrowUp, ChevronDown, Navigation, Plus, Slash, Square } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { randomId } from "@pi-studio-ui/lib/random-id.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
 import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
+import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useIsTabVisible, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
 import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
+import { isComposerBusy } from "./composer-busy.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import {
@@ -87,6 +98,12 @@ function isOkFalse(value: unknown): boolean {
   return typeof value === "object" && value !== null && "ok" in value && value.ok === false;
 }
 
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 export function Composer({ sessionId }: ComposerProps) {
   const client = useConnectionStore((s) => s.client);
   const session = useSessionStore((s) => s.sessions[sessionId]);
@@ -95,7 +112,12 @@ export function Composer({ sessionId }: ComposerProps) {
   const setCwd = useSessionStore((s) => s.setCwd);
   const setModel = useSessionStore((s) => s.setModel);
 
-  const [text, setText] = useState("");
+  // Draft text is lifted into `draft-store.ts` (sprint-069/task-007), not local state — a
+  // `set_editor_text` extension effect must be able to write a session's draft even while this
+  // component is unmounted (no chat tab open for that session yet), and this same slot is what a
+  // freshly-mounted composer for that session reads as its initial text.
+  const text = useDraftStore((s) => s.drafts[sessionId] ?? "");
+  const setDraftText = useDraftStore((s) => s.setDraft);
   const [images, setImages] = useState<PendingImage[]>([]);
   // Two independent busy flags: `sending` guards Send/create-agent, whose RPC blocks
   // server-side for the *entire* turn (`runTurn` doesn't resolve until the turn ends — see
@@ -109,8 +131,52 @@ export function Composer({ sessionId }: ComposerProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
 
+  // `set_editor_text` visual feedback (sprint-069/task-007, § 11). `visible` mirrors
+  // `agent-ui-store.ts`'s own `isTabVisible(tabIds.chat(sessionId))` check at effect-application
+  // time; here it additionally drives WHEN a queued feedback is shown/consumed as this composer's
+  // own on-screen state changes.
+  const visible = useIsTabVisible(tabIds.chat(sessionId));
+  const pendingFeedback = useDraftStore((s) => s.pendingFeedback[sessionId]);
+  const [note, setNote] = useState<string | null>(null);
+  const [flashing, setFlashing] = useState(false);
+  const noteTimeoutRef = useRef<number | null>(null);
+  const flashTimeoutRef = useRef<number | null>(null);
+
+  // Consumes this session's queued feedback the instant it is both PENDING and VISIBLE — either
+  // condition can arrive first (an effect while already visible; becoming visible with a feedback
+  // already queued from a background replacement), and either transition must re-check. Never
+  // gated on `text` itself: ordinary typing changes `drafts[sessionId]` too and must not re-fire
+  // this.
+  useEffect(() => {
+    if (!visible || pendingFeedback === undefined) return;
+    const feedback = useDraftStore.getState().consumeFeedback(sessionId);
+    if (!feedback) return;
+    setNote(feedback.copy === "filled" ? "Your message was filled in" : "Your draft was replaced");
+    if (noteTimeoutRef.current !== null) window.clearTimeout(noteTimeoutRef.current);
+    noteTimeoutRef.current = window.setTimeout(() => setNote(null), 4000);
+    // Caret at the end of the new text (§ 11) — never calls `.focus()`, so this never steals focus
+    // from a pending-question card (sprint-068/task-008) or a composer the user is typing in.
+    const el = textareaRef.current;
+    if (el) el.setSelectionRange(el.value.length, el.value.length);
+    if (feedback.flash) {
+      setFlashing(true);
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = window.setTimeout(
+        () => setFlashing(false),
+        prefersReducedMotion() ? 1000 : 400,
+      );
+    }
+  }, [visible, pendingFeedback, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (noteTimeoutRef.current !== null) window.clearTimeout(noteTimeoutRef.current);
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
+    };
+  }, []);
+
   const running = session?.status === "running";
-  const busy = running ? steering : sending;
+  const busy = isComposerBusy(running, sending, steering);
   const canSubmit = Boolean(client) && !busy && (text.trim().length > 0 || images.length > 0);
 
   // Read-through cached exactly like `use-provider-models.ts` (see the hook's own docstring):
@@ -155,7 +221,7 @@ export function Composer({ sessionId }: ComposerProps) {
 
   function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
     const next = ev.target.value;
-    setText(next);
+    setDraftText(sessionId, next);
     autoResize(ev.target);
     // `/` at the very start opens the menu and keeps it open while the name is still being typed;
     // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
@@ -180,7 +246,7 @@ export function Composer({ sessionId }: ComposerProps) {
         if (caret > 0 && caret <= deletableEnd) {
           ev.preventDefault();
           const next = text.slice(deletableEnd);
-          setText(next);
+          setDraftText(sessionId, next);
           el.setSelectionRange(0, 0);
           autoResize(el);
           return;
@@ -215,7 +281,7 @@ export function Composer({ sessionId }: ComposerProps) {
 
   function applySelectedCommand(name: string): void {
     const next = applyCommand(text, name);
-    setText(next);
+    setDraftText(sessionId, next);
     setMenuOpen(false);
     setHighlight(0);
     const el = textareaRef.current;
@@ -234,7 +300,7 @@ export function Composer({ sessionId }: ComposerProps) {
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
 
-    setText("");
+    setDraftText(sessionId, "");
     // A bare Enter (or the Send/Steer button) can fire while the menu is still open — e.g. the
     // draft is a command-like token with no filter match yet (`filtered.length === 0`), so the
     // accept branch in `handleKeyDown` never ran. Close it here too, not just in `applyCommand`'s
@@ -324,7 +390,7 @@ export function Composer({ sessionId }: ComposerProps) {
 
   return (
     <div className={styles.composer}>
-      <div className={styles.card}>
+      <div className={clsx(styles.card, flashing && styles.flash)}>
         <div className={styles.textareaWrap}>
           <div className={styles.highlightLayer} aria-hidden>
             {span ? (
@@ -431,6 +497,7 @@ export function Composer({ sessionId }: ComposerProps) {
           </div>
         </div>
       </div>
+      {note !== null && <div className={styles.note}>{note}</div>}
       <input
         ref={fileInputRef}
         className={styles.hiddenFileInput}

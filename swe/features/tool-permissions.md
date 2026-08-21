@@ -2,7 +2,8 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [agent-sessions.md](agent-sessions.md), [agent-providers.md](agent-providers.md),
-> [mcp-server.md](mcp-server.md), [cli.md](cli.md)
+> [mcp-server.md](mcp-server.md), [cli.md](cli.md),
+> [extension-ui-rpc.md](extension-ui-rpc.md) (supersedes § Question-permission bridge below)
 
 ## Purpose
 
@@ -56,15 +57,25 @@ provider turn:
   (`safe`/`moderate`/`dangerous`/`planning`). Full-access modes produce **no** permission prompts;
   ask-style modes trigger requests. E2E configs expose `getFullAccessConfig` / `getAskModeConfig`.
 
-### Question-permission bridge (Pi and similar)
-- Provider interactive dialogs (`select`, `input`, `editor`, `confirm`) are surfaced as **question
-  permissions** and answered with the provider's UI-response mechanism (`extension_ui_response`).
-- Chained dialogs: an `ask_user` `select` with `allowComment:true` is presented as one combined
-  question; Pi-Studio answers the initial `select` immediately, then auto-answers the follow-up optional
-  comment `input` with the supplied comment (or empty string).
-- Preserve optional/skip semantics so the client can distinguish "skip this optional input" from
-  "cancel the whole dialog." Fire-and-forget UI requests (notifications) are ignored unless
-  first-class UI exists.
+### Question-permission bridge (Pi and similar) — SUPERSEDED
+
+> **Superseded by [extension-ui-rpc.md](extension-ui-rpc.md).** This section described routing Pi's
+> interactive dialogs (`select`/`input`/`editor`/`confirm`) through the permission family. That route
+> was never implemented and should not be taken: half of Pi's UI surface is fire-and-forget
+> (`notify`/`setStatus`/`setWidget`/`setTitle`/`set_editor_text`) and cannot be modelled as a
+> decision, `setStatus`/`setWidget` are retained state rather than events, and permission vocabulary
+> is decision-shaped where `input`/`editor` return free text. Pi's extension UI is bridged instead by
+> the generic, method-agnostic `agent_ui_*` family — see that scope's § Why a new family and not the
+> dormant permission family for the full rationale.
+>
+> The `questionKind` / `allowComment` fields on `AgentPermissionRequestRecord`
+> (`packages/server/src/agent/permissions.ts`) are residue of this abandoned route; they never
+> reached the wire (`agentPermissionRequestSchema` has no `questionKind`) and are removable when the
+> real approval flow is built.
+
+This scope now covers **only** mode-gated tool-call approval. As of 2026-08-20 that flow is still
+dormant: `PermissionService.requestPermission` and `cancelPending` have no production callers, and the
+Pi provider's `getPendingPermissions()` returns `[]` with `respondToPermission()` tracking no state.
 
 ## Data & Persistence
 - Pending permission state is in-memory on the session and surfaced live via

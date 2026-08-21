@@ -1120,6 +1120,147 @@ export const providerAuthLogoutResponseSchema = z
 export type ProviderAuthLogoutResponse = z.infer<typeof providerAuthLogoutResponseSchema>;
 
 // ===========================================================================
+// Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
+// ===========================================================================
+
+/**
+ * A pending extension-UI dialog awaiting a client answer (list/reconnect-catch-up shape). Method
+ * semantics (which fields `payload` carries, how to render it) are entirely Pi's business — the
+ * daemon never interprets `payload`, only correlates and forwards it.
+ */
+export const agentUiPendingRequestSchema = z
+  .object({
+    requestId: z.string(),
+    agentId: z.string(),
+    method: z.string(),
+    expectsResponse: z.boolean(),
+    payload: z.record(z.unknown()),
+    surfaceKey: z.string().optional(),
+    timeoutMs: z.number().optional(),
+    createdAt: wireTimestampSchema,
+  })
+  .passthrough();
+export type AgentUiPendingRequest = z.infer<typeof agentUiPendingRequestSchema>;
+
+/**
+ * A retained, last-value-wins extension-UI surface (status line, widget, title). Deleted (not
+ * listed) once its owning method sends a clearing update — see `agent_ui_request.removed`.
+ */
+export const agentUiSurfaceSchema = z
+  .object({
+    agentId: z.string(),
+    method: z.string(),
+    surfaceKey: z.string(),
+    payload: z.record(z.unknown()),
+    updatedAt: wireTimestampSchema,
+  })
+  .passthrough();
+export type AgentUiSurface = z.infer<typeof agentUiSurfaceSchema>;
+
+/**
+ * Agent-scoped broadcast to every client — one per provider UI event, exactly like
+ * `agentPermissionRequestSchema`, not the `sessionMessageBaseSchema` passthrough family (this is a
+ * per-agent broadcast, not a per-session subscription push). `requestId` is daemon-minted, never the
+ * provider's own id. `removed: true` marks a surface-clearing update (no `payload` fields to render).
+ */
+export const agentUiRequestSchema = z
+  .object({
+    type: z.literal("agent_ui_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    method: z.string(),
+    expectsResponse: z.boolean(),
+    payload: z.record(z.unknown()),
+    surfaceKey: z.string().optional(),
+    removed: z.boolean().optional(),
+    timeoutMs: z.number().optional(),
+    createdAt: wireTimestampSchema,
+  })
+  .passthrough();
+export type AgentUiRequest = z.infer<typeof agentUiRequestSchema>;
+
+/**
+ * Broadcast that lets every client dismiss a dialog once it is no longer answerable. `reason` is
+ * deliberately an open string (`answered` | `cancelled` | `timeout` | `aborted` documented, not
+ * enumerated) so the daemon can extend its taxonomy without narrowing the wire for older clients.
+ */
+export const agentUiResolvedSchema = z
+  .object({
+    type: z.literal("agent_ui_resolved"),
+    requestId: z.string(),
+    agentId: z.string(),
+    reason: z.string(),
+  })
+  .passthrough();
+export type AgentUiResolved = z.infer<typeof agentUiResolvedSchema>;
+
+/**
+ * The answer body forwarded to the provider. Deliberately permissive (every field optional,
+ * `.passthrough()`): method → response-shape validation is Pi's business, and a strict union keyed
+ * on `method` would reject a shape a future Pi UI method introduces, blocking that extension forever
+ * on a response the daemon refused to forward.
+ */
+export const agentUiResponseSchema = z
+  .object({
+    value: z.string().optional(),
+    confirmed: z.boolean().optional(),
+    cancelled: z.boolean().optional(),
+  })
+  .passthrough();
+export type AgentUiResponse = z.infer<typeof agentUiResponseSchema>;
+
+export const agentUiRespondRequestSchema = z
+  .object({
+    type: z.literal("agent_ui_respond_request"),
+    requestId: z.string(),
+    uiRequestId: z.string(),
+    response: agentUiResponseSchema,
+  })
+  .passthrough();
+export type AgentUiRespondRequest = z.infer<typeof agentUiRespondRequestSchema>;
+
+/** `error` is an open string (`not_found` | `unsupported` documented, not enumerated). */
+export const agentUiRespondResponseSchema = z
+  .object({
+    type: z.literal("agent_ui_respond_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentUiRespondResponse = z.infer<typeof agentUiRespondResponseSchema>;
+
+/** Reconnect catch-up: list current pending dialogs + retained surfaces, all agents or one. */
+export const agentUiListRequestSchema = z
+  .object({
+    type: z.literal("agent_ui_list_request"),
+    requestId: z.string(),
+    agentId: z.string().optional(),
+  })
+  .passthrough();
+export type AgentUiListRequest = z.infer<typeof agentUiListRequestSchema>;
+
+export const agentUiListResponseSchema = z
+  .object({
+    type: z.literal("agent_ui_list_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        ok: z.boolean(),
+        pending: z.array(agentUiPendingRequestSchema),
+        surfaces: z.array(agentUiSurfaceSchema),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentUiListResponse = z.infer<typeof agentUiListResponseSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -1202,6 +1343,12 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   providerAuthCancelResponseSchema,
   providerAuthLogoutRequestSchema,
   providerAuthLogoutResponseSchema,
+  agentUiRequestSchema,
+  agentUiResolvedSchema,
+  agentUiRespondRequestSchema,
+  agentUiRespondResponseSchema,
+  agentUiListRequestSchema,
+  agentUiListResponseSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

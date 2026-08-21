@@ -95,8 +95,12 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 063 | `sprint-063-html-file-preview` | web-client only: **HTML files render in the Files panel**, inside an iframe isolated from the app, instead of opening as source. Derived from `features/html-file-preview.md`, whose design is grounded in behavior measured in headless Chromium (see the sprint section below): with `sandbox="allow-scripts"` and no `allow-same-origin` the document's origin is `"null"` and both `parent.document` and `localStorage` throw — which matters because this app's origin holds the daemon password and a live authenticated socket. Two structural fixes ship with it, because the first new viewer since molecule support exposed them: the registry's four parallel registration sites (three tables plus `LIVE_REFRESH_KINDS` in another directory, silently defaulted when forgotten) collapse into one descriptor table with derived lookups and a **required** `liveRefresh` field, and `ViewerProps` gains the `workspaceCwd` a viewer needs to resolve sibling files — which incidentally fixes a live defect, relative images in a previewed `.md` file never resolving because `MarkdownFileViewer` passes no `assetBase`. `TextViewer`'s three-tier size ladder is extracted so markdown and HTML also stream files over the daemon's 5 MiB inline-read cap. Remote loading is allowed by default with an explicit per-tab "Block remote resources" toggle (an injected meta CSP); an injected `.invalid` `<base>` keeps un-inlined relative refs off the app origin, where the SPA fallback would answer them with `index.html` | 4 |
 | 064 | `sprint-064-html-preview-local-assets` | web-client only: the second half of `features/html-file-preview.md` — a previewed HTML document's **local assets** (`./style.css`, `./app.js`, `./img/logo.png`, `url()` inside an inlined stylesheet) are fetched over the existing chunked binary file-transfer path and inlined as `data:` URIs, so a multi-file report renders as authored rather than unstyled. `data:` is not a stylistic choice: a sandboxed opaque-origin document **cannot** fetch a parent-created `blob:` URL (measured), so the object-URL approach the file viewers use everywhere else is unavailable here. The security-relevant half is the confinement gate — a candidate ref is resolved against the document's directory, lexically normalized, percent-decoded, and must land under the workspace root, or it is skipped and never requested; without it a hostile document could name `../../../.ssh/id_rsa`, have the app fetch it, read it back out of its own inlined `data:` URI, and (remote loading being on by default) post it anywhere. Caps (64 refs / 2 MiB each / 16 MiB total) plus a muted "not inlined" note keep a skipped ref visible instead of silent. All extraction/confinement/rewriting is pure and node-testable; the sandbox, not the rewriting, remains the security boundary | 3 |
 | 065 | `sprint-065-provider-auth-ui` | client + web-client (no protocol, no daemon, no CLI): the **browser half** of provider auth, consuming sprint-055's wire contract verbatim. Sprint-054 gave a shell user `pi-studio auth login`; sprint-055 puts the same Pi engine behind five RPC pairs; this makes it usable by the people who actually need it — web and relay-remote users with no shell on the daemon host. Four `PiStudioClient` methods hide flowId/promptId correlation behind a callback interface deliberately shaped like Pi's own `AuthInteraction`, and **no `DaemonClient` change is needed**: `request()`, `onSessionMessage()` and `hasFeature()` are already exactly the three seams required. Three things the scope could not assume and planning had to settle: **(a)** web-client has **no settings screen and no router at all** — `WorkspacePage.tsx` is a single shell and `appearance-store.ts` has no panel — so this sprint ships the **settings dialog shell itself**: a gear icon at the ConnectionBar's top-right opens a large `Dialog`-primitive modal with a category sidebar (`OpenWorkspaceDialog` pattern for the primitive), Model Providers as the sole category today; future categories (Appearance is the obvious next) add a registry entry rather than a new surface, and `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` renders the same category panels when that IA exists; **(b)** there is **no QR component** in web-client (`qrcode` is daemon/CLI terminal-side only), so a small browser one wrapping `toDataURL` is new here, with `qrcode` as a devDependency because web-client ships no runtime deps; **(c)** the onboarding nudge lands in `Timeline.tsx`'s existing empty state via the `EmptyState` primitive — there is no app-wide banner pattern to reuse. One correctness detail carries its own regression lock: the SDK **must subscribe to `onSessionMessage` before sending the login request and buffer until `flowId` is known**, because the daemon starts Pi's flow immediately and a `prompt` can legitimately precede the login response — subscribing after the await drops it and the dialog hangs forever. The login dialog splits across two tasks so the common case lands first: task-004 finishes API-key login end-to-end, task-005 adds the OAuth presentation surface (`auth_url` + QR + copy, `device_code` countdown) that must render **concurrently** with a live `manual_code` prompt, because over the relay any localhost callback binds on the daemon host and Pi's contract races the url against the manual code. Nothing persists client-side — no secret, no flow state, no `localStorage`. | 7 |
+| 066 | `sprint-066-extension-ui-rpc` | protocol + daemon (no client SDK, no web-client, no CLI): the **server side** of Pi's extension UI. `providers/pi/agent.ts:127-142` is a POC stub that answers every `extension_ui_request` dialog with `{cancelled:true}` and drops the five fire-and-forget methods through the same `return` — so every interactive extension is inert, and the daemon is cancelling UI **it installed itself**: `rpiv-todo` is a `core`-pack member whose panel rides `setWidget`. One generic, method-agnostic `agent_ui_*` family replaces it (two broadcast pushes + two RPC pairs), because the dormant permission family cannot host this: half of Pi's surface is fire-and-forget (an unanswerable "permission" is a contradiction), `setStatus`/`setWidget`/`setTitle` are *retained state* rather than events, and permission vocabulary is decision-shaped where `input`/`editor` return free text. **All nine methods' semantics live in the Pi adapter, nothing above it** — which is what makes an unknown future fire-and-forget method work with zero changes; a future *dialog* method is the honest ceiling (Pi's wire carries no blocking marker) and costs one constant. Five findings drive real tasks rather than footnotes. **(a)** Surface keys **must** be namespaced by method: Pi's own docs use the same key for both kinds (`statusKey:"my-ext"` at `rpc.md:1273`, `widgetKey:"my-ext"` at `:1289`), so un-namespaced an extension's status tick silently deletes its own widget. **(b)** Clearing is protocol, not an edge case — `statusText`/`widgetLines` absent *clears* (`rpc.md:1278`,`:1295`), so without a `removed` flag every cleared surface is retained as a husk forever and fed to reconnecting clients. **(c)** Wire ids are **daemon-minted**: `ProviderUiRequest.requestId` is provider-scoped by contract (Pi uses UUIDs, the mock uses counters), so a daemon-global map keyed by it routes one agent's answer into another's process. **(d)** The response body is deliberately passthrough, so `extension_ui_response` must stamp `id` **after** spreading it — `{id, ...response}` lets a client answer dialog A while resolving dialog B. **(e)** Attach rides a new `AgentManager.onSessionAttached` hook rather than the two `agent-service.ts` construction sites, because `spawnOrResumeSession` is a free function called from three deps objects and a future import path would silently skip attach. Two lifecycle rules are inverted from their nearest neighbours on purpose: a **client disconnect must not cancel** a pending dialog (the opposite of `provider_auth` — a question belongs to the agent, so a tab reload must not kill the turn), and **interrupt touches nothing** (dialogs are not turn-scoped — `pi-background-tasks` raises them outside any turn — and surfaces are agent-lifetime state, so sweeps run only on archive/delete/re-attach). Registered in **both** bootstraps, unlike `provider-auth`/`file-watch`, because the mock provider is this family's producer and the dev daemon is mock-only. | 6 |
+| 067 | `sprint-067-extension-ui-sdk` | client only (no protocol, no daemon, no web-client, no CLI command): the **client-side consumer** of sprint-066's `agent_ui_*` contract — an SDK surface on `PiStudioClient`, a pure reducer, and a controller — with **no rendering at all**, deliberately. Sprint-066 shipped the whole server side and it has **zero consumers**: `packages/client` has no `agent_ui` surface, so a real dialog is received, retained and broadcast to nobody while the turn blocks until Pi's timeout (observed live in 066/t006 — five real turns, `status: "running"` for minutes, until a hand-driven `ws` client answered). The split is the point: everything genuinely hard here is state, not pixels — reconnect rehydration ordering, first-answer-wins across clients, countdown display under cross-host clock skew, and methods Pi has not invented yet — so it is solved and unit-tested under Node (no jsdom in this runner) and the sibling UI scope becomes component work over a tested machine. Four decisions planning had to settle. **(a)** The **error convention splits**: `listAgentUi` throws (a failed snapshot is exceptional) but `respondToUi` **returns** `{ ok: false, reason }`, because `not_found` is the *normal* outcome when another client answered first — throwing would put a routine race in the exception path; and the daemon's reason string is forwarded **verbatim**, never relabeled `already_resolved`, since the daemon returns `not_found` for answered-elsewhere, bogus id and swept agent alike. **(b)** Rehydration is **replace/discard/apply**, not merge-then-drain: the socket is one ordered stream and the snapshot postdates every broadcast on it, so queued dialog/surface events are already reflected and replaying them would roll a widget back (surfaces are last-write-wins on `(agentId, surfaceKey)`, not `requestId`-deduped) — while queued *transients* are in no snapshot and must apply exactly once. **(c)** Reconnect belongs to the **controller**, not the consumer: `disconnected` marks dialogs `answerable: false` and only a snapshot re-enables them, so a forgotten `resync()` would ship permanently dead dialogs failing silently after a network blip — and the existing public `get connection()` is already the seam, so no new facade method. **(d)** Surface pruning is **client-side by necessity**: the daemon broadcasts `resolved` per dialog on archive/delete but sweeps surfaces with a bare `surfaces.delete(agentId)` and **no broadcast**, so a connected client would keep an archived agent's widgets forever. Routing is by wire predicate (`expectsResponse`/`surfaceKey`/`removed`) with **no method table**, which is what makes an unknown future *dialog* still answerable instead of a silent hang. Zero user-visible change — infrastructure held for exactly one sprint, worth shipping only if the UI scope follows promptly. | 4 |
+| 068 | `sprint-068-extension-ui-dialogs` | web-client only (no protocol, no daemon, no client SDK beyond consumption; one dev-only server change): the **renderer** the previous two sprints were built for — § 00–§ 07, § 12 and § 13 of `swe/UI design/redesign 0.1.0/Extension Dialogs Visual Spec.html`, which is the **visual authority** for this and its two sibling sprints. An interactive extension currently blocks an agent's turn with nothing on screen: s066 shipped the daemon family, s067 shipped the state layer, and neither renders a pixel. This sprint puts the four dialog kinds plus the unrecognised-method card into the transcript in the existing tool-card row language, takes them through in-flight/resolved/non-answerable, handles several at once, and settles the keyboard. Four planning findings shape it, each carried by a task. **(a)** There is **no way to raise a dialog from a browser** — `MockAgentSession.emitUiRequest` is in-process test-only, and the one real extension proven to work (`@juicesharp/rpiv-ask-user-question`) emits only `select`/`input` with fixed payloads, so `confirm`, `editor`, unknown methods, nine options, empty options, deadlines and concurrency are all unreachable; a prompt-driven scripted trigger comes first (t001) because visual sign-off is the **user's**, not the implementer's, and every later hand-off is written in terms of its recipes. **(b)** The s067 `createAgent`-blocks-the-turn deadlock **cannot occur in this client** — verified during review: the web-client materializes drafts with a no-`initialPrompt` `createAgent` (`stores/materialize.ts`, daemon deferred-draft branch), renders tabs synchronously, and sends the first prompt via `agent().send()` with a swallowed rejection; the *unverified* hazard is what `send()`'s promise gates when a dialog-blocked turn outlives `rpcTimeoutMs`, so t002 investigates that seam and locks whichever answer it finds. **(c)** **No extension name exists anywhere on the wire** — Pi's `extension_ui_request` carries `type`/`id`/`method` plus the method's own fields, and the RPC-mode UI context is one object shared by every extension, so the calling extension's identity is gone before the message leaves Pi; § 00 states this as permanent and cards show the method alone. **(d)** Cards are **not** timeline rows: UI requests are deliberately never persisted, so they are composed into the virtualizer after the last persisted row, and resolved cards are live-session-only and bounded at the SDK's 50-per-agent cap — § 04/§ 06 forbid any question-history affordance built on them. Deferred by design: attention badging and transients (s069), retained surfaces (s070). | 9 |
+| 069 | `sprint-069-extension-ui-attention` | web-client only: § 08 and § 11 of the same visual authority — **discoverability and transients**. Sprint-068 renders a question card only inside the session you are looking at, so a dialog raised anywhere else is invisible while the agent sits blocked; that is the largest gap it knowingly left, and this closes it on four surfaces at once (session row, collapsed workspace header, pane tab strip, screen-reader announcements) plus the two fire-and-forget methods that touch the user directly. The sidebar half is mostly **pre-seamed**: `ui/status-dot.ts` already maps `waiting → statusWarning` and exports `STATUS_DOT_SIZE = 8` (which § 08 adopts, correcting rev 1's 7px), `features/workspace/tab-attention.ts` already exists, and `session-presentation.ts`'s `workspaceAttentionDot` documents this very gap in a comment — "needs-input unsourceable in this client, `error` is the only real attention signal available" — which s068's store is what makes sourceable. Three findings shape the plan. **(a) The app has no toast UI at all.** `ui/toast.ts` is complete as *logic* (variants, `buildToastEntry`, hover-pause `remainingMs`, sticky support) and has **zero importers**; no host, store or component named `Toast*`/`Snackbar*`/`Notification*` exists anywhere in `features/`, `routes/` or `components/`, while `features/ui-components.md` § Feedback specifies the viewport in detail. So § 11's `notify` is not "add a `warning` variant" — it is building the toast surface, which is why it is its own task ahead of its only caller. **(b)** The status-dot vocabulary needs a real `attentionReason: "question"`: `AttentionReason` is `"finished" \| "error" \| "permission"`, and `features/extension-ui-rpc.md` argues at length that permissions and extension questions are different concepts — conflating them would leave a future tool-permission surface unable to tell them apart. **(c)** `set_editor_text` is the one surface that mutates something the user is mid-way through using, and it always replaces; § 11's flash/note/caret exist to make that legible — and the draft it replaces is today component-local `useState` in `Composer.tsx` with no per-session store, so t007 builds that seam; the background-pane case gets **no flash at all**, only the note, deferred to the pane's next reveal so feedback is not spent on an empty room. Review also found § 08 assumes a per-tab context menu that s061's docs explicitly mark unimplemented, so t004 ships a minimal one (right-click, Close). The § 08 row-wash self-contradiction filed by s068/t009 lands on t001 here, which ships the unambiguous accent bar and defaults to *no* wash if unanswered rather than stalling. | 9 |
 
-Total: **63 sprints, 313 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **67 sprints, 341 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -1552,6 +1556,257 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-006 | Onboarding nudge in `Timeline.tsx`'s empty state via `EmptyState`: shown only when connected + capability + zero `configured === true` providers (`"unknown"` suppresses it), sharing the panel's query key so one invalidation updates both surfaces with no reload; unchanged copy in every other case | feature | task-003 | packages/web-client (features/chat/Timeline, lib/connection/rpc-keys); features/provider-auth-ui § Web UI surface |
 | task-007 | Live browser E2E (10 recorded steps: nudge → api-key login → `pi-studio auth status` on the host → **daemon-spawned agent turn on that credential** → OAuth manual path → Esc/button cancel observed server-side → mid-flow socket drop → logout incl. ambient env var → capability-less daemon emitting **zero** provider-auth frames → secret sweep across logs, frames, `localStorage` and DOM) **plus the relay-remote login** that CLI auth cannot serve; then docs sync | test + docs | task-001, task-002, task-003, task-004, task-005, task-006 | AGENTS.md (root, packages/client, packages/web-client); features/provider-auth-ui |
 
+### sprint-066-extension-ui-rpc
+> **What it closes.** The daemon has answered every Pi extension dialog with `{cancelled:true}` since
+> the POC (`providers/pi/agent.ts:127-142`, a stub whose own comment says so) and silently dropped the
+> five fire-and-forget methods through the same `return`. So `rpiv-todo` — installed by the daemon
+> itself as a `core`-pack member — renders no panel, `rpiv-ask-user-question` asks nothing, and a
+> permission-style `select` self-denies. This sprint is the server side only; a sibling scope owns the
+> SDK and the browser surface.
+>
+> **Why not the permission family.** `tool-permissions.md` § Question-permission bridge anticipated
+> routing dialogs through `agent_permission_request`, and that section is now marked SUPERSEDED.
+> Verified: `PermissionService.requestPermission`/`cancelPending` have **zero** production callers
+> (test-only) and Pi's `getPendingPermissions()` returns `[]` with `respondToPermission()` tracking
+> nothing — so there was no pipeline to extend, only a choice between two greenfield shapes. The
+> permission shape loses on four counts: half of Pi's surface is fire-and-forget (an unanswerable
+> "permission" gates nothing), `setStatus`/`setWidget`/`setTitle` are *retained, clearable state*
+> rather than events, permission vocabulary is decision-shaped where `input`/`editor` return free
+> text, and mapping into it would put per-method knowledge in the daemon — the one thing this design
+> forbids outside the Pi adapter.
+>
+> **Five findings from the source, each carried by a task rather than a footnote.** (a) Surface keys
+> **must** be namespaced by method — Pi's docs use the *same* key for both kinds (`statusKey:"my-ext"`
+> `rpc.md:1273`, `widgetKey:"my-ext"` `:1289`), so un-namespaced an extension's status tick silently
+> deletes its own widget, which is precisely `rpiv-todo`'s panel (t002). (b) Clearing is protocol:
+> `statusText`/`widgetLines` absent *clears* the entry (`:1278`,`:1295`), so without a `removed` flag
+> every cleared surface is retained as a husk forever and served to reconnecting clients (t002+t003).
+> (c) Wire ids are **daemon-minted** — `ProviderUiRequest.requestId` is provider-scoped by contract
+> (Pi UUIDs, mock counters), so a daemon-global map keyed by it lets one agent's dialog shadow
+> another's and routes an answer into the wrong process (t003). (d) The response body is deliberately
+> passthrough, so `extension_ui_response` must stamp `id` **after** spreading it: `{id, ...response}`
+> lets a client include `id` and answer dialog A while resolving dialog B (t002). (e) Attach rides a
+> new `AgentManager.onSessionAttached` hook (`agent-manager.ts:145`) instead of the two
+> `agent-service.ts` construction sites, because `spawnOrResumeSession` is a free function called from
+> three separate deps objects and any future import path would silently skip attach (t004).
+>
+> **Two lifecycle rules are deliberately inverted from their nearest neighbours.** A client
+> **disconnect must not cancel** a pending dialog — the opposite of `provider_auth`, because a question
+> belongs to the *agent*, so a tab reload must not silently kill the turn; this family registers no
+> `SessionSubscriptions` entry at all. And **interrupt touches nothing**: dialogs are not turn-scoped
+> (`pi-background-tasks`, also `core`, raises them outside any turn and Pi's `interrupt` does not kill
+> extensions) and surfaces are agent-lifetime state, so wiping them on Stop would destroy the very
+> panel this sprint restores. Sweeps run only on archive/delete/re-attach.
+>
+> **Forward compatibility, stated honestly.** An unknown future *fire-and-forget* method passes
+> through with zero changes. A future *dialog* method is the ceiling — Pi's wire carries no blocking
+> marker — so it costs one adapter constant, and the unknown-method path logs at info so the situation
+> is diagnosable instead of a silent hang. Registered in **both** bootstraps (unlike
+> `provider-auth`/`file-watch`) because the mock provider is this family's designated producer and the
+> dev daemon is mock-only. Nothing is persisted: pending dialogs and surfaces die with the daemon,
+> correctly, since the Pi processes holding them die with it too.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: two broadcast pushes + two RPC pairs + the three carried shapes, all `.passthrough()` with `payload: z.record(z.unknown())` for daemon-side opacity; `reason`/`error` as **open strings** (s057/t001's lesson, and the same trap that keeps `agentStatusEnum` closed to `awaiting_input`); `extensionUi` server feature + optional `supportsExtensionUi` capability | feature | none | packages/protocol (messages, client-capabilities, provider-manifest + tests); features/extension-ui-rpc § Public contract, § Registration style, § Capability flags |
+| task-002 | Provider UI channel: optional `onUiRequest`/`respondToUi` on `AgentSession`, **replace** the auto-cancel stub with translation onto it, and the four Pi-only responsibilities — dialog-method constant, method-namespaced surface keys, clear-form→`removed`, envelope stamping after the body spread — plus a mock scripted emitter/recorder so the family is testable with no `pi` process | feature | task-001 | packages/server/src/agent (provider-contract, providers/pi/agent, providers/mock/mock-provider); features/extension-ui-rpc § Provider contract extension |
+| task-003 | `AgentUiService`: daemon-minted wire ids over `(agentId, providerRequestId, session)`, pending map, surface retention **and deletion**, broadcast to all clients, first-answer-wins `respond` with an unconditional `finally` broadcast (a dead-stdin throw must not leave ghost dialogs), timeout expiry that never answers (Pi self-resolves, `rpc.md:1164`), and terminal-only sweeps incl. the leading sweep in `attach` that kills a forced respawn's undead entries | feature | task-001, task-002 | packages/server/src/agent/agent-ui/agent-ui-service + test (fake session, no Pi); features/extension-ui-rpc § Behavior & algorithms |
+| task-004 | Make it live: optional `AgentManager.onSessionAttached` hook at the single `attachSession` choke point (throw-isolated), `agent-ui-rpc.ts` handlers with domain failures in `payload` (the router owns the only two `rpc_error` codes), and wiring in **both** bootstraps reusing each one's existing `manager.subscribe` fan-out for archive/delete sweeps | feature | task-003 | packages/server/src (agent-manager, agent-ui/agent-ui-rpc, daemon/bootstrap, daemon/dev-bootstrap); features/extension-ui-rpc § New/changed files, § Dev daemon |
+| task-005 | MCP mirror (`list_pending_ui_requests`/`respond_to_ui_request`) so a parent agent can unblock a child's questionnaire — otherwise a deadlock in an orchestrated run; `unknown_ui_request` deliberately keeps MCP's own vocabulary (`unknown_permission`'s neighbour) rather than the WS side's `not_found` | feature | task-004 | packages/server/src/agent/mcp-server + daemon/bootstrap backend; features/extension-ui-rpc § MCP mirror |
+| task-006 | Live E2E against a **real** `pi --mode rpc` (10 recorded steps: feature flag → `rpiv-ask-user-question` questionnaire answered over WS and completing → `rpiv-todo` surface rebuilt by a late-joining client from `agent_ui_list_request` alone → clear → interrupt-preserves → archive-sweeps → MCP parity → secret sweep across logs and frames → no daemon-authored response for any fire-and-forget method), closing the pre-attach-race open question either way; then docs sync | test + docs | task-001, task-002, task-003, task-004, task-005 | AGENTS.md (root, packages/protocol, packages/server); features/extension-ui-rpc § Acceptance criteria, § Open questions |
+
+### sprint-067-extension-ui-sdk
+> **What it closes.** Sprint-066's family has no consumer. `packages/client` carries no `agent_ui`
+> surface at all, so the daemon retains and broadcasts a real extension dialog to zero listeners and
+> the agent's turn blocks until Pi's own timeout — verified live in 066/t006, where every dialog
+> across five real Pi turns sat `status: "running"` until a hand-driven `ws` client answered it. This
+> sprint is the **non-rendering** half of the consumer: SDK surface, pure reducer, controller. The
+> renderer (dialog components, status strip, widget blocks, attention badging, Esc-stack) is a
+> sibling scope.
+>
+> **Why ship state with no UI.** Every genuinely difficult thing in this feature is state logic:
+> rehydration ordering across a reconnect, first-answer-wins across multiple clients, a countdown
+> displayed under cross-host clock skew, and safe handling of methods Pi has not invented yet. Tested
+> here under Node — this repo's runner has no jsdom, so UI logic is split into pure `.ts` modules by
+> convention anyway — the UI scope has no state decisions left to improvise. The honest cost is
+> stated in the scope itself: **zero user-visible change**, infrastructure held for exactly one
+> sprint, only worth doing if the UI scope follows promptly rather than parking.
+>
+> **Four findings from the source, each carried by a task rather than a footnote.** (a) The
+> **error convention must split**: both responses carry `ok`/`error` inside `payload`, the hazard
+> `ProviderAuthError` exists for — but `not_found` is the *expected* outcome of a broadcast model
+> when another client answers first, so `respondToUi` **returns** it while `listAgentUi` **throws**
+> (t001). And it is forwarded **verbatim**: the daemon returns `not_found` for answered-elsewhere, a
+> bogus id and an already-swept agent alike, so relabeling it `already_resolved` would assert
+> knowledge the client does not have. (b) Rehydration is **replace/discard/apply**, not
+> "snapshot then drain": ordered delivery means the snapshot postdates every queued broadcast, and
+> surfaces are last-write-wins on `(agentId, surfaceKey)` and **not** deduped by `requestId` (each
+> upsert carries a fresh id), so draining an older queued upsert would silently roll a widget back
+> until the extension's next update — while queued *transients* appear in no snapshot and must apply
+> exactly once (t002+t003). No tombstones: a `resolved` for an unknown id is a plain no-op, and the
+> race that would need bookkeeping is unconstructible from an ordered socket. (c) `answerable` is a
+> **one-way door** unless the snapshot resets it — `disconnected` sets it `false` and nothing else
+> sets it back, so the first network blip would permanently disable every dialog; and because only a
+> snapshot re-enables them, **reconnect detection belongs to the controller** rather than being
+> consumer-optional, which the existing public `get connection()` seam already allows with no new
+> facade method (t002+t003). (d) **Surface pruning must be client-side**: on archive/delete the
+> daemon broadcasts `agent_ui_resolved` per dialog but sweeps surfaces with a bare
+> `surfaces.delete(agentId)` and **no broadcast**, so a connected client that never re-snapshots
+> would keep an archived agent's status strip and widgets forever (t002+t003). The feed for that
+> pruning is the **`agent_archived`/`agent_deleted`** session messages, **not** `onAgentUpdate`:
+> `archiveAgent`/`deleteAgent` call `broadcastArchived`/`broadcastDeleted` exclusively and never the
+> `agent_update`-emitting path, so a pruner on `onAgentUpdate` would never fire — and would fail
+> *partially*, since dialogs still clear via `agent_ui_resolved` and only surfaces would leak. Hence
+> two new exported guards (`isAgentArchived`/`isAgentDeleted`) consumed through
+> `connection.onSessionMessage`, the established convention for message types with no facade method,
+> and a regression-lock test asserting an `agent_update` prunes nothing.
+>
+> **No method table, anywhere in the routing path.** Classification is by wire predicate alone
+> (`expectsResponse` → dialog, `surfaceKey` (+`removed`) → surface, otherwise → transient), because a
+> flat `method → handler` map cannot express `set_editor_text` (mutates a composer, renders nothing)
+> and offers no safe default for unknown methods. That is precisely what makes an unknown **future
+> dialog** still enter `pending` and stay answerable instead of wedging a turn — and it is why the
+> entry carries **no** `unknown`/`fallback` flag: such a flag would require the very table the rule
+> forbids, so "unknown" is a render-time fact (a registry miss) and, for logging, the signal is a
+> transient that produced zero effects. Timeouts are **displayed, never acted on**: Pi auto-resolves
+> and its docs say the client need not track them, so two clients running independent expiry logic
+> would diverge from each other and from the agent.
+>
+> **Where the E2E can legally live, verified rather than assumed.** `client` and `server` have **no**
+> dependency edge in either direction, so neither can host a test needing both; `cli` is the only
+> package that already depends on both and already declares tsconfig references to both, so the test
+> goes there at the cost of **zero** new edges (the alternative, a `server → client` devDependency,
+> would invert the documented build layering for one file). It needs exactly one prerequisite: the
+> daemon barrel re-exports only `bootstrap.js` while server's `exports` map allows the root subpath
+> only, so `startDevDaemon` is currently unreachable from outside the package — one line (t004).
+> Real Pi covers the **dialog path only**, deliberately: 066/t006 established that `rpiv-todo`'s
+> widget and `pi-powerline-footer`'s footer use Pi's TUI-only `ctx.ui.custom(...)`/factory forms and
+> never reach RPC mode at all, so surface rehydration is proven against the mock provider rather than
+> chasing a live observation that cannot exist in this Pi version.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | SDK surface on `PiStudioClient`: two broadcast subscriptions (`meta.receivedAt` a **local** clock reading, deliberately unlike `AgentStreamEventMeta`'s daemon `timestamp`/`seq`, because skew is the whole point), two RPCs with the split error convention, `AgentUiError`, **four** guards (the two `agent_ui_*` pushes plus `isAgentArchived`/`isAgentDeleted` for t003's pruning feed), and `extensionUiAvailable()` — **not** named `supportsExtensionUi()`, which is already a *provider* capability flag with different meaning | feature | none | packages/client (pistudio-client + test); features/extension-ui-client-sdk § Public contract, § Capability gating, § Error convention |
+| task-002 | `agent-ui-state.ts`: pure reducer + selectors — predicate routing, composite `(agentId, surfaceKey)` keying (a key is only unique *within* an agent), wholesale snapshot replacement resetting `answerable`, `disconnected`, `agent_removed`, effects returned never performed, `remainingMs` accepting `wireTimestampSchema`'s number-or-ISO `createdAt` and **nothing** expiring on timeout | feature | task-001 | packages/client (agent-ui-state + test, Node/no jsdom); features/extension-ui-client-sdk § Pure state module, § Routing taxonomy, § Timeout display, § Unknown methods |
+| task-003 | `agent-ui-controller.ts`: subscribe-then-list with a generation guard, queue drained as **discard dialogs/surfaces, apply transients**, automatic reconnect resync over the existing `get connection()` seam, `agent_removed` fed from the `agent_archived`/`agent_deleted` messages via `connection.onSessionMessage` (**never** `onAgentUpdate`, which cannot fire for an archive), inert under a missing capability flag (re-checked per reconnect), no optimistic respond, once-per-method unknown reporting off the zero-effects signal | feature | task-001, task-002 | packages/client (agent-ui-controller + test, scripted transport incl. `drop`); features/extension-ui-client-sdk § Controller, § Rehydration, § Disconnect, § Agent lifecycle |
+| task-004 | E2E against a **real** dev daemon over a real socket, hosted in `cli` (the only package depending on both client and server) after one barrel line makes `startDevDaemon` reachable: answer round-trip asserted at the *provider*, first-answer-wins across two clients, late-joiner rebuilt from the snapshot alone, consumer-free reconnect resync, clear-by-omission, archive pruning; then a real-`pi` dialog smoke (surfaces impossible per 066/t006) and docs sync | test + docs | task-001, task-002, task-003 | packages/cli (new e2e), packages/server (daemon barrel), AGENTS.md (client, root), PLAN.md; features/extension-ui-client-sdk § Acceptance criteria |
+
+### sprint-068-extension-ui-dialogs
+> **What it closes.** Two sprints of infrastructure with zero user-visible output. s066 made the
+> daemon forward Pi's extension UI, s067 made a client able to hold and answer it, and an interactive
+> extension *still* blocks a turn with a blank transcript. This sprint renders the dialog half: four
+> kinds plus the unrecognised-method card, their lifecycle, concurrency, and the keyboard. The visual
+> authority is `swe/UI design/redesign 0.1.0/Extension Dialogs Visual Spec.html` (§ 00–§ 07, § 12,
+> § 13) — a mock-accurate spec whose own § 00 records the wire payloads, so a divergence from it is a
+> bug rather than an interpretation.
+>
+> **Verification is inverted from the usual sprint, deliberately.** Visual sign-off belongs to the
+> **user** (direction, 2026-08-21): implementers own the automated gates and must produce a named
+> trigger recipe plus an expected result, and t009 collects the whole matrix into one ordered pass.
+> That makes t001 a prerequisite rather than a convenience — nothing in a running daemon can raise a
+> dialog today (`emitUiRequest` is reachable only by casting a session in-process), and the one real
+> extension that works emits `select`/`input` alone, so most of § 03–§ 07 and § 12 is otherwise
+> unobservable. The same split explains why so much lands in pure modules: this repo's runner has no
+> jsdom, so every *decision* the card makes — outcome copy, option layout, prompt normalization,
+> whether a deadline may be drawn — is tested under Node (t004) and the components stay thin.
+>
+> **Three findings that would each have surfaced as a bug rather than a question.** (a) `createAgent`
+> blocks on the entire first turn, dialogs included: s067/t004 deadlocked on exactly this and escaped
+> by firing without awaiting and correlating on the `initializing` broadcast. If the create path gates
+> rendering on that promise, a dialog raised during a new session's first turn is unanswerable and the
+> turn cannot complete — an unrecoverable state for the user, hit in the case a *new* user meets first
+> (t002). (b) **No extension name is on the wire at all.** `extension_ui_request` carries
+> `type`/`id`/`method` plus method fields, `extensionPath` exists only on `extension_error`, and RPC
+> mode builds **one** UI context shared by every extension (`rpc-mode.js`'s zero-argument factory,
+> bound once per session), so identity is gone before emission and cannot be inferred downstream —
+> dialogs carry no key, and only `statusKey`/`widgetKey` exist for surfaces. § 00 therefore fixes the
+> presentation as method-only and the spec was revised across five sections rather than designing
+> around a field that may never arrive. (c) Cards are **not** timeline rows and must never become
+> them: the server keeps UI requests out of the append-only timeline on purpose, so they are composed
+> into the virtualizer after the last persisted row, ordered by the SDK's comparator (shared between
+> pending and resolved so a card cannot jump when it collapses), with snapshot-recovered entries
+> identified by an absent `receivedAt` — no new state, and no local re-sort.
+>
+> **What it deliberately does not do.** No attention badging, so a dialog in a background session is
+> invisible until that session is opened — accepted for one sprint, closed by s069. No `notify` or
+> `set_editor_text` handling: the controller emits those effects and this sprint ignores them with a
+> comment, which is the status quo (nothing renders them today) but must read as a decision, not an
+> oversight. No retained surfaces (s070). And no destructive `confirm` variant, because nothing on the
+> wire flags an action destructive — § 03 withdrew it rather than inventing a heuristic.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Browser-reachable scripted dialog trigger in the **mock provider** — a pure `parseUiScript` plus prompt recipes (`#ui select:9`, `select:empty`, `input:multiline`, `<method> timeout=N`, `multi n`, `help`) covering every state the real extension cannot produce, echoing the answer the provider received so a visual check proves the round trip and not just the card vanishing; payload keys match § 00 exactly, and `timeout=` is rejected on `editor` (Pi's one dialog with no timeout support) | test | none | packages/server (mock provider + ui-script & test); visual spec § 00, § 03, § 12 |
+| task-002 | First-turn reachability, re-grounded during review: the web-client **never** creates with an `initialPrompt` (deferred-draft `ensureMaterialized`, synchronous tab render, first prompt via `agent().send()` with a swallowed rejection), so the s067 createAgent deadlock cannot occur here — the unverified hazard is one seam over: what `send()`'s promise gates when a dialog-blocked turn outlives `rpcTimeoutMs` (spurious error, composer lockup, duplicate send). Investigate-then-act, regression lock either way, genuine send failures still surfaced | bugfix | task-001 | packages/web-client (stores/materialize, stores/tab-store, features/chat Composer); s067/t004 summary; visual spec § 06 |
+| task-003 | Controller lifetime + React distribution: one `AgentUiController` per client (created only when `extensionUiAvailable()`), disposed on disconnect/client change, per-agent selectors with stable identity, `respondToUi`'s `{ ok:false, reason }` passed through intact; capability-absent ⇒ zero `agent_ui_*` frames; effects and surfaces explicitly **not** consumed | feature | none | packages/web-client (features/agent-ui store + test); features/extension-ui-client-sdk § Controller, § Capability gating |
+| task-004 | The card's decisions as four pure, Node-tested modules: `outcome-line` (verbatim unknown reasons, and **never** a typed value for `input`/`editor`), `option-layout` (stack-by-default, no ordinals — real extensions self-number and the wire answer is the option string), `prompt-text` (`\n` hard breaks, collapsed blank runs, `[Color]` verbatim), `deadline` (approximate for snapshot-recovered, expires nothing) | feature | none | packages/web-client (features/agent-ui pure modules + tests); visual spec § 02–§ 05, § 12 |
+| task-005 | Pending cards: `select`/`confirm`/`input`/`editor`, the unrecognised-method card (raw payload verbatim, Cancel-only — dropping it wedges the turn) and empty options, in the existing `RowShell` gutter/disc/connector language, composed into the virtualizer without breaking `anchorTo:"end"`/bottom-anchor; tokens only, reduced-motion honoured, no optimistic update | feature | task-003, task-004 | packages/web-client (features/agent-ui components, features/chat Timeline); visual spec § 01–§ 03, § 05, § 12, § 13 |
+| task-006 | Lifecycle: in-flight spinner on the pressed control from `submitting`/`submittedAnswer`, resolution collapsing **in place** with the § 04 outcome (identical whether answered here, elsewhere, cancelled or timed out), and the greyed non-answerable card that survives a disconnect and re-enables on reconnect; resolved cards live-session-only, bounded at 50/agent, evicted silently | feature | task-005 | packages/web-client (features/agent-ui); visual spec § 04, § 05, § 13 |
+| task-007 | Several at once: pending+resolved merged on the SDK's shared comparator so a card never moves when it resolves, the recovered marker driven by an absent `receivedAt`, and the § 06 bounded stack with an accurate counter — plus the explicit ban on any question-history/timestamp/filter affordance | feature | task-006 | packages/web-client (features/agent-ui + pure list builder & test); visual spec § 06; features/extension-ui-rpc § Concurrency |
+| task-008 | Keyboard ownership between card and composer: a card claims Enter/Esc **only** while focused, two-step Esc (arming is required because dismissal sends a real answer to a blocked extension), per-kind hint line, the editor's newline/chord exception, tab order ahead of the composer, and composer stand-down — with regression checks that no-card-pending behavior is byte-for-byte today's | feature | task-006 | packages/web-client (features/agent-ui, features/chat Composer, use-shortcuts); visual spec § 02, § 07 |
+| task-009 | Sprint close: the consolidated user sign-off matrix (every kind, threshold, state, outcome and key, each naming a t001 recipe), one real-`pi` pass with `@juicesharp/rpiv-ask-user-question` for payload fidelity, four filed spec corrections (§ 08's row-tint self-contradiction — blocking for s069; § 01's now-incomplete palette table; two wrong cross-references; § 00's phantom `editor` timeout), and docs | docs | task-001…task-008 | packages/web-client/AGENTS.md, root AGENTS.md, PLAN.md; features/extension-ui-client-sdk § Acceptance criteria |
+
+### sprint-069-extension-ui-attention
+> **What it closes.** s068 puts a question card in the transcript, but only the transcript you are
+> looking at: a dialog raised in any other session or background tab is invisible while its agent
+> stays blocked. s068 accepted that for exactly one sprint; this is the sprint. § 08 renders the same
+> pending-question state on four surfaces (session row, collapsed workspace header, pane tab strip,
+> and an `aria-live` region), and § 11 adds the two fire-and-forget methods that touch the user
+> directly — `notify` and `set_editor_text` — by consuming the `AgentUiEffect`s s068 deliberately
+> ignored with a comment.
+>
+> **The sidebar half is largely pre-seamed, and the spec knows it.** § 08 is written as a
+> reconciliation rather than a new design: where rev 1 diverged from the 0.1.0 handoff spec, the
+> shared component wins — the shipped 8px `StatusDot` (rev 1's 7px is called a mismatch and
+> corrected), the "needs input" text label survives, the workspace dot appears only while collapsed
+> with no inset glow, and the pulse is demoted to a **local modifier** so no other status gains
+> motion. `ui/status-dot.ts` already maps `waiting → statusWarning` and exports
+> `STATUS_DOT_SIZE = 8`; `features/workspace/tab-attention.ts` already exists; and
+> `session-presentation.ts`'s `workspaceAttentionDot` carries a comment naming this exact gap
+> ("needs-input unsourceable in this client"). s068's store is the missing feed, so most of t001–t004
+> is wiring a documented hole shut rather than inventing chrome.
+>
+> **The finding that resized the sprint: this app has no toast UI.** `ui/toast.ts` is a complete
+> *logic* module — `ToastVariant`, `ToastOptions`, `ToastEntry`, `buildToastEntry`, `copiedToast`,
+> `errorToast`, and a `remainingMs` that already accounts for hover-pause — with **zero importers**,
+> and there is no host, store, viewport or any component named `Toast*`/`Snackbar*`/`Notification*`
+> anywhere in `features/`, `routes/` or `components/`. `features/ui-components.md` § Feedback
+> specifies the viewport (top-anchored, portalled into the overlay root, opacity + slide, hover-pause,
+> variants) and it was never built. So § 11's `notify` means shipping the toast **surface**, and t005
+> builds it to the catalog contract — `copied()`/`error()` must work even though nothing calls them
+> yet — rather than shaping a one-caller widget around this feature. It lands ahead of its only
+> consumer for that reason, and it makes toasts app-wide from the moment it merges, which t009's pass
+> explicitly covers.
+>
+> **Two smaller decisions carried by tasks rather than footnotes.** (a) `attentionReason` gains a real
+> `"question"` member instead of reusing `"permission"`: `features/extension-ui-rpc.md` spends its
+> opening argument on why an extension question is *not* a tool permission, and reusing the enum here
+> would make a future permission surface unable to distinguish them. (b) `set_editor_text` always
+> replaces the composer draft — that is the SDK's settled behavior, not negotiable here — so § 11's
+> border flash, note and caret placement exist to make an otherwise silent clobber legible, and the
+> background-pane case defers the flash until that pane is next visible so the feedback is actually
+> seen, once. The likeliest defect is routing by *focus* instead of by session, which looks correct
+> until two panes are open; t007 verifies it side by side.
+>
+> **Inherited open question, resolved rather than blocked.** s068/t009 filed § 08's self-contradiction
+> with the designer: the section banner says "no row tint for needs-input (tints stay reserved for the
+> failed state)" and § 01 disclaims a session-row tint, while § 08's own `Row fill` entry specifies a
+> `statusWarning` 10% wash. t001 ships the 2px accent bar (both documents agree on it) and, absent an
+> answer, omits the wash — matching the banner and § 01 — recording the decision so a later answer can
+> be applied deliberately instead of the sprint stalling on one line.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Session row carries needs-input: the row's status line swaps to the 8px `statusWarning` dot + `needs input` label (**beating** a running spinner), a 2px accent bar that survives selection tint, clearing on resolution but **not** on merely opening the session, and a real `attentionReason: "question"` distinct from `"permission"` | feature | none | packages/web-client (features/sessions, ui/status-dot); visual spec § 08; handoff spec § 03 |
+| task-002 | `StatusDot` `.pulse` as an opt-in modifier — box-shadow ring only (4px, `statusWarning` 55% → transparent, 1.8s), nothing moves or resizes, default rendering untouched so no other status gains motion, static under reduced motion | feature | task-001 | packages/web-client (components/primitives StatusDot); visual spec § 08 Pulse, § 13 |
+| task-003 | Collapsed workspace header dot: `workspaceAttentionDot` gains needs-input as a source (closing its own "unsourceable" comment), rendered after the name and before the neutral count pill **only** while collapsed, with a counted accessible name — and a documented precedence when a group holds both a failed session and a pending question | feature | task-001 | packages/web-client (features/sessions); visual spec § 08; handoff spec § 03 |
+| task-004 | Pane tab strip dot before the `×` on **inactive** tabs only, fed through the existing `tab-attention.ts`, with the tight-strip concession order fixed: label ellipsises first, then the dot replaces the `×` — close stays available via a **minimal per-tab context menu this task builds** (right-click, Close, `SessionContextMenu` pattern; § 08 assumes one but s061's docs mark it unimplemented) — verified against the flex-shrink regression s061 fixed | feature | task-001 | packages/web-client (features/workspace); visual spec § 08; handoff spec § 07 |
+| task-005 | **Build the toast host** — the primitive `ui-components.md` § Feedback specified and nobody implemented: store + single top-anchored portalled viewport over `toast.ts`'s existing logic, hover-pause, sticky, Esc joining the existing precedence, plus the new `warning` variant and its rail; `copied()`/`error()` work despite having no callers yet | feature | none | packages/web-client (ui/toast, components/primitives, app shell); features/ui-components § Feedback; visual spec § 01, § 11, § 13 |
+| task-006 | Effect-routing seam (one place, exactly-once, unknown kinds ignored) + `notify` toasts: the SDK effect's `level` maps onto the host's variants with unrecognised ⇒ `info` (absence already normalized to `info` by `agent-ui-state.ts`, confirming s067/t002's open judgment call), message-only in the active session vs a session-name locator for a background one — no extension name exists (§ 00) — with § 11's explicit dwells: info 4s, warning 6s, error sticky until dismissed | feature | task-005 | packages/web-client (features/agent-ui, mock `#ui` grammar); visual spec § 00, § 01, § 11 |
+| task-007 | `set_editor_text`: replace the **target session's** draft (not the focused one) — building the per-session draft seam first, since the draft is component-local `useState` in `Composer.tsx` today — § 11 border flash + note + end-caret so the clobber is legible (*Your draft was replaced* / *Your message was filled in* over an empty draft), background pane gets **no flash**, only the note deferred to next reveal and fired once, reduced-motion hold, and no focus stolen from an armed s068 card | feature | task-006 | packages/web-client (features/chat Composer, features/agent-ui); visual spec § 11, § 13 |
+| task-008 | Announcements: one `aria-live="polite"` region, a pure module producing all seven § 08 strings (active-session prompt, other-session locator, count form, answered/dismissed/expired/no-longer-pending), **never** announcing absence, never a typed value, never an extension name — plus `role="group"` naming on the card, the ASK badge hidden from the a11y tree, and the § 11 announcements (`notify` per level politeness with background locator; background `set_editor_text` as *Draft replaced in \<session\>*) | feature | task-001, task-006 | packages/web-client (features/agent-ui, features/sessions); visual spec § 04, § 08, § 11 |
+| task-009 | Sprint close: the user sign-off matrix, an explicit **cross-surface** consistency pass (same dot, same clearing trigger, pulse and accessible name on all three surfaces — the one requirement no single task owns), docs across web-client/root AGENTS.md and `ui-components.md` § Feedback (the toast entry stops being aspirational), and confirmation of how the § 08 wash question was resolved | docs | task-001…task-008 | packages/web-client/AGENTS.md, root AGENTS.md, features/ui-components.md, PLAN.md |
+
 ## Coverage check
 
 Every feature and architecture scope is now covered by at least one task. The last remaining gap,
@@ -1563,6 +1818,46 @@ family is now planned end to end across three independent scopes: CLI-local (s05
 sprint-056 (server only) and the wire/SDK/CLI surface in sprint-057. Sprint-056 stands alone as a
 complete, controllable feature via `config.json` and the two env vars; sprint-057 makes it
 discoverable.
+`features/extension-ui-rpc.md` is fully planned in sprint-066 (server side only: protocol family,
+provider channel + Pi adapter, correlating service, attach hook + handlers + both bootstraps, MCP
+mirror, real-Pi E2E). It is the first scope written to **supersede** part of an older one rather than
+extend it: `features/tool-permissions.md` § Question-permission bridge planned to route Pi's dialogs
+through `agent_permission_request`, and that route is now closed off in writing — the permission
+family had zero production callers, and half of Pi's UI surface has no response at all, so the two
+concepts do not cohere. Sprint-066 deliberately stops at the socket: it is verifiable end to end with
+the mock provider plus one real-Pi run, and a sibling UI scope (SDK + web-client renderer registry)
+consumes the contract afterwards — the same CLI→daemon→browser split the provider-auth family used
+across s054/s055/s065. `features/tool-permissions.md`'s remaining half (genuine mode-gated tool-call
+approval) stays dormant and unplanned, which the coverage row now says explicitly rather than
+implying coverage that never shipped.
+`features/extension-ui-client-sdk.md` is **shipped** in sprint-067 — the "sibling UI scope" the
+paragraph above promises, but only its **non-rendering half**: SDK surface, pure reducer,
+controller, cross-package E2E against a real dev daemon, plus a real-Pi smoke run answering a real
+`select`/`input` dialog pair through `PiStudioClient.respondToUi` end to end (daemon → Pi →
+extension → tool result → model). The **rendering** half is split by surface across three sibling
+sprints against a mock-accurate visual authority, `swe/UI design/redesign 0.1.0/Extension Dialogs
+Visual Spec.html`: **sprint-068** is **shipped** (dialog cards, lifecycle, concurrency, keyboard
+ownership — § 00–§ 07, § 12, § 13 — all nine tasks done, live-verified against a real dev daemon +
+browser, four documentation defects found in the visual spec itself filed as corrections rather
+than silently worked around); **sprint-069** (attention badging on four surfaces plus the
+`notify`/`set_editor_text` transients — § 08, § 11) is **shipped** (all nine tasks done: sidebar
+row/collapsed workspace header/tab strip dot+pulse+context menu, a new app-wide toast host,
+effect routing for both transients, screen-reader announcements for all seven § 08 events plus
+§ 11's copy, and the pending card's `role="group"` name — cross-surface consistency verified,
+live-verified against a real dev daemon + browser); **sprint-070** (retained surfaces: widget
+blocks, status strip, title suffix — § 09, § 10) is scoped by the same document but **not yet
+planned**, so this row claims no coverage for it. The split
+is by surface, matching how the 0.1.0 redesign shipped (timeline, tab strip, sidebar each took their
+own sprint), and it is ordered by evidence rather than by section number: the dialog half is proven
+live end to end (s067/t004 answered a real `select`/`input` pair through a real extension), while
+§ 09's widget blocks have **no known producer** — this Pi version never emits factory-form
+`setWidget` or `ctx.ui.custom(...)` over RPC at all, so `rpiv-todo` and `pi-powerline-footer` stay
+invisible to RPC-mode clients and only the string-array form can fill that surface. That is recorded
+here because it inverts the original justification: the widget panel was the feature's headline
+example, and it is the one part that may ship without a real extension able to exercise it. Until
+s069 lands, s068 also carries an accepted gap — a dialog in a **background** session is invisible
+until the user opens it. The cost s067 recorded (zero user-visible change, infrastructure held for
+one sprint) is discharged by s068 and no longer open.
 `features/tool-output-streaming.md` is fully planned in sprint-058 (protocol field, Pi mapper +
 coalescer, ephemeral broadcast, web-client tail + terminal-state fixes, CLI watch suppression,
 E2E + docs) — it ships as one vertical slice because a partial event that is produced but not
@@ -1597,10 +1892,10 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | Scope file | Covered by |
 |------------|-----------|
 | features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition), s051/t005 (generalized N-capability composition) |
-| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt), s058/t002-003 (mapper stops dropping `tool_execution_update`; per-`callId` coalescing lives with the adapter because chattiness is a provider trait) |
+| features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt), s058/t002-003 (mapper stops dropping `tool_execution_update`; per-`callId` coalescing lives with the adapter because chattiness is a provider trait), s066/t002 (the UI channel is two optional `AgentSession` members and **every** Pi UI semantic — blocking set, namespaced surface keys, clear forms, response envelope — stays inside the adapter, so the service above it never compares a `method` string; also the strongest test of the isolation invariant so far, since a future provider with a different interactive protocol implements the same two members and the whole stack works untouched) |
 | features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001, s058/t004 (second member of the ephemeral no-`seq` family, and the task that finally makes `queue_update`'s specified never-persisted status true in code), s058/t007 (live-vs-authoritative convergence exercised for a streamed tool call) |
 | features/tool-output-streaming.md | s058/t001-007 (optional `partial` field; mapper + `partialResult` reader; coalescer with terminal-cancellation; ephemeral broadcast + mock partials; `ToolCard` live tail + turn-terminal row closing + terminal-output authority; CLI watch suppression; cross-layer E2E + docs) |
-| features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004 |
+| features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004. **§ Question-permission bridge is SUPERSEDED** by features/extension-ui-rpc.md (s066) — Pi's dialogs are bridged by the generic `agent_ui_*` family instead, and this doc's `questionKind`/`allowComment` fields are noted as never-wired residue; the mode-gated tool-approval half remains dormant and unplanned |
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
 | features/worktrees.md | s003/t003, s008/t003, s011/t004, s013/t003 |
 | features/git-checkout.md | s008/t004-006, s009/t006 (diff highlight), s016/t003 |
@@ -1608,15 +1903,16 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/chat-rooms.md | s010/t002, s011/t004 |
 | features/schedules-heartbeats.md | s010/t003, s011/t004, s013/t005 (UI) |
 | features/loops.md | s010/t004, s011/t004 |
-| features/mcp-server.md | s010/t001 |
+| features/mcp-server.md | s010/t001 (tool registry + `create_agent` semantics + injection-config generator — **transport deliberately deferred as "a bootstrap step" and never picked up**); s066/t005 (`list_pending_ui_requests`/`respond_to_ui_request` mirror tools). **Coverage is surface-only: the spec is NOT delivered.** No `/mcp/agents` route, no `McpBackend` implementation, no `daemon.mcp` config, and no spawn site passes `--mcp-config`, so every tool here is unreachable at runtime. Do not plan work that depends on an agent calling these tools until a wiring sprint exists (see `mcp-server.ts`'s header for the two non-trivial parts: MCP protocol layer, and the `auth:false` vs `authenticateHttp` contradiction) |
 | features/service-proxy.md | s003/t003, s009/t003, s016/t005 |
 | features/file-explorer-transfer.md | s002/t005, s009/t004-005, s016/t001-002, s045/t001,t003 (shared `~` resolution, `Begin` mimeType, inline-image reuse of the download path), s046/t001,t004,t006 (move RPC on the same service, watch-driven refresh of both affected directories) |
 | features/file-explorer-move.md | s046/t001-006; s047/t001 (trimmed-basename fix at the source), t005 (same-parent rename destination), t006 (docs: the anticipated affordance landed) |
 | features/file-explorer-improvements.md | s047/t002-006 (item 9 rename; item 8 was delivered by s046) |
-| features/subagents.md | s005/t005, s014/t001, s016/t005 |
+| features/subagents.md | s005/t005, s014/t001, s016/t005 (parent-label cascade on archive/delete, workspace-activity rollup, UI affordances — all real and tested). **But agent-initiated spawning has never run**: `PARENT_AGENT_ID_LABEL` is written by exactly one production line (`mcp-server.ts:196`, inside the dormant `create_agent` tool), so no parent/child relationship is created in practice. The cascade machinery is correct and would work the moment MCP is mounted |
 | features/cli.md | s011/t001-004; s054/t003 (`auth` group registration), t006 (command-tree docs); s057/t005 (`extensions` group: first command needing an explicit per-call RPC timeout, and first CLI runtime import of server modules for `--local`); s058/t006 (`agent watch`/`attach` suppress ephemeral partial events — the guard sits at the subscription site because `--json` bypasses `formatStreamEvent`) |
 | features/provider-auth-cli.md | s054/t001-006 |
 | features/provider-auth-rpc.md | s055/t001-005 |
+| features/extension-ui-rpc.md | s066/t001-006 (wire family with opaque payloads and open-string `reason`/`error`; provider UI channel + Pi adapter replacing the auto-cancel stub, owning the dialog set, method-namespaced surface keys, clear→`removed` and envelope stamping; `AgentUiService` with daemon-minted wire ids, surface retention/deletion, first-wins resolution and terminal-only sweeps; `AgentManager.onSessionAttached` choke point + handlers + both bootstraps; MCP mirror; real-Pi E2E with `rpiv-ask-user-question`/`rpiv-todo` and docs) |
 | features/provider-auth-ui.md | s065/t001-007 (SDK correlation incl. the subscribe-before-request buffering lock; pure login-flow reducer; capability-gated settings dialog shell — gear at ConnectionBar top-right, category sidebar, Model Providers as the sole category, because web-client has no settings screen or router yet; dialog prompt core finishing API-key login; OAuth `auth_url`+QR+`device_code` rendered concurrently with `manual_code`; Timeline empty-state nudge; live browser+relay E2E and docs) |
 | features/preinstalled-extensions.md | s056/t001-006 (engine: verified pi behavior, manifest+guard test, config+state, pure planner, isolating executor, service+bootstrap sync); s057/t001-006 (surface: wire pairs + feature flag, server config writer, handlers, SDK facade, `extensions` CLI group, E2E+docs) |
 | features/connection-resilience.md | s050/t001-004 |
@@ -1630,12 +1926,12 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/composer-ui.md | s015/t006 (logic); s021/t004 (render) |
 | features/ui-components.md | s012/t002-004,t006 (logic); s018/t001-002 (render) |
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
-| architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001, s056/t006 (fire-and-forget extensions sync after `httpServer.listen`, mirroring agent recovery; `dev-bootstrap` deliberately excluded) |
-| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire), s058/t001,t004 (first *ephemeral* use of an existing event kind: an optional `partial` flag plus a deliberately omitted `seq` mark a frame as live-only, proving the append-only rules can carry a delivery-semantics change with no new message type) |
+| architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001, s056/t006 (fire-and-forget extensions sync after `httpServer.listen`, mirroring agent recovery; `dev-bootstrap` deliberately excluded), s066/t004 (registered in **both** bootstraps — the deliberate inverse of s056/t006's exclusion, because the mock provider is this family's designated producer and the dev daemon is mock-only; reuses each bootstrap's existing `manager.subscribe` fan-out rather than adding a second subscriber) |
+| architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire), s058/t001,t004 (first *ephemeral* use of an existing event kind: an optional `partial` flag plus a deliberately omitted `seq` mark a frame as live-only, proving the append-only rules can carry a delivery-semantics change with no new message type), s066/t001 (`extensionUi` feature; first family carrying a **deliberately opaque** `payload: z.record(z.unknown())` the daemon never interprets — opacity achieved *inside* a typed envelope rather than by dropping to the passthrough fallback, which settles that the union-vs-passthrough line is *per-session subscription push* vs *agent-scoped broadcast*, not "typed vs untyped") |
 | architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
 | architecture/persistence.md | s001/t003, s003/t001,t004, s056/t003 (`extensions-state.json`: atomic store whose corrupt-file fail-safe is a distinct `"unreadable"` result, never an empty state) |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
-| architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity) |
+| architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity), s066/t003-004 (extension-UI sweeps are **session-terminal only** — archive/delete/re-attach; interrupt and client disconnect deliberately preserve pending dialogs and retained surfaces, and the forced-respawn path gets a leading sweep so a dead process's ids cannot linger) |
 | architecture/config.md | s003/t002-003, s005/t003, s013/t004, s055/t002 (`piHomeEnv`'s path rule exported as `resolvePiAgentDir`/`resolvePiAuthPaths`, making spawn-path/auth-path parity assertable), s056/t003 (`daemon.extensions` subtree + `PI_STUDIO_EXTENSIONS_AUTOSYNC`/`PI_STUDIO_EXTENSION_PACKS` overlay; reuses that same single derivation for the state key), s057/t002 (the daemon's **first** `config.json` writer — raw-file merge that must never persist the in-memory env overlay or materialise schema defaults) |
 | architecture/client-app-runtime.md | s007/t001-003, s013/t001, s015/t001,t006, s017/t001,t003,t004 (render foundation), s024/t001, s025/t001,t003, s050/t001-003 (reconnect ladder + resume-trigger liveness), s052/t001-004 (terminal-stream router usage: subscription split from emulator, single `claimSize` seam), s053/t005 (`onRestore` becomes a live path) |
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
@@ -1727,3 +2023,10 @@ Carried from the scope; resolve against the live source while implementing the o
 - [x] `queue_update` was specified as ephemeral/never-persisted (`timeline-streaming.md` § Timeline
       model) but is appended to the timeline like any other event. Found while scoping s058; resolved
       there by moving it onto the same ephemeral branch as partial `tool_call` frames — s058/t004.
+- [ ] Whether any bundled `core`-pack extension emits extension UI **before** the daemon has attached
+      its channel (e.g. from a `session_start` handler racing session construction). The attach hook
+      fires inside `AgentManager.attachSession`, immediately after the provider session is
+      constructed, which narrows the window to the provider constructor itself — but only a live run
+      with the `core` pack settles it. If traffic is observed there, the Pi adapter gains a bounded
+      internal queue that flushes to the first `onUiRequest` subscriber (not a contract change) —
+      s066/t006 closes this either way, with evidence.

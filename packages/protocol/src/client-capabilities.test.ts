@@ -24,6 +24,7 @@ describe("capability flag sets", () => {
         "checkoutRefresh",
         "daemonStatusRpc",
         "extensionPacks",
+        "extensionUi",
         "providerAuth",
         "providersSnapshot",
         "rewind",

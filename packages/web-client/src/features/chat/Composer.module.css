@@ -20,6 +20,29 @@
   background: var(--pi-color-surface2);
   transition: border-color 120ms ease;
 }
+/* `set_editor_text` border flash (sprint-069/task-007, § 11) — a local modifier on the same
+   `.card`, reusing its existing `border-color` transition (both the "go bright" and the "settle
+   back" legs) rather than adding a keyframe: JS holds this class for 400ms then removes it, so
+   the 120ms transition plays in, holds, then plays back out on removal. */
+.card.flash {
+  border-color: color-mix(in srgb, var(--pi-color-accentBright) 45%, var(--pi-color-border) 55%);
+}
+/* § 13: no transition at all — an instant cut in and out. JS compensates by holding the class for
+   1s instead of 400ms so the flash is still visible without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .card.flash {
+    transition: none;
+  }
+}
+
+/* `set_editor_text` feedback note (§ 11): "Your draft was replaced" / "Your message was filled
+   in", shown under the composer for 4s. Muted and small — secondary to the border flash/text
+   change itself, which is what actually carries the "something happened" signal. */
+.note {
+  margin-top: var(--pi-spacing-4);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+}
 /* Keyed off the textarea specifically, NOT `:focus-within` — the toolbar's own buttons live
    inside this card, and lighting the whole input up accent-blue just because the model menu
    or attach button took focus reads as a false "you are typing here" signal. */

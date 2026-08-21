@@ -15,7 +15,7 @@
  * show that as placeholder text, so it lives in the field's `title` tooltip.
  */
 
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -82,10 +82,15 @@ export function ConnectionBar() {
   // `serverInfo` field rather than the imperative method (the store's `client` reference stays
   // stable across a reconnect while its internal feature map mutates in place).
   const providerAuthCapable = Boolean(serverInfo?.features?.["providerAuth"]);
-  // Defers the settings chunk's `import()` until the gear is actually clicked once, while still
+  // Defers the settings chunk's `import()` until settings has ever been opened, while still
   // letting `Dialog`'s close animation play out afterward (an `open && <SettingsDialog/>` guard
-  // would unmount it mid-close instead).
-  const [settingsEverOpened, setSettingsEverOpened] = useState(false);
+  // would unmount it mid-close instead). Watches `settingsOpen` rather than latching only inside
+  // this button's own click handler, so `openSettings()` called from elsewhere (the chat empty
+  // state's onboarding nudge, task-006) also mounts the dialog on its first use.
+  const [settingsEverOpened, setSettingsEverOpened] = useState(settingsOpen);
+  useEffect(() => {
+    if (settingsOpen) setSettingsEverOpened(true);
+  }, [settingsOpen]);
 
   const view = connectionBarView({ status, error, url: host });
   const dot = connectionDot(view.kind);
@@ -242,10 +247,7 @@ export function ConnectionBar() {
             style={{ minHeight: CONTROL_HEIGHT, width: CONTROL_HEIGHT }}
             aria-label="Settings"
             title="Settings"
-            onClick={() => {
-              setSettingsEverOpened(true);
-              openSettings();
-            }}
+            onClick={() => openSettings()}
           >
             <Icon icon={Settings} size="sm" />
           </Button>

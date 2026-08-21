@@ -37,6 +37,8 @@
   border-bottom-color: var(--pi-color-accent);
 }
 .tab {
+  container-type: inline-size;
+  container-name: tab;
   display: flex;
   align-items: center;
   gap: var(--pi-spacing-7);
@@ -102,6 +104,19 @@
 @media (max-width: 575px), (hover: none) {
   .tabClose {
     opacity: 1;
+  }
+}
+/* Tight-strip concession (§ 08, sprint-069/task-004): the label ellipsises first (it is the
+   tab's only flexible child — icon/dot/close are all `flex: none`, so it alone gives up space as
+   `.tab` shrinks toward its 128px `min-width` floor). Only once a needs-input tab has shrunk
+   close to that floor, with the label already fully ellipsised, does the close control yield to
+   the dot — closing stays reachable via the tab's context menu (`TabContextMenu.tsx`, this same
+   task). Scoped to `.tabNeedsInput` only: a tab with no dot never loses its close affordance. The
+   140px threshold sits just above the 128px floor (`--pi-spacing-128`, `min-width` above) so this
+   engages only once a tab is genuinely squeezed, not at its comfortable 200px `max-width`. */
+@container tab (max-width: 140px) {
+  .tabNeedsInput .tabClose {
+    display: none;
   }
 }
 .newTab {

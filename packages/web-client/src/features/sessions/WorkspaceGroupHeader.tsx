@@ -14,7 +14,7 @@ import { Avatar } from "@pi-studio-ui/components/primitives/Avatar.js";
 import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
 import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
-import type { StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
+import type { WorkspaceAttentionInfo } from "./session-presentation.js";
 import styles from "./SessionList.module.css";
 
 export interface WorkspaceGroupHeaderProps {
@@ -22,9 +22,11 @@ export interface WorkspaceGroupHeaderProps {
   cwd: string;
   sessionCount: number;
   collapsed: boolean;
-  /** Precomputed attention dot (`workspaceAttentionDot`), already gated to collapsed-only by the
-   * caller — this component renders it whenever it is non-null and stays presentational. */
-  attentionDot: StatusDotInput | null;
+  /** Precomputed attention info (`workspaceAttentionDot`), already gated to collapsed-only by the
+   * caller. Presentational: builds the § 08 accessible name from its own `label` prop plus the
+   * info's reason/count, and opts the dot into the pulse modifier only for the "question" reason
+   * (sprint-069/task-003). */
+  attentionDot: WorkspaceAttentionInfo | null;
   onToggleCollapsed: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }
@@ -56,7 +58,19 @@ export function WorkspaceGroupHeader({
       </IconButton>
       <Avatar projectKey={label} size={20} />
       <span className={styles.workspaceLabel}>{label}</span>
-      {attentionDot && <StatusDot {...attentionDot} />}
+      {attentionDot && (
+        <StatusDot
+          {...attentionDot.dot}
+          pulse={attentionDot.reason === "question"}
+          aria-label={
+            attentionDot.reason === "question"
+              ? `${label} — ${attentionDot.pendingSessionCount} session${
+                  attentionDot.pendingSessionCount === 1 ? "" : "s"
+                } needs input`
+              : `${label} — turn failed`
+          }
+        />
+      )}
       <span className={styles.workspaceCount}>{sessionCount}</span>
       <IconButton
         className={styles.workspaceMenuBtn}

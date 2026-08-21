@@ -47,6 +47,7 @@ export const SERVER_FEATURES = {
   checkoutRefresh: "checkoutRefresh",
   extensionPacks: "extensionPacks",
   providerAuth: "providerAuth",
+  extensionUi: "extensionUi",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -82,6 +83,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   extensionPacks: COMPAT({ name: "extensionPacks", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(providerAuth): added 0.0.0, remove by TBD
   providerAuth: COMPAT({ name: "providerAuth", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(extensionUi): added 0.0.0, remove by TBD
+  extensionUi: COMPAT({ name: "extensionUi", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

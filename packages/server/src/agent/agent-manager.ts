@@ -6,6 +6,7 @@ import {
   saveAgent as saveAgentToDisk,
 } from "../persistence/entity-stores.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import type { Logger } from "../logging/logger.js";
 import type { AgentSession } from "./provider-contract.js";
 
 /**
@@ -91,6 +92,13 @@ export interface AgentManagerDeps {
   deleteAgent?: (cwd: string, id: string) => Promise<boolean>;
   /** Loop service hook: recover `running` loops as `stopped` with an interruption log entry. */
   onRecoverLoops?: () => Promise<void> | void;
+  /** Session-attach hook (features/extension-ui-rpc.md § New/changed files) — invoked at the end of
+   *  `attachSession()`, the single choke point every spawn/resume/import path already funnels
+   *  through (`agent-service.ts:104`, `:228`). A throwing hook is logged and never prevents the
+   *  session from being attached. Optional: existing constructions that pass none behave exactly
+   *  as before. */
+  onSessionAttached?: (agentId: string, session: AgentSession) => void;
+  logger?: Logger;
   now?: () => string;
 }
 
@@ -144,7 +152,17 @@ export class AgentManager {
 
   attachSession(id: string, session: AgentSession): void {
     const managed = this.agents.get(id);
-    if (managed) managed.session = session;
+    if (!managed) return;
+    managed.session = session;
+    if (!this.deps.onSessionAttached) return;
+    try {
+      this.deps.onSessionAttached(id, session);
+    } catch (err) {
+      this.deps.logger?.warn(
+        { agentId: id, err: err instanceof Error ? err.message : String(err) },
+        "agent-manager: onSessionAttached hook failed",
+      );
+    }
   }
 
   /**

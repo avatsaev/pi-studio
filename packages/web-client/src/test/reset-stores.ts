@@ -11,9 +11,12 @@
  * hide which state a test actually depends on.
  */
 
+import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
+import { resetAnnouncerStoreForTests } from "@pi-studio-ui/stores/announcer-store.js";
+import { resetToastStoreForTests } from "@pi-studio-ui/stores/toast-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 
 /** Every non-action field of the layout store, at its initial value. */
@@ -33,6 +36,13 @@ export function resetTabStore(): void {
 export function resetSessionStore(): void {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
 }
+
+export function resetDraftStore(): void {
+  useDraftStore.setState({ drafts: {}, pendingFeedback: {} });
+}
+
+export { resetToastStoreForTests as resetToastStore };
+export { resetAnnouncerStoreForTests as resetAnnouncerStore };
 
 /** Only the fields the pane/restore suites read; the rest of the UI store is untouched. */
 export function resetWorkspaceUiState(): void {

@@ -402,3 +402,50 @@ describe("timeline reducer — steering (queued flag + queue_update)", () => {
     expect(s.rows).toHaveLength(0);
   });
 });
+
+/**
+ * Tool/error/system rows gained a `timestamp` for `ask-placement.ts`: without one, an extension
+ * dialog cannot be placed relative to the tool call that raised it, and every card falls back to
+ * trailing the transcript — the bug this field exists to fix.
+ */
+describe("timeline reducer — row timestamps", () => {
+  const TS = "2026-08-21T13:30:00.000Z";
+
+  it("stamps a tool row at the call's start", () => {
+    const s = applyStreamEvent(EMPTY_TIMELINE, toolCall("c1", { kind: "shell" }, "running"), TS);
+    expect(s.rows[0]).toMatchObject({ kind: "tool", timestamp: TS });
+  });
+
+  it("keeps the start timestamp when a later status update upserts the row", () => {
+    let s = applyStreamEvent(EMPTY_TIMELINE, toolCall("c1", { kind: "shell" }, "running"), TS);
+    s = applyStreamEvent(
+      s,
+      toolCall("c1", { kind: "shell" }, "completed"),
+      "2026-08-21T13:31:00.000Z",
+    );
+
+    expect(s.rows).toHaveLength(1);
+    // The row must not slide forward in time as the call progresses, or it would overtake any
+    // dialog raised during the call.
+    expect(s.rows[0]).toMatchObject({ kind: "tool", status: "completed", timestamp: TS });
+  });
+
+  it("stamps error rows from turn_failed and error events", () => {
+    const failed = applyStreamEvent(EMPTY_TIMELINE, { kind: "turn_failed", error: "boom" }, TS);
+    expect(failed.rows[0]).toMatchObject({ kind: "error", timestamp: TS });
+
+    const errored = applyStreamEvent(EMPTY_TIMELINE, { kind: "error", message: "bad" }, TS);
+    expect(errored.rows[0]).toMatchObject({ kind: "error", timestamp: TS });
+  });
+
+  it("stamps the canceled system row", () => {
+    const s = applyStreamEvent(EMPTY_TIMELINE, { kind: "turn_canceled" }, TS);
+    expect(s.rows[0]).toMatchObject({ kind: "system", timestamp: TS });
+  });
+
+  it("leaves the timestamp undefined when the event carries none", () => {
+    const s = applyStreamEvent(EMPTY_TIMELINE, toolCall("c1", { kind: "shell" }, "running"));
+    expect(s.rows[0]).toMatchObject({ kind: "tool" });
+    expect((s.rows[0] as { timestamp?: string }).timestamp).toBeUndefined();
+  });
+});

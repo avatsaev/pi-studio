@@ -160,24 +160,45 @@ on done            -> phase = "done", store result
 
 ## Acceptance Criteria
 
-- [ ] `PiStudioClient` exposes `listProviderAuth` / `loginProvider` / `logoutProvider` /
+- [x] `PiStudioClient` exposes `listProviderAuth` / `loginProvider` / `logoutProvider` /
       `hasProviderAuthCapability`, fully typed, tested against a mocked transport (prompt
-      round-trip, cancel, disconnect, stale-event drop).
-- [ ] The Model Providers category inside the Settings dialog (gear at the ConnectionBar's
+      round-trip, cancel, disconnect, stale-event drop). Task-007 added one more regression case
+      found live: a `respond` RPC that times out with the socket itself still open (relay-mediated
+      daemon death) now settles `connection_lost` instead of hanging forever — see
+      `packages/client/AGENTS.md`'s Provider auth section.
+- [x] The Model Providers category inside the Settings dialog (gear at the ConnectionBar's
       top-right) shows accurate badges against a daemon fixture in all four states (key, oauth,
-      env-sourced, unconfigured).
-- [ ] API-key login end-to-end in a real browser against a **production-bootstrap** daemon (the
-      dev daemon deliberately omits this RPC family): open dialog → masked input → success badge,
-      credential visible to `pi-studio auth status` on the daemon host.
-- [ ] OAuth-shaped flow renders auth_url + QR and a manual_code input concurrently, and completes
-      through the manual path (stub provider acceptable).
-- [ ] Cancel (button and Esc) aborts server-side (verified by daemon flow-registry test hook/logs).
-- [ ] Onboarding nudge appears when zero providers configured and disappears after a successful
-      login without a page reload.
-- [ ] `login-flow.ts` reducer has node-env unit tests covering every event kind, out-of-order
+      env-sourced, unconfigured). Live-verified for key/unconfigured/env-sourced (real browser,
+      real daemon, sprint-065/task-007); the oauth badge is covered by
+      `provider-auth-presentation.test.ts` (pure, deterministic — no live OAuth account was
+      available this session, see the OAuth-completion note below).
+- [x] API-key login end-to-end in a real browser against a **production-bootstrap** daemon (the
+      dev daemon deliberately omits this RPC family): open dialog → masked input (`type="password"`,
+      confirmed directly against the DOM) → success badge, credential visible to `pi-studio auth
+      status` on the daemon host, `auth.json` mode `0600`. Live-verified on both a direct and a
+      relay-routed connection (task-007).
+- [ ] OAuth-shaped flow renders auth_url + QR and a manual_code input concurrently — **verified
+      live** (screenshot on file, task-007) — **and completes through the manual path** — **not
+      verified**: no real provider account was available in this environment, and the user
+      explicitly chose (2026-08-20) to skip real-credential steps rather than spend real quota on
+      an already-configured account. Left unchecked; the presentation half is solid evidence the
+      wiring works, but "completes" specifically was never witnessed.
+- [x] Cancel (button and Esc) aborts server-side (verified by daemon flow-registry test hook/logs).
+      Live-verified against daemon debug logs (`provider-auth: flow ended … error: "cancelled"`)
+      for both the Esc and the explicit Cancel-button paths, over a relay connection (task-007).
+- [x] Onboarding nudge appears when zero providers configured and disappears after a successful
+      login without a page reload. Live-verified as one continuous session (task-007): nudge
+      visible on a fresh zero-provider daemon → clicked through to Settings → completed a fake
+      API-key login → closed the dialog → nudge gone, original text restored, same page, no
+      reload.
+- [x] `login-flow.ts` reducer has node-env unit tests covering every event kind, out-of-order
       arrival (`auth_url` after `prompt`), and `prompt_cancelled` racing a user answer.
-- [ ] Old-daemon compatibility: against a capability-less server_info fixture, no provider-auth
-      RPC is ever sent.
+      (`login-flow.test.ts`, 18 tests, pre-existing from task-002.)
+- [x] Old-daemon compatibility: against a capability-less server_info fixture, no provider-auth
+      RPC is ever sent. Live-verified (task-006 and task-007) against a genuine capability-less
+      harness (`providerAuth: false` in `server_info.features`, no `provider_auth_*` handlers
+      registered): no Settings gear, no onboarding nudge, zero `provider_auth_*` frames captured
+      on the wire across the whole session.
 
 ## TODO(verify)
 
@@ -195,3 +216,14 @@ on done            -> phase = "done", store result
       (`features/chat/Timeline.tsx` renders "No messages yet — say something to start." when the
       row list is empty) is the slot; augment it with an `EmptyState`-primitive CTA when connected
       and zero providers are configured. No banner — no app-wide banner pattern exists to reuse.
+- [ ] Real OAuth completion + a daemon-spawned agent turn on a browser-entered credential —
+      **open**. Sprint-065/task-007's live E2E run deliberately used disposable fake credentials
+      throughout (user decision, 2026-08-20) rather than the real `github-copilot`/`amazon-bedrock`
+      credentials already present on the verification host, to avoid spending real quota/cost and
+      to avoid disturbing that host's real `auth.json`. Everything reachable without a real
+      provider account was verified live (API-key login end to end including over relay, cancel,
+      kill-mid-flow, ambient-env-var logout, old-daemon compatibility, secret hygiene, and the
+      OAuth flow's presentation layer). What remains open: (1) completing an OAuth login through
+      to a real provider, and (2) a daemon-spawned agent turn actually running on a credential
+      entered through the browser. Close this out the next time a disposable test account or
+      explicit user approval to use a real one is available.

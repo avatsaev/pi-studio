@@ -100,6 +100,13 @@
   width: 2px;
   background: var(--pi-color-accentBright);
 }
+/* Needs-input row accent — `statusWarning`, shown even when the row is also selected: the
+   selection tint (`.item.active`'s fill above) wins for background (there is no needs-input
+   wash — spec correction 1, unresolved as of sprint-068's close, is applied without one per the
+   banner/§ 01 fallback), but this bar does not yield to it (§ 08: "the accent bar still shows"). */
+.activeBarNeedsInput {
+  background: var(--pi-color-statusWarning);
+}
 .title {
   display: flex;
   align-items: center;
@@ -140,6 +147,9 @@
 }
 .metaFailed {
   color: var(--pi-color-destructive);
+}
+.metaNeedsInput {
+  color: var(--pi-color-statusWarning);
 }
 .metaEmpty {
   opacity: var(--pi-opacity-50);

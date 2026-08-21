@@ -93,18 +93,30 @@ export interface ToolRow {
    * instead of collapsing them into `"running"`. Unset when no event for this row has carried one.
    */
   statusText?: string;
+  /**
+   * Daemon-owned ISO-8601 timestamp of the tool call's **start** — stamped once when the row is
+   * created and never touched by a later status update, so the row keeps a fixed position in time
+   * as the call progresses. `ask-placement.ts` relies on this: an extension dialog raised *during*
+   * a tool call sorts after the row that spawned it, and cannot be overtaken when the call
+   * completes. Same optionality contract as `UserRow.timestamp`.
+   */
+  timestamp?: string;
 }
 
 export interface ErrorRow {
   kind: "error";
   id: string;
   text: string;
+  /** Same contract as `UserRow.timestamp`. */
+  timestamp?: string;
 }
 
 export interface SystemRow {
   kind: "system";
   id: string;
   text: string;
+  /** Same contract as `UserRow.timestamp`. */
+  timestamp?: string;
 }
 
 export type TimelineRow = UserRow | AssistantRow | ReasoningRow | ToolRow | ErrorRow | SystemRow;
