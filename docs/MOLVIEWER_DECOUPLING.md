@@ -65,7 +65,7 @@ Every file web-client core touches for molviewer today. Paths are relative to
 | Context menu | `features/files/FileContextMenu.tsx` | "Open in MolViewer" (files only), "Open as Text" (molecule files only) |
 | Tab strip | `features/workspace/TabStrip.tsx` | `ICON_BY_KIND.molecule = Atom`, "+" menu "New molecule view", `MONO_LABEL_KINDS` |
 | Explorer interactions | `features/files/FileExplorer.tsx` | active-row highlight includes molecule tabs; close-on-delete/rename checks both `file` and `molecule` ids |
-| Pane drop | `features/workspace/use-external-pane-drop.ts` | dual-id lookup (a path can be open as either kind) |
+| Pane drop | `hooks/use-external-pane-drop.ts` | dual-id lookup (a path can be open as either kind) |
 | Viewer implementation | `features/files/MoleculeViewer.tsx`, `MoleculeViewerPanel.tsx`, `MoleculeViewer.module.css`, `molecule-source.ts`, `molecule-reload.ts`, `molecule-theme.ts`, `polymer-file.ts`, `MoleculeViewer.test.ts` | the implementation itself — already well isolated: pure helpers split out for testability, panel lazy-loaded |
 
 Supporting facts that shape the plan:
@@ -112,6 +112,11 @@ packages/web-client/src/
       MoleculeViewer.test.ts
     (future plugins land here)
 ```
+
+The `viewer-plugins/` directory holds both the plugin **infrastructure** (contract, registry,
+settings store) and the plugin **implementations** (molviewer, future viewers). The dependency
+rule below keeps them distinct: the infrastructure files are core (imported by other core modules),
+the `molviewer/` subdirectory is a plugin (imports only `viewer-api.ts`).
 
 ```mermaid
 flowchart LR
@@ -251,7 +256,10 @@ export type { ViewerPlugin, ViewerTabData } from "./viewer-plugin.js";
 ```
 
 Enforcement is by convention + code review in this phase (a lint boundary rule is a nice-to-have
-follow-up, not a gate). When a future plugin needs something new, it gets added here — the barrel
+follow-up, not a gate). The file MUST start with a prominent header comment stating the boundary
+rule — "This is the ONLY core surface viewer plugins may import. Plugins MUST NOT import directly
+from any other `@pi-studio-ui/` path." — so the rule is visible at every import site, not just in
+this document. When a future plugin needs something new, it gets added here — the barrel
 *doubles as the changelog of the plugin API*.
 
 Note `write-file.ts`/`create-entry.ts`/`delete-entry.ts` currently sit in `features/files/` and
@@ -296,11 +304,17 @@ win and its gate logic survives into phase 3 as the registry's enabled-filter.
    exists yet (`"molviewer"`), but the store is already keyed by id so phase 1 touches nothing.
 2. Gate the five dispatch points on `isViewerEnabled("molviewer")`:
    - `openFileTab` (`open-file-tab.ts`): disabled → always `openTextTab`.
+   - `tabFromIdentity` (`reopen-client-tabs.ts`): a persisted `molecule:<path>` reopens as a
+     **text tab** (see §7 semantics) rather than a molecule tab. `tabFromIdentity` must stay a
+     pure synchronous two-arg function (unit-tested without stores, deliberately the exact
+     inverse of `tabIdentity`) — so it reads the settings store's `localStorage` key directly
+     (`viewer-settings-store.ts`'s `STORAGE_KEY`) rather than importing the store, preserving
+     that purity. (The replay itself runs from a connection-gated `useEffect` —
+     `use-pane-layout.ts` — not at pre-mount boot; the purity constraint is the reason for the
+     direct read.)
    - `FileContextMenu`: hide "Open in MolViewer" and "Open as Text" (the latter only makes sense
      while the viewer exists as an alternative).
    - `TabStrip` "+" menu: hide "New molecule view".
-   - `tabFromIdentity` (`reopen-client-tabs.ts`): a persisted `molecule:<path>` reopens as a
-     **text tab** (see §7 semantics) rather than a molecule tab.
    - `use-external-pane-drop.ts`: the dual-id existing-tab lookup keeps working (it's about tabs
      already open, not new dispatch) — no gate needed there; verify only.
 3. Settings UI: new "Viewers" category in `SETTINGS_CATEGORIES` with one toggle row
@@ -339,11 +353,17 @@ After this phase, core still names `"molecule"` in the tab model (that's phase 2
      external-pane-drop dual-id lookup keep functioning (the *identity* changes form, the *id*
      doesn't have to — see §6).
    - `openNewMolecule` becomes generic `openNewViewerTab(plugin)` driven by `emptyTab`;
-     `TabStrip` iterates enabled plugins' `emptyTab` entries.
-   - `tabIdentity`: `viewer:<viewerId>:<path>` (null path → still `null`, no identity).
+     `TabStrip` iterates enabled plugins' `emptyTab` entries. The registry maintains a
+     `Map<string, number>` of per-plugin empty-tab counters so `mintId`/`mintLabel` receive
+     the correct increment per plugin.
+   - `tabIdentity`: the `case "molecule"` branch becomes `case "viewer"`, emitting
+     `viewer:<viewerId>:<path>` (null path → still `null`, no identity). The `viewerId` is
+     read from `tab.data` cast to `ViewerTabData`.
    - `closeByPathPrefix` / `FileExplorer` close-on-delete/rename: match any tab whose data has a
      `path` — i.e. `file | diff | viewer` — without naming viewer ids. The explorer's
-     active-row highlight reads `data.path` the same generic way.
+     active-row highlight reads `data.path` the same generic way. The `MoleculeTabData` import
+     in `FileExplorer.tsx` (line 35) is removed — the generic `data.path` access on
+     `ViewerTabData | FileTabData | DiffTabData` is sufficient.
 2. `panel-registry.ts`: `viewer: ViewerPanelHost`, where `ViewerPanelHost` looks up
    `viewerById(tab.data.viewerId)` and renders its `panel` (unknown id → a small "viewer not
    available" fallback panel, never a crash — covers a disabled-but-registered edge and a
