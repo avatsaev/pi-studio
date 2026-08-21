@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/protocol",
-  "version": "0.0.94",
+  "version": "0.0.95",
   "files": [
     "dist",
     "!dist/**/*.map",
