@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/server",
-  "version": "0.0.96",
+  "version": "0.0.97",
   "bin": {
     "pi-studio-daemon": "dist/daemon/main.js"
   },
@@ -24,9 +24,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/highlight": "^0.0.96",
-    "@av-pi-studio/protocol": "^0.0.96",
-    "@av-pi-studio/relay": "^0.0.96",
+    "@av-pi-studio/highlight": "^0.0.97",
+    "@av-pi-studio/protocol": "^0.0.97",
+    "@av-pi-studio/relay": "^0.0.97",
     "@earendil-works/pi-coding-agent": "^0.84.1",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
