@@ -176,10 +176,27 @@
   cursor: default;
   opacity: 0.6;
 }
+/* The trigger reads `Name (id)`: the name in full-strength foreground (it is the label you scan
+   for), the id muted and one rung smaller — the same hierarchy the picker's own rows use
+   (ModelMenu.module.css's `.label`/`.modelId`). Both set their color explicitly so `.modelBtn`'s
+   hover/open rule, which brightens the button as a whole, cannot flatten the two into one tone. */
 .modelLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--pi-color-foreground);
+}
+/* Shrinks first (higher factor than `.modelLabel`'s default 1): in a narrow split pane the
+   qualified id is what can afford to truncate, the name is not. */
+.modelId {
+  flex-shrink: 8;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-xs);
 }
 .modelChevron {
   flex-shrink: 0;

@@ -23,10 +23,12 @@ export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle.js";
 export {
   MenuCursorTrigger,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuSeparator,
   type MenuCursorTriggerProps,
   type MenuContentProps,
+  type MenuGroupProps,
   type MenuItemProps,
 } from "./Menu.js";
 export { useHover, type UseHoverReturn } from "./useHover.js";

@@ -39,6 +39,9 @@
   font-size: var(--pi-font-size-sm);
   cursor: pointer;
   outline: none;
+  /* Clears MenuGroup's sticky `.groupLabel` when the browser scrolls a keyboard-focused row into
+     view — without it, arrowing to the first row of a section parks it underneath that header. */
+  scroll-margin-top: var(--pi-spacing-24);
 }
 .item:hover,
 .item[data-highlighted] {

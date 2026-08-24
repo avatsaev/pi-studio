@@ -4,11 +4,12 @@
  * `.Trigger` need no shared styling and stay imported directly from `@radix-ui/react-dropdown-menu`
  * at each call site; this only wraps the pieces that were previously four (or more) byte-identical
  * CSS Modules: the invisible cursor-anchored trigger button used by every right-click menu, the
- * popover surface, the row, and the separator.
+ * popover surface, the row, the separator, and the labelled section header for grouped pickers
+ * (`MenuGroup`, whose data half is `ui/option-groups.ts`).
  * ui-components.md § Menus & popovers
  */
 
-import { forwardRef, type ComponentPropsWithoutRef, type CSSProperties } from "react";
+import { forwardRef, useId, type ComponentPropsWithoutRef, type CSSProperties } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { clsx } from "clsx";
 import styles from "./Menu.module.css";
@@ -65,6 +66,37 @@ export function MenuContent({
         {...rest}
       />
     </DropdownMenu.Portal>
+  );
+}
+
+export interface MenuGroupProps extends ComponentPropsWithoutRef<typeof DropdownMenu.Group> {
+  /** Section header text. Omit for an unlabelled section (the ungrouped bucket
+   * `ui/option-groups.ts`'s `groupOptions` puts last) — the group still nests its items, it just
+   * renders no header row. */
+  label?: string;
+}
+
+/** Labelled section of menu items — the render half of the grouped-picker mechanic whose data
+ * half is `ui/option-groups.ts`. The header is a Radix `DropdownMenu.Label`, which is
+ * deliberately NOT focusable, so roving focus and typeahead skip headers with no extra work at
+ * the call site. It sticks to the top of whatever scroll container the group sits in (see
+ * `.groupLabel`), so the provider/section a row belongs to stays visible while scrolling a long
+ * list — the whole point of grouping a picker that outgrew one flat list. */
+export function MenuGroup({ label, className, children, ...rest }: MenuGroupProps) {
+  const labelId = useId();
+  return (
+    <DropdownMenu.Group
+      className={className}
+      aria-labelledby={label === undefined ? undefined : labelId}
+      {...rest}
+    >
+      {label !== undefined && (
+        <DropdownMenu.Label id={labelId} className={styles.groupLabel}>
+          {label}
+        </DropdownMenu.Label>
+      )}
+      {children}
+    </DropdownMenu.Group>
   );
 }
 

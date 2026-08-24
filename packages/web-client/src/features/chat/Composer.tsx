@@ -456,19 +456,32 @@ export function Composer({ sessionId }: ComposerProps) {
           <div className={styles.toolbarRight}>
             <ModelMenu
               currentModel={session?.model}
+              currentModelProvider={session?.modelProvider}
               provider="pi"
               onSelect={handleSelectModel}
-              renderTrigger={(currentModel) => (
-                <button
-                  type="button"
-                  className={styles.modelBtn}
-                  disabled={!client}
-                  title={currentModel ? `Model: ${currentModel}` : "Select model"}
-                >
-                  <span className={styles.modelLabel}>{currentModel ?? "Model"}</span>
-                  <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
-                </button>
-              )}
+              renderTrigger={(currentModel, currentModelName) => {
+                // A separate id span only earns its place when the name actually differs from the
+                // id — a provider reporting no display name would otherwise render "id (id)".
+                const showId = currentModelName !== undefined && currentModelName !== currentModel;
+                return (
+                  <button
+                    type="button"
+                    className={styles.modelBtn}
+                    disabled={!client}
+                    title={
+                      currentModel
+                        ? `Model: ${currentModelName ?? currentModel}${showId ? ` (${currentModel})` : ""}`
+                        : "Select model"
+                    }
+                  >
+                    <span className={styles.modelLabel}>
+                      {currentModelName ?? currentModel ?? "Model"}
+                    </span>
+                    {showId && <span className={styles.modelId}>({currentModel})</span>}
+                    <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
+                  </button>
+                );
+              }}
             />
             {running && (
               <Button

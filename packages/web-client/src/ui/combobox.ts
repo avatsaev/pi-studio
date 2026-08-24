@@ -8,6 +8,10 @@ export type ComboboxOption<T> = {
   label: string;
   description?: string;
   kind?: string;
+  /** Section this option belongs to — `option-groups.ts`'s `groupOptions` collects consecutive
+   * runs of the same value under one header (e.g. `ModelMenu`'s per-provider bands). Options
+   * without a `group` fall into a single trailing ungrouped bucket. */
+  group?: string;
   disabled?: boolean;
 };
 

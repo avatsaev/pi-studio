@@ -105,14 +105,17 @@ src/
                             clean-room spec that is NOT wired to any loader — `getActiveBrand()`
                             always returns `DEFAULT_BRAND`; no caller passes `ThemeBoundary` a
                             `brandConfig` today
-  ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar tokens)
+  ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar
+                            tokens; option-groups — groupOptions, the pure half of the grouped-picker
+                            mechanic MenuGroup renders, see § Invariants "Grouped pickers") (+ tests)
   platform/                breakpoints (window-chrome metrics)
   components/primitives/   React design-system components (Button, IconButton — compact
                             chromeless icon affordance for row actions/menu triggers, distinct
                             from Button's ≥28px iconOnly mode —, Select, Dialog, Surface,
                             Panel — full-height flex-column shell —, EmptyState — centered
                             muted placeholder text —, Menu — shared Radix DropdownMenu chrome
-                            (MenuCursorTrigger/MenuContent/MenuItem/MenuSeparator), used by
+                            (MenuCursorTrigger/MenuContent/MenuGroup — labelled, sticky section
+                            header for grouped pickers —/MenuItem/MenuSeparator), used by
                             every right-click context menu plus TabStrip's "+" menu and
                             ModelMenu/CommandMenu's outer chrome —, TextInput, Switch,
                             Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
@@ -417,8 +420,9 @@ src/
                             (indeterminate 2px running-turn bar, mounted absolutely at the top of
                             ChatPanel — see AGENTS.md § Invariants "Turn progress bar"), Composer
                             (bordered card: textarea + bottom action toolbar), ModelMenu (that
-                            toolbar's model-selector searchable popup, sprint-043 — see AGENTS.md
-                            § Invariants "Model selector"), CommandMenu (composer's `/`
+                            toolbar's model-selector searchable popup, grouped by provider,
+                            sprint-043 — see AGENTS.md § Invariants "Model selector" and
+                            "Grouped pickers"), CommandMenu (composer's `/`
                             slash-command popup — see AGENTS.md § Invariants "Slash-command
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             unit-tested), use-bottom-anchor (the timeline's bottom-anchor
@@ -1603,6 +1607,30 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   is unconditional on this flag — a `language-mermaid` block always renders as a diagram
   regardless of what any connection advertised; the flag only gates the agent instruction.
 
+- **Grouped pickers are a two-layer mechanic, not a per-menu feature.** `ui/option-groups.ts`'s
+  pure `groupOptions(options, { priorityGroup?, ungroupedLabel? })` sections any
+  `ComboboxOption[]` by each option's own `group` field; `components/primitives/Menu.tsx`'s
+  `MenuGroup` renders one section (a Radix `DropdownMenu.Group` plus an optional
+  `DropdownMenu.Label` header, `.groupLabel`: the sidebar's uppercase-muted section-heading
+  recipe, `position: sticky` against the enclosing scroll container). Neither layer knows what
+  the grouping means, so any picker on these primitives can group by whatever it owns —
+  `ModelMenu` uses the model's LLM provider; `CommandMenu` could use a command's source kind.
+  Three rules worth not rediscovering:
+  - **Group order is first appearance, never alphabetical.** Every producer here already emits a
+    meaningful order (the daemon's model ordering, `slash-commands.ts`'s ranking) and re-sorting
+    headers would throw it away. `priorityGroup` is the single exception, and options carrying no
+    `group` always collect in a trailing bucket — an unlabelled band above a labelled one reads
+    as if it belonged to the header below it.
+  - **Headers are `DropdownMenu.Label`, which Radix deliberately makes non-focusable**, so roving
+    focus and typeahead skip them with no keyboard work at the call site. The cost is
+    `scroll-margin-top` on the rows (`ModelMenu.module.css`'s `.item`): without it the browser
+    scrolls a keyboard-focused first-in-section row to `top: 0`, i.e. underneath the sticky
+    header.
+  - **Grouping reorders, so a caller that owns a highlighted index over a flat list** (a menu
+    whose Arrow keys live outside it, like `CommandMenu`) must derive that index from
+    `groups.flatMap((g) => g.options)`, never from the pre-grouping list, or the highlight lands
+    on a different row than the user sees.
+
 - **Model selector (sprint-043; lives in the composer's bottom toolbar) + eager draft
   materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
@@ -1612,13 +1640,33 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `.test.ts`, not `.test.tsx`, under a node environment; there is no jsdom/React-Testing-Library
   render test anywhere in this package despite `@testing-library/react` being a devDependency —
   see `StatusBar`'s precedent below), and rows showing `label (id)` with the id in
-  `--pi-color-foregroundMuted`. Each model row carries its own underlying LLM `provider` (e.g.
-  `"anthropic"`) alongside its `id` (`AgentModelDefinition.provider`/`ProviderModel.provider`,
-  threaded through from Pi's own `Model` object — see `packages/server/AGENTS.md` §
-  ProviderRegistry). `ModelMenu` itself owns no trigger element: it takes a
-  `renderTrigger(currentModel)` prop and wraps whatever the caller renders in
-  `DropdownMenu.Trigger asChild` — today `Composer.tsx`'s toolbar button (`styles.modelBtn`:
-  model name + chevron), showing `session.model` or a `"Model"` placeholder. It also passes
+  `--pi-color-foregroundMuted`, **sectioned under one sticky header per underlying LLM provider**
+  (`groupOptions` with `option.group = model.provider`, `priorityGroup = session.modelProvider`
+  so the provider you are on leads; headers appear only when there are at least two of them,
+  since one identical header above every row clarifies nothing). Each model row carries its own
+  underlying LLM `provider` (e.g. `"anthropic"`) alongside its `id`
+  (`AgentModelDefinition.provider`/`ProviderModel.provider`, threaded through from Pi's own
+  `Model` object — see `packages/server/AGENTS.md` § ProviderRegistry) — so a model's identity in
+  this picker is the `provider/id` PAIR, not the id: `dedupeByModelKey` keys on the pair (Pi does
+  emit the same id twice), React keys on the pair, and the same model offered by two providers is
+  two real rows under two headers, since they differ in credentials, billing, and the `provider`
+  argument `setModel` takes. `sortCurrentFirst` takes `session.modelProvider` (the
+  `currentModelProvider` prop) to disambiguate the pair, falling back to id-only matching when a
+  stream update left the session's provider unknown; since it hoists that entry to index 0, the
+  checkmark and the trigger's name both resolve from `options[0]` by object IDENTITY — the one
+  comparison that cannot mark two rows at once when two providers offer the same id.
+  `ModelMenu` itself owns no trigger element: it takes a
+  `renderTrigger(currentModel, currentModelName)` prop and wraps whatever the caller renders in
+  `DropdownMenu.Trigger asChild` — today `Composer.tsx`'s toolbar button (`styles.modelBtn`),
+  which renders the same `Name (id)` hierarchy as the list rows (`.modelLabel` in
+  `--pi-color-foreground`, `.modelId` muted and one size rung down, shrinking first so a narrow
+  pane truncates the id rather than the name), or a `"Model"` placeholder. The name exists only in
+  the fetched model list — `session.model` is the bare id — which is why the
+  `useProviderModels(provider, …)` query is enabled on `open || currentModel !== undefined`
+  rather than `open` alone: gating on `open` left a freshly reloaded composer showing a bare id
+  until the user happened to open the picker. One query key per provider, so all panes share a
+  single fetch. When a provider reports no display name (`label === id`) the id span is dropped
+  instead of rendering `id (id)`. It also passes
   `align="end"`, overriding `MenuContent`'s `align="start"` default, because that trigger sits at
   the right edge of the composer; a start-aligned popup would hang off the panel. The status bar
   no longer renders `ModelMenu` or holds any model-picking code.

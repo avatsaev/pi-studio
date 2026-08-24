@@ -45,6 +45,24 @@
   color: var(--pi-color-statusDanger);
 }
 
+/* Grouped-picker section header (MenuGroup). Same uppercase muted recipe as the sidebar's own
+   section headings (SessionList.module.css's `.header h3`), and sticky against the top of the
+   scrolling list it lives in — `surface1` matches `.content`'s own background so rows scroll
+   under it instead of showing through. Items in a grouped list need `scroll-margin-top` (see
+   ModelMenu.module.css's `.item`) or keyboard focus can park a row underneath this header. */
+.groupLabel {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--pi-spacing-6) var(--pi-spacing-8) var(--pi-spacing-4);
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-3xs);
+  font-weight: var(--pi-font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 .sep {
   height: 1px;
   margin: var(--pi-spacing-4) 0;
