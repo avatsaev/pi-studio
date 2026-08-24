@@ -1104,8 +1104,9 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     `agentId`, task-007); `Composer.tsx` no longer owns its draft as local `useState` for exactly
     this reason — a `set_editor_text` effect must be able to write a session's draft even with no
     composer for it currently mounted. `setStatus`/`setWidget`/`setTitle` (retained surfaces)
-    still have no consumer; no `useAgentUiSurfaces` hook is exposed yet — sprint-070 is what wires
-    those. Do not add a second, divergent consumer of the SDK's surface state ahead of that
+    still have no consumer; no `useAgentUiSurfaces` hook is exposed yet — a later sprint wires
+    those (070 was taken by the thinking-level selector). Do not add a second, divergent
+    consumer of the SDK's surface state ahead of that
     design.
   - **No optimistic update, anywhere.** Submitting a response fires `respondToUi` and nothing
     else — a card stays pending until the daemon's `agent_ui_resolved` arrives. `submitting`/
@@ -1163,13 +1164,14 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Not built this sprint (sprint-068 itself; see below for what has since landed):** the
     sidebar/tab/workspace attention signals (§ 08 of the visual spec — StatusDot/SessionRow/
     TabStrip pulse, row tint, collapsed-header dot), `setWidget`/`setStatus`/`setTitle` rendering
-    (§ 09/§ 10; sprint-070), `notify` toasts (§ 11), and `set_editor_text` (§ 11). None of the
+    (§ 09/§ 10; a later sprint), `notify` toasts (§ 11), and `set_editor_text` (§ 11). None of the
     wiring for those existed at sprint-068's close — sprint-069/tasks 001–004 have since built the
     § 08 attention signals (sidebar row, collapsed workspace header, tab strip dot + pulse + a new
     minimal per-tab context menu — see the "Workspace tab strip" bullet below); tasks 005–007
     (toast host, `notify` routing, `set_editor_text` — see the bullet above) and task-008
-    (announcements — see the bullet below) have since landed too; only sprint-070's
-    `setWidget`/`setStatus`/`setTitle` rendering remains open.
+    (announcements — see the bullet below) have since landed too; only the
+    `setWidget`/`setStatus`/`setTitle` rendering remains open (a later sprint — 070 became the
+    thinking-level selector).
   - **§ 08's `role="group"` accessible name on the pending card is the SESSION's title, threaded
     down as a prop, not read from any store inside `AskCard.tsx` itself** (sprint-069/task-008).
     `Timeline.tsx` is the one place that already holds `session.title`; it flows through
@@ -1973,7 +1975,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   source without the same discipline — `notify` toasts (task-006) and § 08's announcements
   (task-008) are now built, but neither is a *dot* signal, so this discipline is unaffected by
   either landing; `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10) remains the one open
-  surface, deferred to sprint-070.
+  surface, deferred to a later sprint (070 became the thinking-level selector).
 - **The sidebar's reserved-`⋮` pattern mirrors `TabStrip.module.css`'s `.tabClose`.** Both the
   workspace band's and the session row's `⋮` occupy a fixed box (`opacity`-toggled, never
   `display`-toggled) so hover/focus never shifts the label's truncation point, and both are

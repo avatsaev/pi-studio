@@ -306,8 +306,8 @@ All communication uses a **single WebSocket connection** per client.
   transcript, and § 11's two fire-and-forget effects (`notify` toasts via a new app-wide toast
   host, and `set_editor_text` composer replacement) (`packages/web-client/AGENTS.md`'s "Toast
   host", "Both transient effects are now wired", and "Announcements" invariants). **Still
-  unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`, § 09/§ 10) — sprint-070's
-  scope, not yet wired to anything.
+  unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`, § 09/§ 10) — a later
+  sprint's scope (070 became the thinking-level selector), not yet wired to anything.
 
 ---
 
