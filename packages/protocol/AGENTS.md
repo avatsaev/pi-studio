@@ -103,6 +103,8 @@ src/
 | `agentUiResponseSchema` / `AgentUiResponse` | schema + type | The answer body forwarded to the provider verbatim — every field optional/passthrough, no per-method shape validation (mirrors `respondToPermission`'s `response: unknown`) |
 | `agentUiRespondRequestSchema` / `AgentUiRespondRequest`, `agentUiRespondResponseSchema` / `AgentUiRespondResponse` | schema + type | `agent_ui_respond_request` (`uiRequestId`, `response`) — answers a pending dialog; response `{ ok, error? }`, `error: "not_found" \| "unsupported"` (open string, not enumerated) |
 | `agentUiListRequestSchema` / `AgentUiListRequest`, `agentUiListResponseSchema` / `AgentUiListResponse` | schema + type | `agent_ui_list_request` (optional `agentId`) — reconnect catch-up: current pending dialogs + retained surfaces, one agent or all |
+| `agentSetThinkingRequestSchema` / `AgentSetThinkingRequest`, `agentSetThinkingResponseSchema` / `AgentSetThinkingResponse` | schema + type | `agent_set_thinking_request` (`agentId`, `level`) — sets the agent's thinking level; response resolves to the EFFECTIVE (possibly Pi-clamped) level, never the requested one |
+| `agentThinkingLevelsRequestSchema` / `AgentThinkingLevelsRequest`, `agentThinkingLevelsResponseSchema` / `AgentThinkingLevelsResponse` | schema + type | `agent_thinking_levels_request` (`agentId`) — lists thinking levels for the agent's current model; live-sessions-only (drafts answer from the model catalogue client-side), gated by the `thinkingLevels` server feature flag |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -145,7 +147,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`

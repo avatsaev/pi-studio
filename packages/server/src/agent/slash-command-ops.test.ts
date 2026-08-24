@@ -68,30 +68,30 @@ describe("unknown agent / unsupported provider", () => {
   });
 });
 
-describe("delegation to optional AgentSession methods", () => {
-  function sessionStub(overrides: Record<string, unknown> = {}) {
-    return {
-      provider: "mock",
-      id: randomUUID(),
-      capabilities: {},
-      run: () => Promise.resolve(),
-      startTurn: () => Promise.resolve({ turnId: "t1" }),
-      subscribe: () => () => {},
-      streamHistory: async function* () {},
-      getRuntimeInfo: () => ({ provider: "mock" }),
-      getAvailableModes: () => [],
-      getCurrentMode: () => null,
-      setMode: () => Promise.resolve(),
-      getPendingPermissions: () => [],
-      respondToPermission: () => Promise.resolve(),
-      describePersistence: () => null,
-      interrupt: () => Promise.resolve(),
-      close: () => Promise.resolve(),
-      ...overrides,
-      // biome-ignore lint: test stub matches the AgentSession shape loosely
-    } as unknown as import("./provider-contract.js").AgentSession;
-  }
+function sessionStub(overrides: Record<string, unknown> = {}) {
+  return {
+    provider: "mock",
+    id: randomUUID(),
+    capabilities: {},
+    run: () => Promise.resolve(),
+    startTurn: () => Promise.resolve({ turnId: "t1" }),
+    subscribe: () => () => {},
+    streamHistory: async function* () {},
+    getRuntimeInfo: () => ({ provider: "mock" }),
+    getAvailableModes: () => [],
+    getCurrentMode: () => null,
+    setMode: () => Promise.resolve(),
+    getPendingPermissions: () => [],
+    respondToPermission: () => Promise.resolve(),
+    describePersistence: () => null,
+    interrupt: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+    ...overrides,
+    // biome-ignore lint: test stub matches the AgentSession shape loosely
+  } as unknown as import("./provider-contract.js").AgentSession;
+}
 
+describe("delegation to optional AgentSession methods", () => {
   it("agent_session_stats_request delegates to session.getSessionStats()", async () => {
     const { service, ops, manager } = makeSetup();
     const agentId = await createAgent(service);
@@ -437,6 +437,56 @@ describe("delegation to optional AgentSession methods", () => {
     expect(manager.get(agentId)?.record.config?.model).toBe("m2");
     expect(saved.some((r) => r.id === agentId && r.config?.model === "m2")).toBe(true);
   });
+  it("agent_set_model_request on a live session writes back the clamped effective thinking level and broadcasts it (sprint-070)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        // Mirrors the real `pi` provider after task-001: `setProviderModel` re-reads
+        // `get_state`, and the post-switch level (clamped to `off` by the non-reasoning
+        // model) is what `getRuntimeInfo()` reports.
+        setProviderModel: () => Promise.resolve({ id: "m1" }),
+        getRuntimeInfo: () => ({ provider: "mock", model: "m1", thinkingLevel: "off" }),
+      }),
+    );
+    saved.length = 0;
+
+    await ops.handleSetModel({ agentId, provider: "anthropic", modelId: "m1" }, () => []);
+
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBe("off");
+    expect(saved.some((r) => r.id === agentId && r.config?.thinkingOptionId === "off")).toBe(true);
+    expect(broadcasts).toContainEqual({
+      type: "agent_update",
+      agentId,
+      model: "m1",
+      modelProvider: "anthropic",
+      thinkingLevel: "off",
+    });
+  });
+
+  it("agent_cycle_model_request writes back the effective thinking level alongside the model (sprint-070)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        cycleModel: () => Promise.resolve({ model: { id: "m2" }, thinkingLevel: "low" }),
+        getRuntimeInfo: () => ({ provider: "mock", model: "m2", thinkingLevel: "low" }),
+      }),
+    );
+    saved.length = 0;
+
+    await ops.handleCycleModel({ agentId }, () => []);
+
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBe("low");
+    expect(broadcasts).toContainEqual({
+      type: "agent_update",
+      agentId,
+      model: "m2",
+      thinkingLevel: "low",
+    });
+  });
 
   it("agent_last_assistant_text_request returns null when there is none", async () => {
     const { service, ops, manager } = makeSetup();
@@ -466,6 +516,108 @@ describe("delegation to optional AgentSession methods", () => {
     const agentId = await createAgent(service);
     manager.attachSession(agentId, sessionStub());
     await expect(ops.handleListCommands({ agentId })).rejects.toThrow(/does not support/);
+  });
+  it("agent_set_thinking_request on a live session applies, then answers/persists/broadcasts the CLAMPED effective level (sprint-070)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    const agentId = await createAgent(service);
+    const applied: string[] = [];
+    manager.attachSession(
+      agentId,
+      sessionStub({
+        // Mirrors the real `pi` provider: applies, then `getRuntimeInfo()` reports the
+        // clamped value re-read from Pi, not the requested one.
+        setThinkingOption: (id: string) => {
+          applied.push(id);
+          return Promise.resolve();
+        },
+        getRuntimeInfo: () => ({ provider: "mock", thinkingLevel: "off" }),
+      }),
+    );
+    saved.length = 0; // drop the initial creation write
+
+    const result = (await ops.handleSetThinking({ agentId, level: "high" }, () => [])) as Record<
+      string,
+      unknown
+    >;
+
+    expect(applied).toEqual(["high"]);
+    expect(result).toEqual({
+      type: "agent_set_thinking_response",
+      payload: { agentId, level: "off" },
+    });
+    expect(broadcasts).toContainEqual({ type: "agent_update", agentId, thinkingLevel: "off" });
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBe("off");
+    expect(saved.some((r) => r.id === agentId && r.config?.thinkingOptionId === "off")).toBe(true);
+  });
+
+  it("agent_set_thinking_request on a still-unspawned deferred draft pins the level, broadcasts, and responds — no throw (sprint-070)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    const created = (await service.handleCreate(
+      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.session).toBeNull();
+    saved.length = 0;
+
+    const result = (await ops.handleSetThinking({ agentId, level: "medium" }, () => [])) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result).toEqual({
+      type: "agent_set_thinking_response",
+      payload: { agentId, level: "medium" },
+    });
+    expect(broadcasts).toContainEqual({
+      type: "agent_update",
+      agentId,
+      thinkingLevel: "medium",
+    });
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBe("medium");
+    expect(saved.some((r) => r.id === agentId && r.config?.thinkingOptionId === "medium")).toBe(
+      true,
+    );
+    expect(manager.get(agentId)?.session).toBeNull();
+  });
+
+  it("agent_set_thinking_request throws a clear unsupported error when setThinkingOption is absent", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(agentId, sessionStub());
+    await expect(ops.handleSetThinking({ agentId, level: "high" }, () => [])).rejects.toThrow(
+      /does not support/,
+    );
+  });
+
+  it("agent_thinking_levels_request delegates to listThinkingLevels on a live session", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    manager.attachSession(
+      agentId,
+      sessionStub({ listThinkingLevels: () => Promise.resolve(["off", "low", "high"]) }),
+    );
+    const result = (await ops.handleThinkingLevels({ agentId })) as Record<string, unknown>;
+    expect(result).toEqual({
+      type: "agent_thinking_levels_response",
+      payload: { agentId, levels: ["off", "low", "high"] },
+    });
+  });
+
+  it("agent_thinking_levels_request on a draft throws 'no live session' (drafts answer from the catalogue client-side)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const created = (await service.handleCreate(
+      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    expect(manager.get(agentId)?.session).toBeNull();
+    await expect(ops.handleThinkingLevels({ agentId })).rejects.toThrow(/no live session/);
+  });
+
+  it("agent_thinking_levels_request on an unknown agent throws (→ rpc_error)", async () => {
+    const { ops } = makeSetup();
+    await expect(ops.handleThinkingLevels({ agentId: "nope" })).rejects.toThrow(/unknown agent/);
   });
 
   it("agent_list_commands_request on a still-unspawned deferred draft lazily spawns and returns the mock's command list, instead of throwing 'has no live session' (web-client slash commands)", async () => {

@@ -6,7 +6,7 @@ import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
-import { AgentManager, PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
+import { AgentManager } from "./agent-manager.js";
 import type {
   AgentClient,
   AgentSession,
@@ -99,6 +99,15 @@ export async function spawnOrResumeSession(
     const modelId = record.config?.model;
     const modelProvider = record.config?.modelProvider;
     if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
+    // Replay the pinned thinking level strictly AFTER the model (sprint-070/task-003): Pi
+    // clamps thinking against the model, so a thinking-first replay would be silently
+    // overwritten by the model switch's own clamp. Skipped entirely when the record has no
+    // explicit pick — never clobber Pi's own restored/default level with a synthetic value.
+    // On RESUME the block does not run — Pi restores its own level from the session JSONL,
+    // exactly like the model, and with the clamp write-back (slash-command-operations.ts)
+    // config and JSONL cannot diverge, so the restored value already matches the record.
+    const thinking = record.config?.thinkingOptionId;
+    if (thinking) await session.setThinkingOption?.(thinking);
   }
 
   deps.manager.attachSession(agentId, session);
@@ -176,7 +185,7 @@ export class AgentService {
       timeline: [],
     };
 
-    const managed = await this.deps.manager.add(record);
+    await this.deps.manager.add(record);
     const agentId = record.id;
     this.broadcastAll(getSessions(), {
       type: "agent_update",

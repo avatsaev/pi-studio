@@ -308,6 +308,17 @@ All communication uses a **single WebSocket connection** per client.
   host", "Both transient effects are now wired", and "Announcements" invariants). **Still
   unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`, § 09/§ 10) — a later
   sprint's scope (070 became the thinking-level selector), not yet wired to anything.
+- **`agent_set_thinking` / `agent_thinking_levels`** (sprint-070, `swe/features/
+  thinking-level-selector.md`) is the thinking-level RPC pair: real `messages.ts` schemas,
+  registered by `slash-command-operations.ts` in both bootstraps, advertised via the
+  `thinkingLevels` server feature flag. Set mirrors `handleSetModel`'s two-branch shape (deferred
+  draft → pin `config.thinkingOptionId` + broadcast; live session → apply, then answer/persist/
+  broadcast the EFFECTIVE level the provider re-reads from Pi `get_state`, since Pi clamps
+  silently); list is live-sessions-only (`requireSession`) because drafts answer from the model
+  catalogue client-side. The daemon-side persistence chain (replay order model-then-thinking,
+  clamp write-back on every model change) is task-003. **Task-005 shipped the composer
+  consumer**: `web-client`'s `ThinkingMenu` (brain-icon picker in `.toolbarRight`, immediately
+  after `ModelMenu`) — see `packages/web-client/AGENTS.md`'s "Thinking-level selector" invariant.
 
 ---
 

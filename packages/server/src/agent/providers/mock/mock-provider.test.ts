@@ -74,7 +74,14 @@ describe("mock provider", () => {
   it("reports availability, models, modes, runtime info and a persistence handle", async () => {
     const client = new MockAgentClient();
     expect(client.isAvailable()).toBe(true);
-    expect(await client.listModels()).toEqual([{ id: "mock-model", label: "Mock Model" }]);
+    expect(await client.listModels()).toEqual([
+      {
+        id: "mock-model",
+        label: "Mock Model",
+        reasoning: true,
+        thinkingLevels: ["off", "low", "medium", "high"],
+      },
+    ]);
     const session = await client.createSession({ provider: "mock", cwd: "/tmp", model: "m1" });
     expect(session.getRuntimeInfo().model).toBe("m1");
     expect(session.getAvailableModes().length).toBeGreaterThan(0);
@@ -113,12 +120,24 @@ describe("mock provider", () => {
     await session.setSessionName?.("my-feature-work");
     expect(await session.cycleModel?.()).toEqual({
       model: { id: "mock-model" },
-      thinkingLevel: "medium",
+      thinkingLevel: "off",
     });
     expect(await session.getLastAssistantText?.()).toBeNull();
 
     // Deliberately omitted so callers can exercise the unsupported-provider-method path.
     expect(session.exportHtml).toBeUndefined();
+  });
+
+  it("implements the thinking-level surface with a static clamped list (sprint-070)", async () => {
+    const client = new MockAgentClient();
+    const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
+    expect(await session.listThinkingLevels?.()).toEqual(["off", "low", "medium", "high"]);
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("off");
+    await session.setThinkingOption?.("high");
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("high");
+    // Unknown level clamps to `off`, mirroring Pi's silent clamping.
+    await session.setThinkingOption?.("max");
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("off");
   });
 
   it("getLastAssistantText returns the most recent assistant message after a turn", async () => {

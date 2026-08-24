@@ -2,34 +2,30 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
-  agentCloneRequestSchema,
   agentCloneResponseSchema,
   agentCompactRequestSchema,
   agentCompactResponseSchema,
-  agentCycleModelRequestSchema,
   agentCycleModelResponseSchema,
   agentExportHtmlRequestSchema,
   agentExportHtmlResponseSchema,
-  agentForkMessagesRequestSchema,
   agentForkMessagesResponseSchema,
   agentForkRequestSchema,
   agentForkResponseSchema,
-  agentLastAssistantTextRequestSchema,
   agentLastAssistantTextResponseSchema,
   agentListCommandsRequestSchema,
   agentListCommandsResponseSchema,
-  agentNewSessionRequestSchema,
   agentNewSessionResponseSchema,
   agentSessionStatsRequestSchema,
   agentSessionStatsResponseSchema,
   agentSetModelRequestSchema,
-  agentSetModelResponseSchema,
   agentSetSessionNameRequestSchema,
-  agentSetSessionNameResponseSchema,
+  agentSetThinkingRequestSchema,
+  agentSetThinkingResponseSchema,
+  agentThinkingLevelsRequestSchema,
+  agentThinkingLevelsResponseSchema,
   agentStatusMessageSchema,
   agentStreamEventSchema,
   agentSwitchSessionRequestSchema,
-  agentSwitchSessionResponseSchema,
   agentUiListRequestSchema,
   agentUiListResponseSchema,
   agentUiPendingRequestSchema,
@@ -448,6 +444,47 @@ describe("slash-command operations (sprint-037)", () => {
       }).success,
     ).toBe(true);
   });
+  it("agent_set_thinking round-trips and requires agentId + level", () => {
+    expect(
+      agentSetThinkingRequestSchema.safeParse({
+        type: "agent_set_thinking_request",
+        requestId: "r1",
+        agentId: "a1",
+        level: "high",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentSetThinkingRequestSchema.safeParse({
+        type: "agent_set_thinking_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(false);
+    expect(
+      agentSetThinkingResponseSchema.safeParse({
+        type: "agent_set_thinking_response",
+        requestId: "r1",
+        payload: { agentId: "a1", level: "off" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("agent_thinking_levels round-trips with a levels array", () => {
+    expect(
+      agentThinkingLevelsRequestSchema.safeParse({
+        type: "agent_thinking_levels_request",
+        requestId: "r1",
+        agentId: "a1",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentThinkingLevelsResponseSchema.safeParse({
+        type: "agent_thinking_levels_response",
+        requestId: "r1",
+        payload: { agentId: "a1", levels: ["off", "low", "medium", "high"] },
+      }).success,
+    ).toBe(true);
+  });
 
   it("agent_last_assistant_text_response allows a null text", () => {
     expect(
@@ -487,6 +524,10 @@ describe("slash-command operations (sprint-037)", () => {
       agent_last_assistant_text_response: { payload: { text: null } },
       agent_list_commands_request: { agentId: "a1" },
       agent_list_commands_response: { payload: { commands: [] } },
+      agent_set_thinking_request: { agentId: "a1", level: "high" },
+      agent_set_thinking_response: { payload: { agentId: "a1", level: "high" } },
+      agent_thinking_levels_request: { agentId: "a1" },
+      agent_thinking_levels_response: { payload: { agentId: "a1", levels: ["off"] } },
     };
     for (const [type, extra] of Object.entries(messages)) {
       const result = sessionMessageSchema.safeParse({ type, requestId: "r1", ...extra });

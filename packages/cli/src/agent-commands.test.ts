@@ -248,6 +248,59 @@ describe("agent commands", () => {
     expect(req.msg.limit).toBe(10);
   });
 
+  it("logs flattens real projected timeline items (grouped tool_call/assistant, standalone other) without crashing", async () => {
+    const fake = makeFake({
+      responses: {
+        [AGENT_RPC.timeline]: {
+          items: [
+            { kind: "other", event: { kind: "turn_started" }, sourceSeq: 0 },
+            {
+              kind: "tool_call",
+              callId: "c1",
+              sourceSeqStart: 1,
+              sourceSeqEnd: 2,
+              events: [
+                {
+                  kind: "tool_call",
+                  callId: "c1",
+                  tool: { kind: "shell", command: "ls" },
+                  status: "running",
+                },
+                {
+                  kind: "tool_call",
+                  callId: "c1",
+                  tool: { kind: "shell", command: "ls", output: "a.txt" },
+                  status: "completed",
+                },
+              ],
+            },
+            {
+              kind: "assistant",
+              sourceSeqStart: 3,
+              sourceSeqEnd: 4,
+              events: [
+                { kind: "assistant_message", text: "Hi" },
+                { kind: "assistant_message", text: " there" },
+              ],
+            },
+            { kind: "other", event: { kind: "turn_completed" }, sourceSeq: 5 },
+          ],
+        },
+      },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const code = await logsAgent(client, ctx, "a1", { limit: 10 });
+    expect(code).toBe(0);
+    expect(out).toEqual([
+      "--- turn started ---",
+      "[shell running] ls",
+      "[shell completed] ls",
+      "Hi",
+      " there",
+      "--- turn completed ---",
+    ]);
+  });
+
   it("attach streams events and exits on a terminal turn event when untilTurnEnd", async () => {
     const fake = makeFake();
     const { client, ctx, out } = await connectedClient(fake.transport);

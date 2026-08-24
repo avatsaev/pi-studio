@@ -84,6 +84,12 @@ export class SlashCommandOperationsService {
     registry.register("agent_list_commands_request", (ctx) =>
       this.handleListCommands(ctx.message as Record<string, unknown>),
     );
+    registry.register("agent_set_thinking_request", (ctx) =>
+      this.handleSetThinking(ctx.message as Record<string, unknown>, getActiveSessions),
+    );
+    registry.register("agent_thinking_levels_request", (ctx) =>
+      this.handleThinkingLevels(ctx.message as Record<string, unknown>),
+    );
   }
 
   private broadcastAgentUpdate(
@@ -249,6 +255,21 @@ export class SlashCommandOperationsService {
     };
     await this.deps.manager.updateRecord(agentId, { config });
   }
+  /** Persist the effective thinking level into the record's config (`config.thinkingOptionId`) so
+   * `list_agents_request` can surface it after a daemon restart / fresh connection / pick on a
+   * still-unspawned deferred draft, and `spawnOrResumeSession` can replay it on first spawn
+   * (sprint-070). Mirror of `persistModel` — one helper serves both the `agent_set_thinking`
+   * handler and (task-003) `update_agent_request`'s thinkingOptionId branch. The value stored is
+   * always the EFFECTIVE level (Pi clamps silently; the provider re-reads `get_state`), so the
+   * wire, the record, and the live process can never disagree. */
+  private async persistThinking(agentId: string, level: string | undefined): Promise<void> {
+    if (!level) return;
+    const config = {
+      ...this.deps.manager.get(agentId)?.record.config,
+      thinkingOptionId: level,
+    };
+    await this.deps.manager.updateRecord(agentId, { config });
+  }
 
   /** `/model` (set) — broadcast the model change and persist it (see `persistModel`). A
    * materialized draft with no live process yet (`managed.session === null` — deferred-draft
@@ -278,7 +299,16 @@ export class SlashCommandOperationsService {
     if (!managed.session.setProviderModel) throw unsupported(agentId, "set_model");
     const payload = await managed.session.setProviderModel(provider, modelId);
     await this.persistModel(agentId, modelId, provider);
-    this.broadcastAgentUpdate(getSessions, agentId, { model: modelId, modelProvider: provider });
+    // A model switch can silently clamp the thinking level (Pi clamps against the new model);
+    // task-001's `setProviderModel` re-read `get_state`, so write back the EFFECTIVE level or
+    // the record goes stale and dead-session `list_agents` would lie (sprint-070/task-003).
+    const thinkingLevel = managed.session.getRuntimeInfo().thinkingLevel;
+    if (thinkingLevel !== undefined) await this.persistThinking(agentId, thinkingLevel);
+    this.broadcastAgentUpdate(getSessions, agentId, {
+      model: modelId,
+      modelProvider: provider,
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    });
     return { type: "agent_set_model_response", payload };
   }
 
@@ -295,8 +325,57 @@ export class SlashCommandOperationsService {
     const payload = await session.cycleModel();
     const modelId = session.getRuntimeInfo().model;
     await this.persistModel(agentId, modelId);
-    this.broadcastAgentUpdate(getSessions, agentId, modelId ? { model: modelId } : {});
+    const thinkingLevel = session.getRuntimeInfo().thinkingLevel;
+    if (thinkingLevel !== undefined) await this.persistThinking(agentId, thinkingLevel);
+    this.broadcastAgentUpdate(getSessions, agentId, {
+      ...(modelId ? { model: modelId } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    });
     return { type: "agent_cycle_model_response", payload };
+  }
+  /** Thinking level (set) — sprint-070. Mirrors `handleSetModel`'s two-branch shape exactly: a
+   * materialized draft with no live process yet (`managed.session === null`) pins the requested
+   * level into the persisted config and broadcasts it, for `spawnOrResumeSession` to replay on
+   * first spawn (after the model — Pi clamps thinking against the model); routing drafts to
+   * `requireSession` was the exact silently-swallowed-pick bug sprint-043's corrections fixed
+   * for model. The live branch applies via `setThinkingOption`, then answers/persists/broadcasts
+   * the EFFECTIVE level read back off `getRuntimeInfo().thinkingLevel` (the provider re-reads
+   * Pi `get_state` after the set, since Pi clamps silently and the RPC response carries no
+   * data) — never the requested one. */
+  async handleSetThinking(
+    msg: Record<string, unknown>,
+    getSessions: () => Iterable<Session>,
+  ): Promise<unknown> {
+    const agentId = msg.agentId as string;
+    const level = msg.level as string;
+    if (!level) throw new Error("level is required");
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    if (!managed.session) {
+      await this.persistThinking(agentId, level);
+      this.broadcastAgentUpdate(getSessions, agentId, { thinkingLevel: level });
+      return {
+        type: "agent_set_thinking_response",
+        payload: { agentId, level },
+      };
+    }
+    if (!managed.session.setThinkingOption) throw unsupported(agentId, "set_thinking_level");
+    await managed.session.setThinkingOption(level);
+    const effective = managed.session.getRuntimeInfo().thinkingLevel ?? level;
+    await this.persistThinking(agentId, effective);
+    this.broadcastAgentUpdate(getSessions, agentId, { thinkingLevel: effective });
+    return { type: "agent_set_thinking_response", payload: { agentId, level: effective } };
+  }
+
+  /** Thinking levels (list) — sprint-070. Live sessions only: a draft's level list comes from
+   * the model catalogue client-side (features/thinking-level-selector.md § Level discovery), so
+   * a draft here is a legitimate `rpc_error`, not a silent empty list. */
+  async handleThinkingLevels(msg: Record<string, unknown>): Promise<unknown> {
+    const agentId = msg.agentId as string;
+    const session = requireSession(this.deps.manager, agentId);
+    if (!session.listThinkingLevels) throw unsupported(agentId, "get_available_thinking_levels");
+    const levels = await session.listThinkingLevels();
+    return { type: "agent_thinking_levels_response", payload: { agentId, levels } };
   }
 
   /** `/copy` — read-only. */

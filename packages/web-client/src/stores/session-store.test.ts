@@ -62,3 +62,33 @@ describe("session store — model (sprint-042)", () => {
     expect(useSessionStore.getState().sessions["s1"]?.model).toBeUndefined();
   });
 });
+describe("session store — thinking level (sprint-070)", () => {
+  it("hydrate carries the thinkingLevel field through unchanged", () => {
+    useSessionStore.getState().hydrate(hydrated({ thinkingLevel: "high" }));
+    expect(useSessionStore.getState().sessions["s1"]?.thinkingLevel).toBe("high");
+  });
+
+  it("hydrate without a thinking level leaves it undefined", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    expect(useSessionStore.getState().sessions["s1"]?.thinkingLevel).toBeUndefined();
+  });
+
+  it("setThinkingLevel updates the session's level in place", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    useSessionStore.getState().setThinkingLevel("s1", "off");
+    expect(useSessionStore.getState().sessions["s1"]?.thinkingLevel).toBe("off");
+  });
+
+  it("setThinkingLevelByAgentId resolves the owning session and updates its level", () => {
+    useSessionStore.getState().hydrate(hydrated({ id: "s1", agentId: "a1" }));
+    useSessionStore.getState().hydrate(hydrated({ id: "s2", agentId: "a2" }));
+    useSessionStore.getState().setThinkingLevelByAgentId("a2", "medium");
+    expect(useSessionStore.getState().sessions["s1"]?.thinkingLevel).toBeUndefined();
+    expect(useSessionStore.getState().sessions["s2"]?.thinkingLevel).toBe("medium");
+  });
+
+  it("setThinkingLevel on an unknown sessionId is a no-op", () => {
+    useSessionStore.getState().setThinkingLevel("nope", "high");
+    expect(useSessionStore.getState().sessions["nope"]).toBeUndefined();
+  });
+});

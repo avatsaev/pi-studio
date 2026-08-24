@@ -1,7 +1,7 @@
 # Task 001 — Pi provider: real thinking-level support + per-model level derivation
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent/providers)
 - **Priority:** P1

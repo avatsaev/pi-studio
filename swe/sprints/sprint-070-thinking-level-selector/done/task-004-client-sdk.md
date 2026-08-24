@@ -1,7 +1,7 @@
 # Task 004 — Client SDK: `setThinking` / `listThinkingLevels` + typed model/default additions
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

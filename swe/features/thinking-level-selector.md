@@ -146,17 +146,36 @@ Without write-back: pin `max`, switch to a non-reasoning model → record says `
 
 ## Acceptance criteria
 
-- [ ] `pi-studio agent update --thinking high` changes a live session's actual thinking level (bug fix).
-- [ ] Picking a level in the composer applies it to the live agent; the response reflects clamping.
-- [ ] Picking a level on a never-spawned draft persists it and the first real turn runs with it.
-- [ ] Reload the web client → the selector shows the session's persisted level without opening anything.
-- [ ] Daemon restart + session resume → the level survives (replayed after model).
-- [ ] Switching to a non-reasoning model updates the selector to `off` in **every** connected client without a reload.
-- [ ] The level list offered for a live session matches `get_available_thinking_levels`; for a draft it matches the model's `reasoning`/`thinkingLevelMap` derivation.
-- [ ] No new process spawns are introduced by discovery (verified: no `--no-session` spawn beyond the pre-existing `resolve_default_model` path).
+- [x] `pi-studio agent update --thinking high` changes a live session's actual thinking level (bug fix).
+- [x] Picking a level in the composer applies it to the live agent; the response reflects clamping.
+- [x] Picking a level on a never-spawned draft persists it and the first real turn runs with it.
+- [x] Reload the web client → the selector shows the session's persisted level without opening anything.
+- [x] Daemon restart + session resume → the level survives (replayed after model).
+- [x] Switching to a non-reasoning model updates the selector to `off` in **every** connected client without a reload.
+- [x] The level list offered for a live session matches `get_available_thinking_levels`; for a draft it matches the model's `reasoning`/`thinkingLevelMap` derivation.
+- [x] No new process spawns are introduced by discovery (verified: no `--no-session` spawn beyond the pre-existing `resolve_default_model` path).
 
-## TODO(verify)
+All eight verified live (sprint-070/task-006) against a real daemon (`npm start`), a real `pi`
+provider, and two independent browser windows — see `swe/sprints/sprint-070-thinking-level-selector/
+done/task-006-e2e-verification-docs-summary.md` for the full sign-off matrix and raw evidence
+(session JSONL excerpts, daemon log lines, screenshots).
 
-- Whether `thinkingLevelMap` actually appears on `get_available_models` entries for at least one
-  built-in model in the bundled Pi version (the derivation handles absence — base 5 levels for
-  `reasoning: true` — but live confirmation belongs in the sprint-close verification).
+## TODO(verify) — resolved (sprint-070/task-006)
+
+`thinkingLevelMap` **does** appear on real bundled models — confirmed by reading the live
+`list_provider_models` catalogue (164 models across 6 providers on this daemon) and the underlying
+`@earendil-works/pi-ai` provider JSON on disk:
+
+- `ant-ling`'s `Ring-2.6-1T`: `{ off: null, minimal: null, low: null, medium: null, high: "high",
+  xhigh: "xhigh" }` — a genuinely restrictive map (only `high`/`xhigh` survive the derivation).
+- `huggingface`'s `thinkingmachines/Inkling`: `{ off: null, minimal: null, low: "low",
+  medium: "medium", high: "high", xhigh: null, max: null }`.
+- `baseten`'s `thinkingmachines/inkling` and `-inkling-small`: a full 1:1 identity map across all
+  seven levels.
+
+Most bundled models still omit the field entirely (the derivation's base-5-levels-for-
+`reasoning: true` fallback is the common case — confirmed live: `azure_ai/claude-opus-4-8`,
+`amazon.nova-2-lite-v1:0`, etc. all report the plain `["off","minimal","low","medium","high"]`
+ladder with no model-specific restriction), but the map is real, present, and actively pruning the
+ladder for at least three shipping models — the derivation's `thinkingLevelMap` branch is live code,
+not dead weight for a hypothetical future model.

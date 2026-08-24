@@ -1,7 +1,7 @@
 # Task 006 — Sprint close: live E2E verification matrix + docs sync
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** cross-package (verification + AGENTS.md/PLAN.md)
 - **Priority:** P1

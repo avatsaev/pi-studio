@@ -1,7 +1,7 @@
 # Task 003 — Persistence chain: replay, clamp write-back on model change, projection, default
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent lifecycle + daemon projections)
 - **Priority:** P1

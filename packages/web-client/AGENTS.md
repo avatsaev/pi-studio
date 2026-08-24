@@ -207,7 +207,7 @@ src/
                            closeTab wraps the store's close action + materialize.ts's
                            discardIfEmpty; closeByPathPrefix closes every file/diff/molecule tab
                            nested under a deleted path), session-store
-                           (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
+                           (SessionEntry.model/modelProvider/thinkingLevel, poll-reconciled + live-updated by
                            agent_update), draft-store (per-session composer draft text lifted out
                            of Composer.tsx's own useState — sprint-069/task-007 — plus a one-shot
                            `pendingFeedback` queue Composer.tsx consumes to show the § 11
@@ -309,7 +309,9 @@ src/
                            inline-image-cache, task-003 sprint-045;
                            consumed by timeline/InlineImage.tsx, task-004)
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
-                           query), use-agent-commands (composer `/` picker RPC query — cached
+                           query), use-thinking-levels (sprint-070 — live-session
+                           `agent_thinking_levels_request` query keyed `[agentId, model]`,
+                           gated on menu open), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
                            "Slash-command picker"), use-provider-auth-list (sprint-065/task-006 —
                            wraps `listProviderAuth()` under `rpcKeys.providerAuthList()`; shared by
@@ -422,7 +424,11 @@ src/
                             (bordered card: textarea + bottom action toolbar), ModelMenu (that
                             toolbar's model-selector searchable popup, grouped by provider,
                             sprint-043 — see AGENTS.md § Invariants "Model selector" and
-                            "Grouped pickers"), CommandMenu (composer's `/`
+                            "Grouped pickers"), ThinkingMenu (that toolbar's thinking-level
+                            picker, sprint-070 — mounted immediately after ModelMenu, see
+                            AGENTS.md § Invariants "Thinking-level selector") +
+                            thinking-level-source.ts (pure draft-time level-list decision,
+                            unit-tested), CommandMenu (composer's `/`
                             slash-command popup — see AGENTS.md § Invariants "Slash-command
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             unit-tested), use-bottom-anchor (the timeline's bottom-anchor
@@ -1660,7 +1666,8 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `ModelMenu` itself owns no trigger element: it takes a
   `renderTrigger(currentModel, currentModelName)` prop and wraps whatever the caller renders in
   `DropdownMenu.Trigger asChild` — today `Composer.tsx`'s toolbar button (`styles.modelBtn`),
-  which renders the same `Name (id)` hierarchy as the list rows (`.modelLabel` in
+  a lucide `Cpu` icon (matching `ThinkingMenu`'s `Brain`, so the two adjacent toolbar pickers
+  read as a pair) followed by the same `Name (id)` hierarchy as the list rows (`.modelLabel` in
   `--pi-color-foreground`, `.modelId` muted and one size rung down, shrinking first so a narrow
   pane truncates the id rather than the name), or a `"Model"` placeholder. The name exists only in
   the fetched model list — `session.model` is the bare id — which is why the
@@ -1789,6 +1796,31 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
     (`TabContextMenu.tsx`, `ui-store.ts`'s `tabMenu` slot), the same Radix cursor-anchored pattern
     `SessionContextMenu.tsx` established.
 
+- **Thinking-level selector (sprint-070/task-005; `composer-ui.md`'s "Thinking" toolbar row).**
+  `ThinkingMenu.tsx` (`features/chat/`) is the brain-icon picker mounted in `.toolbarRight`
+  **immediately after `ModelMenu` in DOM order** (user-pinned placement), before the Stop/Send
+  cluster. Leaner than `ModelMenu` on purpose: one flat ordered list (≤7 rows), no search, no
+  grouping; open state is CONTROLLED (`open`/`onOpenChange` props, like `CommandMenu`) because
+  the caller gates its live query on it. It reuses `ModelMenu.module.css`'s chrome
+  (`.picker`/`.list`/`.item`/`.checkSlot`/`.label`/`.state`) — the same cross-component reuse
+  `CommandMenu` established — and the `.modelBtn` trigger recipe with a lucide `Brain` icon and
+  the current level (placeholder `"Thinking"` when unknown). Two level sources, one pure
+  decision (`thinking-level-source.ts`, unit-tested): a LIVE session answers
+  `useThinkingLevels` (`agent_thinking_levels_request`, keyed `[agentId, model]` so a model
+  change refetches; enabled only while the menu is open), a draft answers from the
+  already-cached `useProviderModels("pi")` catalogue via `levelsForModel` (per-model
+  `thinkingLevels`, full-ladder fallback when absent — no extra RPC). `Composer.tsx`'s
+  `handleSelectThinking` mirrors `handleSelectModel`: optimistic `setThinkingLevel` →
+  `ensureMaterialized` → `setThinking`, then writes the response's EFFECTIVE level back (a
+  clamped pick visibly corrects); rejections swallowed, `agent_update({thinkingLevel})` is the
+  source of truth. `SessionEntry.thinkingLevel` is seeded from `list_agents` on restore and
+  kept live by `use-session-restore.ts`'s `hasStringThinkingLevel` guard beside
+  `hasStringModel`; `materialize.ts` seeds the `resolve_default_model`'s fresh default level for
+  DISPLAY ONLY — the store shows it, but `config.thinkingOptionId` stays unset, so
+  `spawnOrResumeSession` skips the thinking replay and Pi's own (possibly since-changed) default
+  stays authoritative; only an explicit pick, persisted through `agent_set_thinking_request`'s
+  draft branch, ever pins the record. The whole control is hidden when `server_info.features`
+  lacks `thinkingLevels`.
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
   `use-agent-commands.ts`, cached IDENTICALLY to `use-provider-models.ts` — same `useQuery` shape,

@@ -202,6 +202,16 @@ export function wrapSessionEnvelope(
   if (isRecord && (message as Record<string, unknown>).type === "session") return message;
   return { type: "session", message };
 }
+const lastAssistantText = (agentId: string): string | undefined => {
+  const rows = getTimeline(agentId)?.allRows() ?? [];
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const ev = rows[i]!.event as { kind?: string; text?: string };
+    // Skip textless `final` block-close markers (`assistant_message.final`) — they carry no
+    // text and would otherwise mask the real last reply.
+    if (ev.kind === "assistant_message" && ev.text) return ev.text;
+  }
+  return undefined;
+};
 
 /**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
@@ -319,6 +329,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       provider: m.record.provider,
       model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
       modelProvider: m.record.config?.modelProvider,
+      // Live wins over pinned, same shape as `model` one line above (sprint-070/task-003).
+      thinkingLevel: m.session?.getRuntimeInfo().thinkingLevel ?? m.record.config?.thinkingOptionId,
     })),
   }));
 
@@ -361,10 +373,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       models,
     };
   });
-
+  const defaultModelCache = new Map<
+    string,
+    { provider?: string; model?: string; thinkingLevel?: string } | null
+  >();
   // ── Default-model discovery (deferred-draft preselect: new chats show the model they'll
   // actually run on before anything is spawned) ──────────────────────────────
-  const defaultModelCache = new Map<string, { provider?: string; model?: string } | null>();
   registry.register("resolve_default_model", async (ctx) => {
     const provider = String(ctx.message.provider ?? "pi");
     const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
@@ -383,6 +397,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       provider,
       model: resolved?.model,
       modelProvider: resolved?.provider,
+      thinkingLevel: resolved?.thinkingLevel,
     };
   });
 
@@ -588,16 +603,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const scheduleService = new ScheduleService({ home, executor: scheduleExecutor });
   const chatService = new ChatService({ home });
 
-  const lastAssistantText = (agentId: string): string | undefined => {
-    const rows = getTimeline(agentId)?.allRows() ?? [];
-    for (let i = rows.length - 1; i >= 0; i--) {
-      const ev = rows[i]!.event as { kind?: string; text?: string };
-      // Skip textless `final` block-close markers (`assistant_message.final`) — they carry no
-      // text and would otherwise mask the real last reply.
-      if (ev.kind === "assistant_message" && ev.text) return ev.text;
-    }
-    return undefined;
-  };
   const loopExecutor: LoopExecutor = {
     async runWorker({ provider, model, modeId, cwd, prompt }) {
       const res = (await agentService.handleCreate(

@@ -702,6 +702,58 @@ export const agentCycleModelResponseSchema = z
   })
   .passthrough();
 export type AgentCycleModelResponse = z.infer<typeof agentCycleModelResponseSchema>;
+/** Thinking level (set) — sprint-070. `level` is a dynamic string (per-model discovery), not an
+ * enum, matching `agentSessionConfigSchema.thinkingOptionId`'s convention. The response's
+ * `payload.level` is the EFFECTIVE (possibly Pi-clamped) level, never the requested one. */
+export const agentSetThinkingRequestSchema = z
+  .object({
+    type: z.literal("agent_set_thinking_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    level: z.string(),
+  })
+  .passthrough();
+export type AgentSetThinkingRequest = z.infer<typeof agentSetThinkingRequestSchema>;
+
+export const agentSetThinkingResponseSchema = z
+  .object({
+    type: z.literal("agent_set_thinking_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        agentId: z.string(),
+        /** Effective level after provider clamping. */
+        level: z.string(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentSetThinkingResponse = z.infer<typeof agentSetThinkingResponseSchema>;
+
+/** Thinking levels (list) — sprint-070. Live sessions only; drafts answer from the model
+ * catalogue client-side (features/thinking-level-selector.md § Level discovery). */
+export const agentThinkingLevelsRequestSchema = z
+  .object({
+    type: z.literal("agent_thinking_levels_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentThinkingLevelsRequest = z.infer<typeof agentThinkingLevelsRequestSchema>;
+
+export const agentThinkingLevelsResponseSchema = z
+  .object({
+    type: z.literal("agent_thinking_levels_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        agentId: z.string(),
+        levels: z.array(z.string()),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type AgentThinkingLevelsResponse = z.infer<typeof agentThinkingLevelsResponseSchema>;
 
 /** `/copy` — mirrors Pi RPC `get_last_assistant_text`. */
 export const agentLastAssistantTextRequestSchema = z
@@ -1321,6 +1373,10 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentSetModelResponseSchema,
   agentCycleModelRequestSchema,
   agentCycleModelResponseSchema,
+  agentSetThinkingRequestSchema,
+  agentSetThinkingResponseSchema,
+  agentThinkingLevelsRequestSchema,
+  agentThinkingLevelsResponseSchema,
   agentLastAssistantTextRequestSchema,
   agentLastAssistantTextResponseSchema,
   steerAgentRequestSchema,

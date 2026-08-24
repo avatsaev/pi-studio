@@ -25,6 +25,10 @@ export const rpcKeys = {
   agentList: () => ["agents", "list"] as const,
   providerModels: (provider: string) => ["providers", "models", provider] as const,
   agentTimeline: (agentId: string) => ["agents", "timeline", agentId] as const,
+  /** sprint-070: live session's thinking levels (`agent_thinking_levels_request`), keyed on the
+   *  model so a model change refetches automatically on the next open. */
+  thinkingLevels: (agentId: string, model: string | undefined) =>
+    ["agents", "thinkingLevels", agentId, model ?? ""] as const,
   agentCommands: (sessionId: string) => ["agents", "commands", sessionId] as const,
   /** sprint-065: `listProviderAuth()` result — invalidated after a login (task-004) or logout. */
   providerAuthList: () => ["providers", "auth", "list"] as const,

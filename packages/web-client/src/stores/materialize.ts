@@ -16,6 +16,10 @@ import { useSessionStore } from "./session-store.js";
 export interface DefaultModel {
   model?: string;
   modelProvider?: string;
+  /** The fresh default thinking level Pi would start a new session at (sprint-070/task-003),
+   * when the provider reports one — seeded onto the draft so a brand-new chat shows the real
+   * default, not a placeholder. */
+  thinkingLevel?: string;
 }
 
 /**
@@ -41,7 +45,11 @@ export function resolveDefaultModel(
   if (cached) return cached;
   const promise = client.providers
     .resolveDefaultModel(provider)
-    .then((res) => ({ model: res.model, modelProvider: res.modelProvider }))
+    .then((res) => ({
+      model: res.model,
+      modelProvider: res.modelProvider,
+      thinkingLevel: res.thinkingLevel,
+    }))
     .catch(() => ({}) as DefaultModel);
   defaultModelCache.set(client, promise);
   return promise;
@@ -85,6 +93,12 @@ export function ensureMaterialized(client: PiStudioClient, sessionId: string): P
       if (resolved.model && current && !current.model) {
         useSessionStore.getState().setModel(sessionId, resolved.model, resolved.modelProvider);
       }
+      // Seed the default thinking level alongside the model (sprint-070) — only when the entry
+      // still has none, so an explicit pick that landed while the lookup was in flight wins.
+      const afterModel = useSessionStore.getState().sessions[sessionId];
+      if (resolved.thinkingLevel && afterModel && afterModel.thinkingLevel === undefined) {
+        useSessionStore.getState().setThinkingLevel(sessionId, resolved.thinkingLevel);
+      }
     }
     // Re-read: an explicit pick or a `remove` may have landed while the lookup above was in
     // flight (a no-op re-read when no await happened above, since nothing else runs between two
@@ -92,12 +106,24 @@ export function ensureMaterialized(client: PiStudioClient, sessionId: string): P
     const fresh = useSessionStore.getState().sessions[sessionId];
     if (!fresh) throw new Error(`unknown session: ${sessionId}`);
 
-    const config: { provider: string; cwd: string; model?: string; modelProvider?: string } = {
+    const config: {
+      provider: string;
+      cwd: string;
+      model?: string;
+      modelProvider?: string;
+    } = {
       provider: "pi",
       cwd: fresh.cwd || "~",
     };
     if (fresh.model) config.model = fresh.model;
     if (fresh.modelProvider) config.modelProvider = fresh.modelProvider;
+    // `thinkingLevel` is display-only here and deliberately NOT pinned into `config`: an
+    // explicit pick persists via `agent_set_thinking_request`'s draft branch (which
+    // `handleSelectThinking` calls right after materializing), while the resolved DEFAULT
+    // must stay out of the record — `spawnOrResumeSession` skips the thinking replay when
+    // `config.thinkingOptionId` is undefined, and that skip is what keeps Pi's own
+    // (possibly changed-since-this-connection-cached-the-default) default authoritative
+    // (sprint-070 spec § Edge cases).
     const result = await client.createAgent({ config, labels: {} });
     useSessionStore.getState().bindAgent(sessionId, result.agentId);
     return result.agentId;

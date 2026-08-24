@@ -161,6 +161,25 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
+      case "agent_set_thinking_request": {
+        // Mirrors the daemon's effective-level semantics (sprint-070): the scripted fake
+        // "clamps" every request down to `medium` so client tests can assert they read the
+        // response, not their own request.
+        reply({
+          type: "agent_set_thinking_response",
+          requestId,
+          payload: { agentId: msg.agentId, level: "medium" },
+        });
+        return;
+      }
+      case "agent_thinking_levels_request": {
+        reply({
+          type: "agent_thinking_levels_response",
+          requestId,
+          payload: { agentId: msg.agentId, levels: ["off", "low", "medium", "high"] },
+        });
+        return;
+      }
       case "list_provider_models": {
         reply({
           type: "list_provider_models_response",

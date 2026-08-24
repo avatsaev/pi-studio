@@ -1,7 +1,7 @@
 # Task 005 — Web-client: `ThinkingMenu` in the composer + store field + restore/broadcast seeding
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client
 - **Priority:** P1

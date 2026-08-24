@@ -1,7 +1,7 @@
 # Task 002 — Protocol schemas + `agent_set_thinking` / `agent_thinking_levels` RPCs
 
 - **Sprint:** sprint-070-thinking-level-selector
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol, packages/server (daemon RPC surface)
 - **Priority:** P1
