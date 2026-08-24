@@ -18,7 +18,7 @@ describe("capability flag sets", () => {
   });
 
   it("exports SERVER_FEATURES keys", () => {
-    expect(Object.keys(SERVER_FEATURES).sort()).toEqual(
+    expect(Object.keys(SERVER_FEATURES).toSorted()).toEqual(
       [
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
@@ -29,7 +29,8 @@ describe("capability flag sets", () => {
         "providersSnapshot",
         "rewind",
         "terminal-restore-modes",
-      ].sort(),
+        "thinkingLevels",
+      ].toSorted(),
     );
   });
 

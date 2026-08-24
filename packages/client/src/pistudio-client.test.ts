@@ -167,7 +167,6 @@ describe("PiStudioClient — slash-command operations (sprint-037)", () => {
     const req = fake.sent.find((m) => m.type === "agent_compact_request");
     expect(req?.customInstructions).toBe("focus on code");
   });
-
   it("newSession, switchSession, fork, forkMessages, clone, setSessionName, exportHtml, setModel, cycleModel, lastAssistantText all issue their correlated RPC with agentId", async () => {
     const { client, fake } = await makeFacade();
     const created = await client.createAgent({
@@ -235,6 +234,38 @@ describe("PiStudioClient — command discovery (sprint-040)", () => {
     expect(payload.commands[0]?.source).toBe("prompt");
     expect(payload.commands[0]?.scope).toBe("project");
     expect(fake.sent.find((m) => m.type === "agent_list_commands_request")?.agentId).toBe(
+      created.agentId,
+    );
+  });
+});
+describe("PiStudioClient — thinking-level pair (sprint-070)", () => {
+  it("setThinking issues agent_set_thinking_request and resolves to the EFFECTIVE level from the response", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const payload = await client.agent(created.agentId).setThinking("high");
+    // The scripted daemon clamps every request to `medium` — the SDK must surface the
+    // response's level, not echo the request.
+    expect(payload).toEqual({ agentId: created.agentId, level: "medium" });
+    const req = fake.sent.find((m) => m.type === "agent_set_thinking_request");
+    expect(req?.agentId).toBe(created.agentId);
+    expect(req?.level).toBe("high");
+  });
+
+  it("listThinkingLevels issues agent_thinking_levels_request and returns the levels payload", async () => {
+    const { client, fake } = await makeFacade();
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const payload = await client.agent(created.agentId).listThinkingLevels();
+    expect(payload).toEqual({
+      agentId: created.agentId,
+      levels: ["off", "low", "medium", "high"],
+    });
+    expect(fake.sent.find((m) => m.type === "agent_thinking_levels_request")?.agentId).toBe(
       created.agentId,
     );
   });

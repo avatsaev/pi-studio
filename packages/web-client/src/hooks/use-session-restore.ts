@@ -48,6 +48,9 @@ interface RestoredAgent {
    * `provider-contract.ts` `ProviderRuntimeInfo`). REQUIRED to call `setModel` again after a
    * restore without falling into `handleSelectModel`'s `if (!modelProvider) return` no-op. */
   modelProvider?: string;
+  /** Effective thinking level (sprint-070) — live when a session is attached, else the pinned
+   * `record.config.thinkingOptionId` (daemon `list_agents` projection). */
+  thinkingLevel?: string;
   provider?: string;
 }
 
@@ -58,6 +61,13 @@ export function hasStringModel(
   msg: AgentUpdateMessage,
 ): msg is AgentUpdateMessage & { model: string } {
   return typeof msg.model === "string";
+}
+/** Sprint-070: the `agent_update` listener below only reacts to broadcasts that carry a
+ * `thinkingLevel` — same narrow type-guard convention as `hasStringModel`. */
+export function hasStringThinkingLevel(
+  msg: AgentUpdateMessage,
+): msg is AgentUpdateMessage & { thinkingLevel: string } {
+  return typeof msg.thinkingLevel === "string";
 }
 
 export function useSessionRestore(): void {
@@ -85,6 +95,9 @@ export function useSessionRestore(): void {
       if (hasStringModel(msg)) {
         const modelProvider = typeof msg.modelProvider === "string" ? msg.modelProvider : undefined;
         useSessionStore.getState().setModelByAgentId(msg.agentId, msg.model, modelProvider);
+      }
+      if (hasStringThinkingLevel(msg)) {
+        useSessionStore.getState().setThinkingLevelByAgentId(msg.agentId, msg.thinkingLevel);
       }
     });
   }, [status, client]);
@@ -154,6 +167,7 @@ async function restoreAgents(client: PiStudioClient): Promise<void> {
       userMessageCount: timeline.rows.filter((r) => r.kind === "user").length,
       model: agent.model,
       modelProvider: agent.modelProvider,
+      thinkingLevel: agent.thinkingLevel,
     });
   }
 

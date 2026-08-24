@@ -22,6 +22,10 @@ class FakeTransport implements PiRpcTransport {
   readonly requests: string[] = [];
   readonly notifies: string[] = [];
   sessionFile = "/tmp/fake-pi-session.jsonl";
+  /** Mirrors a live Pi process's current thinking level; `set_thinking_level` clamps any
+   * non-`"off"` request down to `"off"` (the fake's model is non-reasoning) so tests can assert
+   * the silent-clamping write-back (sprint-070/task-001). */
+  thinkingLevel = "medium";
   private readonly eventCbs = new Set<(e: unknown) => void>();
 
   constructor(public readonly spawnArgs: PiTransportSpawnArgs) {}
@@ -34,9 +38,21 @@ class FakeTransport implements PiRpcTransport {
         return Promise.resolve({
           sessionFile: this.sessionFile,
           model: { id: "claude-opus-4", name: "Opus 4" },
+          thinkingLevel: this.thinkingLevel,
         });
       case "get_available_models":
-        return Promise.resolve({ models: [{ id: "pi-sonnet", name: "Sonnet" }] });
+        return Promise.resolve({
+          models: [
+            { id: "pi-sonnet", name: "Sonnet", reasoning: true },
+            {
+              id: "pi-limited",
+              name: "Limited",
+              reasoning: true,
+              thinkingLevelMap: { high: null, xhigh: "supported" },
+            },
+            { id: "pi-plain", name: "Plain", reasoning: false },
+          ],
+        });
       case "get_session_stats":
         return Promise.resolve({ sessionId: "s1", totalMessages: 4, tokens: { total: 100 } });
       case "compact":
@@ -61,7 +77,16 @@ class FakeTransport implements PiRpcTransport {
       case "export_html":
         return Promise.resolve({ path: params?.outputPath ?? "/tmp/session.html" });
       case "set_model":
+        // Real Pi clamps the thinking level on a model switch; the fake's models are
+        // non-reasoning, so every switch settles at `off` (sprint-070/task-001).
+        this.thinkingLevel = "off";
         return Promise.resolve({ id: params?.modelId, provider: params?.provider });
+      case "set_thinking_level":
+        // Silent clamp: the fake model supports only `off`.
+        this.thinkingLevel = "off";
+        return Promise.resolve({});
+      case "get_available_thinking_levels":
+        return Promise.resolve({ levels: ["off"] });
       case "cycle_model":
         return Promise.resolve({ model: { id: "next-model" }, thinkingLevel: "medium" });
       case "get_last_assistant_text":
@@ -532,7 +557,7 @@ describe("PiAgentClient", () => {
     const { client, spawns } = clientWithFake();
     const models = await client.listModels();
     const modes = await client.listModes();
-    expect(models).toEqual([{ id: "pi-sonnet", label: "Sonnet" }]);
+    expect(models.map((m) => m.id)).toEqual(["pi-sonnet", "pi-limited", "pi-plain"]);
     expect(modes).toEqual([]); // pi has no list_modes RPC
     for (const t of spawns) {
       expect(t.notifies).not.toContain("prompt");
@@ -543,7 +568,11 @@ describe("PiAgentClient", () => {
   it("resolveDefaultModel spawns --no-session and asks get_state, not a scratch prompt", async () => {
     const { client, spawns } = clientWithFake();
     const resolved = await client.resolveDefaultModel();
-    expect(resolved).toEqual({ provider: undefined, model: "claude-opus-4" });
+    expect(resolved).toEqual({
+      provider: undefined,
+      model: "claude-opus-4",
+      thinkingLevel: "medium",
+    });
     expect(spawns).toHaveLength(1);
     expect(spawns[0]?.spawnArgs.args).toContain("--no-session");
     expect(spawns[0]?.requests).toEqual(["get_state"]);
@@ -850,6 +879,59 @@ describe("slash-command operations (sprint-037)", () => {
     const cycled = await session.cycleModel?.();
     expect(cycled).toEqual({ model: { id: "next-model" }, thinkingLevel: "medium" });
     expect(session.getRuntimeInfo().model).toBe("next-model");
+  });
+
+  it("setThinkingOption issues set_thinking_level and reports the CLAMPED level from the get_state re-read (sprint-070)", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    // discoverState captured the fake's initial level on create.
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("medium");
+    await session.setThinkingOption?.("high");
+    expect(spawns[0]?.requests).toContain("set_thinking_level");
+    // The fake clamps every request to `off`; the adapter must surface the clamped value, not
+    // the requested `high`.
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("off");
+  });
+
+  it("setProviderModel re-reads get_state so the post-switch level wins over the stale pre-switch one (sprint-070)", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("medium");
+    await session.setProviderModel?.("anthropic", "claude-sonnet-4-20250514");
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("off");
+  });
+
+  it("cycleModel captures thinkingLevel from its own response (sprint-070)", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    await session.cycleModel?.();
+    expect(session.getRuntimeInfo().thinkingLevel).toBe("medium");
+  });
+
+  it("listThinkingLevels returns get_available_thinking_levels' levels (sprint-070)", async () => {
+    const { client } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    expect(await session.listThinkingLevels?.()).toEqual(["off"]);
+  });
+
+  it("listModels carries reasoning + derived thinkingLevels per model (sprint-070)", async () => {
+    const { client } = clientWithFake();
+    const models = await client.listModels();
+    expect(models).toEqual([
+      {
+        id: "pi-sonnet",
+        label: "Sonnet",
+        reasoning: true,
+        thinkingLevels: ["off", "minimal", "low", "medium", "high"],
+      },
+      {
+        id: "pi-limited",
+        label: "Limited",
+        reasoning: true,
+        thinkingLevels: ["off", "minimal", "low", "medium", "xhigh"],
+      },
+      { id: "pi-plain", label: "Plain", reasoning: false, thinkingLevels: ["off"] },
+    ]);
   });
 
   it("getLastAssistantText returns the mapped text", async () => {

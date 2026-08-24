@@ -44,6 +44,9 @@ const MOCK_MODES: AgentModeDefinition[] = [
   { id: "default", label: "Default" },
   { id: "plan", label: "Plan" },
 ];
+/** Static thinking-level list for the mock provider (sprint-070/task-001) — small enough to
+ * exercise clamping in the dev daemon without mirroring Pi's full 7-level ladder. */
+const MOCK_THINKING_LEVELS = ["off", "low", "medium", "high"];
 
 export interface MockSessionOptions {
   /** Delay before a started turn completes (ms). Small but non-zero so `interrupt` can win. */
@@ -65,6 +68,7 @@ export class MockAgentSession implements AgentSession {
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private mode = "default";
   private closed = false;
+  private thinkingLevel = "off";
 
   // Extension UI (features/extension-ui-rpc.md, sprint-066): no `pi` process exists to script this
   // family, so the mock provider exposes a scripted emitter (`emitUiRequest`) plus a recorder for
@@ -254,6 +258,7 @@ export class MockAgentSession implements AgentSession {
       provider: this.provider,
       sessionId: this.id,
       model: this.config.model ?? "mock-model",
+      thinkingLevel: this.thinkingLevel,
       modeId: this.mode,
       extra: { cwd: this.config.cwd },
     };
@@ -270,6 +275,17 @@ export class MockAgentSession implements AgentSession {
   setMode(id: string): Promise<void> {
     this.mode = id;
     return Promise.resolve();
+  }
+
+  /** Sprint-070/task-001: store the level clamped to the mock's static list, mirroring Pi's
+   * silent clamping so the dev daemon exercises the same effective-level semantics. */
+  setThinkingOption(id: string): Promise<void> {
+    this.thinkingLevel = MOCK_THINKING_LEVELS.includes(id) ? id : "off";
+    return Promise.resolve();
+  }
+
+  listThinkingLevels(): Promise<string[]> {
+    return Promise.resolve([...MOCK_THINKING_LEVELS]);
   }
 
   getPendingPermissions(): PendingPermission[] {
@@ -368,11 +384,11 @@ export class MockAgentSession implements AgentSession {
   }
 
   cycleModel(): Promise<{ model: { id: string }; thinkingLevel: string }> {
-    return Promise.resolve({ model: { id: "mock-model" }, thinkingLevel: "medium" });
+    return Promise.resolve({ model: { id: "mock-model" }, thinkingLevel: this.thinkingLevel });
   }
 
   getLastAssistantText(): Promise<string | null> {
-    const last = [...this.history].reverse().find((e) => e.kind === "assistant_message");
+    const last = [...this.history].toReversed().find((e) => e.kind === "assistant_message");
     return Promise.resolve(last && "text" in last ? (last.text as string) : null);
   }
 
@@ -448,15 +464,26 @@ export class MockAgentClient implements AgentClient {
   }
 
   listModels(): Promise<AgentModelDefinition[]> {
-    return Promise.resolve([{ id: "mock-model", label: "Mock Model" }]);
+    return Promise.resolve([
+      {
+        id: "mock-model",
+        label: "Mock Model",
+        reasoning: true,
+        thinkingLevels: [...MOCK_THINKING_LEVELS],
+      },
+    ]);
   }
 
   listModes(): Promise<AgentModeDefinition[]> {
     return Promise.resolve(MOCK_MODES);
   }
 
-  resolveDefaultModel(): Promise<{ provider?: string; model?: string } | null> {
-    return Promise.resolve({ provider: "mock", model: "mock-model" });
+  resolveDefaultModel(): Promise<{
+    provider?: string;
+    model?: string;
+    thinkingLevel?: string;
+  } | null> {
+    return Promise.resolve({ provider: "mock", model: "mock-model", thinkingLevel: "off" });
   }
 
   isAvailable(): boolean {

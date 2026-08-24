@@ -41,6 +41,7 @@ import {
   type PiTransportFactory,
   resolveBinaryOnPath,
 } from "./rpc-transport.js";
+import { deriveThinkingLevels } from "./thinking-levels.js";
 
 /**
  * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·modes·features /
@@ -163,6 +164,7 @@ class PiAgentSession implements AgentSession {
   private mode: string | null;
   private model: string | undefined;
   private sessionFile?: string;
+  private thinkingLevel?: string;
 
   constructor(
     private readonly transport: PiRpcTransport,
@@ -225,6 +227,10 @@ class PiAgentSession implements AgentSession {
       }
       const modelId = modelIdFrom(state.model);
       if (modelId) this.model = modelId;
+      // Pi's `get_state` also reports the process's current thinking level (docs/rpc.md §
+      // get_state) — capture it so `getRuntimeInfo()` reflects the live truth from the first
+      // create/resume, not only after an explicit set/model-switch.
+      if (typeof state.thinkingLevel === "string") this.thinkingLevel = state.thinkingLevel;
     } catch {
       /* best-effort */
     }
@@ -332,6 +338,7 @@ class PiAgentSession implements AgentSession {
       sessionId: this.id,
       modeId: this.mode ?? undefined,
       model: this.model,
+      thinkingLevel: this.thinkingLevel,
     };
   }
 
@@ -483,6 +490,12 @@ class PiAgentSession implements AgentSession {
     const data = await this.transport.request("set_model", { provider, modelId });
     const resolved = modelIdFrom(data);
     if (resolved) this.model = resolved;
+    // `set_model`'s response is the bare Model object and does NOT carry `thinkingLevel`, even
+    // though a model switch is exactly when Pi clamps the level (sprint-070/task-001; verified
+    // against the bundled Pi: only `cycle_model`'s response includes it). Re-read `get_state`
+    // so `getRuntimeInfo()` reports the post-switch effective level, never a stale pre-switch
+    // one. Best-effort like `discoverState`: a probe failure leaves the level as it was.
+    await this.refreshThinkingLevel();
     return data;
   }
 
@@ -490,7 +503,39 @@ class PiAgentSession implements AgentSession {
     const data = (await this.transport.request("cycle_model")) as AgentCycleModelResult;
     const resolved = modelIdFrom(data?.model);
     if (resolved) this.model = resolved;
+    // `cycle_model`'s response DOES carry the post-switch level — no extra probe needed.
+    if (typeof data?.thinkingLevel === "string") this.thinkingLevel = data.thinkingLevel;
     return data ?? {};
+  }
+
+  /**
+   * `set_thinking_level` (docs/rpc.md) — Pi clamps silently to the current model's
+   * capabilities and the response carries no data, so re-read `get_state` to learn the
+   * EFFECTIVE level (sprint-070/task-001). The daemon persists/broadcasts that effective
+   * value, never the requested one.
+   */
+  async setThinkingOption(id: string): Promise<void> {
+    await this.transport.request("set_thinking_level", { level: id });
+    await this.refreshThinkingLevel();
+  }
+
+  /** `get_available_thinking_levels` (docs/rpc.md) — authoritative levels for the process's
+   * current model (`["off"]` for non-reasoning models). */
+  async listThinkingLevels(): Promise<string[]> {
+    const data = (await this.transport.request("get_available_thinking_levels")) as {
+      levels?: string[];
+    };
+    return Array.isArray(data?.levels) ? data.levels : [];
+  }
+
+  /** Re-read `get_state` and store `thinkingLevel` (the silent-clamping write-back probe). */
+  private async refreshThinkingLevel(): Promise<void> {
+    try {
+      const state = (await this.transport.request("get_state")) as Record<string, unknown>;
+      if (typeof state.thinkingLevel === "string") this.thinkingLevel = state.thinkingLevel;
+    } catch {
+      /* best-effort */
+    }
   }
 
   async getLastAssistantText(): Promise<string | null> {
@@ -646,6 +691,11 @@ export class PiAgentClient implements AgentClient {
         id: String(rec.id ?? rec.name ?? ""),
         label: typeof rec.name === "string" ? rec.name : String(rec.id ?? ""),
         provider: typeof rec.provider === "string" ? rec.provider : undefined,
+        // Raw Pi `Model` objects carry `reasoning` + `thinkingLevelMap`; surface the derived
+        // per-model level list so clients can offer draft sessions the right levels with no
+        // live process (sprint-070/task-001).
+        reasoning: typeof rec.reasoning === "boolean" ? rec.reasoning : undefined,
+        thinkingLevels: deriveThinkingLevels(rec),
       } as AgentModelDefinition;
     });
   }
@@ -667,7 +717,7 @@ export class PiAgentClient implements AgentClient {
    */
   async resolveDefaultModel(opts?: {
     cwd?: string;
-  }): Promise<{ provider?: string; model?: string } | null> {
+  }): Promise<{ provider?: string; model?: string; thinkingLevel?: string } | null> {
     const data = (await this.topLevel("get_state", opts?.cwd, { noSession: true })) as
       | Record<string, unknown>
       | undefined;
@@ -676,6 +726,10 @@ export class PiAgentClient implements AgentClient {
     return {
       provider: typeof rec.provider === "string" ? rec.provider : undefined,
       model: modelIdFrom(rec),
+      // The `--no-session get_state` also reports the fresh default thinking level
+      // (sprint-070/task-003) — carried through the daemon's cache into
+      // `resolve_default_model`'s response so a brand-new draft can show it.
+      thinkingLevel: typeof data?.thinkingLevel === "string" ? data.thinkingLevel : undefined,
     };
   }
 

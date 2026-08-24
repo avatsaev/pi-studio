@@ -122,6 +122,47 @@ describe("update agent", () => {
     await ops.handleUpdate({ agentId, title: "Renamed" }, () => []);
     expect(saved.some((r) => r.id === agentId && r.title === "Renamed")).toBe(true);
   });
+  it("applies thinkingOptionId on a live session, then persists/broadcasts the EFFECTIVE level (sprint-070)", async () => {
+    const { service, ops, manager, broadcasts, saved } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    const applied: string[] = [];
+    manager.get(agentId)!.session = {
+      ...manager.get(agentId)!.session!,
+      setThinkingOption: (id: string) => {
+        applied.push(id);
+        return Promise.resolve();
+      },
+      getRuntimeInfo: () => ({ provider: "mock", thinkingLevel: "off" }),
+    } as unknown as AgentSession;
+    saved.length = 0;
+
+    await ops.handleUpdate({ agentId, thinkingOptionId: "high" }, () => []);
+
+    expect(applied).toEqual(["high"]);
+    // The stub clamps to `off`; the record and the broadcast must carry the effective value,
+    // never the requested `high`.
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBe("off");
+    expect(saved.some((r) => r.id === agentId && r.config?.thinkingOptionId === "off")).toBe(true);
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({ type: "agent_update", agentId, thinkingLevel: "off" }),
+    );
+  });
+
+  it("update without thinkingOptionId leaves the pinned level untouched and broadcasts nothing extra", async () => {
+    const { service, ops, manager, broadcasts } = makeSetup();
+    const agentId = await createAgent(service, "first");
+    await ops.handleUpdate({ agentId, title: "T" }, () => []);
+    expect(manager.get(agentId)?.record.config?.thinkingOptionId).toBeUndefined();
+    expect(
+      broadcasts.some(
+        (b) =>
+          typeof b === "object" &&
+          b !== null &&
+          (b as Record<string, unknown>).type === "agent_update" &&
+          "thinkingLevel" in (b as Record<string, unknown>),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("resume", () => {
@@ -336,6 +377,130 @@ describe("send prompt", () => {
     // was replayed onto it — neither `createSession` nor `resumeSession` consult
     // `AgentSessionConfig.model` themselves (Pi resolves its own default at spawn regardless).
     expect(setProviderModelCalls).toEqual([["anthropic", "picked-model"]]);
+  });
+  it("replays the pinned thinking level strictly AFTER the model on first spawn, and not at all when absent (sprint-070)", async () => {
+    const { manager } = makeSetup();
+    const calls: string[] = [];
+    const fakeSession = {
+      provider: "mock",
+      id: "fake-session",
+      capabilities: {},
+      subscribe: () => () => {},
+      run: () => Promise.resolve(),
+      getRuntimeInfo: () => ({ provider: "mock", model: "picked-model" }),
+      getAvailableModes: () => [],
+      getCurrentMode: () => null,
+      setMode: () => Promise.resolve(),
+      getPendingPermissions: () => [],
+      respondToPermission: () => Promise.resolve(),
+      describePersistence: () => ({
+        provider: "mock",
+        sessionId: "fake-session",
+        nativeHandle: "mock:fake-session",
+      }),
+      close: () => Promise.resolve(),
+      setProviderModel: () => {
+        calls.push("set_model");
+        return Promise.resolve({});
+      },
+      setThinkingOption: (id: string) => {
+        calls.push(`set_thinking:${id}`);
+        return Promise.resolve();
+      },
+    } as unknown as AgentSession;
+    const fakeClient = {
+      provider: "mock",
+      capabilities: {},
+      createSession: () => Promise.resolve(fakeSession),
+      resumeSession: () => Promise.reject(new Error("must not resume")),
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+    } as unknown as AgentClient;
+    const service = new AgentService({
+      manager,
+      resolveClient: () => fakeClient,
+      broadcast: () => {},
+      now: () => NOW,
+    });
+
+    const created = (await service.handleCreate(
+      {
+        requestId: "req-draft",
+        config: {
+          provider: "mock",
+          cwd: "/work",
+          model: "picked-model",
+          modelProvider: "anthropic",
+          thinkingOptionId: "high",
+        },
+      },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+
+    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+
+    // Model replay first, thinking second — Pi clamps thinking against the model.
+    expect(calls).toEqual(["set_model", "set_thinking:high"]);
+  });
+
+  it("skips the thinking replay entirely when the record has no pinned level (never clobbers Pi's default)", async () => {
+    const { manager } = makeSetup();
+    const calls: string[] = [];
+    const fakeSession = {
+      provider: "mock",
+      id: "fake-session",
+      capabilities: {},
+      subscribe: () => () => {},
+      run: () => Promise.resolve(),
+      getRuntimeInfo: () => ({ provider: "mock" }),
+      getAvailableModes: () => [],
+      getCurrentMode: () => null,
+      setMode: () => Promise.resolve(),
+      getPendingPermissions: () => [],
+      respondToPermission: () => Promise.resolve(),
+      describePersistence: () => ({
+        provider: "mock",
+        sessionId: "fake-session",
+        nativeHandle: "mock:fake-session",
+      }),
+      close: () => Promise.resolve(),
+      setProviderModel: () => {
+        calls.push("set_model");
+        return Promise.resolve({});
+      },
+      setThinkingOption: () => {
+        calls.push("set_thinking");
+        return Promise.resolve();
+      },
+    } as unknown as AgentSession;
+    const fakeClient = {
+      provider: "mock",
+      capabilities: {},
+      createSession: () => Promise.resolve(fakeSession),
+      resumeSession: () => Promise.reject(new Error("must not resume")),
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+    } as unknown as AgentClient;
+    const service = new AgentService({
+      manager,
+      resolveClient: () => fakeClient,
+      broadcast: () => {},
+      now: () => NOW,
+    });
+
+    const created = (await service.handleCreate(
+      {
+        requestId: "req-draft",
+        config: { provider: "mock", cwd: "/work", model: "m", modelProvider: "anthropic" },
+      },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+
+    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+
+    expect(calls).toEqual(["set_model"]);
   });
 });
 

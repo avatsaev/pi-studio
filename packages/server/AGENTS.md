@@ -80,7 +80,9 @@ src/
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
                                    /new, /resume, /fork, /clone, /name, /export, /model, /copy),
-                                   plus command discovery (agent_list_commands_request, sprint-040).
+                                   command discovery (agent_list_commands_request, sprint-040),
+                                   and the thinking-level pair (agent_set_thinking /
+                                   agent_thinking_levels, sprint-070/task-002).
     timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
     timeline-rpc.ts               fetch_agent_timeline handler.
     rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
@@ -358,6 +360,32 @@ src/
   which is a `createSession`, not a resume. No protocol schema exists for
   `list_agents_request`/`response` at all — it is, and remains, an untyped ad hoc RPC on both
   server and client.
+- **Thinking-level RPC pair (sprint-070/task-002): `agent_set_thinking_request` and
+  `agent_thinking_levels_request`** live in `slash-command-operations.ts` and mirror
+  `handleSetModel`'s two-branch shape exactly. Set: no live session → `persistThinking` pins the
+  requested level into `record.config.thinkingOptionId` (the same write first-spawn replay reads
+  back) + `agent_update` broadcast with `thinkingLevel`; live session → `setThinkingOption`, then
+  answer/persist/broadcast the EFFECTIVE level off `getRuntimeInfo().thinkingLevel` (the provider
+  re-reads Pi `get_state` after the set — task-001's write-back probe), never the requested one.
+  List: live sessions only (`requireSession`), delegating to `listThinkingLevels()`; drafts answer
+  from the model catalogue client-side, so a draft here is a legitimate `rpc_error`. Both are real
+  `messages.ts` schemas (append-only, `level` a dynamic string) and both bootstraps register them
+  via the service's `registerHandlers`; the daemon advertises `SERVER_FEATURES.thinkingLevels` so
+  clients can capability-gate the composer's thinking selector. `update_agent_request`'s
+  thinkingOptionId branch (`session-operations.ts` `handleUpdate`) applies the same
+  apply-then-effective-then-persist semantics inline (the helper is private to this service;
+  the observable behavior is identical).
+- **Thinking-level persistence chain (sprint-070/task-003), four links:** (1) write — task-002's
+  `persistThinking`/`handleSetThinking`; (2) replay — `agent-service.ts`
+  `spawnOrResumeSession` replays `config.thinkingOptionId` via `setThinkingOption` strictly
+  AFTER the model replay and only on first spawn (Pi clamps thinking against the model; on
+  resume the block doesn't run — Pi restores from its JSONL, and with the write-back config and
+  JSONL cannot diverge); (3) reload — `list_agents` (both bootstraps) reports
+  `thinkingLevel: live ?? pinned`, same live-wins-over-pinned shape as `model`; (4) converge —
+  `handleSetModel`/`handleCycleModel` write back and broadcast the effective post-switch level
+  (task-001 keeps `getRuntimeInfo().thinkingLevel` fresh), so a clamp can never leave the record
+  stale. `resolve_default_model` additionally carries the `--no-session get_state`'s fresh
+  default level through the daemon cache (pi adapter + mock) for brand-new drafts.
 - **Capability-gated instructions compose the system prompt at create time** (`handleCreate`,
   generalized in sprint-051 from task-006 sprint-045's single-flag form): `registerHandlers` passes
   the RPC's own `ctx.session` into `handleCreate` as `wsSession` (named to avoid colliding with the
@@ -386,6 +414,10 @@ Two built-in providers: `pi` and `mock`.
 requested `provider` (default `"pi"`) via `resolveClient` and returns
 `{ type: "list_provider_models_response", requestId, provider, models: AgentModelDefinition[] }`
 by calling `AgentClient.listModels(opts?: { cwd?: string })` directly — no agent session is spawned.
+Since sprint-070/task-001 each entry additionally carries `reasoning?: boolean` and
+`thinkingLevels?: string[]` (Pi adapter derives them from the raw `Model` object; the mock marks
+its model reasoning with its static list) so the web-client can drive a thinking-level selector
+for drafts from the same cached query.
 Backs the web-client composer's model-selector popup (`packages/web-client/src/features/chat/
 ModelMenu.tsx`). Like `list_providers`/`list_agents_request`, it is registered as a flat ad hoc RPC
 with no protocol schema and is not in `sessionMessageSchema`'s discriminated union — it validates
@@ -440,7 +472,8 @@ creation" above.
   `exportHtml`, `setProviderModel`, `cycleModel`, `getLastAssistantText` — mirror Pi built-in slash
   commands that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`,
   `/clone`, `/name`, `/export`, `/model`, `/copy`). Wired as their own daemon RPCs by
-  `slash-command-operations.ts` (`agent_session_stats_request`, `agent_compact_request`, …), NOT
+  `slash-command-operations.ts` (`agent_session_stats_request`, `agent_compact_request`, …,
+  `agent_set_thinking_request`, `agent_thinking_levels_request`), NOT
   routed through `prompt` — Pi's own RPC contract states built-in TUI commands without one of
   these RPC equivalents (`/settings`, `/hotkeys`, …) are never expanded by `prompt` and have no
   wire representation here. Unimplemented on a provider (e.g. `mock`) → `rpc_error`, never silent.
@@ -545,6 +578,24 @@ creation" above.
   and `agent_session_stats_request`'s runtime-info fallback (`slash-command-operations.ts`
   `handleSessionStats`) for the only provider used in production. Caught by a live smoke test
   against a real spawned `pi --mode rpc` process, not by any unit test.
+- **`getRuntimeInfo().thinkingLevel` is cached the same way as `model`** (sprint-070/task-001) —
+  `discoverState()` also captures `get_state.thinkingLevel`, and every operation that can change
+  the effective level refreshes it: `setThinkingOption` (Pi RPC `set_thinking_level`) and
+  `setProviderModel` (Pi RPC `set_model`) both re-read `get_state` afterwards because those
+  responses carry NO level, while `cycleModel` reads it off its own response (the one Pi RPC
+  that returns it). This is the silent-clamping write-back probe: Pi clamps to the model's
+  capabilities without saying so, so the daemon must always learn the EFFECTIVE level, never
+  trust the requested one. `listThinkingLevels()` maps `get_available_thinking_levels`
+  (authoritative per current model; `["off"]` for non-reasoning models). The `mock` provider
+  ships the same surface with a static `["off","low","medium","high"]` list and clamps unknown
+  picks to `off`.
+- **`listModels()` carries per-model `reasoning` + derived `thinkingLevels`** (sprint-070/
+  task-001): Pi's raw `Model` objects expose `reasoning` and `thinkingLevelMap`, and
+  `providers/pi/thinking-levels.ts`'s pure `deriveThinkingLevels` mirrors pi-ai's
+  `getSupportedThinkingLevels` (`!reasoning → ["off"]`; else the 7-level ladder filtered by the
+  map's tristate — `null` removes, `xhigh`/`max` opt-in). pi-ai is a nested transitive dep, not
+  importable; drift self-corrects at set time via the write-back above. Lets clients offer
+  draft sessions the right level list with no live process and zero extra spawns.
 - Communicates over stdin/stdout as JSONL (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …)
   to `AgentStreamEvent`s.

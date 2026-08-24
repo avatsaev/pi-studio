@@ -106,8 +106,7 @@ export class SessionOperationsService {
     getSessions: () => Iterable<Session>,
     kind: "steer" | "followUp",
   ): Promise<unknown> {
-    const responseType =
-      kind === "steer" ? "steer_agent_response" : "follow_up_agent_response";
+    const responseType = kind === "steer" ? "steer_agent_response" : "follow_up_agent_response";
     const agentId = msg.agentId as string;
     const message = msg.message as string;
     const images = msg.images as ImageAttachment[] | undefined;
@@ -156,13 +155,23 @@ export class SessionOperationsService {
     };
 
     // Apply mode/model/thinking to the live session (if attached).
+    let effectiveThinking: string | undefined;
     if (managed.session) {
       if (typeof msg.modeId === "string") await managed.session.setMode(msg.modeId);
       if (typeof msg.model === "string") await managed.session.setModel?.(msg.model);
       if (typeof msg.thinkingOptionId === "string") {
-        await managed.session.setThinkingOption?.(msg.thinkingOptionId);
+        // Same apply-then-effective semantics as `agent_set_thinking_request`
+        // (sprint-070/task-003): apply, then persist/broadcast the EFFECTIVE level the
+        // provider reports (Pi clamps silently), never the requested one. A provider
+        // without `setThinkingOption` keeps the old pin-only behavior.
+        if (managed.session.setThinkingOption) {
+          await managed.session.setThinkingOption(msg.thinkingOptionId);
+          effectiveThinking =
+            managed.session.getRuntimeInfo().thinkingLevel ?? msg.thinkingOptionId;
+        }
       }
     }
+    if (effectiveThinking !== undefined) config.thinkingOptionId = effectiveThinking;
 
     // Persist updated record without recreating the session — actually write it to disk
     // (`$PI_STUDIO_HOME/agents/**.json`), not just mutate the in-memory copy.
@@ -177,6 +186,7 @@ export class SessionOperationsService {
       status: managed.record.lastStatus,
       title,
       labels,
+      ...(effectiveThinking !== undefined ? { thinkingLevel: effectiveThinking } : {}),
     });
     return { type: "update_agent_response", agentId, ok: true };
   }
@@ -226,7 +236,7 @@ export class SessionOperationsService {
       persistence: result.persistence as unknown as AgentRecord["persistence"],
     };
 
-    const managed = await this.deps.manager.add(record);
+    await this.deps.manager.add(record);
     this.deps.manager.attachSession(record.id, result.session);
 
     // Publish only once the agent is ready.

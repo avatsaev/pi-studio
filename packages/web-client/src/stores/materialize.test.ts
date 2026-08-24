@@ -182,6 +182,60 @@ describe("ensureMaterialized", () => {
     ]);
     expect(useSessionStore.getState().sessions[sessionId]?.model).toBe("claude-sonnet-5");
   });
+  it("seeds the resolved default thinking level for DISPLAY only — never into the createAgent config (sprint-070)", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    const { client, createAgentCalls } = fakeClient({
+      resolveDefaultModel: () =>
+        Promise.resolve({
+          type: "resolve_default_model_response",
+          requestId: "r1",
+          provider: "pi",
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+          thinkingLevel: "medium",
+        } satisfies ResolveDefaultModelResponse),
+    });
+
+    await ensureMaterialized(client, sessionId);
+
+    // The composer's selector shows the real default…
+    expect(useSessionStore.getState().sessions[sessionId]?.thinkingLevel).toBe("medium");
+    // …but the record stays unpinned: `spawnOrResumeSession` skips the thinking replay when
+    // `config.thinkingOptionId` is undefined, keeping Pi's own default authoritative.
+    expect(createAgentCalls).toEqual([
+      {
+        config: {
+          provider: "pi",
+          cwd: "/work",
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+        },
+        labels: {},
+      },
+    ]);
+  });
+
+  it("an explicit thinking pick before materialize is kept and not overwritten by the resolved default", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    useSessionStore.getState().setThinkingLevel(sessionId, "high");
+    const { client } = fakeClient({
+      resolveDefaultModel: () =>
+        Promise.resolve({
+          type: "resolve_default_model_response",
+          requestId: "r1",
+          provider: "pi",
+          model: "claude-sonnet-5",
+          modelProvider: "anthropic",
+          thinkingLevel: "medium",
+        } satisfies ResolveDefaultModelResponse),
+    });
+
+    await ensureMaterialized(client, sessionId);
+
+    expect(useSessionStore.getState().sessions[sessionId]?.thinkingLevel).toBe("high");
+  });
 
   it("an explicit pick landing during the default-model lookup wins over the resolved default", async () => {
     useSessionStore.getState().createSession("/work");
@@ -260,7 +314,6 @@ describe("ensureMaterialized", () => {
     expect(createAgentCalls).toHaveLength(1);
   });
 });
-
 describe("discardIfEmpty", () => {
   it("hard-deletes and removes a never-used, already-bound session", async () => {
     useSessionStore.getState().hydrate({

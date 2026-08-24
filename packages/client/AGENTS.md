@@ -246,6 +246,8 @@ method on this facade.
 | `cycleModel()`                 | `agent_cycle_model_request` (`/model` cycle)                                                                                                                                                                        |
 | `lastAssistantText()`          | `agent_last_assistant_text_request` (`/copy`)                                                                                                                                                                       |
 | `listCommands()`               | `agent_list_commands_request` (sprint-040 — command discovery: extension commands, prompt templates, skills from Pi's `get_commands`; disjoint from the sprint-037 slash commands above, no Pi built-in equivalent) |
+| `setThinking(level)`           | `agent_set_thinking_request` (sprint-070 — resolves to the EFFECTIVE, possibly Pi-clamped level; gate on the `thinkingLevels` server feature flag) |
+| `listThinkingLevels()`         | `agent_thinking_levels_request` (sprint-070 — live sessions only; drafts read the model catalogue) |
 
 ### `PiStudioProviderActions` (from `providers`)
 
@@ -263,8 +265,12 @@ through from Pi's `Model` object) — REQUIRED by `AgentHandle.setModel(provider
 `provider` argument, and a completely different value from `ListProviderModelsResponse.provider`
 above (the pi-studio `AgentClient` id). Conflating the two was a real shipped bug: passing `"pi"`
 to `setModel` made every `agent_set_model_request` fail server-side with `"Model not found:
-pi/<modelId>"`. Like the RPC itself, both types exist only in this package — no `packages/protocol`
-schema backs them, matching `list_providers`/`list_agents_request`'s untyped-ad-hoc-RPC convention.
+pi/<modelId>"`. Since sprint-070 `ProviderModel` also carries optional `reasoning` +
+`thinkingLevels` (the Pi adapter's per-model derivation) so a draft's thinking selector can offer
+the right levels with no live session, and `ResolveDefaultModelResponse` carries optional
+`thinkingLevel` (the `--no-session get_state`'s fresh default). Like the RPC itself, both types
+exist only in this package — no `packages/protocol` schema backs them, matching
+`list_providers`/`list_agents_request`'s untyped-ad-hoc-RPC convention.
 
 ### Provider auth (`loginProvider`, sprint-065)
 

@@ -34,6 +34,10 @@ export interface SessionEntry {
    * `model` so a materialized draft can pin `config.modelProvider` for first-spawn replay
    * (`agent-service.ts` `spawnOrResumeSession`) without a second round trip to re-derive it. */
   modelProvider?: string;
+  /** Effective thinking level (sprint-070): seeded from `list_agents`' `thinkingLevel` on
+   * restore, updated optimistically on pick and authoritatively by `agent_update`
+   * (`thinkingLevel`) broadcasts — live-wins-over-pinned, same discipline as `model`. */
+  thinkingLevel?: string;
 }
 
 interface SessionStoreState {
@@ -47,6 +51,8 @@ interface SessionStoreState {
   setStatusByAgentId(agentId: string, status: AgentStatus | "idle"): void;
   setModel(sessionId: string, model: string | undefined, modelProvider?: string): void;
   setModelByAgentId(agentId: string, model: string | undefined, modelProvider?: string): void;
+  setThinkingLevel(sessionId: string, level: string | undefined): void;
+  setThinkingLevelByAgentId(agentId: string, level: string | undefined): void;
   setTitle(sessionId: string, title: string): void;
   setCwd(sessionId: string, cwd: string): void;
   applyStreamEvent(sessionId: string, event: AgentStreamEvent, timestamp?: string): void;
@@ -139,6 +145,19 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
     if (entry) get().setModel(entry.id, model, modelProvider);
   },
 
+  setThinkingLevel(sessionId, level) {
+    set((s) => {
+      const entry = s.sessions[sessionId];
+      if (!entry) return s;
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, thinkingLevel: level } } };
+    });
+  },
+
+  setThinkingLevelByAgentId(agentId, level) {
+    const entry = get().findByAgentId(agentId);
+    if (entry) get().setThinkingLevel(entry.id, level);
+  },
+
   setTitle(sessionId, title) {
     set((s) => {
       const entry = s.sessions[sessionId];
@@ -162,10 +181,7 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
       const timeline = applyStreamEventToTimeline(entry.timeline, event, timestamp);
       let title = entry.title;
       if (event.kind === "turn_completed" && title === "New chat") {
-        const lastAssistant = timeline.rows
-          .slice()
-          .reverse()
-          .find((r) => r.kind === "assistant");
+        const lastAssistant = timeline.rows.toReversed().find((r) => r.kind === "assistant");
         if (lastAssistant && lastAssistant.kind === "assistant" && lastAssistant.text) {
           title = lastAssistant.text.slice(0, 40) + (lastAssistant.text.length > 40 ? "…" : "");
         }

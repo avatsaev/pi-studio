@@ -207,7 +207,7 @@ src/
                            closeTab wraps the store's close action + materialize.ts's
                            discardIfEmpty; closeByPathPrefix closes every file/diff/molecule tab
                            nested under a deleted path), session-store
-                           (SessionEntry.model/modelProvider, poll-reconciled + live-updated by
+                           (SessionEntry.model/modelProvider/thinkingLevel, poll-reconciled + live-updated by
                            agent_update), draft-store (per-session composer draft text lifted out
                            of Composer.tsx's own useState — sprint-069/task-007 — plus a one-shot
                            `pendingFeedback` queue Composer.tsx consumes to show the § 11
@@ -309,7 +309,9 @@ src/
                            inline-image-cache, task-003 sprint-045;
                            consumed by timeline/InlineImage.tsx, task-004)
   use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
-                           query), use-agent-commands (composer `/` picker RPC query — cached
+                           query), use-thinking-levels (sprint-070 — live-session
+                           `agent_thinking_levels_request` query keyed `[agentId, model]`,
+                           gated on menu open), use-agent-commands (composer `/` picker RPC query — cached
                            identically to use-provider-models, see AGENTS.md § Invariants
                            "Slash-command picker"), use-provider-auth-list (sprint-065/task-006 —
                            wraps `listProviderAuth()` under `rpcKeys.providerAuthList()`; shared by
@@ -422,7 +424,11 @@ src/
                             (bordered card: textarea + bottom action toolbar), ModelMenu (that
                             toolbar's model-selector searchable popup, grouped by provider,
                             sprint-043 — see AGENTS.md § Invariants "Model selector" and
-                            "Grouped pickers"), CommandMenu (composer's `/`
+                            "Grouped pickers"), ThinkingMenu (that toolbar's thinking-level
+                            picker, sprint-070 — mounted immediately after ModelMenu, see
+                            AGENTS.md § Invariants "Thinking-level selector") +
+                            thinking-level-source.ts (pure draft-time level-list decision,
+                            unit-tested), CommandMenu (composer's `/`
                             slash-command popup — see AGENTS.md § Invariants "Slash-command
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             unit-tested), use-bottom-anchor (the timeline's bottom-anchor
@@ -1104,8 +1110,9 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     `agentId`, task-007); `Composer.tsx` no longer owns its draft as local `useState` for exactly
     this reason — a `set_editor_text` effect must be able to write a session's draft even with no
     composer for it currently mounted. `setStatus`/`setWidget`/`setTitle` (retained surfaces)
-    still have no consumer; no `useAgentUiSurfaces` hook is exposed yet — sprint-070 is what wires
-    those. Do not add a second, divergent consumer of the SDK's surface state ahead of that
+    still have no consumer; no `useAgentUiSurfaces` hook is exposed yet — a later sprint wires
+    those (070 was taken by the thinking-level selector). Do not add a second, divergent
+    consumer of the SDK's surface state ahead of that
     design.
   - **No optimistic update, anywhere.** Submitting a response fires `respondToUi` and nothing
     else — a card stays pending until the daemon's `agent_ui_resolved` arrives. `submitting`/
@@ -1163,13 +1170,14 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Not built this sprint (sprint-068 itself; see below for what has since landed):** the
     sidebar/tab/workspace attention signals (§ 08 of the visual spec — StatusDot/SessionRow/
     TabStrip pulse, row tint, collapsed-header dot), `setWidget`/`setStatus`/`setTitle` rendering
-    (§ 09/§ 10; sprint-070), `notify` toasts (§ 11), and `set_editor_text` (§ 11). None of the
+    (§ 09/§ 10; a later sprint), `notify` toasts (§ 11), and `set_editor_text` (§ 11). None of the
     wiring for those existed at sprint-068's close — sprint-069/tasks 001–004 have since built the
     § 08 attention signals (sidebar row, collapsed workspace header, tab strip dot + pulse + a new
     minimal per-tab context menu — see the "Workspace tab strip" bullet below); tasks 005–007
     (toast host, `notify` routing, `set_editor_text` — see the bullet above) and task-008
-    (announcements — see the bullet below) have since landed too; only sprint-070's
-    `setWidget`/`setStatus`/`setTitle` rendering remains open.
+    (announcements — see the bullet below) have since landed too; only the
+    `setWidget`/`setStatus`/`setTitle` rendering remains open (a later sprint — 070 became the
+    thinking-level selector).
   - **§ 08's `role="group"` accessible name on the pending card is the SESSION's title, threaded
     down as a prop, not read from any store inside `AskCard.tsx` itself** (sprint-069/task-008).
     `Timeline.tsx` is the one place that already holds `session.title`; it flows through
@@ -1658,7 +1666,8 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `ModelMenu` itself owns no trigger element: it takes a
   `renderTrigger(currentModel, currentModelName)` prop and wraps whatever the caller renders in
   `DropdownMenu.Trigger asChild` — today `Composer.tsx`'s toolbar button (`styles.modelBtn`),
-  which renders the same `Name (id)` hierarchy as the list rows (`.modelLabel` in
+  a lucide `Cpu` icon (matching `ThinkingMenu`'s `Brain`, so the two adjacent toolbar pickers
+  read as a pair) followed by the same `Name (id)` hierarchy as the list rows (`.modelLabel` in
   `--pi-color-foreground`, `.modelId` muted and one size rung down, shrinking first so a narrow
   pane truncates the id rather than the name), or a `"Model"` placeholder. The name exists only in
   the fetched model list — `session.model` is the bare id — which is why the
@@ -1787,6 +1796,31 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
     (`TabContextMenu.tsx`, `ui-store.ts`'s `tabMenu` slot), the same Radix cursor-anchored pattern
     `SessionContextMenu.tsx` established.
 
+- **Thinking-level selector (sprint-070/task-005; `composer-ui.md`'s "Thinking" toolbar row).**
+  `ThinkingMenu.tsx` (`features/chat/`) is the brain-icon picker mounted in `.toolbarRight`
+  **immediately after `ModelMenu` in DOM order** (user-pinned placement), before the Stop/Send
+  cluster. Leaner than `ModelMenu` on purpose: one flat ordered list (≤7 rows), no search, no
+  grouping; open state is CONTROLLED (`open`/`onOpenChange` props, like `CommandMenu`) because
+  the caller gates its live query on it. It reuses `ModelMenu.module.css`'s chrome
+  (`.picker`/`.list`/`.item`/`.checkSlot`/`.label`/`.state`) — the same cross-component reuse
+  `CommandMenu` established — and the `.modelBtn` trigger recipe with a lucide `Brain` icon and
+  the current level (placeholder `"Thinking"` when unknown). Two level sources, one pure
+  decision (`thinking-level-source.ts`, unit-tested): a LIVE session answers
+  `useThinkingLevels` (`agent_thinking_levels_request`, keyed `[agentId, model]` so a model
+  change refetches; enabled only while the menu is open), a draft answers from the
+  already-cached `useProviderModels("pi")` catalogue via `levelsForModel` (per-model
+  `thinkingLevels`, full-ladder fallback when absent — no extra RPC). `Composer.tsx`'s
+  `handleSelectThinking` mirrors `handleSelectModel`: optimistic `setThinkingLevel` →
+  `ensureMaterialized` → `setThinking`, then writes the response's EFFECTIVE level back (a
+  clamped pick visibly corrects); rejections swallowed, `agent_update({thinkingLevel})` is the
+  source of truth. `SessionEntry.thinkingLevel` is seeded from `list_agents` on restore and
+  kept live by `use-session-restore.ts`'s `hasStringThinkingLevel` guard beside
+  `hasStringModel`; `materialize.ts` seeds the `resolve_default_model`'s fresh default level for
+  DISPLAY ONLY — the store shows it, but `config.thinkingOptionId` stays unset, so
+  `spawnOrResumeSession` skips the thinking replay and Pi's own (possibly since-changed) default
+  stays authoritative; only an explicit pick, persisted through `agent_set_thinking_request`'s
+  draft branch, ever pins the record. The whole control is hidden when `server_info.features`
+  lacks `thinkingLevels`.
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
   `use-agent-commands.ts`, cached IDENTICALLY to `use-provider-models.ts` — same `useQuery` shape,
@@ -1973,7 +2007,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   source without the same discipline — `notify` toasts (task-006) and § 08's announcements
   (task-008) are now built, but neither is a *dot* signal, so this discipline is unaffected by
   either landing; `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10) remains the one open
-  surface, deferred to sprint-070.
+  surface, deferred to a later sprint (070 became the thinking-level selector).
 - **The sidebar's reserved-`⋮` pattern mirrors `TabStrip.module.css`'s `.tabClose`.** Both the
   workspace band's and the session row's `⋮` occupy a fixed box (`opacity`-toggled, never
   `display`-toggled) so hover/focus never shifts the label's truncation point, and both are

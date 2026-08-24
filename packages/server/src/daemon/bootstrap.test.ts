@@ -230,6 +230,34 @@ describe("production daemon bootstrap", () => {
 
     client.close();
   }, 15000);
+  it("list_agents reports the pinned thinking level for drafts and the live (clamped) level once spawned (sprint-070)", async () => {
+    const booted = boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    // Deferred draft with a pinned level the mock provider will clamp away on spawn.
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd: booted.home, thinkingOptionId: "max" },
+    });
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const entryOf = (list: Record<string, unknown>) =>
+      ((list.agents as Array<Record<string, unknown>>) ?? []).find((a) => a.agentId === agentId);
+
+    // No live session yet → the pinned config value.
+    let entry = entryOf(await client.rpc({ type: "list_agents_request" }));
+    expect(entry?.thinkingLevel).toBe("max");
+
+    // First send spawns the mock session and replays the pin; the mock clamps `max` → `off`,
+    // and the live value must win over the stale pin.
+    await client.rpc({ type: "send_agent_prompt", agentId, prompt: "go" });
+    entry = entryOf(await client.rpc({ type: "list_agents_request" }));
+    expect(entry?.thinkingLevel).toBe("off");
+
+    client.close();
+  }, 15000);
 
   it("composes the inline-image instruction into a persisted record's systemPrompt when the connecting client advertised inline_image_markdown (task-006) — proves the hello -> session -> handleCreate chain", async () => {
     const booted = boot();
@@ -400,6 +428,7 @@ describe("production daemon bootstrap", () => {
     expect(first.type).toBe("resolve_default_model_response");
     expect(first.model).toBe("mock-model");
     expect(first.modelProvider).toBe("mock");
+    expect(first.thinkingLevel).toBe("off");
 
     // Second request for the same provider/cwd hits the daemon's in-memory cache — still
     // resolves to the same value (the cache's existence is opaque from the wire, but a second

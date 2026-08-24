@@ -60,25 +60,23 @@ export interface DevBootstrapHandle {
   close(): Promise<void>;
 }
 
+/** Broadcast helper — see `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale. */
+function broadcast(sessions: Iterable<Session>, message: unknown): void {
+  const envelope = wrapSessionEnvelope(message);
+  for (const s of sessions) {
+    try {
+      s.send(envelope);
+    } catch {
+      /* ignore send errors on dead sockets */
+    }
+  }
+}
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const serverId = opts.serverId ?? randomUUID();
   const logger = opts.logger ?? createDaemonLogger(undefined);
 
-  // ── Broadcast helper ─────────────────────────────────────────────────────────
-  // See `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale.
-  const broadcast = (sessions: Iterable<Session>, message: unknown) => {
-    const envelope = wrapSessionEnvelope(message);
-    for (const s of sessions) {
-      try {
-        s.send(envelope);
-      } catch {
-        /* ignore send errors on dead sockets */
-      }
-    }
-  };
-
-  // Session set is created by the WS server below; handlers close over this
-  // mutable holder so they can be registered before the WS server exists.
+  // Services receive `getActiveSessions` backed by the module-level `broadcast` (hoisted
+  // above) and a mutable holder so they can be registered before the WS server exists.
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
   const getActiveSessions = () => sessionsHolder.sessions;
 
@@ -157,6 +155,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       provider: m.record.provider,
       model: m.session?.getRuntimeInfo().model ?? m.record.config?.model,
       modelProvider: m.record.config?.modelProvider,
+      thinkingLevel: m.session?.getRuntimeInfo().thinkingLevel ?? m.record.config?.thinkingOptionId,
     }));
     return {
       type: "list_agents_response",
@@ -242,9 +241,11 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       models,
     };
   });
-
+  const defaultModelCache = new Map<
+    string,
+    { provider?: string; model?: string; thinkingLevel?: string } | null
+  >();
   // ── Default-model discovery (deferred-draft preselect) ───────────────────
-  const defaultModelCache = new Map<string, { provider?: string; model?: string } | null>();
   registry.register("resolve_default_model", async (ctx) => {
     const provider = String(ctx.message.provider ?? "pi");
     const cwd = ctx.message.cwd ? String(ctx.message.cwd) : undefined;
@@ -263,6 +264,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       provider,
       model: resolved?.model,
       modelProvider: resolved?.provider,
+      thinkingLevel: resolved?.thinkingLevel,
     };
   });
 

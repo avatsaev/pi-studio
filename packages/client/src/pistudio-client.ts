@@ -11,8 +11,10 @@ import type {
   AgentSessionStatsResponse,
   AgentSetModelResponse,
   AgentSetSessionNameResponse,
+  AgentSetThinkingResponse,
   AgentStreamEvent,
   AgentSwitchSessionResponse,
+  AgentThinkingLevelsResponse,
   AgentUiPendingRequest,
   AgentUiRequest,
   AgentUiResolved,
@@ -69,6 +71,8 @@ export interface AgentUpdateMessage {
   status?: string;
   title?: string;
   labels?: Record<string, string>;
+  /** Effective thinking level (sprint-070) — present on set/model-change/update broadcasts. */
+  thinkingLevel?: string;
   [key: string]: unknown;
 }
 
@@ -160,6 +164,15 @@ export interface PiStudioAgentActions {
   // built-in slash commands above.
   /** List the session's discoverable commands (extensions, prompt templates, skills). */
   listCommands(): Promise<AgentListCommandsResponse["payload"]>;
+
+  // Thinking-level pair (sprint-070): `setThinking` applies and resolves to the EFFECTIVE
+  // (possibly Pi-clamped) level; `listThinkingLevels` answers live sessions only (drafts read
+  // the model catalogue). Gate on the `thinkingLevels` server feature flag
+  // (`server_info.features`).
+  /** Set the thinking level; response `level` is the effective value after provider clamping. */
+  setThinking(level: string): Promise<AgentSetThinkingResponse["payload"]>;
+  /** Available thinking levels for the session's current model. */
+  listThinkingLevels(): Promise<AgentThinkingLevelsResponse["payload"]>;
 }
 
 export interface PiStudioWorkspaceActions {
@@ -179,6 +192,14 @@ export interface ProviderModel {
    * (`"pi"`/`"mock"`) used only to pick which client answered this list.
    */
   provider?: string;
+  /** Whether the model supports reasoning (Pi `Model.reasoning`; sprint-070). Absent ⇒
+   * non-reasoning. Lets a draft's thinking selector offer the right levels with no live
+   * session. */
+  reasoning?: boolean;
+  /** The thinking levels the model supports (derived from Pi's `thinkingLevelMap`; `["off"]`
+   * for non-reasoning models; sprint-070). Absent ⇒ unknown — fall back to the full ladder and
+   * let Pi clamp at apply time. */
+  thinkingLevels?: string[];
 }
 
 export interface ListProviderModelsResponse {
@@ -196,6 +217,9 @@ export interface ResolveDefaultModelResponse {
    * else the provider's built-in default — or `undefined` if the provider can't resolve one
    * without spawning a session. Display-only: never itself sent back to the daemon as a pick. */
   model?: string;
+  /** The fresh default thinking level Pi would start a new session at (sprint-070), when the
+   * provider reports one. */
+  thinkingLevel?: string;
   /** The resolved model's own underlying LLM provider (e.g. `"anthropic"`) — same distinction as
    * `ProviderModel.provider`, required to pin it via `config.modelProvider` if the draft
    * materializes without the user ever changing it. */
@@ -1046,6 +1070,17 @@ class AgentHandle implements PiStudioAgentActions {
   /** Command discovery (sprint-040) — Pi `get_commands` via the daemon. */
   listCommands(): Promise<AgentListCommandsResponse["payload"]> {
     return this.daemon.request("agent_list_commands_request", { agentId: this.agentId });
+  }
+
+  setThinking(level: string): Promise<AgentSetThinkingResponse["payload"]> {
+    return this.daemon.request("agent_set_thinking_request", {
+      agentId: this.agentId,
+      level,
+    });
+  }
+
+  listThinkingLevels(): Promise<AgentThinkingLevelsResponse["payload"]> {
+    return this.daemon.request("agent_thinking_levels_request", { agentId: this.agentId });
   }
 }
 

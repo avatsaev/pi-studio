@@ -57,7 +57,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { clsx } from "clsx";
-import { ArrowUp, ChevronDown, Navigation, Plus, Slash, Square } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, Cpu, Navigation, Plus, Slash, Square } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
@@ -68,10 +68,14 @@ import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useIsTabVisible, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
 import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
+import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
+import { useThinkingLevels } from "@pi-studio-ui/hooks/use-thinking-levels.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { isComposerBusy } from "./composer-busy.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
+import { ThinkingMenu } from "./ThinkingMenu.js";
+import { levelsForModel } from "./thinking-level-source.js";
 import {
   applyCommand,
   commandOptions,
@@ -111,7 +115,36 @@ export function Composer({ sessionId }: ComposerProps) {
   const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
   const setCwd = useSessionStore((s) => s.setCwd);
   const setModel = useSessionStore((s) => s.setModel);
-
+  const setThinkingLevel = useSessionStore((s) => s.setThinkingLevel);
+  const serverInfo = useConnectionStore((s) => s.serverInfo);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const thinkingCapable = Boolean(serverInfo?.features?.["thinkingLevels"]);
+  // Live session: authoritative levels via `agent_thinking_levels_request`, fetched only while
+  // the menu is open; the `[agentId, model]` key refetches automatically on a model change.
+  // NOTE: `userMessageCount > 0` is the liveness proxy — a session spawns only on first send
+  // (`spawnOrResumeSession` runs on message send), so a fresh draft with no user turn yet has
+  // never spawned and must not issue this live-only query at all (server-side `requireSession`
+  // deterministically rejects it, and `retry: false` on the hook stops TanStack from retrying a
+  // rejection that can never succeed). A session with history may still hit that rejection right
+  // after a daemon restart (resume is lazy, deferred to the next send) — the catalogue fallback
+  // below covers that window too.
+  const { data: liveLevels } = useThinkingLevels(
+    session?.agentId,
+    session?.model,
+    thinkingOpen && Boolean(session?.agentId) && (session?.userMessageCount ?? 0) > 0,
+  );
+  // Draft (no live session): the already-cached model catalogue answers — the same shared
+  // query key ModelMenu populates, so the draft lookup costs no extra RPC. `levelsForModel`
+  // always returns at least the full fallback ladder, so this is never empty.
+  const { data: catalogue } = useProviderModels("pi");
+  const catalogueLevels = levelsForModel(session?.model, catalogue);
+  const thinkingLevels =
+    liveLevels !== undefined && liveLevels.length > 0 ? liveLevels : catalogueLevels;
+  // Hidden when the server lacks the capability, or a live session's fetch authoritatively came
+  // back empty (the current model truly has no thinking modes). Never hidden merely because the
+  // live query hasn't resolved/doesn't apply — the catalogue fallback covers that.
+  const showThinkingMenu =
+    thinkingCapable && !(liveLevels !== undefined && liveLevels.length === 0);
   // Draft text is lifted into `draft-store.ts` (sprint-069/task-007), not local state — a
   // `set_editor_text` extension effect must be able to write a session's draft even while this
   // component is unmounted (no chat tab open for that session yet), and this same slot is what a
@@ -387,6 +420,25 @@ export function Composer({ sessionId }: ComposerProps) {
       // a rejected `agent_set_model_request` has no dedicated UI surface today.
     });
   }
+  /**
+   * Sprint-070 thinking-level pick, mirroring `handleSelectModel`'s optimistic-then-materialize
+   * shape: the store flips immediately, `ensureMaterialized` is a no-op once bound, and the RPC
+   * rejection is swallowed (the `agent_update` broadcast is the source of truth — the response's
+   * EFFECTIVE level also lands in the store when it resolves, correcting a clamped pick).
+   */
+  function handleSelectThinking(level: string): void {
+    setThinkingLevel(sessionId, level); // optimistic either way
+    if (!client) return;
+    void (async () => {
+      const agentId = await ensureMaterialized(client, sessionId);
+      const res = await client.agent(agentId).setThinking(level);
+      // The daemon answers the EFFECTIVE (possibly clamped) level — never trust the request.
+      setThinkingLevel(sessionId, res.level);
+    })().catch(() => {
+      // Same swallow convention as `handleSelectModel` — no dedicated UI surface for a
+      // rejected `agent_set_thinking_request`.
+    });
+  }
 
   return (
     <div className={styles.composer}>
@@ -474,6 +526,7 @@ export function Composer({ sessionId }: ComposerProps) {
                         : "Select model"
                     }
                   >
+                    <Cpu size={14} aria-hidden="true" />
                     <span className={styles.modelLabel}>
                       {currentModelName ?? currentModel ?? "Model"}
                     </span>
@@ -483,6 +536,27 @@ export function Composer({ sessionId }: ComposerProps) {
                 );
               }}
             />
+            {showThinkingMenu && (
+              <ThinkingMenu
+                currentLevel={session?.thinkingLevel}
+                levels={thinkingLevels}
+                open={thinkingOpen}
+                onOpenChange={setThinkingOpen}
+                onSelect={handleSelectThinking}
+                renderTrigger={(currentLevel) => (
+                  <button
+                    type="button"
+                    className={styles.modelBtn}
+                    disabled={!client}
+                    title={currentLevel ? `Thinking: ${currentLevel}` : "Thinking level"}
+                  >
+                    <Brain size={14} aria-hidden="true" />
+                    <span className={styles.modelLabel}>{currentLevel ?? "Thinking"}</span>
+                    <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
+                  </button>
+                )}
+              />
+            )}
             {running && (
               <Button
                 className={styles.roundBtn}

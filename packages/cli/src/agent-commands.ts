@@ -247,6 +247,27 @@ export async function inspectAgent(
   return EXIT_OK;
 }
 
+/**
+ * `fetch_agent_timeline_request` returns projected items (`timeline-store.ts` `ProjectedItem`),
+ * not raw `AgentStreamEvent`s: `{kind:"other", event}` for a standalone row, or
+ * `{kind:"assistant"|"tool_call", events:[...]}` for a collapsed group (adjacent assistant/
+ * reasoning chunks, or a tool call's start/status/end rows sharing one `callId`). The wire
+ * contract only promises `items: unknown[]` (protocol has no strict union for this shape yet —
+ * `packages/web-client/src/lib/protocol/events.ts` documents and flattens the same shape for the
+ * web UI). Flatten to the underlying events here before formatting, or a grouped item's `kind`
+ * ("assistant"/"tool_call") gets mistaken for an `AgentStreamEvent` kind — `tool_call` then reads
+ * a nonexistent top-level `.tool` and throws `Cannot use 'in' operator to search for 'command' in
+ * undefined`, and `assistant` falls through `formatStreamEvent`'s default case as a raw JSON dump.
+ */
+function flattenTimelineItem(item: unknown): AgentStreamEvent[] {
+  if (!item || typeof item !== "object") return [];
+  const t = item as { event?: AgentStreamEvent; events?: AgentStreamEvent[] };
+  if (Array.isArray(t.events)) return t.events;
+  if (t.event) return [t.event];
+  if ("kind" in item) return [item as AgentStreamEvent];
+  return [];
+}
+
 /** `logs` — fetch timeline history and print it. */
 export async function logsAgent(
   client: DaemonClient,
@@ -264,11 +285,12 @@ export async function logsAgent(
     return EXIT_OK;
   }
   for (const item of payload.items ?? []) {
-    const event = (item as { event?: AgentStreamEvent }).event ?? (item as AgentStreamEvent);
-    const line = formatStreamEvent(event);
-    // Textless events (`assistant_message.final` block-close markers, empty deltas) render to
-    // nothing — don't punch a blank line into the log.
-    if (line) ctx.sink.write(line);
+    for (const event of flattenTimelineItem(item)) {
+      const line = formatStreamEvent(event);
+      // Textless events (`assistant_message.final` block-close markers, empty deltas) render to
+      // nothing — don't punch a blank line into the log.
+      if (line) ctx.sink.write(line);
+    }
   }
   return EXIT_OK;
 }

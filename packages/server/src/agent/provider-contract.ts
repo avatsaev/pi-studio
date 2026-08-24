@@ -39,6 +39,17 @@ export interface AgentModelDefinition {
    * pi/<modelId>"): Pi has no model registered under a provider literally named "pi".
    */
   provider?: string;
+  /**
+   * Whether the model supports reasoning (Pi's `Model.reasoning`, sprint-070/task-001). Absent
+   * ⇒ non-reasoning. Feeds the web-client's draft thinking-level list without a live session.
+   */
+  reasoning?: boolean;
+  /**
+   * The thinking levels the model supports (Pi's `Model.thinkingLevelMap` derived via the Pi
+   * adapter's `deriveThinkingLevels`, sprint-070/task-001; `["off"]` for non-reasoning models).
+   * Absent ⇒ unknown; clients fall back to the full ladder and Pi clamps at apply time.
+   */
+  thinkingLevels?: string[];
 }
 
 export interface AgentModeDefinition {
@@ -114,6 +125,10 @@ export interface ProviderRuntimeInfo {
   sessionId?: string;
   model?: string;
   thinkingOptionId?: string;
+  /** Effective thinking level of a LIVE session (sprint-070/task-001) — what the provider is
+   * actually running with after Pi's own clamping, re-read from Pi `get_state` after every
+   * set/model-switch. Distinct from `thinkingOptionId` (the requested/pinned option id). */
+  thinkingLevel?: string;
   modeId?: string;
   extra?: Record<string, unknown>;
 }
@@ -225,6 +240,10 @@ export interface AgentSession {
   listCommands?(): Promise<AgentCommandDefinition[]>;
   setModel?(id: string): Promise<void>;
   setThinkingOption?(id: string): Promise<void>;
+  /** Available thinking levels for the session's CURRENT model (sprint-070/task-001) — Pi RPC
+   * `get_available_thinking_levels`, authoritative for a live process. Absent on providers
+   * without thinking support. */
+  listThinkingLevels?(): Promise<string[]>;
   setFeature?(id: string, value: unknown): Promise<void>;
   tryHandleOutOfBand?(message: unknown): boolean;
 
@@ -308,7 +327,7 @@ export interface AgentClient {
    */
   resolveDefaultModel?(opts?: {
     cwd?: string;
-  }): Promise<{ provider?: string; model?: string } | null>;
+  }): Promise<{ provider?: string; model?: string; thinkingLevel?: string } | null>;
   /**
    * Rebuild a full timeline from a provider-native resume handle, without spawning a live
    * session. Used when the daemon's in-memory `AgentTimelineStore` is empty (e.g. after a
