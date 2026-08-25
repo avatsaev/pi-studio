@@ -17,11 +17,13 @@
 
 import { useEffect, useRef } from "react";
 import type { AgentUpdateMessage, PiStudioClient } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import {
+  daemonHomeDir,
+  useConnectionStore,
+} from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
 import {
   collapseInactiveWorkspaces,
   groupSessionsByWorkspace,
@@ -178,7 +180,9 @@ async function restoreAgents(client: PiStudioClient): Promise<void> {
   // exists only because the user opened a folder (or a restored agent carries a cwd).
   if (!first) return;
 
-  const homeDir = await resolveHome(client).catch(() => null);
+  // Read after the RPCs above, so `server_info` is long since recorded (the handshake resolves
+  // before `status` ever flips to `"open"`); `null` only for a daemon predating `homeDir`.
+  const homeDir = daemonHomeDir();
   const firstCwd = normalizeCwd(first.cwd || "~", homeDir);
   // Two different questions, conflated until sprint-049: which workspace was the user LOOKING at
   // (persisted since task-009, captured at boot as `pendingActiveWorkspace`), versus which agent was

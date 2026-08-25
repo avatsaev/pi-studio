@@ -42,14 +42,16 @@ export function OpenWorkspaceDialog() {
   const queryClient = useQueryClient();
 
   // Seed the picker at the workspace currently in view each time it opens. Falls back to the
-  // `?cwd=` deep-link param / last-opened workspace (`ui-store.cwd`), then home.
+  // `?cwd=` deep-link param / last-opened workspace (`ui-store.cwd`), then the daemon's home dir
+  // (`server_info.homeDir` via `useHomeDir`) — `homeDir` is a dependency because a dialog opened
+  // in the same tick the connection came up would otherwise stay seeded at the literal "~".
   useEffect(() => {
     if (!open) return;
     const seed = normalizeCwd(activeWorkspaceCwd || uiCwd || "~", homeDir);
     setPathState(seed);
     setInputValue(seed);
     resetCreate();
-  }, [open, client, activeWorkspaceCwd, uiCwd]);
+  }, [open, client, activeWorkspaceCwd, uiCwd, homeDir]);
 
   const { data, isLoading, isError, error } = useExplorer(path, open && Boolean(client));
   const dirEntries = (data?.entries ?? []).filter((e) => e.kind === "directory");

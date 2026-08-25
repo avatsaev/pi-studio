@@ -308,7 +308,9 @@ src/
                            per the jsdom-less testing convention below — over
                            inline-image-cache, task-003 sprint-045;
                            consumed by timeline/InlineImage.tsx, task-004)
-  use-agent-stream (+ agent-stream-events), use-home-dir, use-provider-models (model-picker RPC
+  use-agent-stream (+ agent-stream-events), use-home-dir (one-line selector over
+                           `connection-store`'s `serverInfo.homeDir` — see AGENTS.md § Invariants
+                           "Home directory"), use-provider-models (model-picker RPC
                            query), use-thinking-levels (sprint-070 — live-session
                            `agent_thinking_levels_request` query keyed `[agentId, model]`,
                            gated on menu open), use-agent-commands (composer `/` picker RPC query — cached
@@ -1012,6 +1014,19 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
   exception: `mkdir` is non-recursive and file creation opens `wx` (create-exclusive, never
   truncates), so a name collision fails loudly with an `"exists"` error instead of needing a
   confirm dialog — do not "improve" this by switching to `{ recursive: true }` or `"w"`.
+- **Home directory comes from the daemon, never from the client.** `hooks/use-home-dir.ts` is a
+  selector over `connection-store`'s `serverInfo?.homeDir` (the daemon's `os.homedir()`, sent in the
+  `server_info` handshake frame); the imperative counterpart for the non-React restore paths is
+  `connection-store`'s `daemonHomeDir()`. `null` means "not known yet / daemon predates the field",
+  and every consumer treats that as "leave the tilde unexpanded" — `normalizeCwd(path, homeDir)`
+  (`features/sessions/workspace-grouping.ts`) stays the ONE expansion site. It replaced a probe that
+  listed `/home` and took the first directory entry: against a macOS daemon that produced a
+  `/home/<name>` that does not exist (real home is `/Users/<name>`), so the workspace picker opened
+  on a dead path, `~`-cwd sessions grouped under a phantom workspace, and the Files tree rooted
+  nowhere. Do not reintroduce a client-side derivation — the browser's own platform says nothing
+  about the daemon host's. `FileExplorer.tsx` deliberately declines to seed its root while the
+  expanded target still starts with `~`, rather than rooting the tree on a literal `"~"` no other
+  consumer keys on.
 - **Files tree root row.** The workspace cwd is the tree's own first row (`file-tree.ts`'s
   `flattenTree` emits it; children start at depth 1), and it is collapsible — `explorer-store`'s
   `toggle` used to hard-refuse the root and `setRoot` used to force-add it to `expanded`; both

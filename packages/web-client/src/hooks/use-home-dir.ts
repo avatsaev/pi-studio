@@ -1,28 +1,18 @@
 /**
- * Resolves (and reactively exposes) the daemon's home directory, so `~`-relative session `cwd`s
- * can be normalized against their absolute form for workspace grouping (§4.3 sidebar tree).
- * Triggers `resolveHome` once the connection is fully open; re-renders the caller once it resolves.
+ * Reactively exposes the daemon host's home directory, so `~`-relative session `cwd`s can be
+ * normalized against their absolute form for workspace grouping (§4.3 sidebar tree) and the
+ * workspace picker can seed itself somewhere that actually exists.
+ *
+ * The value is whatever the daemon reported in `server_info.homeDir` — never derived locally. It
+ * used to be *probed* (list `/home`, take the first directory), which produced a nonexistent
+ * `/home/<name>` against a macOS daemon whose real home is `/Users/<name>`.
+ *
+ * `null` means "not known yet / daemon predates the field"; every consumer treats that as "leave
+ * tilde paths unexpanded" rather than guessing.
  */
 
-import { useEffect, useState } from "react";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import {
-  resolveHome,
-  peekCachedHomeDir,
-  onHomeDirResolved,
-} from "@pi-studio-ui/stores/explorer-store.js";
 
 export function useHomeDir(): string | null {
-  const client = useConnectionStore((s) => s.client);
-  const status = useConnectionStore((s) => s.status);
-  const [homeDir, setHomeDir] = useState<string | null>(peekCachedHomeDir());
-
-  useEffect(() => onHomeDirResolved(setHomeDir), []);
-
-  useEffect(() => {
-    if (!client || status !== "open" || homeDir) return;
-    void resolveHome(client);
-  }, [client, status, homeDir]);
-
-  return homeDir;
+  return useConnectionStore((s) => s.serverInfo?.homeDir ?? null);
 }

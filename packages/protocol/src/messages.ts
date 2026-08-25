@@ -50,12 +50,19 @@ export type Hello = z.infer<typeof helloSchema>;
 /**
  * The `server_info` payload carried by the `status` envelope. There is no dedicated welcome
  * message — the server emits this after accepting the hello, then begins streaming.
+ *
+ * `homeDir` is the daemon host's home directory (`os.homedir()`), the authoritative value clients
+ * expand a `~`-prefixed `cwd`/path against. It is the daemon's home, not the client's: a browser on
+ * macOS may drive a Linux daemon (or vice versa), so a client MUST never derive it locally.
+ * Optional only for wire compatibility with daemons predating it — a client that gets no value
+ * leaves tilde paths unexpanded rather than guessing.
  */
 export const serverInfoPayloadSchema = z.object({
   status: z.literal("server_info"),
   serverId: z.string(),
   hostname: z.string().optional(),
   version: z.string().optional(),
+  homeDir: z.string().optional(),
   capabilities: z.record(z.string(), z.unknown()),
   features: z.record(z.string(), z.unknown()),
 });

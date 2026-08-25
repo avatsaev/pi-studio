@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 
 import {
@@ -146,6 +147,11 @@ export function createWebSocketServer(
           serverId: deps.serverId,
           ...(deps.hostname ? { hostname: deps.hostname } : {}),
           ...(deps.version ? { version: deps.version } : {}),
+          // The daemon host's home dir, so a client can expand `~` paths against the machine that
+          // actually owns them instead of guessing from its own platform (root `AGENTS.md`
+          // invariant 7's client-side half). A process fact, not injected config — same posture as
+          // the `randomUUID()` session id above.
+          homeDir: homedir(),
           capabilities: deps.serverCapabilities ?? {},
           features: deps.features ?? defaultFeatures(),
         });

@@ -233,7 +233,8 @@ All communication uses a **single WebSocket connection** per client.
 
 - **Text frames** carry JSON envelopes discriminated by `type`:
   - `hello` (Client→Server, first frame, handshake)
-  - `status` (Server→Client, `server_info` payload after hello)
+  - `status` (Server→Client, `server_info` payload after hello — carries `serverId`, feature flags,
+    and `homeDir`, the daemon host's own home directory)
   - `ping` / `pong` (JSON liveness, NOT RFC 6455 ping — browser/RN cannot access protocol ping)
   - `session` (envelope wrapping all RPC request/response/broadcast messages)
   - `rpc_error` (correlated error response)
@@ -387,7 +388,13 @@ tolerated without a migration framework.
    newer ones.
 6. **`rpcTimeoutMs` ≠ socket death.** An RPC timeout is an operation-level failure; it must not
    close or trigger reconnect on the WebSocket.
-7. **`~` in `cwd` is expanded server-side** to the home directory before passing to the agent.
+7. **`~` in a `cwd`/path is expanded server-side** to the daemon host's home directory before
+   passing to the agent or touching the filesystem — one helper,
+   `packages/server/src/files/resolve-path.ts`'s `expandHome`, used by every file RPC (including the
+   file explorer) and by agent spawn. The client half of the same rule: a client MUST take the home
+   directory from `server_info.homeDir` and never derive one locally (a browser on macOS may be
+   driving a Linux daemon, and vice versa); an absent `homeDir` means "leave the tilde alone", not
+   "guess".
 8. **Binary frame codec is cross-platform** (Uint8Array, no Node Buffer) so it runs in browsers
    and React Native as well as Node.
 

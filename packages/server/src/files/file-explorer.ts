@@ -14,6 +14,7 @@ import {
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { MAX_INLINE_FILE_READ_BYTES } from "./limits.js";
+import { expandHome } from "./resolve-path.js";
 
 import type { HandlerRegistry } from "../ws/router.js";
 
@@ -23,6 +24,11 @@ import type { HandlerRegistry } from "../ws/router.js";
  * architecture/auth-security.md § Trust model). Connected clients are trusted operators — a preview
  * may read any regular file the daemon can read; workspace-relative paths are a UI convenience, not a
  * security boundary. Normalization/symlink checks stay server-side.
+ *
+ * Every client-supplied path goes through `expandHome` first (root `AGENTS.md` invariant 7), so a
+ * `~`/`~/…` path resolves against the DAEMON's home directory — the same expansion `file_read`,
+ * `file_watch`, and the download-token handler already do. Without it `resolve("~")` would silently
+ * produce `<daemon cwd>/~`, which is why the web UI's home-directory browsing looked broken.
  */
 
 const DEFAULT_PREVIEW_BYTES = 256 * 1024;
@@ -134,7 +140,7 @@ export class FileExplorerService {
     }
     let resolvedParent: string;
     try {
-      resolvedParent = await realpath(resolve(parentPath));
+      resolvedParent = await realpath(resolve(expandHome(parentPath)));
     } catch {
       return { ok: false, error: "not_found" };
     }
@@ -178,9 +184,15 @@ export class FileExplorerService {
   ): Promise<{ ok: true; path: string; destination: string } | { ok: false; error: string }> {
     if (!inputPath || !inputDestination) return { ok: false, error: "empty_path" };
 
+    // `~` is expanded before any `dirname`/`basename` split (root `AGENTS.md` invariant 7):
+    // splitting first would leave a bare `~` as the parent path, which `resolve()` would then
+    // join onto the daemon's own cwd instead of the home directory.
+    const sourceInput = expandHome(inputPath);
+    const destinationInput = expandHome(inputDestination);
+
     let source: string;
     try {
-      source = join(await realpath(resolve(dirname(inputPath))), basename(inputPath));
+      source = join(await realpath(resolve(dirname(sourceInput))), basename(sourceInput));
     } catch {
       return { ok: false, error: "not_found" };
     }
@@ -190,9 +202,9 @@ export class FileExplorerService {
     // would validate as `foo.txt` but land on disk with the trailing space. Trim once and use
     // the trimmed value for BOTH the join and the guard, matching `createEntry` (which trims
     // its `rawName` before validating and joining).
-    const destName = basename(inputDestination).trim();
+    const destName = basename(destinationInput).trim();
     try {
-      destinationParent = await realpath(resolve(dirname(inputDestination)));
+      destinationParent = await realpath(resolve(dirname(destinationInput)));
       destination = join(destinationParent, destName);
     } catch {
       return { ok: false, error: "not_found" };
@@ -267,7 +279,7 @@ export class FileExplorerService {
 
     let resolvedPath: string;
     try {
-      resolvedPath = await realpath(resolve(inputPath));
+      resolvedPath = await realpath(resolve(expandHome(inputPath)));
     } catch {
       return { ok: false, error: "not_found" };
     }
@@ -301,7 +313,7 @@ export class FileExplorerService {
   /** Normalize + resolve a path (symlinks), then list a directory or preview a file. */
   async listOrPreview(inputPath: string): Promise<FileExplorerResult> {
     if (!inputPath) return { ok: false, error: "empty_path" };
-    const normalized = resolve(inputPath);
+    const normalized = resolve(expandHome(inputPath));
 
     let resolvedPath: string;
     try {
@@ -341,7 +353,7 @@ export class FileExplorerService {
     if (!inputPath) return { ok: false, error: "empty_path" };
     let resolvedPath: string;
     try {
-      resolvedPath = await realpath(resolve(inputPath));
+      resolvedPath = await realpath(resolve(expandHome(inputPath)));
     } catch {
       return { ok: false, error: "not_found" };
     }
@@ -438,7 +450,7 @@ export class FileExplorerService {
   async directorySuggestions(base: string): Promise<string[]> {
     if (!base) return [];
     try {
-      const resolved = await realpath(resolve(base));
+      const resolved = await realpath(resolve(expandHome(base)));
       const dirents = await readdir(resolved, { withFileTypes: true });
       return dirents
         .filter((d) => d.isDirectory() && !d.name.startsWith("."))

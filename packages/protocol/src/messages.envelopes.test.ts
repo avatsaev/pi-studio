@@ -65,6 +65,13 @@ describe("server_info / status", () => {
     }
   });
 
+  it("carries an optional daemon homeDir clients expand ~ paths against", () => {
+    const parsed = serverInfoPayloadSchema.parse({ ...validPayload, homeDir: "/Users/dev" });
+    expect(parsed.homeDir).toBe("/Users/dev");
+    // Absent (pre-homeDir daemon) still parses — the client treats it as "unknown", never a guess.
+    expect(serverInfoPayloadSchema.parse(validPayload).homeDir).toBeUndefined();
+  });
+
   it("wraps server_info in a status envelope", () => {
     expect(statusSchema.safeParse({ type: "status", payload: validPayload }).success).toBe(true);
   });

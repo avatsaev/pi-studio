@@ -272,7 +272,10 @@ src/
 1. Validates `Host` header via `hostCheck` (DNS-rebinding protection).
 2. Checks password via `PasswordAuth` (bcrypt or WS subprotocol bearer token).
 3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket.
-4. Emits `status`/`server_info` after accepting the hello.
+4. Emits `status`/`server_info` after accepting the hello — including `homeDir: os.homedir()`, the
+   daemon host's home directory, which every remote client (browser, relay peer, possibly on another
+   OS) needs to expand a `~` path against the right machine. The relay handshake path in
+   `daemon/bootstrap.ts` reports the same value; keep the two in sync.
 5. Calls `deps.onSession(session)` once handshake completes.
 6. Routes subsequent frames to `deps.onMessage(session, frame)`.
 
@@ -1007,6 +1010,11 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 **`file-explorer.ts`** (directory listing + preview):
 - Scans directories, reports stat metadata + MIME types + inline text/binary previews (inlined,
   unlike download tokens, so no temp storage needed for small files).
+- **Every client-supplied path is `expandHome`d first** (`resolve-path.ts`), in `listOrPreview`,
+  `createEntry`, `moveEntry`, `writeFile`, `deleteFile`, and `directorySuggestions` alike — this
+  service was the last file surface still calling bare `resolve()`, so `~` landed on
+  `<daemon cwd>/~` → `not_found`. `moveEntry` expands **before** its `dirname`/`basename` split; the
+  other order leaves a bare `~` as the parent path and re-breaks it silently.
 - `moveEntry` / `file_move_request` (sprint-046): `fs.rename`-shaped move-or-rename (a same-parent
   destination renames). Every rejection is decided server-side — `empty_path`, `invalid_name`,
   `not_found`, `not_a_directory`, `same_path`, `into_descendant` (dropping a directory into its

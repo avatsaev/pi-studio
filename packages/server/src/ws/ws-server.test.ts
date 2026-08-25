@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
+import { homedir } from "node:os";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -54,18 +55,26 @@ const hello = (clientId: string, capabilities?: Record<string, boolean>) =>
   });
 
 describe("hello handshake", () => {
-  it("returns status/server_info with serverId and features", async () => {
+  it("returns status/server_info with serverId, features, and the daemon's home dir", async () => {
     const { port } = await startServer();
     const ws = await connect(port);
     ws.send(hello("client-1"));
     const msg = (await nextMessage(ws)) as {
       type: string;
-      payload: { status: string; serverId: string; features: Record<string, boolean> };
+      payload: {
+        status: string;
+        serverId: string;
+        homeDir: string;
+        features: Record<string, boolean>;
+      };
     };
     expect(msg.type).toBe("status");
     expect(msg.payload.status).toBe("server_info");
     expect(msg.payload.serverId).toBe("srv_test123");
     expect(msg.payload.features.providersSnapshot).toBe(true);
+    // The DAEMON's home dir, not the client's: this is the only way a browser (possibly on another
+    // OS, where `/home/<name>` does not even exist) can expand a `~` cwd correctly.
+    expect(msg.payload.homeDir).toBe(homedir());
     ws.close();
   });
 

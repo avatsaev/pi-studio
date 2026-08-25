@@ -51,7 +51,7 @@ src/
 | `clientTypeSchema` / `ClientType` | schema + type | `"mobile" \| "browser" \| "cli" \| "mcp"` |
 | `helloSchema` / `Hello` | Zod schema + type | Client→Server first frame (clientId, clientType, protocolVersion, capabilities) |
 | `statusSchema` / `Status` | schema + type | Server→Client `server_info` wrapper after handshake |
-| `serverInfoPayloadSchema` / `ServerInfoPayload` | schema + type | Payload inside `status` (serverId, hostname, version, capabilities, features) |
+| `serverInfoPayloadSchema` / `ServerInfoPayload` | schema + type | Payload inside `status` (serverId, hostname, version, `homeDir`, capabilities, features). `homeDir` is the **daemon host's** `os.homedir()` — the authoritative value a client expands a `~`-prefixed `cwd`/path against; optional only for daemons predating it, in which case a client leaves tilde paths unexpanded instead of guessing (a browser MUST NOT derive it: macOS `/Users/<me>` vs Linux `/home/<me>`) |
 | `pingSchema` / `Ping` | schema + type | JSON liveness ping (Client→Server) |
 | `pongSchema` / `Pong` | schema + type | JSON liveness pong (Server→Client) |
 | `createAgentRequestSchema` / `CreateAgentRequest` | schema + type | Create-or-run-agent RPC request |

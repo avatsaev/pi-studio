@@ -27,7 +27,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Upload, FilePlus, FolderPlus } from "lucide-react";
 import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useExplorerStore, resolveTildePath } from "@pi-studio-ui/stores/explorer-store.js";
+import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
 import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
 import { useExplorerWatch } from "@pi-studio-ui/hooks/use-explorer-watch.js";
 import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
@@ -37,6 +37,8 @@ import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { dirOf } from "@pi-studio-ui/lib/paths.js";
+import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
 import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
 import { withClosedDiffs } from "./move-status.js";
@@ -75,6 +77,8 @@ export function FileExplorer() {
   // The workspace currently in view in the tab strip drives what Files/Changes browse — same
   // authoritative signal every tab creation site uses (§4.7 follow-up: workspace-scoped tabs).
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
+  // The daemon's home dir (`server_info.homeDir`), for expanding a `~`/workspace-less cwd below.
+  const homeDir = useHomeDir();
   const activeTab = useTabStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   // Live checkout status for the active workspace — `StatusBar` owns the subscription, so this is
   // a pure read; the tree tints rows from it and ghosts ignored ones (no extra RPC).
@@ -116,14 +120,17 @@ export function FileExplorer() {
   // Re-root whenever the active workspace changes, and seed it once on first connect.
   // `lastSeededCwd` distinguishes "the active workspace changed" from a re-render — only the
   // former reseeds (and restores that workspace's remembered `expanded` set, see explorer-store).
+  // A `~` target is left unseeded until `homeDir` arrives with the handshake: rooting the tree at
+  // a literal "~" would key `expandedByRoot`/git-status lookups on a path no other consumer uses.
   const lastSeededCwd = useRef<string | null>(null);
   useEffect(() => {
     if (!client) return;
-    const target = activeWorkspaceCwd || "~";
+    const target = normalizeCwd(activeWorkspaceCwd || "~", homeDir);
+    if (target.startsWith("~")) return;
     if (lastSeededCwd.current === target) return;
     lastSeededCwd.current = target;
-    void resolveTildePath(client, target).then((resolved) => setRoot(resolved));
-  }, [client, activeWorkspaceCwd, setRoot]);
+    setRoot(target);
+  }, [client, activeWorkspaceCwd, homeDir, setRoot]);
 
   const tree = useExplorerTree(expanded);
   useExplorerWatch(expanded);

@@ -790,6 +790,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               serverId,
               hostname: opts.host,
               version: "1.0.0",
+              // Same value the direct-WS handshake reports (`ws/ws-server.ts`): the DAEMON's home
+              // dir, which a relay-remote client (different machine, possibly different OS) has no
+              // other way to learn.
+              homeDir: homedir(),
               capabilities: {},
               features: Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true])),
             });

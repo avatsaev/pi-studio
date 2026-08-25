@@ -5,13 +5,14 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -96,6 +97,36 @@ describe("FileExplorerService.listOrPreview", () => {
     const result = await svc.listOrPreview(join(dir, "does-not-exist"));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe("not_found");
+  });
+
+  // Regression (macOS): the daemon used to `resolve()` a client path without expanding `~`, so a
+  // browser asking for the home directory got `<daemon cwd>/~` → `not_found`, and the web UI
+  // "fixed" it by guessing `/home/<first entry of /home>` — a path that does not exist on macOS,
+  // where home is `/Users/<name>`. Expansion belongs here, like every other file handler
+  // (root `AGENTS.md` invariant 7).
+  it("expands a bare ~ to the daemon's own home directory", async () => {
+    const svc = new FileExplorerService();
+    const result = await svc.listOrPreview("~");
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "directory") throw new Error("expected a directory listing");
+    expect(result.resolvedPath).toBe(await realpath(homedir()));
+    expect(result.resolvedPath).not.toBe(resolve("~"));
+  });
+
+  it("expands a ~/-prefixed path against the daemon's home directory", async () => {
+    const marker = `.pi-studio-fe-tilde-${Math.random().toString(36).slice(2)}`;
+    const absolute = join(homedir(), marker);
+    await mkdir(absolute);
+    try {
+      await writeFile(join(absolute, "inside.txt"), "found");
+      const svc = new FileExplorerService();
+      const result = await svc.listOrPreview(`~/${marker}/inside.txt`);
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.kind !== "text") throw new Error("expected a text preview");
+      expect(result.content).toBe("found");
+    } finally {
+      await rm(absolute, { recursive: true, force: true });
+    }
   });
 });
 

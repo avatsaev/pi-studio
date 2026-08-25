@@ -30,10 +30,12 @@
 
 import { useEffect, useRef } from "react";
 import type { PiStudioClient } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import {
+  daemonHomeDir,
+  useConnectionStore,
+} from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { resolveHome } from "@pi-studio-ui/stores/explorer-store.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 
 interface TerminalRestoreEntry {
@@ -77,7 +79,9 @@ export async function runTerminalRestore(client: PiStudioClient): Promise<void> 
     const layouts = useLayoutStore.getState().layouts;
     const claimed = claimedTerminalIdentities();
 
-    const homeDir = await resolveHome(client).catch(() => null);
+    // `server_info.homeDir` — recorded during the handshake, so already available here (this runs
+    // after `list_terminals_request`); `null` only for a daemon predating the field.
+    const homeDir = daemonHomeDir();
     const openTab = useTabStore.getState().open;
     for (const entry of terminals) {
       if (entry.closed) continue;

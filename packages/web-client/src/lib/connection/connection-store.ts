@@ -153,3 +153,15 @@ export function useClient(): PiStudioClient | null {
 export function useConnectionStatus(): ConnectionState {
   return useConnectionStore((s) => s.status);
 }
+
+/**
+ * The daemon host's home directory as reported in `server_info` (`homeDir`), or `null` when it is
+ * unknown — no connection yet, or a daemon predating the field. The imperative counterpart to
+ * `hooks/use-home-dir.ts`, for the non-React restore paths.
+ *
+ * Never derive this client-side: the browser may run on macOS (`/Users/<me>`) against a Linux
+ * daemon (`/home/<me>`) or vice versa, and only the daemon's own value expands a `~` cwd correctly.
+ */
+export function daemonHomeDir(): string | null {
+  return useConnectionStore.getState().serverInfo?.homeDir ?? null;
+}
