@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Fork conversation visual spec — The dialog — confirm and picker">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · CONVERSATION FORK</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">The dialog — confirm and picker</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">One dialog, two steps: the confirmation step's anatomy and states, and the “Fork from…” picker that swaps into it.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Fork Conversation Visual Spec.dc.html">the conversation fork visual spec</a> — <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope and <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> the acceptance checklist live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Fork Conversation Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens this feature touches</a>
+      <a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03 The fork affordance</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§05·06·07 The dialog</span>
+      <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08·09·10 After the fork</a>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·11 Compact width, keyboard and assistive tech</a>
+      <a href="./Fork Conversation Visual Spec - Copy and Edge Cases.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§12·13 Copy deck and edge cases</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <!-- 05 CONFIRM ANATOMY -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">05</span><span style="font-weight:600">Confirmation step — anatomy</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start">
+        <div style="width:440px;background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:12px;padding:22px;box-shadow:0 24px 60px rgba(0,0,0,.55)">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px">Fork conversation</div>
+          <div style="background:var(--pi-color-surface0);border-left:2px solid var(--pi-color-accentBright);border-radius:0;padding:11px 13px;font-size:13px;margin-bottom:14px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">actually also add a retry wrapper around the fetch call, and log every attempt with the backoff delay so we can see it in the console output</div>
+          <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);margin-bottom:20px">Later messages leave the agent's context. The original prompt is placed in the composer for editing.</div>
+          <div style="display:flex;justify-content:flex-end;gap:8px">
+            <span style="height:32px;display:flex;align-items:center;padding:0 15px;border:1px solid var(--pi-color-border);border-radius:7px;font-size:13px;box-shadow:0 0 0 2px color-mix(in srgb,var(--pi-color-accentBright) 35%,transparent)">Cancel</span>
+            <span style="height:32px;display:flex;align-items:center;padding:0 15px;border-radius:7px;font-size:13px;background:var(--pi-color-accent);color:#fff;font-weight:600">Fork from here</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foreground)">SPECIFICATION</div>
+            <div>Dialog width <span style="color:var(--pi-color-foreground)">440</span>, padding <span style="color:var(--pi-color-foreground)">22</span>, radius <span style="color:var(--pi-color-foreground)">12</span></div>
+            <div>Title <span style="color:var(--pi-color-foreground)">15 / 700</span>, 14 below</div>
+            <div>Preview: surface0 fill, <span style="color:var(--pi-color-foreground)">2 px</span> accentBright rule, no radius, padding 11 / 13, <span style="color:var(--pi-color-foreground)">13 px</span> foreground, clamp <span style="color:var(--pi-color-foreground)">3 lines</span></div>
+            <div>Body <span style="color:var(--pi-color-foreground)">12.5 px</span> muted, 20 below</div>
+            <div>Buttons h <span style="color:var(--pi-color-foreground)">32</span>, radius 7, padding 0 / 15, gap 8, right-aligned</div>
+            <div>Initial focus <span style="color:var(--pi-color-foreground)">Cancel</span></div>
+          </div>
+          <div style="border:1px solid color-mix(in srgb,var(--pi-color-statusWarning) 45%,transparent);background:color-mix(in srgb,var(--pi-color-statusWarning) 12%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px"><b style="color:var(--pi-color-statusWarning)">Safety property.</b> <span style="color:var(--pi-color-foregroundMuted)">The preview renders the target message's exact text as selectable text — never a snapshot, never a summary, never omitted. If the text is unavailable the dialog does not open.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 CONFIRM STATES -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">06</span><span style="font-weight:600">Confirmation step — states</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:10px">IN-FLIGHT</div>
+          <div style="background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:12px;padding:22px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:14px">Fork conversation</div>
+            <div style="background:var(--pi-color-surface0);border-left:2px solid var(--pi-color-accentBright);border-radius:0;padding:11px 13px;font-size:13px;margin-bottom:14px;opacity:.7">actually also add a retry wrapper around the fetch call</div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <span style="height:32px;display:flex;align-items:center;padding:0 15px;border:1px solid var(--pi-color-border);border-radius:7px;font-size:13px;color:var(--pi-color-foregroundMuted);opacity:.5">Cancel</span>
+              <span style="height:32px;display:flex;align-items:center;gap:8px;padding:0 15px;border-radius:7px;font-size:13px;background:color-mix(in srgb,var(--pi-color-accent) 70%,transparent);color:#fff;font-weight:600"><span style="width:11px;height:11px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></span>Forking…</span>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--pi-color-foregroundMuted);margin-top:8px">Both buttons disabled. Outside-click and <span style="font-family:var(--pi-font-mono);font-size:11.5px">Esc</span> are inert until the call settles. No timeout UI — the request either resolves or errors.</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:10px">FAILURE PATHS</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:12px 14px;font-size:12.5px"><b>Error.</b> <span style="color:var(--pi-color-foregroundMuted)">Dialog returns to idle with the preview intact; the message surfaces on the app-wide toast host. The same dialog instance is reusable — the user can press Fork again without re-selecting.</span></div>
+            <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:12px 14px;font-size:12.5px"><b>Declined by an extension.</b> <span style="color:var(--pi-color-foregroundMuted)">The dialog closes and nothing in the transcript changes; a single toast explains why. Retrying is a fresh invocation, not a retry button.</span></div>
+            <div style="display:flex;align-items:center;gap:9px;height:36px;padding:0 14px;background:var(--pi-color-surface2);border:1px solid var(--pi-color-border);border-radius:8px;font-size:12.5px"><span style="color:var(--pi-color-statusDanger)">✕</span>An extension declined the fork.</div>
+            <div style="display:flex;align-items:center;gap:9px;height:36px;padding:0 14px;background:var(--pi-color-surface2);border:1px solid var(--pi-color-border);border-radius:8px;font-size:12.5px"><span style="color:var(--pi-color-statusDanger)">✕</span>Couldn't fork. Try again.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 PICKER -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">07</span><span style="font-weight:600">Picker step — "Fork from…"</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
+        <div style="border:1px solid color-mix(in srgb,var(--pi-color-accentBright) 40%,transparent);background:color-mix(in srgb,var(--pi-color-accent) 12%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px;max-width:78ch"><b style="color:var(--pi-color-accentBright)">Decision — open question 5.</b> <span style="color:var(--pi-color-foregroundMuted)">One dialog, two steps. Selecting a row swaps the body in place: title changes to <i>Fork conversation</i>, the list is replaced by the preview + copy, and a <span style="font-family:var(--pi-font-mono);font-size:11.5px">‹ Back</span> control appears at the left of the button row. Entry point A opens the same dialog already on step 2, with no Back control.</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:18px;align-items:start">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:10px">STEP 1 — POPULATED</div>
+            <div style="width:460px;max-width:100%;background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:12px;padding:16px;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+              <div style="font-size:15px;font-weight:700;padding:2px 6px 14px">Fork from…</div>
+              <div style="display:flex;flex-direction:column;gap:2px;max-height:230px;overflow-y:auto">
+                <div style="display:flex;gap:10px;padding:9px;border-radius:6px"><span style="color:var(--pi-color-foregroundMuted);font-size:11.5px;flex:none;padding-top:1px">#1</span><span style="font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">create a skill that will just check internet connection</span></div>
+                <div style="display:flex;gap:10px;padding:9px;border-radius:6px;background:var(--pi-color-surface2)"><span style="color:var(--pi-color-foregroundMuted);font-size:11.5px;flex:none;padding-top:1px">#2</span><span style="font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">actually also add a retry wrapper around the fetch call, and log every attempt with the backoff delay so we can see it in the console output</span></div>
+                <div style="display:flex;gap:10px;padding:9px;border-radius:6px"><span style="color:var(--pi-color-foregroundMuted);font-size:11.5px;flex:none;padding-top:1px">#3</span><span style="font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">and log every attempt with the backoff delay</span></div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--pi-color-foregroundMuted);margin-top:8px">Width 460 · rows padding 9 · ordinal 11.5 muted, text 13 clamped to 2 lines · row hover surface2 · list max-height 230 then scrolls, opened scrolled to the bottom (most recent) since that is where forks happen.</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:10px">STEP 1 — EMPTY</div>
+            <div style="width:400px;max-width:100%;background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:12px;padding:16px;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+              <div style="font-size:15px;font-weight:700;padding:2px 6px 14px">Fork from…</div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 12px;color:var(--pi-color-foregroundMuted)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:.6"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>
+                <div style="font-size:13px">Nothing to fork yet</div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--pi-color-foregroundMuted);margin-top:8px">EmptyState primitive, centered. The menu item stays enabled — a disabled item gives the user nothing to learn from.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

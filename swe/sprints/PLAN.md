@@ -100,8 +100,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 068 | `sprint-068-extension-ui-dialogs` | web-client only (no protocol, no daemon, no client SDK beyond consumption; one dev-only server change): the **renderer** the previous two sprints were built for — § 00–§ 07, § 12 and § 13 of `swe/UI design/redesign 0.1.0/Extension Dialogs Visual Spec.html`, which is the **visual authority** for this and its two sibling sprints. An interactive extension currently blocks an agent's turn with nothing on screen: s066 shipped the daemon family, s067 shipped the state layer, and neither renders a pixel. This sprint puts the four dialog kinds plus the unrecognised-method card into the transcript in the existing tool-card row language, takes them through in-flight/resolved/non-answerable, handles several at once, and settles the keyboard. Four planning findings shape it, each carried by a task. **(a)** There is **no way to raise a dialog from a browser** — `MockAgentSession.emitUiRequest` is in-process test-only, and the one real extension proven to work (`@juicesharp/rpiv-ask-user-question`) emits only `select`/`input` with fixed payloads, so `confirm`, `editor`, unknown methods, nine options, empty options, deadlines and concurrency are all unreachable; a prompt-driven scripted trigger comes first (t001) because visual sign-off is the **user's**, not the implementer's, and every later hand-off is written in terms of its recipes. **(b)** The s067 `createAgent`-blocks-the-turn deadlock **cannot occur in this client** — verified during review: the web-client materializes drafts with a no-`initialPrompt` `createAgent` (`stores/materialize.ts`, daemon deferred-draft branch), renders tabs synchronously, and sends the first prompt via `agent().send()` with a swallowed rejection; the *unverified* hazard is what `send()`'s promise gates when a dialog-blocked turn outlives `rpcTimeoutMs`, so t002 investigates that seam and locks whichever answer it finds. **(c)** **No extension name exists anywhere on the wire** — Pi's `extension_ui_request` carries `type`/`id`/`method` plus the method's own fields, and the RPC-mode UI context is one object shared by every extension, so the calling extension's identity is gone before the message leaves Pi; § 00 states this as permanent and cards show the method alone. **(d)** Cards are **not** timeline rows: UI requests are deliberately never persisted, so they are composed into the virtualizer after the last persisted row, and resolved cards are live-session-only and bounded at the SDK's 50-per-agent cap — § 04/§ 06 forbid any question-history affordance built on them. Deferred by design: attention badging and transients (s069), retained surfaces (a later sprint; 070 became the thinking-level selector). | 9 |
 | 069 | `sprint-069-extension-ui-attention` | web-client only: § 08 and § 11 of the same visual authority — **discoverability and transients**. Sprint-068 renders a question card only inside the session you are looking at, so a dialog raised anywhere else is invisible while the agent sits blocked; that is the largest gap it knowingly left, and this closes it on four surfaces at once (session row, collapsed workspace header, pane tab strip, screen-reader announcements) plus the two fire-and-forget methods that touch the user directly. The sidebar half is mostly **pre-seamed**: `ui/status-dot.ts` already maps `waiting → statusWarning` and exports `STATUS_DOT_SIZE = 8` (which § 08 adopts, correcting rev 1's 7px), `features/workspace/tab-attention.ts` already exists, and `session-presentation.ts`'s `workspaceAttentionDot` documents this very gap in a comment — "needs-input unsourceable in this client, `error` is the only real attention signal available" — which s068's store is what makes sourceable. Three findings shape the plan. **(a) The app has no toast UI at all.** `ui/toast.ts` is complete as *logic* (variants, `buildToastEntry`, hover-pause `remainingMs`, sticky support) and has **zero importers**; no host, store or component named `Toast*`/`Snackbar*`/`Notification*` exists anywhere in `features/`, `routes/` or `components/`, while `features/ui-components.md` § Feedback specifies the viewport in detail. So § 11's `notify` is not "add a `warning` variant" — it is building the toast surface, which is why it is its own task ahead of its only caller. **(b)** The status-dot vocabulary needs a real `attentionReason: "question"`: `AttentionReason` is `"finished" \| "error" \| "permission"`, and `features/extension-ui-rpc.md` argues at length that permissions and extension questions are different concepts — conflating them would leave a future tool-permission surface unable to tell them apart. **(c)** `set_editor_text` is the one surface that mutates something the user is mid-way through using, and it always replaces; § 11's flash/note/caret exist to make that legible — and the draft it replaces is today component-local `useState` in `Composer.tsx` with no per-session store, so t007 builds that seam; the background-pane case gets **no flash at all**, only the note, deferred to the pane's next reveal so feedback is not spent on an empty room. Review also found § 08 assumes a per-tab context menu that s061's docs explicitly mark unimplemented, so t004 ships a minimal one (right-click, Close). The § 08 row-wash self-contradiction filed by s068/t009 lands on t001 here, which ships the unambiguous accent bar and defaults to *no* wash if unanswered rather than stalling. | 9 |
 | 070 | `sprint-070-thinking-level-selector` | cross-package (protocol, server, client, web-client): a **thinking-level selector** in the composer, with the level persisted per session across reloads, daemon restarts, and resumes. Ships `swe/features/thinking-level-selector.md`, which is grounded in verified Pi RPC behavior rather than docs alone (three findings drive the design: `set_model`'s response carries NO `thinkingLevel` even though a model switch is exactly when Pi clamps, so the adapter must re-read `get_state` after every switch; `get_available_models` returns raw full Model objects with `reasoning`/`thinkingLevelMap`, so draft-time level discovery is a lookup in the model list the client already caches — zero new spawns, no transient-process cache; and Pi clamps `set_thinking_level` silently, so the daemon persists/broadcasts the **effective** level, never the requested one). Fixes a live bug as a side effect: `AgentSession.setThinkingOption` is declared and called via `?.` but implemented by nobody, so `update_agent_request`/`pi-studio agent update --thinking` persists config and applies nothing. Two correctness rules the tasks encode: replay order is model THEN thinking (Pi clamps thinking against the model), and every model change writes the clamped level back to `record.config.thinkingOptionId` + broadcasts it, or dead-session `list_agents` lies. | 6 |
+| 071 | `sprint-071-conversation-fork-daemon` | server + protocol only (no web-client): the **daemon half** of `features/conversation-fork.md` — post-fork timeline resync, so a fork stops leaving every connected transcript on the abandoned branch. Sprint-037 already shipped the fork RPCs (`agent_fork_request`/`agent_fork_messages_request` in both bootstraps, `PiAgentSession.fork()`'s `get_state` re-read, `persistSessionHandle` following the branch, protocol schemas, tested SDK facades) and **nothing consumes them**, so the gap is real but unhit. Adds `agent-service.resetTimeline` (unconditional replace, unlike `seedTimeline`'s no-op-if-exists — a fork always has a live store), the `agent_timeline_reset` passthrough broadcast (`terminals_update` convention: every session incl. relay, no subscribe RPC, no `messages.ts` union member), and the `forkTimelineSync` flag the UI gates on. Also deletes the dead rewind surface this feature supersedes. | 4 |
+| 072 | `sprint-072-conversation-fork-ui` | web-client only (consumes 071, adds no protocol): the **fork UI** — hover affordance on confirmed user rows, one dialog with two steps (confirm + "Fork from…" picker), composer prefill, multi-client convergence. Correlation is **ordinal, never id-based**: live `user_message` rows carry the client-minted `clientMessageId` echo while Pi's `entryId` is its own JSONL id — disjoint spaces nothing correlates today — so the clicked row's index among confirmed user rows indexes `get_fork_messages`, the confirm dialog displays the matched entry's own text, and a whitespace-normalized mismatch opens the picker rather than ever forking an unverified entry. Refresh is broadcast-driven for **every** client including the requester, so two windows and a relay phone converge through one handler. | 6 |
 
-Total: **68 sprints, 347 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **70 sprints, 357 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -114,7 +116,8 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > after this plan's initial draft (Paseo had moved on in the interim — rewind, provider usage,
 > cross-host Sessions/Schedules + command center, localization, the keyboard-shortcut system, pinned
 > quick-launch targets, and the PR activity timeline/context-attach were all added or corrected as a
-> result). See the new/updated scope files: `features/rewind.md`, `features/provider-usage.md`,
+> result; `features/rewind.md` was later deleted — see `features/conversation-fork.md`). See the
+> new/updated scope files: `features/provider-usage.md`,
 > `features/keyboard-shortcuts.md`, `features/localization.md`, and the updated
 > `features/app-navigation-screens.md`, `features/workspace-ui.md`, `features/composer-ui.md`,
 > `features/feature-panels-ui.md`, `features/desktop-app.md`.
@@ -1850,6 +1853,79 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-005 | Web-client: `ThinkingMenu` (brain icon, ≤7 rows, checkmark, no search, `MenuContent`/`MenuItem`) mounted immediately after `ModelMenu` (user-pinned placement); `session-store.thinkingLevel` + restore/broadcast seeding; live levels keyed `[agentId, model]` so a model change refetches; draft levels from the cached model catalogue; optimistic pick writing the effective response back | feature | task-003, task-004 | packages/web-client (features/chat, stores, hooks); features/thinking-level-selector § Web-client; features/composer-ui § toolbar controls |
 | task-006 | Sprint close: live E2E matrix (real daemon + real `pi` + browser — reload, daemon restart + resume, clamp-on-model-switch converging in a second window, draft pick surviving to first send, the CLI `--thinking` bug demonstrably fixed), full root gates, spec TODO(verify) resolved, docs across root/server/client/web-client/protocol/cli AGENTS.md + PLAN.md | docs | task-001…task-005 | AGENTS.md (all touched packages); features/thinking-level-selector § Acceptance criteria |
 
+### sprint-071-conversation-fork-daemon
+> **What it ships.** The **daemon half** of `features/conversation-fork.md`: a successful fork now
+> resyncs the daemon's in-memory timeline to the new branched session file and tells every connected
+> client to refetch, so a fork stops leaving every transcript on the abandoned branch. No web-client
+> work — that is sprint-072.
+>
+> **Why nothing was broken until now.** Sprint-037 shipped the fork RPCs end to end
+> (`agent_fork_request`/`agent_fork_messages_request` registered in **both** bootstraps,
+> `PiAgentSession.fork()`'s `refreshSessionFile()` re-read, `AgentManager.persistSessionHandle` so
+> `persistence.nativeHandle` follows the branch, protocol schemas, and tested SDK facades) — and
+> **nothing consumes them**. The resync gap is real but unhit; a fork UI makes fixing it mandatory.
+>
+> **No truncation math anywhere.** `AgentClient.hydrateTimeline(handle)` already rebuilds a complete
+> `TimelineRow[]` from whatever JSONL the handle points at, which post-fork *is* the forked branch —
+> the same path `timeline-rpc.ts` uses for restarted daemons. The new surface is therefore one
+> unconditional-replace entry point rather than a truncation algorithm, and the **guard is "the
+> native handle changed", not "rows are non-empty"**: that is what makes a fork to before the first
+> user message still reset (a legitimately near-empty branch) while the mock provider's inert stub
+> fork — which rebinds nothing — leaves the dev daemon's timeline untouched, with no
+> `provider === "pi"` check anywhere.
+>
+> **It also clears the surface it supersedes.** `registerRewindHandler` (`rewind-rpc.ts`,
+> sprint-015) is never called from either bootstrap, yet every `SERVER_FEATURES` key is advertised
+> `true` — so `features.rewind` has always been a lie, and its conversation mode truncated only the
+> daemon timeline while the `pi` process kept remembering the "rewound" turns. Task-001 deletes it
+> plus `truncateBeforeMessage` (its only caller), and keeps the `agent.rewind.*` schemas and
+> `supportsRewind*` manifest flags — both append-only.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Remove the dead rewind surface: delete `rewind-rpc.ts` + its test and `AgentTimelineStore.truncateBeforeMessage`; drop `rewind` from `SERVER_FEATURES` + COMPAT + `client-capabilities.test.ts`; **keep** `agent.rewind.*` schemas and `supportsRewind*` manifest flags (append-only) | refactor | none | packages/server (agent), packages/protocol (client-capabilities); features/conversation-fork § Relationship to the rewind RPC |
+| task-002 | `agent-service.resetTimeline(agentId, rows)` — unconditional replace (vs `seedTimeline`'s no-op-if-exists), empty `rows` legitimate, `startTurn` continuing from the hydrated max epoch; `forkTimelineSync` added to `SERVER_FEATURES` + COMPAT | feature | task-001 | packages/server (agent-service, timeline-store), packages/protocol; features/conversation-fork § New daemon-internal surface, § New server feature flag |
+| task-003 | `handleFork` post-fork resync: handle-change guard → `hydrateTimeline` → `resetTimeline` → `agent_timeline_reset` broadcast to every active session (incl. relay; `terminals_update` convention, local type guard, **not** a `messages.ts` union member); RPC response sent after reset+broadcast | feature | task-002 | packages/server (slash-command-operations); features/conversation-fork § Daemon: post-fork resync, § New broadcast |
+| task-004 | Sprint close: full root gates; docs across server/protocol/root AGENTS.md (`resetTimeline`, `handleFork` resync, `agent_timeline_reset` push family, flag added + `rewind` removed) + PLAN.md; resolve the `persistSessionHandle` pre/post-handle TODO(verify) | docs | task-001…task-003 | AGENTS.md (server, protocol, root); features/conversation-fork § Acceptance criteria |
+
+### sprint-072-conversation-fork-ui
+> **What it ships.** The **web-client half**: a hover fork affordance on user rows, one dialog with
+> two steps (confirm + "Fork from…" picker), composer prefill, and multi-client convergence — the
+> part users actually touch. Consumes sprint-071's `forkTimelineSync` flag and `agent_timeline_reset`
+> broadcast; adds no protocol messages of its own.
+>
+> **Correlation is ordinal, never id-based — and verified before it acts.** Live `user_message` rows
+> carry `messageId` = the client-minted `clientMessageId` echo (`row-model.ts`) while Pi's `entryId`
+> is its own JSONL entry id: **disjoint id spaces that nothing correlates today**. So the clicked
+> row's index among *confirmed* user rows indexes `get_fork_messages`' chronological list — and
+> because that is positional, the confirm dialog **displays the matched entry's own text** and the
+> code compares it (whitespace-normalized) against the clicked row before forking. Out of range or
+> mismatched ⇒ open the picker instead. Nothing unverified is ever forked.
+>
+> **Convergence has exactly one path.** The RPC response only closes the dialog and prefills the
+> composer; the transcript refresh rides the broadcast for **every** client including the requester,
+> so a second browser window, a relay-connected phone and the initiating tab converge through the
+> same handler, with no bespoke requester path to drift. Post-fork rows carry fresh epoch/seq
+> numbering, so a reset means "drop rows **and** cursors, refetch from scratch, page to completion",
+> never a tail-sync.
+>
+> **The visual authority is split by concern.** `swe/UI design/fork-rewind-ui-specs/Fork Conversation
+> Visual Spec - <Part>.dc.html` (index + 6 parts, § 00–§ 14 stable) — each task names the part it
+> builds against. One correction rides along: § 08's "this message is kept" premise is **wrong** in
+> three places (the label, the AFTER frame, the RULES line) — `position: "before"` sets
+> `targetLeafId = selectedEntry.parentId`, so the forked message leaves the transcript and survives
+> only as composer prefill. A correction callout is pinned in that part file; § 12's copy deck is
+> unaffected.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `agent_timeline_reset` receipt: local type guard (`use-terminal-exit-watch.ts` precedent, no protocol schema), drop cached rows **and** cursors, refetch `fetch_agent_timeline` from scratch paging to completion, clear pending optimistic rows; `reason` treated as opaque | feature | none (consumes s071/t003) | packages/web-client (stores, lib/protocol); features/conversation-fork § web-client: on fork completion; visual spec `- After Fork` § 08-09 |
+| task-002 | Fork affordance on **confirmed** user rows (hover `IconButton`, lucide `GitFork`, reserved-box row-action pattern), hidden when `forkTimelineSync` absent / turn running / process-less draft; fresh `forkMessages()` per click; pure ordinal-correlation helper with whitespace-normalized text verification and picker fallback | feature | task-001 | packages/web-client (features/chat, timeline); features/conversation-fork § web-client: fork affordance; visual spec `- Affordance` § 02-03, `- Tokens` § 01 |
+| task-003 | One dialog, two steps: confirm (displays the matched entry's text, ~3-line clamp, § 12 copy verbatim) + "Fork from…" picker (⋮ menu, `#N` ordinals, "Nothing to fork yet" empty state), single in-flight guard; picker reachable both directly and as task-002's fallback via one path | feature | task-002 | packages/web-client (features/chat, components/primitives); visual spec `- Dialog` § 05-07, `- Copy and Edge Cases` § 12 |
+| task-004 | Fork completion: cancelled → toast + close, nothing else; success → close + prefill the **forked session's** draft only when empty; `rpc_error` → toast + dialog returns to idle for retry; contains **no** timeline logic (task-001 owns convergence) | feature | task-003 | packages/web-client (stores/draft-store, toast-store, features/chat); visual spec `- Dialog` § 06, `- Copy and Edge Cases` § 12-13 |
+| task-005 | Compact/touch under 500px (the no-hover replacement) + full keyboard/assistive-tech model: focus into the dialog and back to the invoking control (deterministic fallback when that row was forked away), Esc precedence over toasts, keyboard-navigable picker, announced pending state | feature | task-003 | packages/web-client (features/chat, styles, hooks); visual spec `- Compact and Keyboard` § 04, § 11 |
+| task-006 | Sprint close: nine-scenario live E2E (two-window convergence, real-`pi` forgetting after re-send, confirm-text fidelity + forced correlation mismatch, picker, extension cancel, daemon-restart regression, mock provider not wiped, flag-absent ⇒ no UI, **relay transport**), full root gates, web-client docs + PLAN.md, both remaining TODO(verify) resolved | docs | task-001…task-005 | AGENTS.md (web-client); features/conversation-fork § Acceptance criteria, § TODO(verify); visual spec index § 14 |
+
 ## Coverage check
 
 Every feature and architecture scope is now covered by at least one task. The last remaining gap,
@@ -1943,6 +2019,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition), s051/t005 (generalized N-capability composition) |
 | features/agent-providers.md | s002/t005, s005/t001-003, s006/t005, s010/t001, s015/t007 (capability-flag extension for rewind), s045/t005 (resume honors per-session systemPrompt), s058/t002-003 (mapper stops dropping `tool_execution_update`; per-`callId` coalescing lives with the adapter because chattiness is a provider trait), s066/t002 (the UI channel is two optional `AgentSession` members and **every** Pi UI semantic — blocking set, namespaced surface keys, clear forms, response envelope — stays inside the adapter, so the service above it never compares a `method` string; also the strongest test of the isolation invariant so far, since a future provider with a different interactive protocol implements the same two members and the whole stack works untouched) |
 | features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001, s058/t004 (second member of the ephemeral no-`seq` family, and the task that finally makes `queue_update`'s specified never-persisted status true in code), s058/t007 (live-vs-authoritative convergence exercised for a streamed tool call) |
+| features/conversation-fork.md | s071/t001-004 (daemon: rewind-surface removal, `resetTimeline` + `forkTimelineSync`, `handleFork` resync + `agent_timeline_reset` broadcast, close), s072/t001-006 (web-client: reset receipt, affordance + ordinal correlation, dialog + picker, completion/prefill/errors, compact + keyboard, live E2E). The fork RPCs themselves shipped in s037/t004 — this pair adds the resync and the UI those RPCs never had a consumer for |
 | features/tool-output-streaming.md | s058/t001-007 (optional `partial` field; mapper + `partialResult` reader; coalescer with terminal-cancellation; ephemeral broadcast + mock partials; `ToolCard` live tail + turn-terminal row closing + terminal-output authority; CLI watch suppression; cross-layer E2E + docs) |
 | features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004. **§ Question-permission bridge is SUPERSEDED** by features/extension-ui-rpc.md (s066) — Pi's dialogs are bridged by the generic `agent_ui_*` family instead, and this doc's `questionKind`/`allowComment` fields are noted as never-wired residue; the mode-gated tool-approval half remains dormant and unplanned |
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
@@ -2015,9 +2092,14 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Whether any server-side staged/percentage rollout exists behind the desktop `stable`/`beta` update
       channels (client-side is channel-select only) + full preload bridge surface + multi-window state
       lifting — s024/t002-004.
-- [ ] Rewind's exact daemon-side file-revert mechanism (non-git workspaces) and `agent.rewind.request/
-      response` field names — s015/t007. **This entire feature is new protocol/server scope**, not just a
-      client task; coordinate with the daemon owner before implementing.
+- [x] ~~Rewind's daemon-side file-revert mechanism and `agent.rewind.*` field names — s015/t007.~~
+      **Closed 2026-08-26:** `features/rewind.md` was deleted. Its conversation mode is superseded by
+      `features/conversation-fork.md` (Pi's native `fork`) and `features/session-tree-navigation.md`
+      (Pi's `/tree`); file revert is an extension concern (Pi's own `git-checkpoint.ts`), never a
+      daemon one. `agent.rewind.*` schemas and the `supportsRewind*` manifest flags stay on the wire
+      unread because both surfaces are append-only; the unwired `rewind-rpc.ts` and the falsely
+      advertised `rewind` feature flag are removed by s071/t001, along with
+      `AgentTimelineStore.truncateBeforeMessage` (that handler's only caller).
 - [ ] Provider-usage daemon RPC (`provider_usage_list_request/response`) and per-provider retrieval
       mechanism — **new protocol/server scope**, needed before s013/t004's Provider Usage settings section
       and s015/t006's composer footer widget can show live data (build the UI against a mock/stubbed

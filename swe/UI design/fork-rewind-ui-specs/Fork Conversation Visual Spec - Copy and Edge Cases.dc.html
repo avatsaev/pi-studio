@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Fork conversation visual spec — Copy deck and edge cases">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · CONVERSATION FORK</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Copy deck and edge cases</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Every user-visible string to ship verbatim, and the edge-case/failure matrix behind them.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Fork Conversation Visual Spec.dc.html">the conversation fork visual spec</a> — <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope and <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> the acceptance checklist live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Fork Conversation Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens this feature touches</a>
+      <a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03 The fork affordance</a>
+      <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§05·06·07 The dialog</a>
+      <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08·09·10 After the fork</a>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·11 Compact width, keyboard and assistive tech</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§12·13 Copy deck and edge cases</span>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <!-- 12 COPY -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">12</span><span style="font-weight:600">Copy deck — ship these strings verbatim</span></div>
+      <div style="padding:18px">
+        <div style="display:flex;flex-direction:column;gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:13px">
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">SURFACE</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">STRING</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Menu item</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Fork from…</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Tooltip</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Fork from here</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Confirm title</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Fork conversation</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Confirm body</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Later messages leave the agent's context. The original prompt is placed in the composer for editing.</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Buttons</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Cancel · Fork from here · Forking… (in flight) · ‹ Back (step 2 from picker)</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Picker title / empty</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Fork from… · Nothing to fork yet</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Toast — declined</div><div style="background:var(--pi-color-surface1);padding:7px 12px">An extension declined the fork.</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Toast — unsaved session</div><div style="background:var(--pi-color-surface1);padding:7px 12px">This conversation hasn't been saved yet. Send a message first.</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Toast — stale entry</div><div style="background:var(--pi-color-surface1);padding:7px 12px">That message is no longer forkable. The conversation moved on.</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Toast — generic</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Couldn't fork. Try again.</div></div>
+          <div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Live-region announcement</div><div style="background:var(--pi-color-surface1);padding:7px 12px">Conversation forked. Later messages removed.</div></div>
+        </div>
+        <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);margin-top:10px;max-width:78ch">No string mentions files, branches on disk, or recovery. One explanatory sentence is the ceiling — do not add a second line to the confirm dialog.</div>
+      </div>
+    </section>
+
+    <!-- 13 EDGE CASES -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">13</span><span style="font-weight:600">Edge cases &amp; failure matrix</span></div>
+      <div style="padding:18px">
+        <div style="display:flex;flex-direction:column;gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:13px">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">CASE</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">BEHAVIOUR</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Hover target ambiguous</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Open the dialog on step 1 (picker) instead of guessing. No error, no explanation.</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Session not yet saved</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Toast; dialog returns to idle</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Two people fork nearly simultaneously</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Second attempt fails with the stale-entry toast; that window has already converged to the first fork, so its picker list is correct on reopen</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Turn starts while the dialog is open</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Dialog stays open; confirm disables with the tooltip "Not while a turn is running"</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Very long single message</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">2 lines in the picker, 3 in the preview, ellipsis; never unbounded, never scrollable inside the preview</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Message is only an image, no text</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Preview shows the muted placeholder "(image only)"; composer prefill is skipped</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Composer holds a draft</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">No prefill, no prompt, no toast — the fork still succeeds</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

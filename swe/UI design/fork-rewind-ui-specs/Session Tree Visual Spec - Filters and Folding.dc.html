@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — Filters and folding">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Filters and folding</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Five view filters and branch folding — the defaults, what resets on open, and what the active path may never do.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Session Tree Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Session Tree Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens and the new visual vocabulary</a>
+      <a href="./Session Tree Visual Spec - Pane.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03·07 The pane</a>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§06 Filters and folding</span>
+      <a href="./Session Tree Visual Spec - Fork Action.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08 Phase 1</a>
+      <a href="./Session Tree Visual Spec - Jump.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§09·10 Phase 2</a>
+      <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§11·12 Compact width, keyboard and screen readers</a>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">06</span><span style="font-weight:600">Filters and folding</span><span style="margin-left:auto;font-size:11.5px;color:var(--pi-color-foregroundMuted)">handover Q3</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">FIVE VIEW FILTERS · SEGMENTED, RESET ON EVERY OPEN</div>
+            <div style="display:flex;align-items:center;gap:2px;padding:2px;background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:7px;font-size:11.5px;max-width:420px;margin-bottom:12px">
+              <span style="flex:1;text-align:center;padding:5px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">Default</span>
+              <span style="flex:1;text-align:center;padding:5px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">No tools</span>
+              <span style="flex:1;text-align:center;padding:5px 0;border-radius:5px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">User only</span>
+              <span style="flex:1;text-align:center;padding:5px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">Labeled</span>
+              <span style="flex:1;text-align:center;padding:5px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">All</span>
+            </div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px">
+              <div>Segmented at ≥380px; collapses to a <span style="font-family:var(--pi-font-mono)">Select</span> below that. Five labels fit — "Labeled only" shortens to "Labeled" in the segment, full text in the Select and in <span style="font-family:var(--pi-font-mono)">aria-label</span>.</div>
+              <div>Pure view filtering. Hidden nodes never change the tree's shape: a filtered-out parent's children reparent visually to the nearest visible ancestor, keeping depth columns for the surviving levels only.</div>
+              <div>Filter state is per-open, never persisted. <span style="color:var(--pi-color-foreground)">User only</span> is the headline mode and the one to get right first: it turns the tree into a table of contents of the user's own prompts.</div>
+              <div>The active path and the leaf marker survive every filter. If the leaf itself is filtered out, its nearest visible ancestor takes a <span style="font-family:var(--pi-font-mono)">CURRENT ↓</span> variant of the chip.</div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">DECISION · FOLDING SHIPS IN V1</div>
+            <div style="border:1px solid color-mix(in srgb,var(--pi-color-statusSuccess) 45%,transparent);border-radius:8px;background:color-mix(in srgb,var(--pi-color-statusSuccess) 7%,var(--pi-color-surface1));padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:7px">
+              <div>Filters alone don't solve the branchy case: "User only" still shows every abandoned prompt, and that's precisely the noise a user scrolling for their current work wants gone.</div>
+              <div><span style="color:var(--pi-color-foreground)">Default fold state:</span> abandoned branches deeper than one row are folded; the active path is always fully expanded and cannot be folded shut.</div>
+              <div><span style="color:var(--pi-color-foreground)">Fold row:</span> replaces the branch's children with a single ⊕ row reading <span style="font-family:var(--pi-font-mono)">"n entries collapsed"</span>, plus the branch's first user prompt when it fits. Click anywhere on the row expands.</div>
+              <div><span style="color:var(--pi-color-foreground)">Unfold is sticky per node</span> for the life of the pane, and resets with the pane.</div>
+              <div>Chevron affordance: none. The fold row is the whole control — a separate 12px chevron on 300 rows is clutter for an action with one obvious target.</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">DECISION · ORIENTATION IN A 300-NODE TREE <span style="color:var(--pi-color-foregroundMuted);font-weight:400;letter-spacing:0">— handover Q4</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;font-size:12.5px;color:var(--pi-color-foregroundMuted)">
+            <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:12px 14px"><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">1 · Open scrolled to the leaf</div>The pane scrolls so the leaf sits about two-thirds down, with its ancestors above it. Not centred — the interesting history is upward.</div>
+            <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:12px 14px"><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">2 · "Jump to current" pill</div><div style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 6px;padding:4px 11px;border-radius:99px;background:var(--pi-color-surface3);border:1px solid var(--pi-color-border);color:var(--pi-color-foreground);font-size:11.5px">↓ Jump to current</div><div>Bottom-centre of the list, appears only when the leaf is scrolled out of view, direction arrow follows. Scroll only — it never navigates.</div></div>
+            <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:12px 14px"><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">3 · Rejected: minimap</div>Costs a column, needs its own hit model, and answers a question ("how big is this?") nobody asked. Two cheap mechanisms cover the real need.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

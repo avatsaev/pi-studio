@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Fork conversation visual spec — After the fork">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · CONVERSATION FORK</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">After the fork</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">What the transcript, other windows and motion do once a fork succeeds — including silent convergence.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Fork Conversation Visual Spec.dc.html">the conversation fork visual spec</a> — <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope and <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> the acceptance checklist live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Fork Conversation Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens this feature touches</a>
+      <a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03 The fork affordance</a>
+      <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§05·06·07 The dialog</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§08·09·10 After the fork</span>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·11 Compact width, keyboard and assistive tech</a>
+      <a href="./Fork Conversation Visual Spec - Copy and Edge Cases.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§12·13 Copy deck and edge cases</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <!-- 08 RESULT -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">08</span><span style="font-weight:600">After a successful fork</span></div>
+      <div style="margin:18px 18px 0;border:1px solid color-mix(in srgb,var(--pi-color-statusWarning) 55%,transparent);background:color-mix(in srgb,var(--pi-color-statusWarning) 10%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px;max-width:88ch;text-wrap:pretty"><b style="color:var(--pi-color-statusWarning)">Spec correction — do not ship this frame as drawn.</b> <span style="color:var(--pi-color-foregroundMuted)">Verified against bundled <span style="font-family:var(--pi-font-mono)">pi</span> 0.84.2: <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">fork</span> sets <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">targetLeafId = selectedEntry.parentId</span>, so the branch ends at the entry <i>before</i> the selected message — the forked-from message is <span style="color:var(--pi-color-foreground)">removed from the transcript</span> and survives only as the returned text in the composer. Three things below are therefore incorrect: the <i>“fork point — this message is kept”</i> label, the AFTER frame still showing that bubble in the transcript (as drawn it would appear twice — transcript <i>and</i> composer), and the RULES line <i>“The forked-from message stays in the transcript”</i>. Everything from the forked message onward leaves the transcript. See <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">swe/features/conversation-fork.md</span> § Ground truth; the §12 copy deck is unaffected (it never contains this label).</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;align-items:start">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:12px">BEFORE — FORK POINT MARKED</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="align-self:flex-end;max-width:80%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:14px;padding:7px 12px;font-size:12.5px">create a skill that checks internet connection</div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted)">Assistant · scaffolded the skill folder</div>
+            <div style="align-self:flex-end;max-width:80%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid var(--pi-color-accentBright);border-radius:14px;padding:7px 12px;font-size:12.5px">actually also add a retry wrapper around the fetch call</div>
+            <div style="border-top:1px dashed color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent);position:relative;margin:6px 0 2px"><span style="position:absolute;left:0;top:-9px;font-size:10.5px;color:var(--pi-color-accentBright);background:var(--pi-color-surface1);padding-right:6px">fork point — this message is kept</span></div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);opacity:.45">Assistant · writing retry logic…</div>
+            <div style="align-self:flex-end;max-width:80%;background:color-mix(in srgb,var(--pi-color-accent) 12%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 25%,transparent);border-radius:14px;padding:7px 12px;font-size:12.5px;opacity:.45">and log every attempt</div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:12px">AFTER — TRUNCATED, COMPOSER PREFILLED</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+            <div style="align-self:flex-end;max-width:80%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:14px;padding:7px 12px;font-size:12.5px">create a skill that checks internet connection</div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted)">Assistant · scaffolded the skill folder</div>
+            <div style="align-self:flex-end;max-width:80%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:14px;padding:7px 12px;font-size:12.5px">actually also add a retry wrapper around the fetch call</div>
+          </div>
+          <div style="background:var(--pi-color-surface0);border:1px solid var(--pi-color-accentBright);border-radius:12px;padding:11px 13px;font-size:13px;box-shadow:0 0 0 2px color-mix(in srgb,var(--pi-color-accentBright) 25%,transparent)">actually also add a retry wrapper around the fetch call<span style="display:inline-block;width:1px;height:14px;background:var(--pi-color-accentBright);vertical-align:-2px;margin-left:2px"></span></div>
+          <div style="font-size:12px;color:var(--pi-color-accentBright);margin-top:7px">composer — prefilled, caret at end, focused</div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:7px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foreground)">RULES</div>
+          <div>The forked-from message <span style="color:var(--pi-color-foreground)">stays</span> in the transcript; everything after it goes.</div>
+          <div>Prefill happens <span style="color:var(--pi-color-foreground)">only if the composer is empty</span>. A draft is never overwritten and never prompted about — the fork still succeeds silently.</div>
+          <div>Caret lands at the end of the prefilled text; the composer scrolls into view as the new bottom.</div>
+          <div>No success toast. The truncated transcript is the confirmation.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 CONVERGENCE -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">09</span><span style="font-weight:600">Other windows on the same conversation</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
+        <div style="border:1px solid color-mix(in srgb,var(--pi-color-accentBright) 40%,transparent);background:color-mix(in srgb,var(--pi-color-accent) 12%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px;max-width:78ch"><b style="color:var(--pi-color-accentBright)">Decision — open question 2.</b> <span style="color:var(--pi-color-foregroundMuted)">Silent convergence. No dialog, no toast, no divider. A "conversation was forked" marker would be the only transient annotation in the transcript and would read as content; the truncation is self-evident. The change is announced to assistive tech only (<a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="color:var(--pi-color-accentBright)">§11</a>).</span></div>
+        <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);max-width:78ch">The observing window does not prefill its composer and does not steal focus. If its composer holds a draft, the draft survives untouched.</div>
+      </div>
+    </section>
+
+    <!-- 10 MOTION -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">10</span><span style="font-weight:600">Motion</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="border:1px solid color-mix(in srgb,var(--pi-color-accentBright) 40%,transparent);background:color-mix(in srgb,var(--pi-color-accent) 12%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px;max-width:78ch"><b style="color:var(--pi-color-accentBright)">Decision — open question 1.</b> <span style="color:var(--pi-color-foregroundMuted)">Brief transition, not an instant cut. Removed rows fade to 0 over 140 ms, then the block collapses its height over 120 ms; the composer prefill lands after the collapse. The motion is what tells the user which rows left.</span></div>
+        <div style="display:flex;flex-direction:column;gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:13px">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">MOVEMENT</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">TIMING</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">NOTE</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Icon fade in / out on row hover</div><div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">120 ms ease-out</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Opacity only; no transform</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Step swap, picker → confirm</div><div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">160 ms</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Cross-fade body, height animates; dialog stays anchored</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Removed rows fade</div><div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">140 ms</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Starts as the dialog closes, not after</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Height collapse</div><div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">120 ms ease-in</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Then focus moves to the composer</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 130px minmax(0,1fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Convergence in other windows</div><div style="background:var(--pi-color-surface1);padding:7px 12px;font-family:var(--pi-font-mono);font-size:12px">none</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Instant swap — nobody is watching the moment it happens</div></div>
+        </div>
+        <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted)">Under <span style="font-family:var(--pi-font-mono);font-size:12px">prefers-reduced-motion</span> every duration above collapses to 0 and the transcript cuts instantly.</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

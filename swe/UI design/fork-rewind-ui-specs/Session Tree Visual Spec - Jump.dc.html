@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — Phase 2 — the jump">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Phase 2 — the jump</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">The jump confirm dialog and every state behind it: in flight, declined, failed, stale, busy.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Session Tree Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Session Tree Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens and the new visual vocabulary</a>
+      <a href="./Session Tree Visual Spec - Pane.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03·07 The pane</a>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <a href="./Session Tree Visual Spec - Filters and Folding.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§06 Filters and folding</a>
+      <a href="./Session Tree Visual Spec - Fork Action.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08 Phase 1</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§09·10 Phase 2</span>
+      <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§11·12 Compact width, keyboard and screen readers</a>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">09</span><span style="font-weight:600">Phase 2 — the jump confirm dialog</span><span style="margin-left:auto;font-size:11.5px;color:var(--pi-color-foregroundMuted)">560px · focus-trapped Dialog</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:18px">
+
+        <div style="display:flex;flex-wrap:wrap;gap:18px">
+          <div style="width:520px;max-width:100%;border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface1);box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden">
+            <div style="padding:15px 18px 0;display:flex;align-items:flex-start;gap:12px"><div style="flex:1"><div style="font-size:15px;font-weight:600">Rewind to before this message</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);margin-top:3px;text-wrap:pretty">Its text is placed in the composer for editing. Everything after it leaves the conversation. Files on disk are not affected.</div></div><span style="color:var(--pi-color-foregroundMuted);font-size:14px">×</span></div>
+            <div style="padding:14px 18px 0">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:6px">JUMPING TO</div>
+              <div style="border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:9px;background:color-mix(in srgb,var(--pi-color-accent) 12%,var(--pi-color-surface0));padding:10px 12px;display:flex;gap:10px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="min-width:0;font-size:12.5px"><div style="color:var(--pi-color-foregroundMuted);font-size:10.5px;margin-bottom:3px">You · 09:46:12 · <span>◇ before-latency</span></div><div>approach B — icmp plus an https HEAD probe against the api host, and print the resolved address so I can tell dns failures from routing ones</div></div></div>
+            </div>
+            <div style="padding:15px 18px 0">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:8px">THE BRANCH YOU'RE LEAVING · 6 ENTRIES</div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid color-mix(in srgb,var(--pi-color-accent) 50%,transparent);border-radius:8px;background:color-mix(in srgb,var(--pi-color-accent) 10%,transparent);cursor:pointer"><span style="width:14px;height:14px;flex:none;margin-top:2px;border-radius:50%;border:1px solid var(--pi-color-accentBright);display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:var(--pi-color-accentBright)"></span></span><span style="font-size:12.5px">No summary<span style="display:block;color:var(--pi-color-foregroundMuted);font-size:11.5px">Jump immediately. The branch stays in the tree.</span></span></label>
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid var(--pi-color-border);border-radius:8px;cursor:pointer"><span style="width:14px;height:14px;flex:none;margin-top:2px;border-radius:50%;border:1px solid var(--pi-color-surface3)"></span><span style="font-size:12.5px">Summarize the abandoned branch<span style="display:block;color:var(--pi-color-foregroundMuted);font-size:11.5px">The agent writes a short recap and pins it at the destination. Takes up to a minute.</span></span></label>
+                <label style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid var(--pi-color-border);border-radius:8px;cursor:pointer"><span style="width:14px;height:14px;flex:none;margin-top:2px;border-radius:50%;border:1px solid var(--pi-color-surface3)"></span><span style="font-size:12.5px">Summarize with instructions…<span style="display:block;color:var(--pi-color-foregroundMuted);font-size:11.5px">Tell it what to keep.</span></span></label>
+              </div>
+            </div>
+            <div style="padding:16px 18px;display:flex;align-items:center;gap:9px"><span style="margin-left:auto;display:inline-flex;align-items:center;height:30px;padding:0 14px;border:1px solid var(--pi-color-border);border-radius:7px;color:var(--pi-color-foregroundMuted);font-size:12.5px">Cancel</span><span style="display:inline-flex;align-items:center;height:30px;padding:0 16px;border-radius:7px;background:var(--pi-color-accent);color:#fff;font-size:12.5px;font-weight:600">Rewind here</span></div>
+          </div>
+          <div style="flex:1;min-width:250px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:8px">
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Non-negotiable:</span> the confirm step always renders the full preview of the exact node being jumped to, never a truncated row and never a node id.</div>
+            <div><span style="color:var(--pi-color-foreground)">Accent CTA, never danger red.</span> Nothing is destroyed — the abandoned branch stays in the tree and remains reachable.</div>
+            <div>The summary block is omitted entirely when the jump abandons nothing (jumping forward along the active path, or clicking the leaf's own ancestor with no siblings). Don't render three radios over an empty branch.</div>
+            <div>The branch count in the section header is literal: <span style="font-family:var(--pi-font-mono)">"THE BRANCH YOU'RE LEAVING · n ENTRIES"</span>.</div>
+            <div>Escape and outside-click close while idle. Both are blocked in flight (§10).</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">COPY VARIES BY NODE KIND — DO NOT MERGE THESE</div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:12.5px">
+            <div style="display:grid;grid-template-columns:150px 1fr 1fr;background:var(--pi-color-surface1);font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--pi-color-foregroundMuted)"><div style="padding:8px 13px;border-right:1px solid var(--pi-color-border)">CLICKED NODE</div><div style="padding:8px 13px;border-right:1px solid var(--pi-color-border)">TITLE / BODY / CTA</div><div style="padding:8px 13px">AFTER SUCCESS</div></div>
+            <div style="display:grid;grid-template-columns:150px 1fr 1fr;border-top:1px solid var(--pi-color-border)"><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);font-weight:600">User message</div><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)"><span style="color:var(--pi-color-foreground)">Rewind to before this message</span><br>"Its text is placed in the composer for editing. Everything after it leaves the conversation. Files on disk are not affected."<br><span style="color:var(--pi-color-foreground)">CTA: Rewind here</span></div><div style="padding:10px 13px;color:var(--pi-color-foregroundMuted)">Transcript truncates to before it. Composer pre-filled <span style="color:var(--pi-color-foreground)">only if it was empty</span>, then focused with the caret at the end. A non-empty composer is never overwritten and no warning is shown.</div></div>
+            <div style="display:grid;grid-template-columns:150px 1fr 1fr;border-top:1px solid var(--pi-color-border)"><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);font-weight:600">Anything else<br><span style="font-weight:400;color:var(--pi-color-foregroundMuted);font-size:11.5px">assistant, tool run, compaction, summary…</span></div><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)"><span style="color:var(--pi-color-foreground)">Continue from this point</span><br>"The conversation resumes here. Everything after it leaves the conversation. Files on disk are not affected."<br><span style="color:var(--pi-color-foreground)">CTA: Continue here</span></div><div style="padding:10px 13px;color:var(--pi-color-foregroundMuted)">Transcript truncates to end at that node. Composer untouched and not focused.</div></div>
+            <div style="display:grid;grid-template-columns:150px 1fr 1fr;border-top:1px solid var(--pi-color-border)"><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);font-weight:600">Root user message</div><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)"><span style="color:var(--pi-color-foreground)">Rewind to the start</span><br>"This empties the conversation. Your first prompt is placed in the composer for editing. Files on disk are not affected."<br><span style="color:var(--pi-color-foreground)">CTA: Rewind to start</span></div><div style="padding:10px 13px;color:var(--pi-color-foregroundMuted)">Empty transcript, showing the session's normal empty state. Original first prompt in the composer, focused.</div></div>
+            <div style="display:grid;grid-template-columns:150px 1fr 1fr;border-top:1px solid var(--pi-color-border)"><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);font-weight:600">The node you're already on</div><div style="padding:10px 13px;border-right:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">No dialog opens.</div><div style="padding:10px 13px;color:var(--pi-color-foregroundMuted)">Nothing happens, silently. No toast, no flash — a click on "you are here" is not an error.</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">10</span><span style="font-weight:600">Phase 2 states — in flight, failure, busy</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:18px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+          <div style="border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface1);overflow:hidden">
+            <div style="padding:8px 13px;border-bottom:1px solid var(--pi-color-border);font-size:11.5px;color:var(--pi-color-foregroundMuted)">In flight · no summary · typically &lt; 1s</div>
+            <div style="padding:14px 15px;display:flex;align-items:center;gap:9px"><span style="margin-left:auto;color:var(--pi-color-foregroundMuted);font-size:12.5px;opacity:.45">Cancel</span><span style="display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 16px;border-radius:7px;background:color-mix(in srgb,var(--pi-color-accent) 70%,transparent);color:#fff;font-size:12.5px;font-weight:600"><span style="width:11px;height:11px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></span>Rewinding…</span></div>
+            <div style="padding:0 15px 14px;font-size:12px;color:var(--pi-color-foregroundMuted)">Spinner on the CTA, Cancel dimmed and inert, radios frozen, Escape and outside-click blocked. Dialog stays exactly where it is — no height change.</div>
+          </div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface1);overflow:hidden">
+            <div style="padding:8px 13px;border-bottom:1px solid var(--pi-color-border);font-size:11.5px;color:var(--pi-color-foregroundMuted)">In flight · summarizing · tens of seconds</div>
+            <div style="padding:14px 15px">
+              <div style="border:1px solid color-mix(in srgb,var(--pi-color-accent) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--pi-color-accent) 9%,transparent);padding:11px 13px;display:flex;gap:10px;align-items:center"><span style="width:14px;height:14px;flex:none;border:2px solid color-mix(in srgb,var(--pi-color-accentBright) 30%,transparent);border-top-color:var(--pi-color-accentBright);border-radius:50%;animation:spin .8s linear infinite"></span><div style="font-size:12.5px"><div style="color:var(--pi-color-foreground)">Summarizing the abandoned branch…</div><div style="color:var(--pi-color-foregroundMuted);font-size:11.5px">This can take up to a minute. Nothing has moved yet.</div></div></div>
+              <div style="position:relative;height:2px;margin-top:11px;background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);overflow:hidden;border-radius:2px"><span style="position:absolute;top:0;bottom:0;width:38%;background:linear-gradient(90deg,transparent,var(--pi-color-accent) 35%,var(--pi-color-accentBright) 50%,var(--pi-color-accent) 65%,transparent);animation:indet 1.5s linear infinite"></span></div>
+            </div>
+            <div style="padding:0 15px 14px;font-size:12px;color:var(--pi-color-foregroundMuted)">Replaces the radio group in place; the target preview stays visible above it. Reuses the transcript's 2px indeterminate bar. <span style="color:var(--pi-color-foreground)">No cancel affordance</span> — the engine cannot honour one, and a dead button is worse than none. Announced through the existing <span style="font-family:var(--pi-font-mono)">aria-live</span> region.</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">TOASTS AND RECOVERIES</div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center"><div style="min-width:300px;max-width:100%;display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface2);font-size:12.5px;box-shadow:0 10px 26px rgba(0,0,0,.4)"><span style="color:var(--pi-color-statusWarning)">◈</span>An extension declined the navigation.</div><div style="flex:1;min-width:240px;font-size:12px;color:var(--pi-color-foregroundMuted)">Dialog closes, nothing moved. No retry button — a declining extension will decline again.</div></div>
+            <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center"><div style="min-width:300px;max-width:100%;display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid color-mix(in srgb,var(--pi-color-statusDanger) 45%,transparent);border-radius:9px;background:var(--pi-color-surface2);font-size:12.5px;box-shadow:0 10px 26px rgba(0,0,0,.4)"><span style="color:var(--pi-color-statusDanger)">!</span>Couldn't write the summary. Nothing moved.</div><div style="flex:1;min-width:240px;font-size:12px;color:var(--pi-color-foregroundMuted)">Dialog stays open and returns to idle with the user's radio choice intact, ready to retry or switch to "No summary". The second sentence is required — the engine guarantees it and the user needs to hear it.</div></div>
+            <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center"><div style="min-width:300px;max-width:100%;display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface2);font-size:12.5px;box-shadow:0 10px 26px rgba(0,0,0,.4)"><span style="color:var(--pi-color-accentBright)">⟳</span>The tree moved on. Refreshed — pick again.</div><div style="flex:1;min-width:240px;font-size:12px;color:var(--pi-color-foregroundMuted)">Stale tree: dialog closes, pane refetches in place, scroll position preserved, the row the user aimed at gets a 1.2s accent flash if it still exists.</div></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">AGENT BUSY · PANE BANNER, STATED ONCE</div>
+          <div style="max-width:430px;border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface0);overflow:hidden">
+            <div style="position:relative;height:2px;background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);overflow:hidden"><span style="position:absolute;top:0;bottom:0;width:38%;background:linear-gradient(90deg,transparent,var(--pi-color-accent) 35%,var(--pi-color-accentBright) 50%,var(--pi-color-accent) 65%,transparent);animation:indet 1.5s linear infinite"></span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 13px;background:var(--pi-color-surface1);border-bottom:1px solid var(--pi-color-border);font-size:12px;color:var(--pi-color-foregroundMuted)"><span style="width:11px;height:11px;flex:none;border:2px solid color-mix(in srgb,var(--pi-color-accentBright) 30%,transparent);border-top-color:var(--pi-color-accentBright);border-radius:50%;animation:spin .8s linear infinite"></span>Agent is working — navigation is paused. Browsing still works.</div>
+            <div style="padding:10px 13px;font-size:12px;color:var(--pi-color-foregroundMuted)">Sits under the pane header, above the filter row. Appears and disappears with the transcript's own running-turn bar, from the same state. Rows keep full contrast and stay scrollable, foldable and focusable; only the click-to-jump and the ⑂ action are withheld.</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:8px">DECISION · CONVERGENCE IN OTHER WINDOWS <span style="color:var(--pi-color-foregroundMuted);font-weight:400;letter-spacing:0">— handover Q6, answers the same question for fork</span></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);max-width:88ch;text-wrap:pretty">Other windows refresh silently — no toast, no banner, no highlight. A toast in a window the user isn't looking at is noise when they return, and a toast in a window they are looking at explains a change they just made themselves. The one concession: a transcript whose content shrinks animates the truncation with a 180ms fade rather than snapping, so a watching user sees that something happened. Open tree panes in other windows refetch on the same signal and keep their scroll position.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

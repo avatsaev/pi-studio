@@ -270,6 +270,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/extension-ui-rpc.md](features/extension-ui-rpc.md)             | feature      | Daemon-side generic `agent_ui_*` bridge for Pi extension UI (dialogs, retained widget/status surfaces) |
 | [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
 | [features/preinstalled-extensions.md](features/preinstalled-extensions.md) | feature      | Curated Pi extension packs auto-installed/updated by the daemon (additive-only sync) |
+| [features/extensions-manager.md](features/extensions-manager.md)         | feature      | Settings-panel Extensions manager: render curated-pack status/sync (existing RPCs) + new `pi_packages_*` install/remove family |
+| [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
@@ -282,7 +284,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/html-file-preview.md](features/html-file-preview.md)           | feature (UI) | HTML files previewed in a sandboxed iframe; descriptor-driven file-viewer registry; workspace-confined local asset inlining |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
-| [features/rewind.md](features/rewind.md)                                 | feature (UI) | Rewind conversation/files/both to a prior message (+ small protocol amendment) |
+| [features/conversation-fork.md](features/conversation-fork.md)           | feature      | Fork-based conversation time-travel: post-fork timeline resync (daemon) + transcript fork UI (web) |
+| [features/session-tree-navigation.md](features/session-tree-navigation.md) | feature      | Pi `/tree` in the web app: session-tree view + in-place time-travel navigation (Phase 2 gated on an upstream `navigate_tree` Pi RPC) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
 | [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + settings dialog shell (Model Providers category), login dialog, onboarding nudge |
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |

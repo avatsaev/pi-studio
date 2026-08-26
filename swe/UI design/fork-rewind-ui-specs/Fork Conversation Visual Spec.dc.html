@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Fork conversation visual spec">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · CONVERSATION FORK</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Fork — rewind a conversation to an earlier user message</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">This spec is split by concern — open only the part you are building. Section numbers (§00–§14) are stable and are what the technical spec cites; every mock is real DOM at final size, styled with the app’s own custom properties. Hex appears once, in <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>. Measurements in the anatomy blocks are normative; anything not stated inherits the existing component default.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">The five open questions in the handover doc are decided here (<a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="color:var(--pi-color-accentBright)">§02</a>, <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="color:var(--pi-color-accentBright)">§04</a>, <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="color:var(--pi-color-accentBright)">§07</a>, <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="color:var(--pi-color-accentBright)">§09</a>, <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="color:var(--pi-color-accentBright)">§10</a>) so implementation has one answer each. Where a decision could reasonably go the other way, the rejected option is named. Companion spec: <a href="./Session Tree Visual Spec.dc.html">Session tree — the map of everywhere this conversation has been</a>, which inherits this spec’s dialog, toast and confirm patterns verbatim.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-foregroundMuted)">Index</span>
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens this feature touches</a>
+      <a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03 The fork affordance</a>
+      <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§05·06·07 The dialog</a>
+      <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08·09·10 After the fork</a>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·11 Compact width, keyboard and assistive tech</a>
+      <a href="./Fork Conversation Visual Spec - Copy and Edge Cases.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§12·13 Copy deck and edge cases</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:30px">
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§01</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">Tokens this feature touches</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">No new colours — the accent family plus surfaces, and the one place danger is allowed to appear.</div></a>
+      <a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§02 · §03</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">The fork affordance</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">The row-level fork button: normative anatomy and placement, and the exact conditions under which it exists at all.</div></a>
+      <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§05 · §06 · §07</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">The dialog — confirm and picker</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">One dialog, two steps: the confirmation step&#x27;s anatomy and states, and the “Fork from…” picker that swaps into it.</div></a>
+      <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§08 · §09 · §10</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">After the fork</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">What the transcript, other windows and motion do once a fork succeeds — including silent convergence.</div></a>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§04 · §11</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">Compact width, keyboard and assistive tech</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">The affordance under 500px and on touch, plus the full keyboard and screen-reader model.</div></a>
+      <a href="./Fork Conversation Visual Spec - Copy and Edge Cases.dc.html" style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;border-bottom:1px solid var(--pi-color-border);display:block"><div style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright);letter-spacing:.08em;margin-bottom:5px">§12 · §13</div><div style="color:var(--pi-color-foreground);font-weight:600;margin-bottom:5px">Copy deck and edge cases</div><div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);text-wrap:pretty">Every user-visible string to ship verbatim, and the edge-case/failure matrix behind them.</div></a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <!-- 00 SCOPE -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">00</span><span style="font-weight:600">Scope boundary</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-statusSuccess);margin-bottom:8px">SHIPS IN THIS FEATURE</div>
+          <div style="font-size:13px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:5px">
+            <div>Fork affordance on every confirmed user message (<a href="./Fork Conversation Visual Spec - Affordance.dc.html" style="color:var(--pi-color-accentBright)">§02</a>)</div>
+            <div>"Fork from…" item in the session overflow menu (<a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="color:var(--pi-color-accentBright)">§07</a>)</div>
+            <div>One dialog, two steps: picker → confirmation (<a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="color:var(--pi-color-accentBright)">§07</a>)</div>
+            <div>Transcript truncation, composer prefill, focus handoff (<a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="color:var(--pi-color-accentBright)">§08</a>)</div>
+            <div>Silent convergence in other windows (<a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="color:var(--pi-color-accentBright)">§09</a>)</div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-statusDanger);margin-bottom:8px">DO NOT BUILD, DO NOT IMPLY</div>
+          <div style="font-size:13px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:5px">
+            <div>Any restoration of file edits — copy stays scoped to conversation memory</div>
+            <div>Clone / resume / switch-session actions</div>
+            <div>Any route back into the abandoned branch</div>
+            <div>Terminal-client UI</div>
+            <div>Destructive-red styling anywhere in the flow</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 CHECKLIST -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">14</span><span style="font-weight:600">Acceptance checklist</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;font-size:12.5px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">Hovering a user row shifts nothing — measure the bubble's box before and after</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">Tabbing through the transcript reaches every fork button in row order</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">The confirm preview text matches the target message character for character</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">Starting a turn hides every fork icon within one frame</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">Outside-click and Esc do nothing while in flight</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">A non-empty composer survives a fork untouched</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">A second window truncates with no toast, no dialog, no focus change</div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:11px 13px">No copy anywhere in the flow mentions files or restoring them</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

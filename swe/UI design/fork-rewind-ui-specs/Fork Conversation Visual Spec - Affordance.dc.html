@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Fork conversation visual spec — The fork affordance">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · CONVERSATION FORK</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">The fork affordance</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">The row-level fork button: normative anatomy and placement, and the exact conditions under which it exists at all.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Fork Conversation Visual Spec.dc.html">the conversation fork visual spec</a> — <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope and <a href="./Fork Conversation Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> the acceptance checklist live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Fork Conversation Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Fork Conversation Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens this feature touches</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§02·03 The fork affordance</span>
+      <a href="./Fork Conversation Visual Spec - Dialog.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§05·06·07 The dialog</a>
+      <a href="./Fork Conversation Visual Spec - After Fork.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08·09·10 After the fork</a>
+      <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·11 Compact width, keyboard and assistive tech</a>
+      <a href="./Fork Conversation Visual Spec - Copy and Edge Cases.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§12·13 Copy deck and edge cases</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <!-- 02 AFFORDANCE ANATOMY -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">02</span><span style="font-weight:600">Fork affordance — anatomy &amp; placement</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:18px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:14px">ROW HOVER — SHIPPED PLACEMENT, REAL SIZE</div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+              <div style="font-size:10.5px;color:var(--pi-color-foreground);display:flex;align-items:center;gap:6px">You · Aug 25, 09:43
+                <span style="width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--pi-color-foreground);background:var(--pi-color-surface3)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>
+                </span>
+              </div>
+              <div style="max-width:74%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:16px;padding:9px 14px;font-size:13px">actually also add a retry wrapper around the fetch call</div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:18px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:14px">IDLE — SLOT RESERVED, GLYPH AT OPACITY 0</div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+              <div style="font-size:10.5px;color:color-mix(in srgb,var(--pi-color-foregroundMuted) 55%,transparent);display:flex;align-items:center;gap:6px">You · Aug 25, 09:43<span style="width:20px;height:20px;border:1px dashed color-mix(in srgb,var(--pi-color-foregroundMuted) 35%,transparent);border-radius:5px"></span></div>
+              <div style="max-width:74%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:16px;padding:9px 14px;font-size:13px">actually also add a retry wrapper around the fetch call</div>
+            </div>
+            <div style="font-size:12px;color:var(--pi-color-foregroundMuted);margin-top:10px">Dashed box is annotation only — the slot renders empty. Nothing shifts when the glyph appears.</div>
+          </div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:18px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:14px">COLLISION ORDER — QUEUED CHIP, THEN FORK, THEN BUBBLE EDGE</div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+              <div style="font-size:10.5px;color:var(--pi-color-foreground);display:flex;align-items:center;gap:6px">You · 09:44<span style="font-size:9.5px;color:var(--pi-color-foregroundMuted);border:1px solid var(--pi-color-border);border-radius:4px;padding:0 5px">queued</span>
+                <span style="width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--pi-color-foreground);background:var(--pi-color-surface3)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg></span>
+              </div>
+              <div style="max-width:74%;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:16px;padding:9px 14px;font-size:13px">and log every attempt with the backoff delay</div>
+              <div style="width:132px;height:76px;border-radius:8px;background:var(--pi-color-surface3);border:1px solid var(--pi-color-border);display:flex;align-items:center;justify-content:center;color:var(--pi-color-foregroundMuted);font-size:11px">image attachment</div>
+            </div>
+            <div style="font-size:12px;color:var(--pi-color-foregroundMuted);margin-top:10px">The fork slot is the last item on the meta line, flush with the bubble's right edge. Thumbnails render below the bubble and are never overlapped.</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foreground)">SPECIFICATION</div>
+            <div>Component <span style="color:var(--pi-color-foreground)">IconButton, size xs</span> — do not build a parallel</div>
+            <div>Box <span style="color:var(--pi-color-foreground)">20 × 20</span>, radius <span style="color:var(--pi-color-foreground)">5</span>, chromeless</div>
+            <div>Glyph lucide <span style="font-family:var(--pi-font-mono)">GitFork</span>, <span style="color:var(--pi-color-foreground)">13 px</span>, stroke 1.8, round caps</div>
+            <div>Gap to previous meta item <span style="color:var(--pi-color-foreground)">6 px</span></div>
+            <div>Idle opacity <span style="color:var(--pi-color-foreground)">0</span> · row hover <span style="color:var(--pi-color-foreground)">1</span> · transition <span style="color:var(--pi-color-foreground)">120 ms ease-out</span></div>
+            <div>Own hover: fill <span style="font-family:var(--pi-font-mono);font-size:11.5px">--pi-color-surface3</span></div>
+            <div>Focus: 2 px ring, <span style="font-family:var(--pi-font-mono);font-size:11.5px">accentBright 35%</span>; focusable at opacity 0 and forced to opacity 1 while focused</div>
+          </div>
+          <div style="border:1px solid color-mix(in srgb,var(--pi-color-accentBright) 40%,transparent);background:color-mix(in srgb,var(--pi-color-accent) 12%,transparent);border-radius:8px;padding:12px 14px;font-size:12.5px">
+            <b style="color:var(--pi-color-accentBright)">Decision — open question 3.</b> <span style="color:var(--pi-color-foregroundMuted)">Meta line, trailing position. Rejected: floating at the bubble's outer edge — it collides with the transcript's left rail at narrow widths and has no reserved box to occupy, so the bubble shifts on hover.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 VISIBILITY MATRIX -->
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">03</span><span style="font-weight:600">When the affordance exists</span></div>
+      <div style="padding:18px">
+        <div style="display:flex;flex-direction:column;gap:1px;background:var(--pi-color-border);border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:13px">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">CONDITION</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">RENDER</div><div style="background:var(--pi-color-surface2);padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted)">NOTE</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Confirmed user message, agent idle</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusSuccess)">Reserved + hover</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">The only state where the icon is interactive</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">A turn is running</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusWarning)">Absent</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Hidden, not greyed. Same signal as the 2 px progress bar; slot collapses</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Message pending / failed to send</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusWarning)">Absent</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Only confirmed messages are forkable</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Assistant / tool / reasoning row</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusWarning)">Absent</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">Fork points are user messages only</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Server without fork support</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusDanger)">Feature absent</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">No icon, no menu item, no reserved slot</div></div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.2fr);gap:1px;background:var(--pi-color-border)"><div style="background:var(--pi-color-surface1);padding:7px 12px">Container &lt; 500 px</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-statusSuccess)">Always visible</div><div style="background:var(--pi-color-surface1);padding:7px 12px;color:var(--pi-color-foregroundMuted)">See <a href="./Fork Conversation Visual Spec - Compact and Keyboard.dc.html" style="color:var(--pi-color-accentBright)">§04</a></div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — Compact width, keyboard and screen readers">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Compact width, keyboard and screen readers</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">The tree under 500px, and the full keyboard and screen-reader model.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Session Tree Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Session Tree Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens and the new visual vocabulary</a>
+      <a href="./Session Tree Visual Spec - Pane.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03·07 The pane</a>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <a href="./Session Tree Visual Spec - Filters and Folding.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§06 Filters and folding</a>
+      <a href="./Session Tree Visual Spec - Fork Action.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08 Phase 1</a>
+      <a href="./Session Tree Visual Spec - Jump.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§09·10 Phase 2</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§11·12 Compact width, keyboard and screen readers</span>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">11</span><span style="font-weight:600">Compact — under 500px</span><span style="margin-left:auto;font-size:11.5px;color:var(--pi-color-foregroundMuted)">handover Q2</span></div>
+      <div style="padding:18px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+        <div style="width:330px;max-width:100%;border:1px solid var(--pi-color-border);border-radius:10px;background:var(--pi-color-surface0);overflow:hidden">
+          <div style="padding:9px 11px;border-bottom:1px solid var(--pi-color-border);display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="font-weight:600">Session tree</span><span style="margin-left:auto;font-size:11px;color:var(--pi-color-foregroundMuted)">14 entries</span></div>
+          <div style="padding:7px 11px;border-bottom:1px solid var(--pi-color-border);display:flex;gap:7px;align-items:center">
+            <span style="flex:1;display:flex;align-items:center;height:26px;padding:0 9px;border:1px solid var(--pi-color-border);border-radius:6px;background:var(--pi-color-surface1);font-size:11.5px;color:var(--pi-color-foreground)">User only <span style="margin-left:auto;color:var(--pi-color-foregroundMuted);font-size:9px">⌄</span></span>
+          </div>
+          <div style="padding:6px 11px;border-bottom:1px solid var(--pi-color-border);display:flex;align-items:center;gap:5px;font-size:11px;color:var(--pi-color-foregroundMuted);font-family:var(--pi-font-mono);overflow:hidden;white-space:nowrap"><span style="opacity:.6">root</span><span style="opacity:.4">›</span><span style="opacity:.6">approach B</span><span style="opacity:.4">›</span><span style="color:var(--pi-color-foreground)">latency</span></div>
+          <div style="padding:6px 0;font-size:12.5px">
+            <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent);border-left:2px solid color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"><span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">create a skill that will just check…</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:41:12</div></div></div>
+            <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px;border-left:2px solid transparent"><span style="width:10px;flex:none;margin-top:11px;height:1px;background:var(--pi-color-surface3)"></span><span style="width:18px;height:18px;flex:none;margin-top:6px;margin-left:4px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:.75">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="color:var(--pi-color-foregroundMuted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">let's try approach A — poll a CDN</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:44:01 · abandoned</div></div></div>
+            <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent);border-left:2px solid color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"><span style="width:10px;flex:none;margin-top:11px;height:1px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="width:18px;height:18px;flex:none;margin-top:6px;margin-left:4px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">approach B — icmp plus an https…</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:46:12</div></div></div>
+            <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px;background:color-mix(in srgb,var(--pi-color-accentBright) 12%,transparent);border-left:2px solid var(--pi-color-accentBright)"><span style="width:10px;flex:none;margin-top:11px;height:1px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="width:18px;height:18px;flex:none;margin-top:6px;margin-left:4px;border-radius:50%;background:var(--pi-color-accentBright);color:#181B1A;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">also log latency</span><span style="flex:none;font-size:9.5px;font-weight:700;color:#181B1A;background:var(--pi-color-accentBright);border-radius:99px;padding:0 6px">CURRENT</span></div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:47:30</div></div></div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:270px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:8px">
+          <div><span style="color:var(--pi-color-foreground);font-weight:600">Decision: flatten, don't pan.</span> Horizontal scrolling a tree on a phone is the worst of both — you lose the preview text and the structure. Indentation collapses to two signals: a 2px left edge bar that is lit on the active path, and a 10px stub before off-path rows. Depth beyond one level is carried by the breadcrumb, not by columns.</div>
+          <div><span style="color:var(--pi-color-foreground);font-weight:600">Breadcrumb strip</span> under the filter shows the path to the row nearest the top of the viewport, so scroll position always answers "where in the tree am I looking". It scrolls horizontally on its own, truncating from the left.</div>
+          <div><span style="color:var(--pi-color-foreground);font-weight:600">Filter</span> becomes a Select. <span style="color:var(--pi-color-foreground);font-weight:600">Fold rows</span> stay, unchanged.</div>
+          <div><span style="color:var(--pi-color-foreground);font-weight:600">Row height rises to 44px minimum</span> and the hover-reveal ⑂ becomes always-visible, since there is no hover. Long-press is not used.</div>
+          <div>The tree opens as a full-width pane tab below 500px; splitting is not offered.</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">12</span><span style="font-weight:600">Keyboard and screen readers</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;overflow:hidden;font-size:12.5px">
+          <div style="padding:8px 13px;background:var(--pi-color-surface1);font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--pi-color-foregroundMuted)">KEY MAP</div>
+          <div style="display:grid;grid-template-columns:96px 1fr">
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">↑ ↓</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Move through visible rows, skipping folded children</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">→ ←</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Unfold / fold; ← on a leaf row moves to its parent</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">⏎</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Open the jump confirm (Phase 2). Inert in Phase 1</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">F</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Fork from the focused row, where the action exists</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">C</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Scroll to current — same as the pill</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">Home End</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">First / last visible row</div>
+            <div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);font-family:var(--pi-font-mono);color:var(--pi-color-accentBright)">Esc</div><div style="padding:7px 13px;border-top:1px solid var(--pi-color-border);color:var(--pi-color-foregroundMuted)">Close the dialog, then the pane tab. Blocked in flight</div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:7px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--pi-color-foregroundMuted)">SEMANTICS</div>
+          <div><span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">role="tree"</span> on the list, <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">role="treeitem"</span> on rows, <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">aria-expanded</span> on foldable parents, <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">aria-level</span> from the true depth even when columns are capped.</div>
+          <div><span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">aria-current="location"</span> on the leaf, on exactly one row.</div>
+          <div>Roving tabindex — the tree is a single tab stop and returns focus to the last-focused row.</div>
+          <div>Accessible name per row: kind, then preview, then "on the current path" / "abandoned branch", then the label, then the timestamp. The tint and the guide weight are decorative and must not be the only carrier — <a href="./Session Tree Visual Spec - Rows.dc.html" style="color:var(--pi-color-accentBright)">§04</a> lists the three redundant signals.</div>
+          <div>The detached group is a nested <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">group</span> with an accessible name of "detached entries, not reachable from the root".</div>
+          <div>Focus on dialog close returns to the row that opened it; after a successful jump it goes to the composer for user-message jumps and to the transcript end for all others.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

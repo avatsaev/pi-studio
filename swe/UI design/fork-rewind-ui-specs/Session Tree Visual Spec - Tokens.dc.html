@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — Tokens and the new visual vocabulary">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Tokens and the new visual vocabulary</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Every token, tint and guide weight the tree introduces — and the one place hex appears.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in §01.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§01 Tokens and the new visual vocabulary</span>
+      <a href="./Session Tree Visual Spec - Pane.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03·07 The pane</a>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <a href="./Session Tree Visual Spec - Filters and Folding.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§06 Filters and folding</a>
+      <a href="./Session Tree Visual Spec - Fork Action.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08 Phase 1</a>
+      <a href="./Session Tree Visual Spec - Jump.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§09·10 Phase 2</a>
+      <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§11·12 Compact width, keyboard and screen readers</a>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">01</span><span style="font-weight:600">Tokens and the new visual vocabulary</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:18px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:9px">
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-surface0)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">surface0 · #181B1A</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-surface1)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">surface1 · #1D211F</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-surface2)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">surface2 · #232827</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-surface3)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">surface3 · #2A302E</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-accent)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">accent · #2e5cb8</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-accentBright)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">accentBright · #a2b4d7</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-statusSuccess)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">statusSuccess · #4E9E6F</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-statusWarning)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">statusWarning · #C2913F</div></div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:7px;overflow:hidden"><div style="height:34px;background:var(--pi-color-statusDanger)"></div><div style="padding:6px 9px;font-family:var(--pi-font-mono);font-size:10.5px;color:var(--pi-color-foregroundMuted)">statusDanger · #C0544D</div></div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:14px 16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">FIVE NEW PRIMITIVES — THE ONLY NEW VOCABULARY THIS FEATURE ADDS</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;font-size:12.5px;color:var(--pi-color-foregroundMuted)">
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Guide rail</span> — 1px <span style="font-family:var(--pi-font-mono)">surface3</span> vertical at x=7 of each 16px depth column. On the active path it thickens to 2px and takes <span style="font-family:var(--pi-font-mono)">accentBright</span> at 45%.</div>
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Elbow</span> — the node's own column: vertical from row top to y=15, then 1px horizontal to the disc. Same colors as the rail.</div>
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Disc</span> — 18px, matching the transcript. Kind glyph inside. Active-path discs get a 1px <span style="font-family:var(--pi-font-mono)">accentBright</span> ring at 55%.</div>
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Leaf marker</span> — the current position only: a "current" chip and a solid <span style="font-family:var(--pi-font-mono)">accentBright</span> disc fill. Never more than one per tree.</div>
+            <div><span style="color:var(--pi-color-foreground);font-weight:600">Label chip</span> — 16px pill, <span style="font-family:var(--pi-font-mono)">surface3</span> fill, 10.5px text, prefixed ◇. Display-only.</div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:14px 16px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:12px">NODE-KIND GLYPH SET · 18px DISC</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:11px;font-size:12px;color:var(--pi-color-foregroundMuted)">
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span>user message</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">π</span>assistant message</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:9px;font-family:var(--pi-font-mono);display:flex;align-items:center;justify-content:center">▤</span>tool run</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:10px;display:flex;align-items:center;justify-content:center">⊟</span>compaction</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:color-mix(in srgb,var(--pi-color-accentBright) 22%,var(--pi-color-surface3));color:var(--pi-color-accentBright);font-size:9px;display:flex;align-items:center;justify-content:center">◈</span>branch summary</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:10px;display:flex;align-items:center;justify-content:center">◐</span>model / thinking change</div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:11px;display:flex;align-items:center;justify-content:center">·</span>other / unknown</div>
+          </div>
+          <div style="margin-top:12px;font-size:12.5px;color:var(--pi-color-foregroundMuted);max-width:76ch;text-wrap:pretty">Only user and assistant discs are accent-filled; everything else is machinery and reads as <span style="font-family:var(--pi-font-mono)">surface3</span>. Unknown future entry kinds fall through to "other" rather than failing to render. Glyphs are the transcript's existing set — no new icon assets.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

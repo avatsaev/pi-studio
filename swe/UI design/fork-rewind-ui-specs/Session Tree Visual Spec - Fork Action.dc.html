@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — Phase 1 — Fork from here">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">Phase 1 — Fork from here</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Phase 1's only action, on active-path user rows, handing off to the existing fork dialog.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Session Tree Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Session Tree Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens and the new visual vocabulary</a>
+      <a href="./Session Tree Visual Spec - Pane.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§02·03·07 The pane</a>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <a href="./Session Tree Visual Spec - Filters and Folding.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§06 Filters and folding</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§08 Phase 1</span>
+      <a href="./Session Tree Visual Spec - Jump.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§09·10 Phase 2</a>
+      <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§11·12 Compact width, keyboard and screen readers</a>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">08</span><span style="font-weight:600">Phase 1 — the only action is Fork from here</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface0);overflow:hidden;max-width:560px">
+          <div style="display:flex;align-items:flex-start;min-height:32px;padding-right:8px;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)"><span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:10px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span><span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">approach B — icmp plus an https HEAD probe</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted)">09:46:12</div></div><span style="width:20px;height:20px;flex:none;margin-top:6px;display:flex;align-items:center;justify-content:center;border-radius:4px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-size:11px">⑂</span></div>
+          <div style="display:flex;align-items:flex-start;min-height:32px;padding-right:8px;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)"><span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:10px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span><span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">π</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Rewrote check.sh to probe both.</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:46:40</div></div><span style="width:20px;height:20px;flex:none;margin-top:6px"></span></div>
+          <div style="display:flex;align-items:flex-start;min-height:32px;padding-right:8px"><span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:10px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span><span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:1px;background:var(--pi-color-surface3)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:1px;background:var(--pi-color-surface3)"></span></span><span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:.75">Y</span><div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="color:var(--pi-color-foregroundMuted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">let's try approach A — poll a known-good CDN</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:44:01 · abandoned</div></div><span style="width:20px;height:20px;flex:none;margin-top:6px"></span></div>
+        </div>
+        <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px;max-width:88ch">
+          <div>The ⑂ button appears on hover and on keyboard focus, and <span style="color:var(--pi-color-foreground)">only on user-message rows that sit on the active path</span> — row one above. Assistant rows and off-path rows keep the reserved 20px box empty, so nothing shifts.</div>
+          <div>Clicking it opens the fork confirm dialog from the companion spec, pre-targeted at that message, skipping its picker step. No new dialog, no new copy.</div>
+          <div>Tooltip: <span style="font-family:var(--pi-font-mono)">"Fork from this message"</span>. Keyboard: <span style="font-family:var(--pi-font-mono)">F</span> on the focused row.</div>
+          <div>After a successful fork the pane refetches; the new session's tree opens in its own tab only if the user was taken to that session.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

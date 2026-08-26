@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>*{box-sizing:border-box}html,body{margin:0}body{background:#111413}a{color:#a2b4d7;text-decoration:none;border-bottom:1px solid rgba(162,180,215,.35)}a:hover{color:#c3cfe8}@keyframes spin{to{transform:rotate(360deg)}}@keyframes indet{0%{left:-38%}100%{left:100%}}</style></helmet>
+<div style="--pi-color-surface0:#181B1A;--pi-color-surface1:#1D211F;--pi-color-surface2:#232827;--pi-color-surface3:#2A302E;--pi-color-border:#282E2C;--pi-color-foreground:#E3E7E5;--pi-color-foregroundMuted:#8B948F;--pi-color-accent:#2e5cb8;--pi-color-accentBright:#a2b4d7;--pi-color-statusSuccess:#4E9E6F;--pi-color-statusWarning:#C2913F;--pi-color-statusDanger:#C0544D;--pi-font-mono:ui-monospace,Menlo,Consolas,monospace;width:100%;min-height:100vh;background:#111413;color:var(--pi-color-foreground);font:14px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;padding:0 0 90px" data-screen-label="Session tree visual spec — The pane — where the tree lives">
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 32px 0">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--pi-color-foregroundMuted)">PI-STUDIO · VISUAL SPEC · SESSION TREE NAVIGATION</div>
+    <h1 style="font-size:34px;line-height:1.2;margin:12px 0 10px;font-weight:700;text-wrap:pretty">The pane — where the tree lives</h1>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">The pane-tab decision, the pane rendered in situ beside the transcript, and the pane's own empty, loading and error states.</p>
+    <p style="margin:0 0 14px;color:var(--pi-color-foregroundMuted);max-width:72ch;text-wrap:pretty">Part of <a href="./Session Tree Visual Spec.dc.html">the session tree visual spec</a> — <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§00</a> scope, <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§13</a> closed questions and <a href="./Session Tree Visual Spec.dc.html" style="color:var(--pi-color-accentBright)">§14</a> build order live in the index. Mocks are real DOM at final size, styled with the app’s own custom properties; measurements in anatomy blocks are normative, anything unstated inherits the existing component default. Tokens are defined once, in <a href="./Session Tree Visual Spec - Tokens.dc.html" style="color:var(--pi-color-accentBright)">§01</a>.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:26px;font-size:12px">
+      <a href="./Session Tree Visual Spec.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">Index</a>
+      <a href="./Session Tree Visual Spec - Tokens.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§01 Tokens and the new visual vocabulary</a>
+      <span style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">§02·03·07 The pane</span>
+      <a href="./Session Tree Visual Spec - Rows.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§04·05 Node rows and structural cases</a>
+      <a href="./Session Tree Visual Spec - Filters and Folding.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§06 Filters and folding</a>
+      <a href="./Session Tree Visual Spec - Fork Action.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§08 Phase 1</a>
+      <a href="./Session Tree Visual Spec - Jump.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§09·10 Phase 2</a>
+      <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§11·12 Compact width, keyboard and screen readers</a>
+      <a href="./Session Tree Visual Spec - End to End.dc.html" style="padding:4px 10px;border:1px solid var(--pi-color-border);border-radius:99px;background:var(--pi-color-surface1);color:var(--pi-color-accentBright);border-bottom-color:var(--pi-color-border)">§15 End to end</a>
+    </div>
+  </div>
+
+  <div style="max-width:1080px;margin:0 auto;padding:0 32px;display:flex;flex-direction:column;gap:34px">
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">02</span><span style="font-weight:600">Decision — the tree is a pane tab, not a dialog</span><span style="margin-left:auto;font-size:11.5px;color:var(--pi-color-foregroundMuted)">handover Q1</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px">
+          <div style="border:1px solid color-mix(in srgb,var(--pi-color-statusSuccess) 45%,transparent);border-radius:8px;background:color-mix(in srgb,var(--pi-color-statusSuccess) 7%,var(--pi-color-surface1));padding:13px 15px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-statusSuccess);margin-bottom:8px">CHOSEN · PANE TAB</div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px">
+              <div>The tree's whole job is orientation against the transcript. A pane tab can be split beside it, so the user reads "where am I" and "what is there" at once — a modal makes them alternate.</div>
+              <div>Panes already carry full window height. A 300-node tree needs it; a dialog caps at ~70vh and then scrolls inside a scroll.</div>
+              <div>It survives: the user can leave the tree open across turns, which is exactly how the "user only" filter gets used as a table of contents.</div>
+              <div>Zero new shell work — the tab strip, close, and split affordances exist.</div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface1);padding:13px 15px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-foregroundMuted);margin-bottom:8px">REJECTED</div>
+            <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:6px">
+              <div><span style="color:var(--pi-color-foreground)">Large modal.</span> Engineering's default. Blocks the transcript at the exact moment the user is comparing against it, and a modal that people want to keep open is the wrong primitive.</div>
+              <div><span style="color:var(--pi-color-foreground)">Right side panel (Files/Changes rail).</span> 232px cannot hold indentation plus a 200-char preview. Rejected on width alone.</div>
+              <div><span style="color:var(--pi-color-foreground)">Slide-over.</span> Gets the height but not the side-by-side, and adds a third overlay layer for no gain.</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--pi-color-accentBright);margin-bottom:10px">ENTRY POINT · ⋮ OVERFLOW MENU · OPENS A TAB IN THE ACTIVE PANE GROUP</div>
+          <div style="display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start">
+            <div style="width:236px;border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface2);padding:5px;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.45)">
+              <div style="padding:6px 10px;border-radius:5px;color:var(--pi-color-foreground)">Rename session</div>
+              <div style="padding:6px 10px;border-radius:5px;color:var(--pi-color-foreground)">Fork from…</div>
+              <div style="padding:6px 10px;border-radius:5px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);display:flex;align-items:center;gap:8px"><span style="color:var(--pi-color-accentBright)">⑂</span>Session tree…</div>
+              <div style="height:1px;background:var(--pi-color-border);margin:5px 0"></div>
+              <div style="padding:6px 10px;border-radius:5px;color:var(--pi-color-foregroundMuted)">Export transcript</div>
+              <div style="padding:6px 10px;border-radius:5px;color:var(--pi-color-statusDanger)">Delete session</div>
+            </div>
+            <div style="flex:1;min-width:280px;font-size:12.5px;color:var(--pi-color-foregroundMuted);display:flex;flex-direction:column;gap:7px">
+              <div><span style="color:var(--pi-color-foreground)">Tab title:</span> <span style="font-family:var(--pi-font-mono)">⑂ Tree · &lt;session name&gt;</span>, truncated with ellipsis at the tab's flex width. Tab icon ⑂ distinguishes it from ◍ chat and ⍜ file tabs.</div>
+              <div><span style="color:var(--pi-color-foreground)">One tab per session.</span> Re-invoking the menu item focuses the existing tab and refetches, rather than opening a second.</div>
+              <div><span style="color:var(--pi-color-foreground)">Fetch on open and on focus-after-blur.</span> No polling, no live updates. A tree fetched 30 seconds ago is acceptable; <a href="./Session Tree Visual Spec - Jump.dc.html" style="color:var(--pi-color-accentBright)">§10</a> covers what happens when it turns out to be stale.</div>
+              <div><span style="color:var(--pi-color-foreground)">Default placement:</span> the tab opens in the pane group the chat is in. If the user splits, the tree keeps the transcript's right side. Split state is the user's, not ours to force.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">03</span><span style="font-weight:600">The pane in situ — split beside the transcript</span></div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:10px;overflow:hidden;height:560px;display:flex;flex-direction:column;background:var(--pi-color-surface0);font-size:13px">
+          <div style="height:36px;flex:none;display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid var(--pi-color-border);font-size:12px;color:var(--pi-color-foregroundMuted)">
+            <div style="height:26px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:6px;white-space:nowrap"><span>◍ task-001-reconnect</span><span style="opacity:.5">×</span></div>
+            <div style="height:26px;display:flex;align-items:center;gap:7px;padding:0 11px;white-space:nowrap"><span>⍜ tsconfig.json</span><span style="opacity:.5">×</span></div>
+            <span style="padding:0 8px">＋</span>
+            <span style="margin-left:auto;display:flex;gap:8px;padding-right:4px">◫ ▦</span>
+          </div>
+          <div style="flex:1;min-height:0;display:flex">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--pi-color-border)">
+              <div style="flex:1;min-height:0;overflow:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:13px">
+                <div style="display:flex;gap:11px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="flex:1;min-width:0"><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);margin-bottom:3px">You · 09:41:12</div><div style="display:inline-block;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:9px;padding:7px 11px;font-size:12.5px">create a skill that will just check internet connection</div></div></div>
+                <div style="display:flex;gap:11px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:9px;font-family:var(--pi-font-mono);display:flex;align-items:center;justify-content:center">▤</span><div style="flex:1;min-width:0"><div style="border:1px solid var(--pi-color-border);border-radius:9px;background:var(--pi-color-surface1);padding:7px 11px;font-size:11.5px;display:flex;gap:9px;align-items:center"><span style="font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--pi-color-accentBright);background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);border-radius:4px;padding:1px 5px">READ</span><span style="flex:1;min-width:0;font-family:var(--pi-font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">.pi/agent/skills/README.md</span><span style="color:var(--pi-color-statusSuccess);font-size:10.5px">✓</span></div></div></div>
+                <div style="display:flex;gap:11px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">π</span><div style="flex:1;min-width:0;font-size:12.5px"><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);margin-bottom:3px">Assistant · 09:43:02</div>Skill scaffolded — the check script writes both an ICMP and an HTTPS probe.</div></div>
+                <div style="display:flex;gap:11px"><span style="width:18px;height:18px;flex:none;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">Y</span><div style="flex:1;min-width:0"><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);margin-bottom:3px">You · 09:47:30</div><div style="display:inline-block;background:color-mix(in srgb,var(--pi-color-accent) 20%,var(--pi-color-surface1));border:1px solid color-mix(in srgb,var(--pi-color-accent) 45%,transparent);border-radius:9px;padding:7px 11px;font-size:12.5px">also log latency per probe</div></div></div>
+              </div>
+              <div style="flex:none;padding:10px 18px 14px"><div style="background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:12px;padding:10px 12px;color:var(--pi-color-foregroundMuted);font-size:12.5px">Ask anything…</div></div>
+            </div>
+
+            <div style="width:430px;flex:none;display:flex;flex-direction:column;background:var(--pi-color-surface0);min-width:0">
+              <div style="flex:none;padding:11px 13px 9px;border-bottom:1px solid var(--pi-color-border);display:flex;flex-direction:column;gap:9px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="font-weight:600;font-size:13px">Session tree</span><span style="font-size:11px;color:var(--pi-color-foregroundMuted)">14 entries · 2 branch points</span><span style="margin-left:auto;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;color:var(--pi-color-foregroundMuted);font-size:12px">⟳</span></div>
+                <div style="display:flex;align-items:center;gap:2px;padding:2px;background:var(--pi-color-surface1);border:1px solid var(--pi-color-border);border-radius:7px;font-size:11.5px">
+                  <span style="flex:1;text-align:center;padding:4px 0;border-radius:5px;background:var(--pi-color-surface3);color:var(--pi-color-foreground);font-weight:600">Default</span>
+                  <span style="flex:1;text-align:center;padding:4px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">No tools</span>
+                  <span style="flex:1;text-align:center;padding:4px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">User only</span>
+                  <span style="flex:1;text-align:center;padding:4px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">Labeled</span>
+                  <span style="flex:1;text-align:center;padding:4px 0;border-radius:5px;color:var(--pi-color-foregroundMuted)">All</span>
+                </div>
+              </div>
+              <div style="flex:1;min-height:0;overflow:hidden;padding:6px 0;font-size:12.5px">
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:15px;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">Y</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">create a skill that will just check internet connection</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:41:12</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:15px;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:9px;font-family:var(--pi-font-mono);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">▤</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">read · .pi/agent/skills/README.md</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:41:20</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:15px;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">π</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Skill scaffolded — the check script writes both an ICMP…</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:43:02</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:1px;background:var(--pi-color-surface3)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:1px;background:var(--pi-color-surface3)"></span><span style="position:absolute;left:7px;top:15px;bottom:0;width:1px;background:var(--pi-color-surface3)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:.75">Y</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="color:var(--pi-color-foregroundMuted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">let's try approach A — poll a known-good CDN</div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:44:01 · abandoned</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;bottom:0;width:1px;background:var(--pi-color-surface3)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:1px;background:var(--pi-color-surface3)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:1px;background:var(--pi-color-surface3)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-surface3);color:var(--pi-color-foregroundMuted);font-size:10px;display:flex;align-items:center;justify-content:center;opacity:.8">⊕</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px;display:flex;align-items:center;gap:7px"><span style="color:var(--pi-color-foregroundMuted);font-size:11.5px">3 entries collapsed</span><span style="font-size:11px;color:var(--pi-color-accentBright)">expand</span></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:15px;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:color-mix(in srgb,var(--pi-color-accentBright) 22%,var(--pi-color-surface3));color:var(--pi-color-accentBright);font-size:9px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">◈</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--pi-color-accentBright);background:color-mix(in srgb,var(--pi-color-accent) 22%,transparent);border-radius:4px;padding:1px 5px;flex:none">SUMMARY</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Approach A polled a CDN; rejected as it needs egress…</span></div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:46:10</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 7%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:15px;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px color-mix(in srgb,var(--pi-color-accentBright) 55%,transparent)">Y</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">approach B — icmp plus an https HEAD</span><span style="flex:none;font-size:10.5px;color:var(--pi-color-foregroundMuted);background:var(--pi-color-surface3);border-radius:99px;padding:0 7px">◇ before-latency</span></div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:46:12</div></div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;min-height:32px;padding:0 10px 0 0;background:color-mix(in srgb,var(--pi-color-accentBright) 12%,transparent)">
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative;margin-left:8px"><span style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:16px;flex:none;align-self:stretch;position:relative"><span style="position:absolute;left:7px;top:0;height:15px;width:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span><span style="position:absolute;left:7px;top:14px;right:-1px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent)"></span></span>
+                  <span style="width:18px;height:18px;flex:none;margin-top:6px;border-radius:50%;background:var(--pi-color-accentBright);color:#181B1A;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px color-mix(in srgb,var(--pi-color-accentBright) 20%,transparent)">Y</span>
+                  <div style="flex:1;min-width:0;padding:5px 0 5px 9px"><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">also log latency per probe</span><span style="flex:none;font-size:10px;font-weight:700;letter-spacing:.05em;color:#181B1A;background:var(--pi-color-accentBright);border-radius:99px;padding:0 7px">CURRENT</span></div><div style="font-size:10.5px;color:var(--pi-color-foregroundMuted);opacity:.55">09:47:30</div></div>
+                </div>
+
+              </div>
+              <div style="flex:none;border-top:1px solid var(--pi-color-border);padding:7px 12px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--pi-color-foregroundMuted)"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:2px;background:color-mix(in srgb,var(--pi-color-accentBright) 45%,transparent);display:inline-block"></span>active path</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:1px;background:var(--pi-color-surface3);display:inline-block"></span>abandoned</span><span style="margin-left:auto;font-family:var(--pi-font-mono)">↑↓ move · ⏎ open · ← → fold</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:var(--pi-color-foregroundMuted);max-width:88ch;text-wrap:pretty">Pane minimum width <span style="font-family:var(--pi-font-mono);color:var(--pi-color-foreground)">380px</span>; below that the compact rules in <a href="./Session Tree Visual Spec - Compact and Keyboard.dc.html" style="color:var(--pi-color-accentBright)">§11</a> take over. The transcript keeps its 820px max — the tree takes the surplus, so on a narrow window the split simply isn't offered and the tree opens as a full pane tab instead.</div>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--pi-color-border);border-radius:12px;background:var(--pi-color-surface0);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;font-weight:700;color:var(--pi-color-accentBright)">07</span><span style="font-weight:600">Empty, loading and error states of the pane itself</span></div>
+      <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface0);overflow:hidden">
+          <div style="padding:8px 12px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);font-size:11.5px;color:var(--pi-color-foregroundMuted)">Loading · skeleton, no spinner</div>
+          <div style="padding:14px 12px;display:flex;flex-direction:column;gap:11px">
+            <div style="display:flex;gap:9px;align-items:center"><span style="width:18px;height:18px;border-radius:50%;background:var(--pi-color-surface2);flex:none"></span><span style="height:9px;border-radius:4px;background:var(--pi-color-surface2);flex:1"></span></div>
+            <div style="display:flex;gap:9px;align-items:center;padding-left:16px"><span style="width:18px;height:18px;border-radius:50%;background:var(--pi-color-surface2);flex:none"></span><span style="height:9px;border-radius:4px;background:var(--pi-color-surface2);width:70%"></span></div>
+            <div style="display:flex;gap:9px;align-items:center;padding-left:16px"><span style="width:18px;height:18px;border-radius:50%;background:var(--pi-color-surface2);flex:none"></span><span style="height:9px;border-radius:4px;background:var(--pi-color-surface2);width:55%"></span></div>
+            <div style="display:flex;gap:9px;align-items:center;padding-left:32px"><span style="width:18px;height:18px;border-radius:50%;background:var(--pi-color-surface2);flex:none"></span><span style="height:9px;border-radius:4px;background:var(--pi-color-surface2);width:60%"></span></div>
+          </div>
+          <div style="padding:10px 12px;border-top:1px solid var(--pi-color-border);font-size:12px;color:var(--pi-color-foregroundMuted)">Four skeleton rows at mixed depths. Shown after 150ms only — most fetches beat that and a flash of skeleton reads as jank.</div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface0);overflow:hidden">
+          <div style="padding:8px 12px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);font-size:11.5px;color:var(--pi-color-foregroundMuted)">Empty · session has no entries yet</div>
+          <div style="padding:34px 20px;text-align:center;color:var(--pi-color-foregroundMuted);font-size:12.5px"><div style="font-size:20px;opacity:.5;margin-bottom:8px">⑂</div><div style="color:var(--pi-color-foreground);margin-bottom:4px">Nothing here yet</div><div style="max-width:30ch;margin:0 auto">The tree appears once this session has its first message.</div></div>
+          <div style="padding:10px 12px;border-top:1px solid var(--pi-color-border);font-size:12px;color:var(--pi-color-foregroundMuted)">Existing <span style="font-family:var(--pi-font-mono)">EmptyState</span> primitive. No call to action — the composer is already right there.</div>
+        </div>
+        <div style="border:1px solid var(--pi-color-border);border-radius:8px;background:var(--pi-color-surface0);overflow:hidden">
+          <div style="padding:8px 12px;border-bottom:1px solid var(--pi-color-border);background:var(--pi-color-surface1);font-size:11.5px;color:var(--pi-color-foregroundMuted)">Fetch failed</div>
+          <div style="padding:30px 20px;text-align:center;font-size:12.5px"><div style="color:var(--pi-color-statusDanger);margin-bottom:5px">Couldn't load the session tree</div><div style="color:var(--pi-color-foregroundMuted);max-width:34ch;margin:0 auto 12px">The connection dropped while fetching. Nothing in the conversation changed.</div><span style="display:inline-flex;align-items:center;height:28px;padding:0 14px;border:1px solid var(--pi-color-border);border-radius:6px;background:var(--pi-color-surface1);color:var(--pi-color-foreground);font-size:12px">Retry</span></div>
+          <div style="padding:10px 12px;border-top:1px solid var(--pi-color-border);font-size:12px;color:var(--pi-color-foregroundMuted)">In-pane, not a toast — the pane has nothing else to show. Toasts are reserved for failures that happen while something else is on screen.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
