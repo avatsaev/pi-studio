@@ -1,7 +1,7 @@
 # Task 003 — `handleFork` post-fork resync + `agent_timeline_reset` broadcast
 
 - **Sprint:** sprint-071-conversation-fork-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** server/agent
 - **Priority:** P1
@@ -74,14 +74,14 @@ return payload                                           # sent AFTER reset + br
 
 ## Acceptance criteria
 
-- [ ] A fork that changes the native handle resets the in-memory timeline to the hydrated branch and
+- [x] A fork that changes the native handle resets the in-memory timeline to the hydrated branch and
       broadcasts `{type: "agent_timeline_reset", agentId, reason: "fork"}` to every active session.
-- [ ] A fork whose hydration yields **zero** rows still resets and still broadcasts.
-- [ ] `{cancelled: true}` (extension declined via `session_before_fork`) performs no reset and no
+- [x] A fork whose hydration yields **zero** rows still resets and still broadcasts.
+- [x] `{cancelled: true}` (extension declined via `session_before_fork`) performs no reset and no
       broadcast.
-- [ ] A **mock-provider** fork (no handle change) performs no reset and no broadcast — the dev
+- [x] A **mock-provider** fork (no handle change) performs no reset and no broadcast — the dev
       daemon's timeline is untouched.
-- [ ] The success response is observably emitted after the reset+broadcast, not before.
+- [x] The success response is observably emitted after the reset+broadcast, not before.
 
 ## Test / verification plan
 
@@ -96,8 +96,10 @@ return payload                                           # sent AFTER reset + br
 
 ## Notes
 
-- TODO(verify) inherited from the spec: confirm `persistSessionHandle` exposes enough to read the
-  pre/post handle without an extra record fetch. If it does not, read the record once before and once
-  after — a pure implementation detail of the guard, not a contract change.
+- TODO(verify) resolved: `persistSessionHandle` returns `Promise<void>` (no returned record), but
+  `handleFork` doesn't need it to — `AgentManager.get(agentId)` is an in-memory `Map` lookup, so
+  reading `record.persistence?.nativeHandle` once before and once after the call costs nothing
+  beyond the lookup itself (no extra disk read, no extra RPC). Implemented exactly as the pure
+  guard-detail the spec anticipated.
 - Hydration is a synchronous fs read of a small branched JSONL — same cost profile as the existing
   restart-rehydration path, so no async/queueing machinery is warranted.

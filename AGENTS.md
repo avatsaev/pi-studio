@@ -259,7 +259,18 @@ All communication uses a **single WebSocket connection** per client.
   subscribe RPC at all: the daemon broadcasts it to **every** active session unconditionally on
   five terminal lifecycle events (create/rename/kill/self-exit/`start_workspace_script`,
   sprint-053/task-003), and a client just listens (`packages/web-client`'s
-  `use-terminal-exit-watch.ts`) rather than subscribing per path.
+  `use-terminal-exit-watch.ts`) rather than subscribing per path. `agent_timeline_reset`
+  (sprint-071, `packages/server/src/agent/slash-command-operations.ts`'s `handleFork`) is the same
+  no-subscribe-RPC variant: `{ type: "agent_timeline_reset", agentId, reason }` broadcasts to
+  **every** active session whenever a successful fork rebinds the agent's native session handle
+  (persistence handle actually changed, not merely row count), telling every client to drop its
+  cached timeline for `agentId` and refetch from scratch; `reason` is currently always `"fork"`. An
+  extension-cancelled fork rebinds nothing and emits neither the reset nor the broadcast.
+  **Sprint-072 gave `web-client` the row/menu fork affordance and dialog** that actually emits
+  `agent_fork_request` (`packages/web-client/AGENTS.md`'s "Conversation fork" invariant) —
+  live-verified end to end including over the relay transport (task-006): two windows on the same
+  agent, one direct and one relay-connected, both converged to the same truncated transcript the
+  instant a fork was confirmed in the other, no reload.
 - **`provider_auth_*`** (sprint-055) is the one RPC family that both gets real `messages.ts` request/
   response schemas AND has a passthrough-only push: the five `provider_auth_list/login/respond/
   cancel/logout` request/response pairs are real, durable, multi-client RPC schemas, while the

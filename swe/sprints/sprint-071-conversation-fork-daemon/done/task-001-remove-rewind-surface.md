@@ -1,7 +1,7 @@
 # Task 001 — Remove the dead rewind surface
 
 - **Sprint:** sprint-071-conversation-fork-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** server/agent, protocol/capabilities
 - **Priority:** P1
@@ -59,11 +59,11 @@ caller is `rewind-rpc.ts`, so both must go in the same task.
 
 ## Acceptance criteria
 
-- [ ] `server_info.features` no longer contains `rewind` (neither bootstrap advertises it).
-- [ ] `rewind-rpc.ts`, `rewind-rpc.test.ts` and `truncateBeforeMessage` no longer exist anywhere in
+- [x] `server_info.features` no longer contains `rewind` (neither bootstrap advertises it).
+- [x] `rewind-rpc.ts`, `rewind-rpc.test.ts` and `truncateBeforeMessage` no longer exist anywhere in
       the repo.
-- [ ] `agent.rewind.*` schemas and `supportsRewind*` manifest flags are still exported and unchanged.
-- [ ] No remaining references to the deleted symbols (no dead imports).
+- [x] `agent.rewind.*` schemas and `supportsRewind*` manifest flags are still exported and unchanged.
+- [x] No remaining references to the deleted symbols (no dead imports).
 
 ## Test / verification plan
 

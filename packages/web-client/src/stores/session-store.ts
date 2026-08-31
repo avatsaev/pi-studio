@@ -64,6 +64,15 @@ interface SessionStoreState {
     queued?: boolean,
   ): void;
   markUserMessageFailed(sessionId: string, clientMessageId: string): void;
+  /**
+   * Unconditionally replace a session's timeline wholesale — the fork-resync counterpart to
+   * `applyStreamEvent`'s incremental updates (sprint-072/task-001). Recomputes `userMessageCount`
+   * from the replacement rows and drops every optimistic row as a side effect of the full
+   * replace: an optimistic `UserRow` only ever exists client-side, so a fresh authoritative
+   * refetch can never reproduce one.
+   */
+  setTimeline(sessionId: string, timeline: TimelineState): void;
+  setTimelineByAgentId(agentId: string, timeline: TimelineState): void;
   activate(sessionId: string): void;
   remove(sessionId: string): void;
   /** Register a restored session (session restore on connect, §4.3 "Session restore"). */
@@ -218,6 +227,20 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
       const timeline = markUserMessageFailedInTimeline(entry.timeline, clientMessageId);
       return { sessions: { ...s.sessions, [sessionId]: { ...entry, timeline } } };
     });
+  },
+
+  setTimeline(sessionId, timeline) {
+    set((s) => {
+      const entry = s.sessions[sessionId];
+      if (!entry) return s;
+      const userMessageCount = timeline.rows.filter((r) => r.kind === "user").length;
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, timeline, userMessageCount } } };
+    });
+  },
+
+  setTimelineByAgentId(agentId, timeline) {
+    const entry = get().findByAgentId(agentId);
+    if (entry) get().setTimeline(entry.id, timeline);
   },
 
   activate(sessionId) {

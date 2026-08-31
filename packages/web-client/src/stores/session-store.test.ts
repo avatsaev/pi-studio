@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSessionStore, type SessionEntry } from "./session-store.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { EMPTY_TIMELINE, type TimelineState } from "@pi-studio-ui/timeline/reducer.js";
 
 beforeEach(() => {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });
@@ -16,6 +16,17 @@ function hydrated(overrides: Partial<SessionEntry> = {}): SessionEntry {
     timeline: EMPTY_TIMELINE,
     userMessageCount: 0,
     ...overrides,
+  };
+}
+
+function timelineWith(userRows: number): TimelineState {
+  return {
+    ...EMPTY_TIMELINE,
+    rows: Array.from({ length: userRows }, (_, i) => ({
+      kind: "user" as const,
+      id: `row-${i}`,
+      text: `msg ${i}`,
+    })),
   };
 }
 
@@ -90,5 +101,44 @@ describe("session store — thinking level (sprint-070)", () => {
   it("setThinkingLevel on an unknown sessionId is a no-op", () => {
     useSessionStore.getState().setThinkingLevel("nope", "high");
     expect(useSessionStore.getState().sessions["nope"]).toBeUndefined();
+  });
+});
+
+describe("session store — setTimeline (sprint-072/task-001, fork resync)", () => {
+  it("replaces the timeline wholesale and recomputes userMessageCount", () => {
+    useSessionStore.getState().hydrate(hydrated({ userMessageCount: 5 }));
+    const fresh = timelineWith(2);
+    useSessionStore.getState().setTimeline("s1", fresh);
+    expect(useSessionStore.getState().sessions["s1"]?.timeline).toBe(fresh);
+    expect(useSessionStore.getState().sessions["s1"]?.userMessageCount).toBe(2);
+  });
+
+  it("drops optimistic rows as a side effect of the full replace", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    useSessionStore.getState().addOptimisticUserMessage("s1", "cm-1", "still pending");
+    expect(useSessionStore.getState().sessions["s1"]?.timeline.rows.length).toBe(1);
+    useSessionStore.getState().setTimeline("s1", EMPTY_TIMELINE);
+    expect(useSessionStore.getState().sessions["s1"]?.timeline.rows.length).toBe(0);
+  });
+
+  it("setTimeline on an unknown sessionId is a no-op", () => {
+    useSessionStore.getState().setTimeline("nope", timelineWith(1));
+    expect(useSessionStore.getState().sessions["nope"]).toBeUndefined();
+  });
+
+  it("setTimelineByAgentId resolves the owning session and replaces its timeline", () => {
+    useSessionStore.getState().hydrate(hydrated({ id: "s1", agentId: "a1" }));
+    useSessionStore.getState().hydrate(hydrated({ id: "s2", agentId: "a2" }));
+    const fresh = timelineWith(3);
+    useSessionStore.getState().setTimelineByAgentId("a2", fresh);
+    expect(useSessionStore.getState().sessions["s1"]?.timeline).toBe(EMPTY_TIMELINE);
+    expect(useSessionStore.getState().sessions["s2"]?.timeline).toBe(fresh);
+    expect(useSessionStore.getState().sessions["s2"]?.userMessageCount).toBe(3);
+  });
+
+  it("setTimelineByAgentId on an unknown agentId is a no-op", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    useSessionStore.getState().setTimelineByAgentId("no-such-agent", timelineWith(1));
+    expect(useSessionStore.getState().sessions["s1"]?.timeline).toBe(EMPTY_TIMELINE);
   });
 });

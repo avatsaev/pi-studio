@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
+import type { AgentStreamEvent } from "@av-pi-studio/protocol";
+
 import type { AgentRecord } from "../persistence/entity-schemas.js";
-import type { AgentSession } from "./provider-contract.js";
+import type { AgentClient, AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService } from "./agent-service.js";
+import { AgentService, getTimeline, seedTimeline } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import { SlashCommandOperationsService } from "./slash-command-operations.js";
+import type { TimelineRow } from "./timeline-store.js";
 
 const NOW = "2026-07-22T12:00:00.000Z";
 
@@ -200,7 +203,10 @@ describe("delegation to optional AgentSession methods", () => {
         fork: (entryId: string) => Promise.resolve({ text: `forked:${entryId}`, cancelled: false }),
       }),
     );
-    const result = (await ops.handleFork({ agentId, entryId: "e1" })) as Record<string, unknown>;
+    const result = (await ops.handleFork({ agentId, entryId: "e1" }, () => [])) as Record<
+      string,
+      unknown
+    >;
     expect(result).toEqual({
       type: "agent_fork_response",
       payload: { text: "forked:e1", cancelled: false },
@@ -232,6 +238,39 @@ describe("delegation to optional AgentSession methods", () => {
     );
     await ops.handleClone({ agentId }, () => []);
     expect(broadcasts).toContainEqual({ type: "agent_update", agentId });
+  });
+
+  it("agent_fork_request, agent_fork_messages_request, and agent_clone_request all lazily resume a restart-recovered agent instead of throwing 'has no live session' (real bug: every agent survives a daemon restart with session === null until something re-spawns it, and the fork picker was the first RPC the fork flow made — nobody could even open the fork UI on a recovered conversation)", async () => {
+    const { service, ops, manager } = makeSetup();
+    const agentId = await createAgent(service);
+    // Simulate exactly what boot recovery leaves behind: a record with a persisted handle but no
+    // attached provider session (`session-ops.test.ts`'s `managed.session = null` pattern).
+    manager.get(agentId)!.session = null;
+    expect(manager.get(agentId)?.session).toBeNull();
+
+    const messagesResult = (await ops.handleForkMessages({ agentId })) as Record<string, unknown>;
+    expect(messagesResult).toEqual({
+      type: "agent_fork_messages_response",
+      payload: { messages: [{ entryId: "mock-entry-0", text: "mock first prompt" }] },
+    });
+    // The lazy resume attaches a real session going forward, just like a real send would.
+    expect(manager.get(agentId)?.session).not.toBeNull();
+
+    manager.get(agentId)!.session = null;
+    const forkResult = (await ops.handleFork({ agentId, entryId: "e1" }, () => [])) as Record<
+      string,
+      unknown
+    >;
+    expect(forkResult).toEqual({
+      type: "agent_fork_response",
+      payload: { text: "mock forked text for e1", cancelled: false },
+    });
+    expect(manager.get(agentId)?.session).not.toBeNull();
+
+    manager.get(agentId)!.session = null;
+    const cloneResult = (await ops.handleClone({ agentId }, () => [])) as Record<string, unknown>;
+    expect(cloneResult).toEqual({ type: "agent_clone_response", payload: { cancelled: false } });
+    expect(manager.get(agentId)?.session).not.toBeNull();
   });
 
   /**
@@ -268,7 +307,7 @@ describe("delegation to optional AgentSession methods", () => {
       "fork",
       { text: "" },
       (ops: SlashCommandOperationsService, agentId: string) =>
-        ops.handleFork({ agentId, entryId: "e1" }),
+        ops.handleFork({ agentId, entryId: "e1" }, () => []),
     ],
     [
       "clone",
@@ -645,5 +684,197 @@ describe("delegation to optional AgentSession methods", () => {
     ]);
     // The lazy spawn attaches a real session going forward, just like the first real send would.
     expect(manager.get(agentId)?.session).not.toBeNull();
+  });
+});
+
+describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => {
+  function makeResyncSetup(hydrate?: (handle: unknown) => TimelineRow[]) {
+    const broadcasts: unknown[] = [];
+    const manager = new AgentManager({
+      home: "/unused",
+      saveAgent: () => Promise.resolve(),
+      loadAllAgents: () => Promise.resolve([]),
+      now: () => NOW,
+    });
+    const client: AgentClient = {
+      provider: "pi",
+      capabilities: {},
+      createSession: () => {
+        throw new Error("not used");
+      },
+      resumeSession: () => {
+        throw new Error("not used");
+      },
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+      ...(hydrate ? { hydrateTimeline: hydrate } : {}),
+    };
+    const ops = new SlashCommandOperationsService({
+      manager,
+      resolveClient: () => client,
+      broadcast: (_, m) => broadcasts.push(m),
+    });
+    return { manager, ops, broadcasts };
+  }
+
+  async function seedAgent(
+    manager: AgentManager,
+    agentId: string,
+    session: AgentSession,
+  ): Promise<void> {
+    await manager.add({
+      id: agentId,
+      provider: "pi",
+      cwd: "/work",
+      createdAt: NOW,
+      updatedAt: NOW,
+      labels: {},
+      lastStatus: "idle",
+      config: {},
+      timeline: [],
+    });
+    manager.attachSession(agentId, session);
+    await manager.persistSessionHandle(agentId); // establish the PRE-fork handle
+  }
+
+  /** A session whose `describePersistence()` mutates on `fork()` — the real rebind Pi performs. */
+  function forkingSession(
+    forkedRows: TimelineRow[],
+    overrides: Record<string, unknown> = {},
+  ): AgentSession {
+    let handle: { provider: string; nativeHandle: string } = {
+      provider: "pi",
+      nativeHandle: "/sessions/before.jsonl",
+    };
+    return sessionStub({
+      describePersistence: () => handle,
+      fork: (entryId: string) => {
+        handle = { provider: "pi", nativeHandle: "/sessions/after.jsonl" };
+        return Promise.resolve({ text: `forked:${entryId}`, cancelled: false });
+      },
+      ...overrides,
+    }) as AgentSession & { __rows?: TimelineRow[] };
+  }
+
+  it("a fork that changes the handle resets the timeline and broadcasts agent_timeline_reset", async () => {
+    const rows: TimelineRow[] = [
+      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ];
+    const { manager, ops, broadcasts } = makeResyncSetup(() => rows);
+    const agentId = "fork-changed";
+    await seedAgent(manager, agentId, forkingSession(rows));
+
+    await ops.handleFork({ agentId, entryId: "e1" }, () => []);
+
+    expect(getTimeline(agentId)?.allRows()).toEqual(rows);
+    expect(broadcasts).toContainEqual({
+      type: "agent_timeline_reset",
+      agentId,
+      reason: "fork",
+    });
+  });
+
+  it("a fork whose hydration yields zero rows still resets and still broadcasts", async () => {
+    const { manager, ops, broadcasts } = makeResyncSetup(() => []);
+    const agentId = "fork-empty";
+    seedTimeline(agentId, [
+      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ]);
+    await seedAgent(manager, agentId, forkingSession([]));
+
+    await ops.handleFork({ agentId, entryId: "e1" }, () => []);
+
+    expect(getTimeline(agentId)?.rowCount()).toBe(0);
+    expect(broadcasts).toContainEqual({
+      type: "agent_timeline_reset",
+      agentId,
+      reason: "fork",
+    });
+  });
+
+  it("an extension-cancelled fork performs no reset and no broadcast", async () => {
+    const { manager, ops, broadcasts } = makeResyncSetup(() => [
+      { epoch: 9, seq: 9, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ]);
+    const agentId = "fork-cancelled";
+    const seedRows: TimelineRow[] = [
+      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ];
+    seedTimeline(agentId, seedRows);
+    await seedAgent(
+      manager,
+      agentId,
+      forkingSession([], { fork: () => Promise.resolve({ text: "", cancelled: true }) }),
+    );
+
+    const result = (await ops.handleFork({ agentId, entryId: "e1" }, () => [])) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result).toEqual({ type: "agent_fork_response", payload: { text: "", cancelled: true } });
+    expect(getTimeline(agentId)?.allRows()).toEqual(seedRows);
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("a mock-provider fork (no handle change) performs no reset and no broadcast", async () => {
+    const { manager, ops, broadcasts } = makeResyncSetup();
+    const agentId = "fork-mock-stub";
+    const seedRows: TimelineRow[] = [
+      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ];
+    seedTimeline(agentId, seedRows);
+    // `describePersistence()` returns the SAME handle before and after `fork()` — exactly the
+    // mock provider's inert stub (its nativeHandle is derived from the session id, which fork
+    // never touches).
+    await seedAgent(
+      manager,
+      agentId,
+      sessionStub({
+        describePersistence: () => ({ provider: "mock", nativeHandle: "mock:stable" }),
+        fork: (entryId: string) =>
+          Promise.resolve({ text: `mock forked text for ${entryId}`, cancelled: false }),
+      }),
+    );
+
+    await ops.handleFork({ agentId, entryId: "e1" }, () => []);
+
+    expect(getTimeline(agentId)?.allRows()).toEqual(seedRows);
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("the success response is observably emitted after the reset + broadcast", async () => {
+    const rows: TimelineRow[] = [
+      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    ];
+    const order: string[] = [];
+    const { manager } = makeResyncSetup();
+    const agentId = "fork-ordering";
+    const orderedOps = new SlashCommandOperationsService({
+      manager,
+      resolveClient: () => ({
+        provider: "pi",
+        capabilities: {},
+        createSession: () => {
+          throw new Error("not used");
+        },
+        resumeSession: () => {
+          throw new Error("not used");
+        },
+        listModels: () => Promise.resolve([]),
+        isAvailable: () => true,
+        hydrateTimeline: () => {
+          order.push("hydrate");
+          return rows;
+        },
+      }),
+      broadcast: (_, m) => order.push(`broadcast:${(m as { type: string }).type}`),
+    });
+    await seedAgent(manager, agentId, forkingSession(rows));
+
+    await orderedOps.handleFork({ agentId, entryId: "e1" }, () => []);
+    order.push("response resolved");
+
+    expect(order).toEqual(["hydrate", "broadcast:agent_timeline_reset", "response resolved"]);
   });
 });

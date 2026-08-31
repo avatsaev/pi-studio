@@ -76,6 +76,17 @@ src/
 | `rewindModeSchema` / `RewindMode` | schema + type | `"conversation" \| "files" \| "both"` |
 | `agentRewindRequestSchema` / `AgentRewindRequest` | schema + type | `agent.rewind.request` — conversation/file time-travel |
 | `agentRewindResponseSchema` / `AgentRewindResponse` | schema + type | Response, includes `truncatedAt` |
+
+**`agent.rewind.*` schemas are retained but unread (sprint-071/task-001).** The daemon-side
+`registerRewindHandler`/`rewind-rpc.ts` handler and `AgentTimelineStore.truncateBeforeMessage`
+(its only caller) were deleted — Pi's native `fork` (`agent.fork.*`) replaces conversation rewind
+provider-natively (`swe/features/conversation-fork.md` § Relationship to the rewind RPC). The
+three schemas above stay exported per this package's append-only rule; nothing in the daemon
+registers a handler for `agent.rewind.request` anymore, so a client that still sends one gets
+`unknown_message_type`. The `rewind` `SERVER_FEATURES` key was removed in the same task (see
+`client-capabilities.ts` below) — it was never true (bootstrap advertised it while no handler
+existed) and no client ever consumed it.
+
 | `steerAgentRequestSchema` / `SteerAgentRequest` | schema + type | `steer_agent_request` — inject a message into a live turn (Pi `steer`); `agentId`, `message`, optional `images`/`clientMessageId` |
 | `steerAgentResponseSchema` / `SteerAgentResponse` | schema + type | Response `{ agentId, ok }` (`ok:false` = no live turn) |
 | `followUpAgentRequestSchema` / `FollowUpAgentRequest` | schema + type | `follow_up_agent_request` — queue a message delivered after the agent stops (Pi `follow_up`) |
@@ -133,6 +144,17 @@ progress push for the `provider_auth_*` RPC family (`kind: "info" | "auth_url" |
 it is the established pattern for a per-session progress push that is not itself a durable,
 multi-client RPC response.
 
+**`agent_timeline_reset` — passthrough push, deliberately no union entry (sprint-071/task-003).**
+`{ type: "agent_timeline_reset", agentId, reason: "fork" }` follows the same
+`sessionMessageBaseSchema` structural fallback as `provider_auth_flow_event`/
+`checkout_status_update`/`file_changed` above and `terminals_update`
+(`packages/server/AGENTS.md`'s Terminal subsystem section) — broadcast to **every** active
+session (including relay sessions), no subscribe RPC. `reason` is an open string so `/new`,
+`/resume`, `/clone`, and `switch_session` can reuse the same push for their own rebind family
+later without a schema change; only `"fork"` is emitted today. Receipt semantics belong entirely
+to the client: drop the cached timeline for `agentId` and refetch from scratch (a post-fork row
+carries fresh epoch/seq numbering, so any held cursor is meaningless).
+
 **`agent_ui_*` — real union members, not a passthrough push.** Unlike every family above,
 `agentUiRequestSchema`/`agentUiResolvedSchema`/`agentUiRespondRequestSchema`/`-ResponseSchema`/
 `agentUiListRequestSchema`/`-ResponseSchema` are all registered directly in `sessionMessageSchema`'s
@@ -147,7 +169,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `forkTimelineSync` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`

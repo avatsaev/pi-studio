@@ -282,30 +282,80 @@ they are one component, not two.
 
 ## Acceptance criteria
 
-- [ ] Forking from a mid-conversation user message: the transcript truncates to before that
-      message in **every** connected client without a reload (verified with two browser windows).
-- [ ] The composer receives the forked message's original text (only when it was empty), and
+- [x] Forking from a mid-conversation user message: the transcript truncates to before that
+      message in **every** connected client without a reload (verified 2026-08-27 with two real
+      browser windows against a real daemon + real `pi` process; task-006 repeated it again with
+      one client on a real relay transport, § below).
+- [x] The composer receives the forked message's original text (only when it was empty), and
       re-sending it produces a turn in which the agent demonstrably does not remember the
-      abandoned branch (live check against a real `pi` process).
-- [ ] The hover affordance's confirm dialog always displays the exact text of the message that
-      will be forked from; a correlation mismatch opens the picker instead of forking.
-- [ ] "Fork from…" in the session menu lists the active branch's user messages and forks the
-      selected one.
-- [ ] An extension-cancelled fork changes nothing and toasts.
-- [ ] Daemon restart after a fork resumes into the forked branch (existing sprint-037 behavior,
-      re-verified — regression guard).
-- [ ] Dev daemon + mock provider: fork RPC answers, timeline is not wiped, no broadcast emitted.
-- [ ] No fork UI is rendered against a daemon lacking `forkTimelineSync`.
-- [ ] `server_info.features` no longer advertises `rewind`; `rewind-rpc.ts` and
-      `truncateBeforeMessage` are gone; `agent.rewind.*` schemas remain in `messages.ts`.
-- [ ] Verified over the relay transport as well as direct WS (broadcast reaches relay sessions).
+      abandoned branch. **Fully verified 2026-08-27** against a real dev daemon + real `pi`
+      process: a fact stated only on the abandoned branch (never sent on the surviving one) was
+      answered "no" when asked about directly on the forked branch, while a fact stated before the
+      fork point was still correctly remembered.
+- [x] The hover affordance's confirm dialog always displays the exact text of the message that
+      will be forked from; a correlation mismatch opens the picker instead of forking (verified
+      2026-08-26 against a real dev daemon + mock provider: `ForkDialog.tsx`; re-verified
+      2026-08-27 against a real daemon + real `pi` process, including a genuine forced mismatch —
+      an out-of-band `/new` on the same agent between the confirm-dialog read and a stale row's
+      fork click — which correctly opened the picker's empty state rather than forking).
+- [x] "Fork from…" in the session menu lists the active branch's user messages and forks the
+      selected one (verified 2026-08-26: `SessionContextMenu.tsx`'s `useForkMenu`).
+- [x] An extension-cancelled fork changes nothing and toasts. **Fully verified 2026-08-27**
+      against a real daemon + real `pi` process with a `session_before_fork` extension that
+      unconditionally cancels: `forkMessages()` before/after were byte-identical, no
+      `agent_timeline_reset`/`agent_update` broadcast fired, and the UI showed "An extension
+      declined the fork." with the dialog closed and the composer untouched.
+- [x] Daemon restart after a fork resumes into the forked branch (existing sprint-037 behavior,
+      re-verified — regression guard). **Verified 2026-08-27** against a real daemon + real `pi`
+      process: forked away from two of three turns, restarted the daemon process, and the
+      resumed agent's persisted session file was already the forked one — asking it about the
+      abandoned turns' content got a genuine "no" while the pre-fork turn was still remembered.
+- [x] Dev daemon + mock provider: fork RPC answers, timeline is not wiped, no broadcast emitted
+      (verified 2026-08-26 against a real running dev daemon + mock provider: mock's fork stub
+      returns the same `nativeHandle`, so the handle-changed guard correctly skips both
+      `resetTimeline` and the `agent_timeline_reset` broadcast; re-verified 2026-08-27 with a
+      direct post-fork `fetch_agent_timeline_request` proving the in-memory timeline itself, not
+      just the broadcast, is untouched).
+- [x] No fork UI is rendered against a daemon lacking `forkTimelineSync`. **Verified 2026-08-27**:
+      the fork button is absent from the DOM entirely (not merely hidden) on every row, and
+      "Fork from…" is absent from the session "⋮" menu, against a daemon with the flag
+      temporarily filtered out of `ws-server.ts`'s `defaultFeatures()` (reverted immediately
+      after, never shipped — see `packages/server/AGENTS.md`).
+- [x] `server_info.features` no longer advertises `rewind`; `rewind-rpc.ts` and
+      `truncateBeforeMessage` are gone; `agent.rewind.*` schemas remain in `messages.ts` (verified
+      live: `"rewind" in info.features` is `false`, `forkTimelineSync` is `true`).
+- [x] Verified over the relay transport as well as direct WS (broadcast reaches relay sessions).
+      **Verified 2026-08-27**: two windows on the same agent, one direct and one connected purely
+      via a real relay server + pairing link (full E2EE handshake, no shared network path to the
+      daemon beyond the relay), both converged to the same truncated transcript the instant a
+      fork was confirmed in the direct window — no reload.
 
 ## TODO(verify) — to resolve during implementation
 
-- [ ] Pi's exact behavior when `fork` arrives mid-stream (teardown aborts the run vs. error) — the
+- [x] Pi's exact behavior when `fork` arrives mid-stream (teardown aborts the run vs. error) — the
       client gates on `running` regardless; confirm live and document.
-- [ ] Whether steered/queued user messages appear in `get_fork_messages` identically to how the
+      **Resolved 2026-08-27:** forking mid-stream never errors on either side. The
+      `agent_fork_request` answers normally, and the in-flight `send_agent_prompt` call for the
+      running turn settles with `status: "idle"` moments later instead of rejecting — live-
+      verified: a multi-step turn's own logged duration dropped to ~1s, matching exactly when the
+      fork was issued. Pi tears the run down cleanly; it does not surface as a `turn_failed` or a
+      thrown error. This app never offers the fork affordance while `running` is true, so no
+      client-visible truncated-turn UI needs building — the mid-stream path is only reachable by
+      bypassing the UI gate (as this probe did) or by a future client that doesn't gate on it.
+- [x] Whether steered/queued user messages appear in `get_fork_messages` identically to how the
       timeline renders them as user rows (ordinal-correlation assumption; text-equality fallback
       covers a mismatch either way).
-- [ ] Confirm `persistSessionHandle` exposes enough to read the pre/post handle in
+      **Resolved 2026-08-27:** a `steer_agent_request` and a `follow_up_agent_request` fired
+      mid-turn are invisible to `forkMessages()` while `queue_update` still lists them pending;
+      once the turn settles, both appear as their own `forkMessages()` entries, in the same order
+      and with the same text, as the timeline's own `user_message` events that confirm them. A
+      pending/queued message is never listed while queued — exactly what `isConfirmedUserRow`
+      already assumed (a `pending` row never gets an ordinal) — so no client-side change was
+      needed; the assumption held under a real, observed turn.
+- [x] Confirmed `persistSessionHandle` exposes enough to read the pre/post handle in
       `handleFork` without an extra record fetch (pure implementation detail of the guard).
+      **Resolved (sprint-071/task-003):** `persistSessionHandle` returns `Promise<void>` (no
+      returned record), but `handleFork` doesn't need it to — `AgentManager.get(agentId)` is an
+      in-memory `Map` lookup, not a disk read, so reading the handle before and once after the
+      call costs nothing beyond the lookup itself (no extra disk read, no extra RPC). Implemented
+      exactly as the spec anticipated.

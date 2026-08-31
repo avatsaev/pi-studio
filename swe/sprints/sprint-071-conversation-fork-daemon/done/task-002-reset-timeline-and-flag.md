@@ -1,7 +1,7 @@
 # Task 002 — `resetTimeline` + `forkTimelineSync` feature flag
 
 - **Sprint:** sprint-071-conversation-fork-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** server/agent, protocol/capabilities
 - **Priority:** P1
@@ -57,13 +57,13 @@ able to detect that and render no fork UI at all.
 
 ## Acceptance criteria
 
-- [ ] `resetTimeline` replaces rows on an agent that **already has** a populated in-memory store
+- [x] `resetTimeline` replaces rows on an agent that **already has** a populated in-memory store
       (demonstrating the contrast with `seedTimeline`, which no-ops in that situation).
-- [ ] `resetTimeline(agentId, [])` empties the store without throwing.
-- [ ] After a reset, the next `startTurn` produces epoch/seq numbering that continues from the
+- [x] `resetTimeline(agentId, [])` empties the store without throwing.
+- [x] After a reset, the next `startTurn` produces epoch/seq numbering that continues from the
       installed rows' maximum — it does not restart at zero or collide with an installed row.
-- [ ] `server_info.features.forkTimelineSync` is advertised by both bootstraps.
-- [ ] Every `SERVER_FEATURES` key still has a COMPAT annotation (existing test enforces this).
+- [x] `server_info.features.forkTimelineSync` is advertised by both bootstraps.
+- [x] Every `SERVER_FEATURES` key still has a COMPAT annotation (existing test enforces this).
 
 ## Test / verification plan
 

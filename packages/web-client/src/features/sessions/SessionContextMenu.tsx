@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Square, Archive as ArchiveIcon, Trash2 } from "lucide-react";
+import { Pencil, Square, Archive as ArchiveIcon, GitFork, Trash2 } from "lucide-react";
 import {
   MenuCursorTrigger,
   MenuContent,
@@ -21,6 +21,7 @@ import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-stor
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useForkMenu } from "@pi-studio-ui/features/chat/use-fork-action.js";
 
 export function SessionContextMenu() {
   const menu = useUiStore((s) => s.sessionMenu);
@@ -34,6 +35,9 @@ export function SessionContextMenu() {
   }, [menu]);
 
   const session = useSessionStore((s) => (menu ? s.sessions[menu.sessionId] : undefined));
+  // Called unconditionally (rules-of-hooks) — `session` may be undefined until `menu` resolves,
+  // which `useCanFork`/`useForkMenu` handle by gating false rather than requiring a guard here.
+  const fork = useForkMenu(session);
 
   if (!menu) return null;
   const canStop = Boolean(session?.agentId) && session?.status === "running";
@@ -131,6 +135,12 @@ export function SessionContextMenu() {
           <Square size={13} />
           Stop agent
         </MenuItem>
+        {fork.canFork && (
+          <MenuItem onSelect={fork.openForkPicker}>
+            <GitFork size={13} />
+            Fork from…
+          </MenuItem>
+        )}
         <MenuSeparator />
         <MenuItem danger onSelect={archive}>
           <ArchiveIcon size={13} />

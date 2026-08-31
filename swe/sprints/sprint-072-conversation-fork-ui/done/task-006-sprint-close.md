@@ -1,7 +1,7 @@
 # Task 006 — Sprint close: live E2E matrix, gates, docs
 
 - **Sprint:** sprint-072-conversation-fork-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide docs + end-to-end verification
 - **Priority:** P1
@@ -73,13 +73,13 @@ including over relay).
 
 ## Acceptance criteria
 
-- [ ] All nine live E2E scenarios above pass and are recorded in the task summary with what was
+- [x] All nine live E2E scenarios above pass and are recorded in the task summary with what was
       observed (not just "verified").
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass from the root.
-- [ ] Every checkbox in `swe/features/conversation-fork.md` § Acceptance criteria is ticked, or
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass from the root.
+- [x] Every checkbox in `swe/features/conversation-fork.md` § Acceptance criteria is ticked, or
       explicitly explained if not.
-- [ ] Both remaining TODO(verify) items are resolved with the actual observed behavior.
-- [ ] Docs listed above reflect the shipped code; no stale claims remain.
+- [x] Both remaining TODO(verify) items are resolved with the actual observed behavior.
+- [x] Docs listed above reflect the shipped code; no stale claims remain.
 
 ## Test / verification plan
 

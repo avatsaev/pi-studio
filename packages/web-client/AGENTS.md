@@ -208,7 +208,9 @@ src/
                            discardIfEmpty; closeByPathPrefix closes every file/diff/molecule tab
                            nested under a deleted path), session-store
                            (SessionEntry.model/modelProvider/thinkingLevel, poll-reconciled + live-updated by
-                           agent_update), draft-store (per-session composer draft text lifted out
+                           agent_update; setTimeline/setTimelineByAgentId — unconditional wholesale
+                           replace, the fork-resync counterpart to applyStreamEvent's incremental
+                           updates, sprint-072/task-001), draft-store (per-session composer draft text lifted out
                            of Composer.tsx's own useState — sprint-069/task-007 — plus a one-shot
                            `pendingFeedback` queue Composer.tsx consumes to show the § 11
                            `set_editor_text` border-flash/note; exists precisely so an extension
@@ -229,7 +231,11 @@ src/
                            plus the restore claim/settle-point machinery — sprint-048) (+ test),
                            announcer-store (the app's one § 08/§ 11 `aria-live` region's current
                            text — `speak`/`clearWhenIdle`, sprint-069/task-008 — see AGENTS.md §
-                           Invariants "Announcements") (+ test)
+                           Invariants "Announcements"), fork-store (sprint-072/task-002 — the fork
+                           dialog's target state: a verified `{entryId, text}` match opening the
+                           confirm step directly, or a `forkMessages()` list opening the picker
+                           instead — set by `features/chat/use-fork-action.ts`'s click handler,
+                           rendered by task-003's dialog/picker)
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
@@ -284,7 +290,15 @@ src/
                            marks a terminal tab `exited` once its known slot disappears from the
                            daemon's live list, exporting the pure reconcile step
                            `reconcileLiveTerminals` for direct testing, same pattern as
-                           `runTerminalRestore` above), use-shortcuts,
+                           `runTerminalRestore` above), use-timeline-reset-watch
+                           (sprint-072/task-001 — connection-lifetime `agent_timeline_reset`
+                           listener, the fork convergence backbone: on receipt for a cached agent,
+                           drops its rows+cursors and refetches `fetch_agent_timeline` from
+                           scratch, paging to completion via `lib/protocol/timeline-paging.ts`;
+                           a no-op for an agent this client has no cached session for; `reason` is
+                           opaque — every reset gets the same full replace regardless of its value
+                           — exporting `handleAgentTimelineReset` for direct testing, same pattern
+                           as `runTerminalRestore` above), use-shortcuts,
                            use-explorer, use-explorer-tree (one query per expanded tree directory,
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
                            use-file-transfer (upload + save-to-disk actions, shared
@@ -436,7 +450,21 @@ src/
                             unit-tested), use-bottom-anchor (the timeline's bottom-anchor
                             controller: gesture/scroll/resize listeners over
                             timeline/bottom-anchor.ts's pure state machine), Attachments,
-                            rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard)
+                            rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard — UserRow's
+                            `onFork` prop renders the hover-revealed `FORK_ROW_TOOLTIP` IconButton
+                            on `RowShell`'s meta line, sprint-072/task-002), fork-gate.ts (+ test —
+                            `canOfferFork`, the pure session-level visibility predicate: capability
+                            + not-running + a live process), fork-correlation.ts (+ test —
+                            `isConfirmedUserRow`/`collectConfirmedUserRows`/
+                            `buildConfirmedOrdinalByRowId`/`correlateForkTarget`: positional
+                            ordinal correlation between a clicked row and a fresh `forkMessages()`
+                            result, verified by whitespace-normalized text equality, falling back
+                            to the picker on any ordinal/text disagreement — see AGENTS.md §
+                            Invariants "Conversation fork"), use-fork-action.ts (combines the
+                            gate + ordinal map + `forkMessages()` click handler into one
+                            `ForkRowWiring` `Timeline` threads through `renderRow`/
+                            `renderComposedItem` to each `UserRow`; commits its outcome into
+                            `stores/fork-store.ts`, never renders a dialog itself)
     agent-ui/               Extension-UI dialog rendering (sprint-068 — see AGENTS.md § Invariants
                             "Extension UI dialogs"): agent-ui-store.ts (the app-scoped controller
                             wiring over `@av-pi-studio/client`'s `AgentUiController`/
@@ -2122,3 +2150,195 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   the return value, and restores focus afterwards. This affected the pre-existing file-explorer
   "Copy Path" actions too, on any non-secure context (plain-http LAN) where the fallback is the
   only path.
+- **Conversation fork (sprint-072: `swe/features/conversation-fork.md`, design spec `swe/UI
+  design/fork-rewind-ui-specs`).** Task-001 shipped the convergence backbone —
+  `use-timeline-reset-watch.ts`'s connection-lifetime `agent_timeline_reset` listener, session-
+  store's `setTimeline`/`setTimelineByAgentId`. Task-002 shipped the row-level fork affordance —
+  a hover-revealed `IconButton` on confirmed `UserRow`s (`fork-gate.ts`'s `canOfferFork` +
+  `fork-correlation.ts`'s ordinal correlation, wired by `use-fork-action.ts`). Task-003 shipped
+  the dialog itself (`ForkDialog.tsx`, mounted once in `TabPanelHost` alongside
+  `TabContextMenu`) plus the session "⋮" menu's "Fork from…" entry (`SessionContextMenu.tsx`).
+  Task-004 shipped result handling (`fork-result.ts`'s `applyForkSuccess`/`applyForkError`) — a
+  real fork can now be completed end to end, including composer prefill, cancellation, and error
+  recovery. Task-005 shipped the compact/touch and keyboard/assistive-tech layer — the feature is
+  now complete.
+  - **The reset always fully replaces, never patches.** `handleAgentTimelineReset` drops the
+    agent's cached rows and cursors and reissues `fetch_agent_timeline` from `cursor: null`,
+    paging to completion via `lib/protocol/timeline-paging.ts`'s `fetchTimelineEvents` — matching
+    `use-session-restore.ts`'s own restore-time fetch exactly. Never a tail-sync: post-fork
+    hydrated rows carry fresh epoch/seq numbering, so any cursor held from before the reset is
+    meaningless.
+  - **Clearing pending optimistic rows is a side effect, not a separate step.** An optimistic
+    `UserRow` only ever exists in this client's local state; replacing the whole timeline with an
+    authoritative refetch can never reproduce one, so there is no explicit "clear optimistic rows"
+    code path to get wrong.
+  - **A reset for an agent this client has no cached session for is a silent no-op** — checked
+    via `session-store`'s `findByAgentId` before issuing any RPC, so an unrelated tab's fork never
+    triggers a fetch storm here.
+  - **`reason` is opaque on purpose.** The type guard only requires `type`/`agentId`; every reset
+    gets the same full replace regardless of `reason`'s value, so `/new`/`/resume`/`/clone`
+    get free convergence the moment the daemon starts sending the same broadcast for them —
+    no client-side change needed when that day comes.
+  - **Live-verified against a real dev daemon + browser** (no fork UI yet, so the daemon's
+    `agent_timeline_reset` wire shape was injected directly into a real connected browser tab's
+    live WebSocket): the listener issued exactly one `fetch_agent_timeline_request` for the
+    correct `agentId`, `cursor` omitted, and the transcript re-rendered correctly with no
+    duplication, no blank flash, and no page reload.
+  - **The fork affordance gate is session-level, not per-row.** `canOfferFork` (capability +
+    not-running + a live process) is evaluated once per `Timeline` render and fans out as an
+    empty `ordinalByRowId` map when false — so a turn starting hides EVERY row's button at once,
+    including rows that were already confirmed before the turn started, not just the newest row.
+    Live-verified against a real dev daemon + mock provider: a `#ui confirm` prompt (which holds
+    the mock turn open until answered) made all three existing rows' fork buttons disappear
+    simultaneously, and answering the dialog brought all three back the instant the session
+    returned to idle.
+  - **Ordinal correlation is positional, verified by text, and both roles derive from the exact
+    same predicate.** `isConfirmedUserRow` (never `pending`/`failed`) is the single source of
+    truth `collectConfirmedUserRows` and `buildConfirmedOrdinalByRowId` both filter through, so
+    a row's ordinal always lines up with its position in the confirmed-rows text list —
+    `correlateForkTarget` then re-derives the SAME ordinal against a fresh `forkMessages()` call
+    (never cached) and falls back to the picker on any out-of-range index or normalized-text
+    mismatch, never forking an unverified entry.
+  - **`fork-store.ts` is the one dialog, two-step state machine (visual spec § 07's "open
+    question 5": a picker step swapping into the SAME dialog, never a second component).**
+    `ForkDialog.tsx` renders purely off `dialog.status` — `"picker"` lists `forkMessages()`
+    results chronologically with `#N` ordinals (or the "Nothing to fork yet" `EmptyState` when
+    empty); `"confirm"` shows the target's exact text (clamped 3 lines) plus a `‹ Back` control
+    that appears **only** when `backTo` is non-null (reached via the picker), never when reached
+    directly (a matched row click) — `backToPicker()` restores the exact same list without a
+    second `forkMessages()` call. Both entry points funnel into the same store: the row
+    affordance's correlation outcome (`use-fork-action.ts`'s `onForkFromRow`) picks `openConfirm`
+    vs `openPicker`; the "⋮" menu's `useForkMenu` always calls `openPicker` directly, and is
+    gated by the exact same `useCanFork`/`canOfferFork` predicate as the row affordance (never
+    re-derived) so the menu item renders absent, not disabled, under the identical conditions.
+  - **The single-flight guard reads live store state, not the render-captured closure.**
+    `ForkDialog`'s `handleConfirm` calls `useForkStore.getState()` at the top of the handler
+    (the same imperative-read pattern `SessionContextMenu.tsx`'s `removeLocal` already uses via
+    `useSessionStore.getState()`/`useTabStore.getState()`) rather than trusting the `dialog`
+    value React captured at the last render — `setPending(true)` is a synchronous Zustand write,
+    so a second `fork()` call fired in the same synchronous burst (a fast double-click, before
+    React re-renders the now-`disabled` button) still observes the first call's `pending: true`
+    and no-ops, guaranteeing `fork(entryId)` is issued exactly once.
+  - **Live-verified against a real dev daemon + mock provider, both entry points**: the row
+    button's click → `forkMessages()` → text mismatch (the mock's fixed single entry never
+    matches real row text, task-002's documented limitation) → picker opened; selecting the row
+    → confirm step showing its exact text → `‹ Back` returned to the identical list → re-selecting
+    → confirm → "Fork from here" issued `agent_fork_request` and the dialog closed cleanly with no
+    console error. Separately, right-clicking the session row surfaced "Fork from…" in the
+    existing Rename/Stop/Archive/Delete menu (positioned after "Stop agent") and clicking it
+    opened the picker directly, bypassing correlation entirely, exactly as designed.
+  - **Fork completion (task-004, `fork-result.ts`) never touches the timeline** — convergence
+    stays entirely task-001's job. `applyForkSuccess`/`applyForkError` read/write only
+    `fork-store`/`draft-store`/`toast-store`; the RPC response's ONLY two jobs are closing the
+    dialog and prefilling the composer. A cancelled fork (`{cancelled: true}`, a
+    `session_before_fork` extension handler declining) toasts the § 12 "An extension declined the
+    fork." copy and closes — no reset arrives, and none should be expected. A rejection
+    (`RpcError`, e.g. Pi's unsaved-session error) toasts `error.message` verbatim (falling back to
+    § 12's "Couldn't fork. Try again." only when the caught value carries no readable message)
+    and calls `setPending(false)` WITHOUT closing — the dialog returns to a reusable idle state so
+    a retry needs no reopening.
+  - **Prefill is resolved by `agentId` via `session-store`'s `findByAgentId`, never "whichever
+    composer has focus"** — the exact `agent-ui-store.ts` `replace_composer_text` precedent this
+    task's own spec calls out by name. Unlike that effect's `replaceDraft` (which always
+    overwrites and queues `pendingFeedback` for the border-flash/note UI), fork's prefill calls
+    the plainer `setDraft` directly, and only when `drafts[sessionId]` is already empty — a fork's
+    prefill is not an extension effect and intentionally gets none of that chrome; a non-empty
+    draft is left untouched with no toast, per the task's "the skip is silent" requirement.
+  - **Live-verified against a real dev daemon + mock provider** (the two success-path criteria
+    reachable without real `pi` credentials): forking with an empty composer landed the mock's
+    exact returned text (`"mock forked text for <entryId>"`) verbatim; forking again with a
+    typed, non-empty draft left it completely untouched, no warning. The cancelled/`rpc_error`
+    branches have no live-daemon path today — the mock provider's `fork()` always resolves
+    `{cancelled: false}` and never rejects — so those two are unit-tested only
+    (`fork-result.test.ts`); the application logic itself is provider-agnostic.
+  - **Focus management is `Dialog.tsx`'s own `onOpenAutoFocus`/`onCloseAutoFocus` passthrough
+    props (task-005), not a second mechanism.** Radix's own default open-focus lands on the first
+    focusable descendant in DOM order — which for every `Dialog` is always its own header Close
+    button, rendered before any body/footer content, regardless of a body/footer element's own
+    `autoFocus` attribute (verified live against a real Chromium instance: `autoFocus` on the
+    confirm step's Cancel button, present since task-003, never actually won this race). Both
+    `ForkDialog.tsx` steps now override it explicitly — confirm focuses Cancel, picker focuses the
+    first row — and `onCloseAutoFocus` restores focus to the `triggerElement` captured at
+    click-time (threaded since task-002/003) when still connected, else falls back to that
+    session's composer via a new `data-session-id` attribute on `Composer.tsx`'s `TextArea`.
+  - **The picker's accessible name is deliberately more specific than its visible tooltip.**
+    `UserRow.tsx`'s `FORK_ROW_ARIA_LABEL` ("Fork conversation from this message") is a screen-
+    reader-only accessible name, separate from `FORK_ROW_TOOLTIP` ("Fork from here", the visible
+    hover/focus tooltip, unchanged copy) — so a screen-reader user hears both the action and that
+    it targets "this message" without row context first.
+  - **Picker arrow-key navigation is a pure, unit-tested helper wrapped by thin DOM glue.**
+    `fork-picker-nav.ts`'s `nextPickerFocusIndex` clamps rather than wraps at either end and is
+    the only piece of task-005's keyboard model tested by unit test (`fork-picker-nav.test.ts`) —
+    the DOM-touching wrapper (`document.activeElement`, `querySelectorAll`) is thin glue verified
+    live instead, the same split `fork-result.ts`/`fork-correlation.ts`/`fork-gate.ts` already use.
+  - **The pending announcement and Esc precedence reuse pre-existing infrastructure, per the
+    task's own scope.** `speak("Forking…")` fires into the one shared `aria-live` region
+    (`announcer-store.ts`, sprint-069/task-008) the instant Confirm is clicked; `fork-result.ts`'s
+    `applyForkSuccess`/`applyForkError` call `clearWhenIdle()` on every settled outcome without a
+    second, redundant announcement (the toast that already fires for cancelled/error owns its own
+    `role="status"` region). Esc-closes-a-dialog-not-also-a-toast is `use-shortcuts.ts`'s
+    pre-existing `role="dialog"` precedence guard, unmodified by this task; Esc-inert-while-pending
+    is `ForkDialog.tsx`'s pre-existing `onEscapeKeyDown` guard (task-003/004) — both re-verified
+    live rather than re-implemented.
+  - **Compact/touch (§ 04) reuses the app's existing "always-visible dimmed action" convention.**
+    `RowShell.module.css`'s `@media (max-width: 575px), (hover: none)` block makes `.forkButton`
+    always visible (dimmed at rest, full on `:active`) instead of relying on a hover reveal that
+    doesn't exist on touch — the same pattern `SessionList.module.css`'s `.menuBtn` and
+    `TabStrip.module.css`'s `.tabClose` already use — plus a non-layout-affecting `::after`
+    pseudo-element padding the hit area to 44×44 (WCAG 2.5.5).
+  - **Live-verified keyboard-only end to end against a real dev daemon + mock provider**: `Tab`
+    reached the row's fork button, `Enter` opened the confirm step focused on Cancel, `Tab` reached
+    "Fork from here", `Enter` issued `agent_fork_request` and closed the dialog with focus returned
+    to the invoking button — no mouse interaction at any step. Separately verified: the composer
+    fallback (by forcing the trigger element out of the DOM before closing), the compact-width
+    layout (no clipped controls, no horizontal scroll at 380px for both steps), and the "Forking…"
+    announcement's presence in the live region immediately after clicking Confirm.
+  - **Task-006 closed the sprint against a real daemon + real `pi` process, including the
+    relay transport** — nine live E2E scenarios plus both spec `TODO(verify)` items, none unit-
+    tested-only. **The `forkTimelineSync` server feature gate** (`useCanFork`'s
+    `serverInfo?.features?.["forkTimelineSync"]`) is the OUTERMOST gate, ahead of `canOfferFork`'s
+    capability/running/live-process checks: against a daemon that doesn't advertise it, no fork
+    button renders on any row (not just hidden — absent from the DOM) and no "Fork from…" entry
+    appears in the session "⋮" menu, live-verified by temporarily filtering the flag out of
+    `ws-server.ts`'s `defaultFeatures()` for one throwaway daemon (reverted immediately after,
+    never shipped).
+  - **Resolved `TODO(verify)`: Pi tears a mid-stream turn down cleanly on fork, it never errors.**
+    Forking while a turn is running does not throw or reject either RPC: the daemon's
+    `agent_fork_request` answers normally, and the in-flight `send_agent_prompt` call settles with
+    `status: "idle"` moments later (live-verified: the turn's own duration dropped to ~1s, matching
+    exactly when the fork was issued, well short of the multi-step task it was mid-way through) —
+    consistent with this app's own design of never offering the fork affordance while `running` is
+    true; a client that bypassed that gate would see a silently truncated turn, not an error.
+  - **Resolved `TODO(verify)`: steered/queued messages join `get_fork_messages()` the moment they
+    are actually delivered, not while still queued.** Live-verified against a real turn: a
+    `steer_agent_request` and a `follow_up_agent_request` fired mid-turn are invisible to
+    `forkMessages()` while `queue_update` still lists them as pending, then appear as their own
+    entries — in the same order, with the same text — as soon as the turn settles and the
+    timeline's own `user_message` events confirm them. This is exactly `fork-correlation.ts`'s
+    `isConfirmedUserRow` precondition already assumes (a pending row never gets an ordinal), so no
+    client-side change was needed — the assumption held.
+  - **A daemon restart resumes into the forked branch, never the abandoned one** (the sprint-037
+    restart-regression guard, `agent-lifecycle.md`) — live-verified: after forking away from two of
+    three turns and restarting the daemon process, the agent record's persisted session file was
+    already the forked one, and asking the resumed process about the abandoned turns' content
+    got a genuine "no" while the pre-fork turn was still remembered correctly.
+  - **An extension-cancelled fork is a true no-op** (`session_before_fork` returning
+    `{ cancel: true }`) — live-verified: `forkMessages()` before and after an attempted fork were
+    byte-identical, no `agent_timeline_reset`/`agent_update` broadcast fired, and the UI's existing
+    "An extension declined the fork." toast (task-004) fired with the dialog closed and the
+    composer left untouched (no prefill) — the cancelled path never reaches `applyForkSuccess`.
+  - **The mock provider's fork is deliberately inert** (`mock-provider.ts`'s `fork()` never
+    changes its own `nativeHandle`) — live-verified against the dev daemon: `fork()` still answers
+    `{ cancelled: false }` so the RPC contract holds, but the daemon's own guard in
+    `handleFork` (persistence handle unchanged ⇒ no reset) means the in-memory timeline is provably
+    untouched (a direct `fetch_agent_timeline_request` afterward still shows the original turn) and
+    no `agent_timeline_reset` is ever broadcast for it.
+  - **The `agent_timeline_reset` broadcast reaches relay-connected sessions identically to direct
+    ones — live-verified end to end, not inferred from the daemon's provider-agnostic broadcast
+    loop.** Two windows against the same agent, one over a direct WebSocket and one connected
+    purely via a real relay server + pairing link (full E2EE handshake, no shared network path to
+    the daemon beyond the relay), both converged to the same truncated transcript the instant a
+    fork was confirmed in the direct window — no reload, no visible lag beyond the RPC round trip.
+    (The composer prefill itself stays request-local, per task-004 — only the relay window's
+    transcript truncates; it does not receive the forking client's own prefilled draft, exactly as
+    designed.)

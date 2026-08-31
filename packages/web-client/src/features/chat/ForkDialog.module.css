@@ -1,0 +1,90 @@
+/* ForkDialog — one dialog, two steps (visual spec § 05·06·07). */
+
+/* `Dialog`'s own `.body` carries no padding (`Dialog.module.css`) — every dialog body supplies
+   its own, matching `LoginDialog.module.css`/`SettingsDialog.module.css`/
+   `OpenWorkspaceDialog.module.css`'s `--pi-spacing-14` horizontal edge convention. */
+
+/* ─── Confirm step (§ 05/§ 06) ────────────────────────────────────────────── */
+
+.confirmContent {
+  padding: var(--pi-spacing-14);
+}
+
+.preview {
+  background: var(--pi-color-surface0);
+  border-left: 2px solid var(--pi-color-accentBright);
+  border-radius: 0;
+  padding: var(--pi-spacing-11) var(--pi-spacing-12);
+  font-size: var(--pi-font-size-sm);
+  margin-bottom: var(--pi-spacing-14);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Matches `rows.module.css`'s `.userPendingRow` precedent — a one-off dim, not a discrete
+   opacity rung (the token ladder only covers 0/50/100). */
+.previewPending {
+  opacity: 0.7;
+}
+
+.copy {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* Pushes `‹ Back` to the far left of the footer row while Cancel/Confirm stay right-aligned
+   (visual spec § 07: "a `‹ Back` control appears at the left of the button row"). */
+.backButton {
+  margin-right: auto;
+}
+
+/* ─── Picker step (§ 07) ──────────────────────────────────────────────────── */
+
+.pickerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  padding: var(--pi-spacing-8) 0;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.pickerRow {
+  display: flex;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-8) var(--pi-spacing-14);
+  border-radius: var(--pi-radius-base);
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.pickerRow:hover,
+.pickerRow:focus-visible {
+  background: var(--pi-color-surface2);
+}
+
+.pickerOrdinal {
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-3xs);
+  flex: none;
+  padding-top: 1px;
+}
+
+.pickerText {
+  font-size: var(--pi-font-size-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pickerEmpty {
+  flex-direction: column;
+}

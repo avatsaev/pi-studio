@@ -1,7 +1,7 @@
 # Task 001 — `agent_timeline_reset` receipt + from-scratch timeline refetch
 
 - **Sprint:** sprint-072-conversation-fork-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client/stores, web-client/lib/protocol
 - **Priority:** P1
@@ -58,12 +58,12 @@ tail-sync.
 
 ## Acceptance criteria
 
-- [ ] On receipt, the agent's cached rows and cursors are dropped and a fresh `cursor: null` fetch
+- [x] On receipt, the agent's cached rows and cursors are dropped and a fresh `cursor: null` fetch
       runs, paging until `hasNewer` is exhausted.
-- [ ] Pending optimistic user rows for that agent are cleared by the reset.
-- [ ] A reset for an unknown/uncached agent is a silent no-op — no fetch issued.
-- [ ] An unrecognised `reason` still triggers a full reset (reason is opaque).
-- [ ] No cursor from before the reset is ever reused (verified by asserting the refetch starts null).
+- [x] Pending optimistic user rows for that agent are cleared by the reset.
+- [x] A reset for an unknown/uncached agent is a silent no-op — no fetch issued.
+- [x] An unrecognised `reason` still triggers a full reset (reason is opaque).
+- [x] No cursor from before the reset is ever reused (verified by asserting the refetch starts null).
 
 ## Test / verification plan
 

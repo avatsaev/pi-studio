@@ -467,6 +467,7 @@ export function Composer({ sessionId }: ComposerProps) {
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            data-session-id={sessionId}
           />
         </div>
         <Attachments images={images} onRemove={handleRemoveImage} />

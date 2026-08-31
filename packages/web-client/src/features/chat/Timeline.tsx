@@ -56,6 +56,7 @@ import { UserRow } from "./rows/UserRow.js";
 import { ErrorRow } from "./rows/ErrorRow.js";
 import { SystemRow } from "./rows/SystemRow.js";
 import { useBottomAnchor } from "./use-bottom-anchor.js";
+import { type ForkRowWiring, useForkAction } from "./use-fork-action.js";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -93,12 +94,16 @@ function renderRow(
   row: TimelineRow,
   isLast: boolean,
   assetBase: string | null,
-  owningPaneId?: string | null,
-  workspaceCwd?: string,
+  owningPaneId: string | null | undefined,
+  workspaceCwd: string | undefined,
+  fork: ForkRowWiring,
 ) {
   switch (row.kind) {
-    case "user":
-      return <UserRow row={row} connector={!isLast} />;
+    case "user": {
+      const ordinal = fork.ordinalByRowId.get(row.id);
+      const onFork = ordinal !== undefined ? () => fork.onForkFromRow(ordinal) : null;
+      return <UserRow row={row} connector={!isLast} onFork={onFork} />;
+    }
     case "assistant":
       return (
         <AssistantRow
@@ -144,6 +149,7 @@ function renderComposedItem(
   onExpandMoreAsks: () => void,
   autoFocusRequestId: string | null,
   sessionTitle: string,
+  fork: ForkRowWiring,
 ) {
   if (item.kind === "ask")
     return (
@@ -157,7 +163,7 @@ function renderComposedItem(
     );
   if (item.kind === "ask-more")
     return <AskMoreRow count={item.count} connector={!isLast} onExpand={onExpandMoreAsks} />;
-  return renderRow(item.row, isLast, assetBase, owningPaneId, workspaceCwd);
+  return renderRow(item.row, isLast, assetBase, owningPaneId, workspaceCwd, fork);
 }
 
 export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps) {
@@ -166,6 +172,7 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
   const homeDir = useHomeDir();
   const assetBase = normalizeCwd(session.cwd, homeDir);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fork = useForkAction(session);
 
   // Extension-UI dialogs for THIS pane's own session/agent only (task-005's "cards render only
   // for the session the pane is showing" — a background session's dialog is invisible until that
@@ -312,6 +319,7 @@ export function Timeline({ session, owningPaneId, workspaceCwd }: TimelineProps)
                     () => setExpandedAsks(true),
                     autoFocusRequestId,
                     session.title,
+                    fork,
                   )}
                 </div>
               );

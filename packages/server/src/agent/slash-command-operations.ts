@@ -2,8 +2,8 @@ import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
-import { spawnOrResumeSession } from "./agent-service.js";
-import type { AgentClient } from "./provider-contract.js";
+import { resetTimeline, spawnOrResumeSession } from "./agent-service.js";
+import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
 
 /**
  * Slash-command operations (sprint-037): Pi built-in commands that have a real Pi RPC equivalent
@@ -58,7 +58,7 @@ export class SlashCommandOperationsService {
       this.handleSwitchSession(ctx.message as Record<string, unknown>, getActiveSessions),
     );
     registry.register("agent_fork_request", (ctx) =>
-      this.handleFork(ctx.message as Record<string, unknown>),
+      this.handleFork(ctx.message as Record<string, unknown>, getActiveSessions),
     );
     registry.register("agent_fork_messages_request", (ctx) =>
       this.handleForkMessages(ctx.message as Record<string, unknown>),
@@ -171,34 +171,85 @@ export class SlashCommandOperationsService {
     return { type: "agent_switch_session_response", payload };
   }
 
-  /** `/fork` — read side effect (new branch), no live-record broadcast needed here. */
-  async handleFork(msg: Record<string, unknown>): Promise<unknown> {
+  /**
+   * `/fork` — forks the session onto a new branch and, when the rebind actually happened,
+   * resyncs the daemon's in-memory timeline to the forked branch and broadcasts
+   * `agent_timeline_reset` to every active session (features/conversation-fork.md § Daemon:
+   * post-fork resync).
+   *
+   * The guard is "the persistence handle changed", not "the fork returned rows" or "provider is
+   * pi": a fork to before the first user message legitimately hydrates to a near-empty branch and
+   * MUST still reset, while the mock provider's inert stub fork changes no handle (its
+   * `nativeHandle` is derived from the session id, which fork never touches) and therefore resets
+   * nothing — provider-agnostic, no `provider === "pi"` check anywhere. The RPC response is
+   * returned only after the reset + broadcast, so the requester never observes success while the
+   * daemon-side timeline still shows the abandoned branch.
+   *
+   * Like `handleListCommands`, this must work on a recovered-but-unattached record (every agent
+   * survives a daemon restart with `managed.session === null` until something re-spawns it) or a
+   * never-spawned deferred draft — `requireSession`'s hard throw here was a real bug: a user could
+   * never fork a conversation that outlived a daemon restart without first provoking a live
+   * session some other way. Spawn/resume exactly as `handleListCommands`/`AgentService.
+   * handleSendPrompt` do.
+   */
+  async handleFork(
+    msg: Record<string, unknown>,
+    getSessions: () => Iterable<Session>,
+  ): Promise<unknown> {
     const agentId = msg.agentId as string;
     const entryId = msg.entryId as string;
     if (!entryId) throw new Error("entryId is required");
-    const session = requireSession(this.deps.manager, agentId);
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
     if (!session.fork) throw unsupported(agentId, "fork");
     const payload = await session.fork(entryId);
-    if (!payload.cancelled) await this.deps.manager.persistSessionHandle(agentId);
+    if (!payload.cancelled) {
+      const handleBefore = this.deps.manager.get(agentId)?.record.persistence?.nativeHandle;
+      await this.deps.manager.persistSessionHandle(agentId);
+      const record = this.deps.manager.get(agentId)?.record;
+      const handleAfter = record?.persistence?.nativeHandle;
+      if (record && handleAfter != null && handleAfter !== handleBefore) {
+        const client = this.deps.resolveClient(record.provider);
+        const handle = record.persistence as PersistenceHandle | undefined;
+        const rows = handle ? (client.hydrateTimeline?.(handle) ?? []) : [];
+        resetTimeline(agentId, rows);
+        this.deps.broadcast(getSessions(), {
+          type: "agent_timeline_reset",
+          agentId,
+          reason: "fork",
+        });
+      }
+    }
     return { type: "agent_fork_response", payload };
   }
 
-  /** Fork picker — read-only. */
+  /** Fork picker — read-only. Same "must work without a live session" requirement as
+   * `handleFork` above (and for the identical reason): the picker is the FIRST RPC the fork flow
+   * makes (`use-fork-action.ts` calls `forkMessages()` before ever showing a dialog), so if this
+   * one still hard-threw, no agent recovered from a restart could even OPEN the fork UI, let
+   * alone complete it. */
   async handleForkMessages(msg: Record<string, unknown>): Promise<unknown> {
     const agentId = msg.agentId as string;
-    const session = requireSession(this.deps.manager, agentId);
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
     if (!session.getForkMessages) throw unsupported(agentId, "get_fork_messages");
     const messages = await session.getForkMessages();
     return { type: "agent_fork_messages_response", payload: { messages } };
   }
 
-  /** `/clone` — duplicates the active branch into a new session at the current position. */
+  /** `/clone` — duplicates the active branch into a new session at the current position. Same
+   * "must work without a live session" requirement as `handleFork`/`handleForkMessages` above —
+   * cloning a recovered-but-unattached record is no less legitimate than cloning a live one. */
   async handleClone(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
-    const session = requireSession(this.deps.manager, agentId);
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
     if (!session.clone) throw unsupported(agentId, "clone");
     const payload = await session.clone();
     if (!payload.cancelled) {

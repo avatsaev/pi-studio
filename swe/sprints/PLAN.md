@@ -1880,6 +1880,9 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > daemon timeline while the `pi` process kept remembering the "rewound" turns. Task-001 deletes it
 > plus `truncateBeforeMessage` (its only caller), and keeps the `agent.rewind.*` schemas and
 > `supportsRewind*` manifest flags — both append-only.
+>
+> **Status:** COMPLETE — all 4 tasks done. Full workspace `build`/`typecheck`/`lint`/`vitest run`
+> green. See `done/*-summary.md` for what each task actually shipped.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
@@ -1916,6 +1919,11 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > `targetLeafId = selectedEntry.parentId`, so the forked message leaves the transcript and survives
 > only as composer prefill. A correction callout is pinned in that part file; § 12's copy deck is
 > unaffected.
+>
+> **Status:** COMPLETE — all 6 tasks done. Nine live E2E scenarios and both spec `TODO(verify)`
+> items verified against a real daemon, real `pi` process, and a real relay server; full workspace
+> `build`/`typecheck`/`lint`/`vitest run` green. See `done/*-summary.md` for what each task actually
+> shipped.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

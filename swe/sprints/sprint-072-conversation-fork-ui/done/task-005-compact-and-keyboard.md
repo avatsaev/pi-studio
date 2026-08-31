@@ -1,7 +1,7 @@
 # Task 005 — Compact/touch width + keyboard and assistive tech
 
 - **Sprint:** sprint-072-conversation-fork-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client/features/chat, web-client styles
 - **Priority:** P1
@@ -55,16 +55,44 @@ These are acceptance criteria of the feature, not follow-ups.
 
 ## Acceptance criteria
 
-- [ ] Below 500px and with a touch-primary pointer, the affordance is reachable without hover, per
-      § 04.
-- [ ] The dialog is usable at compact width — no clipped controls, no horizontal scroll.
-- [ ] The row affordance is keyboard-reachable and has an accessible name identifying both the action
-      and its target message.
-- [ ] Opening the dialog moves focus into it; closing returns focus to the invoking control, or to a
-      stable fallback when that row no longer exists after the timeline reset.
-- [ ] Esc closes the dialog and does not simultaneously dismiss a toast.
-- [ ] The picker list is fully keyboard-navigable; the pending state is announced to assistive tech.
-- [ ] `prefers-reduced-motion` is respected by any transition this feature adds.
+- [x] Below 500px and with a touch-primary pointer, the affordance is reachable without hover, per
+      § 04. Verified live: below the breakpoint (and in this headless browser, which always
+      reports `hover: none`) the button sits at `opacity: 0.55` at rest with no interaction, a 44×44
+      hit area via `::after`, full opacity on `:active`.
+- [x] The dialog is usable at compact width — no clipped controls, no horizontal scroll. Verified
+      live at 380px viewport for both steps: no `document.documentElement` horizontal overflow, no
+      footer button clipped past the viewport edge.
+- [x] The row affordance is keyboard-reachable and has an accessible name identifying both the
+      action and its target message. Verified live: `Tab` reaches the button; its `aria-label` is
+      `FORK_ROW_ARIA_LABEL` = "Fork conversation from this message", separate from the shorter
+      hover/focus tooltip title "Fork from here".
+- [x] Opening the dialog moves focus into it; closing returns focus to the invoking control, or to
+      a stable fallback when that row no longer exists after the timeline reset. Verified live for
+      both steps and both close paths: `onOpenAutoFocus` lands on Cancel (confirm) / the first row
+      (picker) — overriding Radix's own default, which otherwise focuses the dialog's header Close
+      button ahead of any `autoFocus` on a body/footer element (verified against real Chromium, not
+      assumed); `onCloseAutoFocus` restores focus to the captured `triggerElement` when still
+      connected, else falls back to the forked session's own composer via `data-session-id`
+      (verified by forcing the trigger element out of the DOM before closing).
+- [x] Esc closes the dialog and does not simultaneously dismiss a toast. The precedence guard
+      already lives in `use-shortcuts.ts` (`if (!document.querySelector('[role="dialog"], …'))`,
+      pre-existing infrastructure this dialog reuses unmodified — verified by code inspection
+      (Radix's `Dialog.Content` renders the `role="dialog"` the guard checks for) plus the mock
+      provider's own live confirmation that Esc is inert while the confirm step is pending
+      (`onEscapeKeyDown`'s existing guard, re-verified with a same-tick keypress immediately after
+      clicking confirm).
+- [x] The picker list is fully keyboard-navigable; the pending state is announced to assistive
+      tech. `nextPickerFocusIndex` (unit-tested, `fork-picker-nav.test.ts`) drives ↑/↓ row focus,
+      clamped rather than wrapping; `speak("Forking…")` fires into the shared `role="status"` live
+      region the instant Confirm is clicked (verified live: present immediately after the click),
+      and `clearWhenIdle()` ends it on every settled outcome (success, cancelled, error) without a
+      second, redundant announcement — the toast that fires for cancelled/error already carries its
+      own `role="status"` region.
+- [x] `prefers-reduced-motion` is respected by any transition this feature adds. The new compact/
+      touch block adds no new transition (it reuses `.forkButton`'s existing
+      `transition: opacity 0.12s ease-out`, already covered by the pre-existing
+      `@media (prefers-reduced-motion: reduce)` rule in the same file); no other CSS transition was
+      introduced by this task.
 
 ## Test / verification plan
 

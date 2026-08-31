@@ -40,6 +40,22 @@ export interface DialogProps {
    */
   onInteractOutside?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onInteractOutside"];
   onEscapeKeyDown?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onEscapeKeyDown"];
+  /**
+   * Forwarded to Radix `Dialog.Content`. Radix's own default restores focus to whatever had it
+   * before the dialog opened; call `preventDefault()` and focus a specific element instead when
+   * that default is wrong for this dialog's own state (e.g. after closing back to a caller-chosen
+   * fallback rather than nothing).
+   */
+  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onCloseAutoFocus"];
+  /**
+   * Forwarded to Radix `Dialog.Content`. Radix's own default on open focuses the first focusable
+   * descendant in DOM order — which is always this primitive's own header Close button, since it
+   * is rendered before `children`, regardless of any `autoFocus` a caller places on a body/footer
+   * element (React's native `autofocus` commit does not reliably win a race against Radix's own
+   * `FocusScope` mount effect). Call `preventDefault()` and focus the desired element explicitly
+   * whenever the default Close-button focus is wrong for this dialog's content.
+   */
+  onOpenAutoFocus?: ComponentPropsWithoutRef<typeof RadixDialog.Content>["onOpenAutoFocus"];
 }
 
 /** Re-exported so callers can wrap a footer button in `<Dialog.Close asChild>` to auto-dismiss
@@ -57,6 +73,8 @@ export function Dialog({
   bare = false,
   onInteractOutside,
   onEscapeKeyDown,
+  onCloseAutoFocus,
+  onOpenAutoFocus,
 }: DialogProps) {
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -68,6 +86,8 @@ export function Dialog({
             style={width !== undefined ? { width } : undefined}
             onInteractOutside={onInteractOutside}
             onEscapeKeyDown={onEscapeKeyDown}
+            onCloseAutoFocus={onCloseAutoFocus}
+            onOpenAutoFocus={onOpenAutoFocus}
           >
             {bare ? (
               <RadixDialog.Title className={styles.visuallyHidden}>{title}</RadixDialog.Title>

@@ -58,6 +58,53 @@
   opacity: 1;
 }
 
+/* Fork affordance (sprint-072/task-002, visual spec § 02) — reserved 20×20 box on the meta
+ * line's trailing edge; opacity-only reveal so the row never shifts when it appears/disappears.
+ * Lives in this file (not `rows.module.css`, which is UserRow-specific) because CSS Modules hash
+ * class names per file: the `.shellRow:hover`/`:focus-within` selector below must resolve
+ * against THIS file's own `.shellRow`, the one class RowShell.tsx actually applies to the DOM. */
+.forkButton {
+  position: relative;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+
+.shellRow:hover .forkButton,
+.shellRow:focus-within .forkButton {
+  opacity: 1;
+}
+
+/* Compact/touch (sprint-072/task-005, visual spec § 04) — a hover reveal has no hover on touch, so
+ * below the app's existing compact breakpoint (matches `SessionList.module.css`'s `.menuBtn` /
+ * `TabStrip.module.css`'s `.tabClose` — the identical "always-visible dimmed action" convention,
+ * not a new one) the button is always visible: dimmed at rest, full opacity while pressed. Visual
+ * box stays 20×20; the `::after` pseudo-element pads the actual hit area to 44×44 (WCAG 2.5.5)
+ * without affecting layout, overlapping the meta line's own dead space either side. */
+@media (max-width: 575px), (hover: none) {
+  .forkButton {
+    opacity: 0.55;
+  }
+
+  .forkButton:active {
+    opacity: 1;
+  }
+
+  .forkButton::after {
+    content: "";
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forkButton {
+    transition: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .metaTime {
     transition: none;

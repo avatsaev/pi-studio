@@ -25,9 +25,9 @@ describe("capability flag sets", () => {
         "daemonStatusRpc",
         "extensionPacks",
         "extensionUi",
+        "forkTimelineSync",
         "providerAuth",
         "providersSnapshot",
-        "rewind",
         "terminal-restore-modes",
         "thinkingLevels",
       ].toSorted(),
@@ -54,9 +54,9 @@ describe("supports(caps, flag)", () => {
 
   it("supports array and Set capability forms", () => {
     expect(supports(["custom_mode_icons"], "custom_mode_icons")).toBe(true);
-    expect(supports(["custom_mode_icons"], "rewind")).toBe(false);
-    expect(supports(new Set(["rewind"]), "rewind")).toBe(true);
-    expect(supports(new Set(["rewind"]), "custom_mode_icons")).toBe(false);
+    expect(supports(["custom_mode_icons"], "providersSnapshot")).toBe(false);
+    expect(supports(new Set(["providersSnapshot"]), "providersSnapshot")).toBe(true);
+    expect(supports(new Set(["providersSnapshot"]), "custom_mode_icons")).toBe(false);
   });
 
   it("returns false when no capabilities are advertised", () => {

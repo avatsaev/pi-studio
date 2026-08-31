@@ -52,6 +52,7 @@ import { useExternalPaneDrop, paneDropProps } from "@pi-studio-ui/hooks/use-exte
 import { DragChip, DropPreview } from "./DropPreview.js";
 import { TabStrip } from "./TabStrip.js";
 import { TabContextMenu } from "./TabContextMenu.js";
+import { ForkDialog } from "@pi-studio-ui/features/chat/ForkDialog.js";
 import styles from "./TabPanelHost.module.css";
 
 /**
@@ -127,8 +128,10 @@ export function TabPanelHost() {
           ))
         )}
         {/* Once for the whole host, not once per strip — mirrors `SessionContextMenu`'s single
-          mount inside `SessionList` (sprint-069/task-004). */}
+          mount inside `SessionList` (sprint-069/task-004). `ForkDialog` (sprint-072/task-003)
+          follows the same precedent: one global dialog instance any open chat pane can open. */}
         <TabContextMenu />
+        <ForkDialog />
         {activeWorkspaceCwd !== null && dividers.length > 0 && (
           <PaneDividers cwd={activeWorkspaceCwd} dividers={dividers} hostRef={areaRef} />
         )}

@@ -25,8 +25,7 @@ src/
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only).
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
-                                   schedules/chat/loops, rewind, provider auth, optional outbound
-                                   relay).
+                                   schedules/chat/loops, provider auth, optional outbound relay).
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
                                    auth; a small handler subset for local testing.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
@@ -36,7 +35,12 @@ src/
 
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
-    agent-service.ts              AgentService — RPC handler wiring for agent operations.
+    agent-service.ts              AgentService — RPC handler wiring for agent operations;
+                                   resetTimeline(agentId, rows) (sprint-071/task-002) —
+                                   unconditionally replaces an agent's in-memory timeline (unlike
+                                   seedTimeline, which no-ops once a store exists) — the entry
+                                   point `handleFork`'s post-fork resync installs the hydrated
+                                   forked branch through.
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
                                    for markdown image rendering (task-006, sprint-045); bound at
                                    spawn time only (see its own header comment for the accepted
@@ -82,11 +86,18 @@ src/
                                    /new, /resume, /fork, /clone, /name, /export, /model, /copy),
                                    command discovery (agent_list_commands_request, sprint-040),
                                    and the thinking-level pair (agent_set_thinking /
-                                   agent_thinking_levels, sprint-070/task-002).
-    timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
+                                   agent_thinking_levels, sprint-070/task-002). `handleFork`
+                                   (sprint-071/task-003) resyncs the in-memory timeline and
+                                   broadcasts `agent_timeline_reset` to every active session
+                                   whenever the fork's persistence handle actually changed — see
+                                   "Fork resync" below.
+    timeline-store.ts             TimelineStore — append/page/cursor the agent event log;
+                                   replaceRows(rows) (sprint-071/task-002) unconditionally
+                                   replaces the row set for a fork resync, continuing epoch/seq
+                                   numbering from the installed rows' maximum. The former
+                                   truncateBeforeMessage (the dead rewind RPC's only caller) was
+                                   removed in sprint-071/task-001.
     timeline-rpc.ts               fetch_agent_timeline handler.
-    rewind-rpc.ts                 registerRewindHandler — agent.rewind.request (conversation/file
-                                   time-travel; bootstrap.ts only).
     permissions.ts                PendingPermissions — park and resolve tool-call auth requests.
     agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
                                    — see "Extension UI" below.
@@ -542,6 +553,31 @@ creation" above.
   *pre-operation* conversation: restored history stopped at the moment of the `/new`//fork//clone,
   while the live agent (reading Pi's actual current file) remembered the newer turns. A cancelled
   op rebinds nothing, so it neither re-reads `get_state` nor re-saves the record.
+- **`handleFork` resyncs the in-memory timeline and broadcasts `agent_timeline_reset` to every
+  active session — but only when the fork's persistence handle actually changed**
+  (sprint-071/task-003, `swe/features/conversation-fork.md` § Daemon: post-fork resync). A
+  successful `agent_fork_request` rebinds the `pi` process and (per the bullet above) the
+  record's `persistence` handle, but by itself leaves the daemon's `AgentTimelineStore` — and
+  every connected client's transcript — still showing the abandoned branch. `handleFork` reads
+  `record.persistence?.nativeHandle` once before and once after `persistSessionHandle`; if it
+  changed, `resolveClient(record.provider).hydrateTimeline?.(handle)` rebuilds the forked
+  branch's rows (the same synchronous-fs-read path `timeline-rpc.ts` already uses for restarted
+  daemons), `agent-service.ts`'s `resetTimeline(agentId, rows)` installs them, and only then does
+  the daemon broadcast `{ type: "agent_timeline_reset", agentId, reason: "fork" }` — a
+  no-subscribe-RPC passthrough push following the `terminals_update` convention exactly (root
+  `AGENTS.md` § Protocol overview), reaching every active session including relay ones —
+  live-verified end to end (sprint-072/task-006): two windows on the same agent, one direct and
+  one connected purely over a real relay server + pairing link, both converged to the same
+  truncated transcript the instant a fork was confirmed, no reload. The guard
+  is **handle-changed, not rows-non-empty or provider-is-pi**: a fork to before the first user
+  message legitimately hydrates to a near-empty branch and still resets, while the mock
+  provider's inert stub `fork()` changes no handle (its `nativeHandle` is derived from the
+  session id, which fork never touches) and therefore resets nothing — provider-agnostic, no
+  `provider === "pi"` check anywhere. The RPC response is returned only after the reset +
+  broadcast complete, so the requester itself never observes a success response while its own
+  daemon-side timeline still shows the old branch. An extension-cancelled fork
+  (`{cancelled: true}` via `session_before_fork`) performs neither the reset nor the broadcast —
+  nothing rebound, nothing to resync.
 - **`createSession`/`resumeSession` must stay in agreement on `systemPrompt` handling** (task-005,
   sprint-045 — a pre-existing defect this fixed): `resumeSession` used to build its spawn args
   with `appendSystemPrompt: this.deps.appendSystemPrompt` unconditionally, ignoring

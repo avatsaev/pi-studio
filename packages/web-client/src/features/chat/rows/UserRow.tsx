@@ -23,23 +23,37 @@
  */
 
 import { useState } from "react";
-import { Clock, User } from "lucide-react";
+import { Clock, GitFork, User } from "lucide-react";
 import { clsx } from "clsx";
 import { Dialog } from "@pi-studio-ui/components/primitives/Dialog.js";
 import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
+import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
 import { formatMetaTime } from "@pi-studio-ui/timeline/format-meta-time.js";
 import type { UserRow as UserRowModel } from "@pi-studio-ui/timeline/row-model.js";
 import { RowShell } from "./RowShell.js";
 import shellStyles from "./RowShell.module.css";
 import styles from "./rows.module.css";
 
+/** § 12 copy deck — the row affordance's visible tooltip, shown on hover and on focus. */
+export const FORK_ROW_TOOLTIP = "Fork from here";
+/** § 11 keyboard/assistive-tech — the accessible name, deliberately more descriptive than the
+ * tooltip so a screen-reader user hears the action AND that it targets "this message" without
+ * needing row context first. */
+export const FORK_ROW_ARIA_LABEL = "Fork conversation from this message";
+
 export interface UserRowProps {
   row: UserRowModel;
   /** Draw the rail connector below this row. `false` on the timeline's last row. */
   connector: boolean;
+  /**
+   * Fork affordance click handler (sprint-072/task-002) — `null`/`undefined` when this row
+   * cannot offer a fork button (session-level gate false, or an optimistic pending/failed row
+   * has no ordinal). Presence alone decides whether the button renders at all.
+   */
+  onFork?: (() => void) | null;
 }
 
-export function UserRow({ row, connector }: UserRowProps) {
+export function UserRow({ row, connector, onFork }: UserRowProps) {
   const [openedSrc, setOpenedSrc] = useState<string | null>(null);
   const time = formatMetaTime(row.timestamp);
 
@@ -57,13 +71,25 @@ export function UserRow({ row, connector }: UserRowProps) {
         </>
       }
       metaTrailing={
-        row.queued &&
-        !row.failed && (
-          <span className={styles.queuedBadge}>
-            <Clock size={9} />
-            queued
-          </span>
-        )
+        <>
+          {row.queued && !row.failed && (
+            <span className={styles.queuedBadge}>
+              <Clock size={9} />
+              queued
+            </span>
+          )}
+          {onFork && (
+            <IconButton
+              className={shellStyles.forkButton}
+              hoverBase="var(--pi-color-surface3)"
+              title={FORK_ROW_TOOLTIP}
+              aria-label={FORK_ROW_ARIA_LABEL}
+              onClick={onFork}
+            >
+              <GitFork size={13} strokeWidth={1.8} aria-hidden="true" />
+            </IconButton>
+          )}
+        </>
       }
     >
       <span className={clsx(styles.userBubble, row.failed && styles.userBubbleFailed)}>

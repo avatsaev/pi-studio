@@ -1,7 +1,7 @@
 # Task 002 — Fork affordance on user rows + ordinal correlation
 
 - **Sprint:** sprint-072-conversation-fork-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client/features/chat, web-client/timeline
 - **Priority:** P1
@@ -63,14 +63,14 @@ any mismatch degrades to the picker rather than forking something unverified.
 
 ## Acceptance criteria
 
-- [ ] The button appears on hover over a confirmed user row and never on a `pending`/`failed` row.
-- [ ] No fork UI renders at all when `forkTimelineSync` is not advertised.
-- [ ] The button is absent (not merely disabled-looking) while a turn is running, and on a
+- [x] The button appears on hover over a confirmed user row and never on a `pending`/`failed` row.
+- [x] No fork UI renders at all when `forkTimelineSync` is not advertised.
+- [x] The button is absent (not merely disabled-looking) while a turn is running, and on a
       process-less draft session.
-- [ ] Row height does not shift when the button appears/disappears.
-- [ ] `forkMessages()` is called on every click, never served from a cache.
-- [ ] Ordinal out of range **or** normalized-text mismatch opens the picker instead of forking.
-- [ ] The correlation helper is pure and covered by unit tests including both fallback triggers.
+- [x] Row height does not shift when the button appears/disappears.
+- [x] `forkMessages()` is called on every click, never served from a cache.
+- [x] Ordinal out of range **or** normalized-text mismatch opens the picker instead of forking.
+- [x] The correlation helper is pure and covered by unit tests including both fallback triggers.
 
 ## Test / verification plan
 
@@ -85,6 +85,18 @@ any mismatch degrades to the picker rather than forking something unverified.
 ## Notes
 
 TODO(verify) inherited from the spec: whether steered/queued user messages appear in
-`get_fork_messages` identically to how the timeline renders them as user rows. The text-equality
-fallback covers a mismatch either way, but confirm live and record the finding — if they diverge,
-the picker becomes the primary path for those sessions rather than a fallback.
+`get_fork_messages` identically to how the timeline renders them as user rows. STILL UNRESOLVED —
+requires a real `pi` process (no credentials available in this environment); the text-equality
+fallback covers a mismatch either way regardless of the answer, so nothing is unsafe in the
+meantime. Carried forward to a later task/live session with real `pi` access.
+
+**Verified live against a real dev daemon + mock provider** (browser-driven): sent messages to
+materialize confirmed rows, confirmed the button is absent at rest (opacity 0) and reaches opacity
+1 only on a real CDP pointer hover over the row (never via synthetic DOM events, which do not
+trigger CSS `:hover`), with row height pinned at 66px throughout. Used a `#ui confirm` prompt
+(the one mock recipe that holds a turn open until answered) to prove the SESSION-LEVEL gate: all
+three existing rows' buttons vanished together the instant the turn started, and all three
+reappeared together the instant the dialog was answered and the session returned to idle — not a
+per-row effect. Clicked a real button: `forkMessages()` fired with no console error, and since the
+mock provider's fixed single entry didn't match the clicked row's real text, the mismatch path
+correctly opened the picker (`fork-store.ts`) rather than forking silently.

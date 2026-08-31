@@ -60,6 +60,21 @@ export function seedTimeline(
 }
 
 /**
+ * Unconditionally replace `agentId`'s in-memory timeline with `rows` (fork resync —
+ * features/conversation-fork.md § New daemon-internal surface). Unlike `seedTimeline`, this
+ * always replaces — a fork always happens on a live session, which always already has a store,
+ * so a no-op-if-exists entry point could never do the job. `rows` may legitimately be empty (a
+ * fork to before the first user message). Creates the store if none exists yet so callers never
+ * need to special-case a never-spawned session.
+ */
+export function resetTimeline(
+  agentId: string,
+  rows: import("./timeline-store.js").TimelineRow[],
+): void {
+  getOrCreateTimeline(agentId).replaceRows(rows);
+}
+
+/**
  * Ensure `agentId` has a live provider session: resume from a persisted handle, or — for a
  * deferred draft that was never spawned (`record.persistence` absent; see `AgentService.handleCreate`
  * step 2) — spawn it for the first time. Either way, replay the record's pinned model

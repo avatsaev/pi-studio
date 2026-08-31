@@ -43,12 +43,12 @@ export const SERVER_FEATURES = {
   checkoutGithubSetAutoMerge: "checkoutGithubSetAutoMerge",
   daemonStatusRpc: "daemonStatusRpc",
   "terminal-restore-modes": "terminal-restore-modes",
-  rewind: "rewind",
   checkoutRefresh: "checkoutRefresh",
   extensionPacks: "extensionPacks",
   providerAuth: "providerAuth",
   extensionUi: "extensionUi",
   thinkingLevels: "thinkingLevels",
+  forkTimelineSync: "forkTimelineSync",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -76,8 +76,6 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
     addedIn: "0.0.0",
     removeBy: "TBD",
   }),
-  // COMPAT(rewind): added 0.0.0, remove by TBD
-  rewind: COMPAT({ name: "rewind", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(checkoutRefresh): added 0.0.0, remove by TBD
   checkoutRefresh: COMPAT({ name: "checkoutRefresh", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(extensionPacks): added 0.0.0, remove by TBD
@@ -88,6 +86,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   extensionUi: COMPAT({ name: "extensionUi", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(thinkingLevels): added 0.0.0, remove by TBD
   thinkingLevels: COMPAT({ name: "thinkingLevels", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(forkTimelineSync): added 0.0.0, remove by TBD
+  forkTimelineSync: COMPAT({ name: "forkTimelineSync", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

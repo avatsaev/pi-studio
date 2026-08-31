@@ -209,24 +209,18 @@ export class AgentTimelineStore {
   }
 
   /**
-   * Truncate the timeline back to just before the user message identified by messageId.
-   * The messageId corresponds to the `messageId` field in user_message stream events.
-   * Returns the ISO timestamp of the last retained row, or undefined if nothing was retained.
-   * (features/rewind.md § Wire contract)
+   * Unconditionally replace the entire row set (fork resync — features/conversation-fork.md §
+   * Daemon: post-fork resync). Unlike the constructor's `initialRows` seeding, this always
+   * replaces, including when the store is already populated, and accepts an empty array as a
+   * legitimate result (forking to before the first user message). Epoch/seq continue from the
+   * installed rows' maximum so the next `startEpoch()`/`append()` never collides with or rewinds
+   * below them; an empty replacement resets both back to their initial state.
    */
-  truncateBeforeMessage(messageId: string): string | undefined {
-    const idx = this.rows.findIndex((row) => {
-      const event = row.event as Record<string, unknown>;
-      return event.kind === "user_message" && event.messageId === messageId;
-    });
-    if (idx <= 0) {
-      // Nothing to truncate or messageId not found — truncate all rows as safe fallback
-      if (idx === 0) this.rows = [];
-      return undefined;
-    }
-    this.rows = this.rows.slice(0, idx);
+  replaceRows(rows: TimelineRow[]): void {
+    this.rows = [...rows];
     const last = this.rows[this.rows.length - 1];
-    return last?.timestamp;
+    this.epoch = last?.epoch ?? 0;
+    this.nextSeq = last ? last.seq + 1 : 0;
   }
 
   /**

@@ -1,7 +1,7 @@
 # Task 004 — Fork completion: composer prefill, cancellation, errors
 
 - **Sprint:** sprint-072-conversation-fork-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** web-client/features/chat, web-client/stores
 - **Priority:** P1
@@ -60,14 +60,22 @@ onForkResult(payload):
 
 ## Acceptance criteria
 
-- [ ] Success with an **empty** draft prefills the composer with the returned text.
-- [ ] Success with a **non-empty** draft leaves the draft untouched and shows no warning.
-- [ ] Prefill targets the forked session's own draft even when another session's composer is focused.
-- [ ] A cancelled fork toasts the § 12 string, closes the dialog, and changes nothing else.
-- [ ] An `rpc_error` toasts the message and leaves the dialog in a reusable idle state.
-- [ ] This task contains **no** timeline refetch logic — convergence still works purely via
-      task-001's broadcast handler (verified by removing/ignoring the RPC response and observing the
-      transcript still converge).
+- [x] Success with an **empty** draft prefills the composer with the returned text. Verified live
+      (mock provider) and by `fork-result.test.ts`.
+- [x] Success with a **non-empty** draft leaves the draft untouched and shows no warning. Verified
+      live and by test.
+- [x] Prefill targets the forked session's own draft even when another session's composer is
+      focused — verified by `fork-result.test.ts` (two hydrated sessions, second activated,
+      prefill still lands on the first).
+- [x] A cancelled fork toasts the § 12 string, closes the dialog, and changes nothing else —
+      verified by `fork-result.test.ts` (the mock provider always resolves `cancelled: false`, so
+      this branch is unit-tested only; no live daemon path exercises it today).
+- [x] An `rpc_error` toasts the message and leaves the dialog in a reusable idle state — verified
+      by `fork-result.test.ts` (same live-daemon limitation as above: the mock provider's `fork()`
+      never rejects).
+- [x] This task contains **no** timeline refetch logic — `fork-result.ts` touches only
+      `fork-store`/`draft-store`/`toast-store`; grepped for `timeline`/`setTimeline` to confirm
+      zero references outside doc comments.
 
 ## Test / verification plan
 
@@ -85,3 +93,8 @@ The § 13 edge-case matrix is the authority for these branches; keep the toast c
 § 12 rather than paraphrasing. Concurrent fork from two clients is expected to fail the second with
 Pi's *"Invalid entry ID for forking"* — that lands in the generic `rpc_error` branch, no special
 handling needed.
+
+Verification against a real `pi` process (rather than the mock provider) for the cancelled/error
+branches specifically — no credentials available in this environment; not attempted. The pure
+application logic (`applyForkSuccess`/`applyForkError`) is provider-agnostic and fully exercised
+by `fork-result.test.ts` regardless of which provider produced the resolved/rejected result.

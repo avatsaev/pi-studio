@@ -51,6 +51,47 @@ describe("sequencing + epoch", () => {
   });
 });
 
+describe("replaceRows (fork resync)", () => {
+  it("replaces rows even when the store is already populated (unlike seedTimeline's no-op)", () => {
+    const s = store();
+    s.append(ev("turn_started"));
+    s.append(ev("assistant_message"));
+    expect(s.rowCount()).toBe(2);
+
+    const forked: TimelineRow[] = [{ epoch: 5, seq: 9, timestamp: NOW, event: ev("turn_started") }];
+    s.replaceRows(forked);
+    expect(s.rowCount()).toBe(1);
+    expect(s.allRows()).toEqual(forked);
+  });
+
+  it("accepts an empty replacement without throwing", () => {
+    const s = store([{ epoch: 1, seq: 0, timestamp: NOW, event: ev("turn_started") }]);
+    expect(() => s.replaceRows([])).not.toThrow();
+    expect(s.rowCount()).toBe(0);
+  });
+
+  it("continues epoch/seq numbering from the installed rows' maximum", () => {
+    const s = store();
+    s.replaceRows([
+      { epoch: 3, seq: 7, timestamp: NOW, event: ev("turn_started") },
+      { epoch: 3, seq: 8, timestamp: NOW, event: ev("assistant_message") },
+    ]);
+    s.startEpoch();
+    const row = s.append(ev("turn_started"));
+    expect(row.epoch).toBe(4);
+    expect(row.seq).toBe(9);
+  });
+
+  it("resets epoch/seq to their initial state after an empty replacement", () => {
+    const s = store([{ epoch: 3, seq: 7, timestamp: NOW, event: ev("turn_started") }]);
+    s.replaceRows([]);
+    s.startEpoch();
+    const row = s.append(ev("turn_started"));
+    expect(row.epoch).toBe(1);
+    expect(row.seq).toBe(0);
+  });
+});
+
 describe("projection collapse", () => {
   it("collapses multiple tool_call source rows with the same callId into one item", () => {
     const s = store();

@@ -1,7 +1,7 @@
 # Task 004 — Sprint close: gates, docs, TODO(verify) resolution
 
 - **Sprint:** sprint-071-conversation-fork-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide docs + verification
 - **Priority:** P1
@@ -57,11 +57,11 @@ are documented in package `AGENTS.md` files that would otherwise contradict the 
 
 ## Acceptance criteria
 
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass from the repo root.
-- [ ] Every doc listed above reflects the shipped code; no doc still claims `rewind` is advertised or
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` all pass from the repo root.
+- [x] Every doc listed above reflects the shipped code; no doc still claims `rewind` is advertised or
       that `truncateBeforeMessage` exists.
-- [ ] The spec's `persistSessionHandle` TODO(verify) item is resolved with the actual finding.
-- [ ] These spec acceptance criteria are demonstrably met: dev daemon + mock provider fork answers
+- [x] The spec's `persistSessionHandle` TODO(verify) item is resolved with the actual finding.
+- [x] These spec acceptance criteria are demonstrably met: dev daemon + mock provider fork answers
       without wiping the timeline and emits no broadcast; `server_info.features` no longer advertises
       `rewind`; `rewind-rpc.ts` + `truncateBeforeMessage` are gone; `agent.rewind.*` schemas remain.
 
