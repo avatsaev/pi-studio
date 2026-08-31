@@ -276,6 +276,18 @@ they are one component, not two.
   both surfaces are append-only — nothing reads them.
 - **Clone/new/resume/switch UI** — same rebind family, deliberately excluded; the
   `agent_timeline_reset` reason string leaves the door open.
+- **Preserving the abandoned branch as its own session** — fork stays a faithful reflection of Pi's
+  own `fork` semantics: an in-place rebind, no second session row, no restore path. This was
+  prototyped and deliberately dropped (decision 2026-08-31), so do not re-derive it as a missing
+  feature. The prototype lives on the local-only branch `feat/fork-conversation`
+  (`b321bb5`): a `previousBranch {providerHandleId, provider, cwd}` field on
+  `agent_fork_response`, a `forkPreserveBranch` feature flag, `import_agent_session` surfaced in
+  the browser, and a checked-by-default confirm-dialog checkbox that adopted the pre-fork history
+  as `<title> (before fork)`. It works, but it makes fork mean branch-and-keep-both — which Pi's
+  primitive does not — at the cost of one extra session row per fork and a second, divergent
+  notion of what a session is. The bytes still survive on disk either way (Pi writes a
+  `parentSession` back-pointer into the branch file); what is intentionally absent is a UI that
+  names them. Reviving this needs an explicit product decision, not a bug report.
 - **Wiring `agent.rewind.request`** — superseded (see § Relationship to the rewind RPC).
 - **Pi entry-id propagation onto stream events** — would make correlation exact instead of
   ordinal; noted as a possible later additive field on `user_message` events, not needed for MVP.
