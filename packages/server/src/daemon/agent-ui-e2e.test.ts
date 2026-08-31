@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { type Server } from "node:http";
+import { type AddressInfo } from "node:net";
 import { WebSocket } from "ws";
 
 import type { MockAgentSession } from "../agent/providers/mock/mock-provider.js";
@@ -86,8 +88,22 @@ async function waitFor(
   }
 }
 
-function randomPort(): number {
-  return 6950 + Math.floor(Math.random() * 400);
+/**
+ * Resolves with the port the OS actually assigned to `server`.
+ *
+ * Every dev daemon here binds `port: 0` and learns its port from this helper rather than guessing
+ * one out of a fixed range. Guessing was a real flake source: vitest runs test files in parallel
+ * *processes*, but those processes still share the machine's single port space, so two
+ * concurrently-booting daemons could pick the same port. The loser hit `EADDRINUSE`, which
+ * surfaced as an unhandled rejection attributed to whichever test happened to be running — with
+ * every test still reported as passing. `port: 0` makes the collision impossible by construction.
+ */
+function listeningPort(server: Server): Promise<number> {
+  if (server.listening) return Promise.resolve((server.address() as AddressInfo).port);
+  return new Promise<number>((resolve, reject) => {
+    server.once("listening", () => resolve((server.address() as AddressInfo).port));
+    server.once("error", reject);
+  });
 }
 
 async function createMockAgent(client: Client): Promise<string> {
@@ -101,9 +117,9 @@ async function createMockAgent(client: Client): Promise<string> {
 
 describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   it("server_info.features.extensionUi is advertised on boot", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const status = await new Promise<Record<string, unknown>>((resolve, reject) => {
       ws.once("open", () => {
@@ -120,9 +136,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("broadcast → answer → resolve round-trip: proves attach happens with no per-call-site threading", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
 
     const agentId = await createMockAgent(client);
@@ -155,9 +171,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("disconnect-survival: a dialog stays pending and answerable after the receiving client disconnects", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const clientA = await connect(port);
     const agentId = await createMockAgent(clientA);
     const clientB = await connect(port);
@@ -185,9 +201,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("a forced respawn sweeps old pending as aborted; the new session attaches; stale ids answer not_found", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
     const agentId = await createMockAgent(client);
 
@@ -220,9 +236,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("a late-joining client rebuilds a retained surface from agent_ui_list_request alone, no live-frame replay (sprint-066/task-006, mock-path fallback — see summary: rpiv-todo's real widget uses Pi's TUI-only factory `setWidget` form, which never reaches RPC mode as an `extension_ui_request`)", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const clientA = await connect(port);
     const agentId = await createMockAgent(clientA);
     const agentSession = dev.manager.get(agentId)?.session as MockAgentSession;
@@ -255,9 +271,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("a status/widget clear (fields omitted) removes the surface from agent_ui_list_response (sprint-066/task-006, mock-path fallback)", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
     const agentId = await createMockAgent(client);
     const agentSession = dev.manager.get(agentId)?.session as MockAgentSession;
@@ -288,9 +304,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("archiving an agent sweeps its pending dialogs and surfaces", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
     const agentId = await createMockAgent(client);
     const agentSession = dev.manager.get(agentId)?.session as MockAgentSession;
@@ -314,9 +330,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("deleting an agent sweeps its pending dialogs and surfaces", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
     const agentId = await createMockAgent(client);
     const agentSession = dev.manager.get(agentId)?.session as MockAgentSession;
@@ -334,9 +350,9 @@ describe("extension UI, real dev daemon (sprint-066/task-004)", () => {
   });
 
   it("interrupting an agent leaves its pending dialogs and surfaces intact (the scope's explicit inverse rule)", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const client = await connect(port);
     const agentId = await createMockAgent(client);
     const agentSession = dev.manager.get(agentId)?.session as MockAgentSession;

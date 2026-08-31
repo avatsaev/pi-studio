@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { type Server } from "node:http";
+import { type AddressInfo } from "node:net";
 import { WebSocket } from "ws";
 
 import {
@@ -44,10 +46,22 @@ afterEach(async () => {
   handle = undefined;
 });
 
-function randomPort(): number {
-  // Disjoint from sprint-066's agent-ui-e2e.test.ts range (6950-7350) — purely a cheap collision
-  // guard, since each vitest file runs in its own process either way.
-  return 7400 + Math.floor(Math.random() * 400);
+/**
+ * Resolves with the port the OS actually assigned to `server`.
+ *
+ * Every dev daemon here binds `port: 0` and learns its port from this helper rather than guessing
+ * one out of a fixed range. Guessing was a real flake source: vitest runs test files in parallel
+ * *processes*, but those processes still share the machine's single port space, so two
+ * concurrently-booting daemons could pick the same port. The loser hit `EADDRINUSE`, which
+ * surfaced as an unhandled rejection attributed to whichever test happened to be running — with
+ * every test still reported as passing. `port: 0` makes the collision impossible by construction.
+ */
+function listeningPort(server: Server): Promise<number> {
+  if (server.listening) return Promise.resolve((server.address() as AddressInfo).port);
+  return new Promise<number>((resolve, reject) => {
+    server.once("listening", () => resolve((server.address() as AddressInfo).port));
+    server.once("error", reject);
+  });
 }
 
 async function connectClient(
@@ -128,16 +142,16 @@ function waitForConnectionState(
 
 describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   it("extensionUiAvailable() is true against this dev daemon (capability gate)", async () => {
-    const port = randomPort();
-    handle = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    handle = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
+    const port = await listeningPort(handle.httpServer);
     const { client } = await connectClient(port, "e2e-cap");
     expect(client.extensionUiAvailable()).toBe(true);
   });
 
   it("answer round-trip: respond resolves ok:true, the entry clears via a real agent_ui_resolved, and the provider sees the value", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client } = await connectClient(port, "e2e-roundtrip");
     const agentId = await createMockAgent(client);
     const controller = trackController(createAgentUiController(client));
@@ -160,9 +174,9 @@ describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   });
 
   it("first-answer-wins across two clients: the loser gets ok:false reason not_found with no throw, and its entry clears from the broadcast", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client: clientA } = await connectClient(port, "e2e-race-a");
     const { client: clientB } = await connectClient(port, "e2e-race-b");
     const agentId = await createMockAgent(clientA);
@@ -189,9 +203,9 @@ describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   });
 
   it("a late-joining client's controller rebuilds a pending dialog from the snapshot alone, with no live agent_ui_request frame ever reaching it", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client: earlyClient } = await connectClient(port, "e2e-rehydrate-early");
     const agentId = await createMockAgent(earlyClient);
     const earlyController = trackController(createAgentUiController(earlyClient));
@@ -229,9 +243,9 @@ describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   });
 
   it("reconnect resync with no consumer call: closing marks pending answerable:false, reopening auto-resyncs and flips it back", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client, daemon } = await connectClient(port, "e2e-reconnect");
     const agentId = await createMockAgent(client);
     const controller = trackController(createAgentUiController(client));
@@ -251,9 +265,9 @@ describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   });
 
   it("clear-by-omission: a surface upsert then a removed clear leaves no surface, and a freshly-synced client sees none either", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client } = await connectClient(port, "e2e-clear");
     const agentId = await createMockAgent(client);
     const controller = trackController(createAgentUiController(client));
@@ -285,9 +299,9 @@ describe("extension UI SDK, real dev daemon (sprint-067/task-004)", () => {
   });
 
   it("archive pruning: dialog clears via agent_ui_resolved, surface clears via a genuine agent_archived message, never agent_update", async () => {
-    const port = randomPort();
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
     handle = dev;
+    const port = await listeningPort(dev.httpServer);
     const { client, daemon } = await connectClient(port, "e2e-archive");
     const agentId = await createMockAgent(client);
     const controller = trackController(createAgentUiController(client));

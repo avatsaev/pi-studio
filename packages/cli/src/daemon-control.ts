@@ -122,11 +122,14 @@ export const subprocessStarter: DaemonStarter = ({ home, listen, piHome }) =>
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
+    // `onFatalError` is the process-level half of `startDaemon`'s fatal-error contract: the
+    // bootstrap logs the bind failure and tears down the WS server but never exits on its own, so
+    // without this the detached child would linger with a dead HTTP server after an EADDRINUSE.
     const code = `import(${JSON.stringify(
       serverUrl,
     )}).then(m=>m.startDaemon({host:${JSON.stringify(host)},port:${JSON.stringify(
       port,
-    )},home:${JSON.stringify(home)}}))`;
+    )},home:${JSON.stringify(home)},onFatalError:()=>process.exit(1)}))`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",

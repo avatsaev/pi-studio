@@ -1246,6 +1246,25 @@ messages are fair game.
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
+- **`startDaemon` never calls `process.exit()`.** On an unrecoverable HTTP-server error (in
+  practice `EADDRINUSE` on bind) it logs, sets `process.exitCode = 1`, tears down the WS server,
+  and reports the error through the optional `DaemonOptions.onFatalError` callback. Terminating is
+  the *process entry point's* decision — `daemon/main.ts` and the CLI's detached spawner
+  (`daemon-control.ts`'s `subprocessStarter`) both pass `onFatalError: () => process.exit(1)`, and
+  a new consumer that owns a process must do the same. This matters because `startDaemon` is also
+  booted **in-process**: `packages/desktop` embeds it, and `bootstrap.test.ts` starts ~35 daemons
+  inside the vitest worker. It used to call `process.exit(1)` directly, which turned any bind
+  failure into an opaque `"process.exit unexpectedly called with 1"` unhandled rejection,
+  misattributed to whichever test happened to be running, **with every test still reported as
+  passing** — see the regression test in `bootstrap.test.ts` § "fatal http-server error handling".
+- **Tests must bind `port: 0` and read back the assigned port, never guess one.**
+  `bootstrap.test.ts`, `agent-ui-e2e.test.ts`, and `cli`'s `agent-ui-sdk-e2e.test.ts` each define a
+  local `listeningPort(server)` helper that awaits `listening` and returns
+  `server.address().port`. These files previously picked `<base> + random(<span>)` out of
+  overlapping ranges (`6800+200`, `6950+400`, `7400+400`); vitest runs test files in parallel
+  *processes*, but those processes still share the machine's single port space, so two
+  concurrently-booting daemons could collide — a real, reproduced ~1-in-6 suite flake. `port: 0`
+  makes the collision impossible by construction; do not reintroduce a guessed port.
 - **Relay connections need their own persistent `Session`, not a synthetic one built per message,
   AND that `Session` must be dropped whenever a NEW peer completes the E2EE handshake — not only
   on a relay-socket-level reconnect.** Every relay frame must reuse the same `Session` for the life

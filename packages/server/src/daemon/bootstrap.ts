@@ -101,6 +101,14 @@ export interface DaemonOptions {
   /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
    *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
   extensionsInstallSpawn?: InstallSpawn;
+  /**
+   * Called after an unrecoverable HTTP-server error (typically `EADDRINUSE` on bind) once the WS
+   * server has been torn down. `startDaemon` logs the error and sets `process.exitCode = 1`, but
+   * never terminates the process itself — a library must not kill its host. The process entry
+   * point supplies the actual exit (`daemon/main.ts`); tests leave it unset so a bind failure
+   * surfaces as a normal test failure instead of an opaque process kill.
+   */
+  onFatalError?: (err: NodeJS.ErrnoException) => void;
 }
 
 export interface DaemonHandle {
@@ -855,6 +863,13 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   );
 
   // Fail cleanly on a bind error (e.g. EADDRINUSE) instead of an unhandled 'error' throw.
+  //
+  // Deliberately does NOT call `process.exit()` itself: `startDaemon` is a library entry point
+  // (embedded by `packages/desktop`, and booted in-process by the daemon integration tests), and a
+  // library must never kill its host. Killing the process here made a port collision in the test
+  // suite surface as an opaque, misattributed "process.exit unexpectedly called with 1" unhandled
+  // rejection with every test still reported green. The process-level decision belongs to the
+  // process entry point, which passes `onFatalError` (see `daemon/main.ts`).
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       logger.error({ host: opts.host, port: opts.port }, "cannot bind — address already in use");
@@ -862,7 +877,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       logger.error({ err: err.message }, "http server error");
     }
     process.exitCode = 1;
-    void wsHandle.close().finally(() => process.exit(1));
+    void wsHandle.close().finally(() => opts.onFatalError?.(err));
   });
 
   httpServer.listen(opts.port, opts.host);

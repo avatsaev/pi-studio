@@ -101,6 +101,24 @@ async function connect(port: number, capabilities?: Record<string, boolean>): Pr
 }
 
 /**
+ * Resolves with the port the OS actually assigned to `server`.
+ *
+ * Every daemon in this file binds `port: 0` and learns its port here, rather than guessing one out
+ * of a fixed range. Guessing was a real flake source: vitest runs test files in parallel, and this
+ * file's old `6800 + random(200)` overlapped `agent-ui-e2e.test.ts`'s `6950 + random(400)`, so two
+ * concurrently-booting daemons could pick the same port. The loser hit `EADDRINUSE`, which surfaced
+ * as an unhandled rejection attributed to whichever test happened to be running — with every test
+ * still reported as passing. `port: 0` makes the collision impossible by construction.
+ */
+function listeningPort(server: Server): Promise<number> {
+  if (server.listening) return Promise.resolve((server.address() as AddressInfo).port);
+  return new Promise<number>((resolve, reject) => {
+    server.once("listening", () => resolve((server.address() as AddressInfo).port));
+    server.once("error", reject);
+  });
+}
+
+/**
  * Extensions sync must never touch the real npm registry or a real pi-home while testing —
  * `daemon.extensions.autoSync: false` gates it off entirely for every `boot()`-started daemon.
  * The dedicated extensions-sync tests below override this explicitly with their own config +
@@ -112,7 +130,12 @@ async function connect(port: number, capabilities?: Record<string, boolean>): Pr
  * tree — this isolates that to an empty, disposable directory instead (the real-Pi-runtime E2E is
  * task-005's deliberately separate, explicitly-real-home job).
  */
-function boot(): { handle: DaemonHandle; port: number; home: string; piHome: string } {
+async function boot(): Promise<{
+  handle: DaemonHandle;
+  port: number;
+  home: string;
+  piHome: string;
+}> {
   const home = mkdtempSync(join(tmpdir(), "pi-studio-prod-"));
   const piHome = mkdtempSync(join(tmpdir(), "pi-studio-prod-pihome-"));
   writeFileSync(
@@ -120,9 +143,8 @@ function boot(): { handle: DaemonHandle; port: number; home: string; piHome: str
     JSON.stringify({ daemon: { piHome, extensions: { autoSync: false } } }),
     "utf8",
   );
-  const port = 6800 + Math.floor(Math.random() * 200);
-  const h = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
-  return { handle: h, port, home, piHome };
+  const h = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+  return { handle: h, port: await listeningPort(h.httpServer), home, piHome };
 }
 
 /** Instant, offline success for every action — no network, no real pi process. */
@@ -130,7 +152,7 @@ const succeedAlwaysSpawn: InstallSpawn = async () => ({ exitCode: 0, stderr: "" 
 
 describe("production daemon bootstrap", () => {
   it("registers the full RPC surface (no 'no handler' errors) and resolves pi as the provider", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     expect(handle.provider).toBe("pi");
 
@@ -166,7 +188,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("registers the slash-command RPC handlers (sprint-037) — unknown agent surfaces handler_error, never unknown_message_type", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -198,7 +220,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("creates an agent via the opt-in mock provider and persists it to disk (reloads across boots)", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -231,7 +253,7 @@ describe("production daemon bootstrap", () => {
     client.close();
   }, 15000);
   it("list_agents reports the pinned thinking level for drafts and the live (clamped) level once spawned (sprint-070)", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -260,7 +282,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("composes the inline-image instruction into a persisted record's systemPrompt when the connecting client advertised inline_image_markdown (task-006) — proves the hello -> session -> handleCreate chain", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port, { [CLIENT_CAPS.inline_image_markdown]: true });
 
@@ -281,7 +303,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("leaves a persisted record's systemPrompt untouched when the connecting client did not advertise inline_image_markdown (task-006)", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port); // no capabilities advertised (the default CLI hello)
 
@@ -300,7 +322,7 @@ describe("production daemon bootstrap", () => {
     client.close();
   }, 15000);
   it("composes the file-link instruction into a persisted record's systemPrompt when the connecting client advertised file_link_markdown (task-005) — proves the hello -> session -> handleCreate chain", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port, { [CLIENT_CAPS.file_link_markdown]: true });
 
@@ -321,7 +343,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("composes both inline-image and file-link instructions in stable order when the connecting client advertised both capabilities (task-005)", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port, {
       [CLIENT_CAPS.inline_image_markdown]: true,
@@ -346,7 +368,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("composes the mermaid-diagram instruction into a persisted record's systemPrompt when the connecting client advertised mermaid_diagram_markdown — proves the hello -> session -> handleCreate chain", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port, { [CLIENT_CAPS.mermaid_diagram_markdown]: true });
 
@@ -367,7 +389,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("composes all three instructions in stable order when the connecting client advertised all three capabilities", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port, {
       [CLIENT_CAPS.inline_image_markdown]: true,
@@ -393,7 +415,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("delete_agent hard-deletes: removes from the directory listing and from disk", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -420,7 +442,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("resolve_default_model resolves via the mock provider and caches across requests", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -441,7 +463,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("archive_agent soft-deletes: agent is closed but its record survives on disk", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -470,7 +492,7 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 
   it("file_diff_request returns a full added-lines diff for an untracked (new, unstaged) file", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -500,6 +522,45 @@ describe("production daemon bootstrap", () => {
   }, 15000);
 });
 
+describe("fatal http-server error handling", () => {
+  it("reports an EADDRINUSE bind failure through onFatalError instead of killing the process", async () => {
+    // `startDaemon` is a library entry point — embedded by `packages/desktop` and booted
+    // in-process by this very file — so it must never call `process.exit()` itself. It used to,
+    // which turned a port collision in the suite into an opaque "process.exit unexpectedly called
+    // with 1" unhandled rejection, misattributed to whatever test was running, with every test
+    // still reported green. Terminating is the process entry point's call (`daemon/main.ts` and
+    // the CLI's detached spawner both pass `onFatalError`).
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", () => resolve()));
+    const occupied = (blocker.address() as AddressInfo).port;
+
+    const home = mkdtempSync(join(tmpdir(), "pi-studio-eaddrinuse-"));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ daemon: { piHome: join(home, "pihome"), extensions: { autoSync: false } } }),
+      "utf8",
+    );
+
+    const fatal: NodeJS.ErrnoException[] = [];
+    handle = startDaemon({
+      host: "127.0.0.1",
+      port: occupied,
+      home,
+      logger: silentLogger(),
+      onFatalError: (err) => fatal.push(err),
+    });
+
+    // The reaching-the-handler path is async (bind error -> log -> ws teardown -> onFatalError).
+    await vi.waitFor(() => expect(fatal).toHaveLength(1), { timeout: 5000 });
+    expect(fatal[0]?.code).toBe("EADDRINUSE");
+    // The bind failure is still recorded for the eventual exit status, just not acted on here.
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = 0; // Don't fail the whole vitest run on the way out.
+    await new Promise<void>((resolve) => blocker.close(() => resolve()));
+  }, 15000);
+});
+
 describe("extensions sync (bootstrap fire-and-forget)", () => {
   it("logs readiness before the first extensions-sync log line; extensions never delay it", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-studio-ext-order-"));
@@ -518,10 +579,9 @@ describe("extensions sync (bootstrap fire-and-forget)", () => {
     const logger = createLogger({ pretty: false, stdoutStream: stream, level: "debug" });
     // Instant, offline success for every action — no network, no real pi process.
     const spawn = succeedAlwaysSpawn;
-    const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({
       host: "127.0.0.1",
-      port,
+      port: 0,
       home,
       logger,
       extensionsInstallSpawn: spawn,
@@ -550,14 +610,14 @@ describe("extensions sync (bootstrap fire-and-forget)", () => {
       "utf8",
     );
     const spawn = vi.fn<InstallSpawn>();
-    const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({
       host: "127.0.0.1",
-      port,
+      port: 0,
       home,
       logger: silentLogger(),
       extensionsInstallSpawn: spawn,
     });
+    const port = await listeningPort(handle.httpServer);
 
     // Churn the event loop through a handful of real ticks (a full WS handshake + RPC round
     // trip) so the gated fire-and-forget sync — which resolves almost immediately — has
@@ -578,15 +638,14 @@ describe("extension packs RPC (sprint-057)", () => {
       JSON.stringify({ daemon: { piHome: join(home, "pihome"), extensions: { autoSync: false } } }),
       "utf8",
     );
-    const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({
       host: "127.0.0.1",
-      port,
+      port: 0,
       home,
       logger: silentLogger(),
       extensionsInstallSpawn: succeedAlwaysSpawn,
     });
-    const client = await connect(port);
+    const client = await connect(await listeningPort(handle.httpServer));
 
     const listRaw = await client.rpc({ type: "extension_packs_list_request" });
     // Validate against the real wire schema (task-001) rather than an inline cast — a response
@@ -634,15 +693,14 @@ describe("extension packs RPC (sprint-057)", () => {
       writeFileSync(settingsPath, JSON.stringify(current), "utf8");
       return { exitCode: 0, stderr: "" };
     };
-    const port = 6800 + Math.floor(Math.random() * 200);
     handle = startDaemon({
       host: "127.0.0.1",
-      port,
+      port: 0,
       home,
       logger: silentLogger(),
       extensionsInstallSpawn: flakySpawn,
     });
-    const client = await connect(port);
+    const client = await connect(await listeningPort(handle.httpServer));
 
     // 1. list — fresh state, nothing attempted yet.
     const list1 = extensionPacksListResponseSchema.parse(
@@ -699,7 +757,7 @@ describe("extension packs RPC (sprint-057)", () => {
 
 describe("broadcast() session envelope", () => {
   it("wraps a bare fan-out message (terminals_update) in a session envelope on the wire", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const ws = new WebSocket(`ws://127.0.0.1:${booted.port}`);
     const rawFrames: Record<string, unknown>[] = [];
@@ -786,7 +844,7 @@ describe("session-close subscription cleanup", () => {
       });
 
     try {
-      const booted = boot();
+      const booted = await boot();
       handle = booted.handle;
       const client = await connect(booted.port);
 
@@ -807,7 +865,7 @@ describe("session-close subscription cleanup", () => {
 
 describe("file_watch RPC", () => {
   it("subscribing to a file and writing to it pushes a matching file_changed message", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const file = join(booted.home, "watched.txt");
@@ -830,7 +888,7 @@ describe("file_watch RPC", () => {
   }, 15000);
 
   it("resolves a ~-prefixed path and echoes the expanded path", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const marker = `pi-studio-file-watch-tilde-${Math.random().toString(36).slice(2)}.txt`;
@@ -846,7 +904,7 @@ describe("file_watch RPC", () => {
   }, 15000);
 
   it("replies too_many_watches over the per-session cap instead of opening unbounded watches", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -868,7 +926,7 @@ describe("file_watch RPC", () => {
 
 describe("file_read RPC", () => {
   it("reads a file under the inline cap and returns its content and size", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const file = join(booted.home, "small.txt");
@@ -881,7 +939,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("rejects a file over the inline cap with file_too_large, size, and maxBytes", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const file = join(booted.home, "big.txt");
@@ -895,7 +953,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("rejects a directory path with is_directory", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -905,7 +963,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("resolves a ~-prefixed path against the real home directory", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const marker = `pi-studio-file-read-tilde-${Math.random().toString(36).slice(2)}.txt`;
@@ -921,7 +979,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("issues a download token for a ~-prefixed path", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const marker = `pi-studio-file-download-tilde-${Math.random().toString(36).slice(2)}.png`;
@@ -940,7 +998,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("passes ~otheruser/x through unexpanded rather than rewriting to $HOME/otheruser/x", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const response = await client.rpc({
@@ -952,7 +1010,7 @@ describe("file_read RPC", () => {
   }, 15000);
 
   it("does not block a concurrent cheap RPC on the same connection while reading a multi-MB file", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
     const file = join(booted.home, "large.txt");
@@ -998,7 +1056,7 @@ describe("file_watch session-close cleanup", () => {
       });
 
     try {
-      const booted = boot();
+      const booted = await boot();
       handle = booted.handle;
       const client = await connect(booted.port);
       const file = join(booted.home, "watched.txt");
@@ -1021,7 +1079,7 @@ describe("file_watch session-close cleanup", () => {
 
 describe("provider_auth (sprint-055/task-004)", () => {
   it("server_info.features.providerAuth is true on a production daemon (direct handshake path)", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
 
     const status = await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -1051,7 +1109,7 @@ describe("provider_auth (sprint-055/task-004)", () => {
   }, 15000);
 
   it("answers provider_auth_list_request on a production daemon", async () => {
-    const booted = boot();
+    const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
 
@@ -1062,8 +1120,8 @@ describe("provider_auth (sprint-055/task-004)", () => {
   }, 15000);
 
   it("a dev daemon does not register provider_auth_* — answers unknown_message_type, never wires the family", async () => {
-    const port = 6900 + Math.floor(Math.random() * 200);
-    const dev = startDevDaemon({ host: "127.0.0.1", port, logger: silentLogger() });
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
+    const port = await listeningPort(dev.httpServer);
     try {
       const client = await connect(port);
       const res = await client.rpc({ type: "provider_auth_list_request" });
@@ -1168,8 +1226,10 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
         },
       }),
     );
-    const port = 6800 + Math.floor(Math.random() * 200);
-    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
+    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+    // Barrier only: these tests drive the daemon over the relay, not its own WS port, but must
+    // still let it finish binding before proceeding.
+    await listeningPort(handle.httpServer);
 
     // The daemon writes its persistent keypair to disk on first boot, before it dials the relay —
     // owner-only, since the file carries the Curve25519 secret key.
@@ -1271,8 +1331,10 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
         },
       }),
     );
-    const port = 6800 + Math.floor(Math.random() * 200);
-    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
+    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+    // Barrier only: these tests drive the daemon over the relay, not its own WS port, but must
+    // still let it finish binding before proceeding.
+    await listeningPort(handle.httpServer);
 
     const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
       .publicKeyB64 as string;
@@ -1404,8 +1466,10 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     const downloadPath = join(home, "download-me.txt");
     writeFileSync(downloadPath, "relay download regression fixture");
 
-    const port = 6800 + Math.floor(Math.random() * 200);
-    handle = startDaemon({ host: "127.0.0.1", port, home, logger: silentLogger() });
+    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+    // Barrier only: these tests drive the daemon over the relay, not its own WS port, but must
+    // still let it finish binding before proceeding.
+    await listeningPort(handle.httpServer);
 
     const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
       .publicKeyB64 as string;

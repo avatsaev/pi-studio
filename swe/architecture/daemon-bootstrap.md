@@ -94,7 +94,7 @@ function close():
 | Stale PID file (dead process) | Reclaim lock and continue |
 | Unreadable keypair file | Regenerate keypair |
 | Corrupt config | Fall back to defaults where possible; reject hard-invalid fields |
-| Listen address in use | Fail fast with bind error |
+| Listen address in use | `startDaemon` logs the bind error, sets `process.exitCode = 1`, tears down the WS server, and reports via `onFatalError`. It never calls `process.exit()` itself — terminating is the process entry point's decision (`daemon/main.ts` and the CLI's detached spawner both pass `onFatalError: () => process.exit(1)`), because `startDaemon` is also embedded in-process (`packages/desktop`, integration tests) where killing the host is wrong |
 
 ## Dependencies
 - Internal: all stores, agent manager, websocket server, relay transport, service proxy, MCP server.
