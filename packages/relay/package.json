@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/relay",
-  "version": "0.0.102",
+  "version": "0.0.103",
   "bin": {
     "pi-studio-relay": "dist/relay-main.js"
   },
