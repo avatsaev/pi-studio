@@ -347,9 +347,14 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
 `PiRuntime` (`pi-commands.ts`, injectable via `CliContext.pi` for tests):
 
 - `resolveBundled()` — `resolveBundledPiCli()` from `@av-pi-studio/server` (re-exported from the
-  same `agent/providers/pi/rpc-transport.ts` the daemon uses to spawn `pi --mode rpc`): resolves
-  `@earendil-works/pi-coding-agent`'s `dist/cli.js` via `import.meta.resolve`, falling back to a
-  `node_modules` walk-up. Returns `null` if the dependency isn't installed.
+  same `agent/providers/pi/rpc-transport.ts` the daemon uses to spawn `pi --mode rpc`): resolves the
+  entrypoint `@earendil-works/pi-coding-agent` itself declares as `bin.pi` — read from the
+  dependency's own `package.json`, not hardcoded — via `import.meta.resolve`, falling back to a
+  `node_modules` walk-up and then to the two known entrypoints (`dist/bundle/cli.js`, Pi's declared
+  `bin` since 0.84.4; `dist/cli.js`, its declared `bin` through 0.84.3 and still shipped). Returns
+  `null` if the dependency isn't installed. Reading the declared `bin` is deliberate: Pi relocated it
+  in 0.84.4, and the dependency range accepts future minors, so a hardcoded path would silently
+  regress to a global `pi` on the next relocation.
 - `onPath(bin)` — `resolveBinaryOnPath()` (same package): probes a bare binary on `$PATH`.
 - `piProxyCommand(runtime, args)` — prefers the bundled CLI launched via `process.execPath`; falls
   back to a global `pi` on `$PATH` when the dependency is absent (mirrors the daemon's own

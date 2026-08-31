@@ -55,7 +55,8 @@ The daemon is **provider-agnostic**: the rest of the code only ever touches the 
 - **Node.js ≥ 20** (developed and tested on Node 24). ESM only (`"type": "module"`).
 - **npm** with workspaces (this package lives in the Pi-Studio monorepo).
 - For the real **`pi` provider**: pi *credentials* only. The `pi` CLI is bundled as a dependency
-  (`@earendil-works/pi-coding-agent`) — the daemon launches `node <pkg>/dist/cli.js --mode rpc`, so
+  (`@earendil-works/pi-coding-agent`) — the daemon launches `node <pkg>/<pi's declared bin> --mode
+  rpc` (`dist/bundle/cli.js` as of Pi 0.84.4), so
   **no global `pi` install is required**. Provide credentials via an API key
   (`ANTHROPIC_API_KEY`, etc.) in the daemon's environment, or a configured `~/.pi/agent/auth.json`.
 - The built-in **`mock` provider** needs **no credentials** and is ideal for smoke tests.

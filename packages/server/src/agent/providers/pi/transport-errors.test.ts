@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -78,19 +79,43 @@ describe("PiAgentClient — fail fast when unavailable", () => {
   });
 });
 
+/** Locate the installed pi package root by walking up from cwd (loader-independent, mirroring
+ *  the resolver's own fallback — `import.meta.resolve` is unavailable under vitest). */
+function piPackageRoot(): string {
+  const rel = join("node_modules", "@earendil-works", "pi-coding-agent");
+  let dir = process.cwd();
+  for (;;) {
+    const candidate = join(dir, rel);
+    if (existsSync(join(candidate, "package.json"))) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error("pi-coding-agent not installed");
+    dir = parent;
+  }
+}
+
 describe("bundled pi CLI resolution (no global install required)", () => {
-  it("resolves the pi binary bundled inside @earendil-works/pi-coding-agent", () => {
+  it("resolves the entrypoint pi itself declares as `bin.pi`", () => {
     const cli = resolveBundledPiCli();
     expect(cli).toBeTruthy();
-    expect(cli).toMatch(/pi-coding-agent[/\\]dist[/\\]cli\.js$/);
     expect(existsSync(cli as string)).toBe(true);
+
+    // The contract is "track Pi's declared bin", NOT a hardcoded path: Pi relocated it from
+    // `dist/cli.js` to `dist/bundle/cli.js` in 0.84.4, and the dependency range deliberately
+    // accepts future minors (`>=0.84.4 <1.0.0`), so a hardcoded path would silently regress to a
+    // global `pi` (or an entry upstream stopped shipping) on the next relocation.
+    const root = piPackageRoot();
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+      bin: Record<string, string>;
+    };
+    expect(cli).toBe(join(root, manifest.bin.pi));
   });
 
   it("defaultPiCommand launches the bundled CLI via the current node executable", () => {
     const cmd = defaultPiCommand();
-    // [node, <pkg>/dist/cli.js, --mode, rpc]
+    // [node, <pkg>/<declared bin>, --mode, rpc]
     expect(cmd[0]).toBe(process.execPath);
-    expect(cmd[1]).toMatch(/pi-coding-agent[/\\]dist[/\\]cli\.js$/);
+    expect(cmd[1]).toBe(resolveBundledPiCli());
+    expect(cmd[1]).toMatch(/pi-coding-agent[/\\].*cli\.js$/);
     expect(cmd.slice(2)).toEqual(["--mode", "rpc"]);
   });
 });

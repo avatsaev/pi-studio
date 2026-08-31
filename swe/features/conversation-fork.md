@@ -26,7 +26,7 @@ The feature has two halves:
 2. **web-client: fork affordance + picker.** A hover action on user-message rows and a
    "Fork from…" picker, with a confirm dialog, composer prefill, and multi-client convergence.
 
-## Ground truth (verified against the repo + bundled `pi` 0.84.2, 2026-08-25)
+## Ground truth (verified against the repo + bundled `pi` 0.84.4, 2026-08-31; originally 0.84.2, 2026-08-25)
 
 These facts drive the design; do not re-derive them from memory:
 

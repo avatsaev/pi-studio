@@ -80,7 +80,7 @@ auth-engine exception).
 | Format | oxfmt (`npm run fmt`) |
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
-| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) |
+| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `>=0.84.4 <1.0.0`, see § Pi dependency posture |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -89,6 +89,37 @@ auth-engine exception).
 | QR codes | `qrcode` |
 | Auth | `bcryptjs` (password hashing), `tweetnacl` (keypair for relay pairing) |
 | Molecular structure viewer | `@molviewer/core` (web-client only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
+
+---
+
+## Pi dependency posture
+
+`@earendil-works/pi-coding-agent` is ranged **`>=0.84.4 <1.0.0`** in `packages/server` and
+`packages/cli` (kept identical — the CLI resolves the same bundled binary the daemon spawns).
+
+This is a deliberate choice to **track Pi's minor and patch releases automatically**, so a plain
+`npm install` picks up new Pi versions without a file change. Note the tradeoff it accepts: Pi is
+pre-1.0, and the 0.x convention puts **breaking changes in the minor slot** (`0.85.0`), so an
+install can pull a breaking Pi. `^0.84.4` would NOT express this — npm's caret treats the minor as
+the major for `0.x`, pinning to patches only; hence the explicit `>=… <1.0.0` range.
+
+Two consequences for anyone touching the Pi integration:
+
+- **Never hardcode a path inside the Pi package.** Pi relocated its `bin` from `dist/cli.js` to
+  `dist/bundle/cli.js` in 0.84.4. `resolveBundledPiCli()`
+  (`packages/server/src/agent/providers/pi/rpc-transport.ts`) therefore reads the dependency's own
+  `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
+  path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
+  to a global `pi` on `$PATH`.
+- **Two places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+  neither is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
+  `getSupportedThinkingLevels` + its 7-level ladder) and `extensions/curated-packs.ts`'s
+  `splitGitRef` (mirrors Pi's `splitRef`). Both were re-verified identical at 0.84.4.
+
+When bumping Pi, diff these surfaces against the previous version: `dist/modes/rpc/rpc-mode.js`
+and `rpc-types.d.ts` (RPC command/event surface), `dist/index.d.ts` (the `SessionManager` /
+`SessionEntry` / `ModelRuntime` symbols this repo imports), `dist/core/session-manager.d.ts`,
+`dist/modes/json-event.d.ts` (stream-event shapes the event mapper consumes), and the `bin` field.
 
 ---
 

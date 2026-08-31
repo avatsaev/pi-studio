@@ -240,10 +240,11 @@ sequenceDiagram
  `agent_update` is broadcast to all sessions.
 3. **Provider session created.** `resolveClient("pi")` returns a `PiAgentClient`. `createSession`:
   - checks `isAvailable()` (resolves the **bundled** `pi` CLI inside
-   `@earendil-works/pi-coding-agent` — no global install needed; see
+   `@earendil-works/pi-coding-agent` — no global install needed; the entrypoint is read from that
+   package's own `bin.pi`, never hardcoded, since Pi relocated it in 0.84.4; see
    `rpc-transport.ts › defaultPiCommand`);
-  - spawns `node <pkg>/dist/cli.js --mode rpc` via `createProcessTransport`. A literal `~` cwd is
-  expanded server-side (`expandHome`).
+  - spawns `node <pkg>/<pi's declared bin> --mode rpc` via `createProcessTransport`
+  (`dist/bundle/cli.js` as of Pi 0.84.4). A literal `~` cwd is expanded server-side (`expandHome`).
   - If pi can't be resolved, a clean `rpc_error` ("Pi provider unavailable…") is returned instead
   of crashing the daemon.
 4. **Status → idle.** The session is attached to the manager and an `agent_update {idle}` is

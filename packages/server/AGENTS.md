@@ -527,6 +527,13 @@ creation" above.
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
+- **`resolveBundledPiCli()` (`rpc-transport.ts`) reads the Pi package's own `package.json`
+  `bin.pi`** rather than hardcoding an entrypoint, falling back to `dist/bundle/cli.js` (Pi's
+  declared `bin` since 0.84.4) then `dist/cli.js` (its `bin` through 0.84.3, still shipped). Pi
+  relocated that path in 0.84.4 and the dependency range accepts future minors
+  (`>=0.84.4 <1.0.0`, root `AGENTS.md` § Pi dependency posture), so a hardcoded path would
+  silently degrade to a global `pi` on `$PATH` at the next relocation. `transport-errors.test.ts`
+  asserts the resolved path *equals* the declared `bin`, so such a move fails loudly.
 - `rpc-transport.ts` captures the spawned process's stderr (last 16 KiB) and folds it into both
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as

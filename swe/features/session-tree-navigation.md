@@ -25,7 +25,7 @@ lost. This is Pi's richest time-travel primitive:
 | Abandoned-branch summary | Optional | Never |
 | Typical use | Explore alternatives in place | Split off a separate session |
 
-## Ground truth (verified against bundled `pi` 0.84.2 and published 0.84.3, 2026-08-25)
+## Ground truth (verified against bundled `pi` 0.84.4, 2026-08-31; originally 0.84.2/0.84.3, 2026-08-25)
 
 These facts drive the design; do not re-derive them from memory:
 
@@ -36,11 +36,12 @@ These facts drive the design; do not re-derive them from memory:
   history** (unlike `get_messages`).
 - **Write side DOES NOT exist over Pi RPC — the blocking upstream gap.** The core API is there:
   `AgentSession.navigateTree(targetId, {summarize?, customInstructions?, replaceInstructions?,
-  label?})` → `{editorText?, cancelled, aborted?, summaryEntry?}` (`agent-session.js:2306`), but
-  `rpc-mode.js` registers **no** `navigate_tree` command — checked in bundled 0.84.2 AND freshly
-  published 0.84.3 (npm-packed, grepped: zero hits). The TUI calls `navigateTree` in-process; RPC
-  clients cannot.
-- **`navigateTree` semantics** (from source, `agent-session.js:2306-2466`):
+  label?})` → `{editorText?, cancelled, aborted?, summaryEntry?}` (`agent-session.js:2464`), but
+  `rpc-mode.js` registers **no** `navigate_tree` command — checked in 0.84.2, 0.84.3 AND the now
+  bundled 0.84.4 (npm-packed, grepped: zero hits in all three). The 0.84.2 → 0.84.4 RPC surface diff
+  is a single **addition** (`clear_queue`), so the gap is not being closed incidentally. The TUI
+  calls `navigateTree` in-process; RPC clients cannot.
+- **`navigateTree` semantics** (from source, `agent-session.js:2464-2627`):
   - Throws if a turn is streaming (`"Wait for the current response to finish…"`).
   - No-op `{cancelled: false}` if `targetId` is already the leaf.
   - `session_before_tree` extension event may cancel (same family as `session_before_fork`);
@@ -57,7 +58,7 @@ These facts drive the design; do not re-derive them from memory:
   - Afterwards Pi rebuilds the in-memory agent context from the new branch
     (`buildSessionContext()`); emits `session_tree` to extensions.
 - **A summary-less leaf move is IN-MEMORY ONLY.** `SessionManager.branch(id)` / `resetLeaf()` just
-  set `this.leafId` (`session-manager.js:1034-1047`) — **nothing is appended to the JSONL**. The
+  set `this.leafId` (`session-manager.js:1036-1058`) — **nothing is appended to the JSONL**. The
   position becomes durable only when the next entry is appended (its `parentId` pins the branch)
   or when a `branch_summary` entry is created. Two hard consequences:
   1. **Disk hydration cannot be the post-navigate resync source.**

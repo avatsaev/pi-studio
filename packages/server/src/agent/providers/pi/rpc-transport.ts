@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,28 +56,66 @@ export function resolveBinaryOnPath(
 export { expandHome };
 
 /**
- * Resolve the `pi` CLI **bundled inside the `@earendil-works/pi-coding-agent` dependency** (its
- * `bin` is `dist/cli.js`, a sibling of the package's `dist/index.js`). This is what lets pi-studio
- * run the agent without a separate global `pi` install. Returns `null` if the package isn't present.
+ * Candidate CLI entrypoints inside the `@earendil-works/pi-coding-agent` package, relative to its
+ * root, tried in order when the package's own `bin.pi` cannot be read. `dist/bundle/cli.js` is the
+ * prebundled entry Pi declares as `bin` since 0.84.4; `dist/cli.js` is the unbundled entry it
+ * declared through 0.84.3 and still ships. Both start the same program.
+ */
+const PI_CLI_FALLBACKS = [join("dist", "bundle", "cli.js"), join("dist", "cli.js")];
+
+/**
+ * Resolve the `pi` CLI entrypoint inside an already-located package root, preferring whatever the
+ * package's own `package.json` declares as `bin.pi`.
+ *
+ * Reading the declared `bin` rather than hardcoding a path is deliberate: Pi moved it from
+ * `dist/cli.js` to `dist/bundle/cli.js` in 0.84.4, and the dependency range intentionally accepts
+ * future minor releases (`>=0.84.4 <1.0.0`), so a relocation must not silently fall back to a
+ * global `pi` — or to an entry upstream has stopped shipping.
+ */
+function resolvePiCliInPackage(root: string): string | null {
+  try {
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+      bin?: string | Record<string, string>;
+    };
+    const declared = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.pi;
+    if (declared) {
+      const cli = join(root, declared);
+      if (existsSync(cli)) return cli;
+    }
+  } catch {
+    // Unreadable/malformed manifest — fall through to the known entrypoints.
+  }
+  for (const rel of PI_CLI_FALLBACKS) {
+    const cli = join(root, rel);
+    if (existsSync(cli)) return cli;
+  }
+  return null;
+}
+
+/**
+ * Resolve the `pi` CLI **bundled inside the `@earendil-works/pi-coding-agent` dependency**. This is
+ * what lets pi-studio run the agent without a separate global `pi` install. Returns `null` if the
+ * package isn't present.
  *
  * Note: `import.meta.resolve` is used (not `require.resolve`) because the package's `exports` map
  * only defines the `import` condition, so CJS resolution throws `ERR_PACKAGE_PATH_NOT_EXPORTED`.
  */
 export function resolveBundledPiCli(): string | null {
-  // 1) ESM resolution — works in the compiled daemon (real `node` ESM).
+  // 1) ESM resolution — works in the compiled daemon (real `node` ESM). Resolves the package's
+  //    `main` (`dist/index.js`); its package root is the parent of that `dist` directory.
   try {
     const indexPath = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-    const cli = join(dirname(indexPath), "cli.js");
-    if (existsSync(cli)) return cli;
+    const cli = resolvePiCliInPackage(dirname(dirname(indexPath)));
+    if (cli) return cli;
   } catch {
     // `import.meta.resolve` is unavailable under some loaders (e.g. vitest); fall through.
   }
   // 2) Walk up from cwd looking for the dependency in node_modules (loader-independent).
-  const rel = join("node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+  const rel = join("node_modules", "@earendil-works", "pi-coding-agent");
   let dir = process.cwd();
   for (;;) {
-    const candidate = join(dir, rel);
-    if (existsSync(candidate)) return candidate;
+    const cli = resolvePiCliInPackage(join(dir, rel));
+    if (cli) return cli;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -85,9 +123,9 @@ export function resolveBundledPiCli(): string | null {
 }
 
 /**
- * Default Pi launch command. Prefers the bundled CLI (`node <pkg>/dist/cli.js --mode rpc`) so no
- * global install is required; falls back to a global `pi --mode rpc` on `$PATH` if the dependency
- * is absent.
+ * Default Pi launch command. Prefers the bundled CLI (`node <pkg>/<pi's declared bin> --mode rpc`)
+ * so no global install is required; falls back to a global `pi --mode rpc` on `$PATH` if the
+ * dependency is absent.
  */
 export function defaultPiCommand(): string[] {
   const cli = resolveBundledPiCli();
@@ -177,7 +215,10 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
         "pi process exited non-zero",
       );
     } else {
-      log?.info({ pid: child.pid, code: code ?? undefined, signal: signal ?? undefined }, "pi process exited");
+      log?.info(
+        { pid: child.pid, code: code ?? undefined, signal: signal ?? undefined },
+        "pi process exited",
+      );
     }
   });
   child.stdin?.on("error", () => {

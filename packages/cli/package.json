@@ -34,7 +34,7 @@
     "@av-pi-studio/relay": "^0.0.102",
     "@av-pi-studio/server": "^0.0.102",
     "@av-pi-studio/web-client": "^0.0.102",
-    "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@earendil-works/pi-coding-agent": ">=0.84.4 <1.0.0",
     "@inquirer/prompts": "^8.5.2",
     "bcryptjs": "^3.0.3",
     "commander": "^14.0.3",
