@@ -68,7 +68,7 @@ export function deterministicFallback(
   }
 }
 
-function truncateTitle(text: string): string {
+export function truncateTitle(text: string): string {
   const cleaned = text.replace(/\s+/g, " ").trim();
   return cleaned.length > MAX_EXPLICIT_AGENT_TITLE_CHARS
     ? `${cleaned.slice(0, MAX_EXPLICIT_AGENT_TITLE_CHARS - 1)}…`

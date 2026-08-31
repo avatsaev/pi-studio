@@ -54,6 +54,12 @@ interface SessionStoreState {
   setThinkingLevel(sessionId: string, level: string | undefined): void;
   setThinkingLevelByAgentId(agentId: string, level: string | undefined): void;
   setTitle(sessionId: string, title: string): void;
+  /** Applies a daemon-authoritative title broadcast (`agent_update({title})` —
+   *  `use-session-restore.ts`'s listener). Supersedes the pre-sprint client-side heuristic that
+   *  used to guess a title from the first assistant reply on `turn_completed`: that guess was
+   *  per-client (never persisted, never seen by a second window) and often landed before the
+   *  daemon's own title, producing two different labels across tabs. The daemon now always wins. */
+  setTitleByAgentId(agentId: string, title: string): void;
   setCwd(sessionId: string, cwd: string): void;
   applyStreamEvent(sessionId: string, event: AgentStreamEvent, timestamp?: string): void;
   addOptimisticUserMessage(
@@ -188,15 +194,13 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
       const entry = s.sessions[sessionId];
       if (!entry) return s;
       const timeline = applyStreamEventToTimeline(entry.timeline, event, timestamp);
-      let title = entry.title;
-      if (event.kind === "turn_completed" && title === "New chat") {
-        const lastAssistant = timeline.rows.toReversed().find((r) => r.kind === "assistant");
-        if (lastAssistant && lastAssistant.kind === "assistant" && lastAssistant.text) {
-          title = lastAssistant.text.slice(0, 40) + (lastAssistant.text.length > 40 ? "…" : "");
-        }
-      }
-      return { sessions: { ...s.sessions, [sessionId]: { ...entry, timeline, title } } };
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, timeline } } };
     });
+  },
+
+  setTitleByAgentId(agentId, title) {
+    const entry = get().findByAgentId(agentId);
+    if (entry) get().setTitle(entry.id, title);
   },
 
   addOptimisticUserMessage(sessionId, clientMessageId, text, images, queued) {

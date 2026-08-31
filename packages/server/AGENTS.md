@@ -106,7 +106,14 @@ src/
       agent-ui-rpc.ts             registerAgentUiHandlers — agent_ui_respond_request /
                                    agent_ui_list_request (both bootstraps).
     manifest.ts                   ProviderManifest registry.
-    structured-generation.ts      Structured output / JSON schema injection.
+    structured-generation.ts      Daemon-side LLM-backed metadata generation (agent titles, commit
+                                   messages, PR text, branch names) — `generate(task, opts)` tries
+                                   `opts.candidates` in order, deterministic fallback if all fail.
+                                   No `AgentSession` involved. See "Agent title generation" below.
+    structured-generation-runtime.ts
+                                   `createAgentTitleGenerator(paths, configuredCandidates)` — the
+                                   one concrete `StructuredGenerationProvider` implementation,
+                                   `ModelRuntime`-backed. See "Agent title generation" below.
     mcp-server.ts                 MCP server bridge — `McpBackend` includes
                                    `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005,
                                    see "Extension UI" below); no live `/mcp/agents` HTTP endpoint or
@@ -757,6 +764,64 @@ no code, only the same underlying `auth.json`/`models.json` files via `resolvePi
   `promptKind`/`message`/`promptId`, never a value; log calls carry `flowId`/`provider`/`promptId`
   only. Confirmed live: a captured fake credential appeared in the written `auth.json` (by design)
   but in zero WebSocket frames and zero daemon log lines across the full session.
+
+### Agent title generation (`agent/structured-generation-runtime.ts`, `agent-service.ts`)
+
+Upstream Pi ships no auto-titling at all (no bundled extension, no core hook — verified directly
+against `@earendil-works/pi-coding-agent`'s dist; `ctx.ui.setTitle`/`session.setSessionName` are
+both purely opt-in, and RPC mode's own display fallback is just the raw first user message). The
+daemon fills that gap itself, ported from oh-my-pi's proven `title-generator.ts`
+(`packages/coding-agent`) but stripped to what a daemon with real provider credentials needs: no
+local tiny-model fallback, no role ladder, no `titleSource` pinning — see
+`structured-generation-runtime.ts`'s module doc comment for the full "what was dropped and why"
+list.
+
+- **Trigger** — `AgentService.maybeGenerateTitle` (private, called fire-and-forget from `runTurn`,
+  concurrently with the turn itself — never delays the response). Fires when: a
+  `generateAgentTitle` (`AgentTitleGenerator`) is configured, the record has no title yet
+  (`record.title` — a rename — and `record.labels.title` — an explicit create-time pick — are both
+  write-once gates), the prompt isn't a slash command, and no generation is already in flight for
+  this agent (`titleGenerationInFlight`, a module-level `Set<agentId>`).
+- **`createAgentTitleGenerator(paths, configuredCandidates)`** (`structured-generation-runtime.ts`)
+  is the one concrete `StructuredGenerationProvider` implementation — a `ModelRuntime`-backed
+  candidate per `agents.metadataGeneration.providers` entry, plus the agent's own current
+  `config.modelProvider`/`config.model` as a best-effort trailing candidate. Lazy `ModelRuntime`,
+  same pattern as `pi-auth-runtime.ts` (never imported/constructed until the first real call,
+  cached, retried on failure) but deliberately a SEPARATE instance — the two concerns stay
+  decoupled at the cost of two static-only (`refreshOnCreate:false`) instances.
+  - Zero candidates at all → the deterministic fallback (`structured-generation.ts`'s
+    `deterministicFallback`, a clamped/truncated prompt) immediately — a session always gets SOME
+    title, never permanently blank for lack of credentials.
+  - A candidate that FAILED rather than judged — unavailable, no resolvable model,
+    `stopReason: "error"`, empty completion, or a response with no `<title>` marker at all (e.g. a
+    reasoning-leaky backend; `buildProvider` throws for all of these, never returns `null`) — is
+    skipped; if every candidate fails this way, the deterministic fallback applies, since the same
+    wall would be hit on every retry. `maxTokens` is 1024 (`TITLE_MAX_TOKENS`, upstream oh-my-pi's
+    ceiling) precisely so a leaked `<think>` envelope doesn't eat the budget before the marker;
+    the prompt sent to LLM candidates is capped at 4000 chars (`TITLE_INPUT_MAX_CHARS` — a
+    pasted-log first message never becomes a huge request; the deterministic fallback still sees
+    the full prompt).
+  - Only an explicit decline (the `<title>` marker prompt's `<title/>` sentinel for "no real
+    task", e.g. a greeting) from a candidate that actually ran → `null` — the trigger's
+    write-once gate then lets the NEXT prompt retry, instead of permanently pinning a low-signal
+    first message as the title.
+- **On resolve**, the trigger re-checks the agent still exists AND is still untitled (closes the
+  race against a concurrent rename/delete/second-generation) before writing: `updateRecord(agentId,
+  { title })`, a best-effort `session.setSessionName?.(title)` sync to the provider's own session
+  name, then `broadcastAll({ type: "agent_update", agentId, title })` to every connected session —
+  the same three-move write path `slash-command-operations.ts`'s `handleSetSessionName` (`/name`)
+  already uses.
+- **Both bootstraps wire a generator, neither talks to a real provider unnecessarily**:
+  `bootstrap.ts` wires the real `createAgentTitleGenerator(resolvePiAuthPaths(config),
+  config.agents.metadataGeneration.providers)`; `dev-bootstrap.ts` wires a trivial
+  `deterministicFallback`-only closure that never imports/constructs a `ModelRuntime` at all —
+  consistent with that bootstrap's "never touch the developer's real `~/.pi/agent` credential
+  tree" rule — while still exercising the full write path end to end for mock-provider sessions.
+- **Live-verified** (not just unit/integration-tested): two browser tabs on the same dev daemon and
+  the same agent, one sends the first prompt, the daemon-generated title lands in the sidebar row
+  AND the chat tab label in BOTH tabs with no reload — proving the `agent_update` broadcast reaches
+  every connected client, not just the originating one (`web-client/AGENTS.md`'s "Auto-generated
+  session titles" invariant covers the client-side listener).
 
 ### Extension UI (`agent/agent-ui/`)
 

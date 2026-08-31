@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasStringModel, hasStringThinkingLevel } from "./use-session-restore.js";
+import { hasStringModel, hasStringThinkingLevel, hasStringTitle } from "./use-session-restore.js";
 import type { AgentUpdateMessage } from "@av-pi-studio/client";
 
 function agentUpdate(overrides: Partial<AgentUpdateMessage> = {}): AgentUpdateMessage {
@@ -36,5 +36,23 @@ describe("hasStringThinkingLevel (sprint-070 — agent_update thinkingLevel list
     expect(hasStringThinkingLevel(agentUpdate({ thinkingLevel: 5 as unknown as string }))).toBe(
       false,
     );
+  });
+});
+
+describe("hasStringTitle (auto-titling — agent_update title listener)", () => {
+  it("is true when title is a string", () => {
+    expect(hasStringTitle(agentUpdate({ title: "Fix login bug" }))).toBe(true);
+  });
+
+  it("is true for an empty string (still a string)", () => {
+    expect(hasStringTitle(agentUpdate({ title: "" }))).toBe(true);
+  });
+
+  it("is false when title is absent", () => {
+    expect(hasStringTitle(agentUpdate())).toBe(false);
+  });
+
+  it("is false when title is present but not a string", () => {
+    expect(hasStringTitle(agentUpdate({ title: 5 as unknown as string }))).toBe(false);
   });
 });

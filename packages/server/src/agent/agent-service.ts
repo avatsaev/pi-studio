@@ -15,6 +15,7 @@ import type {
 } from "./provider-contract.js";
 import { AgentTimelineStore } from "./timeline-store.js";
 import { composeSystemPrompt } from "./compose-system-prompt.js";
+import type { AgentTitleGenerator } from "./structured-generation-runtime.js";
 
 /**
  * AgentService wires `create_agent_request` + run/turn loop + `agent_stream` broadcast
@@ -28,10 +29,18 @@ export interface AgentServiceDeps {
   now?: () => string;
   /** Operational logger: agent created (info), turn started/finished (info), failures (error). */
   logger?: Logger;
+  /** Daemon-side agent title generation (`structured-generation-runtime.ts`'s
+   *  `createAgentTitleGenerator`). Absent -> auto-titling is off entirely (no bootstrap wires it,
+   *  e.g. a minimal test harness); every production/dev bootstrap wires one. */
+  generateAgentTitle?: AgentTitleGenerator;
 }
 
 /** In-memory timeline per agentId; persisted rows are on the AgentRecord.timeline. */
 const timelinesByAgentId = new Map<string, AgentTimelineStore>();
+
+/** Agent ids with an in-flight `generateAgentTitle` call — prevents two overlapping prompts on
+ *  the same still-untitled agent from firing two concurrent generations. */
+const titleGenerationInFlight = new Set<string>();
 
 function getOrCreateTimeline(agentId: string, now?: () => string): AgentTimelineStore {
   let t = timelinesByAgentId.get(agentId);
@@ -308,6 +317,9 @@ export class AgentService {
     // Log prompt SIZE, never the prompt itself — message contents are user data, not ops metadata.
     this.deps.logger?.info({ agentId, promptChars: prompt.length }, "turn started");
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "running" });
+    // Fire-and-forget: runs concurrently with the turn below, never delays it. See
+    // `maybeGenerateTitle` for the write-once/decline-retry contract.
+    this.maybeGenerateTitle(agentId, session, prompt, getSessions);
 
     let userMessageEmitted = false;
     let userMessageId: string | undefined;
@@ -421,5 +433,67 @@ export class AgentService {
 
     // Status is settled and broadcast; surface the original failure to the caller unchanged.
     if (runRejected) throw runError;
+  }
+
+  /**
+   * Fire-and-forget agent title generation on an agent's first substantive prompt. Never awaited
+   * by the caller — runs concurrently with the turn itself, so a slow/unavailable provider never
+   * delays the actual response.
+   *
+   * Gates (all must pass to fire): `deps.generateAgentTitle` configured, the record has no title
+   * yet (`record.title` — a rename — and `record.labels.title` — an explicit create-time pick —
+   * are both write-once: once either is set, this never fires again for that agent), the prompt
+   * isn't a slash command, and no generation is already in flight for this agent.
+   *
+   * On resolve: re-checks the agent still exists AND is still untitled (closes the race against a
+   * concurrent rename, delete, or a second prompt's own generation winning first) before writing.
+   * `generateAgentTitle` returning `null` (a candidate actually ran and explicitly declined —
+   * `<title/>`, "no real task in this message"; failures instead yield the deterministic fallback,
+   * see `structured-generation-runtime.ts`) leaves the record untitled on purpose: the same gate
+   * lets the NEXT prompt retry, rather than permanently pinning a low-signal first message as the
+   * title.
+   */
+  private maybeGenerateTitle(
+    agentId: string,
+    session: AgentSession,
+    prompt: string,
+    getSessions: () => Iterable<Session>,
+  ): void {
+    if (!this.deps.generateAgentTitle) return;
+    const record = this.deps.manager.get(agentId)?.record;
+    if (!record || record.title || record.labels?.["title"]) return;
+    if (prompt.trim().startsWith("/")) return;
+    if (titleGenerationInFlight.has(agentId)) return;
+    titleGenerationInFlight.add(agentId);
+
+    this.deps
+      .generateAgentTitle({
+        modelProvider: record.config?.modelProvider,
+        model: record.config?.model,
+        prompt,
+      })
+      .then(async (title) => {
+        if (!title) {
+          this.deps.logger?.debug({ agentId }, "agent title generation declined");
+          return;
+        }
+        const current = this.deps.manager.get(agentId);
+        if (!current || current.record.title || current.record.labels?.["title"]) return;
+        await this.deps.manager.updateRecord(agentId, { title });
+        try {
+          await (current.session ?? session).setSessionName?.(title);
+        } catch {
+          // Best-effort sync to the provider's own session name; the daemon record is
+          // authoritative and already broadcast below either way.
+        }
+        this.broadcastAll(getSessions(), { type: "agent_update", agentId, title });
+      })
+      .catch((err) => {
+        this.deps.logger?.warn(
+          { agentId, err: err instanceof Error ? err.message : String(err) },
+          "agent title generation failed",
+        );
+      })
+      .finally(() => titleGenerationInFlight.delete(agentId));
   }
 }

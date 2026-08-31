@@ -1864,6 +1864,22 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
   stays authoritative; only an explicit pick, persisted through `agent_set_thinking_request`'s
   draft branch, ever pins the record. The whole control is hidden when `server_info.features`
   lacks `thinkingLevels`.
+- **Auto-generated session titles.** Upstream Pi has no auto-titling; the daemon generates one
+  itself on an agent's first substantive prompt and broadcasts it (`packages/server/AGENTS.md`'s
+  "Agent title generation" subsystem section). `use-session-restore.ts`'s `hasStringTitle` guard
+  (beside `hasStringModel`/`hasStringThinkingLevel`) applies a `title`-carrying `agent_update` to
+  `SessionEntry.title` via `setTitleByAgentId`, AND updates the open chat tab's label
+  (`useTabStore.updateLabel(tabIds.chat(sessionId), title)`) — the same two moves
+  `SessionContextMenu.tsx`'s manual `/name`-equivalent rename already does locally, now applied to
+  EVERY connected client, not just the one that triggered the change. This also fixes a
+  pre-existing gap: a rename from one window previously only updated that window; every other
+  connected window stayed stale until reload. Supersedes the former client-side heuristic
+  (`session-store.ts`'s `applyStreamEvent`, on `turn_completed` when the title was still the
+  literal string `"New chat"`, stamped a 40-char slice of the last assistant reply) — that guess
+  was per-client, never persisted, and could race the daemon's own title, producing two different
+  labels across tabs; removed outright rather than kept as a fallback. Live-verified: two browser
+  tabs on the same agent, one sends the first prompt, both the sidebar row and the tab label update
+  in BOTH tabs with no reload.
 - **Slash-command picker (`/` in the composer, web-client slash commands).** Discovers Pi's
   `agent_list_commands_request` (`packages/server/AGENTS.md` § "Command discovery") through
   `use-agent-commands.ts`, cached IDENTICALLY to `use-provider-models.ts` — same `useQuery` shape,

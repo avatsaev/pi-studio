@@ -41,6 +41,10 @@ These facts drive the design; do not re-derive them from memory:
   bundled 0.84.4 (npm-packed, grepped: zero hits in all three). The 0.84.2 → 0.84.4 RPC surface diff
   is a single **addition** (`clear_queue`), so the gap is not being closed incidentally. The TUI
   calls `navigateTree` in-process; RPC clients cannot.
+  (Grep caution: `navigateTree` DOES appear in 0.84.4's `rpc-mode.js` — as the extension-facing
+  `commandContextActions.navigateTree` wiring (`rpc-mode.js:240`), reachable only by in-process
+  extensions and returning `{cancelled}` alone, dropping `editorText`. It is not a stdin command;
+  do not mistake that hit for the gap being closed.)
 - **`navigateTree` semantics** (from source, `agent-session.js:2464-2627`):
   - Throws if a turn is streaming (`"Wait for the current response to finish…"`).
   - No-op `{cancelled: false}` if `targetId` is already the leaf.
@@ -69,9 +73,10 @@ These facts drive the design; do not re-derive them from memory:
      without summary, kill the process before the next message ⇒ resume lands back at the file's
      own leaf. The TUI behaves identically. Document, don't fight.
 - **Tree filter modes** (default / no-tools / user-only / labeled-only / all) and label editing
-  (Shift+L) are **TUI-local features** — filtering is pure view logic (client-side for us);
-  arbitrary label editing has no RPC (the only wire path to set a label is `navigateTree`'s
-  `label` option).
+  (Shift+L) are **TUI-local features** — filtering is pure view logic (client-side for us; Pi
+  persists the TUI's chosen mode as a `treeFilterMode` entry in its own `settings.json`,
+  `settings-manager.js:934-938`, with no RPC surface); arbitrary label editing has no RPC (the
+  only wire path to set a label is `navigateTree`'s `label` option).
 - **Daemon/protocol/SDK have NOTHING for this today** — no provider methods, no RPCs, no schemas.
   Everything below is additive. The nearest precedent for a long-LLM-call RPC is
   `agent_compact_request` (sprint-037); tree-navigate-with-summary has the same latency profile
@@ -278,10 +283,10 @@ return result
   per-pane and not persisted. Pi's TUI also has per-node folding, so this is parity, not invention.
 - Refetch on open and on focus-after-blur (the tree is only valid against the current state); no
   live subscription, no polling.
-- Phase-1 actions: none in-place. A user-message node exposes "Fork from here" **iff**
-  conversation-fork.md has shipped and the node is on the **active branch** (Pi's `fork` only
-  accepts active-branch user messages) — wired to the existing fork confirm flow, pre-targeted so
-  its picker step is skipped.
+- Phase-1 actions: none in-place. A user-message node on the **active branch** exposes
+  "Fork from here" (Pi's `fork` only accepts active-branch user messages) — wired to the fork
+  confirm flow conversation-fork.md shipped (sprints 071/072), pre-targeted so its picker step is
+  skipped.
 
 ### web-client: navigation (Phase 2)
 

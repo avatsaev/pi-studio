@@ -39,6 +39,7 @@ import { PermissionService } from "../agent/permissions.js";
 import { ProviderRegistry, resolveProviderClient } from "../agent/provider-registry.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import { resolvePiAuthPaths } from "../agent/pi-home.js";
+import { createAgentTitleGenerator } from "../agent/structured-generation-runtime.js";
 import { createPiAuthRuntime } from "../agent/provider-auth/pi-auth-runtime.js";
 import { ProviderAuthService } from "../agent/provider-auth/provider-auth-service.js";
 import { registerProviderAuthHandlers } from "../agent/provider-auth/provider-auth-rpc.js";
@@ -297,7 +298,16 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const registry = new HandlerRegistry(logger);
 
   // ── Core agent/session/timeline/permission handlers ──────────────────────────
-  const agentService = new AgentService({ manager, resolveClient, broadcast, logger });
+  const agentService = new AgentService({
+    manager,
+    resolveClient,
+    broadcast,
+    logger,
+    generateAgentTitle: createAgentTitleGenerator(
+      resolvePiAuthPaths(config),
+      config.agents.metadataGeneration.providers,
+    ),
+  });
   agentService.registerHandlers(registry, getActiveSessions);
 
   const sessionOps = new SessionOperationsService({

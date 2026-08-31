@@ -22,6 +22,7 @@ import {
   useConnectionStore,
 } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import {
@@ -71,6 +72,16 @@ export function hasStringThinkingLevel(
 ): msg is AgentUpdateMessage & { thinkingLevel: string } {
   return typeof msg.thinkingLevel === "string";
 }
+/** Sprint auto-titling: the `agent_update` listener below only reacts to broadcasts that carry a
+ *  `title` — same narrow type-guard convention as `hasStringModel`. Applies to BOTH the daemon's
+ *  auto-generated title (`agent-service.ts`'s `maybeGenerateTitle`) and a rename from another
+ *  connected client (`agent_set_session_name_request`) — this listener is what makes a rename in
+ *  one window appear live in every other window, which previously only updated locally. */
+export function hasStringTitle(
+  msg: AgentUpdateMessage,
+): msg is AgentUpdateMessage & { title: string } {
+  return typeof msg.title === "string";
+}
 
 export function useSessionRestore(): void {
   const client = useConnectionStore((s) => s.client);
@@ -100,6 +111,11 @@ export function useSessionRestore(): void {
       }
       if (hasStringThinkingLevel(msg)) {
         useSessionStore.getState().setThinkingLevelByAgentId(msg.agentId, msg.thinkingLevel);
+      }
+      if (hasStringTitle(msg)) {
+        useSessionStore.getState().setTitleByAgentId(msg.agentId, msg.title);
+        const entry = useSessionStore.getState().findByAgentId(msg.agentId);
+        if (entry) useTabStore.getState().updateLabel(tabIds.chat(entry.id), msg.title);
       }
     });
   }, [status, client]);

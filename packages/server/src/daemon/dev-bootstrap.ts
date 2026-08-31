@@ -19,6 +19,7 @@ import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService } from "../agent/agent-service.js";
+import { deterministicFallback } from "../agent/structured-generation.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
 import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
@@ -117,7 +118,16 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // ── Handler registry ────────────────────────────────────────────────────────
   const registry = new HandlerRegistry(logger);
 
-  const agentService = new AgentService({ manager, resolveClient, broadcast, logger });
+  // Deterministic-only titler — never constructs a real ModelRuntime (this bootstrap's whole
+  // point is to never touch the developer's real ~/.pi/agent credential tree). Still exercises
+  // the full write path (record.title + agent_update broadcast) end to end for dev/mock sessions.
+  const agentService = new AgentService({
+    manager,
+    resolveClient,
+    broadcast,
+    logger,
+    generateAgentTitle: async ({ prompt }) => deterministicFallback("agent_title", { prompt }),
+  });
   agentService.registerHandlers(registry, getActiveSessions);
 
   const sessionOps = new SessionOperationsService({
@@ -148,7 +158,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     const agents = manager.list().map((m) => ({
       agentId: m.record.id,
       status: m.record.lastStatus,
-      title: m.record.labels?.["title"] ?? undefined,
+      title: m.record.labels?.["title"] ?? m.record.title ?? undefined,
       cwd: m.record.cwd,
       labels: m.record.labels ?? {},
       lastActivity: new Date(m.record.updatedAt).getTime(),

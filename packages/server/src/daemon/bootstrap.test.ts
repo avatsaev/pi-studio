@@ -150,6 +150,27 @@ async function boot(): Promise<{
 /** Instant, offline success for every action — no network, no real pi process. */
 const succeedAlwaysSpawn: InstallSpawn = async () => ({ exitCode: 0, stderr: "" });
 
+/** Poll `list_agents_request` until `agentId`'s entry has a truthy `title`, or throw after
+ *  `timeoutMs`. A real bounded wait, not fake timers — the condition is server-side state reached
+ *  only via genuine RPC round-trips over a live WebSocket, matching `waitForSessionId`'s
+ *  established pattern below (relay E2E section) for the same kind of "poll a real server for
+ *  async-settled state" wait. */
+async function waitForAgentTitle(
+  client: Client,
+  agentId: string,
+  timeoutMs = 2000,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const list = await client.rpc({ type: "list_agents_request" });
+    const entries = (list.agents as Array<Record<string, unknown>>) ?? [];
+    const entry = entries.find((a) => a.agentId === agentId);
+    if (entry?.title) return entry;
+    if (Date.now() > deadline) throw new Error("waitForAgentTitle: timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 describe("production daemon bootstrap", () => {
   it("registers the full RPC surface (no 'no handler' errors) and resolves pi as the provider", async () => {
     const booted = await boot();
@@ -277,6 +298,78 @@ describe("production daemon bootstrap", () => {
     await client.rpc({ type: "send_agent_prompt", agentId, prompt: "go" });
     entry = entryOf(await client.rpc({ type: "list_agents_request" }));
     expect(entry?.thinkingLevel).toBe("off");
+
+    client.close();
+  }, 15000);
+
+  it("auto-generates a title from the first prompt (deterministic fallback, no metadataGeneration.providers configured), broadcasts it live, and never regenerates on a later prompt", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    // Observe the raw `agent_update` broadcast carrying `title` — proves live wire delivery, not
+    // just eventual `list_agents_request` state.
+    const titleBroadcasts: Record<string, unknown>[] = [];
+    client.ws.on("message", (data: Buffer) => {
+      const env = JSON.parse(data.toString("utf8"));
+      if (
+        env.type === "session" &&
+        env.message?.type === "agent_update" &&
+        typeof env.message?.title === "string"
+      ) {
+        titleBroadcasts.push(env.message);
+      }
+    });
+
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd: booted.home },
+      initialPrompt: "add dark mode toggle to the settings page",
+    });
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    const entry = await waitForAgentTitle(client, agentId as string);
+    expect(entry.title).toBe("add dark mode toggle to the settings page");
+    expect(titleBroadcasts.some((m) => m.agentId === agentId)).toBe(true);
+
+    // A second, very different prompt on the same agent must never regenerate the title
+    // (write-once semantics — `record.title` already set).
+    await client.rpc({
+      type: "send_agent_prompt",
+      agentId,
+      prompt: "totally unrelated follow-up about deployment",
+    });
+    const after = await waitForAgentTitle(client, agentId as string);
+    expect(after.title).toBe("add dark mode toggle to the settings page");
+
+    client.close();
+  }, 15000);
+
+  it("never overwrites an explicit create-time title with an auto-generated one", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const created = await client.rpc({
+      type: "create_agent_request",
+      config: { provider: "mock", cwd: booted.home, title: "My Custom Title" },
+      initialPrompt: "add dark mode toggle to the settings page",
+    });
+    const agentId = (created.payload as { agentId?: string })?.agentId;
+    expect(agentId).toBeTruthy();
+
+    // No event to await for "auto-title did NOT fire" — a real bounded wait is the only way to
+    // assert an absence, mirroring `waitForSessionId`'s real-timer precedent above. The
+    // deterministic-fallback path this would otherwise take has zero real I/O (no network, no
+    // timers of its own), so this window is generous, not tight.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const list = await client.rpc({ type: "list_agents_request" });
+    const entry = ((list.agents as Array<Record<string, unknown>>) ?? []).find(
+      (a) => a.agentId === agentId,
+    );
+    expect(entry?.title).toBe("My Custom Title");
 
     client.close();
   }, 15000);
@@ -1127,6 +1220,30 @@ describe("provider_auth (sprint-055/task-004)", () => {
       const res = await client.rpc({ type: "provider_auth_list_request" });
       expect(res.type).toBe("rpc_error");
       expect(res.code).toBe("unknown_message_type");
+      client.close();
+    } finally {
+      await dev.close();
+    }
+  }, 15000);
+});
+
+describe("dev daemon auto-titling", () => {
+  it("the dev daemon auto-generates a title too, via its deterministic-only titler (no ModelRuntime)", async () => {
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
+    const port = await listeningPort(dev.httpServer);
+    try {
+      const client = await connect(port);
+      const created = await client.rpc({
+        type: "create_agent_request",
+        config: { provider: "mock", cwd: "/tmp" },
+        initialPrompt: "add dark mode toggle to the settings page",
+      });
+      const agentId = (created.payload as { agentId?: string })?.agentId;
+      expect(agentId).toBeTruthy();
+
+      const entry = await waitForAgentTitle(client, agentId as string);
+      expect(entry.title).toBe("add dark mode toggle to the settings page");
+
       client.close();
     } finally {
       await dev.close();
