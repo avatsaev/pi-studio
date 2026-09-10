@@ -102,8 +102,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 070 | `sprint-070-thinking-level-selector` | cross-package (protocol, server, client, web-client): a **thinking-level selector** in the composer, with the level persisted per session across reloads, daemon restarts, and resumes. Ships `swe/features/thinking-level-selector.md`, which is grounded in verified Pi RPC behavior rather than docs alone (three findings drive the design: `set_model`'s response carries NO `thinkingLevel` even though a model switch is exactly when Pi clamps, so the adapter must re-read `get_state` after every switch; `get_available_models` returns raw full Model objects with `reasoning`/`thinkingLevelMap`, so draft-time level discovery is a lookup in the model list the client already caches — zero new spawns, no transient-process cache; and Pi clamps `set_thinking_level` silently, so the daemon persists/broadcasts the **effective** level, never the requested one). Fixes a live bug as a side effect: `AgentSession.setThinkingOption` is declared and called via `?.` but implemented by nobody, so `update_agent_request`/`pi-studio agent update --thinking` persists config and applies nothing. Two correctness rules the tasks encode: replay order is model THEN thinking (Pi clamps thinking against the model), and every model change writes the clamped level back to `record.config.thinkingOptionId` + broadcasts it, or dead-session `list_agents` lies. | 6 |
 | 071 | `sprint-071-conversation-fork-daemon` | server + protocol only (no web-client): the **daemon half** of `features/conversation-fork.md` — post-fork timeline resync, so a fork stops leaving every connected transcript on the abandoned branch. Sprint-037 already shipped the fork RPCs (`agent_fork_request`/`agent_fork_messages_request` in both bootstraps, `PiAgentSession.fork()`'s `get_state` re-read, `persistSessionHandle` following the branch, protocol schemas, tested SDK facades) and **nothing consumes them**, so the gap is real but unhit. Adds `agent-service.resetTimeline` (unconditional replace, unlike `seedTimeline`'s no-op-if-exists — a fork always has a live store), the `agent_timeline_reset` passthrough broadcast (`terminals_update` convention: every session incl. relay, no subscribe RPC, no `messages.ts` union member), and the `forkTimelineSync` flag the UI gates on. Also deletes the dead rewind surface this feature supersedes. | 4 |
 | 072 | `sprint-072-conversation-fork-ui` | web-client only (consumes 071, adds no protocol): the **fork UI** — hover affordance on confirmed user rows, one dialog with two steps (confirm + "Fork from…" picker), composer prefill, multi-client convergence. Correlation is **ordinal, never id-based**: live `user_message` rows carry the client-minted `clientMessageId` echo while Pi's `entryId` is its own JSONL id — disjoint spaces nothing correlates today — so the clicked row's index among confirmed user rows indexes `get_fork_messages`, the confirm dialog displays the matched entry's own text, and a whitespace-normalized mismatch opens the picker rather than ever forking an unverified entry. Refresh is broadcast-driven for **every** client including the requester, so two windows and a relay phone converge through one handler. | 6 |
+| 073 | `sprint-073-viewer-settings` | cross-package (protocol, server, client, web-client): **chunk A of `docs/MOLVIEWER_DECOUPLING.md`** — a runtime kill switch for the molecule viewer, and the daemon-backed settings family every future viewer plugin will read. Molviewer is currently unconditional: a `.cif` always opens in a 3D viewer, with no way to turn that off. The toggle lives **on the daemon**, not in `localStorage`, because a phone over the relay and a desktop browser talking to the same daemon must not disagree about which viewers exist — so this ships five real `sessionMessageSchema` members (the push included, unlike `provider_auth_flow_event`, because it carries the same durable document on a hot parse path), a `viewerSettings` flag, a new `packages/server/src/viewers/` subsystem over `$PI_STUDIO_HOME/viewer-settings.json`, four `PiStudioClient` methods, a Zustand store, five gated dispatch points, and a Viewers settings category. Three rules carry the design: **the daemon knows nothing about plugins** (rows keyed by whatever id arrives, unknown ids valid, `config` opaque — § 3's dependency rule applied across the wire), **absent row = enabled** (defaults never written, so a fresh daemon and a daemon without the feature look identical to a client), and **every degrade direction offers the viewer** (no capability, failed fetch, corrupt file, pre-hydration — never hide a file behind a daemon version). Two things are load-bearing beyond the obvious: `tabFromIdentity` takes the enabled-predicate as an **injected parameter** rather than reading the store, staying the pure synchronous inverse of `tabIdentity` that phase 3's registry will reuse unchanged; and the layout replay gains a `loaded` condition, because otherwise a persisted `molecule:<path>` races the settings fetch and reopens as a viewer tab the user turned off. Fixes a live bug on the way: `ConnectionBar` gates the settings gear on `providerAuthCapable`, so the first capability-free category would be unreachable against a daemon without `providerAuth`. Hard prerequisite for phase 1 (`swe/architecture/viewer-plugin-system.md`), whose registry reads this store. | 7 |
 
-Total: **70 sprints, 357 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **71 sprints, 364 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -1934,9 +1935,70 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-005 | Compact/touch under 500px (the no-hover replacement) + full keyboard/assistive-tech model: focus into the dialog and back to the invoking control (deterministic fallback when that row was forked away), Esc precedence over toasts, keyboard-navigable picker, announced pending state | feature | task-003 | packages/web-client (features/chat, styles, hooks); visual spec `- Compact and Keyboard` § 04, § 11 |
 | task-006 | Sprint close: nine-scenario live E2E (two-window convergence, real-`pi` forgetting after re-send, confirm-text fidelity + forced correlation mismatch, picker, extension cancel, daemon-restart regression, mock provider not wiped, flag-absent ⇒ no UI, **relay transport**), full root gates, web-client docs + PLAN.md, both remaining TODO(verify) resolved | docs | task-001…task-005 | AGENTS.md (web-client); features/conversation-fork § Acceptance criteria, § TODO(verify); visual spec index § 14 |
 
+### sprint-073-viewer-settings
+> **What it ships.** Chunk A of `docs/MOLVIEWER_DECOUPLING.md`: a **runtime kill switch for the
+> molecule viewer**, and with it the daemon-backed settings family that every future viewer plugin
+> reads. Molviewer is unconditional today — a `.cif` always opens in a 3D viewer and nothing can
+> turn that off. Five real `sessionMessageSchema` members, a `viewerSettings` flag, a new
+> `packages/server/src/viewers/` subsystem over `$PI_STUDIO_HOME/viewer-settings.json`, four
+> `PiStudioClient` methods, one Zustand store, five gated dispatch points, one settings category.
+>
+> **The setting lives on the daemon, not in `localStorage`.** A phone over the relay and a desktop
+> browser talking to the same daemon must not disagree about which viewers exist, and the
+> preference outlives any one browser profile. That makes the push (`viewer_settings_update`) a
+> real union member rather than a `sessionMessageBaseSchema` passthrough like
+> `provider_auth_flow_event`: it carries the same durable document the RPCs do, on a hot parse
+> path.
+>
+> **The daemon knows nothing about plugins.** Rows are keyed by whatever id a client sends, an
+> unknown id is a valid row, and `config` is an opaque blob (the `agent_ui_request` `payload`
+> posture). That is § 3's dependency rule — core never knows a specific plugin — applied across the
+> wire, and it is why the schema uses an open `z.record` with no id enum, ever.
+>
+> **Every degrade direction offers the viewer.** Absent row, unhydrated store, capability-free
+> daemon, failed fetch, corrupt state file: all mean *enabled*. Defaults are never written, so a
+> fresh daemon and a daemon without the feature look identical to a client, and no file is ever
+> unreachable because of a daemon version. "Disabled" means *don't offer this viewer* — never
+> "destroy state": an already-open molecule tab keeps rendering after the toggle flips.
+>
+> **Two pieces are load-bearing beyond the obvious.** `tabFromIdentity` takes the enabled-predicate
+> as an **injected parameter** rather than reading the store — it stays the pure synchronous
+> inverse of `tabIdentity`, unit-tested with no stores, and phase 3's registry supplies the same
+> parameter unchanged. And the layout replay gains a `loaded` condition alongside
+> `status === "open"`, because otherwise a persisted `molecule:<path>` races the settings fetch and
+> reopens as a viewer tab the user turned off. One extra condition on an existing gate, not a new
+> mechanism.
+>
+> **One live bug fixed on the way.** `ConnectionBar.tsx:82` gates the settings gear on
+> `providerAuthCapable` — correct when Model Providers was the only category (s065), wrong the
+> moment a capability-free one exists: against a daemon without `providerAuth` the new category
+> would be unreachable. The gate becomes "any category is available", derived from the registry
+> rather than duplicated in the bar.
+>
+> **Prerequisite, not a nice-to-have.** `swe/architecture/viewer-plugin-system.md` (phase 1) reads
+> this store for its enabled-filter and says so explicitly; running phase 1 first would mean
+> inventing a second settings source and deleting it a sprint later.
+>
+> **Status:** planned — no tasks started.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Five `viewer_settings_*` schemas as real `sessionMessageSchema` members (push included) + `viewerSettings` flag with its `COMPAT` tag; open `z.record` viewers map, both patch fields optional, `config` opaque | feature | none | packages/protocol (messages.ts, client-capabilities.ts, AGENTS.md); MOLVIEWER_DECOUPLING § 4.4 |
+| task-002 | New `packages/server/src/viewers/` subsystem: `viewer-settings-state.ts` (soft-fallback loader — deliberately **not** `extensions-state.ts`'s `"unreadable"` sentinel — plus a pure `applyViewerSettingsPatch`) and `viewer-settings-rpc.ts` (serialized read-modify-write, broadcast-before-answer to every session incl. the caller), registered in **both** bootstraps | feature | task-001 | packages/server (viewers/, daemon bootstraps, AGENTS.md); MOLVIEWER_DECOUPLING § 4.4 rules, § 8 |
+| task-003 | `PiStudioClient.getViewerSettings`/`setViewerSettings`/`onViewerSettingsUpdate`/`hasViewerSettingsCapability` — stateless pass-throughs; no `DaemonClient` change needed | feature | task-001 | packages/client (pistudio-client.ts, AGENTS.md); MOLVIEWER_DECOUPLING § 4.4 contribution table |
+| task-004 | `viewer-plugins/viewer-settings-store.ts` + `useViewerSettingsBoot`: hydrate on open (incl. the capability-free and failed-fetch paths, which still set `loaded`), wholesale replace on push, reset on disconnect, optimistic `setEnabled` rolling back to the **exact** prior value including "no row at all" | feature | task-003 | packages/web-client (viewer-plugins/, hooks/, app.tsx); MOLVIEWER_DECOUPLING § 5 phase 0 step 1, § 8 |
+| task-005 | Gate the five dispatch points (`openFileTab`, `tabFromIdentity` via an injected predicate, both `FileContextMenu` items, TabStrip "+" entry) + the replay's `loaded` condition; `use-external-pane-drop` verified unchanged; open tabs keep rendering | feature | task-004 | packages/web-client (features/files, features/workspace, hooks); MOLVIEWER_DECOUPLING § 5 phase 0 step 2, § 7, § 9 |
+| task-006 | "Viewers" settings category with the Molecule Viewer toggle (read-only + "requires a newer daemon" when the capability is absent) and the gear gate rewritten to "any category available" | feature | task-004, task-005 | packages/web-client (features/settings, features/connection, AGENTS.md); MOLVIEWER_DECOUPLING § 5 phase 0 steps 3-4, § 7 |
+| task-007 | Sprint close: seven-step live E2E against a **production** daemon (state file written, two-window convergence without reload, reload + daemon-restart persistence, disabled-viewer reopen as text, open tab survives, corrupt-file degrade), root `AGENTS.md` protocol + persistence entries, decoupling-plan review log, phase-1 spec's "store doesn't exist yet" note corrected, full root gates | docs | task-001…task-006 | AGENTS.md (root); MOLVIEWER_DECOUPLING § 5 phase 0, § 7, § 10 chunk A |
+
 ## Coverage check
 
-Every feature and architecture scope is now covered by at least one task. The last remaining gap,
+Every feature and architecture scope is covered by at least one task, with **two deliberate
+exceptions** introduced with sprint-073: `architecture/viewer-plugin-system.md` is only
+partially covered (s073 ships its § Prerequisite; the contract/registry/move is unplanned) and
+`features/viewer-unbound-tabs.md` is not planned at all — both are later chunks of
+`docs/MOLVIEWER_DECOUPLING.md`, written ahead of scheduling on purpose so the phase boundaries
+are contracts rather than prose. See their rows in the table below. The last remaining gap,
 `features/provider-auth-ui.md`, is planned in sprint-065 (client SDK + web UI), which consumes
 sprint-055's wire contract verbatim and adds no protocol messages of its own — so the provider-auth
 family is now planned end to end across three independent scopes: CLI-local (s054, done), daemon
@@ -2071,6 +2133,8 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/structured-generation.md | s006/t006, s008/t005-006, s013/t004, s016/t003 |
 | architecture/design-system.md | s012/t001-004,t006 (logic); s017/t002 (theme→CSS), s018/t001-002 (primitives/overlays); s053/t001-002 (resolved-`Theme` context for JS-configured surfaces; `colors.terminal` + scaled font scale finally consumed) |
 | architecture/ssh-gateway-connections.md | s025/t001-005 |
+| architecture/viewer-plugin-system.md | **partial** — s073/t001-007 ships only its § Prerequisite (the daemon-backed settings store phase 1's enabled-filter reads). The contract, registry, barrel, panel host and the molviewer move (chunks B/C of `docs/MOLVIEWER_DECOUPLING.md`) are **not yet planned** |
+| features/viewer-unbound-tabs.md | **not planned** — phase 5 / chunk D of `docs/MOLVIEWER_DECOUPLING.md`; depends on chunk B's barrel and stable-id rule |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
