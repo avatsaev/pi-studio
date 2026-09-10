@@ -6,7 +6,7 @@
 #   the registry.
 # - Rewrites internal "@av-pi-studio/*" dependency ranges to match the new version.
 # - Builds, typechecks, and tests before publishing anything.
-# - Publishes the library packages to npm in dependency order (protocol/highlight/relay have no
+# - Publishes the library packages to npm in dependency order (protocol/relay have no
 #   workspace deps and go first; client depends on protocol+relay; web-client is a static-asset
 #   dependency of cli, built and published before it; server/cli depend on the others and go last).
 #
@@ -22,11 +22,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 # Packages actually published to the npm registry, in dependency order.
-PUBLISH_ORDER=(protocol highlight relay client web-client server cli)
+PUBLISH_ORDER=(protocol relay client web-client server cli)
 
-# Every workspace package, kept in version lockstep even though desktop is not published
-# (desktop is an empty placeholder).
-ALL_PACKAGES=(protocol highlight relay client server cli desktop web-client)
+# Every workspace package, kept in version lockstep for a consistent release tag.
+ALL_PACKAGES=(protocol relay client server cli web-client)
 
 DRY_RUN=false
 BUMP=true

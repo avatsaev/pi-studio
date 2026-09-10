@@ -8,10 +8,9 @@ declaration files** (`dist/*.d.ts`) of their dependencies — not the source.
 
 ```
 protocol   (depends on no workspace package)
-  ├── highlight   (standalone)
   ├── relay       (standalone)
   ├── client      → protocol
-  ├── server      → protocol, highlight
+  ├── server      → protocol
   └── cli         → protocol, client
 ```
 
@@ -22,10 +21,9 @@ protocol   (depends on no workspace package)
 | Script            | Builds                                               |
 | ----------------- | ---------------------------------------------------- |
 | `build:protocol`  | `protocol`                                           |
-| `build:highlight` | `highlight`                                          |
 | `build:relay`     | `relay`                                              |
 | `build:client`    | `client` (+ protocol via references)                 |
-| `build:server`    | `server` (+ protocol, highlight)                     |
+| `build:server`    | `server` (+ protocol)                                |
 | `build:cli`       | `cli` (+ protocol, client)                           |
 | `build`           | all of the above, **in dependency order**, fail-fast |
 | `clean`           | removes all `dist/` and `*.tsbuildinfo`              |

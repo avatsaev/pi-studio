@@ -228,6 +228,10 @@ export function createPiEventMapper(): PiEventMapper {
           return { kind: "error", message: str(event.message ?? event.error) };
 
         // ── Ignored (handled elsewhere / not surfaced as timeline events) ──
+        // `auto_retry_end` left Pi's *declared* session-event union in 0.85.0 but the shipped
+        // bundle still emits it, so the case stays. This switch is on a loose `string`, not Pi's
+        // union, so a `.d.ts` removal cannot break the build — verify against
+        // `dist/bundle/chunks/` before deleting a case here.
         case "turn_start":
         case "turn_end":
         case "message_start":

@@ -178,7 +178,6 @@ packages/
   client/      low-level daemon WS driver + PiStudioClient SDK facade
   server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
   cli/         pi-studio terminal client + local daemon/relay lifecycle control
-  highlight/   server-side syntax-highlight helper
   relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
   web-client/  production React/Vite browser UI
   desktop/     Electron wrapper (later sprint — placeholder)
@@ -189,10 +188,9 @@ Compile-time dependency graph:
 
 ```
 protocol  ─────────────────────────────► (no workspace deps)
-highlight ─────────────────────────────► (no workspace deps)
 relay     ─────────────────────────────► (no workspace deps)
 client    ──────► protocol, relay
-server    ──────► protocol, highlight, relay
+server    ──────► protocol, relay
 cli       ──────► protocol, client, relay  (+ resolves server/web-client paths, no runtime import)
 web-client──────► protocol, client
 ```

@@ -25,13 +25,10 @@ packages/
   client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
-  highlight/   Server-side syntax-highlight helper (pure-JS tokeniser, no external deps).
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal,
                split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
                per-pane tab strips, persisted per workspace along with which one was in view).
-  desktop/     Electron shell wrapping a bundled daemon — currently a placeholder (exports a single
-               package-id constant); real implementation is sprint-033-desktop, not yet built.
 
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
@@ -44,13 +41,11 @@ docker/             Dockerfiles + compose for the daemon, relay, and web UI (see
 
 ```
 protocol    ─────────────────────────────────────────► (no workspace deps)
-highlight   ─────────────────────────────────────────► (no workspace deps)
 relay       ─────────────────────────────────────────► (no workspace deps)
 client      ──────► protocol, relay
-server      ──────► protocol, highlight, relay
+server      ──────► protocol, relay
 cli         ──────► protocol, client, relay, server, web-client
 web-client  ──────► protocol, client
-desktop     ──────► server   (NOT web-client yet — planned for sprint-033-desktop, not wired)
 ```
 
 `cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
@@ -80,7 +75,7 @@ auth-engine exception).
 | Format | oxfmt (`npm run fmt`) |
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
-| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `>=0.84.4 <1.0.0`, see § Pi dependency posture |
+| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `>=0.85.1 <1.0.0`, see § Pi dependency posture |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -94,14 +89,16 @@ auth-engine exception).
 
 ## Pi dependency posture
 
-`@earendil-works/pi-coding-agent` is ranged **`>=0.84.4 <1.0.0`** in `packages/server` and
+`@earendil-works/pi-coding-agent` is ranged **`>=0.85.1 <1.0.0`** in `packages/server` and
 `packages/cli` (kept identical — the CLI resolves the same bundled binary the daemon spawns).
 
 This is a deliberate choice to **track Pi's minor and patch releases automatically**, so a plain
 `npm install` picks up new Pi versions without a file change. Note the tradeoff it accepts: Pi is
-pre-1.0, and the 0.x convention puts **breaking changes in the minor slot** (`0.85.0`), so an
-install can pull a breaking Pi. `^0.84.4` would NOT express this — npm's caret treats the minor as
-the major for `0.x`, pinning to patches only; hence the explicit `>=… <1.0.0` range.
+pre-1.0, and the 0.x convention puts **breaking changes in the minor slot** (`0.86.0`), so an
+install can pull a breaking Pi. `^0.85.1` would NOT express this — npm's caret treats the minor as
+the major for `0.x`, pinning to patches only; hence the explicit `>=… <1.0.0` range. A release
+commit has silently reverted this to a caret once before (`cf734be` set the range, a later
+`chore: release` merge clobbered it); if you see `^`, it is drift, not a decision.
 
 Two consequences for anyone touching the Pi integration:
 
@@ -114,12 +111,19 @@ Two consequences for anyone touching the Pi integration:
 - **Two places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
   neither is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
   `getSupportedThinkingLevels` + its 7-level ladder) and `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`). Both were re-verified identical at 0.84.4.
+  `splitGitRef` (mirrors Pi's `splitRef`). Both re-verified at 0.85.1: `splitRef` byte-identical,
+  and `deriveThinkingLevels` differential-tested against Pi's own
+  `get_available_thinking_levels` across all 199 models Pi reports — zero mismatches.
 
 When bumping Pi, diff these surfaces against the previous version: `dist/modes/rpc/rpc-mode.js`
 and `rpc-types.d.ts` (RPC command/event surface), `dist/index.d.ts` (the `SessionManager` /
 `SessionEntry` / `ModelRuntime` symbols this repo imports), `dist/core/session-manager.d.ts`,
 `dist/modes/json-event.d.ts` (stream-event shapes the event mapper consumes), and the `bin` field.
+Also diff `dist/core/agent-session.d.ts`: 0.85.0 dropped `auto_retry_end` from the declared
+session-event union while the bundle still emits it, so treat that file's event union as
+advisory — `event-mapper.ts` switches on a loose `string`, and its `auto_retry_end` case is
+still live. A `.d.ts` deletion there is not proof an event stopped being emitted; grep
+`dist/bundle/chunks/` before removing a mapper case.
 
 ---
 
@@ -175,8 +179,8 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies — e.g.
 #    web-client's @av-pi-studio/client/protocol, which are devDependencies since web-client ships
 #    no runtime deps, only its prebuilt dist), builds+typechecks+tests, then publishes
-#    protocol/highlight/relay/client/web-client/server/cli to npm in that dependency order.
-#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
+#    protocol/relay/client/web-client/server/cli to npm in that dependency order.
+#    The single version line lives in packages/*/package.json (all 7 kept identical; the script
 #    reads packages/protocol/package.json as the reference). The root package.json intentionally
 #    has NO "version" field — it is a private workspace root that nothing publishes and nothing
 #    reads; do not add one back, or it will silently drift from the real version. Every published
@@ -460,7 +464,5 @@ tolerated without a migration framework.
 | client | `packages/client/AGENTS.md` |
 | server | `packages/server/AGENTS.md` |
 | cli | `packages/cli/AGENTS.md` |
-| highlight | `packages/highlight/AGENTS.md` |
 | relay | `packages/relay/AGENTS.md` |
 | web-client | `packages/web-client/AGENTS.md` |
-| desktop | `packages/desktop/AGENTS.md` |

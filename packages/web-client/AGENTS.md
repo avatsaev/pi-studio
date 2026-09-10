@@ -37,9 +37,10 @@ web-client  →  @av-pi-studio/protocol (wire types + binary codecs)
 ```
 
 Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.
-The Electron shell (`@av-pi-studio/desktop`, currently a placeholder — see its own `AGENTS.md`) is
-meant to consume this package's `build:electron` output as its renderer and own daemon supervision;
-this package stays a pure renderer and must not gain Node-only dependencies.
+The future Electron shell (`@av-pi-studio/desktop`, planned in `swe/sprints/sprint-033-desktop`,
+not yet a package — see `swe/features/desktop-app.md`) is meant to consume this package's
+`build:electron` output as its renderer and own daemon supervision; this package stays a pure
+renderer and must not gain Node-only dependencies.
 
 **Packaging: every entry in `package.json` is a `devDependency`, not a runtime `dependency`.**
 This package has no `main`, no `exports`, and no `bin` — it ships only the prebuilt static assets

@@ -69,7 +69,7 @@ const PI_CLI_FALLBACKS = [join("dist", "bundle", "cli.js"), join("dist", "cli.js
  *
  * Reading the declared `bin` rather than hardcoding a path is deliberate: Pi moved it from
  * `dist/cli.js` to `dist/bundle/cli.js` in 0.84.4, and the dependency range intentionally accepts
- * future minor releases (`>=0.84.4 <1.0.0`), so a relocation must not silently fall back to a
+ * future minor releases (`>=0.85.1 <1.0.0`), so a relocation must not silently fall back to a
  * global `pi` — or to an entry upstream has stopped shipping.
  */
 function resolvePiCliInPackage(root: string): string | null {

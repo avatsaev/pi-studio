@@ -1,11 +1,10 @@
 // @av-pi-studio/server — the daemon: WS API, agent supervision, stores, relay.
-import { HIGHLIGHT_PACKAGE } from "@av-pi-studio/highlight";
 import { PROTOCOL_PACKAGE } from "@av-pi-studio/protocol";
 
 export const SERVER_PACKAGE = "@av-pi-studio/server" as const;
 
-/** Proves the server consumes protocol + highlight emitted declarations. */
-export const SERVER_DEPS = [PROTOCOL_PACKAGE, HIGHLIGHT_PACKAGE] as const;
+/** Proves the server consumes protocol's emitted declarations. */
+export const SERVER_DEPS = [PROTOCOL_PACKAGE] as const;
 
 // File-based JSON persistence (atomic store primitive + entity stores).
 export * from "./persistence/index.js";

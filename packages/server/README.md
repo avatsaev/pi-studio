@@ -69,7 +69,7 @@ From the monorepo root:
 
 ```bash
 npm install            # install all workspace deps
-npm run build:server   # build this package (compiles protocol + highlight first via project refs)
+npm run build:server   # build this package (compiles protocol first via project refs)
 ```
 
 Or build everything: `npm run build`.

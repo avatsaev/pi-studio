@@ -20,21 +20,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy every workspace package.json so `npm ci` can resolve the full workspace graph.
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/protocol/package.json  packages/protocol/package.json
-COPY packages/highlight/package.json packages/highlight/package.json
 COPY packages/relay/package.json     packages/relay/package.json
 COPY packages/client/package.json    packages/client/package.json
 COPY packages/server/package.json    packages/server/package.json
 RUN --mount=type=cache,target=/root/.npm,id=npm-daemon,sharing=locked \
     npm ci --workspace @av-pi-studio/server --include-workspace-root
 
-# Build the server's dependency chain: protocol → highlight → relay → client → server.
+# Build the server's dependency chain: protocol → relay → client → server.
 COPY packages/protocol  packages/protocol
-COPY packages/highlight packages/highlight
 COPY packages/relay     packages/relay
 COPY packages/client    packages/client
 COPY packages/server    packages/server
 RUN npm run build:protocol \
- && npm run build:highlight \
  && npm run build:relay \
  && npm run build:client \
  && npm run build:server
@@ -72,8 +69,6 @@ COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/package.json ./package.json
 COPY --from=build /repo/packages/protocol/package.json  ./packages/protocol/package.json
 COPY --from=build /repo/packages/protocol/dist          ./packages/protocol/dist
-COPY --from=build /repo/packages/highlight/package.json ./packages/highlight/package.json
-COPY --from=build /repo/packages/highlight/dist         ./packages/highlight/dist
 COPY --from=build /repo/packages/relay/package.json     ./packages/relay/package.json
 COPY --from=build /repo/packages/relay/dist             ./packages/relay/dist
 COPY --from=build /repo/packages/client/package.json    ./packages/client/package.json

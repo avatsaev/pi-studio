@@ -169,7 +169,7 @@ needed (e.g. `ui/avatar.ts`'s 12-color deterministic avatar palette, syntax/term
 `comment`, `function`, `variable`, `type`, `class`, `constant`, `operator`, `punctuation`, `tag`,
 `attribute`, `property`, `regexp`, `escape`, `heading`, `link`, `deleted`, `inserted`), built from the
 raw palette (`darkSyntax()` / `lightSyntax()`) and emitted as `--syntax-<kebab-case>` vars (e.g.
-`--syntax-function`) — consumed by `@av-pi-studio/highlight`.
+`--syntax-function`).
 
 ### Terminal theme
 

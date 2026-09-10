@@ -232,7 +232,7 @@ column records the original RN library each choice replaces, so the ported behav
 | Icons | `lucide-react` (^0.5) | lucide-react-native / react-native-svg |
 | List virtualization | `@tanstack/react-virtual` (^3.13) | (same) |
 | Markdown | `react-markdown` (^9) + `remark-gfm` (^4) | react-native-markdown-display / markdown-it |
-| Syntax highlighting | `@av-pi-studio/highlight` (workspace) + the syntax tokens here | (same) |
+| Syntax highlighting | `shiki` + the syntax tokens here | (same) |
 | Terminal emulator | `@xterm/xterm` (^6 beta) + addons (`addon-fit`, `addon-search`, `addon-webgl`, `addon-web-links`, `addon-clipboard`, `addon-image`, `addon-ligatures`, `addon-unicode11`); `@xterm/headless` for tests | (same) |
 | Embedded browser pane | Electron `<webview>` (electron target only); web target renders a "desktop-only" placeholder | react-native-webview |
 | Voice / audio | Web Audio API + `MediaRecorder`; `@av-pi-studio/audio` workspace helper | expo-audio / expo-two-way-audio |
@@ -255,7 +255,7 @@ achieves the same web-vs-Electron split three ways:
 See [client-app-runtime.md](client-app-runtime.md) for the full policy and the `getIsElectron()` contract.
 
 ## Dependencies
-- Internal: the highlight package (syntax token colors), client app runtime (applies appearance updates).
+- Internal: client app runtime (applies appearance updates).
 - External: see the pinned stack table above. The theming engine is `react-native-unistyles` v3; the icon
   set is `lucide-react-native`; SVG via `react-native-svg`.
 

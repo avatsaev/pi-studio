@@ -119,7 +119,6 @@ module and ships prebuilt binaries for common platforms.
   (`packages/relay`)
 - **SSH gateway** — Electron-only SSH local-port tunnel to a remote daemon's localhost WebSocket
   listener; keeps the daemon protocol unchanged. (`packages/desktop`, app runtime integration)
-- **Highlight** — Syntax highlighting support package (server-side). (`packages/highlight`)
 
 ## 4. Directory / Module Map
 
@@ -234,8 +233,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
   `npm run dev:desktop` (Electron). Repo dev state lives under `.dev/pi-studio-home`.
 - **Run (prod):** desktop app auto-starts a bundled daemon; or `npm install -g @av-pi-studio/cli` then
   `pi-studio` / `pi-studio daemon start` (on `127.0.0.1:6767`).
-- **Build:** layered — `build:protocol` → `build:client` → `build:server` (also builds highlight,
-  relay, cli). Always build owning packages before diagnosing cross-package type errors.
+- **Build:** layered — `build:protocol` → `build:client` → `build:server` (also builds relay, cli).
+  Always build owning packages before diagnosing cross-package type errors.
 - **Test:** Vitest per-file (`npx vitest run <file>`). Maestro for mobile. Never run the whole suite
   locally; use CI.
 - **Deploy:** desktop via Electron release + EAS for mobile; npm publish for daemon/CLI packages
