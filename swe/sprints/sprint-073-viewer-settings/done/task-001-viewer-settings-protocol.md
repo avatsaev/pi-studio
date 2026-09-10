@@ -1,7 +1,7 @@
 # Task 001 — `viewer_settings_*` wire schemas + `viewerSettings` feature flag
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1

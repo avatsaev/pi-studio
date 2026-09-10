@@ -47,7 +47,7 @@ describe("tabFromIdentity", () => {
       "diff:staged:/a/b.ts",
       "diff:worktree:/a/b.ts",
     ]) {
-      const tab = tabFromIdentity(identity, CWD);
+      const tab = tabFromIdentity(identity, CWD, () => true);
       expect(tab, identity).not.toBeNull();
       expect(tabIdentity(tab!)).toBe(identity);
     }
@@ -56,12 +56,12 @@ describe("tabFromIdentity", () => {
   it("keeps a file and a molecule tab on the same path distinct", () => {
     const path = "/a/structure.cif";
     // The dispatching `openFileTab` would turn this into a molecule tab and orphan the claim.
-    expect(tabFromIdentity(`file:${path}`, CWD)!.kind).toBe("file");
-    expect(tabFromIdentity(`molecule:${path}`, CWD)!.kind).toBe("molecule");
+    expect(tabFromIdentity(`file:${path}`, CWD, () => true)!.kind).toBe("file");
+    expect(tabFromIdentity(`molecule:${path}`, CWD, () => true)!.kind).toBe("molecule");
   });
 
   it("carries the path, the staged flag, and a basename label", () => {
-    expect(tabFromIdentity("diff:staged:/a/deep/b.ts", CWD)).toEqual({
+    expect(tabFromIdentity("diff:staged:/a/deep/b.ts", CWD, () => true)).toEqual({
       id: "diff-/a/deep/b.ts-staged",
       kind: "diff",
       label: "b.ts",
@@ -69,24 +69,47 @@ describe("tabFromIdentity", () => {
       data: { path: "/a/deep/b.ts", staged: true },
       workspaceCwd: CWD,
     });
-    expect(tabFromIdentity("diff:worktree:/a/b.ts", CWD)!.data).toEqual({
+    expect(tabFromIdentity("diff:worktree:/a/b.ts", CWD, () => true)!.data).toEqual({
       path: "/a/b.ts",
       staged: false,
     });
   });
 
   it("ignores daemon-owned kinds — those are the restore hooks' job", () => {
-    expect(tabFromIdentity("agent:a1", CWD)).toBeNull();
-    expect(tabFromIdentity("terminal:4", CWD)).toBeNull();
+    expect(tabFromIdentity("agent:a1", CWD, () => true)).toBeNull();
+    expect(tabFromIdentity("terminal:4", CWD, () => true)).toBeNull();
   });
 
   it("ignores an unrecognised or path-less identity instead of guessing", () => {
     // A record written by a newer client may name kinds this one has never heard of.
-    expect(tabFromIdentity("whiteboard:/a/b", CWD)).toBeNull();
-    expect(tabFromIdentity("file:", CWD)).toBeNull();
-    expect(tabFromIdentity("molecule:", CWD)).toBeNull();
-    expect(tabFromIdentity("diff:staged:", CWD)).toBeNull();
-    expect(tabFromIdentity("diff:sometime:/a/b.ts", CWD)).toBeNull();
+    expect(tabFromIdentity("whiteboard:/a/b", CWD, () => true)).toBeNull();
+    expect(tabFromIdentity("file:", CWD, () => true)).toBeNull();
+    expect(tabFromIdentity("molecule:", CWD, () => true)).toBeNull();
+    expect(tabFromIdentity("diff:staged:", CWD, () => true)).toBeNull();
+    expect(tabFromIdentity("diff:sometime:/a/b.ts", CWD, () => true)).toBeNull();
+  });
+
+  it("with the viewer disabled, a molecule identity resolves to exactly the file-branch tab shape", () => {
+    const path = "/a/structure.cif";
+    const disabled = tabFromIdentity(`molecule:${path}`, CWD, () => false);
+    const fileShape = tabFromIdentity(`file:${path}`, CWD, () => false);
+    expect(disabled).toEqual(fileShape);
+    expect(disabled).toEqual({
+      id: "file-/a/structure.cif",
+      kind: "file",
+      label: "structure.cif",
+      closable: true,
+      data: { path },
+      workspaceCwd: CWD,
+    });
+  });
+
+  it("with the viewer disabled, every non-molecule identity is unaffected", () => {
+    for (const identity of ["file:/a/b.ts", "diff:staged:/a/b.ts", "diff:worktree:/a/b.ts"]) {
+      const enabled = tabFromIdentity(identity, CWD, () => true);
+      const disabled = tabFromIdentity(identity, CWD, () => false);
+      expect(disabled).toEqual(enabled);
+    }
   });
 });
 

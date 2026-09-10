@@ -31,6 +31,7 @@ import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
+import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { wrapSessionEnvelope } from "./bootstrap.js";
 
 export interface DevBootstrapOptions {
@@ -152,6 +153,16 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   permissionService.registerHandlers(registry, getActiveSessions);
 
   registerAgentUiHandlers(registry, { service: agentUiService, logger });
+
+  // Unlike extensions (production-only), this subsystem must exist in dev: the web client is
+  // developed against the dev daemon, and without it every dev session runs the
+  // capability-absent degrade path and can never exercise the toggle.
+  registerViewerSettingsHandlers(registry, {
+    home: "/tmp/pi-studio-dev",
+    broadcast,
+    getActiveSessions,
+    logger: logger.child({ component: "viewer-settings" }),
+  });
 
   // ── list_agents_request: minimal directory listing (not in scope elsewhere) ─
   registry.register("list_agents_request", (ctx) => {

@@ -28,6 +28,7 @@
 
 import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
 import { tabIds, useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
+import { isViewerEnabled as isViewerEnabledFromStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 
 /** `diff:staged:/a/b.ts` / `diff:worktree:/a/b.ts` — the only identity with a middle segment. */
 const DIFF_IDENTITY = /^diff:(staged|worktree):(.+)$/;
@@ -35,7 +36,7 @@ const DIFF_IDENTITY = /^diff:(staged|worktree):(.+)$/;
 export function reopenClientTabs(loaded: ReadonlyMap<string, ValidatedWorkspaceLayout>): void {
   for (const [cwd, entry] of loaded) {
     for (const identity of Object.keys(entry.placement)) {
-      const tab = tabFromIdentity(identity, cwd);
+      const tab = tabFromIdentity(identity, cwd, isViewerEnabledFromStore);
       if (tab !== null) useTabStore.getState().open(tab);
     }
   }
@@ -45,8 +46,19 @@ export function reopenClientTabs(loaded: ReadonlyMap<string, ValidatedWorkspaceL
  * The tab a persisted identity describes, or `null` when it names a daemon-owned kind (`agent:`,
  * `terminal:`) or anything unrecognised — a record written by a newer client can carry kinds this one
  * has never heard of, and those must be ignored rather than guessed at.
+ *
+ * `isViewerEnabled` is a required, injected parameter — never read from the settings store
+ * directly — so this stays the pure, synchronous inverse of `tabIdentity` it always was, unit-tested
+ * with no stores. Phase 3's plugin registry supplies the same parameter unchanged. When a
+ * `molecule:` identity's viewer is disabled, this returns EXACTLY the tab the `file:` branch would
+ * produce for the same path (`kind: "file"`, `tabIds.file(path)`) — "disabled" means offer the file
+ * as text, never orphan the claim and never fabricate a molecule tab the user just turned off.
  */
-export function tabFromIdentity(identity: string, workspaceCwd: string): Tab | null {
+export function tabFromIdentity(
+  identity: string,
+  workspaceCwd: string,
+  isViewerEnabled: (id: string) => boolean,
+): Tab | null {
   const file = suffix(identity, "file:");
   if (file !== null) {
     return {
@@ -59,6 +71,15 @@ export function tabFromIdentity(identity: string, workspaceCwd: string): Tab | n
   }
   const molecule = suffix(identity, "molecule:");
   if (molecule !== null) {
+    if (!isViewerEnabled("molviewer")) {
+      return {
+        id: tabIds.file(molecule),
+        kind: "file",
+        ...common(molecule),
+        workspaceCwd,
+        data: { path: molecule },
+      };
+    }
     return {
       id: tabIds.molecule(molecule),
       kind: "molecule",

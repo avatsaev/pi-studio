@@ -1,7 +1,7 @@
 # Task 004 — `viewer-settings-store.ts` + connection-driven hydration
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client
 - **Priority:** P1

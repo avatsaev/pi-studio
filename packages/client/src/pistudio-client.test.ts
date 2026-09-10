@@ -343,6 +343,58 @@ describe("PiStudioClient — extension pack actions (sprint-057)", () => {
   });
 });
 
+describe("PiStudioClient — viewer settings (sprint-073)", () => {
+  it("hasViewerSettingsCapability reflects the daemon's viewerSettings flag", async () => {
+    const { client: withFlag } = await makeFacade({ features: { viewerSettings: true } });
+    expect(withFlag.hasViewerSettingsCapability()).toBe(true);
+
+    const { client: withoutFlag } = await makeFacade({ features: { providersSnapshot: true } });
+    expect(withoutFlag.hasViewerSettingsCapability()).toBe(false);
+  });
+
+  it("getViewerSettings sends viewer_settings_get_request and returns the response's settings document", async () => {
+    const { client, fake } = await makeFacade();
+    const settings = await client.getViewerSettings();
+    expect(settings).toEqual({ version: 1, viewers: {} });
+    const sent = fake.sent.find((m) => m.type === "viewer_settings_get_request");
+    expect(sent).toEqual({ type: "viewer_settings_get_request", requestId: expect.any(String) });
+  });
+
+  it("setViewerSettings sends viewer_settings_set_request carrying the patch verbatim and returns the effective document", async () => {
+    const { client, fake } = await makeFacade();
+    const settings = await client.setViewerSettings({ molviewer: { enabled: false } });
+    expect(settings.viewers).toEqual({ molviewer: { enabled: false } });
+    const sent = fake.sent.find((m) => m.type === "viewer_settings_set_request");
+    expect(sent).toEqual({
+      type: "viewer_settings_set_request",
+      requestId: expect.any(String),
+      patch: { molviewer: { enabled: false } },
+    });
+  });
+
+  it("onViewerSettingsUpdate fires only for viewer_settings_update pushes; unsubscribe stops delivery", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: unknown[] = [];
+    const unsubscribe = client.onViewerSettingsUpdate((settings) => seen.push(settings));
+
+    fake.push({ type: "agent_update", agentId: "a1", status: "idle" });
+    fake.push({
+      type: "viewer_settings_update",
+      settings: { version: 1, viewers: { molviewer: { enabled: true } } },
+    });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toEqual([{ version: 1, viewers: { molviewer: { enabled: true } } }]);
+
+    unsubscribe();
+    fake.push({
+      type: "viewer_settings_update",
+      settings: { version: 1, viewers: { molviewer: { enabled: false } } },
+    });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toHaveLength(1);
+  });
+});
+
 // Deterministic microtask drain — no real wall-clock wait. The scripted daemon delivers every
 // message via `queueMicrotask`, and the SDK's own event handling is synchronous once a message is
 // delivered; a handful of chained ticks comfortably drains any nesting this harness produces.

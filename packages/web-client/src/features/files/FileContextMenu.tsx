@@ -40,6 +40,7 @@ import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 import { openFileTab, openMoleculeTab, openTextTab } from "./open-file-tab.js";
 import { deleteEntry } from "./delete-entry.js";
+import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 
 export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);
@@ -49,6 +50,7 @@ export function FileContextMenu() {
   const startRename = useExplorerStore((s) => s.startRename);
   const rootPath = useExplorerStore((s) => s.rootPath);
   const activeWorkspaceCwd = useTabStore((s) => s.activeWorkspaceCwd);
+  const molviewerEnabled = useViewerSettingsStore((s) => s.isViewerEnabled("molviewer"));
   const { saveToDisk } = useFileTransfer();
   const queryClient = useQueryClient();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -181,11 +183,13 @@ export function FileContextMenu() {
                   <ExternalLink size={13} />
                   Open
                 </MenuItem>
-                <MenuItem onSelect={openInMolviewer}>
-                  <Atom size={13} />
-                  Open in MolViewer
-                </MenuItem>
-                {isMoleculeFile(menu.path) && (
+                {molviewerEnabled && (
+                  <MenuItem onSelect={openInMolviewer}>
+                    <Atom size={13} />
+                    Open in MolViewer
+                  </MenuItem>
+                )}
+                {molviewerEnabled && isMoleculeFile(menu.path) && (
                   <MenuItem onSelect={openAsText}>
                     <FileText size={13} />
                     Open as Text

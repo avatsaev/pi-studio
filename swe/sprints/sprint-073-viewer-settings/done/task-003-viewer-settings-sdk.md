@@ -1,7 +1,7 @@
 # Task 003 — `PiStudioClient` viewer-settings facade
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

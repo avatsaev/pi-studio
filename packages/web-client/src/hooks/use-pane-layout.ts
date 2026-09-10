@@ -39,11 +39,32 @@ import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { reopenClientTabs } from "@pi-studio-ui/features/workspace/reopen-client-tabs.js";
 import { installActiveWorkspaceRestore } from "@pi-studio-ui/features/workspace/restore-active-workspace.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 
 const EMPTY_RECORD: LoadedPaneLayout = { workspaces: new Map(), activeWorkspaceCwd: null };
 
+/**
+ * Whether the replay effect should run now. Pure — extracted for direct unit testing (no jsdom
+ * test environment in this repo; `hooks/file-text-state.ts`'s identical rationale). The replay
+ * waits on BOTH `status === "open"` and `loaded` (the viewer-settings store's hydration flag): a
+ * persisted `molecule:<path>` identity must not race the settings fetch and reopen as a molecule
+ * tab the user disabled. `replayed` makes it a one-shot regardless of how many times either input
+ * changes afterward.
+ */
+export function shouldReplayPaneLayout(
+  status: string,
+  viewerSettingsLoaded: boolean,
+  replayed: boolean,
+): boolean {
+  return status === "open" && viewerSettingsLoaded && !replayed;
+}
+
 export function usePaneLayoutBoot(): void {
   const status = useConnectionStore((s) => s.status);
+  // `loaded` is a store selector, not a `getState()` read inside the `[status]` effect below —
+  // only a subscribed value re-runs the effect when the settings fetch resolves later than the
+  // connection status transition (see `shouldReplayPaneLayout` for the full gate rationale).
+  const viewerSettingsLoaded = useViewerSettingsStore((s) => s.loaded);
   const loadedRef = useRef<LoadedPaneLayout>(EMPTY_RECORD);
   const replayedRef = useRef(false);
 
@@ -63,12 +84,12 @@ export function usePaneLayoutBoot(): void {
   }, []);
 
   useEffect(() => {
-    if (status !== "open" || replayedRef.current) return;
+    if (!shouldReplayPaneLayout(status, viewerSettingsLoaded, replayedRef.current)) return;
     replayedRef.current = true;
     const loaded = loadedRef.current;
     reopenClientTabs(loaded.workspaces);
     // Armed only now: the settle point can only be reached once the restores are running, and arming
     // at mount would watch for a hydration cycle that a later `installPersistedLayouts` resets anyway.
     installActiveWorkspaceRestore(loaded.activeWorkspaceCwd);
-  }, [status]);
+  }, [status, viewerSettingsLoaded]);
 }

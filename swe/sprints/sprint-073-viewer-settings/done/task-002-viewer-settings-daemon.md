@@ -1,7 +1,7 @@
 # Task 002 — Daemon `viewers/` subsystem: persistence, handlers, broadcast
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server
 - **Priority:** P1

@@ -53,6 +53,7 @@ import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
 import { tabAttentionStatus } from "./tab-attention.js";
 import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 import { canSplit, type SplitRegion } from "./pane-tree.js";
 import styles from "./TabStrip.module.css";
 
@@ -166,6 +167,7 @@ function NewTabMenu({
   workspaceCwd: string | null;
   paneId: string | null;
 }) {
+  const molviewerEnabled = useViewerSettingsStore((s) => s.isViewerEnabled("molviewer"));
   const openInPane = (open: (cwd: string, targetPaneId?: string) => void) => () => {
     // Guarded rather than defaulted: a `?? "~"` fallback here would silently open a chat in a
     // phantom workspace (AGENTS.md § Invariants "Zero agents on connect ⇒ no workspace").
@@ -194,10 +196,12 @@ function NewTabMenu({
           <Icon icon={SquareTerminal} size="xs" className={styles.itemIcon} aria-hidden />
           New terminal
         </MenuItem>
-        <MenuItem onSelect={openInPane(openNewMolecule)}>
-          <Icon icon={Atom} size="xs" className={styles.itemIcon} aria-hidden />
-          New molecule view
-        </MenuItem>
+        {molviewerEnabled && (
+          <MenuItem onSelect={openInPane(openNewMolecule)}>
+            <Icon icon={Atom} size="xs" className={styles.itemIcon} aria-hidden />
+            New molecule view
+          </MenuItem>
+        )}
       </MenuContent>
     </DropdownMenu.Root>
   );

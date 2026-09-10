@@ -11,11 +11,15 @@
  */
 
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { isViewerEnabled } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 
 export function openFileTab(path: string, workspaceCwd: string, targetPaneId?: string): void {
-  if (isMoleculeFile(path)) openMoleculeTab(path, workspaceCwd, targetPaneId);
-  else openTextTab(path, workspaceCwd, targetPaneId);
+  if (isMoleculeFile(path) && isViewerEnabled("molviewer")) {
+    openMoleculeTab(path, workspaceCwd, targetPaneId);
+  } else {
+    openTextTab(path, workspaceCwd, targetPaneId);
+  }
 }
 
 /**

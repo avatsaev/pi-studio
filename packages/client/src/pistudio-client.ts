@@ -28,6 +28,11 @@ import type {
   ProviderAuthType,
   SessionMessage,
   TimelineDirection,
+  ViewerSettings,
+  ViewerSettingsGetResponse,
+  ViewerSettingsPatchEntry,
+  ViewerSettingsSetResponse,
+  ViewerSettingsUpdate,
 } from "@av-pi-studio/protocol";
 import type { DaemonClient } from "./daemon-client.js";
 
@@ -463,6 +468,11 @@ export function isAgentDeleted(message: unknown): message is AgentDeletedMessage
   return !!m && m.type === "agent_deleted" && typeof m.agentId === "string";
 }
 
+// ─── Viewer settings (viewer_settings_*, sprint-073) ─────────────────────────────
+
+/** A `viewer_settings_set_request`'s patch body — per-viewer, both fields optional. */
+export type ViewerSettingsPatch = Record<string, ViewerSettingsPatchEntry>;
+
 // ─── Facade implementation ──────────────────────────────────────────────────────
 
 export class PiStudioClient {
@@ -811,6 +821,44 @@ export class PiStudioClient {
     flow.unsubscribe?.();
     if (this.activeProviderAuthFlow === flow) this.activeProviderAuthFlow = null;
     flow.settle(result);
+  }
+
+  // ─── Viewer settings (viewer_settings_*, sprint-073) ───────────────────────
+
+  /** True iff the daemon advertised the `viewerSettings` capability in `server_info.features`.
+   *  A `false` result means "treat every viewer as enabled", never "no viewers available" — the
+   *  degrade direction always offers a viewer, never hides one behind a daemon version. */
+  hasViewerSettingsCapability(): boolean {
+    return this.daemon.hasFeature("viewerSettings");
+  }
+
+  /** The current per-viewer enable/disable document. */
+  async getViewerSettings(): Promise<ViewerSettings> {
+    const payload = await this.daemon.request<ViewerSettingsGetResponse["payload"]>(
+      "viewer_settings_get_request",
+      {},
+    );
+    return payload.settings;
+  }
+
+  /** Patches one or more viewer rows; resolves to the EFFECTIVE document after the daemon's
+   *  merge, never an echo of `patch`. */
+  async setViewerSettings(patch: ViewerSettingsPatch): Promise<ViewerSettings> {
+    const payload = await this.daemon.request<ViewerSettingsSetResponse["payload"]>(
+      "viewer_settings_set_request",
+      { patch },
+    );
+    return payload.settings;
+  }
+
+  /** Subscribe to the daemon's `viewer_settings_update` broadcast — every viewer-settings change
+   *  on this daemon, from any session, including this client's own. */
+  onViewerSettingsUpdate(handler: (settings: ViewerSettings) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if ((msg as { type?: string }).type === "viewer_settings_update") {
+        handler((msg as unknown as ViewerSettingsUpdate).settings);
+      }
+    });
   }
 
   // ─── Extension UI (agent_ui_*, sprint-066) ─────────────────────────────────

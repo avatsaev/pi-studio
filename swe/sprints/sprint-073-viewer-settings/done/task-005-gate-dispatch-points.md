@@ -1,7 +1,7 @@
 # Task 005 — Gate the five molviewer dispatch points + replay ordering
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client
 - **Priority:** P1
