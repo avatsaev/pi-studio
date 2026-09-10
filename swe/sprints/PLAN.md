@@ -1979,10 +1979,12 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > this store for its enabled-filter and says so explicitly; running phase 1 first would mean
 > inventing a second settings source and deleting it a sprint later.
 >
-> **Status:** in progress — 5/7 tasks done (task-001 through task-005). Full workspace
-> `build`/`typecheck`/`lint`/`vitest run` green (2744/2744 tests). Live E2E against
+> **Status:** in progress — 6/7 tasks done (task-001 through task-006). Full workspace
+> `build`/`typecheck`/`lint`/`vitest run` green (2751/2751 tests). Live E2E against
 > `npm run dev:daemon` confirmed the broadcast-before-answer ordering and multi-client
-> convergence for task-002. See `done/task-00{1,2,3,4,5}-*-summary.md` for what shipped.
+> convergence for task-002, plus the settings-gear-reachability fix for task-006. See
+> `done/task-00{1,2,3,4,5,6}-*-summary.md` for what shipped. Only task-007 (sprint close, live
+> two-browser E2E) remains.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

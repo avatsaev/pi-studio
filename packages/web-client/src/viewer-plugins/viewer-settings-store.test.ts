@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { PiStudioClient, ViewerSettingsPatch } from "@av-pi-studio/client";
 import type { ViewerSettings } from "@av-pi-studio/protocol";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { resetToastStoreForTests, useToastStore } from "@pi-studio-ui/stores/toast-store.js";
 import { isViewerEnabled, useViewerSettingsStore } from "./viewer-settings-store.js";
 
 /**
@@ -62,6 +63,7 @@ function makeFakeClient(opts: { capable?: boolean } = {}): FakeClient {
 beforeEach(() => {
   useViewerSettingsStore.getState().reset();
   useConnectionStore.setState({ client: null });
+  resetToastStoreForTests();
 });
 
 describe("viewer-settings-store", () => {
@@ -191,6 +193,32 @@ describe("viewer-settings-store", () => {
       enabled: true,
       config: { theme: "dark" },
     });
+  });
+
+  it("setEnabled surfaces a toast when the RPC is rejected", async () => {
+    const fake = makeFakeClient();
+    fake.setSetResult(async () => {
+      throw new Error("rejected");
+    });
+    useConnectionStore.setState({ client: fake.client });
+
+    expect(useToastStore.getState().toasts).toEqual([]);
+    await useViewerSettingsStore.getState().setEnabled("molviewer", false);
+
+    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(useToastStore.getState().toasts[0]?.variant).toBe("error");
+  });
+
+  it("setEnabled does not toast when there is no client (nothing was ever sent)", async () => {
+    await useViewerSettingsStore.getState().setEnabled("molviewer", false);
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
+  it("setEnabled does not toast on success", async () => {
+    const fake = makeFakeClient();
+    useConnectionStore.setState({ client: fake.client });
+    await useViewerSettingsStore.getState().setEnabled("molviewer", false);
+    expect(useToastStore.getState().toasts).toEqual([]);
   });
 
   it("reset() returns to the unhydrated state; a subsequent hydrate re-populates it", async () => {

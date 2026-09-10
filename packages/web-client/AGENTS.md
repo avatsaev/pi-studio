@@ -437,11 +437,23 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     settings/               SettingsDialog (+ module.css) — the settings shell (sprint-065): a
                             900px `Dialog` with an icon+label category sidebar and a scrollable
-                            content pane, opened by ConnectionBar's gear. `SETTINGS_CATEGORIES`
-                            is a local registry (`{ id, label, icon, component, available(caps) }`)
-                            whose entries are capability-gated; Model Providers is the only one
-                            today. Also owns the stacked-dialog dismissal guard — see AGENTS.md
-                            § Invariants "Stacked dialogs"
+                            content pane, opened by ConnectionBar's gear. `SETTINGS_CATEGORIES` +
+                            `buildSettingsCategoryCapabilities` live in settings-categories.ts, a
+                            separate module from `SettingsDialog.tsx` itself (sprint-073/task-006)
+                            so `ConnectionBar` can import the registry EAGERLY — to gate the gear
+                            on "is any category available" — without pulling `SettingsDialog.tsx`'s
+                            own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
+                            the main bundle ahead of the gear ever being clicked; the panel
+                            components stay `lazy()`-loaded regardless of which module imports the
+                            registry array. Two categories today: Model Providers
+                            (`available: (caps) => caps.providerAuth`, capability-gated) and
+                            Viewers (`available: () => true`, capability-INDEPENDENT — ViewersPanel
+                            (+ module.css) degrades its one Molecule Viewer toggle row to
+                            disabled-reading-on with a "Requires a newer daemon" note against a
+                            `viewerSettings`-incapable daemon rather than hiding the row; see §
+                            Invariants "Viewer-disable gate" and "Settings gear reachability").
+                            `SettingsDialog.tsx` also owns the stacked-dialog dismissal guard —
+                            see AGENTS.md § Invariants "Stacked dialogs"
     provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
                             row per provider with an auth-state badge, subscription tag, and
                             login/re-login/logout actions), LoginDialog (+ module.css — drives one
@@ -2175,6 +2187,18 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   caller) must also trigger the first-mount import and render the dialog `open`. A latch owned
   only by the click handler would leave the nudge's `openSettings()` silently no-op the first time
   a session never touches the gear.
+- **Settings gear reachability: "any category available," not "provider auth available"
+  (sprint-073/task-006).** Before this task `ConnectionBar.tsx` gated the gear on
+  `providerAuthCapable` alone — correct while Model Providers was the only category, wrong the
+  moment a capability-independent category (Viewers) exists: against a daemon with zero
+  capabilities the gear stayed hidden and the new category was unreachable, a settings page that
+  exists and cannot be opened. The gate is now `SETTINGS_CATEGORIES.some((c) =>
+  c.available(caps))`, sharing `settings-categories.ts`'s `buildSettingsCategoryCapabilities` with
+  `SettingsDialog`'s own sidebar filter so the two can never drift onto different capability
+  objects. Live-verified against a real dev daemon (`npm run dev:daemon`, mock provider — which
+  does NOT register `provider_auth` handlers, `dev-bootstrap.ts`'s own header comment on why): the
+  gear rendered and was clickable with `providerAuthCapable` provably `false` for the whole
+  session, where the pre-task-006 gate would have hidden it entirely.
 - **Provider auth goes through SDK methods only, never `client.connection.request` directly, and
   no secret ever enters a store or `localStorage` (sprint-065, live-verified task-007).** Every
   `ModelProvidersPanel`/`LoginDialog` call goes through `listProviderAuth`/`loginProvider`/

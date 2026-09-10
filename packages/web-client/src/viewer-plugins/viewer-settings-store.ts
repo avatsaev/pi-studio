@@ -24,6 +24,7 @@ import { create } from "zustand";
 import type { ViewerSettings, ViewerSettingsEntry } from "@av-pi-studio/protocol";
 import type { ViewerSettingsPatch } from "@av-pi-studio/client";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
 
 export interface ViewerSettingsState {
   loaded: boolean;
@@ -89,6 +90,7 @@ export const useViewerSettingsStore = create<ViewerSettingsState>()((set, get) =
       set({ viewers: settings.viewers });
     } catch {
       rollback(set, id, previous);
+      notifyRollback();
     }
   },
 
@@ -104,6 +106,7 @@ export const useViewerSettingsStore = create<ViewerSettingsState>()((set, get) =
       set({ viewers: settings.viewers });
     } catch {
       rollback(set, id, previous);
+      notifyRollback();
     }
   },
 
@@ -130,6 +133,14 @@ function rollback(
     else viewers[id] = previous;
     return { viewers };
   });
+}
+
+/** Surfaces a rejected `viewer_settings_set_request` via the existing toast host, per this
+ *  store's task-006 UI consumer (`ViewersPanel.tsx`) rather than a bespoke inline error state —
+ *  matches `fork-result.ts`'s convention of calling `useToastStore` directly from the store/
+ *  handler rather than threading an error back through the caller. */
+function notifyRollback(): void {
+  useToastStore.getState().error("Could not save the viewer setting. Reverted.");
 }
 
 /** Module-level read for non-React callers (e.g. `reopenClientTabs`'s injected predicate) that

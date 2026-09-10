@@ -1,7 +1,7 @@
 # Task 006 — "Viewers" settings category + reachable settings gear
 
 - **Sprint:** sprint-073-viewer-settings
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client
 - **Priority:** P1
