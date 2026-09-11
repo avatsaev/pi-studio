@@ -30,6 +30,10 @@ import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
 import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import {
+  buildSettingsCategoryCapabilities,
+  SETTINGS_CATEGORIES,
+} from "../settings/settings-categories.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
 import styles from "./ConnectionBar.module.css";
@@ -78,10 +82,13 @@ export function ConnectionBar() {
   const openSettings = useUiStore((s) => s.openSettings);
   const closeSettings = useUiStore((s) => s.closeSettings);
 
-  // Mirrors `PiStudioClient#hasProviderAuthCapability()`, read reactively off the tracked
-  // `serverInfo` field rather than the imperative method (the store's `client` reference stays
-  // stable across a reconnect while its internal feature map mutates in place).
-  const providerAuthCapable = Boolean(serverInfo?.features?.["providerAuth"]);
+  // "Any category available" rather than the old provider-auth-only gate (sprint-065): a
+  // capability-independent category (Viewers, sprint-073/task-006) makes the gear reachable even
+  // against a daemon with zero capabilities. Shares `SettingsDialog`'s own caps-builder so this
+  // never drifts from the sidebar's own filter, and the `.some(...)` form is what keeps this
+  // correct if a future category goes back to being capability-gated.
+  const settingsCaps = buildSettingsCategoryCapabilities(serverInfo?.features);
+  const settingsReachable = SETTINGS_CATEGORIES.some((c) => c.available(settingsCaps));
   // Defers the settings chunk's `import()` until settings has ever been opened, while still
   // letting `Dialog`'s close animation play out afterward (an `open && <SettingsDialog/>` guard
   // would unmount it mid-close instead). Watches `settingsOpen` rather than latching only inside
@@ -238,7 +245,7 @@ export function ConnectionBar() {
         >
           <Icon icon={rightSidebarCollapsed ? PanelRightOpen : PanelRightClose} size="sm" />
         </Button>
-        {providerAuthCapable && (
+        {settingsReachable && (
           <Button
             className={styles.panelToggle}
             size="xs"

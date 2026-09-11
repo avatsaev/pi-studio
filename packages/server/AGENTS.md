@@ -212,6 +212,17 @@ src/
                                     of `@av-pi-studio/server`'s public surface, and what the CLI's
                                     `extensions list --local` (sprint-057/task-005) imports.
 
+  viewers/                        Viewer settings — per-viewer enable/disable state
+                                   (docs/MOLVIEWER_DECOUPLING.md § 4.4).
+    viewer-settings-state.ts       viewer-settings.json store: viewerSettingsPath/
+                                    loadViewerSettings (soft-fallback — deliberately NOT
+                                    extensions-state.ts's "unreadable" sentinel)/
+                                    saveViewerSettings + the pure applyViewerSettingsPatch merge.
+    viewer-settings-rpc.ts         registerViewerSettingsHandlers — viewer_settings_get/_set,
+                                    serialized read-modify-write, broadcasts viewer_settings_update
+                                    to every active session (including the caller) before
+                                    answering.
+
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
     pty-backend.ts                PtyBackend — node-pty abstraction (injectable for tests).
@@ -1178,6 +1189,8 @@ All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
 - `schedules/<scheduleId>.json`
 - `projects.json`
 - `workspaces.json`
+- `viewer-settings.json` (`viewers/` — per-viewer enable/disable state, not managed by
+  `STORE_SUBDIRECTORIES`; a bare top-level file, like `extensions-state.json`)
 
 All schemas use `.passthrough()` and optional fields — never throw on unknown fields from newer
 daemon versions.
@@ -1238,6 +1251,38 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
 - **Never rewrite a corrupt `extensions-state.json`.** `loadExtensionsState` returns the literal
   string `"unreadable"` rather than defaults; every caller's fail-safe is to do nothing and log
   once, never reset the file.
+
+### Viewer settings (`viewers/`)
+
+Per-viewer enable/disable state (docs/MOLVIEWER_DECOUPLING.md § 4.4), the daemon-backed runtime
+kill switch every future viewer plugin reads. Invariants:
+
+- **The daemon knows nothing about plugins.** Rows in `viewer-settings.json` are keyed by
+  whatever id a client sends; an unknown id is a valid row, never an error, never validated
+  against a list. `config` is an opaque `z.unknown()` blob the daemon never interprets — the
+  same posture as `agent_ui_request`'s `payload`.
+- **Absent row means enabled.** Defaults are never written to disk, so a fresh daemon's file
+  (or a daemon with no file at all) looks identical to a client as a daemon that has always had
+  every viewer enabled.
+- **Soft-fallback on a read failure, deliberately NOT `extensions-state.ts`'s `"unreadable"`
+  sentinel.** `loadViewerSettings` degrades a missing file, corrupt JSON, or a schema mismatch
+  to the all-enabled defaults (logged at `warn` only on an actual read failure, never on a
+  merely-absent file) — extensions must not silently re-offer a package after a corrupt read,
+  whereas an unreadable viewer setting must degrade toward *offering* the viewer. A corrupt file
+  must never end up hiding a file behind a "which viewer can open this" decision, and the read
+  itself never rewrites the corrupt file.
+- **`set` serializes its read-modify-write.** Two clients toggling different viewer ids
+  concurrently must not lose a row: `registerViewerSettingsHandlers` chains every `set` onto a
+  module-local promise queue. "Last write wins" is the semantic rule for a single boolean; a
+  lost update across two different ids is a bug wearing that semantic's clothes, not the
+  semantic itself.
+- **Broadcast before answering, including the caller.** A successful `set` broadcasts
+  `viewer_settings_update` to every active session — the requesting one too — before the RPC
+  response is sent, so no session (not even the one that made the change) ever observes success
+  while its own cached copy is stale (`slash-command-operations.ts:216-221` ordering).
+- **Registered in both bootstraps**, unlike extensions (production-only): the web client is
+  developed against the dev daemon, and without this family every dev session would run the
+  capability-absent degrade path and could never exercise the toggle.
 
 ### HTTP server (`http/`)
 

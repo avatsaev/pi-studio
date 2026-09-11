@@ -60,6 +60,14 @@ import {
   sessionEnvelopeSchema,
   sessionMessageSchema,
   toolCallDetailSchema,
+  viewerSettingsEntrySchema,
+  viewerSettingsGetRequestSchema,
+  viewerSettingsGetResponseSchema,
+  viewerSettingsPatchEntrySchema,
+  viewerSettingsSchema,
+  viewerSettingsSetRequestSchema,
+  viewerSettingsSetResponseSchema,
+  viewerSettingsUpdateSchema,
 } from "./messages.js";
 
 describe("create_agent_request", () => {
@@ -1121,6 +1129,116 @@ describe("extension UI (sprint-066)", () => {
       ).toBe(true);
       if (result.success) {
         expect((result.data as Record<string, unknown>).fromTheFuture).toBe("kept");
+      }
+    }
+  });
+});
+
+describe("viewer settings (sprint-073)", () => {
+  it("all five request/response/push messages parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      viewer_settings_get_request: { type: "viewer_settings_get_request", requestId: "r1" },
+      viewer_settings_get_response: {
+        type: "viewer_settings_get_response",
+        requestId: "r1",
+        payload: { settings: { version: 1, viewers: {} } },
+      },
+      viewer_settings_set_request: {
+        type: "viewer_settings_set_request",
+        requestId: "r1",
+        patch: { molviewer: { enabled: false } },
+      },
+      viewer_settings_set_response: {
+        type: "viewer_settings_set_response",
+        requestId: "r1",
+        payload: { settings: { version: 1, viewers: { molviewer: { enabled: false } } } },
+      },
+      viewer_settings_update: {
+        type: "viewer_settings_update",
+        settings: { version: 1, viewers: {} },
+      },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("viewerSettingsSchema defaults version/viewers and accepts an unknown viewer id", () => {
+    expect(viewerSettingsSchema.safeParse({}).success).toBe(true);
+    const defaulted = viewerSettingsSchema.parse({});
+    expect(defaulted).toEqual({ version: 1, viewers: {} });
+
+    const result = viewerSettingsSchema.safeParse({
+      version: 1,
+      viewers: { "totally-unknown-viewer": { enabled: true } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("viewerSettingsEntrySchema requires enabled but config is optional", () => {
+    expect(viewerSettingsEntrySchema.safeParse({ enabled: true }).success).toBe(true);
+    expect(
+      viewerSettingsEntrySchema.safeParse({ enabled: true, config: { autoRotate: true } }).success,
+    ).toBe(true);
+    expect(viewerSettingsEntrySchema.safeParse({}).success).toBe(false);
+  });
+
+  it("a patch entry with only config and no enabled parses, and vice versa", () => {
+    expect(viewerSettingsPatchEntrySchema.safeParse({ config: { autoRotate: true } }).success).toBe(
+      true,
+    );
+    expect(viewerSettingsPatchEntrySchema.safeParse({ enabled: false }).success).toBe(true);
+    expect(viewerSettingsPatchEntrySchema.safeParse({}).success).toBe(true);
+
+    const request = viewerSettingsSetRequestSchema.safeParse({
+      type: "viewer_settings_set_request",
+      requestId: "r1",
+      patch: {
+        molviewer: { config: { autoRotate: true } },
+        "other-viewer": { enabled: true },
+      },
+    });
+    expect(request.success).toBe(true);
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [viewerSettingsGetRequestSchema, { type: "viewer_settings_get_request", requestId: "r1" }],
+      [
+        viewerSettingsGetResponseSchema,
+        {
+          type: "viewer_settings_get_response",
+          requestId: "r1",
+          payload: { settings: { version: 1, viewers: {} } },
+        },
+      ],
+      [
+        viewerSettingsSetRequestSchema,
+        {
+          type: "viewer_settings_set_request",
+          requestId: "r1",
+          patch: { molviewer: { enabled: true } },
+        },
+      ],
+      [
+        viewerSettingsSetResponseSchema,
+        {
+          type: "viewer_settings_set_response",
+          requestId: "r1",
+          payload: { settings: { version: 1, viewers: {} } },
+        },
+      ],
+      [
+        viewerSettingsUpdateSchema,
+        { type: "viewer_settings_update", settings: { version: 1, viewers: {} } },
+      ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success, `${message.type} should parse with an unknown field`).toBe(true);
+      if (result.success && "fromTheFuture" in result.data) {
+        expect(result.data.fromTheFuture).toBe("kept");
       }
     }
   });

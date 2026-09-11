@@ -1179,6 +1179,102 @@ export const providerAuthLogoutResponseSchema = z
 export type ProviderAuthLogoutResponse = z.infer<typeof providerAuthLogoutResponseSchema>;
 
 // ===========================================================================
+// Viewer settings (docs/MOLVIEWER_DECOUPLING.md § 4.4) — additive, new in sprint-073
+//
+// Durable, multi-client, per-viewer enable/disable state, owned by the daemon (not
+// `localStorage`) so a phone over the relay and a desktop browser talking to the same daemon
+// never disagree about which viewers exist. Real `sessionMessageSchema` union members — the
+// `provider_auth_*` posture — not the `sessionMessageBaseSchema` passthrough fallback used by
+// `checkout_status_update` / `file_changed` / `provider_auth_flow_event`, because the push
+// (`viewer_settings_update`) carries the same durable document the RPCs do and every client
+// parses it on a hot path (unlike `provider_auth_flow_event`, which stays a passthrough push).
+//
+// The daemon has zero plugin knowledge: `viewers` is an open record keyed by whatever id a
+// client sends (no enum, ever), and `config` is an opaque `z.unknown()` blob it never interprets
+// — same posture as `agent_ui_request`'s `payload`.
+// ===========================================================================
+
+export const viewerSettingsEntrySchema = z
+  .object({
+    enabled: z.boolean(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type ViewerSettingsEntry = z.infer<typeof viewerSettingsEntrySchema>;
+
+export const viewerSettingsSchema = z
+  .object({
+    version: z.literal(1).default(1),
+    viewers: z.record(z.string(), viewerSettingsEntrySchema).default({}),
+  })
+  .passthrough();
+export type ViewerSettings = z.infer<typeof viewerSettingsSchema>;
+
+export const viewerSettingsGetRequestSchema = z
+  .object({
+    type: z.literal("viewer_settings_get_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type ViewerSettingsGetRequest = z.infer<typeof viewerSettingsGetRequestSchema>;
+
+export const viewerSettingsGetResponseSchema = z
+  .object({
+    type: z.literal("viewer_settings_get_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        settings: viewerSettingsSchema,
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ViewerSettingsGetResponse = z.infer<typeof viewerSettingsGetResponseSchema>;
+
+/** A patch entry's fields are both optional — a config-only patch must not have to restate
+ * `enabled`, and vice versa. Deliberately not a reuse of `viewerSettingsEntrySchema`, whose
+ * `enabled` is required. */
+export const viewerSettingsPatchEntrySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type ViewerSettingsPatchEntry = z.infer<typeof viewerSettingsPatchEntrySchema>;
+
+export const viewerSettingsSetRequestSchema = z
+  .object({
+    type: z.literal("viewer_settings_set_request"),
+    requestId: z.string(),
+    patch: z.record(z.string(), viewerSettingsPatchEntrySchema),
+  })
+  .passthrough();
+export type ViewerSettingsSetRequest = z.infer<typeof viewerSettingsSetRequestSchema>;
+
+/** `payload.settings` is the effective document after the merge, not an echo of the patch. */
+export const viewerSettingsSetResponseSchema = z
+  .object({
+    type: z.literal("viewer_settings_set_response"),
+    requestId: z.string(),
+    payload: z
+      .object({
+        settings: viewerSettingsSchema,
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type ViewerSettingsSetResponse = z.infer<typeof viewerSettingsSetResponseSchema>;
+
+/** Broadcast, no `requestId` — every connected client refreshes its cached document. */
+export const viewerSettingsUpdateSchema = z
+  .object({
+    type: z.literal("viewer_settings_update"),
+    settings: viewerSettingsSchema,
+  })
+  .passthrough();
+export type ViewerSettingsUpdate = z.infer<typeof viewerSettingsUpdateSchema>;
+
+// ===========================================================================
 // Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
 // ===========================================================================
 
@@ -1406,6 +1502,11 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   providerAuthCancelResponseSchema,
   providerAuthLogoutRequestSchema,
   providerAuthLogoutResponseSchema,
+  viewerSettingsGetRequestSchema,
+  viewerSettingsGetResponseSchema,
+  viewerSettingsSetRequestSchema,
+  viewerSettingsSetResponseSchema,
+  viewerSettingsUpdateSchema,
   agentUiRequestSchema,
   agentUiResolvedSchema,
   agentUiRespondRequestSchema,

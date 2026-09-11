@@ -282,6 +282,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/html-file-preview.md](features/html-file-preview.md)           | feature (UI) | HTML files previewed in a sandboxed iframe; descriptor-driven file-viewer registry; workspace-confined local asset inlining |
+| [features/viewer-unbound-tabs.md](features/viewer-unbound-tabs.md)       | feature (UI) | Viewer plugin tabs opened without a file and saved to a new one: host Save-As dialog, tab rebind, exclusive-create write (phase 5 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 | [features/conversation-fork.md](features/conversation-fork.md)           | feature      | Fork-based conversation time-travel: post-fork timeline resync (daemon) + transcript fork UI (web) |
 | [features/session-tree-navigation.md](features/session-tree-navigation.md) | feature      | Pi `/tree` in the web app: session-tree view + in-place time-travel navigation (Phase 2 gated on an upstream `navigate_tree` Pi RPC) |
@@ -305,6 +306,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/client-app-runtime.md](architecture/client-app-runtime.md)       | architecture | Host runtime controller, session context, reconnection, platform gating       |
 | [architecture/design-system.md](architecture/design-system.md)                 | architecture | Theme tokens, six theme variants, breakpoints, styling-engine rules, overlays |
 | [architecture/structured-generation.md](architecture/structured-generation.md) | architecture | Daemon-side metadata generation (titles, commit messages, branch names)       |
+| [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
 
 ## 9. Cross-Cutting Conventions
 

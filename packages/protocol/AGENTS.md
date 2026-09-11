@@ -107,6 +107,10 @@ existed) and no client ever consumed it.
 | `providerAuthRespondRequestSchema` / `ProviderAuthRespondRequest`, `providerAuthRespondResponseSchema` / `ProviderAuthRespondResponse` | schema + type | `provider_auth_respond_request` (`flowId`, `promptId`, `value`) — answers a pending prompt; `{ ok: false, error: "not_found" }` for an unknown/stale/not-owned flowId or promptId (never leaks which) |
 | `providerAuthCancelRequestSchema` / `ProviderAuthCancelRequest`, `providerAuthCancelResponseSchema` / `ProviderAuthCancelResponse` | schema + type | `provider_auth_cancel_request` (`flowId`) — unconditionally idempotent, `{ ok: boolean }` only, **no `error` field on the wire** even for an unknown/not-owned flowId |
 | `providerAuthLogoutRequestSchema` / `ProviderAuthLogoutRequest`, `providerAuthLogoutResponseSchema` / `ProviderAuthLogoutResponse` | schema + type | `provider_auth_logout_request` (`provider`) — response `{ ok, stillConfigured?, error? }`; `stillConfigured` flags an ambient credential (e.g. env var) surviving the logout |
+| `viewerSettingsEntrySchema` / `ViewerSettingsEntry`, `viewerSettingsSchema` / `ViewerSettings` | schema + type | One viewer's `{ enabled, config? }` row, and the durable `{ version: 1, viewers: Record<id, entry> }` document; `viewers` is an open record (no id enum, ever) and `config` is an opaque `z.unknown()` blob the protocol never interprets |
+| `viewerSettingsGetRequestSchema` / `ViewerSettingsGetRequest`, `viewerSettingsGetResponseSchema` / `ViewerSettingsGetResponse` | schema + type | `viewer_settings_get_request` — fetches the current document; response `{ payload: { settings } }` |
+| `viewerSettingsPatchEntrySchema` / `ViewerSettingsPatchEntry`, `viewerSettingsSetRequestSchema` / `ViewerSettingsSetRequest`, `viewerSettingsSetResponseSchema` / `ViewerSettingsSetResponse` | schema + type | `viewer_settings_set_request` (`patch: Record<id, { enabled?, config? }>`) — both patch-entry fields optional (a config-only patch need not restate `enabled`); response `payload.settings` is the EFFECTIVE document after the merge, not an echo of the patch |
+| `viewerSettingsUpdateSchema` / `ViewerSettingsUpdate` | schema + type | `viewer_settings_update` — daemon→client broadcast, no `requestId`; a **real `sessionMessageSchema` union member**, not a passthrough push (see note below the table) |
 | `agentUiPendingRequestSchema` / `AgentUiPendingRequest` | schema + type | One pending extension-UI dialog: `requestId` (daemon-minted), `agentId`, `method`, `expectsResponse`, `payload`, optional `surfaceKey`/`timeoutMs`, `createdAt` |
 | `agentUiSurfaceSchema` / `AgentUiSurface` | schema + type | One retained, last-value-wins extension-UI surface (status/widget/title): `agentId`, `method`, `surfaceKey`, `payload`, `updatedAt` |
 | `agentUiRequestSchema` / `AgentUiRequest` | schema + type | `agent_ui_request` — daemon→client broadcast, one per provider UI event (dialog or fire-and-forget); `payload` is opaque, never interpreted by the daemon |
@@ -144,6 +148,18 @@ progress push for the `provider_auth_*` RPC family (`kind: "info" | "auth_url" |
 it is the established pattern for a per-session progress push that is not itself a durable,
 multi-client RPC response.
 
+**`viewer_settings_update` — real union member, deliberately NOT a passthrough push
+(sprint-073/task-001).** Unlike `provider_auth_flow_event`/`checkout_status_update`/
+`file_changed`/`agent_timeline_reset` above, this push is a member of `sessionMessageSchema`
+itself. Those four are per-session progress notices about state that lives elsewhere (a flow,
+a git status poll, a filesystem watch, a fork rebind); `viewer_settings_update` instead carries
+the same durable multi-client document `viewer_settings_get_response`/`viewer_settings_set_response`
+do, and every client parses it on a hot path (the tab-layout replay gate,
+`swe/architecture/viewer-plugin-system.md` § Prerequisite). That combination — durable document,
+hot parse path — is the same posture that earned `provider_auth_*`'s five RPC pairs real schema
+entries; it extends to this push too, where `provider_auth_flow_event` (ephemeral, UI-progress-only)
+did not need one.
+
 **`agent_timeline_reset` — passthrough push, deliberately no union entry (sprint-071/task-003).**
 `{ type: "agent_timeline_reset", agentId, reason: "fork" }` follows the same
 `sessionMessageBaseSchema` structural fallback as `provider_auth_flow_event`/
@@ -169,7 +185,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `forkTimelineSync` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync` — features the daemon advertises in `server_info.features` |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`

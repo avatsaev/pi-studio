@@ -254,6 +254,25 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
+      case "viewer_settings_get_request": {
+        reply({
+          type: "viewer_settings_get_response",
+          requestId,
+          payload: { settings: { version: 1, viewers: {} } },
+        });
+        return;
+      }
+      case "viewer_settings_set_request": {
+        // Echoes the patch verbatim as the "effective document" — sufficient for the facade's
+        // pass-through tests; the real merge semantics are tested against the daemon
+        // (viewer-settings-rpc.test.ts), not re-tested here.
+        reply({
+          type: "viewer_settings_set_response",
+          requestId,
+          payload: { settings: { version: 1, viewers: msg.patch } },
+        });
+        return;
+      }
       default:
         reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
     }

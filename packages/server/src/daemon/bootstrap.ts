@@ -76,6 +76,7 @@ import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
+import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 
 import {
   SERVER_FEATURES,
@@ -516,6 +517,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const fileWatchService = new FileWatchService({ logger });
   registerFileWatchHandlers(registry, { fileWatchService, subscriptions, logger });
   registerExtensionsHandlers(registry, { service: extensionsService, logger: extensionsLogger });
+  registerViewerSettingsHandlers(registry, {
+    home,
+    broadcast,
+    getActiveSessions,
+    logger: logger.child({ component: "viewer-settings" }),
+  });
 
   // ── Provider auth: remote-driven Pi login flows (sprint-055) ─────────────────
   const providerAuthLogger = logger.child({ component: "provider-auth" });

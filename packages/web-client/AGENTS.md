@@ -237,6 +237,19 @@ src/
                            confirm step directly, or a `forkMessages()` list opening the picker
                            instead — set by `features/chat/use-fork-action.ts`'s click handler,
                            rendered by task-003's dialog/picker)
+  viewer-plugins/          Viewer settings — the per-viewer enable/disable store
+                           (docs/MOLVIEWER_DECOUPLING.md § 5 phase 0 step 1). New in sprint-073;
+                           phase 1 of the decoupling plan fills this directory with the plugin
+                           contract/registry, so it lands here first rather than under `stores/`.
+                           viewer-settings-store.ts (useViewerSettingsStore — `loaded`/`capable`/
+                           `viewers`, `isViewerEnabled(id)` as both a store action and a
+                           module-level `getState()` read for non-React callers, optimistic
+                           `setEnabled`/`setConfig` with exact-prior-value rollback including
+                           "no row at all", daemon-backed not `localStorage` — a second local copy
+                           would disagree with the daemon the first time a phone toggles a viewer)
+                           (+ test). `isViewerEnabled` is consumed directly (module-level
+                           `getState()`, not the hook) by every dispatch point a viewer can be
+                           reached from — sprint-073/task-005, see § Invariants "Viewer-disable gate"
   timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
@@ -264,11 +277,21 @@ src/
                            the pure follow-the-bottom policy Timeline drives through
                            features/chat/use-bottom-anchor; see AGENTS.md § Invariants "Timeline
                            bottom anchor") (+ tests)
-  hooks/                   use-connection (boot), use-pane-layout (usePaneLayoutBoot — installs the
-                           persisted layouts as pending claims, replays the client-side tabs
-                           (reopen-client-tabs.ts), and wires the persistence writer; MUST run after
-                           the connection boot but before the restore hooks, so a
-                           restored tab finds its claim), use-pane-drag (the shared pane
+  hooks/                   use-connection (boot), use-viewer-settings (useViewerSettingsBoot —
+                           hydrates viewer-plugins/viewer-settings-store.ts on connect, subscribes
+                           to `viewer_settings_update` for the connection's lifetime, resets on
+                           disconnect; mounted after use-connection and before use-pane-layout,
+                           though ordering is legibility only — the layout replay gates on the
+                           store's `loaded` flag, not hook order), use-pane-layout (usePaneLayoutBoot
+                           — installs the persisted layouts as pending claims, replays the
+                           client-side tabs (reopen-client-tabs.ts), and wires the persistence
+                           writer; the replay effect MUST run after the connection boot but before
+                           the restore hooks, so a restored tab finds its claim, AND is gated on
+                           viewer-settings hydration (`shouldReplayPaneLayout`, exported pure per the
+                           jsdom-less convention below, `usePaneLayoutBoot`'s only consumer) so a
+                           persisted `molecule:<path>` identity cannot race the settings fetch and
+                           reopen as a molecule tab the user disabled — sprint-073/task-005, see §
+                           Invariants "Viewer-disable gate") (+ test), use-pane-drag (the shared pane
                            drag-and-drop session: pointer tracking, live drop resolution via
                            pane-dnd, and the commit), use-external-pane-drop (the NATIVE-DnD
                            counterpart: a chat dragged out of the session list or a file out of the
@@ -364,7 +387,8 @@ src/
                             — file-explorer quick-wins-1) (+ test)
     workspace/              TabStrip (ONE PER PANE — soft-pill tabs that shrink and ellipsise their
                             own label before the tab list scrolls (sprint-061 redesign); trailing
-                            chrome (the "+" menu — New chat / New terminal / New molecule, all
+                            chrome (the "+" menu — New chat / New terminal / New molecule (hidden
+                            when the molviewer plugin is disabled — sprint-073/task-005), all
                             targeting THIS pane — then a `.stripActions` cluster: SplitActions' Split
                             right / Split down, each disabled with a reason from pane-tree's
                             `canSplit`) stays outside that scroll container so it's reachable in a
@@ -392,7 +416,12 @@ src/
                             rects/dividers projection) (+ test), reopen-client-tabs.ts
                             (`tabFromIdentity` — the exact inverse of `tabIdentity` for the kinds no
                             daemon inventory can rebuild, replayed at boot from the persisted record:
-                            file/diff/molecule; see AGENTS.md § Invariants "Who reopens a tab")
+                            file/diff/molecule; takes `isViewerEnabled` as an injected predicate
+                            (`reopenClientTabs`'s only caller reads the store's module-level
+                            `getState().isViewerEnabled`) so a disabled viewer's persisted
+                            `molecule:<path>` reopens as the file-branch tab shape instead —
+                            sprint-073/task-005, see AGENTS.md § Invariants "Who reopens a tab" and
+                            "Viewer-disable gate")
                             (+ test), restore-active-workspace.ts (one-shot switch back to the
                             workspace that was in view, armed on connect and fired at the hydration
                             settle point — earlier would be overwritten by the next arriving tab,
@@ -408,11 +437,23 @@ src/
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     settings/               SettingsDialog (+ module.css) — the settings shell (sprint-065): a
                             900px `Dialog` with an icon+label category sidebar and a scrollable
-                            content pane, opened by ConnectionBar's gear. `SETTINGS_CATEGORIES`
-                            is a local registry (`{ id, label, icon, component, available(caps) }`)
-                            whose entries are capability-gated; Model Providers is the only one
-                            today. Also owns the stacked-dialog dismissal guard — see AGENTS.md
-                            § Invariants "Stacked dialogs"
+                            content pane, opened by ConnectionBar's gear. `SETTINGS_CATEGORIES` +
+                            `buildSettingsCategoryCapabilities` live in settings-categories.ts, a
+                            separate module from `SettingsDialog.tsx` itself (sprint-073/task-006)
+                            so `ConnectionBar` can import the registry EAGERLY — to gate the gear
+                            on "is any category available" — without pulling `SettingsDialog.tsx`'s
+                            own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
+                            the main bundle ahead of the gear ever being clicked; the panel
+                            components stay `lazy()`-loaded regardless of which module imports the
+                            registry array. Two categories today: Model Providers
+                            (`available: (caps) => caps.providerAuth`, capability-gated) and
+                            Viewers (`available: () => true`, capability-INDEPENDENT — ViewersPanel
+                            (+ module.css) degrades its one Molecule Viewer toggle row to
+                            disabled-reading-on with a "Requires a newer daemon" note against a
+                            `viewerSettings`-incapable daemon rather than hiding the row; see §
+                            Invariants "Viewer-disable gate" and "Settings gear reachability").
+                            `SettingsDialog.tsx` also owns the stacked-dialog dismissal guard —
+                            see AGENTS.md § Invariants "Stacked dialogs"
     provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
                             row per provider with an auth-state badge, subscription tag, and
                             login/re-login/logout actions), LoginDialog (+ module.css — drives one
@@ -539,8 +580,9 @@ src/
                             the current name, selects the basename without its extension on mount
                             (whole name for a directory or a dotfile), Enter/Escape/blur — reused
                             by `TreeNode`'s `row.kind === "rename"` branch, sprint-047),
-                            FileContextMenu (row menu: Open / Open in MolViewer (files only) /
-                            Open as Text (molecule files only) / New
+                            FileContextMenu (row menu: Open / Open in MolViewer (files only,
+                            hidden when the molviewer plugin is disabled — sprint-073/task-005) /
+                            Open as Text (molecule files only, same gate) / New
                             File/New Folder (directories) / Copy Absolute Path / Copy Relative Path
                             / Download (files) / Rename / Delete — Rename sits directly above
                             Delete and triggers ONLY from this menu, never a keyboard shortcut (no
@@ -551,10 +593,15 @@ src/
                             Relative Path — file-explorer quick-wins-1), open-file-tab.ts (shared
                             "open a path as a tab" dispatch used by FileExplorer's row click,
                             FileContextMenu's Open action, and a Files-tree→pane drop, so all three
-                            agree on the molecule-vs-file kind — file-explorer quick-wins-1; also
+                            agree on the molecule-vs-file kind — file-explorer quick-wins-1; the
+                            dispatch itself gates on `isViewerEnabled("molviewer")` (sprint-073/
+                            task-005, see § Invariants "Viewer-disable gate") — a disabled viewer
+                            makes `openFileTab` always open the file-branch tab, same as
+                            `!isMoleculeFile(path)`; also
                             exports the two forced variants that skip that dispatch:
                             `openMoleculeTab` (FileContextMenu's "Open in MolViewer", files only —
-                            hands any file to molviewer regardless of `isMoleculeFile`) and
+                            hands any file to molviewer regardless of `isMoleculeFile`, and is
+                            itself hidden from the menu when the viewer is disabled) and
                             `openTextTab` (FileContextMenu's "Open as Text", molecule files only —
                             opens a `kind: "file"` tab so `detectViewerKind` routes the molecule
                             path to `TextViewer`). All three take an optional
@@ -901,6 +948,29 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   does not call `openFileTab`, which _dispatches_ on extension and would turn a persisted
   `file:/a/x.cif` into a `molecule` tab, orphan the claim, and prune the pane. Unknown prefixes are
   ignored, never guessed — a record written by a newer client may name kinds this one has never heard of.
+- **Viewer-disable gate (sprint-073/task-005, docs/MOLVIEWER_DECOUPLING.md § 5 phase 0 step 5).**
+  `viewer-plugins/viewer-settings-store.ts`'s `isViewerEnabled(id)` is the single predicate every
+  molviewer dispatch point reads before offering the viewer; a `false` row hides the affordance or
+  reroutes the open to the plain-file path, NEVER refuses the file outright — disabling a viewer
+  degrades toward the file-branch tab, not toward an error. Five call sites, each already covered
+  by an existing invariant/tree entry above:
+  `open-file-tab.ts`'s `openFileTab` (row click/Open action/pane-drop dispatch), its
+  `openMoleculeTab` forced-open (menu entry hidden, not merely disabled, when the viewer is off),
+  `FileContextMenu.tsx`'s "Open in MolViewer"/"Open as Text" items, `TabStrip.tsx`'s "+" menu's
+  "New molecule" item, and `reopen-client-tabs.ts`'s `tabFromIdentity` (a persisted
+  `molecule:<path>` reopens as the file-branch tab shape while disabled, never dropped). The
+  **replay ordering is the load-bearing half**: `use-pane-layout.ts`'s `usePaneLayoutBoot` gates
+  its one-shot replay effect on `viewer-settings-store`'s `loaded` flag (via the exported pure
+  `shouldReplayPaneLayout`, unit-tested for "no fire while unhydrated", "fires exactly once on the
+  loaded flip", "never fires again after") in addition to `status === "open"` — without this gate a
+  persisted `molecule:<path>` identity could replay and reopen as a molecule tab BEFORE the
+  settings fetch resolves, defeating the very toggle the user just set. All five call sites read
+  `isViewerEnabled` directly off the store (module-level `getState()`, or an injected predicate
+  parameter for the pure ones — `tabFromIdentity`) rather than through the `useViewerSettingsBoot`
+  hook, so none of this requires the hook to be mounted in a particular order relative to them;
+  only the replay effect's OWN gate needs the store's `loaded` flag as a dependency. Disabling a
+  viewer never touches an ALREADY-OPEN tab of that kind — nothing in this gate closes tabs, it only
+  changes what a FUTURE open resolves to.
 - **Two drag systems coexist on purpose, split by where the gesture STARTS.** A drag beginning on a tab
   already in a strip is dnd-kit (`use-pane-drag.ts`, one `DndContext` owned by `TabPanelHost`); a drag
   beginning on a sidebar row — a session in the list, a file in the Files tree — is native HTML5 DnD
@@ -2117,6 +2187,18 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   caller) must also trigger the first-mount import and render the dialog `open`. A latch owned
   only by the click handler would leave the nudge's `openSettings()` silently no-op the first time
   a session never touches the gear.
+- **Settings gear reachability: "any category available," not "provider auth available"
+  (sprint-073/task-006).** Before this task `ConnectionBar.tsx` gated the gear on
+  `providerAuthCapable` alone — correct while Model Providers was the only category, wrong the
+  moment a capability-independent category (Viewers) exists: against a daemon with zero
+  capabilities the gear stayed hidden and the new category was unreachable, a settings page that
+  exists and cannot be opened. The gate is now `SETTINGS_CATEGORIES.some((c) =>
+  c.available(caps))`, sharing `settings-categories.ts`'s `buildSettingsCategoryCapabilities` with
+  `SettingsDialog`'s own sidebar filter so the two can never drift onto different capability
+  objects. Live-verified against a real dev daemon (`npm run dev:daemon`, mock provider — which
+  does NOT register `provider_auth` handlers, `dev-bootstrap.ts`'s own header comment on why): the
+  gear rendered and was clickable with `providerAuthCapable` provably `false` for the whole
+  session, where the pre-task-006 gate would have hidden it entirely.
 - **Provider auth goes through SDK methods only, never `client.connection.request` directly, and
   no secret ever enters a store or `localStorage` (sprint-065, live-verified task-007).** Every
   `ModelProvidersPanel`/`LoginDialog` call goes through `listProviderAuth`/`loginProvider`/

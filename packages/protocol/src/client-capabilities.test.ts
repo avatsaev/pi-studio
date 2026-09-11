@@ -30,6 +30,7 @@ describe("capability flag sets", () => {
         "providersSnapshot",
         "terminal-restore-modes",
         "thinkingLevels",
+        "viewerSettings",
       ].toSorted(),
     );
   });

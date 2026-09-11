@@ -48,6 +48,7 @@ export const SERVER_FEATURES = {
   providerAuth: "providerAuth",
   extensionUi: "extensionUi",
   thinkingLevels: "thinkingLevels",
+  viewerSettings: "viewerSettings",
   forkTimelineSync: "forkTimelineSync",
 } as const;
 
@@ -86,6 +87,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   extensionUi: COMPAT({ name: "extensionUi", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(thinkingLevels): added 0.0.0, remove by TBD
   thinkingLevels: COMPAT({ name: "thinkingLevels", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(viewerSettings): added 0.0.0, remove by TBD
+  viewerSettings: COMPAT({ name: "viewerSettings", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(forkTimelineSync): added 0.0.0, remove by TBD
   forkTimelineSync: COMPAT({ name: "forkTimelineSync", addedIn: "0.0.0", removeBy: "TBD" }),
 };

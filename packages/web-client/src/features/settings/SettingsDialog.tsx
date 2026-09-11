@@ -3,16 +3,19 @@
  * modal with a category sidebar and a content pane. There is no settings screen or router in
  * web-client today (`routes/WorkspacePage.tsx` is a single shell) — this modal *is* the settings
  * IA rather than a one-off provider modal that would need migrating later: future categories
- * (Appearance is the obvious next) add a registry entry here, not a new surface, and
- * `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` route renders these same
- * category panels when that scope lands. Building any category beyond Model Providers is other
- * scopes' work — see `SETTINGS_CATEGORIES` below.
+ * (Appearance is the obvious next) add a registry entry in `settings-categories.ts`, not a new
+ * surface, and `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` route renders
+ * these same category panels when that scope lands.
+ *
+ * The category registry itself (`SETTINGS_CATEGORIES`, `buildSettingsCategoryCapabilities`) lives
+ * in `settings-categories.ts`, not here — `ConnectionBar.tsx` needs it eagerly (to gate the
+ * settings gear) without pulling this file's own eager imports (`Dialog`, `LoginDialog`,
+ * `provider-auth-store`) into the main bundle ahead of the gear ever being clicked.
  *
  * The sidebar renders even with one entry: it is the IA, not decoration.
  */
 
-import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
-import { KeyRound, type LucideIcon } from "lucide-react";
+import { Suspense, useEffect, useState } from "react";
 import { clsx } from "clsx";
 import {
   Dialog,
@@ -24,38 +27,8 @@ import {
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { LoginDialog } from "../provider-auth/LoginDialog.js";
 import { useProviderAuthUiStore } from "../provider-auth/provider-auth-store.js";
+import { buildSettingsCategoryCapabilities, SETTINGS_CATEGORIES } from "./settings-categories.js";
 import styles from "./SettingsDialog.module.css";
-
-/** Server capabilities a settings category may gate its availability on. Grows as new
- *  capability-gated categories are added; a capability-independent category (e.g. Appearance)
- *  simply ignores this and always returns true. */
-export interface SettingsCategoryCapabilities {
-  providerAuth: boolean;
-}
-
-export interface SettingsCategory {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  component: ComponentType;
-  available: (caps: SettingsCategoryCapabilities) => boolean;
-}
-
-const ModelProvidersPanel = lazy(() =>
-  import("../provider-auth/ModelProvidersPanel.js").then((m) => ({
-    default: m.ModelProvidersPanel,
-  })),
-);
-
-export const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  {
-    id: "providers",
-    label: "Model Providers",
-    icon: KeyRound,
-    component: ModelProvidersPanel,
-    available: (caps) => caps.providerAuth,
-  },
-];
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -67,12 +40,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const pendingLogin = useProviderAuthUiStore((s) => s.pendingLogin);
   const cancelLogin = useProviderAuthUiStore((s) => s.cancelLogin);
 
-  // Mirrors `PiStudioClient#hasProviderAuthCapability()` reactively — the store's `client`
-  // reference stays stable across a reconnect while its internal `_features` mutates in place, so
-  // reading `serverInfo` (a tracked Zustand field) is what actually re-renders this component.
-  const caps: SettingsCategoryCapabilities = {
-    providerAuth: Boolean(serverInfo?.features?.["providerAuth"]),
-  };
+  // Reactive over `serverInfo` (a tracked Zustand field) rather than the imperative
+  // `PiStudioClient#hasProviderAuthCapability()` — the store's `client` reference stays stable
+  // across a reconnect while its internal `_features` mutates in place.
+  const caps = buildSettingsCategoryCapabilities(serverInfo?.features);
   const categories = SETTINGS_CATEGORIES.filter((c) => c.available(caps));
 
   const [selectedId, setSelectedId] = useState<string | undefined>(categories[0]?.id);

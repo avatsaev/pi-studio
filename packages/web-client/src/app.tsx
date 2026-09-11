@@ -1,6 +1,7 @@
 import { AppProviders } from "./providers/AppProviders.js";
 import { WorkspacePage } from "./routes/WorkspacePage.js";
 import { useConnectionBoot } from "./hooks/use-connection.js";
+import { useViewerSettingsBoot } from "./hooks/use-viewer-settings.js";
 import { usePaneLayoutBoot } from "./hooks/use-pane-layout.js";
 import { useSessionRestore } from "./hooks/use-session-restore.js";
 import { useTerminalRestore } from "./hooks/use-terminal-restore.js";
@@ -10,6 +11,7 @@ import { useShortcuts } from "./hooks/use-shortcuts.js";
 
 function Boot() {
   useConnectionBoot();
+  useViewerSettingsBoot();
   // Before the restore hooks: an arriving tab consumes its pane claim, so the claims must exist.
   usePaneLayoutBoot();
   useSessionRestore();

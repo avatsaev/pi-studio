@@ -202,6 +202,10 @@ const client = new PiStudioClient(daemonClient);
 | `loginProvider(p, t, cb, o)`  | `Promise<{ ok, error? }>`        | Drives one login flow (see below)                                                                               |
 | `logoutProvider(provider)`    | `Promise<{ stillConfigured }>`   | `provider_auth_logout_request` RPC                                                                              |
 | `hasProviderAuthCapability()` | `boolean`                        | Whether the daemon advertised `providerAuth`                                                                    |
+| `getViewerSettings()`         | `Promise<ViewerSettings>`        | `viewer_settings_get_request` RPC (sprint-073)                                                                  |
+| `setViewerSettings(patch)`    | `Promise<ViewerSettings>`        | `viewer_settings_set_request` RPC — resolves to the EFFECTIVE post-merge document, never an echo of `patch`     |
+| `onViewerSettingsUpdate(h)`   | unsubscribe fn                   | Subscribe to `viewer_settings_update` broadcasts                                                                |
+| `hasViewerSettingsCapability()` | `boolean`                       | Whether the daemon advertised `viewerSettings` — `false` means "treat every viewer as enabled", never "no viewers" |
 | `onAgentUiRequest(handler)`   | unsubscribe fn                   | Subscribe to `agent_ui_request` broadcasts (sprint-067, see § Extension UI)                                     |
 | `onAgentUiResolved(handler)`  | unsubscribe fn                   | Subscribe to `agent_ui_resolved` broadcasts                                                                     |
 | `respondToUi(id, response)`   | `Promise<AgentUiRespondResult>`  | `agent_ui_respond_request` RPC — returns, never throws, on a domain `not_found`/`unsupported`                   |
