@@ -47,7 +47,7 @@ tab, menu entry, live reload, save, and polymer build works exactly as today.
 
 | Deferred to | What |
 |---|---|
-| Phase 0 (chunk A) | The daemon `viewer_settings_*` family, `viewer-settings-store.ts`, the Viewers settings category, the always-reachable settings gear. **Prerequisite of this phase** — see § Dependencies |
+| Phase 0 (chunk A) | **Shipped** (sprint-073, PR #43): the daemon `viewer_settings_*` family, `viewer-settings-store.ts`, the Viewers settings category, the always-reachable settings gear. Was the prerequisite of this phase — see § Dependencies |
 | Phase 2 | `TabKind` `"molecule"` → `"viewer"` rename; `MoleculeTabData` → `ViewerTabData` type rename; `tabIdentity` emitting `viewer:<id>:<path>`; `tabFromIdentity`'s legacy alias; `FileExplorer`'s generic `data.path` reads |
 | Phase 3 | Persisted-identity migration + its round-trip tests (lands with phase 2, same PR) |
 | Phase 4 | Registry-driven Viewers settings rows, per-plugin `settings.component`, docs sync |
@@ -280,7 +280,9 @@ cast — those move into the host, which is the whole point of the adapter.
 ### Enabled filter
 
 `enabledViewerPlugins()` and `viewerForPath()` consult phase 0's
-`useViewerSettingsStore.getState().isViewerEnabled(id)`, which returns `true` for an absent row and
+`useViewerSettingsStore.getState().isViewerEnabled(id)` — shipped in sprint-073, which also
+exports a module-level `isViewerEnabled(id)` for non-React call sites (`reopenClientTabs`'s
+injected predicate) — which returns `true` for an absent row and
 for the pre-hydration window. `viewerById` deliberately ignores the filter, so an already-open tab
 of a just-disabled viewer keeps rendering (plan §7).
 
@@ -363,9 +365,9 @@ for this phase boundary.
 
 ## Dependencies on other specs
 
-- **Phase 0 (plan §4.4 + §5)** — hard prerequisite. The registry's enabled filter reads
-  `viewer-settings-store.ts`. If phase 1 is somehow executed first, `enabledViewerPlugins()` must
-  be `registeredViewerPlugins()` with a single marked seam, never a second ad-hoc settings source.
+- **Phase 0 (plan §4.4 + §5) — shipped** (sprint-073, PR #43, 2026-09-11). The registry's enabled
+  filter reads `viewer-settings-store.ts`'s `isViewerEnabled(id)`; the store hydrates on connection
+  open and degrades to all-enabled on every failure path. Never introduce a second settings source.
 - [features/feature-panels-ui.md](../features/feature-panels-ui.md) — the file explorer / preview
   surfaces this dispatch feeds.
 - [features/workspace-split-panes.md](../features/workspace-split-panes.md) — `paneOfTab`,
@@ -449,5 +451,6 @@ New:
 
 ## TODO(verify)
 
-- [ ] Exact settings-store selector name from phase 0 (`isViewerEnabled` assumed here) — align
-      before implementing, do not introduce a second accessor.
+- [x] Exact settings-store selector name from phase 0 — **resolved** (sprint-073 shipped it):
+      `isViewerEnabled(id)`, both a `useViewerSettingsStore` state method and a module-level export
+      of `viewer-settings-store.ts` for non-React callers. Phase 1 uses it; no second accessor.

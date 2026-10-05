@@ -366,6 +366,27 @@ All communication uses a **single WebSocket connection** per client.
   clamp write-back on every model change) is task-003. **Task-005 shipped the composer
   consumer**: `web-client`'s `ThinkingMenu` (brain-icon picker in `.toolbarRight`, immediately
   after `ModelMenu`) — see `packages/web-client/AGENTS.md`'s "Thinking-level selector" invariant.
+- **`viewer_settings_*`** (sprint-073, `docs/MOLVIEWER_DECOUPLING.md` § 4.4) is the daemon-backed
+  viewer-settings family — the runtime kill switch for the molecule viewer and the settings
+  document every future viewer plugin reads. Five real `sessionMessageSchema` members **including
+  the push**: unlike `provider_auth_flow_event` above, `viewer_settings_update` carries the same
+  durable document the RPCs do and is parsed on the hot tab-layout replay path, so it gets a real
+  schema, not the passthrough fallback. `get` answers the whole document (`{version, viewers}`);
+  `set` takes a patch of per-id `{enabled?, config?}` rows applied in a serialized
+  read-modify-write (present fields overwrite, absent fields preserved, new rows default
+  `enabled: true`, rows are never deleted), answers the EFFECTIVE merged document — never an
+  echo — and broadcasts it to every session including the caller **before** the response. The
+  daemon knows nothing about plugins: `viewers` is an open record keyed by whatever id a client
+  sends, an unknown id is a legal row, and `config` is an opaque blob (the `agent_ui_request`
+  `payload` posture). Every degrade direction means *enabled*: an absent row, a capability-absent
+  client, and a corrupt state file all offer every viewer (`viewers/viewer-settings-state.ts`'s
+  soft-fallback loader warns and returns all-enabled defaults — deliberately not
+  `extensions-state.ts`'s `"unreadable"` sentinel; the warn fires lazily per read, not at boot).
+  Advertised via the `viewerSettings` feature flag; registered in both bootstraps. Consumed by
+  `PiStudioClient` (`getViewerSettings`/`setViewerSettings`/`onViewerSettingsUpdate`/
+  `hasViewerSettingsCapability`) and web-client's `viewer-plugins/viewer-settings-store.ts` +
+  Settings → Viewers category (`isViewerEnabled(id)` is both a store state method and a
+  module-level export for non-React callers).
 
 ---
 
@@ -401,6 +422,9 @@ daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2
                        replace via `pi-studio daemon rotate-key` (revokes all pairing links)
 extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
                        lastSync (features/preinstalled-extensions.md § State file)
+viewer-settings.json Daemon-backed per-viewer kill switch + opaque config for the viewer plugin
+                       registry (viewers/ subsystem); corrupt file degrades to all-enabled
+                       defaults and is never rewritten on read
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/

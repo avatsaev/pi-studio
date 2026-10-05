@@ -1,8 +1,11 @@
 # Molviewer decoupling — viewer plugin system plan
 
-Status: **plan, approved direction (Option 2: in-repo viewer plugin registry).** No code has been
-written against this plan yet. This document is the implementation spec for decoupling the molecule
-viewer (`@molviewer/core`) from `packages/web-client` core, turning it into the first registered
+Status: **plan, approved direction (Option 2: in-repo viewer plugin registry).** Chunk A (phase 0 —
+the daemon-backed viewer settings + runtime kill switch) is **shipped**: sprint-073, PR #43, commit
+`fc667b2` (2026-09-11); §11's chunk-A close entry records the implementation deviations and the
+seven-step live E2E. Chunks B–D remain unimplemented plans. This document is the implementation
+spec for decoupling the molecule viewer (`@molviewer/core`) from `packages/web-client` core, turning
+it into the first registered
 viewer plugin behind a small, general contract — and making it runtime-disableable via settings
 that are persisted on the daemon (§4.4).
 
@@ -448,9 +451,11 @@ Each phase is independently shippable; the app works after every phase.
 **Deliverable: molviewer disableable at runtime, before the registry exists.** This is the quick
 win and its gate logic survives into phase 3 as the registry's enabled-filter.
 
-> **Planned as [`swe/sprints/sprint-073-viewer-settings/`](../swe/sprints/sprint-073-viewer-settings/)**
-> (2026-09-10) — seven tasks, one per layer, in dependency order. Three implementation decisions
-> the sprint settled beyond this section are recorded in §11's chunk-A entry.
+> **Shipped as [`swe/sprints/sprint-073-viewer-settings/`](../swe/sprints/sprint-073-viewer-settings/)**
+> — planned 2026-09-10, merged 2026-09-11 (`fc667b2`, PR #43), closed 2026-10-05 with the task-007
+> seven-step live E2E. Seven tasks, one per layer, in dependency order. Three implementation
+> decisions the sprint settled beyond this section are recorded in §11's chunk-A scheduling entry;
+> the close entry below records the rest.
 
 0. **Daemon side first** (§4.4): protocol schemas + `viewerSettings` flag → server
    `viewers/viewer-settings-state.ts` + `viewer-settings-rpc.ts`, registered in both bootstraps
@@ -746,9 +751,10 @@ against a dev daemon.
 Four independently shippable chunks; the app works after each. (Deliberately not pre-slotted into
 `swe/sprints/PLAN.md` — this document is the spec; scheduling is a separate decision.)
 
-- **Chunk A**: phase 0 (daemon settings family §4.4 + client store + kill switch + hardcoded
-  settings row + always-reachable gear). Cross-package (protocol → server → client SDK →
-  web-client), so it is executed in that dependency order, but it is still one small deliverable.
+- **Chunk A** (**shipped** — sprint-073, PR #43, `fc667b2` 2026-09-11): phase 0 (daemon settings
+  family §4.4 + client store + kill switch + hardcoded settings row + always-reachable gear).
+  Cross-package (protocol → server → client SDK → web-client), so it is executed in that dependency
+  order, but it is still one small deliverable.
 - **Chunk B**: phases 1–3 (contract, move, tab model, migration) — one coherent unit; the tab
   model and identity format must land together. It touches ~15 files including the tab model, so
   it should still be executed as ordered steps (phase 1 → phase 2 step by step → phase 3), each
@@ -822,6 +828,48 @@ Four independently shippable chunks; the app works after each. (Deliberately not
   capability-absent path and can never exercise the toggle. **(c)** `set` must **serialize** its
   read-modify-write; "last write wins" is the semantic rule for a boolean, but a lost update
   across two concurrent patches to different viewer ids is a bug, not a semantic.
+
+- **2026-10-05 (chunk A closed)** — sprint-073 closed 7/7 with the task-007 seven-step live E2E
+  against a **production** daemon (real persistence, built `ui` static server) and two real
+  Chromium windows. Observed, not inferred: toggling the Viewers switch through the UI wrote
+  `$PI_STUDIO_HOME/viewer-settings.json` verbatim (`{"version":1,"viewers":{"molviewer":
+  {"enabled":false}}}`, atomic — no `.tmp` residue); with the viewer disabled every dispatch point
+  gated (CIF opened as a text tab; the file context menu and the "+" menu carried no viewer
+  entries); **two-window convergence without reload** — toggling in window B flipped window A's
+  open panel in place (a reload marker set in A survived); the setting persisted across both a UI
+  reload and a daemon restart on the same home; an already-open viewer tab kept rendering after
+  the kill switch flipped, and after a reload the persisted tab replayed as a **text** tab; a
+  deliberately corrupted state file degraded to all-enabled defaults with one pino warn per read,
+  and the daemon left the corrupt file byte-identical. The relay-transport variant of the
+  convergence step was **not run** — the sprint spec explicitly excludes standing up a relay;
+  direct-WS convergence exercises the same broadcast path. Implementation deviations from this
+  spec, each verified against the shipped source, all deliberate:
+  1. `viewer-settings-state.ts` hand-rolls `loadViewerSettings`/`saveViewerSettings` (soft
+     fallback + `atomicWriteJson`) rather than reusing a generic `loadStore` helper — the
+     soft-fallback contract in the scheduling entry above predates any extractable generic.
+  2. `viewer_settings_set` guards `patch` inside the handler (`isViewerSettingsPatch`) because
+     `ctx.message` is unvalidated at the router; a malformed patch is answered with the current,
+     unchanged document — the wire schema carries no `ok`/`error` channel, so an observable no-op
+     is the domain-failure shape (same posture as `extensions-rpc.ts`'s `isSlugArray`).
+  3. The client store gained a `capable: boolean` field beyond §5's shape: hydrate against a
+     capability-free daemon sets `{loaded: true, capable: false, viewers: {}}`, while a *failed
+     fetch* keeps `capable: true` — the daemon advertised the feature; only that fetch failed.
+  4. Optimistic `setEnabled`/`setConfig` roll back to the **exact** previous row (including "no
+     row at all") and surface failure through a toast (`notifyRollback`) instead of threading an
+     error back through callers.
+  5. `SETTINGS_CATEGORIES` lives in its own `settings-categories.ts` so the settings gear's eager
+     import does not defeat code-splitting of the panels; the gear's gate became
+     `SETTINGS_CATEGORIES.some(...)` availability.
+  6. Against a capability-free daemon the Viewers row renders **disabled with a "Requires a newer
+     daemon." note** — no force-checked branch, because `isViewerEnabled` already reads `true`
+     whenever `capable` is `false`.
+  7. The replay gate is a pure `shouldReplayPaneLayout(status, viewerSettingsLoaded, replayed)`
+     predicate, and the `tabFromIdentity` gate is an injected third-parameter predicate, keeping
+     `reopen-client-tabs.ts` viewer-agnostic.
+  8. `set` serializes its read-modify-write through a module-local promise queue whose chained
+     promise always resolves, so a rejected write cannot wedge later callers.
+  9. `viewer_settings_update` is broadcast **before** the `set` response, to every session
+     including the caller — no client can observe success against its own stale cache.
 
 ---
 

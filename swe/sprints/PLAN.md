@@ -1979,12 +1979,16 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > this store for its enabled-filter and says so explicitly; running phase 1 first would mean
 > inventing a second settings source and deleting it a sprint later.
 >
-> **Status:** in progress — 6/7 tasks done (task-001 through task-006). Full workspace
-> `build`/`typecheck`/`lint`/`vitest run` green (2751/2751 tests). Live E2E against
-> `npm run dev:daemon` confirmed the broadcast-before-answer ordering and multi-client
-> convergence for task-002, plus the settings-gear-reachability fix for task-006. See
-> `done/task-00{1,2,3,4,5,6}-*-summary.md` for what shipped. Only task-007 (sprint close, live
-> two-browser E2E) remains.
+> **Status:** **complete** (2026-10-05) — 7/7 tasks done. Chunk A merged to `main` as `fc667b2`
+> (PR #43, 2026-09-11). Full workspace `build`/`typecheck`/`lint`/`vitest run` green (2751/2751
+> tests). task-007 ran the seven-step live E2E against a **production** daemon and two real
+> Chromium windows: state file written verbatim on toggle, disabled-viewer reopen as text with all
+> dispatch points gated, two-window convergence **without reload**, persistence across UI reload
+> *and* daemon restart, open tab survives the kill switch then replays as text on reload, and the
+> corrupt-file soft-fallback degrades to all-enabled with the file left byte-identical; the
+> relay-transport variant was not run (spec-excluded). Root `AGENTS.md`, this plan, the decoupling
+> plan's § 11 close entry, and the phase-1 spec's selector TODO are updated in the close commit.
+> See `done/task-007-sprint-close-summary.md` and `done/task-00{1,2,3,4,5,6}-*-summary.md`.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
