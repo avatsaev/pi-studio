@@ -341,7 +341,10 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
   particular lets `--help`/`-h` reach Pi's own help instead of pi-studio's (pi-studio's help for
   this command is still available via `pi-studio --help`).
 - `stdio: "inherit"` — required for Pi's interactive TUI (default when run with no `-p`/`--print`),
-  spinners, and prompts to behave exactly as native `pi`.
+  spinners, and prompts to behave exactly as native `pi`. Since Pi 1.0.0 that TUI runs
+  **fullscreen** (alternate screen) by default; it is Pi's own setting, so restoring normal
+  scrollback is Pi's `tuiMode: "regular"` in its `settings.json` or `pi-studio pi --tui-mode
+  regular` — never a pi-studio flag.
 - The child's exit code is forwarded unchanged as the CLI's own exit code.
 
 `PiRuntime` (`pi-commands.ts`, injectable via `CliContext.pi` for tests):

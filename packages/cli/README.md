@@ -206,7 +206,9 @@ A pure pass-through proxy to the exact `pi` binary bundled inside
 `@earendil-works/pi-coding-agent` (the same one the daemon spawns) — so `pi-studio pi ...` is a
 drop-in replacement for a globally-installed `pi`, with none of its flags, subcommands, or
 interactive TUI reimplemented. `pi-studio pi` alone launches the interactive TUI, exactly like
-bare `pi`; `pi-studio pi -p "prompt"` runs non-interactively. `--pi-home` (global option, must
+bare `pi` (fullscreen by default since Pi 1.0.0 — `pi-studio pi --tui-mode regular`, or
+`"tuiMode": "regular"` in Pi's `settings.json`, keeps the terminal's normal scrollback);
+`pi-studio pi -p "prompt"` runs non-interactively. `--pi-home` (global option, must
 come before `pi` on the command line) redirects the bundled CLI's `.pi` config dir, same as it
 does for a locally-spawned daemon. Falls back to a global `pi` on `$PATH` if the bundled
 dependency isn't installed. Never touches the daemon or the wire protocol.

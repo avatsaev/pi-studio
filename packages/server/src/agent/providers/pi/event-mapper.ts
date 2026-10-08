@@ -149,13 +149,16 @@ export function createPiEventMapper(): PiEventMapper {
           return null;
         }
         case "agent_settled": {
-          // The true terminal (docs/rpc.md § agent_settled: Pi will not continue automatically
-          // through retry, compaction retry, or queued follow-up messages past this point).
+          // The true terminal (docs/json.md § Agent and turn events: Pi will not continue
+          // automatically through retry, compaction retry, or queued follow-up messages past this).
+          // `aborted` (Pi ≥ 1.1.0) is authoritative for a user abort and wins over the latch: an
+          // abort landing between runs — during an auto-retry backoff or a compaction — produces
+          // no `stopReason: "aborted"` message to latch, so the latch alone would misreport it.
           const result: AgentStreamEvent =
-            disposition === "failed"
-              ? { kind: "turn_failed", error: error ?? "error" }
-              : disposition === "canceled"
-                ? { kind: "turn_canceled" }
+            event.aborted === true || disposition === "canceled"
+              ? { kind: "turn_canceled" }
+              : disposition === "failed"
+                ? { kind: "turn_failed", error: error ?? "error" }
                 : { kind: "turn_completed" };
           latch("completed");
           return result;

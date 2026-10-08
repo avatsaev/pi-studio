@@ -503,6 +503,31 @@ describe("event mapper", () => {
     ).toBeNull();
     expect(mapper.map({ type: "agent_settled" })).toEqual({ kind: "turn_completed" });
   });
+
+  it("an abort during auto-retry backoff settles as turn_canceled via agent_settled.aborted", () => {
+    // Abort lands between runs (after agent_end{willRetry:true}, before the retry starts), so no
+    // run produces a `stopReason: "aborted"` message to latch — only Pi's `aborted` flag on the
+    // terminal `agent_settled` (Pi ≥ 1.1.0) says the turn was cancelled, not completed.
+    const mapper = createPiEventMapper();
+    expect(mapper.map({ type: "agent_start" })).toEqual({ kind: "turn_started" });
+    expect(
+      mapper.map({
+        type: "agent_end",
+        willRetry: true,
+        messages: [
+          { role: "assistant", content: [], stopReason: "error", errorMessage: "transient 500" },
+        ],
+      }),
+    ).toBeNull();
+    expect(mapper.map({ type: "agent_settled", aborted: true })).toEqual({
+      kind: "turn_canceled",
+    });
+    // The latch resets: the next turn's clean settle is not contaminated by the abort.
+    expect(mapper.map({ type: "agent_start" })).toEqual({ kind: "turn_started" });
+    expect(mapper.map({ type: "agent_settled", aborted: false })).toEqual({
+      kind: "turn_completed",
+    });
+  });
 });
 
 describe("PiAgentClient", () => {
@@ -990,56 +1015,47 @@ describe("slash-command operations (sprint-037)", () => {
 
 describe("slash-prompt turn completion (web-client slash commands, step 1)", () => {
   /**
-   * Extends {@link FakeTransport} for the slash-prompt correlation path (`PiAgentSession.run` now
-   * routes a `/`-prefixed prompt through `transport.request("prompt", …)` instead of `notify`,
-   * then probes `get_state` for `isStreaming` to know whether Pi ran an inline extension command
-   * or started a real turn — see `agent.ts`'s `runSlashPrompt`). Overrides only `get_state`
-   * (adding the post-ack streaming flag `discoverState()` doesn't need) and `prompt` (moving it
-   * from `notify` to `request`); every other command still goes through the base fake unchanged.
+   * Extends {@link FakeTransport} for the slash-prompt correlation path (`PiAgentSession.run`
+   * routes a `/`-prefixed prompt through `transport.request("prompt", …)` instead of `notify`, and
+   * reads the ack's `disposition` to know whether Pi ran an inline extension command or started a
+   * real turn — see `agent.ts`'s `runSlashPrompt`). Overrides only `prompt` (moving it from
+   * `notify` to `request` and answering with Pi's real ack shape); every other command still goes
+   * through the base fake unchanged.
    */
   class SlashTransport extends FakeTransport {
-    private getStateCalls = 0;
-
     constructor(
       args: PiTransportSpawnArgs,
-      private readonly streaming: boolean,
+      private readonly disposition: "started" | "queued" | "handled",
       private readonly rejectPrompt = false,
     ) {
       super(args);
     }
 
     override request(command: string, params?: Record<string, unknown>): Promise<unknown> {
-      if (command === "get_state") {
-        this.getStateCalls += 1;
-        // The first get_state is `discoverState()`'s spawn-time probe — keep the base fake's
-        // sessionFile/model payload so existing spawn-time expectations are untouched. Every
-        // subsequent call is `runSlashPrompt`'s post-ack streaming probe.
-        if (this.getStateCalls === 1) return super.request(command, params);
-        this.requests.push(command);
-        return Promise.resolve({ isStreaming: this.streaming });
-      }
       if (command === "prompt") {
         this.requests.push(command);
-        return this.rejectPrompt ? Promise.reject(new Error("ack rejected")) : Promise.resolve({});
+        return this.rejectPrompt
+          ? Promise.reject(new Error("ack rejected"))
+          : Promise.resolve({ disposition: this.disposition });
       }
       return super.request(command, params);
     }
 
-    /** Lets a test simulate the turn-terminal event `runSlashPrompt` awaits after a streaming ack. */
+    /** Lets a test simulate the turn-terminal event `runSlashPrompt` awaits after a started ack. */
     fireEvent(event: unknown): void {
       this.fire(event);
     }
   }
 
   function clientWithSlashFake(
-    streaming: boolean,
+    disposition: "started" | "queued" | "handled",
     opts?: { rejectPrompt?: boolean },
   ): { client: PiAgentClient; spawns: SlashTransport[] } {
     const spawns: SlashTransport[] = [];
     const client = new PiAgentClient({
       command: ["pi", "--mode", "rpc"],
       transportFactory: (args) => {
-        const t = new SlashTransport(args, streaming, opts?.rejectPrompt ?? false);
+        const t = new SlashTransport(args, disposition, opts?.rejectPrompt ?? false);
         spawns.push(t);
         return t;
       },
@@ -1048,8 +1064,8 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
     return { client, spawns };
   }
 
-  it("an inline extension command (isStreaming: false) resolves run() with no turn-terminal event, via request not notify", async () => {
-    const { client, spawns } = clientWithSlashFake(false);
+  it("an inline extension command (disposition: handled) resolves run() with no turn-terminal event, via request not notify", async () => {
+    const { client, spawns } = clientWithSlashFake("handled");
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
     const events: AgentStreamEvent[] = [];
     session.subscribe((e) => events.push(e));
@@ -1061,8 +1077,8 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
     expect(events).toHaveLength(0);
   });
 
-  it("a real turn (isStreaming: true) is awaited until turn_completed fires", async () => {
-    const { client, spawns } = clientWithSlashFake(true);
+  it("a real turn (disposition: started) is awaited until turn_completed fires", async () => {
+    const { client, spawns } = clientWithSlashFake("started");
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
     const events: AgentStreamEvent[] = [];
     session.subscribe((e) => events.push(e));
@@ -1071,9 +1087,9 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
     const running = session.run("/fix-tests").then(() => {
       resolved = true;
     });
-    // Flush the ack + get_state probe's two sequential `await`s deterministically (no wall-clock
-    // wait): each is an already-resolved promise, so draining a few microtask ticks is enough to
-    // reach the pending `await terminal` without racing a real timer.
+    // Flush the ack's `await` deterministically (no wall-clock wait): it is an already-resolved
+    // promise, so draining a few microtask ticks is enough to reach the pending `await terminal`
+    // without racing a real timer.
     for (let i = 0; i < 5; i++) await Promise.resolve();
     expect(resolved).toBe(false);
 
@@ -1085,14 +1101,14 @@ describe("slash-prompt turn completion (web-client slash commands, step 1)", () 
   });
 
   it("a rejected prompt ack propagates as a rejected run() (previously silently swallowed by notify)", async () => {
-    const { client } = clientWithSlashFake(false, { rejectPrompt: true });
+    const { client } = clientWithSlashFake("handled", { rejectPrompt: true });
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
 
     await expect(session.run("/bad")).rejects.toThrow("ack rejected");
   });
 
   it("a non-slash prompt still goes out via notify (untouched fast path)", async () => {
-    const { client, spawns } = clientWithSlashFake(false);
+    const { client, spawns } = clientWithSlashFake("handled");
     const session = await client.createSession({ provider: "pi", cwd: "/work" });
     const events: AgentStreamEvent[] = [];
     session.subscribe((e) => events.push(e));

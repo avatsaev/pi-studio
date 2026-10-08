@@ -228,8 +228,9 @@ Raw Pi events are Pi's own shapes. A stateful `createPiEventMapper()` instance, 
   latches a disposition from its run's `stopReason` (`error` → failed, `aborted` → canceled, else
   completed) and returns `null`.
 - `agent_settled` → the true end of the turn (Pi will not continue automatically past this point).
-  Emits the latched disposition as the terminal event: `turn_failed` (carries `errorMessage`),
-  `turn_canceled`, or `turn_completed`.
+  `aborted: true` (Pi ≥ 1.1.0) emits `turn_canceled` regardless of the latch (an abort between
+  runs leaves nothing to latch); otherwise emits the latched disposition as the terminal event:
+  `turn_failed` (carries `errorMessage`), `turn_canceled`, or `turn_completed`.
 - **Returns `null`** for a whole set of raw events (`turn_start`, `message_start`, `compaction_start`, …) — dropped, never reach the timeline (`agent.ts:142`)
 
 **Hop 4 — timeline append + broadcast.**

@@ -26,7 +26,7 @@
   "dependencies": {
     "@av-pi-studio/protocol": "^0.0.107",
     "@av-pi-studio/relay": "^0.0.107",
-    "@earendil-works/pi-coding-agent": ">=0.85.1 <1.0.0",
+    "@earendil-works/pi-coding-agent": "^1.1.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "bcryptjs": "^3.0.3",

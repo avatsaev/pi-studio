@@ -537,11 +537,13 @@ creation" above.
   so awaiting one for an inline command would hang the turn (and the agent's `"running"` status)
   forever. `run` routes any prompt starting with `/` through `runSlashPrompt`, which sends `prompt`
   as a correlated `request` (not the usual fire-and-forget `notify`) so Pi's own ack is observable,
-  then probes `get_state.isStreaming`: `false` means the command ran inline and there is no turn to
-  await (return immediately); `true` means a real turn started (a prompt template or a
-  `pi.sendMessage` skill/extension call) and the existing terminal-event wait applies as normal. An
-  ack rejection now surfaces as a rejected turn instead of being silently dropped the way an
-  unmatched `notify` response is.
+  then reads the ack's `data.disposition` (Pi ≥ 0.99.0): `"handled"` means the command ran inline
+  and there is no turn to await (return immediately); `"started"`/`"queued"` means a real run is in
+  flight (a prompt template or a `pi.sendMessage` skill/extension call) and the existing
+  terminal-event wait applies as normal. An ack rejection surfaces as a rejected turn instead of
+  being silently dropped the way an unmatched `notify` response is. A `command` override pointing
+  at a Pi older than 0.99.0 (no `disposition`) would hang an inline command's turn — the daemon
+  requires Pi ≥ 1.1.0 (root `AGENTS.md` § Pi dependency posture).
 
 **Pi provider** (`providers/pi/`):
 - Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
@@ -549,7 +551,7 @@ creation" above.
   `bin.pi`** rather than hardcoding an entrypoint, falling back to `dist/bundle/cli.js` (Pi's
   declared `bin` since 0.84.4) then `dist/cli.js` (its `bin` through 0.84.3, still shipped). Pi
   relocated that path in 0.84.4 and the dependency range accepts future minors
-  (`>=0.85.1 <1.0.0`, root `AGENTS.md` § Pi dependency posture), so a hardcoded path would
+  (`^1.1.0`, root `AGENTS.md` § Pi dependency posture), so a hardcoded path would
   silently degrade to a global `pi` on `$PATH` at the next relocation. `transport-errors.test.ts`
   asserts the resolved path *equals* the declared `bin`, so such a move fails loudly.
 - `rpc-transport.ts` captures the spawned process's stderr (last 16 KiB) and folds it into both
@@ -693,8 +695,12 @@ creation" above.
   `agent_settled` emits the turn-closer stream event. Before this, a retried/continued turn
   resolved `session.run()` — and with it `runTurn`'s `unsubscribe()`, status flip to `idle`, and
   `autoArchive` — mid-turn, on the first `agent_end`, silently dropping every row streamed after
-  it. The old stateless `mapPiEvent(raw)` remains as a thin single-event shim over a fresh mapper
-  instance (used by ~10 turn-agnostic unit assertions); it can no longer report a turn's terminal.
+  it. `agent_settled.aborted: true` (Pi ≥ 1.1.0) overrides the latch with `turn_canceled`: an
+  abort that lands between runs (auto-retry backoff, compaction) produces no
+  `stopReason: "aborted"` message to latch, so before honouring it such a turn settled as
+  `turn_completed`. The old stateless `mapPiEvent(raw)` remains as a thin single-event shim over a
+  fresh mapper instance (used by ~10 turn-agnostic unit assertions); it can no longer report a
+  turn's terminal.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's

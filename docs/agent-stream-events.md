@@ -69,7 +69,7 @@ queued steering/follow-up message all loop into another run before the turn is a
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `agent_start`                                    | `turn_started`                                                                             |
 | `agent_end`                                      | *(none)* — latches disposition from the last assistant message's `stopReason` (`error`→failed, `aborted`→canceled, else completed); swallowed entirely when `willRetry: true` |
-| `agent_settled`                                  | terminal, from the latched disposition: `turn_completed` / `turn_failed` / `turn_canceled`  |
+| `agent_settled`                                  | terminal: `turn_canceled` when `aborted: true` (Pi ≥ 1.1.0, wins over the latch); otherwise from the latched disposition: `turn_completed` / `turn_failed` / `turn_canceled` |
 | `message_update` (`assistantMessageEvent.type`) |                                                                                              |
 | — `text_delta`                                   | `assistant_message` (streaming text)                                                       |
 | — `text_end`                                     | `assistant_message` with `final: true`, no text                                            |

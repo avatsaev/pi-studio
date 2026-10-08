@@ -293,13 +293,13 @@ class PiAgentSession implements AgentSession {
   }
 
   /**
-   * Send a `/command` prompt *correlated* (`request`, not `notify`) so Pi's own ack is observable:
-   * Pi acks on preflight (dist/modes/rpc/rpc-mode.js `case "prompt"`), then `get_state.isStreaming`
-   * — set synchronously as `_runAgentPrompt`'s first statement, hence already `true` for a real
-   * turn by the time the ack reaches us — says whether a turn is actually running. Not streaming ⇒
-   * the command was handled inline (extension command) and this turn is already over. A rejected
-   * ack (no model, no auth, "Agent is already processing") now surfaces as a failed turn instead of
-   * being silently dropped the way an unmatched `notify` response is (rpc-transport.ts `handleLine`).
+   * Send a `/command` prompt *correlated* (`request`, not `notify`) so Pi's own ack is observable.
+   * Pi acks on preflight with `data.disposition` (dist/modes/rpc/rpc-mode.js `case "prompt"`,
+   * Pi ≥ 0.99.0): `"handled"` ⇒ an extension command ran inline, no run started and no
+   * `agent_settled` will follow, so this turn is already over; `"started"`/`"queued"` ⇒ a run is
+   * (or will be) in flight, so await its terminal event. A rejected ack (no model, no auth, "Agent
+   * is already processing") surfaces as a failed turn instead of being silently dropped the way an
+   * unmatched `notify` response is (rpc-transport.ts `handleLine`).
    */
   private async runSlashPrompt(prompt: string, opts?: RunOptions): Promise<void> {
     let terminated = false;
@@ -319,13 +319,11 @@ class PiAgentSession implements AgentSession {
     });
     try {
       const images = this.toPiImages(opts?.images);
-      await this.transport.request("prompt", {
+      const ack = (await this.transport.request("prompt", {
         message: prompt,
         ...(images ? { images } : {}),
-      });
-      if (terminated) return;
-      const state = (await this.transport.request("get_state")) as { isStreaming?: boolean };
-      if (state.isStreaming === false) return;
+      })) as { disposition?: string } | undefined;
+      if (terminated || ack?.disposition === "handled") return;
       await terminal;
     } finally {
       unsub();

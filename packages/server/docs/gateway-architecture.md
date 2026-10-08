@@ -351,6 +351,7 @@ deliberately avoided because it also splits on U+2028/U+2029, which are valid in
 | `agent_start`                                                                                      | `turn_started` (also resets the mapper's latched disposition) |
 | `agent_end` (`willRetry:true` — another run is coming)                                              | *(non-terminal)*                                |
 | `agent_end` (`willRetry` false/absent)                                                              | *(non-terminal — latches disposition from the run's `stopReason` for the next `agent_settled`)* |
+| `agent_settled` (`aborted: true`, Pi ≥ 1.1.0 — wins over any latched disposition)                  | `turn_canceled`                                 |
 | `agent_settled` (latched disposition from `stopReason`: `error`)                                    | `turn_failed` (carries `errorMessage`)          |
 | `agent_settled` (latched disposition: `aborted`)                                                    | `turn_canceled`                                 |
 | `agent_settled` (latched disposition: other)                                                        | `turn_completed`                                |
