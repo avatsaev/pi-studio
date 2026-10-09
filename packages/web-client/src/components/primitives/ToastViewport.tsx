@@ -31,7 +31,12 @@ function prefersReducedMotion(): boolean {
 }
 
 export function ToastViewport() {
-  const storeToasts = useToastStore((s) => s.toasts).slice(0, MAX_VISIBLE_TOASTS);
+  // The store's own array: its identity changes only when the store does. The exit effect below
+  // keys on it — keying on the sliced copy (a new array every render) re-ran the effect on every
+  // render, and its cleanup cancelled the pending exit timer, stranding an invisible toast that
+  // kept swallowing clicks on whatever sat under it.
+  const toasts = useToastStore((s) => s.toasts);
+  const storeToasts = toasts.slice(0, MAX_VISIBLE_TOASTS);
   const dismiss = useToastStore((s) => s.dismiss);
   const pause = useToastStore((s) => s.pause);
   const resume = useToastStore((s) => s.resume);
@@ -44,9 +49,18 @@ export function ToastViewport() {
 
   const prevIdsRef = useRef<string[]>([]);
   const [exitingIds, setExitingIds] = useState<string[]>([]);
+  // One timer per exit batch, cleared only on unmount — never by a later store change, which
+  // would otherwise strand a toast still mid-exit when another one leaves within `EXIT_MS`.
+  const exitTimersRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const timers = exitTimersRef.current;
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
-    const currentIds = storeToasts.map((t) => t.id);
+    const currentIds = toasts.slice(0, MAX_VISIBLE_TOASTS).map((t) => t.id);
     const currentSet = new Set(currentIds);
     const removed = prevIdsRef.current.filter((id) => !currentSet.has(id));
     prevIdsRef.current = currentIds;
@@ -57,11 +71,12 @@ export function ToastViewport() {
     }
     setExitingIds((prev) => [...prev, ...removed]);
     const timer = window.setTimeout(() => {
+      exitTimersRef.current.delete(timer);
       setExitingIds((prev) => prev.filter((id) => !removed.includes(id)));
       for (const id of removed) cacheRef.current.delete(id);
     }, EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [storeToasts]);
+    exitTimersRef.current.add(timer);
+  }, [toasts]);
 
   const rendered: ToastEntry[] = [
     ...storeToasts,

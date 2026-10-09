@@ -45,6 +45,8 @@ export interface ModelMenuProps {
    */
   currentModelProvider?: string;
   provider: string;
+  /** The session's agent, if any — scopes the list to what that agent's process can switch to. */
+  agentId?: string | null;
   /**
    * `modelProvider` is the model's OWN underlying LLM provider (e.g. `"anthropic"`) — REQUIRED
    * by `client.agent(id).setModel(provider, modelId)`'s `provider` argument. Never hardcode the
@@ -64,34 +66,41 @@ export function ModelMenu({
   currentModel,
   currentModelProvider,
   provider,
+  agentId,
   onSelect,
   renderTrigger,
 }: ModelMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  // Read-through cached by `[provider]` (`use-provider-models.ts`): once a session's model list
-  // has been fetched once, reopening the menu shows it immediately (`isLoading: false`) instead
-  // of a spinner every time, while TanStack Query refetches it in the background so it stays
-  // current. Enabled while the menu is open OR while a model is selected — the trigger labels
+  // Read-through cached by `[provider, agentId]` (`use-provider-models.ts`): once a session's
+  // model list has been fetched once, reopening the menu shows it immediately (`isLoading: false`)
+  // instead of a spinner every time, while TanStack Query refetches it in the background so it
+  // stays current. Enabled while the menu is open OR while a model is selected — the trigger labels
   // that model with its human-readable NAME, which only this list carries (`session.model` is
   // the bare id), so gating the fetch on `open` alone left a freshly reloaded composer showing a
-  // bare id until the user happened to open the picker. One query key per provider, so every
-  // pane in the app shares a single fetch rather than one each.
-  const {
-    data: models = [],
-    isLoading,
-    isError,
-    error,
-  } = useProviderModels(provider, open || currentModel !== undefined);
+  // bare id until the user happened to open the picker. Panes on the same agent share one fetch.
+  const { data, isLoading, isFetching, isError, error, refetch } = useProviderModels(
+    provider,
+    agentId,
+    open || currentModel !== undefined,
+  );
+  const models = data ?? [];
 
-  // Reset the search query and refocus the search input every time the menu opens.
+  // Reset the search query every time the menu opens (focus is placed by `onOpenAutoFocus` below).
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    searchRef.current?.focus();
+    if (open) setQuery("");
   }, [open]);
+
+  // Refresh in the background on every open — the cached rows stay on screen meanwhile. Catches
+  // what no other refetch trigger sees: a `models.json` edit made in pi-studio's own editor, or a
+  // login under Settings → Model Providers. `cancelRefetch: false` joins a fetch already in flight
+  // (e.g. the one enabling the query just started) instead of restarting it.
+  useEffect(() => {
+    if (open) void refetch({ cancelRefetch: false });
+  }, [open, refetch]);
 
   const rows = dedupeByModelKey(sortCurrentFirst(models, currentModel, currentModelProvider));
   const options: ComboboxOption<string>[] = rows.map((m) => ({
@@ -117,36 +126,76 @@ export function ModelMenu({
 
   // Radix's DropdownMenu.Content applies roving-focus typeahead to its Items; stop the search
   // input's keystrokes from bubbling there so typing filters instead of jumping to a matching item.
+  // That also swallows the arrow keys Radix would use, so ArrowDown hands focus to the first
+  // visible row explicitly — from there Radix's own Item navigation takes over.
   function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     e.stopPropagation();
     if (e.key === "Escape") setOpen(false);
+    if (e.key === "ArrowDown") {
+      const firstRow = listRef.current?.querySelector<HTMLElement>('[role="menuitem"]');
+      if (firstRow) {
+        e.preventDefault();
+        firstRow.focus();
+      }
+    }
   }
+
+  // Radix focuses the menu container on open, after any effect of ours could run — so the filter
+  // field takes focus here instead, ready for typing the moment the menu appears. Spread as a
+  // separately-typed object for the same reason as `CommandMenu.tsx`'s `preventOpenAutoFocus`:
+  // Radix forwards `onOpenAutoFocus` at runtime but omits it from `DropdownMenuContentProps`.
+  const focusSearchOnOpen: { onOpenAutoFocus: (event: Event) => void } = {
+    onOpenAutoFocus: (event) => {
+      event.preventDefault();
+      searchRef.current?.focus();
+    },
+  };
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenu.Trigger asChild>
         {renderTrigger(currentModel, currentOption?.label)}
       </DropdownMenu.Trigger>
-      <MenuContent minWidth={240} align="end" sideOffset={6} className={styles.picker}>
-        <input
-          ref={searchRef}
-          className={styles.search}
-          placeholder="Search models…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-        />
+      <MenuContent
+        minWidth={240}
+        align="end"
+        sideOffset={6}
+        className={styles.picker}
+        {...focusSearchOnOpen}
+      >
+        <div className={styles.searchWrap}>
+          <input
+            ref={searchRef}
+            className={styles.search}
+            placeholder="Search models…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          {isFetching && !isLoading && (
+            <Spinner
+              size="xs"
+              color="var(--pi-color-foregroundMuted)"
+              className={styles.searchSpinner}
+              aria-label="Refreshing models"
+            />
+          )}
+        </div>
         {isLoading && (
           <div className={styles.state}>
             <Spinner size="sm" />
           </div>
         )}
-        {!isLoading && isError && <div className={styles.stateError}>{errorMessage}</div>}
-        {!isLoading && !isError && groups.length === 0 && (
+        {/* A failed background refresh keeps the last good list (TanStack retains `data`); the
+            error only replaces the list when there is nothing to show. */}
+        {!isLoading && isError && data === undefined && (
+          <div className={styles.stateError}>{errorMessage}</div>
+        )}
+        {!isLoading && data !== undefined && groups.length === 0 && (
           <div className={styles.state}>No models found</div>
         )}
-        {!isLoading && !isError && groups.length > 0 && (
-          <div className={styles.list}>
+        {!isLoading && data !== undefined && groups.length > 0 && (
+          <div ref={listRef} className={styles.list}>
             {groups.map((group) => (
               <MenuGroup key={group.key} label={showHeaders ? group.label : undefined}>
                 {group.options.map((opt) => (

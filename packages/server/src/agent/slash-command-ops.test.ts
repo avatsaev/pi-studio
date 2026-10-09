@@ -8,7 +8,10 @@ import type { AgentClient, AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService, getTimeline, seedTimeline } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
-import { SlashCommandOperationsService } from "./slash-command-operations.js";
+import {
+  type ListProviderModelsResult,
+  SlashCommandOperationsService,
+} from "./slash-command-operations.js";
 import type { TimelineRow } from "./timeline-store.js";
 
 const NOW = "2026-07-22T12:00:00.000Z";
@@ -94,6 +97,11 @@ function sessionStub(overrides: Record<string, unknown> = {}) {
   } as unknown as import("./provider-contract.js").AgentSession;
 }
 
+/** Model ids of a `list_provider_models` result, in order. */
+function modelIds(result: ListProviderModelsResult): string[] {
+  return result.models.map((m) => m.id);
+}
+
 describe("delegation to optional AgentSession methods", () => {
   it("agent_session_stats_request delegates to session.getSessionStats()", async () => {
     const { service, ops, manager } = makeSetup();
@@ -125,6 +133,54 @@ describe("delegation to optional AgentSession methods", () => {
     expect(result).toEqual({
       type: "agent_session_stats_response",
       payload: { sessionId: "s1", totalMessages: 3, model: "opus" },
+    });
+  });
+
+  describe("list_provider_models", () => {
+    /** A client whose listing says where it came from, so the test sees which source answered. */
+    function setupListing() {
+      const setup = makeSetup();
+      const client = {
+        listModels: (opts?: { session?: AgentSession }) =>
+          Promise.resolve([{ id: opts?.session ? `live:${opts.session.id}` : "fresh" }]),
+      } as unknown as AgentClient;
+      const ops = new SlashCommandOperationsService({
+        manager: setup.manager,
+        resolveClient: () => client,
+        broadcast: () => {},
+      });
+      return { ...setup, ops };
+    }
+
+    it("answers from the agent's live process when it belongs to the requested provider", async () => {
+      const { service, ops, manager } = setupListing();
+      const agentId = await createAgent(service);
+      const session = sessionStub();
+      manager.attachSession(agentId, session);
+      const result = await ops.handleListProviderModels({ provider: "mock", agentId }, "r1");
+      expect(result).toMatchObject({
+        type: "list_provider_models_response",
+        requestId: "r1",
+        provider: "mock",
+      });
+      expect(modelIds(result)).toEqual([`live:${session.id}`]);
+    });
+
+    it("falls back to a fresh listing for no agent, an unknown one, or another provider's session", async () => {
+      const { service, ops, manager } = setupListing();
+      const agentId = await createAgent(service);
+      manager.attachSession(agentId, sessionStub());
+      const fresh = ["fresh"];
+      expect(modelIds(await ops.handleListProviderModels({ provider: "mock" }, "r"))).toEqual(
+        fresh,
+      );
+      const unknown = await ops.handleListProviderModels(
+        { provider: "mock", agentId: "nope" },
+        "r",
+      );
+      expect(modelIds(unknown)).toEqual(fresh);
+      const otherProvider = await ops.handleListProviderModels({ provider: "pi", agentId }, "r");
+      expect(modelIds(otherProvider)).toEqual(fresh);
     });
   });
 

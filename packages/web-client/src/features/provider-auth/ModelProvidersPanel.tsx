@@ -56,6 +56,7 @@ export function ModelProvidersPanel() {
           : "",
       }));
       await queryClient.invalidateQueries({ queryKey: rpcKeys.providerAuthList() });
+      void queryClient.invalidateQueries({ queryKey: rpcKeys.providerModelsAll() });
     } finally {
       setLoggingOutId(null);
     }

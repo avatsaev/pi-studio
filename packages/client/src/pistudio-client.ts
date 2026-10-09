@@ -241,8 +241,9 @@ export interface ResolveDefaultModelResponse {
 export interface PiStudioProviderActions {
   /** List available providers. */
   listProviders(): Promise<unknown>;
-  /** List models for a provider. */
-  listModels(provider: string): Promise<ListProviderModelsResponse>;
+  /** List models for a provider. `agentId`: answer from that agent's live process when it has
+   *  one — the list its `setModel` accepts (Pi reads `models.json` once per process). */
+  listModels(provider: string, opts?: { agentId?: string }): Promise<ListProviderModelsResponse>;
   /** List modes for a provider. */
   listModes(provider: string): Promise<unknown>;
   /** Resolve the model a brand-new session would run on with no override — backs the
@@ -1160,8 +1161,11 @@ class ProviderHandle implements PiStudioProviderActions {
   listProviders(): Promise<unknown> {
     return this.daemon.request("list_providers", {});
   }
-  listModels(provider: string): Promise<ListProviderModelsResponse> {
-    return this.daemon.request<ListProviderModelsResponse>("list_provider_models", { provider });
+  listModels(provider: string, opts?: { agentId?: string }): Promise<ListProviderModelsResponse> {
+    return this.daemon.request<ListProviderModelsResponse>("list_provider_models", {
+      provider,
+      ...(opts?.agentId ? { agentId: opts.agentId } : {}),
+    });
   }
   listModes(provider: string): Promise<unknown> {
     return this.daemon.request("list_provider_modes", { provider });

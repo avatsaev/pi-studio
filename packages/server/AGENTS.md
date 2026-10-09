@@ -91,8 +91,10 @@ src/
                                    commands with a real Pi RPC equivalent (/session, /compact,
                                    /new, /resume, /fork, /clone, /name, /export, /model, /copy),
                                    command discovery (agent_list_commands_request, sprint-040),
-                                   and the thinking-level pair (agent_set_thinking /
-                                   agent_thinking_levels, sprint-070/task-002). `handleFork`
+                                   the model picker's `list_provider_models` (next to the
+                                   `agent_set_model_request` it feeds), and the thinking-level
+                                   pair (agent_set_thinking / agent_thinking_levels,
+                                   sprint-070/task-002). `handleFork`
                                    (sprint-071/task-003) resyncs the in-memory timeline and
                                    broadcasts `agent_timeline_reset` to every active session
                                    whenever the fork's persistence handle actually changed — see
@@ -448,10 +450,22 @@ src/
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.
 
-**`list_provider_models`** (sprint-043, both `bootstrap.ts` and `dev-bootstrap.ts`) — resolves the
-requested `provider` (default `"pi"`) via `resolveClient` and returns
+**`list_provider_models`** (sprint-043; `slash-command-operations.ts`'s `handleListProviderModels`,
+so both bootstraps get it through `SlashCommandOperationsService`) — resolves the requested
+`provider` (default `"pi"`) via `resolveClient` and returns
 `{ type: "list_provider_models_response", requestId, provider, models: AgentModelDefinition[] }`
-by calling `AgentClient.listModels(opts?: { cwd?: string })` directly — no agent session is spawned.
+from `AgentClient.listModels(opts?: { cwd?: string; session?: AgentSession })` — no agent session
+is spawned. **An optional `agentId` scopes the list to that agent**: when the agent has a live
+session belonging to `provider`, it is passed as `session` and the Pi client answers from that
+process's own `get_available_models` instead of a fresh top-level one. Pi loads `models.json` once
+per process and never reloads it (verified against 1.1.0: a live process's list and `set_model`
+both ignore a later edit), so a fresh discovery can offer a model the running agent's `set_model`
+rejects with `Model not found` — the picker showed it, the pick failed, and the UI silently fell
+back. No `agentId`, an unknown one, no live process (it will spawn fresh, reading the current file),
+or another provider's session all fall back to the fresh discovery. `session` goes through
+`listModels` rather than being read directly so `provider-registry.ts`'s `applyModelOverrides`
+wrapper (custom-profile `models`/`additionalModels`) still applies; `AgentSession.listModels?()` is
+the per-process primitive (Pi: `get_available_models` on the session transport; mock: absent).
 Since sprint-070/task-001 each entry additionally carries `reasoning?: boolean` and
 `thinkingLevels?: string[]` (Pi adapter derives them from the raw `Model` object; the mock marks
 its model reasoning with its static list) so the web-client can drive a thinking-level selector

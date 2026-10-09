@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canCompact, canSubmitDraft, type SubmitGateInput } from "./composer-gate.js";
+import {
+  canCompact,
+  canSubmitDraft,
+  shouldRestoreCompactDraft,
+  type SubmitGateInput,
+} from "./composer-gate.js";
 
 const idle: SubmitGateInput = {
   hasClient: true,
@@ -57,5 +62,22 @@ describe("canCompact", () => {
     expect(canCompact({ running: true, compacting: false, hasAgent: true })).toBe(false);
     expect(canCompact({ running: false, compacting: true, hasAgent: true })).toBe(false);
     expect(canCompact({ running: false, compacting: false, hasAgent: false })).toBe(false);
+  });
+});
+
+describe("shouldRestoreCompactDraft", () => {
+  it("puts the draft back only when nothing was compacted", () => {
+    expect(shouldRestoreCompactDraft({ ok: false, reason: "failed", message: "x" }, "")).toBe(true);
+    expect(shouldRestoreCompactDraft({ ok: false, reason: "disconnected" }, "")).toBe(true);
+    expect(shouldRestoreCompactDraft({ ok: true }, "")).toBe(false);
+  });
+
+  it("a user cancel is not restored", () => {
+    expect(shouldRestoreCompactDraft({ ok: false, reason: "canceled" }, "")).toBe(false);
+  });
+
+  it("never clobbers a draft written while the compaction ran", () => {
+    const failed = { ok: false, reason: "failed", message: "x" } as const;
+    expect(shouldRestoreCompactDraft(failed, "filled by an extension")).toBe(false);
   });
 });

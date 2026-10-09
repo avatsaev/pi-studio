@@ -23,7 +23,12 @@ export const rpcKeys = {
   htmlAssetBundleByPath: (path: string) => ["file", "htmlAssets", path] as const,
   explorer: (path: string) => ["explorer", path] as const,
   agentList: () => ["agents", "list"] as const,
-  providerModels: (provider: string) => ["providers", "models", provider] as const,
+  /** Per agent as well as provider: an agent's live process answers with its own list. */
+  providerModels: (provider: string, agentId: string | null | undefined) =>
+    ["providers", "models", provider, agentId ?? null] as const,
+  /** Prefix over every `providerModels` entry — invalidated when credentials change (login/logout),
+   *  which changes which models every provider offers. */
+  providerModelsAll: () => ["providers", "models"] as const,
   agentTimeline: (agentId: string) => ["agents", "timeline", agentId] as const,
   /** sprint-070: live session's thinking levels (`agent_thinking_levels_request`), keyed on the
    *  model so a model change refetches automatically on the next open. */

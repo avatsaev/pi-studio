@@ -38,10 +38,12 @@
   }
 }
 /* Exit — `ToastViewport.tsx` applies this while a toast lingers in local state after leaving the
-   store, giving the same transition a mirrored close. */
+   store, giving the same transition a mirrored close. A leaving toast is no longer interactive:
+   while it fades it must never swallow clicks meant for the toolbar underneath. */
 .toast.exiting {
   opacity: 0;
   transform: translateY(-8px);
+  pointer-events: none;
 }
 .content {
   flex: 1;

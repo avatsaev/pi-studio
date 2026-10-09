@@ -689,6 +689,15 @@ describe("PiAgentClient", () => {
     expect(spawns.flatMap((t) => t.requests)).toEqual(["get_available_models"]);
   });
 
+  it("lists a live session's models from that session's own process, spawning nothing new", async () => {
+    const { client, spawns } = clientWithFake();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const models = await client.listModels({ session });
+    expect(models.map((m) => m.id)).toEqual(["pi-sonnet", "pi-limited", "pi-plain"]);
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]?.requests).toContain("get_available_models");
+  });
+
   it("resolveDefaultModel spawns --no-session and asks get_state, not a scratch prompt", async () => {
     const { client, spawns } = clientWithFake();
     const resolved = await client.resolveDefaultModel();

@@ -1342,7 +1342,13 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   desktop only. `"Top"` — what Esc's `dismissTop()` removes, and the visually topmost slot — is
   `toasts[0]`, the longest-visible entry; new toasts append below it, growing the stack downward
   from the anchor edge. `notify-effect.ts` (task-006, bullet above) is the toast host's one caller
-  today; nothing else in the app has been retrofitted onto it.
+  today; nothing else in the app has been retrofitted onto it. **Exit lifecycle:** a toast leaving
+  the store lingers in `ToastViewport`'s local `exitingIds` for `EXIT_MS` (180 ms) so its fade can
+  play. The exit effect keys on the store's own `toasts` array, never the per-render slice, and each
+  exit batch owns a timer cleared only on unmount — keying on the slice re-ran the effect every
+  render, its cleanup cancelled the removal timer, and the invisible (`opacity: 0`) toast stayed
+  mounted forever over the top-centre toolbar, swallowing clicks. `.toast.exiting` is also
+  `pointer-events: none`, so a fading toast never intercepts input.
 - **Announcements (sprint-069/task-008, § 08/§ 11).** One shared off-screen live region for the
   whole app (`components/primitives/Announcer.tsx`, mounted once in `WorkspacePage.tsx` next to
   `ToastViewport`) — never one per row/tab/header. Two always-mounted spans, `role="status"`
@@ -1780,12 +1786,18 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
 - **Model selector (sprint-043; lives in the composer's bottom toolbar) + eager draft
   materialization.**
   `ModelMenu.tsx` (`features/chat/`) is the shared popup: a Radix `DropdownMenu` with a fuzzy
-  search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id), the current
-  model sorted first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
+  search input (`ui/combobox.ts`'s `filterOptions`, case-insensitive on label + id) **that takes
+  focus the moment the menu opens** — via `onOpenAutoFocus` (prevent Radix's default of focusing
+  the menu container, then focus the input; spread as a separately-typed object, the same
+  `CommandMenu.tsx` `preventOpenAutoFocus` workaround for a prop Radix forwards but leaves off its
+  public type), never from an effect, which Radix's own mount focus overrides. The input stops key
+  propagation so typing filters instead of triggering Radix typeahead, so ArrowDown explicitly
+  hands focus to the first visible row, after which Radix's item navigation takes over. The current
+  model sorts first with a checkmark (`model-menu-sort.ts`'s pure `sortCurrentFirst`,
   unit-tested — kept out of the `.tsx` file since the root Vitest config only discovers
   `.test.ts`, not `.test.tsx`, under a node environment; there is no jsdom/React-Testing-Library
   render test anywhere in this package despite `@testing-library/react` being a devDependency —
-  see `StatusBar`'s precedent below), and rows showing `label (id)` with the id in
+  see `StatusBar`'s precedent below), and rows show `label (id)` with the id in
   `--pi-color-foregroundMuted`, **sectioned under one sticky header per underlying LLM provider**
   (`groupOptions` with `option.group = model.provider`, `priorityGroup = session.modelProvider`
   so the provider you are on leads; headers appear only when there are at least two of them,
@@ -1809,11 +1821,22 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   `--pi-color-foreground`, `.modelId` muted and one size rung down, shrinking first so a narrow
   pane truncates the id rather than the name), or a `"Model"` placeholder. The name exists only in
   the fetched model list — `session.model` is the bare id — which is why the
-  `useProviderModels(provider, …)` query is enabled on `open || currentModel !== undefined`
+  `useProviderModels(provider, agentId, …)` query is enabled on `open || currentModel !== undefined`
   rather than `open` alone: gating on `open` left a freshly reloaded composer showing a bare id
-  until the user happened to open the picker. One query key per provider, so all panes share a
-  single fetch. When a provider reports no display name (`label === id`) the id span is dropped
-  instead of rendering `id (id)`. It also passes
+  until the user happened to open the picker. The query is keyed `[provider, agentId]` and passes
+  the session's `agentId` to `list_provider_models`, so a conversation with a live agent lists only
+  what that agent's own Pi process can switch to (Pi reads `models.json` once per process — see
+  `packages/server/AGENTS.md` § ProviderRegistry); panes on the same agent share one fetch, and the
+  composer's thinking-level catalogue reads the same key. **Every open also refreshes the list in
+  the background** (`refetch({ cancelRefetch: false })` in an `open` effect — joins a fetch already
+  in flight rather than restarting it): the cached rows stay on screen with a small spinner inside
+  the search field's right edge, and a failed refresh keeps the last good list (the error state
+  replaces the list only when there is no `data` at all). That catches what focus/mount refetches
+  don't — a `models.json` edit in pi-studio's own editor, or a provider login. A successful login
+  (`LoginDialog`) or logout (`ModelProvidersPanel`) additionally invalidates
+  `rpcKeys.providerModelsAll()` alongside `providerAuthList()`, since credentials change which
+  models every provider offers. When a provider reports no display name
+  (`label === id`) the id span is dropped instead of rendering `id (id)`. It also passes
   `align="end"`, overriding `MenuContent`'s `align="start"` default, because that trigger sits at
   the right edge of the composer; a start-aligned popup would hang off the panel. The status bar
   no longer renders `ModelMenu` or holds any model-picking code.
@@ -1860,9 +1883,14 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   applied): Pi's `set_model` RPC's `provider` field is the model's own LLM provider, a completely
   different namespace from the pi-studio provider id used only to pick which `AgentClient`
   answers `list_provider_models`. Model discovery goes through the daemon's
-  `list_provider_models` RPC (both bootstraps, backed by `AgentClient.listModels` with no spawned
-  agent — see `packages/server/AGENTS.md` § ProviderRegistry and `packages/client/AGENTS.md` §
-  `PiStudioProviderActions`).
+  `list_provider_models` RPC (`AgentClient.listModels`, agent-scoped as above — see
+  `packages/server/AGENTS.md` § ProviderRegistry and `packages/client/AGENTS.md` §
+  `PiStudioProviderActions`). **A rejected pick is reverted and explained**, not swallowed:
+  `handleSelectModel` restores the previous model/provider (only if the store still holds the
+  failed pick — a newer pick or `agent_update` wins) and shows `Couldn't switch model: <daemon
+  message>` beneath the composer (`styles.inlineError`, shared with `/compact` failures) until the
+  next edit or pick. Before this, the optimistic pick stayed on screen until the next stats poll
+  wrote the agent's real model back, which read as the picker "switching back" on its own.
 
   **A never-used chat is discarded on close, not left as clutter — but persists across a refresh
   until then.** Because every "New chat" tab now persists an `AgentRecord` immediately, closing it
@@ -1946,11 +1974,12 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
   decision (`thinking-level-source.ts`, unit-tested): a LIVE session answers
   `useThinkingLevels` (`agent_thinking_levels_request`, keyed `[agentId, model]` so a model
   change refetches; enabled only while the menu is open), a draft answers from the
-  already-cached `useProviderModels("pi")` catalogue via `levelsForModel` (per-model
+  already-cached `useProviderModels("pi", agentId)` catalogue via `levelsForModel` (per-model
   `thinkingLevels`, full-ladder fallback when absent — no extra RPC). `Composer.tsx`'s
   `handleSelectThinking` mirrors `handleSelectModel`: optimistic `setThinkingLevel` →
   `ensureMaterialized` → `setThinking`, then writes the response's EFFECTIVE level back (a
-  clamped pick visibly corrects); rejections swallowed, `agent_update({thinkingLevel})` is the
+  clamped pick visibly corrects); a rejection reverts the pick and shows `Couldn't set thinking
+  level: …` in the same inline-error slot, and `agent_update({thinkingLevel})` stays the
   source of truth. `SessionEntry.thinkingLevel` is seeded from `list_agents` on restore and
   kept live by `use-session-restore.ts`'s `hasStringThinkingLevel` guard beside
   `hasStringModel`; `materialize.ts` seeds the `resolve_default_model`'s fresh default level for
@@ -2056,9 +2085,12 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     command of the same name, matching the TUI's built-in-first precedence; `parseBuiltinInvocation`
     uses Pi's exact, case-sensitive token grammar (`/Compact`, `/compactx` are ordinary drafts).
     `Composer.submit` runs a match through `compaction-store`'s `compactSession` — no `send`/`steer`,
-    no optimistic user row — and clears the draft **only on success and only if it still equals what
-    was submitted** (compaction takes seconds; text typed meanwhile must survive). A failure keeps the
-    draft and shows the store's error beneath the composer until the next edit.
+    no optimistic user row — and **clears the draft at submit**, like an ordinary send (the RPC
+    resolves only when the compaction ends, which can take minutes). `composer-gate.ts`'s
+    `shouldRestoreCompactDraft` puts the submitted text back only when nothing was compacted (a
+    refusal or `failed`; never after a user cancel) and only into a still-empty draft, so a draft
+    written meanwhile (e.g. `set_editor_text`) is never clobbered. A failure also shows the store's
+    error beneath the composer until the next edit.
   - **Compacting gate (`composer-gate.ts`).** While compacting (`useIsCompacting`), Send/Enter are
     disabled for every draft (Pi rejects prompts during compaction) and the Stop button is shown;
     Stop calls `cancelCompaction`. While running, an ordinary draft still steers but a `/compact`
@@ -2066,6 +2098,15 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     picker's `compact` row is rendered dimmed (`disabled`, not selectable by click/Enter/Tab) in those
     states; `canSubmitDraft` stays authoritative because Enter reaches `submit` without going through
     the button's `disabled`.
+  - **The composer shows the compacting state itself** — for any compaction, including automatic
+    ones mid-turn, since the timeline divider can be scrolled out of view. The textarea is
+    `readOnly` (not `disabled`, so focus stays put and typing resumes the instant it ends) with a
+    `Compacting context…  esc cancel` placeholder; the card drops to `surface1` without the focus
+    ring; attach, paste and the slash-command trigger/menu are inert. A status line under the card
+    (inside an always-mounted `role="status"` region so the change is announced) shows a spinner,
+    the pending row's `compactionLabel` (fallback `Compacting context…` against a daemon without
+    `compactionEvents`), and a Cancel button. Escape in the textarea calls `cancelCompaction` — the
+    keyboard twin of Stop — and `handleKeyDown` returns early so no other branch edits the draft.
   - **Live-verified against a real spawned `pi` process, not just the mock provider**: Pi only
     scans a project's `.pi/prompts/`/`.pi/extensions/` when the CWD is a trusted project (Pi's own
     `~/.pi/agent/trust.json`, `defaultProjectTrust`) — an untrusted directory silently returns zero

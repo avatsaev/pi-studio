@@ -68,9 +68,11 @@ export function LoginDialog() {
   const queryClient = useQueryClient();
   // Stable identity: the success effect below depends on this callback, and an inline arrow would
   // make that effect re-run on every render — restarting the auto-close timer each time (so it
-  // never fires) and re-invalidating the provider list on every pass.
+  // never fires) and re-invalidating the provider list on every pass. A new credential changes
+  // which models are available, so every cached model list is refetched too.
   const onSuccess = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: rpcKeys.providerAuthList() });
+    void queryClient.invalidateQueries({ queryKey: rpcKeys.providerModelsAll() });
   }, [queryClient]);
 
   if (!pendingLogin || !client) return null;

@@ -8,7 +8,12 @@ import {
   resetTimeline,
   spawnOrResumeSession,
 } from "./agent-service.js";
-import type { AgentClient, AgentCompactResult, PersistenceHandle } from "./provider-contract.js";
+import type {
+  AgentClient,
+  AgentCompactResult,
+  AgentModelDefinition,
+  PersistenceHandle,
+} from "./provider-contract.js";
 
 /**
  * Slash-command operations (sprint-037): Pi built-in commands that have a real Pi RPC equivalent
@@ -19,7 +24,8 @@ import type { AgentClient, AgentCompactResult, PersistenceHandle } from "./provi
  *
  * Also hosts command *discovery* (sprint-040): `agent_list_commands_request` surfaces Pi's
  * `get_commands` (extension commands, prompt templates, skills) for a live session — a disjoint
- * set from the built-in slash commands above.
+ * set from the built-in slash commands above — and the model picker's `list_provider_models`,
+ * next to the `set_model` it feeds.
  *
  * Pi's own RPC contract is explicit that TUI-only built-ins (/settings, /hotkeys, etc.) have no
  * RPC equivalent and would not execute if sent via `prompt` — those are intentionally NOT
@@ -31,6 +37,13 @@ export interface SlashCommandOpsDeps {
   resolveClient: (provider: string) => AgentClient;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   logger?: Logger;
+}
+
+export interface ListProviderModelsResult {
+  type: "list_provider_models_response";
+  requestId: string;
+  provider: string;
+  models: AgentModelDefinition[];
 }
 
 /** Resolve the live session for `agentId`, or throw an error the router turns into `rpc_error`. */
@@ -80,6 +93,9 @@ export class SlashCommandOperationsService {
     );
     registry.register("agent_export_html_request", (ctx) =>
       this.handleExportHtml(ctx.message as Record<string, unknown>),
+    );
+    registry.register("list_provider_models", (ctx) =>
+      this.handleListProviderModels(ctx.message as Record<string, unknown>, ctx.requestId),
     );
     registry.register("agent_set_model_request", (ctx) =>
       this.handleSetModel(ctx.message as Record<string, unknown>, getActiveSessions),
@@ -390,6 +406,24 @@ export class SlashCommandOperationsService {
       thinkingOptionId: level,
     };
     await this.deps.manager.updateRecord(agentId, { config });
+  }
+
+  /** Model picker list (sprint-043). With an `agentId` whose live session belongs to `provider`,
+   * the agent's own process answers: Pi loads `models.json` once at spawn, so a fresh process can
+   * offer a model this agent's `set_model` then rejects ("Model not found") after the file was
+   * edited. With no agent, or no live process (it spawns fresh, reading the current file), a
+   * sessionless discovery answers as before. */
+  async handleListProviderModels(
+    msg: Record<string, unknown>,
+    requestId: string | undefined,
+  ): Promise<ListProviderModelsResult> {
+    const provider = String(msg.provider ?? "pi");
+    const cwd = msg.cwd ? String(msg.cwd) : undefined;
+    const agentId = typeof msg.agentId === "string" ? msg.agentId : undefined;
+    const live = agentId ? this.deps.manager.get(agentId)?.session : undefined;
+    const session = live?.provider === provider ? live : undefined;
+    const models = await this.deps.resolveClient(provider).listModels({ cwd, session });
+    return { type: "list_provider_models_response", requestId: requestId ?? "", provider, models };
   }
 
   /** `/model` (set) — broadcast the model change and persist it (see `persistModel`). A

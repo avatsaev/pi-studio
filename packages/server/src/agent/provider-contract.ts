@@ -278,6 +278,9 @@ export interface AgentSession {
   exportHtml?(outputPath?: string): Promise<{ path: string }>;
   /** `/model` (set) — mirrors Pi RPC `set_model` (distinct from the legacy string-only `setModel?`). */
   setProviderModel?(provider: string, modelId: string): Promise<unknown>;
+  /** The models THIS process can switch to — mirrors Pi RPC `get_available_models`. Pi loads
+   *  `models.json` once at spawn, so after an edit a fresh process's list can differ from this one. */
+  listModels?(): Promise<AgentModelDefinition[]>;
   /** `/model` (cycle) — mirrors Pi RPC `cycle_model`. */
   cycleModel?(): Promise<AgentCycleModelResult>;
   /** `/copy` — mirrors Pi RPC `get_last_assistant_text`. */
@@ -309,7 +312,9 @@ export interface AgentClient {
     launchContext?: LaunchContext,
   ): Promise<AgentSession>;
 
-  listModels(opts?: { cwd?: string }): Promise<AgentModelDefinition[]>;
+  /** `session`: a live session of this provider whose own list should answer (see
+   *  `AgentSession.listModels`) — otherwise a fresh, sessionless discovery. */
+  listModels(opts?: { cwd?: string; session?: AgentSession }): Promise<AgentModelDefinition[]>;
   isAvailable(): Promise<boolean> | boolean;
 
   // Optional capabilities.

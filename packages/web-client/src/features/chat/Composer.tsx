@@ -59,6 +59,7 @@ import {
 import { clsx } from "clsx";
 import { ArrowUp, Brain, ChevronDown, Cpu, Navigation, Plus, Slash, Square } from "lucide-react";
 import { Button } from "@pi-studio-ui/components/primitives/Button.js";
+import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
 import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { randomId } from "@pi-studio-ui/lib/random-id.js";
@@ -72,9 +73,10 @@ import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
 import { useThinkingLevels } from "@pi-studio-ui/hooks/use-thinking-levels.js";
 import { useIsCompacting } from "@pi-studio-ui/hooks/use-is-compacting.js";
 import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
+import { compactionLabel, pendingCompaction } from "@pi-studio-ui/timeline/compaction.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { isComposerBusy } from "./composer-busy.js";
-import { canCompact, canSubmitDraft } from "./composer-gate.js";
+import { canCompact, canSubmitDraft, shouldRestoreCompactDraft } from "./composer-gate.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { ThinkingMenu } from "./ThinkingMenu.js";
@@ -138,10 +140,10 @@ export function Composer({ sessionId }: ComposerProps) {
     session?.model,
     thinkingOpen && Boolean(session?.agentId) && (session?.userMessageCount ?? 0) > 0,
   );
-  // Draft (no live session): the already-cached model catalogue answers — the same shared
-  // query key ModelMenu populates, so the draft lookup costs no extra RPC. `levelsForModel`
-  // always returns at least the full fallback ladder, so this is never empty.
-  const { data: catalogue } = useProviderModels("pi");
+  // Draft (no live session): the already-cached model catalogue answers — the same query key
+  // ModelMenu populates, so the draft lookup costs no extra RPC. `levelsForModel` always returns
+  // at least the full fallback ladder, so this is never empty.
+  const { data: catalogue } = useProviderModels("pi", session?.agentId);
   const catalogueLevels = levelsForModel(session?.model, catalogue);
   const thinkingLevels =
     liveLevels !== undefined && liveLevels.length > 0 ? liveLevels : catalogueLevels;
@@ -176,6 +178,9 @@ export function Composer({ sessionId }: ComposerProps) {
   const visible = useIsTabVisible(tabIds.chat(sessionId));
   const pendingFeedback = useDraftStore((s) => s.pendingFeedback[sessionId]);
   const [note, setNote] = useState<string | null>(null);
+  // A rejected model/thinking pick (e.g. "Model not found" from an agent whose process predates a
+  // models.json edit): the optimistic pick is reverted and this says why, until the next edit/pick.
+  const [pickError, setPickError] = useState<string | null>(null);
   const [flashing, setFlashing] = useState(false);
   const noteTimeoutRef = useRef<number | null>(null);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -244,6 +249,10 @@ export function Composer({ sessionId }: ComposerProps) {
   const commandNames = [...CLIENT_BUILTIN_COMMANDS, ...commands].map((c) => c.name);
   // The span to highlight in the textarea — only a token Pi will actually recognize as a command.
   const span = knownCommandSpan(text, commandNames);
+  // While compacting, the composer is read-only and shows its own status line: the timeline's
+  // divider may be scrolled out of view, and a field that still accepts typing reads as "ready".
+  const pendingRow = compacting ? pendingCompaction(session?.timeline.rows ?? []) : undefined;
+  const compactingLabel = pendingRow ? compactionLabel(pendingRow) : "Compacting context…";
 
   async function addImageFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) return;
@@ -261,6 +270,7 @@ export function Composer({ sessionId }: ComposerProps) {
   }
 
   function handlePaste(ev: ClipboardEvent<HTMLTextAreaElement>): void {
+    if (compacting) return;
     for (const item of ev.clipboardData.items) {
       if (item.type.startsWith("image/")) {
         ev.preventDefault();
@@ -282,12 +292,22 @@ export function Composer({ sessionId }: ComposerProps) {
     // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
     // only recognizes a command at index 0 (`agent-session.js` `text.startsWith("/")`).
     if (compactError) clearCompactError(sessionId);
+    if (pickError) setPickError(null);
     const shouldOpen = shouldOpenMenu(next);
     if (shouldOpen !== menuOpen) setMenuOpen(shouldOpen);
     if (shouldOpen) setHighlight(0);
   }
 
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
+    // Read-only while compacting: Escape cancels (the keyboard twin of the Stop button), and
+    // nothing below may run — the Backspace-chip and menu branches would edit the frozen draft.
+    if (compacting) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        void cancelCompaction(sessionId);
+      }
+      return;
+    }
     // A single Backspace deletes the WHOLE recognized command token, like a chip/mention, instead
     // of forcing the user to peck through it one character at a time. Scoped to `!menuOpen` (the
     // command has already been accepted/typed in full and the menu closed) so it never fights
@@ -359,16 +379,17 @@ export function Composer({ sessionId }: ComposerProps) {
     // applies: compacting blocks everything, and a `/compact` draft never becomes a steer.
     if (!canSubmit) return;
 
-    // Client built-ins run here and never reach `send`/`steer`: no optimistic user row, and the
-    // draft is cleared only once the action actually succeeded so a failure can be retried.
+    // Client built-ins run here and never reach `send`/`steer`: no optimistic user row. The draft
+    // clears up front like an ordinary send — the RPC resolves only when the compaction ends, and
+    // the composer's compacting state, not a lingering `/compact`, is what says it is running.
     const builtin = parseBuiltinInvocation(trimmed);
     if (builtin) {
       setMenuOpen(false);
+      setDraftText(sessionId, "");
+      if (textareaRef.current) autoResize(textareaRef.current);
       const result = await compactSession(sessionId, builtin.args);
-      // Clear only if the draft is still the one that was submitted: compaction takes seconds,
-      // and text typed meanwhile must survive it.
-      if (result.ok && useDraftStore.getState().drafts[sessionId] === text) {
-        setDraftText(sessionId, "");
+      if (shouldRestoreCompactDraft(result, useDraftStore.getState().drafts[sessionId] ?? "")) {
+        setDraftText(sessionId, text);
         if (textareaRef.current) autoResize(textareaRef.current);
       }
       return;
@@ -454,39 +475,52 @@ export function Composer({ sessionId }: ComposerProps) {
    * fires while the eager materialize is still in flight.
    */
   function handleSelectModel(modelId: string, modelProvider?: string): void {
+    const previous = { model: session?.model, provider: session?.modelProvider };
     setModel(sessionId, modelId, modelProvider); // optimistic display pick either way
+    setPickError(null);
     if (!client || !modelProvider) return;
     void (async () => {
       const agentId = await ensureMaterialized(client, sessionId);
       await client.agent(agentId).setModel(modelProvider, modelId);
-    })().catch(() => {
-      // Same swallow-and-let-the-stream-be-the-source-of-truth convention as `submit`'s catch —
-      // a rejected `agent_set_model_request` has no dedicated UI surface today.
+    })().catch((rejection: unknown) => {
+      // Undo the optimistic pick — unless something newer (another pick, an `agent_update`)
+      // already replaced it — so the picker never claims a model the agent isn't on.
+      const current = useSessionStore.getState().sessions[sessionId];
+      if (current?.model === modelId && current.modelProvider === modelProvider) {
+        setModel(sessionId, previous.model, previous.provider);
+      }
+      const message = rejection instanceof Error ? rejection.message : String(rejection);
+      setPickError(`Couldn't switch model: ${message}`);
     });
   }
   /**
    * Sprint-070 thinking-level pick, mirroring `handleSelectModel`'s optimistic-then-materialize
-   * shape: the store flips immediately, `ensureMaterialized` is a no-op once bound, and the RPC
-   * rejection is swallowed (the `agent_update` broadcast is the source of truth — the response's
-   * EFFECTIVE level also lands in the store when it resolves, correcting a clamped pick).
+   * shape: the store flips immediately, `ensureMaterialized` is a no-op once bound, the response's
+   * EFFECTIVE level lands in the store when it resolves (correcting a clamped pick), and a
+   * rejection reverts the pick and says why.
    */
   function handleSelectThinking(level: string): void {
+    const previous = session?.thinkingLevel;
     setThinkingLevel(sessionId, level); // optimistic either way
+    setPickError(null);
     if (!client) return;
     void (async () => {
       const agentId = await ensureMaterialized(client, sessionId);
       const res = await client.agent(agentId).setThinking(level);
       // The daemon answers the EFFECTIVE (possibly clamped) level — never trust the request.
       setThinkingLevel(sessionId, res.level);
-    })().catch(() => {
-      // Same swallow convention as `handleSelectModel` — no dedicated UI surface for a
-      // rejected `agent_set_thinking_request`.
+    })().catch((rejection: unknown) => {
+      if (useSessionStore.getState().sessions[sessionId]?.thinkingLevel === level) {
+        setThinkingLevel(sessionId, previous);
+      }
+      const message = rejection instanceof Error ? rejection.message : String(rejection);
+      setPickError(`Couldn't set thinking level: ${message}`);
     });
   }
 
   return (
     <div className={styles.composer}>
-      <div className={clsx(styles.card, flashing && styles.flash)}>
+      <div className={clsx(styles.card, flashing && styles.flash, compacting && styles.compacting)}>
         <div className={styles.textareaWrap}>
           <div className={styles.highlightLayer} aria-hidden>
             {span ? (
@@ -503,10 +537,13 @@ export function Composer({ sessionId }: ComposerProps) {
             className={styles.textarea}
             rows={1}
             value={text}
+            readOnly={compacting}
             placeholder={
-              running
-                ? "Steer the running turn…  ⏎ steer · ⇧⏎ newline"
-                : "Ask anything…  ⏎ send · ⇧⏎ newline · / commands"
+              compacting
+                ? "Compacting context…  esc cancel"
+                : running
+                  ? "Steer the running turn…  ⏎ steer · ⇧⏎ newline"
+                  : "Ask anything…  ⏎ send · ⇧⏎ newline · / commands"
             }
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
@@ -523,12 +560,13 @@ export function Composer({ sessionId }: ComposerProps) {
             iconOnly
             title="Attach image"
             aria-label="Attach image"
+            disabled={compacting}
             onClick={() => fileInputRef.current?.click()}
           >
             <Plus size={16} />
           </Button>
           <CommandMenu
-            open={menuOpen}
+            open={menuOpen && !compacting}
             onOpenChange={setMenuOpen}
             options={filtered}
             highlightedIndex={highlight}
@@ -543,6 +581,7 @@ export function Composer({ sessionId }: ComposerProps) {
                 variant="ghost"
                 size="sm"
                 iconOnly
+                disabled={compacting}
                 title="Slash commands"
                 aria-label="Slash commands"
               >
@@ -555,6 +594,7 @@ export function Composer({ sessionId }: ComposerProps) {
               currentModel={session?.model}
               currentModelProvider={session?.modelProvider}
               provider="pi"
+              agentId={session?.agentId}
               onSelect={handleSelectModel}
               renderTrigger={(currentModel, currentModelName) => {
                 // A separate id span only earns its place when the name actually differs from the
@@ -629,10 +669,31 @@ export function Composer({ sessionId }: ComposerProps) {
           </div>
         </div>
       </div>
+      <div role="status">
+        {compacting && (
+          <div className={styles.compactStatus}>
+            <Spinner size="xs" aria-label="Compacting" />
+            <span className={styles.compactStatusText}>{compactingLabel}</span>
+            <button
+              type="button"
+              className={styles.compactCancel}
+              title="Cancel the compaction (Esc)"
+              onClick={() => void cancelCompaction(sessionId)}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
       {note !== null && <div className={styles.note}>{note}</div>}
       {compactError && (
-        <div role="alert" className={styles.compactError}>
+        <div role="alert" className={styles.inlineError}>
           {compactError}
+        </div>
+      )}
+      {pickError && (
+        <div role="alert" className={styles.inlineError}>
+          {pickError}
         </div>
       )}
       <input

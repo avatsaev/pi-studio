@@ -108,6 +108,29 @@ function modelIdFrom(model: unknown): string | undefined {
   return undefined;
 }
 
+/** Map a `get_available_models` response (raw Pi `Model` objects, docs/rpc.md § Model) to the
+ * contract's definitions. Each entry's own `provider` (the underlying LLM provider, e.g.
+ * `"anthropic"`) is REQUIRED to call `set_model` back (sprint-043: dropping it caused every
+ * `agent_set_model_request` to fail with "Model not found: pi/<modelId>" — "pi" is the pi-studio
+ * `AgentClient` id, never a real LLM provider Pi recognizes). */
+function toModelDefinitions(data: unknown): AgentModelDefinition[] {
+  const raw = data && typeof data === "object" && "models" in data ? data.models : undefined;
+  const models = Array.isArray(raw) ? raw : [];
+  return models.map((m) => {
+    const rec = m as Record<string, unknown>;
+    return {
+      id: String(rec.id ?? rec.name ?? ""),
+      label: typeof rec.name === "string" ? rec.name : String(rec.id ?? ""),
+      provider: typeof rec.provider === "string" ? rec.provider : undefined,
+      // Raw Pi `Model` objects carry `reasoning` + `thinkingLevelMap`; surface the derived
+      // per-model level list so clients can offer draft sessions the right levels with no
+      // live process (sprint-070/task-001).
+      reasoning: typeof rec.reasoning === "boolean" ? rec.reasoning : undefined,
+      thinkingLevels: deriveThinkingLevels(rec),
+    } as AgentModelDefinition;
+  });
+}
+
 /** Dialog methods block for a client answer; every other extension UI method is fire-and-forget
  * (docs/rpc.md § Extension UI Protocol). The single place the blocking set is encoded — a future Pi
  * release that adds a method only ever touches this constant. */
@@ -484,6 +507,10 @@ class PiAgentSession implements AgentSession {
     return { path: data?.path ?? "" };
   }
 
+  async listModels(): Promise<AgentModelDefinition[]> {
+    return toModelDefinitions(await this.transport.request("get_available_models"));
+  }
+
   async setProviderModel(provider: string, modelId: string): Promise<unknown> {
     const data = await this.transport.request("set_model", { provider, modelId });
     const resolved = modelIdFrom(data);
@@ -672,30 +699,16 @@ export class PiAgentClient implements AgentClient {
   }
 
   /**
-   * Discover models via the Pi RPC `get_available_models` command (no scratch session). Each raw
-   * entry is Pi's full `Model` object (docs/rpc.md § Model) — carries its own `provider` (the
-   * underlying LLM provider, e.g. `"anthropic"`), which is REQUIRED to call `set_model` back
-   * (sprint-043: dropping this field here caused every `agent_set_model_request` to fail with
-   * "Model not found: pi/<modelId>" — "pi" is the pi-studio `AgentClient` id, never a real LLM
-   * provider Pi recognizes).
+   * Discover models via the Pi RPC `get_available_models` command (no scratch session): from the
+   * given live `session`'s own process when there is one — the only list its `set_model` accepts —
+   * else from a fresh top-level process, which reads the current `models.json`.
    */
-  async listModels(opts?: { cwd?: string }): Promise<AgentModelDefinition[]> {
-    const data = await this.topLevel("get_available_models", opts?.cwd);
-    const raw = (data as Record<string, unknown>)?.models;
-    const models = Array.isArray(raw) ? raw : [];
-    return models.map((m) => {
-      const rec = m as Record<string, unknown>;
-      return {
-        id: String(rec.id ?? rec.name ?? ""),
-        label: typeof rec.name === "string" ? rec.name : String(rec.id ?? ""),
-        provider: typeof rec.provider === "string" ? rec.provider : undefined,
-        // Raw Pi `Model` objects carry `reasoning` + `thinkingLevelMap`; surface the derived
-        // per-model level list so clients can offer draft sessions the right levels with no
-        // live process (sprint-070/task-001).
-        reasoning: typeof rec.reasoning === "boolean" ? rec.reasoning : undefined,
-        thinkingLevels: deriveThinkingLevels(rec),
-      } as AgentModelDefinition;
-    });
+  async listModels(opts?: {
+    cwd?: string;
+    session?: AgentSession;
+  }): Promise<AgentModelDefinition[]> {
+    if (opts?.session?.listModels) return opts.session.listModels();
+    return toModelDefinitions(await this.topLevel("get_available_models", opts?.cwd));
   }
 
   /** Pi RPC has no `list_modes`; modes come from the provider manifest, not the process. */

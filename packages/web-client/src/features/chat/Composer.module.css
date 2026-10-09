@@ -43,10 +43,53 @@
   font-size: var(--pi-font-size-3xs);
   color: var(--pi-color-foregroundMuted);
 }
-/* Inline failure of a `/compact` draft (the draft is kept so it can be retried). */
-.compactError {
+/* Inline failure under the composer: a `/compact` draft (restored so it can be retried) or a
+   rejected model/thinking pick (reverted). Cleared by the next edit. */
+.inlineError {
   margin-top: var(--pi-spacing-4);
   font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-statusDanger);
+}
+/* Compacting: the textarea is read-only and every draft is blocked (`composer-gate.ts`), so the
+   card sinks to the composer's own surface and drops the accent focus ring — it reads as paused,
+   not as a field waiting for input. Listed with the `:has(:focus)` form to outrank the ring below. */
+.card.compacting,
+.card.compacting:has(.textarea:focus) {
+  border-color: var(--pi-color-border);
+  background: var(--pi-color-surface1);
+}
+.card.compacting .textarea {
+  color: var(--pi-color-foregroundMuted);
+  cursor: progress;
+}
+/* Status line under the card while compacting: spinner, the in-progress row's label, Cancel. */
+.compactStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  min-width: 0;
+  margin-top: var(--pi-spacing-4);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-foregroundMuted);
+}
+.compactStatusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compactCancel {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--pi-color-foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.compactCancel:hover {
   color: var(--pi-color-statusDanger);
 }
 /* Keyed off the textarea specifically, NOT `:focus-within` — the toolbar's own buttons live

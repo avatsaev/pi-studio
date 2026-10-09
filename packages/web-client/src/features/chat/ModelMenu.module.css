@@ -24,6 +24,23 @@
 .search:focus {
   border-color: var(--pi-color-accent);
 }
+/* Holds the search input plus the background-refresh spinner pinned inside its right edge. */
+.searchWrap {
+  position: relative;
+}
+/* Room for the spinner, kept even when it is hidden so the caret never jumps mid-typing. */
+.searchWrap .search {
+  padding-right: var(--pi-spacing-24);
+}
+/* Vertically centred with auto margins, not `translateY`: the spinner's own rotation keyframes
+   own `transform` and would override it (Spinner sets a fixed inline size, so this centres). */
+.searchSpinner {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--pi-spacing-8);
+  margin: auto 0;
+}
 
 .list {
   max-height: 320px;
