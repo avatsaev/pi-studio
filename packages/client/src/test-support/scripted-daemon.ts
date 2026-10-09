@@ -138,7 +138,7 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         reply({
           type: "agent_compact_response",
           requestId,
-          payload: { summary: "compacted", tokensBefore: 1000 },
+          payload: { summary: "compacted", tokensBefore: 1000, estimatedTokensAfter: 100 },
         });
         return;
       }

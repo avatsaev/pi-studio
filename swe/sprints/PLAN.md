@@ -103,8 +103,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 071 | `sprint-071-conversation-fork-daemon` | server + protocol only (no web-client): the **daemon half** of `features/conversation-fork.md` — post-fork timeline resync, so a fork stops leaving every connected transcript on the abandoned branch. Sprint-037 already shipped the fork RPCs (`agent_fork_request`/`agent_fork_messages_request` in both bootstraps, `PiAgentSession.fork()`'s `get_state` re-read, `persistSessionHandle` following the branch, protocol schemas, tested SDK facades) and **nothing consumes them**, so the gap is real but unhit. Adds `agent-service.resetTimeline` (unconditional replace, unlike `seedTimeline`'s no-op-if-exists — a fork always has a live store), the `agent_timeline_reset` passthrough broadcast (`terminals_update` convention: every session incl. relay, no subscribe RPC, no `messages.ts` union member), and the `forkTimelineSync` flag the UI gates on. Also deletes the dead rewind surface this feature supersedes. | 4 |
 | 072 | `sprint-072-conversation-fork-ui` | web-client only (consumes 071, adds no protocol): the **fork UI** — hover affordance on confirmed user rows, one dialog with two steps (confirm + "Fork from…" picker), composer prefill, multi-client convergence. Correlation is **ordinal, never id-based**: live `user_message` rows carry the client-minted `clientMessageId` echo while Pi's `entryId` is its own JSONL id — disjoint spaces nothing correlates today — so the clicked row's index among confirmed user rows indexes `get_fork_messages`, the confirm dialog displays the matched entry's own text, and a whitespace-normalized mismatch opens the picker rather than ever forking an unverified entry. Refresh is broadcast-driven for **every** client including the requester, so two windows and a relay phone converge through one handler. | 6 |
 | 073 | `sprint-073-viewer-settings` | cross-package (protocol, server, client, web-client): **chunk A of `docs/MOLVIEWER_DECOUPLING.md`** — a runtime kill switch for the molecule viewer, and the daemon-backed settings family every future viewer plugin will read. Molviewer is currently unconditional: a `.cif` always opens in a 3D viewer, with no way to turn that off. The toggle lives **on the daemon**, not in `localStorage`, because a phone over the relay and a desktop browser talking to the same daemon must not disagree about which viewers exist — so this ships five real `sessionMessageSchema` members (the push included, unlike `provider_auth_flow_event`, because it carries the same durable document on a hot parse path), a `viewerSettings` flag, a new `packages/server/src/viewers/` subsystem over `$PI_STUDIO_HOME/viewer-settings.json`, four `PiStudioClient` methods, a Zustand store, five gated dispatch points, and a Viewers settings category. Three rules carry the design: **the daemon knows nothing about plugins** (rows keyed by whatever id arrives, unknown ids valid, `config` opaque — § 3's dependency rule applied across the wire), **absent row = enabled** (defaults never written, so a fresh daemon and a daemon without the feature look identical to a client), and **every degrade direction offers the viewer** (no capability, failed fetch, corrupt file, pre-hydration — never hide a file behind a daemon version). Two things are load-bearing beyond the obvious: `tabFromIdentity` takes the enabled-predicate as an **injected parameter** rather than reading the store, staying the pure synchronous inverse of `tabIdentity` that phase 3's registry will reuse unchanged; and the layout replay gains a `loaded` condition, because otherwise a persisted `molecule:<path>` races the settings fetch and reopens as a viewer tab the user turned off. Fixes a live bug on the way: `ConnectionBar` gates the settings gear on `providerAuthCapable`, so the first capability-free category would be unreachable against a daemon without `providerAuth`. Hard prerequisite for phase 1 (`swe/architecture/viewer-plugin-system.md`), whose registry reads this store. | 7 |
+| 074 | `sprint-074-context-compaction` | cross-package (protocol, server, client, cli, web-client): **context compaction in the UI** — Compact now from a status-bar context meter (a loading bar replacing the `42% (84k/200k)` text) and `/compact [instructions]` as a client-side composer built-in, plus every compaction (manual **and** Pi's automatic threshold/overflow ones) rendered live as a timeline divider in every connected client. Ships `swe/features/context-compaction.md`. The core finding: the daemon records stream events only inside `runTurn`'s subscription, so manual compactions (which run outside a turn) would be dropped even once mapped; `handleCompact` gets its own subscription window, `busy` guards (Pi's `compact()` aborts a running turn and cancels a concurrent compaction), and resume-on-compact for never-resumed sessions. Fixes two latent bugs on the way: a 30 s RPC timeout that fails long compactions, and a percent-scale guess that renders a 0.7% context as `70%` | 9 |
 
-Total: **71 sprints, 364 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **72 sprints, 373 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -2000,6 +2001,63 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-006 | "Viewers" settings category with the Molecule Viewer toggle (read-only + "requires a newer daemon" when the capability is absent) and the gear gate rewritten to "any category available" | feature | task-004, task-005 | packages/web-client (features/settings, features/connection, AGENTS.md); MOLVIEWER_DECOUPLING § 5 phase 0 steps 3-4, § 7 |
 | task-007 | Sprint close: seven-step live E2E against a **production** daemon (state file written, two-window convergence without reload, reload + daemon-restart persistence, disabled-viewer reopen as text, open tab survives, corrupt-file degrade), root `AGENTS.md` protocol + persistence entries, decoupling-plan review log, phase-1 spec's "store doesn't exist yet" note corrected, full root gates | docs | task-001…task-006 | AGENTS.md (root); MOLVIEWER_DECOUPLING § 5 phase 0, § 7, § 10 chunk A |
 
+### sprint-074-context-compaction
+> **What it ships.** Manual context compaction from the web UI and live visibility of every
+> compaction, per `features/context-compaction.md` (scoped through a grilling session on
+> 2026-10-09; its § Decisions table is the user's call on each fork). Two trigger surfaces sharing
+> one action: a click on the status-bar context meter (a popover with **Compact now / Cancel** and
+> optional instructions) and `/compact [instructions]` intercepted client-side. The context
+> segment's text becomes a loading-bar meter with threshold colors (accent < 70 %, warning, danger ≥
+> 90 %). Tokens and cost segments are unchanged.
+>
+> **Everything below the UI already existed for the manual trigger, and none of it was visible.**
+> `agent_compact_request`, `handleCompact`, the Pi adapter's `compact()` and the SDK facade shipped
+> in sprint-037. The web-client never called them, and `event-mapper.ts` mapped Pi's
+> `compaction_start`/`compaction_end` to `null`. More importantly, the daemon records stream events
+> **only** inside `runTurn`'s `session.subscribe` window, so even mapped manual-compaction events
+> would be dropped: `handleCompact` runs outside any turn. Automatic compactions happen inside a
+> turn (verified in Pi 1.1.0's `agent-session.js`: before the next request, after `agent_end`, at
+> prompt start), so mapping alone covers them. Task-003 gives `handleCompact` its own subscription
+> window, forwarding only `compaction` events, through one `appendStreamEvent` helper extracted
+> from `runTurn`.
+>
+> **Three Pi facts shape the guards.** `compact()` starts with `abort()`, so compacting mid-turn
+> kills the run and a second concurrent compact cancels the first. The daemon therefore rejects with
+> `busy` on a running agent or an in-flight compaction (a deliberate CLI-visible change:
+> `agent compact` on a running agent now errors). Pi reports context usage as `null` after a
+> compaction until the next reply, so the meter shows a `~` estimate from `estimatedTokensAfter`
+> instead of the stale pre-compaction value. And `abort` cancels compaction too, so Cancel reuses
+> the existing interrupt RPC.
+>
+> **One event kind, upserted.** `{kind:"compaction", compactionId, phase:
+> started|completed|failed|canceled, …}` renders as one divider row updated in place. Live,
+> reload, late-join and post-restart hydration all flow through the same reducer, because fetched
+> timelines replay through `applyStreamEvent`. Hydrated rows come from Pi's `compaction` session
+> entries, which store neither `reason` nor `estimatedTokensAfter`. A `compactionEvents` flag lets
+> the hosted UI degrade against older self-hosted daemons: local pending state and the response's
+> estimate, with no divider.
+>
+> **Two latent bugs fixed on the way.** The SDK and CLI used the default 30 s RPC timeout for a
+> call that routinely runs longer (task-004). And Pi's `percent` is 0–100 while `stats-store`
+> documents a 0–1 fraction and `formatPercent` guesses the scale (`p <= 1 ? p * 100 : p`), so any
+> session under 1% renders as up to `100%`. Task-006 pins the scale and rewrites the tests that
+> encoded the guess.
+>
+> **Status:** COMPLETE — 9/9 tasks done. Live-verified against a real production daemon and real
+> `pi --mode rpc` (Haiku via LiteLLM) in two browser windows; the old-daemon fallback was not run live.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `compaction` `AgentStreamEvent` variant (phase enum, `compactionId`, optional reason/numbers/summary/error/willRetry), `estimatedTokensAfter` on the compact response, `compactionEvents` flag + COMPAT | feature | none | packages/protocol; features/context-compaction § Public contract › Protocol |
+| task-002 | Pi mapper `compaction_start/_end` → started/terminal with one minted id (aborted→canceled, result→completed, else failed); hydration replays Pi `compaction` entries as completed rows; mock `compact()` emits started → (delay) → completed | feature | task-001 | packages/server (providers/pi, providers/mock); § Public contract › Server |
+| task-003 | `handleCompact`: `busy` guards (running, in-flight set released on every path), resume via `spawnOrResumeSession`, `ensureTimelineSeeded` before the first append (extracted from `timeline-rpc.ts`), subscription window forwarding only `compaction` events through `appendStreamEvent` (extracted from `runTurn`), synthetic `failed` terminal; in-turn regression (agent still ends `idle`) | feature | task-002 | packages/server (agent-service, slash-command-operations, timeline-rpc); § Behavior & algorithms |
+| task-004 | `COMPACT_TIMEOUT_MS` (10 min) in the SDK's `compact()` and the CLI's `compactAgent`; typed `estimatedTokensAfter` | bugfix | task-001 | packages/client, packages/cli; § Public contract › Client SDK |
+| task-005 | `CompactionRow` + reducer upsert by `compactionId` + turn-end close of orphaned `started` rows; pure `isCompactionPending`/`compactionLabel`; divider renderer with collapsible markdown summary | feature | task-001 | packages/web-client (timeline, features/chat/rows); § UI specification › Timeline divider row |
+| task-006 | `ContextMeter` (80×6 bar, tone thresholds, unknown/estimated/compacting, reduced-motion, `role="meter"`) in place of the context text; live estimate from `completed` events; **percent-scale fix** (0–100 pinned, `<1%`, tests rewritten) | feature | task-005 | packages/web-client (features/workspace, stores, hooks); § UI specification › Context meter |
+| task-007 | `Popover` primitive (Radix); `compaction-store` with `compactSession`/`cancelCompaction` (preconditions, local pending, capability-absent estimate); meter popover with priority-ordered button states and inline errors | feature | task-004, task-006 | packages/web-client (components/primitives, stores, features/workspace); § UI specification › Compaction popover |
+| task-008 | Composer: Send blocked + Stop-cancels while compacting; `/compact` client built-in (picker entry shadowing a same-named Pi command, exact case-sensitive grammar, intercepted in `submit`, never sent or steered, gated while running/agent-less) | feature | task-007 | packages/web-client (features/chat); features/composer-ui § slash commands |
+| task-009 | Sprint close: nine-step live E2E against a real daemon + real `pi` + two browsers (manual, `/compact`, running guard incl. CLI `busy`, cancel, forced threshold auto-compaction, Pi error path, restart hydration + resume-on-compact, old-daemon fallback, `<1%`), root `AGENTS.md`, spec TODO(verify) resolved, full gates | docs | task-001…task-008 | AGENTS.md (root + touched packages); § Acceptance criteria |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2144,6 +2202,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/ssh-gateway-connections.md | s025/t001-005 |
 | architecture/viewer-plugin-system.md | **partial** — s073/t001-007 ships only its § Prerequisite (the daemon-backed settings store phase 1's enabled-filter reads). The contract, registry, barrel, panel host and the molviewer move (chunks B/C of `docs/MOLVIEWER_DECOUPLING.md`) are **not yet planned** |
 | features/viewer-unbound-tabs.md | **not planned** — phase 5 / chunk D of `docs/MOLVIEWER_DECOUPLING.md`; depends on chunk B's barrel and stable-id rule |
+| features/context-compaction.md | s074/t001-009 (wire variant + flag; Pi mapping, hydration and mock; daemon subscription window, `busy` guards and resume-on-compact; SDK/CLI timeout; upserted divider row; context meter with the percent-scale fix; popover + shared action; composer gate and `/compact` built-in; real-Pi E2E and docs) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.

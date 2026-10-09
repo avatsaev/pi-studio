@@ -1,4 +1,4 @@
-import type { DaemonClient } from "@av-pi-studio/client";
+import { COMPACT_TIMEOUT_MS, type DaemonClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { Command } from "commander";
 
@@ -363,10 +363,11 @@ export async function compactAgent(
   customInstructions: string | undefined,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.compact, {
-    agentId,
-    customInstructions,
-  });
+  const payload = await client.request<Record<string, unknown>>(
+    AGENT_RPC.compact,
+    { agentId, customInstructions },
+    COMPACT_TIMEOUT_MS,
+  );
   ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
   return EXIT_OK;
 }

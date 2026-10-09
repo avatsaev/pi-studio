@@ -252,3 +252,52 @@ describe("hydrateTimelineFromSessionFile", () => {
     expect(rows.map((r) => r.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
 });
+
+describe("hydrateTimelineFromSessionFile — compaction entries", () => {
+  it("replays a compaction entry as one completed row at its branch position", () => {
+    const sm = makeSessionManager();
+    sm.appendMessage({ role: "user", content: "one", timestamp: 1000 });
+    const assistantId = sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "a" }],
+      api: "x",
+      provider: "p",
+      model: "m",
+      usage: USAGE,
+      stopReason: "stop",
+      timestamp: 2000,
+    });
+    const compactionId = sm.appendCompaction("the summary", assistantId, 123_456);
+    sm.appendMessage({ role: "user", content: "two", timestamp: 3000 });
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "b" }],
+      api: "x",
+      provider: "p",
+      model: "m",
+      usage: USAGE,
+      stopReason: "stop",
+      timestamp: 4000,
+    });
+
+    const rows = hydrateTimelineFromSessionFile(sm.getSessionFile() as string);
+    expect(rows.map((r) => r.event.kind)).toEqual([
+      "user_message",
+      "turn_started",
+      "assistant_message",
+      "compaction",
+      "turn_completed",
+      "user_message",
+      "turn_started",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(rows[3]?.event).toEqual({
+      kind: "compaction",
+      phase: "completed",
+      compactionId,
+      tokensBefore: 123_456,
+      summary: "the summary",
+    });
+  });
+});

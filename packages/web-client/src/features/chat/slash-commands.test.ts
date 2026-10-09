@@ -5,6 +5,7 @@ import {
   commandOptions,
   knownCommandSpan,
   moveHighlight,
+  parseBuiltinInvocation,
   parseSlashToken,
   shouldOpenMenu,
 } from "./slash-commands.js";
@@ -61,7 +62,8 @@ describe("commandOptions", () => {
   ];
 
   it("maps name/description/source to label/description/kind, preserving order", () => {
-    const { options, hiddenExtensionCount } = commandOptions(commands, { running: false });
+    const { options: all, hiddenExtensionCount } = commandOptions(commands, { running: false });
+    const options = all.filter((o) => o.kind !== "builtin"); // client built-ins have their own tests
     expect(options).toEqual([
       {
         value: "session-name",
@@ -82,7 +84,7 @@ describe("commandOptions", () => {
 
   it("hides extension-sourced commands while running and reports how many", () => {
     const { options, hiddenExtensionCount } = commandOptions(commands, { running: true });
-    expect(options.map((o) => o.value)).toEqual(["fix-tests", "skill:brave-search"]);
+    expect(options.map((o) => o.value)).toEqual(["compact", "fix-tests", "skill:brave-search"]);
     expect(hiddenExtensionCount).toBe(1);
   });
 });
@@ -137,5 +139,66 @@ describe("knownCommandSpan", () => {
 
   it("tolerates trailing args after a matched name", () => {
     expect(knownCommandSpan("/fix-tests src/foo.ts", names)).toEqual({ end: 10 });
+  });
+});
+
+describe("client built-ins", () => {
+  it("lists compact first with Pi's description, ahead of Pi's commands", () => {
+    const { options } = commandOptions([{ name: "fix", source: "prompt" }], { running: false });
+    expect(options.map((o) => o.value)).toEqual(["compact", "fix"]);
+    expect(options[0]).toMatchObject({
+      label: "/compact",
+      description: "Manually compact the session context",
+      kind: "builtin",
+      disabled: false,
+    });
+  });
+
+  it("a Pi command named compact is shadowed, not listed twice", () => {
+    const { options } = commandOptions(
+      [
+        { name: "compact", source: "extension" },
+        { name: "fix", source: "prompt" },
+      ],
+      { running: false },
+    );
+    expect(options.filter((o) => o.value === "compact")).toHaveLength(1);
+    expect(options[0]?.kind).toBe("builtin");
+  });
+
+  it("the shadowed extension command is not counted as hidden while running", () => {
+    const { hiddenExtensionCount } = commandOptions([{ name: "compact", source: "extension" }], {
+      running: true,
+    });
+    expect(hiddenExtensionCount).toBe(0);
+  });
+
+  it("builtinsDisabled greys the row without removing it", () => {
+    const { options } = commandOptions([], { running: true, builtinsDisabled: true });
+    expect(options[0]).toMatchObject({ value: "compact", disabled: true });
+  });
+});
+
+describe("parseBuiltinInvocation", () => {
+  it("matches the bare command and the command with instructions", () => {
+    expect(parseBuiltinInvocation("/compact")).toEqual({ name: "compact", args: undefined });
+    expect(parseBuiltinInvocation("/compact   ")).toEqual({ name: "compact", args: undefined });
+    expect(parseBuiltinInvocation("/compact focus on X")).toEqual({
+      name: "compact",
+      args: "focus on X",
+    });
+    expect(parseBuiltinInvocation("/compact line one\nline two")).toEqual({
+      name: "compact",
+      args: "line one\nline two",
+    });
+  });
+
+  it("is case-sensitive and whole-token", () => {
+    expect(parseBuiltinInvocation("/Compact")).toBeNull();
+    expect(parseBuiltinInvocation("/compactx")).toBeNull();
+    expect(parseBuiltinInvocation("/compact:x focus")).toBeNull();
+    expect(parseBuiltinInvocation("compact")).toBeNull();
+    expect(parseBuiltinInvocation("please /compact")).toBeNull();
+    expect(parseBuiltinInvocation("/")).toBeNull();
   });
 });

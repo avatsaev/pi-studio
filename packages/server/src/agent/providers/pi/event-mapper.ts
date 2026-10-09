@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { AgentStreamEvent, ToolCallDetail } from "@av-pi-studio/protocol";
 
 /**
@@ -13,6 +15,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
+
+const COMPACTION_REASONS = ["manual", "threshold", "overflow"] as const;
 
 /** Join `result.content` text blocks (Pi RPC `tool_execution_end` shape) into one string. */
 function outputOf(tool: Record<string, unknown>): string | undefined {
@@ -114,6 +118,9 @@ export function createPiEventMapper(): PiEventMapper {
     disposition = next;
     error = nextError;
   };
+
+  /** Id of the compaction between `compaction_start` and its `compaction_end`, if any. */
+  let openCompactionId: string | undefined;
 
   return {
     map(raw: unknown): AgentStreamEvent | null {
@@ -230,6 +237,56 @@ export function createPiEventMapper(): PiEventMapper {
         case "error":
           return { kind: "error", message: str(event.message ?? event.error) };
 
+        // ── Context compaction (manual + automatic) ──
+        // Pi emits `compaction_start {reason}` and `compaction_end {reason, result?, aborted,
+        // willRetry, errorMessage?}`; the mapper mints one id per compaction so the two halves
+        // upsert a single timeline row. Every failure path inside Pi's `compact()` emits an end
+        // (no `result`, `errorMessage`) before throwing, so an end always closes the row.
+        case "compaction_start": {
+          openCompactionId = randomUUID();
+          const reason = COMPACTION_REASONS.find((r) => r === event.reason);
+          return {
+            kind: "compaction",
+            compactionId: openCompactionId,
+            phase: "started",
+            ...(reason ? { reason } : {}),
+          };
+        }
+        case "compaction_end": {
+          const compactionId = openCompactionId ?? randomUUID();
+          openCompactionId = undefined;
+          const reason = COMPACTION_REASONS.find((r) => r === event.reason);
+          const base = { kind: "compaction" as const, compactionId, ...(reason ? { reason } : {}) };
+          if (event.aborted === true) return { ...base, phase: "canceled" };
+          if (event.result && typeof event.result === "object") {
+            const result = asRecord(event.result);
+            return {
+              ...base,
+              phase: "completed",
+              tokensBefore:
+                typeof result.tokensBefore === "number" ? result.tokensBefore : undefined,
+              estimatedTokensAfter:
+                typeof result.estimatedTokensAfter === "number"
+                  ? result.estimatedTokensAfter
+                  : undefined,
+              summary: str(result.summary),
+              ...(event.willRetry === true ? { willRetry: true } : {}),
+            };
+          }
+          // Pi formats its own failure text as `Compaction failed: <cause>` (manual) or
+          // `Auto-compaction failed: <cause>` (automatic), and the web client's row label already
+          // says "Compaction failed" - so carry only the cause. Other texts, e.g. `Context overflow
+          // recovery failed: ...`, say something the label does not and pass through untouched.
+          const cause = str(event.errorMessage)
+            ?.replace(/^(?:auto-)?compaction failed:?\s*/i, "")
+            .trim();
+          return {
+            ...base,
+            phase: "failed",
+            ...(cause ? { error: cause } : {}),
+          };
+        }
+
         // ── Ignored (handled elsewhere / not surfaced as timeline events) ──
         // `auto_retry_end` left Pi's *declared* session-event union in 0.85.0 but the shipped
         // bundle still emits it, so the case stays. This switch is on a loose `string`, not Pi's
@@ -240,8 +297,6 @@ export function createPiEventMapper(): PiEventMapper {
         case "message_start":
         case "message_end":
         case "tool_execution_update":
-        case "compaction_start":
-        case "compaction_end":
         case "auto_retry_start":
         case "auto_retry_end":
           return null;

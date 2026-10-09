@@ -84,6 +84,50 @@ export function resetTimeline(
 }
 
 /**
+ * Record `event` on `agentId`'s timeline and broadcast it as an `agent_stream` frame carrying the
+ * daemon-owned seq/timestamp. The one append-and-broadcast path for stream events: `runTurn`'s
+ * subscription and any operation that subscribes outside a turn (today: compaction) both use it.
+ */
+export function appendStreamEvent(
+  agentId: string,
+  event: AgentStreamEvent,
+  broadcast: (sessions: Iterable<Session>, message: unknown) => void,
+  sessions: Iterable<Session>,
+): void {
+  const row = getOrCreateTimeline(agentId).append(event);
+  broadcast(sessions, {
+    type: "session",
+    message: {
+      type: "agent_stream",
+      agentId,
+      seq: row.seq,
+      timestamp: row.timestamp,
+      event,
+    },
+  });
+}
+
+/**
+ * Seed `agentId`'s in-memory timeline from its provider's durable history when it has none yet (a
+ * restarted daemon never has one). No-op when a store exists, or when the record has no persisted
+ * handle / the provider has nothing to replay. Anything that is about to append to a timeline
+ * outside `runTurn` must call this first: the first append would otherwise create an empty store,
+ * and `seedTimeline` never overwrites an existing one, so history would never hydrate.
+ */
+export function ensureTimelineSeeded(
+  agentId: string,
+  manager: AgentManager,
+  resolveClient: (provider: string) => AgentClient,
+): void {
+  if (timelinesByAgentId.has(agentId)) return;
+  const record = manager.get(agentId)?.record;
+  const handle = record?.persistence as PersistenceHandle | undefined;
+  if (!record || !handle) return;
+  const rows = resolveClient(record.provider).hydrateTimeline?.(handle) ?? [];
+  if (rows.length > 0) seedTimeline(agentId, rows);
+}
+
+/**
  * Ensure `agentId` has a live provider session: resume from a persisted handle, or — for a
  * deferred draft that was never spawned (`record.persistence` absent; see `AgentService.handleCreate`
  * step 2) — spawn it for the first time. Either way, replay the record's pinned model
@@ -352,17 +396,7 @@ export class AgentService {
       }
 
       // All other events: append + broadcast.
-      const row = timeline.append(event);
-      this.broadcastAll(getSessions(), {
-        type: "session",
-        message: {
-          type: "agent_stream",
-          agentId,
-          seq: row.seq,
-          timestamp: row.timestamp,
-          event,
-        },
-      });
+      appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
     });
 
     // If provider never emits a user_message, emit one ourselves.

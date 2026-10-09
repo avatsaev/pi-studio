@@ -70,17 +70,22 @@ import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
 import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
 import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
 import { useThinkingLevels } from "@pi-studio-ui/hooks/use-thinking-levels.js";
+import { useIsCompacting } from "@pi-studio-ui/hooks/use-is-compacting.js";
+import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { isComposerBusy } from "./composer-busy.js";
+import { canCompact, canSubmitDraft } from "./composer-gate.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { ThinkingMenu } from "./ThinkingMenu.js";
 import { levelsForModel } from "./thinking-level-source.js";
 import {
   applyCommand,
+  CLIENT_BUILTIN_COMMANDS,
   commandOptions,
   knownCommandSpan,
   moveHighlight,
+  parseBuiltinInvocation,
   parseSlashToken,
   shouldOpenMenu,
 } from "./slash-commands.js";
@@ -209,17 +214,34 @@ export function Composer({ sessionId }: ComposerProps) {
   }, []);
 
   const running = session?.status === "running";
+  const compacting = useIsCompacting(sessionId);
+  const compactError = useCompactionStore((s) => s.lastErrorBySession[sessionId]);
+  const compactSession = useCompactionStore((s) => s.compactSession);
+  const cancelCompaction = useCompactionStore((s) => s.cancelCompaction);
+  const clearCompactError = useCompactionStore((s) => s.clearError);
+  const hasAgent = Boolean(session?.agentId);
   const busy = isComposerBusy(running, sending, steering);
-  const canSubmit = Boolean(client) && !busy && (text.trim().length > 0 || images.length > 0);
+  const canSubmit = canSubmitDraft({
+    hasClient: Boolean(client),
+    busy,
+    compacting,
+    running,
+    hasAgent,
+    text,
+    hasImages: images.length > 0,
+  });
 
   // Read-through cached exactly like `use-provider-models.ts` (see the hook's own docstring):
   // reopening the `/` menu — including the auto-open that fires on every `/` keystroke — shows
   // the cached rows immediately instead of a spinner every time.
   const { data: commands = [], isLoading, isError, error } = useAgentCommands(sessionId, menuOpen);
-  const { options, hiddenExtensionCount } = commandOptions(commands, { running });
+  const { options, hiddenExtensionCount } = commandOptions(commands, {
+    running,
+    builtinsDisabled: !canCompact({ running, compacting, hasAgent }),
+  });
   const token = parseSlashToken(text);
   const filtered = token ? filterOptions(options, token.name) : options;
-  const commandNames = commands.map((c) => c.name);
+  const commandNames = [...CLIENT_BUILTIN_COMMANDS, ...commands].map((c) => c.name);
   // The span to highlight in the textarea — only a token Pi will actually recognize as a command.
   const span = knownCommandSpan(text, commandNames);
 
@@ -259,6 +281,7 @@ export function Composer({ sessionId }: ComposerProps) {
     // `/` at the very start opens the menu and keeps it open while the name is still being typed;
     // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
     // only recognizes a command at index 0 (`agent-session.js` `text.startsWith("/")`).
+    if (compactError) clearCompactError(sessionId);
     const shouldOpen = shouldOpenMenu(next);
     if (shouldOpen !== menuOpen) setMenuOpen(shouldOpen);
     if (shouldOpen) setHighlight(0);
@@ -296,8 +319,8 @@ export function Composer({ sessionId }: ComposerProps) {
       // send. The user still has to press Enter again to submit, so a command can take arguments.
       if ((ev.key === "Enter" && !ev.shiftKey) || ev.key === "Tab") {
         ev.preventDefault();
-        const name = filtered[highlight]?.value;
-        if (name) applySelectedCommand(name);
+        const picked = filtered[highlight];
+        if (picked && !picked.disabled) applySelectedCommand(picked.value);
         return;
       }
     }
@@ -332,6 +355,24 @@ export function Composer({ sessionId }: ComposerProps) {
     if (mode === "steer" && !session.agentId) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
+    // Enter reaches here without going through the Send button's `disabled`, so the same gate
+    // applies: compacting blocks everything, and a `/compact` draft never becomes a steer.
+    if (!canSubmit) return;
+
+    // Client built-ins run here and never reach `send`/`steer`: no optimistic user row, and the
+    // draft is cleared only once the action actually succeeded so a failure can be retried.
+    const builtin = parseBuiltinInvocation(trimmed);
+    if (builtin) {
+      setMenuOpen(false);
+      const result = await compactSession(sessionId, builtin.args);
+      // Clear only if the draft is still the one that was submitted: compaction takes seconds,
+      // and text typed meanwhile must survive it.
+      if (result.ok && useDraftStore.getState().drafts[sessionId] === text) {
+        setDraftText(sessionId, "");
+        if (textareaRef.current) autoResize(textareaRef.current);
+      }
+      return;
+    }
 
     setDraftText(sessionId, "");
     // A bare Enter (or the Send/Steer button) can fire while the menu is still open — e.g. the
@@ -393,7 +434,10 @@ export function Composer({ sessionId }: ComposerProps) {
 
   function handleStop(): void {
     if (!session?.agentId) return;
-    void client?.agent(session.agentId).interrupt();
+    // A compaction is aborted by the same Pi `abort` a running turn is; going through the store
+    // keeps "cancel a compaction" in one place.
+    if (compacting) void cancelCompaction(sessionId);
+    else void client?.agent(session.agentId).interrupt();
   }
 
   /**
@@ -558,13 +602,13 @@ export function Composer({ sessionId }: ComposerProps) {
                 )}
               />
             )}
-            {running && (
+            {(running || compacting) && (
               <Button
                 className={styles.roundBtn}
                 variant="destructive"
                 size="sm"
                 iconOnly
-                title="Stop the running turn"
+                title={compacting ? "Cancel the compaction" : "Stop the running turn"}
                 aria-label="Stop"
                 onClick={handleStop}
               >
@@ -586,6 +630,11 @@ export function Composer({ sessionId }: ComposerProps) {
         </div>
       </div>
       {note !== null && <div className={styles.note}>{note}</div>}
+      {compactError && (
+        <div role="alert" className={styles.compactError}>
+          {compactError}
+        </div>
+      )}
       <input
         ref={fileInputRef}
         className={styles.hiddenFileInput}

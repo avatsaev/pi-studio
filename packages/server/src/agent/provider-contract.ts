@@ -105,6 +105,8 @@ export interface AgentCompactResult {
   summary?: string;
   firstKeptEntryId?: string;
   tokensBefore?: number;
+  /** Pi's estimate of the context size after compaction (not persisted). */
+  estimatedTokensAfter?: number;
   details?: unknown;
 }
 

@@ -21,6 +21,35 @@ export interface SlashCommand {
   scope?: string;
 }
 
+/**
+ * Commands the web client runs itself, listed in the picker ahead of Pi's own. Pi's TUI built-ins
+ * (`/compact`, `/session`, …) are not in `get_commands` and the `prompt` RPC does not run them —
+ * typed into the composer they would reach the model as literal text — so a built-in with a real RPC
+ * equivalent is intercepted client-side instead (sprint-074: only `compact`). They shadow a Pi
+ * command of the same name, matching the TUI, which tries built-ins before extension commands.
+ */
+export const CLIENT_BUILTIN_COMMANDS: readonly SlashCommand[] = [
+  { name: "compact", description: "Manually compact the session context", source: "builtin" },
+];
+
+/** A draft that invokes a client built-in; `args` is the trimmed remainder, `undefined` if none. */
+export interface BuiltinInvocation {
+  name: "compact";
+  args: string | undefined;
+}
+
+/**
+ * `null` unless the whole draft is a built-in invocation under Pi's exact grammar
+ * (`^\/([^\s]+)(?:\s+([\s\S]*))?$`) and case-sensitive name match: `/compact` and
+ * `/compact focus on X` match; `/Compact`, `/compactx` and `/compact/x` do not.
+ */
+export function parseBuiltinInvocation(text: string): BuiltinInvocation | null {
+  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (match?.[1] !== "compact") return null;
+  const args = match[2]?.trim();
+  return { name: "compact", args: args ? args : undefined };
+}
+
 /** Leading `/token` of a composer draft; `end` is the index just past the token. */
 export interface SlashToken {
   name: string;
@@ -48,14 +77,24 @@ export function shouldOpenMenu(text: string): boolean {
  * `running` drops `source === "extension"` entries: Pi rejects extension commands on `steer`/
  * `follow_up` (`agent-session.js` `_throwIfExtensionCommand`), which is the only send path while a
  * turn is in flight, and that rejection is a swallowed `notify` response, i.e. silent.
+ * `CLIENT_BUILTIN_COMMANDS` come first (and drop any same-named Pi command); `builtinsDisabled`
+ * greys them out while they can't run (agent running, compacting, or not created yet).
  */
 export function commandOptions(
   commands: SlashCommand[],
-  opts: { running: boolean },
+  opts: { running: boolean; builtinsDisabled?: boolean },
 ): { options: ComboboxOption<string>[]; hiddenExtensionCount: number } {
   let hiddenExtensionCount = 0;
-  const options: ComboboxOption<string>[] = [];
+  const options: ComboboxOption<string>[] = CLIENT_BUILTIN_COMMANDS.map((cmd) => ({
+    value: cmd.name,
+    label: `/${cmd.name}`,
+    description: cmd.description,
+    kind: cmd.source,
+    disabled: opts.builtinsDisabled === true,
+  }));
+  const shadowed = new Set(CLIENT_BUILTIN_COMMANDS.map((c) => c.name));
   for (const cmd of commands) {
+    if (shadowed.has(cmd.name)) continue;
     if (opts.running && cmd.source === "extension") {
       hiddenExtensionCount += 1;
       continue;

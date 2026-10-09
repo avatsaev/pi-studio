@@ -43,6 +43,12 @@
   font-size: var(--pi-font-size-3xs);
   color: var(--pi-color-foregroundMuted);
 }
+/* Inline failure of a `/compact` draft (the draft is kept so it can be retried). */
+.compactError {
+  margin-top: var(--pi-spacing-4);
+  font-size: var(--pi-font-size-3xs);
+  color: var(--pi-color-statusDanger);
+}
 /* Keyed off the textarea specifically, NOT `:focus-within` — the toolbar's own buttons live
    inside this card, and lighting the whole input up accent-blue just because the model menu
    or attach button took focus reads as a false "you are typing here" signal. */

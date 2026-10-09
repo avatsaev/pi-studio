@@ -63,7 +63,7 @@ src/
 | `agentDeletedSchema` | schema | Broadcast: agent hard-deleted |
 | `agentArchivedSchema` | schema | Broadcast: agent archived (soft delete) |
 | `agentStreamSchema` | schema | Broadcast: live agent turn event |
-| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message (optional `final` — see below), reasoning (same optional `final`), tool_call, turn_started/completed/failed/canceled, error, `queue_update` (`steering[]`/`followUp[]` — pending steering/follow-up queue changed) |
+| `agentStreamEventSchema` / `AgentStreamEvent` | discriminated union | Turn events: user_message (optional `images`), assistant_message (optional `final` — see below), reasoning (same optional `final`), tool_call, turn_started/completed/failed/canceled, error, `queue_update` (`steering[]`/`followUp[]` — pending steering/follow-up queue changed), `compaction` (sprint-074: one context compaction, upserted by `compactionId` — `phase` `started`/`completed`/`failed`/`canceled`; optional `reason` (`manual`/`threshold`/`overflow`), `tokensBefore`/`estimatedTokensAfter`/`summary` on `completed`, `error` on `failed`, `willRetry`; hydrated rows carry neither `reason` nor `estimatedTokensAfter`; deliberately not `kind:"error"`) |
 | `imageAttachmentSchema` / `ImageAttachment` | schema + type | User-message image attachment wire shape `{ mimeType?, data? }` (base64); provider adapters convert to their native prompt-image format |
 | `toolCallDetailSchema` / `ToolCallDetail` | discriminated union | Tool detail normalized across providers (shell/read/edit/write/search/fetch/task) |
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
@@ -185,7 +185,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync` — features the daemon advertises in `server_info.features` |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync`, `compactionEvents` — features the daemon advertises in `server_info.features` (`compactionEvents`: the daemon emits `compaction` stream events for manual and automatic compactions and rejects `agent_compact_request` with `busy` while the agent is running or already compacting) |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`

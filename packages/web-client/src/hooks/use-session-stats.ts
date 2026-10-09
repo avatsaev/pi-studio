@@ -51,7 +51,10 @@ export function applySessionStats(
   payload: AgentSessionStatsResponse["payload"],
 ): void {
   const patch: Partial<SessionStats> = {};
-  if (payload.contextUsage?.tokens != null) patch.contextTokens = payload.contextUsage.tokens;
+  if (payload.contextUsage?.tokens != null) {
+    patch.contextTokens = payload.contextUsage.tokens;
+    patch.contextEstimated = false; // real data supersedes a post-compaction estimate
+  }
   if (payload.contextUsage?.contextWindow !== undefined) {
     patch.contextWindow = payload.contextUsage.contextWindow;
   }

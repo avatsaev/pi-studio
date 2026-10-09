@@ -9,6 +9,7 @@ import type {
 import type {
   AgentClient,
   AgentCommandDefinition,
+  AgentCompactResult,
   AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
@@ -47,10 +48,16 @@ const MOCK_MODES: AgentModeDefinition[] = [
 /** Static thinking-level list for the mock provider (sprint-070/task-001) — small enough to
  * exercise clamping in the dev daemon without mirroring Pi's full 7-level ladder. */
 const MOCK_THINKING_LEVELS = ["off", "low", "medium", "high"];
+/** Long enough to see the in-progress state in `npm run dev:daemon`. */
+const MOCK_COMPACT_DELAY_MS = 1500;
+const MOCK_COMPACT_TOKENS_BEFORE = 168_000;
+const MOCK_COMPACT_TOKENS_AFTER = 14_000;
 
 export interface MockSessionOptions {
   /** Delay before a started turn completes (ms). Small but non-zero so `interrupt` can win. */
   turnDelayMs?: number;
+  /** How long a mock `compact()` stays in its `started` phase (ms). */
+  compactDelayMs?: number;
 }
 
 /** Exported so tests (this file's, and downstream sprint-066 task-003/004 daemon-level tests) can
@@ -64,6 +71,7 @@ export class MockAgentSession implements AgentSession {
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly history: AgentStreamEvent[] = [];
   private readonly turnDelayMs: number;
+  private readonly compactDelayMs: number;
   private activeTurn: string | null = null;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private mode = "default";
@@ -90,6 +98,7 @@ export class MockAgentSession implements AgentSession {
     options: MockSessionOptions = {},
   ) {
     this.turnDelayMs = options.turnDelayMs ?? 5;
+    this.compactDelayMs = options.compactDelayMs ?? MOCK_COMPACT_DELAY_MS;
   }
 
   private emit(event: AgentStreamEvent): void {
@@ -350,12 +359,28 @@ export class MockAgentSession implements AgentSession {
     });
   }
 
-  compact(): Promise<{ summary: string; firstKeptEntryId: string; tokensBefore: number }> {
-    return Promise.resolve({
+  async compact(): Promise<AgentCompactResult> {
+    const compactionId = randomUUID();
+    this.emit({ kind: "compaction", compactionId, phase: "started", reason: "manual" });
+    const delay = Promise.withResolvers<void>();
+    setTimeout(delay.resolve, this.compactDelayMs);
+    await delay.promise;
+    const result = {
       summary: "mock compaction summary",
       firstKeptEntryId: "mock-entry-0",
-      tokensBefore: 0,
+      tokensBefore: MOCK_COMPACT_TOKENS_BEFORE,
+      estimatedTokensAfter: MOCK_COMPACT_TOKENS_AFTER,
+    };
+    this.emit({
+      kind: "compaction",
+      compactionId,
+      phase: "completed",
+      reason: "manual",
+      tokensBefore: result.tokensBefore,
+      estimatedTokensAfter: result.estimatedTokensAfter,
+      summary: result.summary,
     });
+    return result;
   }
 
   newSession(): Promise<{ cancelled: boolean }> {

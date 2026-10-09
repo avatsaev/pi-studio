@@ -53,6 +53,13 @@ import type { DaemonClient } from "./daemon-client.js";
  * Out of scope: app runtime controller (sprint-012), terminal router (task-003).
  */
 
+/**
+ * RPC timeout for `agent_compact_request`. Summarising a large context routinely outlasts the 30 s
+ * default, and the daemon holds the request open for the whole compaction. A timeout fails only
+ * this call (`rpcTimeoutMs ≠ socket death`); compaction progress keeps following the stream.
+ */
+export const COMPACT_TIMEOUT_MS = 10 * 60_000;
+
 // ─── Update handler types ─────────────────────────────────────────────────────
 
 export type PiStudioAgentUpdateHandler = (update: AgentUpdateMessage) => void;
@@ -1056,10 +1063,11 @@ class AgentHandle implements PiStudioAgentActions {
   }
 
   compact(customInstructions?: string): Promise<AgentCompactResponse["payload"]> {
-    return this.daemon.request("agent_compact_request", {
-      agentId: this.agentId,
-      customInstructions,
-    });
+    return this.daemon.request(
+      "agent_compact_request",
+      { agentId: this.agentId, customInstructions },
+      COMPACT_TIMEOUT_MS,
+    );
   }
 
   newSession(): Promise<AgentNewSessionResponse["payload"]> {

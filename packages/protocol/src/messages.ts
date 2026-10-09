@@ -309,6 +309,26 @@ export const agentStreamEventSchema = z.discriminatedUnion("kind", [
     steering: z.array(z.string()).optional(),
     followUp: z.array(z.string()).optional(),
   }),
+  /**
+   * One context compaction (manual or Pi's automatic threshold/overflow), upserted by
+   * `compactionId`: a `started` event opens it and exactly one terminal phase (`completed`,
+   * `failed`, `canceled`) closes it. `reason` and `willRetry` ride `started`/terminal events;
+   * `tokensBefore`, `estimatedTokensAfter` and `summary` appear on `completed` only; `error` on
+   * `failed` only. Rows rebuilt from Pi's session file (hydration) are a lone `completed` carrying
+   * `tokensBefore` + `summary` — Pi persists neither `reason` nor `estimatedTokensAfter`.
+   * Deliberately NOT `kind: "error"`: a failed compaction must not flip an agent to `error`.
+   */
+  z.object({
+    kind: z.literal("compaction"),
+    compactionId: z.string(),
+    phase: z.enum(["started", "completed", "failed", "canceled"]),
+    reason: z.enum(["manual", "threshold", "overflow"]).optional(),
+    tokensBefore: z.number().optional(),
+    estimatedTokensAfter: z.number().optional(),
+    summary: z.string().optional(),
+    error: z.string().optional(),
+    willRetry: z.boolean().optional(),
+  }),
 ]);
 export type AgentStreamEvent = z.infer<typeof agentStreamEventSchema>;
 
@@ -516,6 +536,8 @@ export const agentCompactResponseSchema = z
         summary: z.string().optional(),
         firstKeptEntryId: z.string().optional(),
         tokensBefore: z.number().optional(),
+        /** Pi's estimate of the context size after compaction (not persisted by Pi). */
+        estimatedTokensAfter: z.number().optional(),
         details: z.unknown().optional(),
       })
       .passthrough(),

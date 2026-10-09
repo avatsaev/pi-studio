@@ -100,6 +100,10 @@ per feature from views + tokens. The shared primitives are:
   keyboard, to avoid opening on focus restore); compact opens on press. Trigger supports `asChild`. Content
   has side/align/offset/max-width; web renders via a portal (not a focus-stealing modal); native uses a
   transparent modal + backdrop dismiss.
+- **Popover** — anchored, non-modal panel for interactive content (e.g. a text field), where a
+  DropdownMenu's typeahead/roving focus would fight the input. Root/trigger passthroughs; content has
+  side/align/offset/collision-padding/width, web renders via a portal with the Menu surface tokens;
+  Escape/outside press dismiss and focus returns to the trigger. Web: Radix `react-popover`.
 - **DropdownMenu** (compound) — root (controllable, dismisses keyboard on open), trigger (render-fn children
   of `{pressed,hovered,open}`), content (side/align/offset/width/max-height/full-width/scrollable; modal +
   backdrop + scale enter/exit; keep mounted through exit), item, label (uppercase muted), separator (1px),

@@ -31,6 +31,7 @@ export {
   type MenuGroupProps,
   type MenuItemProps,
 } from "./Menu.js";
+export { Popover, PopoverContent, type PopoverContentProps } from "./Popover.js";
 export { useHover, type UseHoverReturn } from "./useHover.js";
 
 // Helpers (testable pure functions)

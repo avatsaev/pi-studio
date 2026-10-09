@@ -192,3 +192,9 @@
   font-size: var(--pi-font-size-xs);
   color: var(--pi-color-foregroundMuted);
 }
+
+/* A command row that is listed but cannot run right now (e.g. /compact while the agent runs). */
+.commandItemDisabled {
+  opacity: 0.45;
+  cursor: default;
+}
