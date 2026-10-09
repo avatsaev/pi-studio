@@ -165,6 +165,12 @@ excluded list is unrelated to this CLI's `reload <agentId>` command above — th
 `resume_agent` RPC call, named for reloading a closed _daemon_ session, not Pi's
 extensions/skills/keybindings reload.)
 
+`compact` waits up to the SDK's `COMPACT_TIMEOUT_MS` (10 min, imported from
+`@av-pi-studio/client`) rather than the CLI's default RPC timeout. Since sprint-074 the daemon
+rejects `agent_compact_request` with `busy: …` while the agent is running or already compacting —
+`pi-studio agent compact` on a running agent therefore errors instead of aborting the turn (Pi's
+`compact()` begins with `abort()`).
+
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`

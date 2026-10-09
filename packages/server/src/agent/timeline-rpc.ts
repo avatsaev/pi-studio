@@ -1,8 +1,8 @@
 import type { HandlerRegistry } from "../ws/router.js";
-import { getTimeline, seedTimeline } from "./agent-service.js";
+import { ensureTimelineSeeded, getTimeline } from "./agent-service.js";
 import { DEFAULT_PAGE_SIZE } from "./timeline-store.js";
 import type { AgentManager } from "./agent-manager.js";
-import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
+import type { AgentClient } from "./provider-contract.js";
 
 export interface TimelineHandlerDeps {
   manager: AgentManager;
@@ -21,7 +21,10 @@ export interface TimelineHandlerDeps {
  * `persistence` handle. The result is seeded once into the in-memory store so subsequent pages
  * (and any later live turn) build on it normally.
  */
-export function registerTimelineHandler(registry: HandlerRegistry, deps: TimelineHandlerDeps): void {
+export function registerTimelineHandler(
+  registry: HandlerRegistry,
+  deps: TimelineHandlerDeps,
+): void {
   registry.register("fetch_agent_timeline_request", (ctx): Record<string, unknown> => {
     const msg = ctx.message as Record<string, unknown>;
     const agentId = msg.agentId as string;
@@ -29,17 +32,8 @@ export function registerTimelineHandler(registry: HandlerRegistry, deps: Timelin
     const cursor = msg.cursor as string | null | undefined;
     const limit = typeof msg.limit === "number" && msg.limit > 0 ? msg.limit : DEFAULT_PAGE_SIZE;
 
-    let timeline = getTimeline(agentId);
-    if (!timeline) {
-      const record = deps.manager.get(agentId)?.record;
-      const handle = record?.persistence as PersistenceHandle | undefined;
-      if (record && handle) {
-        const client = deps.resolveClient(record.provider);
-        const rows = client.hydrateTimeline?.(handle) ?? [];
-        if (rows.length > 0) seedTimeline(agentId, rows);
-      }
-      timeline = getTimeline(agentId);
-    }
+    ensureTimelineSeeded(agentId, deps.manager, deps.resolveClient);
+    const timeline = getTimeline(agentId);
 
     if (!timeline) {
       // No in-memory timeline and no rehydratable native history — genuinely empty.

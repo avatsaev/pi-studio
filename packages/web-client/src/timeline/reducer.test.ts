@@ -3,6 +3,7 @@ import {
   addOptimisticUserMessage,
   applyStreamEvent,
   markUserMessageFailed,
+  replayEvents,
   EMPTY_TIMELINE,
 } from "./reducer.js";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
@@ -447,5 +448,67 @@ describe("timeline reducer — row timestamps", () => {
     const s = applyStreamEvent(EMPTY_TIMELINE, toolCall("c1", { kind: "shell" }, "running"));
     expect(s.rows[0]).toMatchObject({ kind: "tool" });
     expect((s.rows[0] as { timestamp?: string }).timestamp).toBeUndefined();
+  });
+});
+
+function compaction(
+  over: Partial<Extract<AgentStreamEvent, { kind: "compaction" }>>,
+): AgentStreamEvent {
+  return { kind: "compaction", compactionId: "c1", phase: "started", ...over };
+}
+
+describe("timeline reducer — compaction rows", () => {
+  it("upserts started then completed into ONE row, keeping start-only fields", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, compaction({ reason: "manual" }), "2026-10-09T10:00:00Z");
+    const id = s.rows[0]!.id;
+    s = applyStreamEvent(
+      s,
+      compaction({
+        phase: "completed",
+        tokensBefore: 168_000,
+        estimatedTokensAfter: 14_000,
+        summary: "sum",
+      }),
+      "2026-10-09T10:00:09Z",
+    );
+    expect(s.rows).toHaveLength(1);
+    expect(s.rows[0]).toMatchObject({
+      kind: "compaction",
+      id,
+      phase: "completed",
+      reason: "manual",
+      tokensBefore: 168_000,
+      estimatedTokensAfter: 14_000,
+      summary: "sum",
+      timestamp: "2026-10-09T10:00:00Z",
+    });
+  });
+
+  it("a lone completed (hydrated) creates one row, and replaying twice is idempotent per id", () => {
+    const events = [
+      { event: compaction({ phase: "completed", tokensBefore: 10 }) },
+      { event: compaction({ phase: "completed", tokensBefore: 10 }) },
+    ];
+    expect(replayEvents(events).rows).toHaveLength(1);
+  });
+
+  it("different ids make different rows", () => {
+    let s = applyStreamEvent(EMPTY_TIMELINE, compaction({}));
+    s = applyStreamEvent(s, compaction({ compactionId: "c2" }));
+    expect(s.rows).toHaveLength(2);
+  });
+
+  it("turn end cancels a still-started row and leaves completed rows alone", () => {
+    for (const end of ["turn_completed", "turn_failed", "turn_canceled"] as const) {
+      let s = applyStreamEvent(
+        EMPTY_TIMELINE,
+        compaction({ compactionId: "done", phase: "completed" }),
+      );
+      s = applyStreamEvent(s, compaction({ compactionId: "open" }));
+      s = applyStreamEvent(s, { kind: end });
+      const phases = s.rows.filter((r) => r.kind === "compaction").map((r) => r.phase);
+      expect(phases).toEqual(["completed", "canceled"]);
+    }
   });
 });

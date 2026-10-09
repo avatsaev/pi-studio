@@ -323,6 +323,53 @@ describe("slash-command operations (sprint-037)", () => {
     expect(result.success).toBe(true);
   });
 
+  it("agent_compact_response types estimatedTokensAfter", () => {
+    const result = agentCompactResponseSchema.parse({
+      type: "agent_compact_response",
+      requestId: "r1",
+      payload: { summary: "s", tokensBefore: 150000, estimatedTokensAfter: 14000 },
+    });
+    expect(result.payload.estimatedTokensAfter).toBe(14000);
+  });
+
+  it("accepts a compaction stream event in each of its four phases", () => {
+    for (const phase of ["started", "completed", "failed", "canceled"]) {
+      expect(
+        agentStreamEventSchema.safeParse({ kind: "compaction", compactionId: "c1", phase }).success,
+      ).toBe(true);
+    }
+    expect(
+      agentStreamEventSchema.safeParse({
+        kind: "compaction",
+        compactionId: "c1",
+        phase: "completed",
+        reason: "overflow",
+        tokensBefore: 168000,
+        estimatedTokensAfter: 14000,
+        summary: "…",
+        willRetry: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a compaction event with an unknown phase, unknown reason, or no compactionId", () => {
+    expect(
+      agentStreamEventSchema.safeParse({ kind: "compaction", compactionId: "c1", phase: "done" })
+        .success,
+    ).toBe(false);
+    expect(
+      agentStreamEventSchema.safeParse({
+        kind: "compaction",
+        compactionId: "c1",
+        phase: "started",
+        reason: "auto",
+      }).success,
+    ).toBe(false);
+    expect(agentStreamEventSchema.safeParse({ kind: "compaction", phase: "started" }).success).toBe(
+      false,
+    );
+  });
+
   it("agent_new_session_response carries cancelled", () => {
     expect(
       agentNewSessionResponseSchema.safeParse({

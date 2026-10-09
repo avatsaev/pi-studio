@@ -9,6 +9,7 @@ import {
   EMPTY_TIMELINE,
   nextRowId,
   toolCallKey,
+  type CompactionRow,
   type TimelineRow,
   type TimelineState,
 } from "./row-model.js";
@@ -200,8 +201,52 @@ function onToolCall(
   };
 }
 
+/**
+ * Crash-safety net: a turn ending while a compaction row is still `started` means its terminal
+ * event will never arrive for this turn (the provider died, or the run was aborted mid-compaction),
+ * so the divider must not spin forever.
+ */
+function cancelStartedCompactions(state: TimelineState): TimelineState {
+  if (!state.rows.some((r) => r.kind === "compaction" && r.phase === "started")) return state;
+  const rows = state.rows.map(
+    (r): TimelineRow =>
+      r.kind === "compaction" && r.phase === "started" ? { ...r, phase: "canceled" } : r,
+  );
+  return { ...state, rows };
+}
+
 function onTurnCompleted(state: TimelineState): TimelineState {
-  return finalizeStreamingRows(state);
+  return cancelStartedCompactions(finalizeStreamingRows(state));
+}
+
+/**
+ * Upsert one compaction by `compactionId`: create the row on first sight (any phase — hydrated
+ * history delivers only the terminal event) and otherwise merge only the fields this event
+ * carries, so a bare `completed` never blanks the `reason` the `started` event supplied.
+ */
+function onCompaction(
+  state: TimelineState,
+  event: Extract<AgentStreamEvent, { kind: "compaction" }>,
+  timestamp?: string,
+): TimelineState {
+  const { kind: _kind, ...fields } = event;
+  const carried = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  const index = state.rows.findIndex(
+    (r) => r.kind === "compaction" && r.compactionId === event.compactionId,
+  );
+  if (index === -1) {
+    const row: TimelineRow = {
+      ...carried,
+      kind: "compaction",
+      id: nextRowId(),
+      timestamp,
+    } as CompactionRow;
+    return { ...state, rows: [...state.rows, row] };
+  }
+  const rows = state.rows.slice();
+  // The row keeps its start-time `timestamp`: it fixes the divider's place in the timeline.
+  rows[index] = { ...rows[index], ...carried } as CompactionRow;
+  return { ...state, rows };
 }
 
 function onTurnFailed(
@@ -322,6 +367,8 @@ export function applyStreamEvent(
       return onError(state, event.message, timestamp);
     case "queue_update":
       return onQueueUpdate(state, event.steering ?? []);
+    case "compaction":
+      return onCompaction(state, event, timestamp);
     default:
       return state; // unknown/future kind - ignore rather than throw (append-only wire contract)
   }

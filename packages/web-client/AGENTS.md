@@ -114,7 +114,10 @@ src/
                             chromeless icon affordance for row actions/menu triggers, distinct
                             from Button's ≥28px iconOnly mode —, Select, Dialog, Surface,
                             Panel — full-height flex-column shell —, EmptyState — centered
-                            muted placeholder text —, Menu — shared Radix DropdownMenu chrome
+                            muted placeholder text —, Popover — shared Radix Popover chrome
+                            (`Popover.Root/Trigger` passthroughs + portaled `PopoverContent`;
+                            for panels hosting a text input, where a DropdownMenu's typeahead
+                            fights the field; sprint-074/task-007) —, Menu — shared Radix DropdownMenu chrome
                             (MenuCursorTrigger/MenuContent/MenuGroup — labelled, sticky section
                             header for grouped pickers —/MenuItem/MenuSeparator), used by
                             every right-click context menu plus TabStrip's "+" menu and
@@ -222,7 +225,10 @@ src/
                            the projection's gitignored paths — kept OUT of `changes[]` so it can
                            never inflate the Changes tab or the status bar's dirty count, and read
                            only by the Files tree), stats-store
-                           (per-sessionId context/tokens/cost/model — sprint-042), explorer-store
+                           (per-sessionId context/tokens/cost/model — sprint-042;
+                           `applyCompactionEstimate` seeds the post-compaction estimate),
+                           compaction-store (sprint-074/task-007 — `compactSession`/
+                           `cancelCompaction`, local pending flag, last error), explorer-store
                            (`selected` — the last-clicked row, target directory for "New File"/
                            "New Folder" — file-explorer quick-wins-1; `repathAfterMove` — rewrites
                            `expanded`/`selected` after a move so tree state follows the moved
@@ -250,7 +256,9 @@ src/
                            (+ test). `isViewerEnabled` is consumed directly (module-level
                            `getState()`, not the hook) by every dispatch point a viewer can be
                            reached from — sprint-073/task-005, see § Invariants "Viewer-disable gate"
-  timeline/                streaming/render model: reducer, row-model, tool-mapping, markdown
+  timeline/                streaming/render model: reducer, row-model, compaction.ts (+ test — pure
+                           `isCompactionPending(rows)` and `compactionLabel(row)`, sprint-074/task-005),
+                           tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
                            InlineImage, `a` node → FileLink), streaming-split
@@ -432,8 +440,9 @@ src/
                             paneRects/dividers/resizeAtDivider geometry, effectiveTree, and
                             parsePaneTree for untrusted persisted trees — no React, no store,
                             sprint-048) (+ test),
-                            StatusBar (+ status-bar-format.ts pure formatters) — bottom powerline
-                            bar, see AGENTS.md § Invariants "Status bar"
+                            StatusBar (+ status-bar-format.ts pure formatters, ContextMeter.tsx +
+                            context-meter.ts pure meter state — sprint-074/task-006) — bottom
+                            powerline bar, see AGENTS.md § Invariants "Status bar"
     workspace-picker/       OpenWorkspaceDialog (directory browser)
     settings/               SettingsDialog (+ module.css) — the settings shell (sprint-065): a
                             900px `Dialog` with an icon+label category sidebar and a scrollable
@@ -489,10 +498,12 @@ src/
                             unit-tested), CommandMenu (composer's `/`
                             slash-command popup — see AGENTS.md § Invariants "Slash-command
                             picker") + slash-commands.ts (pure token/filter/apply logic,
-                            unit-tested), use-bottom-anchor (the timeline's bottom-anchor
+                            client built-ins + `parseBuiltinInvocation`, unit-tested),
+                            composer-gate.ts (+ test — pure `canSubmitDraft`/`canCompact`,
+                            sprint-074/task-008), use-bottom-anchor (the timeline's bottom-anchor
                             controller: gesture/scroll/resize listeners over
                             timeline/bottom-anchor.ts's pure state machine), Attachments,
-                            rows/ (Assistant/User/System/Error/Reasoning rows, ToolCard — UserRow's
+                            rows/ (Assistant/User/System/Error/Reasoning/Compaction rows, ToolCard — UserRow's
                             `onFork` prop renders the hover-revealed `FORK_ROW_TOOLTIP` IconButton
                             on `RowShell`'s meta line, sprint-072/task-002), fork-gate.ts (+ test —
                             `canOfferFork`, the pure session-level visibility predicate: capability
@@ -1068,6 +1079,19 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   forever, including after a reload — `use-session-restore.ts` replays through this same reducer.
   Note the deliberate exception: `user_message` does **not** finalize, because a steering message
   arrives mid-block and splitting there would tear one reply into two bubbles.
+- **A compaction is ONE row, upserted by `compactionId` (sprint-074/task-005).** The daemon's
+  `compaction` stream event (`started` → `completed`/`failed`/`canceled`) is handled by
+  `reducer.ts`'s `onCompaction`: first sight of an id — any phase, since hydrated history carries
+  only the terminal event — appends a `CompactionRow`; later events merge only the fields they
+  carry (a bare `completed` never blanks the `started` event's `reason`) and the row keeps its
+  start-time `timestamp`/`id`, so live updates, reload, late join and replay-twice all converge on
+  one row. Any turn end (`turn_completed`/`turn_failed`/`turn_canceled`) flips a row still `started`
+  to `canceled` (`cancelStartedCompactions`) so a divider can't spin forever after a crash. The row
+  renders outside `RowShell` as a centered-label divider (`rows/CompactionRow.tsx`; spinner while
+  `started`, danger tone on `failed`, collapsed-by-default summary disclosure on `completed`).
+  `timeline/compaction.ts`'s `isCompactionPending` is the selector composer/meter gating reads;
+  never derive "compacting" from anything else. Compaction rows are not `user` rows, so they never
+  touch `userMessageCount`.
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
@@ -2025,6 +2049,23 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     flight, and that rejection is a silently-dropped `notify` response at the transport layer — so
     offering them here would fail invisibly. Prompt templates and skills are unaffected; they still
     expand into a normal turn either way.
+  - **`/compact` is a client built-in, intercepted before send/steer** (sprint-074/task-008). It is a
+    Pi **TUI** built-in: absent from `get_commands`, and the `prompt` RPC does not run built-ins, so
+    typed into the composer it would reach the model as literal text. `slash-commands.ts`'s
+    `CLIENT_BUILTIN_COMMANDS` is listed first in the picker (badge `builtin`) and shadows a Pi
+    command of the same name, matching the TUI's built-in-first precedence; `parseBuiltinInvocation`
+    uses Pi's exact, case-sensitive token grammar (`/Compact`, `/compactx` are ordinary drafts).
+    `Composer.submit` runs a match through `compaction-store`'s `compactSession` — no `send`/`steer`,
+    no optimistic user row — and clears the draft **only on success and only if it still equals what
+    was submitted** (compaction takes seconds; text typed meanwhile must survive). A failure keeps the
+    draft and shows the store's error beneath the composer until the next edit.
+  - **Compacting gate (`composer-gate.ts`).** While compacting (`useIsCompacting`), Send/Enter are
+    disabled for every draft (Pi rejects prompts during compaction) and the Stop button is shown;
+    Stop calls `cancelCompaction`. While running, an ordinary draft still steers but a `/compact`
+    draft cannot be submitted — never routed to steer. No `agentId` also blocks `/compact`. The
+    picker's `compact` row is rendered dimmed (`disabled`, not selectable by click/Enter/Tab) in those
+    states; `canSubmitDraft` stays authoritative because Enter reaches `submit` without going through
+    the button's `disabled`.
   - **Live-verified against a real spawned `pi` process, not just the mock provider**: Pi only
     scans a project's `.pi/prompts/`/`.pi/extensions/` when the CWD is a trusted project (Pi's own
     `~/.pi/agent/trust.json`, `defaultProjectTrust`) — an untrusted directory silently returns zero
@@ -2060,6 +2101,42 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     showing the `"Model"` placeholder forever even though the poll succeeded (a real bug
     sprint-042's live smoke test caught before it shipped). This poll runs off `StatusBar`'s
     mount, so the model label depends on this bar being on screen even though the label isn't.
+  - **`contextPercent` is Pi's 0–100 scale, never a 0–1 fraction** (sprint-074/task-006).
+    `formatPercent` always reads 0–100 and renders `<1%` for `0 < p < 1`; the old "0–1 or 0–100,
+    guess by magnitude" heuristic showed a session at 0.7% as `70%`. `context-meter.ts` divides by
+    100 to get a fraction. Do not reintroduce magnitude guessing.
+  - **The context segment is `ContextMeter`, a loading-bar meter** (80 × 6 px track, tone at
+    0.70 / 0.90 → accent / `statusWarning` / `statusDanger`). `context-meter.ts`'s `meterState`
+    picks compacting > tokens/window > percent/100 > unknown; `useIsCompacting` (over
+    `isCompactionPending`) supplies "compacting". Under `prefers-reduced-motion` the sweep is a
+    static striped fill. `role="meter"` omits `aria-valuenow` while unknown/compacting.
+  - **Post-compaction estimate.** Pi reports `tokens: null` after a compaction until the next LLM
+    reply, and `applySessionStats` skips nulls, so without help the pre-compaction value would sit
+    on screen. `agent-stream-events.ts` therefore seeds `contextTokens`/`contextPercent`
+    (`tokens * 100 / window`, cleared when the window is unknown) and `contextEstimated: true` from
+    a **live** `compaction` `completed` event's `estimatedTokensAfter`; the meter shows `~N%`.
+    `applySessionStats` writes `contextEstimated: false` whenever it writes non-null tokens; a
+    null poll keeps the estimate. Replayed history never reaches `applyAgentStreamEvent`, so a
+    reload shows unknown (`—`) until the next poll. The write is `stats-store`'s
+    `applyCompactionEstimate`, shared with the compact RPC response below.
+  - **One compact action: `stores/compaction-store.ts`'s `compactSession(sessionId, instructions?)`**
+    (sprint-074/task-007) — the meter popover and the composer's `/compact` both go through it,
+    never `client.agent(id).compact()` directly. It sends nothing and returns a typed refusal
+    (`disconnected` / `no-agent` / `running` / `compacting`) unless the client is open, the
+    session has an `agentId`, its status is not `running`, and nothing is compacting (local
+    pending flag OR a `started` timeline row); RPC failures return `{reason: "failed", message}`
+    with the daemon's message verbatim (also kept in `lastErrorBySession`). **Capability fork:**
+    the response's `estimatedTokensAfter` is applied to stats only when the daemon does NOT
+    advertise `compactionEvents` (with it, the live `completed` event already did — no
+    double-apply). `useIsCompacting` ORs the local pending flag with the timeline row, which is
+    what drives the meter and composer against older daemons that emit no rows. Cancel is the
+    ordinary `interrupt()` (Pi's `abort` aborts a compaction).
+  - **`ContextMeterPopover` is the context segment's interactive form**: the meter is the trigger
+    (reset `<button>`, `aria-label` names the action); content is usage detail, an optional
+    instructions `TextArea` (cleared on success, kept on failure), the inline error, and ONE button
+    whose state is `compact-action.ts`'s priority table — compacting → Cancel; else disabled with a
+    note (not connected / no `agentId` / agent running); else Compact now. It stays open while
+    compacting so Cancel is reachable.
 - **Timeline bottom anchor: only a gesture detaches, only proximity re-attaches.** Following the
   live agent output is split in two along the line of what an effect can actually do.
   - **Staying pinned while existing content grows is the virtualizer's job** — `Timeline.tsx`

@@ -50,6 +50,7 @@ export const SERVER_FEATURES = {
   thinkingLevels: "thinkingLevels",
   viewerSettings: "viewerSettings",
   forkTimelineSync: "forkTimelineSync",
+  compactionEvents: "compactionEvents",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -91,6 +92,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   viewerSettings: COMPAT({ name: "viewerSettings", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(forkTimelineSync): added 0.0.0, remove by TBD
   forkTimelineSync: COMPAT({ name: "forkTimelineSync", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(compactionEvents): added 0.0.0, remove by TBD
+  compactionEvents: COMPAT({ name: "compactionEvents", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

@@ -119,7 +119,37 @@ export interface SystemRow {
   timestamp?: string;
 }
 
-export type TimelineRow = UserRow | AssistantRow | ReasoningRow | ToolRow | ErrorRow | SystemRow;
+/**
+ * One context compaction (manual or automatic), upserted in place by `compactionId` as the
+ * daemon's `compaction` stream events arrive (`started` → `completed`/`failed`/`canceled`). Every
+ * field except `compactionId`/`phase` is optional because a hydrated history carries only the
+ * terminal event — a lone `completed` is a legal first sight of the row.
+ */
+export interface CompactionRow {
+  kind: "compaction";
+  id: string;
+  compactionId: string;
+  phase: "started" | "completed" | "failed" | "canceled";
+  reason?: "manual" | "threshold" | "overflow";
+  tokensBefore?: number;
+  /** Pi's own estimate of the context size after compaction — replaced by real stats on the next poll. */
+  estimatedTokensAfter?: number;
+  summary?: string;
+  error?: string;
+  /** An overflow compaction that will retry the failed turn once it finishes. */
+  willRetry?: boolean;
+  /** Same contract as `UserRow.timestamp`. */
+  timestamp?: string;
+}
+
+export type TimelineRow =
+  | UserRow
+  | AssistantRow
+  | ReasoningRow
+  | ToolRow
+  | ErrorRow
+  | SystemRow
+  | CompactionRow;
 
 export interface TimelineState {
   rows: TimelineRow[];

@@ -122,6 +122,19 @@ function mapMessage(message: unknown): AgentStreamEvent[] {
 /** Map one session-file entry (message or otherwise) to zero or more stream events. */
 function mapEntry(entry: SessionEntry): AgentStreamEvent[] {
   if (entry.type === "message") return mapMessage(entry.message);
+  // Pi persists neither `reason` nor `estimatedTokensAfter`, and writes nothing for a failed or
+  // cancelled compaction — so a replayed one is always a lone `completed` row.
+  if (entry.type === "compaction") {
+    return [
+      {
+        kind: "compaction",
+        phase: "completed",
+        compactionId: entry.id,
+        tokensBefore: entry.tokensBefore,
+        summary: entry.summary,
+      },
+    ];
+  }
   return [];
 }
 

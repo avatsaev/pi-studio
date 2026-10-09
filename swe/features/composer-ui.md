@@ -105,6 +105,12 @@ A single popover with two modes:
 - **Client slash commands:** `/exit` (aliases quit, q → archive current agent) and `/clear` (alias new →
   archive + start fresh draft), both immediate, only when there are no attachments and the text is exactly
   `/word`. Running one clears the draft + input + attachments and invokes the caller's slash handler.
+- **Web client built-ins (sprint-074):** the web composer lists a `/compact` built-in ahead of the
+  provider's commands and shadows a same-named provider command. `/compact [instructions]` (Pi's
+  case-sensitive token grammar) is run client-side as the shared compact action and never sent as a
+  prompt or steer; the draft clears only on success. It is unavailable (row dimmed, submit blocked)
+  while the agent runs, is compacting, or does not exist yet. While compacting, Send is disabled for
+  every draft and Stop cancels the compaction.
 
 ### Provider / model / mode / feature controls
 Two variants share one inner control: **live-agent** controls (read state from the session store + provider

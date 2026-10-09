@@ -40,7 +40,13 @@ src/
                                    unconditionally replaces an agent's in-memory timeline (unlike
                                    seedTimeline, which no-ops once a store exists) — the entry
                                    point `handleFork`'s post-fork resync installs the hydrated
-                                   forked branch through.
+                                   forked branch through. appendStreamEvent(agentId, event,
+                                   broadcast, sessions) (sprint-074) — the one append-to-timeline +
+                                   `agent_stream` broadcast path, used by `runTurn` and by any
+                                   operation that subscribes outside a turn (compaction);
+                                   ensureTimelineSeeded(agentId, manager, resolveClient) — seeds a
+                                   store-less agent from `hydrateTimeline` (used by
+                                   `timeline-rpc.ts` and `handleCompact`).
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
                                    for markdown image rendering (task-006, sprint-045); bound at
                                    spawn time only (see its own header comment for the accepted
@@ -97,7 +103,7 @@ src/
                                    numbering from the installed rows' maximum. The former
                                    truncateBeforeMessage (the dead rewind RPC's only caller) was
                                    removed in sprint-071/task-001.
-    timeline-rpc.ts               fetch_agent_timeline handler.
+    timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded).
     permissions.ts                PendingPermissions — park and resolve tool-call auth requests.
     agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
                                    — see "Extension UI" below.
@@ -513,6 +519,25 @@ creation" above.
   `session.getRuntimeInfo().model` whenever the provider's own `getSessionStats()` result omits
   it — making the RPC a self-correcting model source for a poll-driven client (covers `/model`
   cycle and cross-client changes an `agent_update` broadcast alone can't fully convey).
+- **Stream events outside a turn are recorded only by an operation that explicitly subscribes**
+  (sprint-074; today: `handleCompact`). `AgentService.runTurn` holds the only standing
+  `session.subscribe`, and the Pi adapter's `emit` reaches subscribers only, so an event emitted
+  while no turn runs is otherwise dropped. `SlashCommandOperationsService.handleCompact`:
+  (1) rejects with `busy: …` when `record.lastStatus === "running"` or the agent is in the
+  module-local `compactionsInFlight` set — Pi's `compact()` starts with `abort()`, so compacting
+  mid-turn would kill the run and a second compact would cancel the first (a deliberate CLI-visible
+  change: `pi-studio agent compact` on a running agent now errors); (2) adds the id to the set,
+  released in a `finally` covering every later step; (3) resumes a process-less record through
+  `spawnOrResumeSession` (every record after a daemon restart) instead of failing with
+  `has no live session`; (4) `ensureTimelineSeeded` BEFORE the first append, because the first
+  append would otherwise create an empty store that `seedTimeline` never overwrites; (5) holds a
+  subscription for the duration of `compact()` and forwards only `kind === "compaction"` events
+  through `appendStreamEvent`; (6) if `compact()` rejects after a `started` event with no terminal
+  seen, records and broadcasts a synthetic `failed` with the same `compactionId`. Status is never
+  touched. Automatic compactions need none of this: they sit inside `runTurn`'s window, and a
+  `failed` compaction is not `kind:"error"` so the final-status derivation is unaffected. The
+  `compactionEvents` flag needs no wiring: `ws-server.ts` and `bootstrap.ts` advertise every
+  `SERVER_FEATURES` key. Tests: `agent/compact-handler.test.ts`.
 - **Command discovery** (`AgentSession.listCommands?()`, optional, sprint-040): surfaces Pi's
   `get_commands` RPC — extension commands (`pi.registerCommand()`), prompt templates (global
   `~/.pi/agent/prompts/*.md`; project `<cwd>/.pi/prompts/*.md`, gated behind Pi's own project-trust
@@ -701,6 +726,20 @@ creation" above.
   `turn_completed`. The old stateless `mapPiEvent(raw)` remains as a thin single-event shim over a
   fresh mapper instance (used by ~10 turn-agnostic unit assertions); it can no longer report a
   turn's terminal.
+- **`compaction_start`/`compaction_end` map to one upserted `compaction` stream event** (sprint-074):
+  the stateful mapper mints a `compactionId` (`randomUUID()`) at `compaction_start`, holds it as the
+  open compaction, and reuses it for the matching `compaction_end` (a stray end mints a fresh id so
+  it still yields exactly one terminal row). Phase: `aborted` → `canceled`; `result` present →
+  `completed` (`tokensBefore`, `estimatedTokensAfter`, `summary`, `willRetry`); otherwise `failed`
+  with `error: errorMessage`. A failed compaction is deliberately not `kind:"error"`. Pi emits an
+  end before throwing on every `compact()` failure path (incl. "Nothing to compact"). Automatic
+  (threshold/overflow) compactions happen inside a turn, so `runTurn`'s subscription already carries
+  them; the manual path needs its own subscription window (`handleCompact`, task-003).
+  `session-hydration.ts` replays each Pi `compaction` entry on the active branch as a lone
+  `completed` row (`compactionId = entry.id`, `tokensBefore`, `summary`) at its branch position —
+  Pi persists neither `reason` nor `estimatedTokensAfter`, and nothing for failed/cancelled ones.
+  The mock provider's `compact()` emits `started`, waits `compactDelayMs` (default 1.5 s, a
+  `MockSessionOptions` field) and emits `completed` with 168k → 14k.
 - Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's

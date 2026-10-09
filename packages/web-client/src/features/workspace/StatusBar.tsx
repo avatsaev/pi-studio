@@ -7,7 +7,8 @@
  * also what drives the active session's stats poll (`useSessionStats`, sprint-042/task-004) — no
  * other consumer of `stats-store` exists yet, so the poll runs exactly while the bar is on screen.
  *
- * Every segment here is read-only. The interactive model picker this bar used to host now lives
+ * Every segment here is read-only except the context segment, whose loading-bar meter
+ * (`ContextMeter`, driven by `context-meter.ts`) is the trigger of `ContextMeterPopover`. The interactive model picker this bar used to host now lives
  * in the composer's bottom toolbar (`features/chat/Composer.tsx`), next to the actions it belongs
  * with; this bar owns no `ModelMenu`, no `setModel`, and no `ensureMaterialized` call.
  */
@@ -21,19 +22,17 @@ import { useStatsStore } from "@pi-studio-ui/stores/stats-store.js";
 import { useSessionStats } from "@pi-studio-ui/hooks/use-session-stats.js";
 import { useCheckoutStatus } from "@pi-studio-ui/hooks/use-checkout-status.js";
 import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import {
-  formatBranchMeta,
-  formatCost,
-  formatCwd,
-  formatPercent,
-  formatTokens,
-} from "./status-bar-format.js";
+import { formatBranchMeta, formatCost, formatCwd, formatTokens } from "./status-bar-format.js";
+import { ContextMeterPopover } from "./ContextMeterPopover.js";
 import styles from "./StatusBar.module.css";
 
 interface Segment {
   key: string;
   icon: ReactNode;
-  text: string;
+  /** Plain text body; ignored when `content` is given. */
+  text?: string;
+  /** Rich body (the context meter) replacing `text`. */
+  content?: ReactNode;
   title?: string;
 }
 
@@ -80,8 +79,13 @@ export function StatusBar() {
   }
 
   if (session) {
-    const contextText = `${formatPercent(stats?.contextPercent)} (${formatTokens(stats?.contextTokens)}/${formatTokens(stats?.contextWindow)})`;
-    segments.push({ key: "context", icon: <Gauge size={13} />, text: contextText });
+    segments.push({
+      key: "context",
+      icon: <Gauge size={13} />,
+      content: activeSessionId ? (
+        <ContextMeterPopover sessionId={activeSessionId} stats={stats} />
+      ) : null,
+    });
 
     segments.push({
       key: "tokens",
@@ -104,7 +108,7 @@ export function StatusBar() {
           {i > 0 && <ChevronRight size={12} className={styles.chevron} aria-hidden="true" />}
           <span className={styles.segment} title={seg.title}>
             <span className={styles.icon}>{seg.icon}</span>
-            <span className={styles.text}>{seg.text}</span>
+            {seg.content ?? <span className={styles.text}>{seg.text}</span>}
           </span>
         </span>
       ))}

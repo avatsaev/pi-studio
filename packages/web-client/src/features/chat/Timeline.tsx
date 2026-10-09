@@ -55,6 +55,7 @@ import { ToolCard } from "./rows/ToolCard.js";
 import { UserRow } from "./rows/UserRow.js";
 import { ErrorRow } from "./rows/ErrorRow.js";
 import { SystemRow } from "./rows/SystemRow.js";
+import { CompactionRow } from "./rows/CompactionRow.js";
 import { useBottomAnchor } from "./use-bottom-anchor.js";
 import { type ForkRowWiring, useForkAction } from "./use-fork-action.js";
 import styles from "./Timeline.module.css";
@@ -137,6 +138,15 @@ function renderRow(
       return <ErrorRow row={row} connector={!isLast} />;
     case "system":
       return <SystemRow row={row} />;
+    case "compaction":
+      return (
+        <CompactionRow
+          row={row}
+          assetBase={assetBase}
+          owningPaneId={owningPaneId}
+          workspaceCwd={workspaceCwd}
+        />
+      );
   }
 }
 

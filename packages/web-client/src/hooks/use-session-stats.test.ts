@@ -41,7 +41,7 @@ describe("applySessionStats", () => {
   it("maps the RPC payload onto stats-store's flatter shape", () => {
     const payload: AgentSessionStatsResponse["payload"] = {
       tokens: { input: 100, output: 50, total: 150 },
-      contextUsage: { tokens: 500, contextWindow: 200_000, percent: 0.0025 },
+      contextUsage: { tokens: 500, contextWindow: 200_000, percent: 0.25 },
       cost: 0.04,
       model: "opus",
     };
@@ -49,7 +49,8 @@ describe("applySessionStats", () => {
     expect(useStatsStore.getState().bySession["s1"]).toEqual({
       contextTokens: 500,
       contextWindow: 200_000,
-      contextPercent: 0.0025,
+      contextPercent: 0.25, // Pi's 0-100 scale: 500 / 200_000 tokens
+      contextEstimated: false,
       totalTokens: 150,
       inputTokens: 100,
       outputTokens: 50,
@@ -85,5 +86,31 @@ describe("applySessionStats", () => {
     useSessionStore.getState().hydrate(hydrated({ id: "s1", agentId: "a1", model: "sonnet" }));
     applySessionStats("s1", { cost: 0.01 });
     expect(useSessionStore.getState().sessions["s1"]?.model).toBe("sonnet");
+  });
+});
+
+describe("applySessionStats — post-compaction estimate", () => {
+  it("a null poll keeps the estimate; a poll with real tokens clears the estimated flag", () => {
+    useStatsStore.getState().setStats("s1", {
+      contextTokens: 14_000,
+      contextWindow: 200_000,
+      contextPercent: 7,
+      contextEstimated: true,
+    });
+    applySessionStats("s1", {
+      contextUsage: { tokens: null, percent: null, contextWindow: 200_000 },
+    });
+    expect(useStatsStore.getState().bySession["s1"]).toMatchObject({
+      contextTokens: 14_000,
+      contextEstimated: true,
+    });
+    applySessionStats("s1", {
+      contextUsage: { tokens: 20_000, percent: 10, contextWindow: 200_000 },
+    });
+    expect(useStatsStore.getState().bySession["s1"]).toMatchObject({
+      contextTokens: 20_000,
+      contextPercent: 10,
+      contextEstimated: false,
+    });
   });
 });

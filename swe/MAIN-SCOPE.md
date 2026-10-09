@@ -287,6 +287,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/conversation-fork.md](features/conversation-fork.md)           | feature      | Fork-based conversation time-travel: post-fork timeline resync (daemon) + transcript fork UI (web) |
 | [features/session-tree-navigation.md](features/session-tree-navigation.md) | feature      | Pi `/tree` in the web app: session-tree view + in-place time-travel navigation (Phase 2 gated on an upstream `navigate_tree` Pi RPC) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
+| [features/context-compaction.md](features/context-compaction.md)         | feature      | Manual `/compact` + status-bar trigger, live `compaction` stream events (manual + auto), context-usage meter bar |
 | [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + settings dialog shell (Model Providers category), login dialog, onboarding nudge |
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
 | [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |

@@ -279,6 +279,14 @@ function clientWithUiFake(): { client: PiAgentClient; spawns: UiFakeTransport[] 
   return { client, spawns };
 }
 
+/** The `compactionId` of a mapped compaction event; fails the test for anything else. */
+function compactionIdOf(event: AgentStreamEvent | null): string {
+  if (event?.kind !== "compaction") {
+    throw new Error(`expected a compaction event, got ${event?.kind}`);
+  }
+  return event.compactionId;
+}
+
 describe("event mapper", () => {
   it("maps tool names to ToolCallDetail kinds", () => {
     expect(mapToolCall({ name: "bash", input: { command: "ls" } })).toEqual({
@@ -398,6 +406,97 @@ describe("event mapper", () => {
     ).toEqual({ kind: "assistant_message", text: "hello" });
     expect(mapPiEvent({ type: "noise" })).toBeNull();
     expect(mapPiEvent({ type: "turn_end" })).toBeNull();
+  });
+
+  describe("compaction events", () => {
+    const result = {
+      summary: "s",
+      firstKeptEntryId: "e1",
+      tokensBefore: 168_000,
+      estimatedTokensAfter: 14_000,
+    };
+
+    it("maps start → end(result) to started then completed under one compactionId", () => {
+      const mapper = createPiEventMapper();
+      const started = mapper.map({ type: "compaction_start", reason: "threshold" });
+      expect(started).toMatchObject({ kind: "compaction", phase: "started", reason: "threshold" });
+      const completed = mapper.map({
+        type: "compaction_end",
+        reason: "threshold",
+        result,
+        aborted: false,
+        willRetry: false,
+      });
+      expect(completed).toEqual({
+        kind: "compaction",
+        compactionId: compactionIdOf(started),
+        phase: "completed",
+        reason: "threshold",
+        tokensBefore: 168_000,
+        estimatedTokensAfter: 14_000,
+        summary: "s",
+      });
+    });
+
+    it("carries willRetry on an overflow completion", () => {
+      const mapper = createPiEventMapper();
+      mapper.map({ type: "compaction_start", reason: "overflow" });
+      expect(
+        mapper.map({ type: "compaction_end", reason: "overflow", result, willRetry: true }),
+      ).toMatchObject({ phase: "completed", willRetry: true });
+    });
+
+    it("maps an aborted end to canceled and a result-less end to failed", () => {
+      const mapper = createPiEventMapper();
+      const first = mapper.map({ type: "compaction_start", reason: "manual" });
+      expect(mapper.map({ type: "compaction_end", reason: "manual", aborted: true })).toEqual({
+        kind: "compaction",
+        compactionId: compactionIdOf(first),
+        phase: "canceled",
+        reason: "manual",
+      });
+      mapper.map({ type: "compaction_start", reason: "manual" });
+      // Pi's real manual-path text carries its own "Compaction failed: " prefix (observed live).
+      const failed = mapper.map({
+        type: "compaction_end",
+        reason: "manual",
+        aborted: false,
+        errorMessage: "Compaction failed: Nothing to compact (session too small)",
+      });
+      expect(failed).toMatchObject({
+        phase: "failed",
+        error: "Nothing to compact (session too small)",
+      });
+      // A bare prefix leaves no cause: the row label alone says what happened.
+      mapper.map({ type: "compaction_start", reason: "manual" });
+      const bare = mapper.map({
+        type: "compaction_end",
+        reason: "manual",
+        errorMessage: "Compaction failed",
+      });
+      expect(bare).toMatchObject({ phase: "failed" });
+      expect(bare).not.toHaveProperty("error");
+      mapper.map({ type: "compaction_start", reason: "threshold" });
+      expect(
+        mapper.map({
+          type: "compaction_end",
+          reason: "threshold",
+          errorMessage: "Auto-compaction failed: summariser unavailable",
+        }),
+      ).toMatchObject({ phase: "failed", error: "summariser unavailable" });
+    });
+
+    it("gives each compaction its own id, and an end with no start still yields one terminal", () => {
+      const mapper = createPiEventMapper();
+      const a = mapper.map({ type: "compaction_start", reason: "manual" });
+      mapper.map({ type: "compaction_end", reason: "manual", result });
+      const b = mapper.map({ type: "compaction_start", reason: "manual" });
+      expect(compactionIdOf(a)).not.toBe(compactionIdOf(b));
+      mapper.map({ type: "compaction_end", reason: "manual", result });
+      const orphan = mapper.map({ type: "compaction_end", reason: "manual", aborted: true });
+      expect(orphan).toMatchObject({ kind: "compaction", phase: "canceled" });
+      expect(compactionIdOf(orphan)).not.toBe(compactionIdOf(b));
+    });
   });
 
   it("maps text_end/thinking_end to textless final block-close markers", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DaemonClient, Transport } from "@av-pi-studio/client";
 
@@ -358,6 +358,30 @@ describe("agent slash-command operations", () => {
     expect(out[0]).toContain("done");
     const req = fake.requests.find((r) => r.type === AGENT_RPC.compact)!;
     expect(req.msg.customInstructions).toBe("focus on code");
+  });
+
+  it("compactAgent waits past the CLI's default RPC timeout for a slow compaction", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = makeFake({
+        responses: { [AGENT_RPC.compact]: { summary: "done", tokensBefore: 500 } },
+      });
+      const { client, ctx, out } = await connectedClient(fake.transport); // rpcTimeoutMs: 50
+      const deliver = fake.transport.onMessage;
+      fake.transport.onMessage = (data) => {
+        if (typeof data === "string" && data.includes("agent_compact_response")) {
+          setTimeout(() => deliver?.(data), 150);
+        } else {
+          deliver?.(data);
+        }
+      };
+      const pending = compactAgent(client, ctx, "a1", undefined, {});
+      await vi.advanceTimersByTimeAsync(150);
+      expect(await pending).toBe(0);
+      expect(out[0]).toContain("done");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("newAgentSession reports 'new session started' when not cancelled", async () => {

@@ -62,7 +62,8 @@ function kindBadgeClass(kind: string): string | undefined {
 export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Rows to render, already filtered + ordered by the caller (`slash-commands.ts`). */
+  /** Rows to render, already filtered + ordered by the caller (`slash-commands.ts`). A `disabled`
+   * row is shown dimmed and cannot be picked (the composer's submit gate stays authoritative). */
   options: ComboboxOption<string>[];
   /** Index into `options`; the row rendered as preselected. -1 for none. */
   highlightedIndex: number;
@@ -130,10 +131,12 @@ export function CommandMenu({
                 key={opt.value}
                 role="option"
                 aria-selected={i === highlightedIndex}
+                aria-disabled={opt.disabled || undefined}
                 className={clsx(
                   styles.item,
                   styles.commandItem,
                   i === highlightedIndex && styles.itemActive,
+                  opt.disabled && styles.commandItemDisabled,
                 )}
                 // Native title tooltip (the app's established hover-text convention, e.g.
                 // Composer.tsx's icon buttons) shows the FULL description on hover — the row
@@ -143,7 +146,7 @@ export function CommandMenu({
                   // Keep the textarea's focus/caret through the click — this menu never takes
                   // keyboard focus, so a default mousedown would blur the textarea for nothing.
                   e.preventDefault();
-                  onSelect(opt.value);
+                  if (!opt.disabled) onSelect(opt.value);
                 }}
               >
                 <div className={styles.commandItemHeader}>

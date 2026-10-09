@@ -2,8 +2,13 @@ import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
-import { resetTimeline, spawnOrResumeSession } from "./agent-service.js";
-import type { AgentClient, PersistenceHandle } from "./provider-contract.js";
+import {
+  appendStreamEvent,
+  ensureTimelineSeeded,
+  resetTimeline,
+  spawnOrResumeSession,
+} from "./agent-service.js";
+import type { AgentClient, AgentCompactResult, PersistenceHandle } from "./provider-contract.js";
 
 /**
  * Slash-command operations (sprint-037): Pi built-in commands that have a real Pi RPC equivalent
@@ -40,6 +45,10 @@ function requireSession(manager: AgentManager, agentId: string) {
 function unsupported(agentId: string, op: string): Error {
   return new Error(`agent ${agentId}'s provider does not support '${op}'`);
 }
+
+/** Agent ids with a `compact` call in flight (a daemon restart kills the Pi child and any
+ *  compaction with it, so in-memory is enough). */
+const compactionsInFlight = new Set<string>();
 
 export class SlashCommandOperationsService {
   constructor(private readonly deps: SlashCommandOpsDeps) {}
@@ -114,19 +123,80 @@ export class SlashCommandOperationsService {
     return { type: "agent_session_stats_response", payload };
   }
 
-  /** `/compact` — context changed, broadcast. */
+  /**
+   * `/compact` — context changed, broadcast.
+   *
+   * Pi's `compact()` starts with `abort()`, so compacting mid-turn would kill the run and a second
+   * concurrent compact would cancel the first: both are refused with `busy` BEFORE anything is
+   * resumed or subscribed. A record with no live process (every record after a daemon restart) is
+   * resumed first — compacting an old, oversized session before continuing it is a primary use.
+   *
+   * Compaction runs outside any turn, so `runTurn`'s subscription is not there to record its
+   * `compaction` events: this handler holds its own subscription window for the duration of the
+   * call and forwards only `compaction` events through the shared `appendStreamEvent` path.
+   */
   async handleCompact(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
-    const session = requireSession(this.deps.manager, agentId);
-    if (!session.compact) throw unsupported(agentId, "compact");
-    const customInstructions =
-      typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
-    const payload = await session.compact(customInstructions);
-    this.broadcastAgentUpdate(getSessions, agentId, { compacted: true });
-    return { type: "agent_compact_response", payload };
+    const managed = this.deps.manager.get(agentId);
+    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    if (managed.record.lastStatus === "running") {
+      throw new Error(
+        `busy: agent ${agentId} is running; wait for the turn to finish before compacting`,
+      );
+    }
+    if (compactionsInFlight.has(agentId)) {
+      throw new Error(`busy: agent ${agentId} is already compacting`);
+    }
+    compactionsInFlight.add(agentId);
+    try {
+      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+      if (!session.compact) throw unsupported(agentId, "compact");
+      const customInstructions =
+        typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
+
+      // Before the first append: otherwise the compaction row would create an empty store that
+      // `seedTimeline` (never overwrites) could no longer hydrate history into.
+      ensureTimelineSeeded(agentId, this.deps.manager, this.deps.resolveClient);
+
+      let openId: string | undefined;
+      let terminalSeen = false;
+      const unsubscribe = session.subscribe((event) => {
+        if (event.kind !== "compaction") return;
+        if (event.phase === "started") openId = event.compactionId;
+        else terminalSeen = true;
+        appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
+      });
+      let payload: AgentCompactResult;
+      try {
+        payload = await session.compact(customInstructions);
+      } catch (err) {
+        // A started row must never be left without its terminal row (process crash, transport
+        // failure). Pi's own failures emit `failed` before throwing, so `terminalSeen` is set then.
+        if (openId !== undefined && !terminalSeen) {
+          appendStreamEvent(
+            agentId,
+            {
+              kind: "compaction",
+              compactionId: openId,
+              phase: "failed",
+              error: err instanceof Error ? err.message : String(err),
+            },
+            this.deps.broadcast,
+            getSessions(),
+          );
+        }
+        throw err;
+      } finally {
+        unsubscribe();
+      }
+      this.broadcastAgentUpdate(getSessions, agentId, { compacted: true });
+      return { type: "agent_compact_response", payload };
+    } finally {
+      compactionsInFlight.delete(agentId);
+    }
   }
 
   /**

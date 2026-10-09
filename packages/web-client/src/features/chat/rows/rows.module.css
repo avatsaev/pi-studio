@@ -345,3 +345,67 @@
   font-size: var(--pi-font-size-3xs);
   padding: var(--pi-spacing-4) 0;
 }
+
+/* ─── Compaction (sprint-074 — divider with centered label, renders outside RowShell) ─── */
+
+.compactionRow {
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-3xs);
+  padding: var(--pi-spacing-6) 0;
+}
+
+.compactionRowFailed {
+  color: var(--pi-color-statusDanger);
+}
+
+.compactionDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+}
+
+.compactionRule {
+  flex: 1;
+  height: var(--pi-border-width-1);
+  background: var(--pi-color-border);
+}
+
+.compactionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  max-width: 80%;
+}
+
+.compactionText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compactionToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.compactionToggle:hover {
+  color: var(--pi-color-foreground);
+}
+
+.compactionSummary {
+  margin-top: var(--pi-spacing-6);
+  padding: var(--pi-spacing-7) var(--pi-spacing-12);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-lg);
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foreground);
+  font-size: var(--pi-font-size-2xs);
+}

@@ -399,6 +399,27 @@ All communication uses a **single WebSocket connection** per client.
   `hasViewerSettingsCapability`) and web-client's `viewer-plugins/viewer-settings-store.ts` +
   Settings → Viewers category (`isViewerEnabled(id)` is both a store state method and a
   module-level export for non-React callers).
+- **`compaction` stream event** (sprint-074, `swe/features/context-compaction.md`) makes every
+  context compaction visible: a real `agentStreamEventSchema` kind with phases `started` /
+  `completed` / `failed` / `canceled`, a `reason` (`manual` / `threshold` / `overflow`), and a
+  daemon-minted `compactionId` that the web client upserts into **one** timeline row (a divider,
+  `Context compacted · <before> → ~<after>`). Pi's `compaction_start`/`compaction_end` are mapped in
+  `event-mapper.ts`; Pi's own `Compaction failed: ` / `Auto-compaction failed: ` prefix is stripped
+  from `error` because the row label supplies it. A **manual** compaction runs outside any turn, so
+  `handleCompact` (`slash-command-operations.ts`) opens its own subscription window to record and
+  broadcast the events; **automatic** ones arrive inside `runTurn`'s subscription. `agent_compact_request`
+  is refused with a `busy` error while the agent is running or already compacting (it would abort the
+  turn, since Pi's `compact()` aborts first), and a process-less record (after a daemon restart) is
+  resumed before compacting, with its timeline seeded so history is intact. The response carries
+  `estimatedTokensAfter`; Pi does not persist it, so after a daemon restart the divider rebuilds from
+  Pi's `compaction` session entries as `Context compacted · <before> before` (failed/canceled
+  attempts are not persisted). Advertised via the `compactionEvents` server feature flag: against a
+  daemon without it the client still compacts but shows only a local in-progress state and the
+  `~N%` estimate from the response, with no divider. The SDK uses a 10-minute `COMPACT_TIMEOUT_MS`.
+  Consumed by `web-client`'s status-bar context meter (a loading bar; click opens a popover with
+  Compact now / Cancel) and the composer's client-side `/compact [instructions]` built-in
+  (`packages/web-client/AGENTS.md`); `pi-studio agent compact <id>` is the CLI path. `contextPercent`
+  is Pi's 0–100 scale on every path.
 
 ---
 

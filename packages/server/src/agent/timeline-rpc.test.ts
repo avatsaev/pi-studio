@@ -27,7 +27,11 @@ async function makeRestartedAgentManager(record: AgentRecord): Promise<AgentMana
   return manager;
 }
 
-function fakeCtx(agentId: string): { message: Record<string, unknown>; requestId: string; session: null } {
+function fakeCtx(agentId: string): {
+  message: Record<string, unknown>;
+  requestId: string;
+  session: null;
+} {
   return { message: { agentId, direction: "after" }, requestId: "r1", session: null };
 }
 

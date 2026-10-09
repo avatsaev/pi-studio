@@ -10,6 +10,7 @@ import type { PiStudioClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { QueryClient } from "@tanstack/react-query";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { applyCompactionEstimate } from "@pi-studio-ui/stores/stats-store.js";
 import { toolMutatesFiles, toolFilePath } from "@pi-studio-ui/timeline/tool-mapping.js";
 import { invalidateAfterToolCompletion } from "@pi-studio-ui/lib/connection/files-changed.js";
 
@@ -43,6 +44,14 @@ export function applyAgentStreamEvent({
       break;
     case "turn_canceled":
       sessionStore.setStatus(sessionId, "idle");
+      break;
+    case "compaction":
+      // Pi reports null context usage after a compaction until the next LLM reply, so the
+      // estimate is the only fresh number there is. Live-only: replayed history never reaches this
+      // function, so a reload leaves stats alone (the meter shows unknown until the next poll).
+      if (event.phase === "completed" && event.estimatedTokensAfter !== undefined) {
+        applyCompactionEstimate(sessionId, event.estimatedTokensAfter);
+      }
       break;
     case "tool_call": {
       if (event.status === "completed" && toolMutatesFiles(event.tool)) {

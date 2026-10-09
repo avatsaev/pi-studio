@@ -223,6 +223,13 @@ wire representation at all). Each resolves to the RPC's `payload` object directl
 unwraps `{type, requestId, payload}` responses to just `payload`), matching every other typed
 method on this facade.
 
+`compact()` passes `COMPACT_TIMEOUT_MS` (10 min, exported from `pistudio-client.ts`) as its RPC
+timeout instead of `DaemonClient`'s 30 s default — summarising a large context routinely outlasts
+30 s, and the daemon holds the request open for the whole compaction (sprint-074). A timeout still
+fails only that call (`RpcTimeoutError`; the socket stays up). The daemon rejects the request with
+`busy: …` when the agent is running or already compacting; the payload carries
+`estimatedTokensAfter`.
+
 | Method                         | RPC                                                                                                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send(prompt, opts?)`          | `send_agent_prompt`                                                                                                                                                                                                 |

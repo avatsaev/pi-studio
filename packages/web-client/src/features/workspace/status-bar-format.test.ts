@@ -34,15 +34,17 @@ describe("formatPercent", () => {
     expect(formatPercent(null)).toBe("--");
   });
 
-  it("normalizes a 0-1 fraction to a rounded whole-number percent", () => {
-    expect(formatPercent(0.25)).toBe("25%");
-    expect(formatPercent(1)).toBe("100%");
-    expect(formatPercent(0)).toBe("0%");
+  it("treats the input as Pi's 0-100 scale: a sub-1 value is under one percent, not 0-1 of 100%", () => {
+    expect(formatPercent(0.7)).toBe("<1%");
+    expect(formatPercent(0.0025)).toBe("<1%");
+    expect(formatPercent(1)).toBe("1%");
   });
 
-  it("passes a 0-100 whole number through unchanged (rounded)", () => {
+  it("rounds to a whole number and keeps true zero and full", () => {
+    expect(formatPercent(0)).toBe("0%");
     expect(formatPercent(42)).toBe("42%");
     expect(formatPercent(42.6)).toBe("43%");
+    expect(formatPercent(100)).toBe("100%");
   });
 });
 

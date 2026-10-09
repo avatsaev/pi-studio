@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DaemonClient } from "./daemon-client.js";
+import { DaemonClient, RpcTimeoutError } from "./daemon-client.js";
 import * as clientIndex from "./index.js";
 import {
   AgentUiError,
+  COMPACT_TIMEOUT_MS,
   isAgentArchived,
   isAgentDeleted,
   isAgentUiRequest,
@@ -11,6 +12,29 @@ import {
   PiStudioClient,
 } from "./pistudio-client.js";
 import { makeFacade, makeScriptedDaemon } from "./test-support/scripted-daemon.js";
+
+/** Hold the daemon's compact reply until the test releases it, as a slow summariser would. */
+async function withHeldCompactReply() {
+  const { client, fake } = await makeFacade(); // DaemonClient default rpcTimeoutMs is 1 s here
+  const created = await client.createAgent({
+    config: { provider: "mock", cwd: "/w" },
+    labels: {},
+  });
+  const deliver = fake.transport.onMessage;
+  const held: string[] = [];
+  fake.transport.onMessage = (data) => {
+    if (typeof data === "string" && data.includes("agent_compact_response")) held.push(data);
+    else deliver?.(data);
+  };
+  const outcome = client
+    .agent(created.agentId)
+    .compact()
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+  return { outcome, release: () => held.forEach((frame) => deliver?.(frame)) };
+}
 
 describe("PiStudioClient — agent create + stream", () => {
   it("creates an agent and returns its agentId", async () => {
@@ -163,9 +187,36 @@ describe("PiStudioClient — slash-command operations (sprint-037)", () => {
       labels: {},
     });
     const result = await client.agent(created.agentId).compact("focus on code");
-    expect(result).toEqual({ summary: "compacted", tokensBefore: 1000 });
+    expect(result).toEqual({ summary: "compacted", tokensBefore: 1000, estimatedTokensAfter: 100 });
     const req = fake.sent.find((m) => m.type === "agent_compact_request");
     expect(req?.customInstructions).toBe("focus on code");
+  });
+
+  describe("compact timeout", () => {
+    it("outlives the default RPC timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        const { outcome, release } = await withHeldCompactReply();
+        await vi.advanceTimersByTimeAsync(COMPACT_TIMEOUT_MS - 1000);
+        release();
+        expect(await outcome).toEqual({
+          value: { summary: "compacted", tokensBefore: 1000, estimatedTokensAfter: 100 },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still gives up after COMPACT_TIMEOUT_MS, with an operation error rather than a dead socket", async () => {
+      vi.useFakeTimers();
+      try {
+        const { outcome } = await withHeldCompactReply();
+        await vi.advanceTimersByTimeAsync(COMPACT_TIMEOUT_MS + 1);
+        expect(await outcome).toEqual({ error: expect.any(RpcTimeoutError) });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
   it("newSession, switchSession, fork, forkMessages, clone, setSessionName, exportHtml, setModel, cycleModel, lastAssistantText all issue their correlated RPC with agentId", async () => {
     const { client, fake } = await makeFacade();

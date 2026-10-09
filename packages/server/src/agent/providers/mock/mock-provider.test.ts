@@ -94,7 +94,7 @@ describe("mock provider", () => {
   });
 
   it("implements slash-command operations (sprint-037) deterministically", async () => {
-    const client = new MockAgentClient();
+    const client = new MockAgentClient({ compactDelayMs: 0 });
     const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
 
     expect(await session.getSessionStats?.()).toEqual({
@@ -105,8 +105,16 @@ describe("mock provider", () => {
     expect(await session.compact?.()).toEqual({
       summary: "mock compaction summary",
       firstKeptEntryId: "mock-entry-0",
-      tokensBefore: 0,
+      tokensBefore: 168_000,
+      estimatedTokensAfter: 14_000,
     });
+
+    // The mock compaction is observable: a started → completed pair under one id.
+    const { events } = collect(session);
+    await session.compact?.();
+    const compactions = events.filter((e) => e.kind === "compaction");
+    expect(compactions.map((e) => e.phase)).toEqual(["started", "completed"]);
+    expect(compactions[0]?.compactionId).toBe(compactions[1]?.compactionId);
     expect(await session.newSession?.()).toEqual({ cancelled: false });
     expect(await session.switchSession?.("/tmp/other.jsonl")).toEqual({ cancelled: false });
     expect(await session.fork?.("e1")).toEqual({

@@ -15,13 +15,13 @@ export function formatTokens(n: number | undefined): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-/** Accepts either a 0–1 fraction or a 0–100 whole number (the wire's `agentContextUsageSchema
- * .percent` convention is not pinned to one or the other across providers) and normalizes to a
- * rounded integer percentage. `undefined`/`null` → "--". */
+/** Formats a **0–100** percentage (Pi's scale, see `stats-store`'s `contextPercent`) as a rounded
+ * integer; anything above zero but under 1 renders `<1%` rather than a misleading `0%`.
+ * `undefined`/`null` → "--". */
 export function formatPercent(p: number | null | undefined): string {
   if (p === null || p === undefined) return PLACEHOLDER;
-  const pct = p <= 1 ? p * 100 : p;
-  return `${Math.round(pct)}%`;
+  if (p > 0 && p < 1) return "<1%";
+  return `${Math.round(p)}%`;
 }
 
 /** `undefined` → "--"; small costs keep more precision (< $1 → 4 decimals), larger costs 2 dp. */
