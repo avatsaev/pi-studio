@@ -107,8 +107,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 075 | `sprint-075-skills-list-toggle` | cross-package (protocol, server, client, web-client): **Skills manager, slice 1** — Settings → Skills lists every global skill Pi loads, grouped by origin, with enable/disable that writes exactly what `pi config` writes, and live refresh on host-side edits. Ships the `resources/` backend core (Pi-SDK boundary, toggle mirror, catalog, watcher). | 7 |
 | 076 | `sprint-076-skills-remove-update` | cross-package (protocol, server, client, web-client): **Skills manager, slice 2** — origin-aware Remove, Remove package, Update all; the spawn/queue/redaction machinery; pinned `skills` CLI; Node floor ≥22.20. | 8 |
 | 077 | `sprint-077-skills-install` | cross-package (protocol, server, client, web-client): **Skills manager, slice 3** — install from `npm:`/`git:` Pi packages (skills-only), Agent Skills repos (stateless preview & pick), and host paths. | 8 |
+| 078 | `sprint-078-pdf-viewer` | web-client only: **PDF viewer**. `.pdf` files render in place with pdf.js (lazy pages, selectable text, fit-width/zoom, live refresh) instead of the download card, behind a `pdfviewer` viewer-settings row that is on by default. No daemon/protocol change. | 5 |
 
-Total: **75 sprints, 396 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **76 sprints, 401 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -2118,6 +2119,25 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-007 | Web: Install skill dialog | feature | task-006 | packages/web-client; feature § Install dialog |
 | task-008 | Sprint close: live E2E direct + relay, docs, gates | docs | task-001…task-007 | AGENTS.md; feature § Acceptance (all) |
 
+### sprint-078-pdf-viewer
+> **What it ships.** `features/pdf-file-preview.md`. A `pdf` `ViewerKind` inside the ordinary `file`
+> tab, rendered with pdf.js's core API (not its `pdf_viewer` bundle) in its own `vendor-pdfjs` chunk.
+> The registry gains an optional descriptor `toggle` (viewer-settings id + fallback kind), resolved
+> once per `FilePanel` mount so flipping the switch never changes an open tab. The switch is a new
+> `pdfviewer` row in the existing daemon-backed document, so "on by default" needs no daemon change.
+> pdf.js's cmaps/fonts/wasm/ICC data are served under `<base>/pdfjs/` by a Vite plugin.
+>
+> **Status: done** (all 5 tasks; see the sprint's `done/` summaries). Open: module Worker under
+> `file://` (Electron target, shell not built).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `pdfjs-dist` devDep, `vendor-pdfjs` chunk, bundled module worker, `/pdfjs/` data-asset plugin (dev + build), `pdfjs-runtime.ts` | chore | none | packages/web-client (build); § pdf.js static data assets, § Bundle placement |
+| task-002 | `PdfViewer` + pure `pdf-layout.ts` (lazy pages, text layer, fit/zoom, indicator, Download, errors, live refresh keeps scroll) | feature | task-001 | packages/web-client (features/files); § PdfViewer component, § Error handling |
+| task-003 | Registry `pdf` kind + descriptor `toggle` + `resolveViewerKind`; FilePanel resolves once per mount | feature | task-002 | packages/web-client (features/files, hooks); § Viewer registry, § FilePanel dispatch |
+| task-004 | Settings → Viewers "PDF Viewer" row (constant row table) | feature | task-003 | packages/web-client (features/settings); § Settings → Viewers |
+| task-005 | Sprint close: live E2E (dev + built bundle via `pi-studio ui`), AGENTS.md, TODO(verify), gates | docs | task-001…task-004 | AGENTS.md (root + web-client); § Acceptance criteria (all) |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2265,6 +2285,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/context-compaction.md | s074/t001-009 (wire variant + flag; Pi mapping, hydration and mock; daemon subscription window, `busy` guards and resume-on-compact; SDK/CLI timeout; upserted divider row; context meter with the percent-scale fix; popover + shared action; composer gate and `/compact` built-in; real-Pi E2E and docs) |
 | features/skills-manager.md | s075/t005-007 (list, toggle, panel), s076/t006-008 (remove, update all), s077/t006-008 (install dialog, full acceptance) |
 | architecture/pi-resource-management.md | s075/t001-004 (wire, toggle mirror, catalog, service + watcher), s076/t001-005 (spawn/queue/redaction, remove, update all), s077/t001-005 (source detection, preview, installs, TODO(verify) spike) |
+| features/pdf-file-preview.md | s078/t001-005 (build plumbing + data assets; `PdfViewer`; registry `pdf` kind + `toggle` gate; Settings row; live E2E + docs) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.

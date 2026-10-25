@@ -6,11 +6,11 @@
  * (`lib/connection/files-changed.ts`'s existing debounced post-tool-call invalidation, which stays
  * as the belt-and-braces path for files nobody has open).
  *
- * `LIVE_REFRESH_KINDS` is the scope gate: only `"text"`, `"markdown"`, and `"image"` tabs watch.
- * `"video"` is excluded because a refetch mints a new object URL, which restarts playback from
- * zero mid-watch; `"binary"` fetches nothing at all until the user clicks its Download button, so
- * there is nothing to refresh. The set is derived from the viewer registry at module load and
- * enforced by the type — a new `ViewerKind` cannot silently inherit a default.
+ * `LIVE_REFRESH_KINDS` is the scope gate: `"text"`, `"markdown"`, `"image"`, `"html"` and `"pdf"`
+ * tabs watch. `"video"` is excluded because a refetch mints a new object URL, which restarts
+ * playback from zero mid-watch; `"binary"` fetches nothing at all until the user clicks its
+ * Download button, so there is nothing to refresh. The set is derived from the viewer registry at
+ * module load and enforced by the type — a new `ViewerKind` cannot silently inherit a default.
  */
 
 import { useEffect } from "react";

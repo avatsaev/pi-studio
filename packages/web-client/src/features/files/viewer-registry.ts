@@ -2,7 +2,8 @@
  * File-viewer registry — maps a detected file kind to the viewer component that renders it
  * (POC_TO_APP_PLAN_UI.md §4.5 follow-up: modular file preview). `FilePanel` detects the kind from
  * `path` (extension) and the explorer's binary `mimeHint` (for extension-less/ambiguous files),
- * then looks up the viewer here — adding a new file type is one entry in `VIEWER_REGISTRY`.
+ * then looks up the viewer here — adding a new file type is one entry in `VIEWER_REGISTRY`. A
+ * descriptor with a `toggle` can be switched off in Settings → Viewers (`resolveViewerKind`).
  *
  * Second dispatch path: the file explorer calls `isMoleculeFile` (below) to pick a tab's *kind*
  * (`"molecule"` vs `"file"`) before any panel mounts — molecule files never go through
@@ -11,7 +12,7 @@
 
 import { lazy, type ComponentType } from "react";
 
-export type ViewerKind = "text" | "markdown" | "image" | "video" | "binary" | "html";
+export type ViewerKind = "text" | "markdown" | "image" | "video" | "binary" | "html" | "pdf";
 
 export interface ViewerProps {
   /** Explorer-relative or absolute path, as opened from the file tree/diff panel. */
@@ -28,6 +29,11 @@ export interface ViewerDescriptor {
   mimePrefixes?: readonly string[];
   /** Whether files of this kind are watched for live refresh — required (no implicit default). */
   liveRefresh: boolean;
+  /**
+   * Makes the viewer switchable in Settings → Viewers: `id` is its viewer-settings row, `fallback`
+   * the kind a file renders as while that row is disabled. Absent = always on.
+   */
+  toggle?: { id: string; fallback: ViewerKind };
 }
 
 const TextViewer = lazy(() => import("./TextViewer.js").then((m) => ({ default: m.TextViewer })));
@@ -44,6 +50,7 @@ const BinaryFallbackViewer = lazy(() =>
   import("./BinaryFallbackViewer.js").then((m) => ({ default: m.BinaryFallbackViewer })),
 );
 const HtmlViewer = lazy(() => import("./HtmlViewer.js").then((m) => ({ default: m.HtmlViewer })));
+const PdfViewer = lazy(() => import("./PdfViewer.js").then((m) => ({ default: m.PdfViewer })));
 
 /**
  * The single registry of file viewers — adding a new file type is one entry here. All lookup
@@ -84,9 +91,17 @@ export const VIEWER_REGISTRY: readonly ViewerDescriptor[] = [
     liveRefresh: false,
   },
   {
+    kind: "pdf",
+    component: PdfViewer,
+    extensions: ["pdf"],
+    mimePrefixes: ["application/pdf"],
+    liveRefresh: true,
+    toggle: { id: "pdfviewer", fallback: "binary" },
+  },
+  {
     kind: "binary",
     component: BinaryFallbackViewer,
-    extensions: ["pdf", "zip", "gz", "tar", "exe", "wasm", "woff", "woff2", "ttf", "otf"],
+    extensions: ["zip", "gz", "tar", "exe", "wasm", "woff", "woff2", "ttf", "otf"],
     liveRefresh: false,
   },
 ];
@@ -177,4 +192,25 @@ export function detectViewerKind(
 
   if (opts.isBinary) return "binary";
   return "text";
+}
+
+/** Derived: the `toggle` of each viewer kind that has one. */
+const TOGGLE_BY_KIND: ReadonlyMap<ViewerKind, NonNullable<ViewerDescriptor["toggle"]>> = new Map(
+  VIEWER_REGISTRY.flatMap((desc) => (desc.toggle ? [[desc.kind, desc.toggle] as const] : [])),
+);
+
+/**
+ * `detectViewerKind`, then the viewer-settings gate: a kind whose `toggle` row is disabled
+ * resolves to its fallback (disabling a viewer degrades a file to the plain path, never refuses
+ * it). `isEnabled` is injected so this stays pure — `FilePanel` passes the store's
+ * `isViewerEnabled`, and the registry never imports the store.
+ */
+export function resolveViewerKind(
+  path: string,
+  isEnabled: (viewerId: string) => boolean,
+  opts: { mimeHint?: string; isBinary?: boolean } = {},
+): ViewerKind {
+  const kind = detectViewerKind(path, opts);
+  const toggle = TOGGLE_BY_KIND.get(kind);
+  return toggle && !isEnabled(toggle.id) ? toggle.fallback : kind;
 }

@@ -7,8 +7,8 @@
  * state), matching the POC's per-panel `showFile`/`showDiff` toggle.
  *
  * The File view dispatches through the modular viewer registry (`viewer-registry.ts`):
- * `detectViewerKind` picks a viewer from the path's extension, and `VIEWER_BY_KIND` resolves the
- * (lazily-loaded) component — text/markdown/image/video today, more by adding one registry entry.
+ * `resolveViewerKind` picks a viewer from the path's extension (and the viewer-settings gate),
+ * and `VIEWER_BY_KIND` resolves the (lazily-loaded) component — one registry entry per file type.
  *
  * Live updates come from the daemon's filesystem watcher via `useFileLiveRefresh` (not the
  * debounced post-tool-call invalidation in `lib/connection/files-changed.ts`, which stays as the
@@ -28,8 +28,9 @@ import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
 import { useFileDiff } from "@pi-studio-ui/hooks/use-file-diff.js";
 import { useFileLiveRefresh } from "@pi-studio-ui/hooks/use-file-live-refresh.js";
 import type { Tab, FileTabData, DiffTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { isViewerEnabled } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
 import { DiffView } from "./DiffView.js";
-import { detectViewerKind, VIEWER_BY_KIND } from "./viewer-registry.js";
+import { resolveViewerKind, VIEWER_BY_KIND } from "./viewer-registry.js";
 import styles from "./FilePanel.module.css";
 
 type ViewMode = "file" | "diff";
@@ -54,7 +55,9 @@ export function FilePanel({ tab }: FilePanelProps) {
 
   const [viewMode, setViewMode] = useState<ViewMode>(isDiffTab ? "diff" : "file");
   const cwd = tab.workspaceCwd || "~";
-  const viewerKind = detectViewerKind(path);
+  // Resolved ONCE per mount, not per render: flipping a viewer's Settings toggle must not swap an
+  // already-open tab's viewer (AGENTS.md § "Viewer-disable gate") — only a future mount differs.
+  const [viewerKind] = useState(() => resolveViewerKind(path, isViewerEnabled));
   useFileLiveRefresh(path, cwd, viewerKind);
 
   const diffQuery = useFileDiff(path, cwd, staged, viewMode === "diff");
