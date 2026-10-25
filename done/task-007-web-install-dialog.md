@@ -1,7 +1,7 @@
 # Task 007 — Web: Install skill dialog
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/skills)
 - **Priority:** P1
@@ -36,10 +36,10 @@ Last user-visible slice.
 
 ## Acceptance criteria
 
-- [ ] Unrecognised input disables Next
-- [ ] Package source skips the pick step
-- [ ] Existing-name rows require Replace before Install sends them
-- [ ] Results render per item; list refreshes
+- [x] Unrecognised input disables Next
+- [x] Package source skips the pick step
+- [x] Existing-name rows require Replace before Install sends them
+- [x] Results render per item; list refreshes
 
 ## Test / verification plan
 

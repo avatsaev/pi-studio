@@ -1,7 +1,7 @@
 # Task 006 — Client SDK: `previewSkillSource`, `installSkills`
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1
@@ -33,7 +33,7 @@ Long-running calls need explicit timeouts.
 
 ## Acceptance criteria
 
-- [ ] Requests carry the right payload and timeout (fake transport)
+- [x] Requests carry the right payload and timeout (fake transport)
 
 ## Test / verification plan
 

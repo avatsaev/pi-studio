@@ -332,6 +332,36 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
+      case "skills_preview_request": {
+        reply({
+          type: "skills_preview_response",
+          requestId,
+          ok: true,
+          kind: "skills_repo",
+          source: msg.source,
+          skills: [
+            {
+              name: "code-review",
+              description: "Review a diff",
+              relPath: "skills/code-review",
+              valid: true,
+              exists: false,
+            },
+          ],
+        });
+        return;
+      }
+      case "skills_install_request": {
+        reply({
+          type: "skills_install_response",
+          requestId,
+          ok: true,
+          results: [{ target: String(msg.source), ok: true }],
+          skills: [],
+          packages: [],
+        });
+        return;
+      }
       default:
         reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
     }

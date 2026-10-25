@@ -1,5 +1,7 @@
 import type {
+  SkillsInstallResponse,
   SkillsListResponse,
+  SkillsPreviewResponse,
   SkillsRemoveResponse,
   SkillsSetEnabledResponse,
   SkillsUpdateAllResponse,
@@ -11,11 +13,12 @@ import type { ResourceService } from "./resource-service.js";
 
 /**
  * `skills_list_request`/`skills_set_enabled_request`/`skills_remove_request`/
- * `skills_update_all_request` (swe/architecture/pi-resource-management.md § Wire family
- * `skills_*`). Thin orchestration only — every decision (catalog resolution, toggle pattern
- * derivation, remove strategy, spawn/queue/watcher/broadcast) already lives behind
- * `ResourceService`; this module maps its results onto the wire response shape and validates the
- * requests this family's untyped `ctx.message` can't guarantee the shape of.
+ * `skills_update_all_request`/`skills_preview_request`/`skills_install_request`
+ * (swe/architecture/pi-resource-management.md § Wire family `skills_*`). Thin orchestration only —
+ * every decision (catalog resolution, toggle pattern derivation, remove strategy, source
+ * detection, spawn/queue/watcher/broadcast) already lives behind `ResourceService`; this module
+ * maps its results onto the wire response shape and validates the requests this family's
+ * untyped `ctx.message` can't guarantee the shape of.
  */
 
 export interface SkillsRpcDeps {
@@ -99,6 +102,63 @@ export function registerSkillsHandlers(registry: HandlerRegistry, deps: SkillsRp
     async (): Promise<Omit<SkillsUpdateAllResponse, "requestId">> => {
       const result = await service.updateAll();
       return { type: "skills_update_all_response", ...result };
+    },
+  );
+
+  registry.register(
+    "skills_preview_request",
+    async (ctx): Promise<Omit<SkillsPreviewResponse, "requestId">> => {
+      const { source } = ctx.message;
+      if (typeof source !== "string") {
+        logger?.warn(
+          { message: ctx.message },
+          "skills_preview_request: rejecting malformed request",
+        );
+        return {
+          type: "skills_preview_response",
+          ok: false,
+          error: "invalid request: expected a string source",
+          kind: "invalid_source",
+          source: typeof source === "string" ? source : "",
+          skills: [],
+        };
+      }
+      const result = await service.preview(source);
+      return { type: "skills_preview_response", ...result };
+    },
+  );
+
+  registry.register(
+    "skills_install_request",
+    async (ctx): Promise<Omit<SkillsInstallResponse, "requestId">> => {
+      const { source, skills, replace } = ctx.message;
+      const hasSkills = skills === undefined || Array.isArray(skills);
+      if (
+        typeof source !== "string" ||
+        !hasSkills ||
+        (Array.isArray(skills) && !skills.every((s) => typeof s === "string")) ||
+        (replace !== undefined && typeof replace !== "boolean")
+      ) {
+        logger?.warn(
+          { message: ctx.message },
+          "skills_install_request: rejecting malformed request",
+        );
+        const listed = await service.list();
+        return {
+          type: "skills_install_response",
+          ok: false,
+          error: "invalid request: expected a string source and optional skills[]/replace",
+          results: [],
+          skills: listed.skills,
+          packages: listed.packages,
+        };
+      }
+      const result = await service.install(
+        source,
+        skills as string[] | undefined,
+        replace as boolean | undefined,
+      );
+      return { type: "skills_install_response", ...result };
     },
   );
 }

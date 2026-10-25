@@ -1,7 +1,7 @@
 # Task 002 — Protocol: `detectSkillSource`, `skills_preview`, `skills_install`
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1
@@ -34,8 +34,8 @@ Client shows the detected kind live; the daemon re-runs detection authoritativel
 
 ## Acceptance criteria
 
-- [ ] Table test: every source-kind row (accept and reject) classified as the spec says
-- [ ] Schemas parse the spec's shapes
+- [x] Table test: every source-kind row (accept and reject) classified as the spec says
+- [x] Schemas parse the spec's shapes
 
 ## Test / verification plan
 

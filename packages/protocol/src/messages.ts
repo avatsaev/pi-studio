@@ -1490,6 +1490,98 @@ export const skillsUpdateAllResponseSchema = z
   .passthrough();
 export type SkillsUpdateAllResponse = z.infer<typeof skillsUpdateAllResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// Skills preview/install (sprint-077/task-002). Client-side source classification lives in
+// `source-detect.ts`'s `detectSkillSource()` — the daemon always re-runs detection
+// authoritatively, so neither request below carries a client-sent `kind`. Reuses
+// `itemResultSchema`/`skillInfoSchema`/`piPackageInfoSchema` above.
+// ---------------------------------------------------------------------------
+
+/**
+ * One installable skill found inside a `skills_repo`/`local_path` preview (never package kinds —
+ * those answer `{ok:true, kind, skills: []}`, nothing to pick). `valid` means frontmatter had a
+ * name + description; `exists` means `~/.agents/skills/<sanitized-name>` is already present
+ * (drives the client's "Already installed — replace" checkbox).
+ */
+export const previewSkillSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    relPath: z.string(),
+    warnings: z.array(z.string()).optional(),
+    valid: z.boolean(),
+    exists: z.boolean(),
+  })
+  .passthrough();
+export type PreviewSkill = z.infer<typeof previewSkillSchema>;
+
+export const skillsPreviewRequestSchema = z
+  .object({
+    type: z.literal("skills_preview_request"),
+    requestId: z.string(),
+    source: z.string(),
+  })
+  .passthrough();
+export type SkillsPreviewRequest = z.infer<typeof skillsPreviewRequestSchema>;
+
+/**
+ * `ok`/`error` are domain fields, same idiom as every other `skills_*` response. `kind` is the
+ * daemon's own `detect(source)` result (never the client's) and `source` echoes the request's
+ * `source` verbatim — both present even on a domain failure (e.g. `invalid_source`), so a client
+ * can still render what it tried against. `pi_npm`/`pi_git` always answer
+ * `{ok:true, kind, source, skills: []}` — package kinds install as a unit, nothing to pick.
+ */
+export const skillsPreviewResponseSchema = z
+  .object({
+    type: z.literal("skills_preview_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    kind: z.string(),
+    source: z.string(),
+    skills: z.array(previewSkillSchema),
+  })
+  .passthrough();
+export type SkillsPreviewResponse = z.infer<typeof skillsPreviewResponseSchema>;
+
+/**
+ * `skills` is the picked skill names from a prior preview — meaningful for `skills_repo` only
+ * (ignored for `pi_npm`/`pi_git`, which install every skill the package ships; irrelevant for
+ * `local_path`, which registers the whole folder). `replace` resends an already-installed picked
+ * name instead of excluding it as `name_exists`.
+ */
+export const skillsInstallRequestSchema = z
+  .object({
+    type: z.literal("skills_install_request"),
+    requestId: z.string(),
+    source: z.string(),
+    skills: z.array(z.string()).optional(),
+    replace: z.boolean().optional(),
+  })
+  .passthrough();
+export type SkillsInstallRequest = z.infer<typeof skillsInstallRequestSchema>;
+
+/**
+ * One `ItemResult` per engine outcome — one entry for `pi_npm`/`pi_git`/`local_path`, one per
+ * picked name for `skills_repo` (e.g. a `name_exists` exclusion still gets its own `ItemResult`).
+ * `skills`/`packages` are the post-mutation list, same idiom as every other mutating `skills_*`
+ * response.
+ */
+export const skillsInstallResponseSchema = z
+  .object({
+    type: z.literal("skills_install_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    results: z.array(itemResultSchema),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsInstallResponse = z.infer<typeof skillsInstallResponseSchema>;
+
 // ===========================================================================
 // Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
 // ===========================================================================
@@ -1732,6 +1824,10 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   skillsRemoveResponseSchema,
   skillsUpdateAllRequestSchema,
   skillsUpdateAllResponseSchema,
+  skillsPreviewRequestSchema,
+  skillsPreviewResponseSchema,
+  skillsInstallRequestSchema,
+  skillsInstallResponseSchema,
   agentUiRequestSchema,
   agentUiResolvedSchema,
   agentUiRespondRequestSchema,

@@ -1,0 +1,170 @@
+/* InstallSkillDialog — source → (pick) → running → results. `Dialog`'s own `.body` carries no
+   padding (`Dialog.module.css`) — every dialog body supplies its own, matching
+   `LoginDialog.module.css`/`SettingsDialog.module.css`/`OpenWorkspaceDialog.module.css`'s
+   `--pi-spacing-14` horizontal edge convention. */
+
+.sourceStep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-14);
+}
+
+.sourceLabel {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  background: var(--pi-color-surface1);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.error {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-statusDanger);
+}
+
+.statusStep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-24) var(--pi-spacing-14);
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.pickStep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-14);
+}
+
+.pickRows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pickRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.pickRow[data-disabled] {
+  opacity: 0.6;
+}
+
+.pickRowMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  min-width: 0;
+}
+
+.pickRowTop {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  min-width: 0;
+}
+
+.pickRowName {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pickRowDescription {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backButton {
+  margin-right: auto;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-14);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.resultRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-4);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.resultHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  min-width: 0;
+}
+
+.resultTarget {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resultError {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-statusDanger);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resultToggle {
+  margin-left: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  text-decoration: underline;
+}
+
+.resultStderr {
+  margin: 0;
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  background: var(--pi-color-surface2);
+  border-radius: var(--pi-radius-sm);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}

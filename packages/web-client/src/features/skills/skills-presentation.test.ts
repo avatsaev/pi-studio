@@ -1,11 +1,27 @@
 import { describe, expect, it } from "vitest";
-import type { PiPackageInfo, SkillInfo } from "@av-pi-studio/protocol";
 import {
+  detectSkillSource,
+  type PiPackageInfo,
+  type PreviewSkill,
+  type SkillInfo,
+  type SkillsInstallResponse,
+} from "@av-pi-studio/protocol";
+import {
+  buildPickRows,
   buildSkillGroups,
+  canAdvanceFromSource,
+  asListDocument,
+  hasItemResults,
+  detectedSourceLabel,
   filterSkillGroups,
+  hasNoPickedSkills,
+  installDialogStep,
+  isPackageSourceKind,
   packageHeaderBadges,
+  pickedSkillsNeedReplace,
   removePackageConfirmText,
   requiresCuratedConfirm,
+  resolvePickedSkillNames,
   skillErrorMessage,
   skillRemoveConfirmText,
   updateAllTargetLabel,
@@ -395,14 +411,16 @@ describe("skillRemoveConfirmText", () => {
     expect(skillRemoveConfirmText(row)).toBe("Removes 'dup' for every agent on this machine.");
   });
 
-  it("skill path: 'Stops loading <path>; files are kept.'", () => {
+  it("skill path: names the settings entry removal and that sibling skills from the same folder stop loading", () => {
     const row = removableSkill({
       name: "s",
       path: "/settings/s",
       origin: "settings_path",
       originLabel: "Skill paths",
     });
-    expect(skillRemoveConfirmText(row)).toBe("Stops loading /settings/s; files are kept.");
+    expect(skillRemoveConfirmText(row)).toBe(
+      "Removes the Pi settings entry that provides /settings/s (other skills from the same folder stop loading too); files are kept.",
+    );
   });
 
   it("plain dir: 'Deletes <path>.'", () => {
@@ -459,5 +477,171 @@ describe("updateAllTargetLabel", () => {
 
   it("renders an unknown target verbatim", () => {
     expect(updateAllTargetLabel("future-engine")).toBe("future-engine");
+  });
+});
+
+function previewSkill(overrides: Partial<PreviewSkill> & Pick<PreviewSkill, "name">): PreviewSkill {
+  return { relPath: `skills/${overrides.name}`, valid: true, exists: false, ...overrides };
+}
+
+describe("detectedSourceLabel", () => {
+  it("labels each recognized kind", () => {
+    expect(detectedSourceLabel(detectSkillSource("npm:some-pack"))).toBe("npm package");
+    expect(detectedSourceLabel(detectSkillSource("git:https://example.com/x.git"))).toBe(
+      "git package",
+    );
+    expect(detectedSourceLabel(detectSkillSource("vercel-labs/agent-skills"))).toBe(
+      "Agent Skills repo",
+    );
+    expect(detectedSourceLabel(detectSkillSource("/abs/path"))).toBe("Folder on daemon host");
+  });
+
+  it("labels unrecognized input", () => {
+    expect(detectedSourceLabel(detectSkillSource("not a valid source"))).toBe("Unrecognized");
+    expect(detectedSourceLabel(null)).toBe("Unrecognized");
+  });
+});
+
+describe("isPackageSourceKind", () => {
+  it("true only for pi_npm/pi_git", () => {
+    expect(isPackageSourceKind("pi_npm")).toBe(true);
+    expect(isPackageSourceKind("pi_git")).toBe(true);
+    expect(isPackageSourceKind("skills_repo")).toBe(false);
+    expect(isPackageSourceKind("local_path")).toBe(false);
+  });
+});
+
+describe("canAdvanceFromSource — Next disabled for unrecognised input", () => {
+  it("false for unrecognized input", () => {
+    expect(canAdvanceFromSource(detectSkillSource("not a valid source"))).toBe(false);
+    expect(canAdvanceFromSource(null)).toBe(false);
+  });
+
+  it("true for any recognized kind", () => {
+    expect(canAdvanceFromSource(detectSkillSource("npm:some-pack"))).toBe(true);
+    expect(canAdvanceFromSource(detectSkillSource("owner/repo"))).toBe(true);
+  });
+});
+
+describe("installDialogStep — step transitions", () => {
+  const idle = {
+    previewPending: false,
+    previewResult: null,
+    installPending: false,
+    installResult: null,
+  };
+
+  it("idle state is 'source'", () => {
+    expect(installDialogStep(idle)).toBe("source");
+  });
+
+  it("a pending preview is 'previewing'", () => {
+    expect(installDialogStep({ ...idle, previewPending: true })).toBe("previewing");
+  });
+
+  it("a settled preview with no install yet is 'pick'", () => {
+    expect(installDialogStep({ ...idle, previewResult: { skills: [] } })).toBe("pick");
+  });
+
+  it("a pending install is 'running' — package kinds reach this directly from 'source'", () => {
+    expect(installDialogStep({ ...idle, installPending: true })).toBe("running");
+    expect(
+      installDialogStep({ ...idle, previewResult: { skills: [] }, installPending: true }),
+    ).toBe("running");
+  });
+
+  it("a settled install is 'results', even over a stale previewPending flag", () => {
+    const result: SkillsInstallResponse = {
+      type: "skills_install_response",
+      requestId: "r1",
+      ok: true,
+      results: [],
+      skills: [],
+      packages: [],
+    };
+    expect(installDialogStep({ ...idle, installResult: result })).toBe("results");
+    expect(installDialogStep({ ...idle, previewPending: true, installResult: result })).toBe(
+      "results",
+    );
+  });
+});
+
+describe("buildPickRows — default-checked = valid", () => {
+  it("checks valid rows and leaves invalid rows unchecked", () => {
+    const rows = buildPickRows([
+      previewSkill({ name: "good" }),
+      previewSkill({ name: "bad", valid: false }),
+    ]);
+    expect(rows).toEqual([
+      { skill: expect.objectContaining({ name: "good" }), checked: true, replace: false },
+      { skill: expect.objectContaining({ name: "bad" }), checked: false, replace: false },
+    ]);
+  });
+});
+
+describe("resolvePickedSkillNames / pickedSkillsNeedReplace — replace gating", () => {
+  it("sends checked, valid, non-existing rows", () => {
+    const rows = buildPickRows([previewSkill({ name: "a" }), previewSkill({ name: "b" })]);
+    expect(resolvePickedSkillNames(rows)).toEqual(["a", "b"]);
+    expect(pickedSkillsNeedReplace(rows)).toBe(false);
+  });
+
+  it("excludes an existing row until its own Replace checkbox is checked", () => {
+    const rows = buildPickRows([previewSkill({ name: "dup", exists: true })]);
+    expect(resolvePickedSkillNames(rows)).toEqual([]);
+    expect(hasNoPickedSkills(rows)).toBe(true);
+
+    const replaced = rows.map((row) => ({ ...row, replace: true }));
+    expect(resolvePickedSkillNames(replaced)).toEqual(["dup"]);
+    expect(pickedSkillsNeedReplace(replaced)).toBe(true);
+  });
+
+  it("an unchecked valid row is excluded regardless of exists/replace", () => {
+    const rows = buildPickRows([previewSkill({ name: "a" })]).map((row) => ({
+      ...row,
+      checked: false,
+    }));
+    expect(resolvePickedSkillNames(rows)).toEqual([]);
+  });
+
+  it("an invalid row is never sent even if forced checked/replace", () => {
+    const rows = [
+      {
+        skill: previewSkill({ name: "bad", valid: false, exists: true }),
+        checked: true,
+        replace: true,
+      },
+    ];
+    expect(resolvePickedSkillNames(rows)).toEqual([]);
+    expect(pickedSkillsNeedReplace(rows)).toBe(false);
+  });
+
+  it("replace is scoped to existing rows only — a mix of new + replaced existing both send", () => {
+    const rows = [
+      { skill: previewSkill({ name: "new" }), checked: true, replace: false },
+      { skill: previewSkill({ name: "dup", exists: true }), checked: true, replace: true },
+    ];
+    expect(resolvePickedSkillNames(rows)).toEqual(["new", "dup"]);
+    expect(pickedSkillsNeedReplace(rows)).toBe(true);
+  });
+});
+
+describe("hasItemResults", () => {
+  it("an ok:false answer that still carries item results is shown as results, not as an error banner", () => {
+    expect(
+      hasItemResults({ results: [{ target: "npm:x", ok: false, error: "install_failed" }] }),
+    ).toBe(true);
+  });
+
+  it("an answer with no item results is a request-level failure", () => {
+    expect(hasItemResults({ results: [] })).toBe(false);
+  });
+});
+
+describe("asListDocument", () => {
+  it("marks a partially-failed install/update answer ok so the panel keeps rendering the list", () => {
+    const failed = { ok: false, error: "install_failed", message: "x", skills: [], packages: [] };
+    expect(asListDocument(failed)).toMatchObject({ ok: true, skills: [], packages: [] });
+    expect(asListDocument(failed).error).toBeUndefined();
   });
 });

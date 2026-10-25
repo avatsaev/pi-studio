@@ -1,27 +1,32 @@
 /**
  * SkillsPanel — the Settings dialog's Skills category (sprint-075/task-006 slice 1: list +
- * toggle; sprint-076/task-007 slice 2: remove, remove package, update all). Lists every global
+ * toggle; sprint-076/task-007 slice 2: remove, remove package, update all; sprint-077/task-007
+ * slice 3: the toolbar Install skill… button, `InstallSkillDialog.tsx`). Lists every global
  * skill `useSkillsQuery()` resolves, grouped/ordered by `skills-presentation.ts#buildSkillGroups`,
  * with a client-side search box, a per-row toggle (`use-skills.ts#useSkillToggle`), a per-row
  * Remove shown only when `removable` and a package header Remove package
- * (`use-skills.ts#useSkillRemove`), and a toolbar Update all (`use-skills.ts#useSkillUpdateAll`)
- * rendering two per-engine result rows. Install is out of scope here (sprint 077) — this panel
- * renders no install control.
+ * (`use-skills.ts#useSkillRemove`), a toolbar Update all (`use-skills.ts#useSkillUpdateAll`)
+ * rendering two per-engine result rows, and a toolbar Install skill… opening
+ * `InstallSkillDialog.tsx` — mounted unconditionally here (only its own `open` prop toggles) so
+ * an in-flight install outlives the dialog being closed, see that file's own doc comment.
  *
- * All server access goes through the task-005/006 SDK methods (`listSkills`/`setSkillEnabled`/
- * `removeSkill`/`updateAllSkills`/`onSkillsChanged`) — never `client.connection.request` for this
- * family. Remove/update-all responses **replace** the cached list wholesale (never optimistic,
- * unlike toggle) — swe/features/skills-manager.md § Data flow.
+ * All server access goes through the task-005/006/007 SDK methods (`listSkills`/
+ * `setSkillEnabled`/`removeSkill`/`updateAllSkills`/`previewSkillSource`/`installSkills`/
+ * `onSkillsChanged`) — never `client.connection.request` for this family. Remove/update-all/
+ * install responses **replace** the cached list wholesale (never optimistic, unlike toggle) —
+ * swe/features/skills-manager.md § Data flow.
  *
  * "Queued…" simplification: the spec names a "Queued…" state for a second mutation observed
  * while one is already in flight (cross-window `skills_changed`-driven), but leaves its exact
- * trigger ambiguous for remove/update-all (it's spelled out only for the install dialog's two-
- * installs-at-once case, out of scope here). Each control here only disables and busies itself
+ * trigger ambiguous outside the install dialog's own two-installs-at-once case (which the
+ * daemon's FIFO queue already covers without any client-side state — a second client simply
+ * waits for its response, see § Acceptance). Each control here only disables and busies itself
  * while its own request is in flight ("Working…"/spinner) — simple and honest per the task
- * brief, and the daemon's own FIFO queueing (§ Acceptance) means a second click from this same
- * window while one request is pending is simply not possible (the control is disabled).
+ * brief, and the daemon's own FIFO queueing means a second click from this same window while one
+ * request is pending is simply not possible (the control is disabled).
  *
- * swe/features/skills-manager.md § Panel, § Toggle, § Remove, § Update all, § Error handling.
+ * swe/features/skills-manager.md § Panel, § Toggle, § Remove, § Update all, § Install dialog, §
+ * Error handling.
  */
 
 import { useState } from "react";
@@ -37,6 +42,7 @@ import {
   Switch,
   TextInput,
 } from "@pi-studio-ui/components/primitives/index.js";
+import { InstallSkillDialog } from "./InstallSkillDialog.js";
 import {
   buildSkillGroups,
   filterSkillGroups,
@@ -59,6 +65,7 @@ export function SkillsPanel() {
   const updateAll = useSkillUpdateAll();
   const [query, setQuery] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
   // Session-local: packageSources already confirmed for a curated first toggle, so repeat
   // toggles on the same package's skills don't re-prompt (swe/features/skills-manager.md §
   // Toggle: "First toggle on a curated package's skill shows an inline confirm").
@@ -138,6 +145,9 @@ export function SkillsPanel() {
         />
         <Button size="sm" variant="outline" loading={updateAll.pending} onClick={handleUpdateAll}>
           Update all
+        </Button>
+        <Button size="sm" onClick={() => setInstallDialogOpen(true)}>
+          Install skill…
         </Button>
       </div>
       {updateAll.error && (
@@ -234,6 +244,7 @@ export function SkillsPanel() {
         </div>
       )}
       <p className={styles.footnote}>Changes apply to newly started agent sessions.</p>
+      <InstallSkillDialog open={installDialogOpen} onOpenChange={setInstallDialogOpen} />
     </div>
   );
 }

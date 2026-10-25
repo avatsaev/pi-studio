@@ -2103,6 +2103,9 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > (stateless shallow-clone preview & pick, then `skills add -s`), and daemon-host paths
 > (`settings.skills` entry, no copy). Task-001 settles the spec's last TODO(verify) before the package
 > path is built.
+>
+> **Status: done** (all 8 tasks; see the sprint's `done/` summaries). The `skills` flag ships with the
+> full feature from here on — the release hold on 075–077 is lifted.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

@@ -227,7 +227,8 @@ install(source, picked?, replace?):
         picked required; names where exists && !replace ⇒ name_exists results, excluded
         spawn skills add <url> -g -a pi -y -s <picked…>   (source first in real argv)              (600 s)
         per name: ok iff agentsSkillsDir/<sanitized>/SKILL.md exists afterwards
-    local_path: sm.setSkillPaths([...skills, "+" + absPath]); flush    # nothing copied
+    local_path: sm.setSkillPaths(dedupe(skills, absPath) + [absPath]); flush  # bare entry,
+        # NOT "+"-prefixed — see the TODO(verify) resolution below; nothing copied
     broadcast; return {results, ...list()}
 ```
 
@@ -236,7 +237,9 @@ install(source, picked?, replace?):
 ```
 remove({path}):
     row = list row; package ⇒ not_removable
-    settings_path: drop the entry (any ± form) from settings.skills; files untouched
+    settings_path: drop every settings.skills entry (any ± form) that provides it — the skill's own
+                   dir/file OR an ancestor folder (an installed host folder may hold several
+                   skills; siblings go with it); none covers it ⇒ not_removable; files untouched
     dir is symlink: unlink the link only
     agents_dir with lock entry: spawn skills remove -g -y <name>      (no -a: host-wide)
     plain dir under agent_dir/agents_dir: rm -r; realpath must stay inside the origin root
@@ -337,8 +340,47 @@ No new Pi-Studio state (D13).
 - [ ] `git:https://user:tok@host/r` never appears unredacted in logs or responses.
 - [ ] Dev daemon answers `unknown_message_type` for every `skills_*` RPC.
 
-## TODO(verify)
+## TODO(verify) — resolved (sprint-077 task-001 spike, 2026-10-25)
 
-- [ ] `pi install` on an existing same-identity object-form entry keeps the filter arrays
+- [x] `pi install` on an existing same-identity object-form entry keeps the filter arrays
       (`addSourceToSettings` rewrites only `source`) — matters for re-installing a package already
-      managed skills-only. Verify before wiring; if not, re-apply the filters after the spawn.
+      managed skills-only. **Verified: CONFIRMED.** `DefaultPackageManager.addSourceToSettings`
+      (`package-manager.js:624-656`) replaces a matched entry with
+      `{ ...existing, source: normalizedSource }` — a shallow spread that only ever overwrites
+      `source`; `extensions`/`prompts`/`themes` pass through untouched. This merge is
+      source-type-agnostic (it runs after `parseSource`, not branching on npm vs. git vs. local),
+      so the same guarantee holds for `git:` and local sources, not just `npm:`.
+      Reproduced live: seeded a temp `settings.json` with
+      `{source:"npm:is-odd", extensions:[], prompts:[], themes:[]}`, ran the real bundled
+      `pi install npm:is-odd` (`dist/bundle/cli.js`) against that temp `HOME`/
+      `PI_CODING_AGENT_DIR`, and diffed before/after — the filter arrays were byte-identical;
+      only the package was fetched into `<agentDir>/npm`. No code change needed in task-004; the
+      server does **not** need to re-apply filters after spawning `pi install`.
+      A `git:` source variant (local bare repo over `file://`) could not be exercised end-to-end:
+      `parseGitUrl` (`dist/utils/git.js`) only accepts hosted-git-info providers (GitHub/GitLab/
+      Bitbucket/etc.) or a generic `https://host/owner/repo` shape requiring a real resolvable
+      host — `file://` paths fall through to `{type:"local", path:source}` and are rejected as a
+      nonexistent path. This is a pi CLI limitation unrelated to pi-studio; since the filter-
+      preserving merge in `addSourceToSettings` never branches on source type, the npm result
+      generalizes to git sources by code inspection.
+
+## TODO(verify) — resolved (sprint-077 task-005, 2026-10-25)
+
+- [x] Whether `install`'s `local_path` branch should push a `"+" + absPath` (this doc's § Install
+      pseudocode, now corrected above) or a bare `absPath` entry into `settings.skills`.
+      **Verified: bare entry required.** Code inspection of the installed
+      `@earendil-works/pi-coding-agent` 1.4.0 (`package-manager.js`): `resolve()` calls
+      `resolveLocalEntries(settings.skills, …)`, which first runs `splitPatterns` — any entry
+      matching `isPattern` (starts with `!`/`+`/`-`, or contains a glob) goes into `patterns`,
+      never `plain`. Only `plain` entries are passed to `collectFilesFromPaths` (the step that
+      actually scans a directory for skill resources); `patterns` are consumed solely by
+      `applyPatterns`/`isEnabledByOverrides` to flip the *enabled* state of a file **already**
+      discovered via a `plain` entry or auto-discovery (`addAutoDiscoveredResources`'s fixed
+      `<agentDir>/skills`/`~/.agents/skills` roots). A lone `"+" + absPath` entry for a host
+      directory outside those roots and with no matching `plain` entry therefore resolves **zero
+      files** — reproduced by unit test (`resource-service.test.ts`'s `install — local_path`
+      suite failed with an empty `result.skills` until the entry was changed to bare). A bare
+      `absPath` entry goes through the `plain` branch instead and is correctly scanned +
+      listed with `origin: "settings_path"` — the same bare-entry shape `remove`'s own
+      `settings_path` handling already assumed (its test fixture predates this task). No `"+"`
+      prefix is used for `local_path` install.

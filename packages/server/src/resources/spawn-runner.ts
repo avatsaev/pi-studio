@@ -37,16 +37,40 @@ export async function runSpawn(
   timeoutMs: number,
   cwd?: string,
 ): Promise<SpawnOutcome> {
-  let result: { exitCode: number | null; stderr: string; timedOut?: boolean };
+  let result: { exitCode: number | null; stderr: string; stdout?: string; timedOut?: boolean };
   try {
     result = await spawn({ command, env, timeoutMs, cwd });
   } catch {
     return { ok: false, error: "spawn_failed", exitCode: null, stderr: "" };
   }
 
-  const stderr = redactSource(result.stderr).slice(0, STDERR_TAIL_MAX);
+  // The `skills` CLI prints its failures on stdout (stderr stays empty — verified live), so a
+  // failed run with no stderr falls back to the cleaned failure block of stdout.
+  const diagnostic =
+    result.stderr.trim() === "" && result.exitCode !== 0
+      ? cliFailureText(result.stdout ?? "")
+      : result.stderr;
+  const stderr = redactSource(diagnostic).slice(0, STDERR_TAIL_MAX);
   if (result.timedOut) return { ok: false, error: "timeout", exitCode: result.exitCode, stderr };
   return { ok: result.exitCode === 0, exitCode: result.exitCode, stderr };
+}
+
+/**
+ * Extracts the human-readable failure block from a TUI-style CLI's stdout: strips ANSI escapes and
+ * spinner frames, keeps everything from the FIRST `■` marker on (the CLI ends with a generic `■ Canceled`), and drops the `│` gutter. Without
+ * a marker, returns the last few cleaned lines. Pure.
+ */
+export function cliFailureText(stdout: string): string {
+  const cleaned = stdout
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/[◒◐◓◑]\s*[A-Za-z][^◒◐◓◑\n]*/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^│\s*/u, "").trimEnd())
+    .filter((line) => line.trim() !== "");
+  const marker = cleaned.findIndex((l) => l.startsWith("■"));
+  const lines = marker >= 0 ? cleaned.slice(marker) : cleaned.slice(-8);
+  return lines.map((l) => l.replace(/^■\s*/u, "")).join("\n");
 }
 
 /**

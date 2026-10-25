@@ -9,7 +9,14 @@
  * swe/features/skills-manager.md § Panel, § Data flow.
  */
 
-import type { PiPackageInfo, SkillInfo } from "@av-pi-studio/protocol";
+import type {
+  DetectedSkillSource,
+  PiPackageInfo,
+  PreviewSkill,
+  SkillInfo,
+  SkillsInstallResponse,
+  SkillSourceKind,
+} from "@av-pi-studio/protocol";
 import type { StatusBadgeVariant } from "@pi-studio-ui/ui/status-badge.js";
 
 export interface SkillRowBadge {
@@ -215,7 +222,7 @@ export function skillRemoveConfirmText(skill: SkillInfo): string {
     return `Removes '${skill.name}' for every agent on this machine.`;
   }
   if (skill.origin === "settings_path") {
-    return `Stops loading ${skill.path}; files are kept.`;
+    return `Removes the Pi settings entry that provides ${skill.path} (other skills from the same folder stop loading too); files are kept.`;
   }
   return `Deletes ${skill.path}.`;
 }
@@ -255,6 +262,30 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
+ * Install and Update-all answer `ok: false` whenever ANY item failed, yet still carry the per-item
+ * `results` (and the re-listed `skills`/`packages`) — the UI must show those rows, not collapse
+ * them into one generic error. Only an answer with no item results at all (a request-level
+ * failure such as an unreadable settings file) is an error banner. Found live in sprint-077: a
+ * failed install silently stayed on the source step.
+ */
+/**
+ * The query cache holds the LIST document the panel renders; `skills_install` / `skills_update_all`
+ * answers carry the same `skills`/`packages` but `ok: false` when any item failed. Written into
+ * the cache verbatim, that `ok: false` made the panel swap itself for its "could not load" error
+ * state and remount the install dialog mid-flow (found live, sprint-077) — so the cache copy is
+ * always marked `ok: true`: the re-listed rows are valid regardless of the item outcomes.
+ */
+export function asListDocument<T extends { ok: boolean; error?: string; message?: string }>(
+  response: T,
+): T {
+  return { ...response, ok: true, error: undefined, message: undefined };
+}
+
+export function hasItemResults(response: { results: readonly unknown[] }): boolean {
+  return response.results.length > 0;
+}
+
+/**
  * Maps a domain `error` code to a human message: the response's own `message` wins when present
  * (the daemon's elaboration, e.g. naming the unreadable settings path), else a known code gets a
  * friendlier label, else the raw string renders verbatim (unknown strings, per the wire's
@@ -264,4 +295,109 @@ export function skillErrorMessage(error: string | undefined, message?: string): 
   if (!error) return null;
   if (message) return message;
   return KNOWN_ERROR_MESSAGES[error] ?? error;
+}
+
+// ---------------------------------------------------------------------------
+// Install dialog (sprint-077/task-007) — `InstallSkillDialog.tsx`'s pure half: the live
+// detected-kind label, the source → (preview →) pick → running → results step machine, and the
+// pick-row default-checked/Replace-gating rules. swe/features/skills-manager.md § Install dialog.
+// ---------------------------------------------------------------------------
+
+/** Live label next to the source field, keyed on `detectSkillSource`'s own `kind` — never a
+ *  second classifier. `null` (nothing recognized) renders "Unrecognized" and disables Next. */
+export type DetectedSourceLabel =
+  | "npm package"
+  | "git package"
+  | "Agent Skills repo"
+  | "Folder on daemon host"
+  | "Unrecognized";
+
+const SOURCE_KIND_LABELS: Record<SkillSourceKind, DetectedSourceLabel> = {
+  pi_npm: "npm package",
+  pi_git: "git package",
+  skills_repo: "Agent Skills repo",
+  local_path: "Folder on daemon host",
+};
+
+export function detectedSourceLabel(detected: DetectedSkillSource | null): DetectedSourceLabel {
+  return detected ? SOURCE_KIND_LABELS[detected.kind] : "Unrecognized";
+}
+
+/** `pi_npm`/`pi_git` install as a unit (daemon spawns `pi install <source>`) — the dialog skips
+ *  the pick step and the skills-only/full-system-access notice applies. */
+export function isPackageSourceKind(kind: SkillSourceKind): boolean {
+  return kind === "pi_npm" || kind === "pi_git";
+}
+
+/** Next is enabled only for a recognized source — swe/features/skills-manager.md § Install
+ *  dialog's "Unrecognized" row has no Next action; unit of the "Unrecognised input disables
+ *  Next" acceptance criterion. */
+export function canAdvanceFromSource(detected: DetectedSkillSource | null): boolean {
+  return detected !== null;
+}
+
+/** Package-kind notice, shipped verbatim from swe/features/skills-manager.md § Install dialog. */
+export const PACKAGE_SOURCE_NOTICE =
+  "Installs the package's skills only; its extensions stay disabled. Pi packages run with full " +
+  "system access — review the source before installing.";
+
+export type InstallDialogStep = "source" | "previewing" | "pick" | "running" | "results";
+
+export interface InstallDialogPhase {
+  previewPending: boolean;
+  previewResult: { skills: PreviewSkill[] } | null;
+  installPending: boolean;
+  installResult: SkillsInstallResponse | null;
+}
+
+/**
+ * The dialog's one step machine, derived purely from in-flight/settled RPC state — never stored
+ * as its own piece of state, so it can't drift from what actually happened. `source` is also the
+ * machine's reset/idle state. Terminal states win over earlier ones (a settled install always
+ * shows `results` even if, implausibly, `previewPending` were still true from a stale call).
+ */
+export function installDialogStep(phase: InstallDialogPhase): InstallDialogStep {
+  if (phase.installResult) return "results";
+  if (phase.installPending) return "running";
+  if (phase.previewPending) return "previewing";
+  if (phase.previewResult) return "pick";
+  return "source";
+}
+
+export interface PickRowState {
+  skill: PreviewSkill;
+  /** Default checked iff valid (swe/features/skills-manager.md § Install dialog: "checkbox
+   *  (default checked iff valid)") — an invalid row starts and stays unchecked/disabled. */
+  checked: boolean;
+  /** Only meaningful when `skill.exists`; unchecked rows aren't sent even if `checked`. */
+  replace: boolean;
+}
+
+/** Seeds one row per previewed skill with the spec's default-checked rule. */
+export function buildPickRows(skills: PreviewSkill[]): PickRowState[] {
+  return skills.map((skill) => ({ skill, checked: skill.valid, replace: false }));
+}
+
+/**
+ * The names Install actually sends: checked, valid rows, excluding an `exists` row whose own
+ * Replace checkbox isn't checked — swe/features/skills-manager.md § Install dialog: "rows
+ * `exists` need a Replace checkbox before Install sends them." Filtered client-side rather than
+ * round-tripped through the daemon's `name_exists` rejection, since the UI already knows.
+ */
+export function resolvePickedSkillNames(rows: PickRowState[]): string[] {
+  return rows
+    .filter((row) => row.skill.valid && row.checked && (!row.skill.exists || row.replace))
+    .map((row) => row.skill.name);
+}
+
+/** `skills_install_request`'s single `replace` flag is request-wide, not per-name; true iff at
+ *  least one sent name is an `exists` row with its own Replace checkbox checked — it has no
+ *  effect on the other sent names, which don't already exist. */
+export function pickedSkillsNeedReplace(rows: PickRowState[]): boolean {
+  return rows.some((row) => row.skill.valid && row.checked && row.skill.exists && row.replace);
+}
+
+/** True iff no picked row will actually be sent — Install should stay disabled. */
+export function hasNoPickedSkills(rows: PickRowState[]): boolean {
+  return resolvePickedSkillNames(rows).length === 0;
 }

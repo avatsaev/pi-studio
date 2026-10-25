@@ -1,17 +1,25 @@
 /**
- * `useSkillsQuery`/`useSkillToggle`/`useSkillRemove`/`useSkillUpdateAll` — `skills_list_request`
- * as a TanStack Query (mirrors `use-provider-auth-list.ts`'s convention), invalidated by the
- * daemon's `skills_changed` push, plus the four mutations: an optimistic
- * `skills_set_enabled_request` with exact-prior-value rollback and a per-row inline error,
- * `skills_remove_request` (single skill or whole package) and `skills_update_all_request`, both
- * of which **replace** the cached `{skills, packages}` document with the response wholesale —
- * never optimistic, per swe/features/skills-manager.md § Data flow: "install/remove/update
- * replace query data with the response (never optimistic)". This is the `use-skills.ts` half of
- * § Data flow, § Toggle, § Remove, § Update all.
+ * `useSkillsQuery`/`useSkillToggle`/`useSkillRemove`/`useSkillUpdateAll`/`useSkillPreview`/
+ * `useSkillInstall` — `skills_list_request` as a TanStack Query (mirrors
+ * `use-provider-auth-list.ts`'s convention), invalidated by the daemon's `skills_changed` push,
+ * plus the mutations: an optimistic `skills_set_enabled_request` with exact-prior-value rollback
+ * and a per-row inline error, `skills_remove_request` (single skill or whole package),
+ * `skills_update_all_request`, `skills_preview_request`, and `skills_install_request` — all four
+ * of the latter **replace** the cached `{skills, packages}` document with the response wholesale
+ * on success — never optimistic, per swe/features/skills-manager.md § Data flow: "install/
+ * remove/update replace query data with the response (never optimistic)". This is the
+ * `use-skills.ts` half of § Data flow, § Toggle, § Remove, § Update all, § Install dialog.
  *
  * The optimistic row patch (`applyOptimisticSkillToggle`) is exported and tested standalone per
  * this package's no-jsdom convention (AGENTS.md § "Framework-free testing convention: no
  * jsdom") — the hooks themselves only wire it to `queryClient`/`client`, untested directly.
+ *
+ * `useSkillInstall` deliberately holds no "cancel" affordance — `InstallSkillDialog.tsx` is
+ * mounted unconditionally by `SkillsPanel.tsx` (only its inner `<Dialog open>` toggles), so
+ * closing it doesn't unmount this hook: an in-flight `install()` keeps running and its state
+ * still lands here even while the dialog is visually closed, matching swe/features/
+ * skills-manager.md § Install dialog: "closing does not cancel (queue continues; result arrives
+ * via skills_changed)".
  */
 
 import { useEffect, useState } from "react";
@@ -19,12 +27,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   PiPackageInfo,
   SkillInfo,
+  SkillsInstallResponse,
   SkillsListResponse,
+  SkillsPreviewResponse,
   SkillsUpdateAllResponse,
 } from "@av-pi-studio/protocol";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { skillErrorMessage } from "./skills-presentation.js";
+import { asListDocument, hasItemResults, skillErrorMessage } from "./skills-presentation.js";
 
 /** Patches one skill's `enabled` field in an already-fetched list response — the optimistic half
  *  of a toggle, applied to `queryClient`'s cached data before the RPC resolves. */
@@ -236,12 +246,12 @@ export function useSkillUpdateAll(): UseSkillUpdateAll {
     setError(null);
     try {
       const response = await client.updateAllSkills();
-      if (!response.ok) {
+      if (!response.ok && !hasItemResults(response)) {
         setError(skillErrorMessage(response.error, response.message) ?? "Failed to update skills.");
         return;
       }
       setResult(response);
-      queryClient.setQueryData(rpcKeys.skillsList(), response);
+      queryClient.setQueryData(rpcKeys.skillsList(), asListDocument(response));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update skills.");
     } finally {
@@ -250,4 +260,99 @@ export function useSkillUpdateAll(): UseSkillUpdateAll {
   }
 
   return { pending, result, error, updateAll, clearResult: () => setResult(null) };
+}
+
+export interface UseSkillPreview {
+  pending: boolean;
+  result: SkillsPreviewResponse | null;
+  error: string | null;
+  preview: (source: string) => Promise<void>;
+  reset: () => void;
+}
+
+/** `skills_preview_request`: `InstallSkillDialog.tsx`'s pick step. Never touches
+ *  `rpcKeys.skillsList()` — a preview mutates nothing, so there is no list to patch. */
+export function useSkillPreview(): UseSkillPreview {
+  const client = useConnectionStore((s) => s.client);
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<SkillsPreviewResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function preview(source: string) {
+    if (!client) return;
+    setPending(true);
+    setError(null);
+    try {
+      const response = await client.previewSkillSource(source);
+      if (!response.ok) {
+        setError(skillErrorMessage(response.error, response.message) ?? "Failed to preview.");
+        return;
+      }
+      setResult(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to preview.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return {
+    pending,
+    result,
+    error,
+    preview,
+    reset: () => {
+      setResult(null);
+      setError(null);
+    },
+  };
+}
+
+export interface UseSkillInstall {
+  pending: boolean;
+  result: SkillsInstallResponse | null;
+  error: string | null;
+  install: (opts: { source: string; skills?: string[]; replace?: boolean }) => Promise<void>;
+  reset: () => void;
+}
+
+/** `skills_install_request`: no optimistic patch — on success the response's `{skills,
+ *  packages}` replaces the cached list wholesale, and the full response (including its per-item
+ *  `results[]`) is kept so the dialog can render the results step until dismissed/reset. */
+export function useSkillInstall(): UseSkillInstall {
+  const client = useConnectionStore((s) => s.client);
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<SkillsInstallResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function install(opts: { source: string; skills?: string[]; replace?: boolean }) {
+    if (!client) return;
+    setPending(true);
+    setError(null);
+    try {
+      const response = await client.installSkills(opts);
+      if (!response.ok && !hasItemResults(response)) {
+        setError(skillErrorMessage(response.error, response.message) ?? "Failed to install.");
+        return;
+      }
+      setResult(response);
+      queryClient.setQueryData(rpcKeys.skillsList(), asListDocument(response));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to install.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return {
+    pending,
+    result,
+    error,
+    install,
+    reset: () => {
+      setResult(null);
+      setError(null);
+    },
+  };
 }

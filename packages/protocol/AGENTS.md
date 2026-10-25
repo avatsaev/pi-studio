@@ -23,6 +23,8 @@ src/
   provider-manifest.ts                    Provider / mode manifest types (UI scaffolding).
   endpoint.ts                             Daemon endpoint / host string parser.
   validation.ts                           Shared base primitives: uuidSchema, isoTimestampSchema, COMPAT().
+  source-detect.ts                        Pure skill-install-source classifier (`detectSkillSource`), shared client/daemon.
+  source-detect.test.ts
   binary-frames/
     index.ts                              Re-exports both binary codecs + the slot allocator.
     terminal-stream-protocol.ts           Terminal binary frame codec (opcode+slot framing).
@@ -126,8 +128,11 @@ existed) and no client ever consumed it.
 | `skillsSetEnabledRequestSchema` / `SkillsSetEnabledRequest`, `skillsSetEnabledResponseSchema` / `SkillsSetEnabledResponse` | schema + type | `skills_set_enabled_request` (`path`, `enabled` — both required) — response same shape as `skills_list_response` |
 | `skillsChangedSchema` / `SkillsChanged` | schema + type | `skills_changed` — daemon→client broadcast, no `requestId`; every connected client re-lists. `reason` is a plain string (`"mutation" \| "external"` documented, not an enum) so a future reason stays append-only, same idiom as `agent_timeline_reset`'s `reason` |
 | `skillsRemoveRequestSchema` / `SkillsRemoveRequest`, `skillsRemoveResponseSchema` / `SkillsRemoveResponse` | schema + type | `skills_remove_request` (sprint-076/task-001) — `path` XOR `packageSource` (`.refine()`-enforced on the exported schema; the `sessionMessageSchema` union holds the unrefined base `ZodObject` shape instead, since `discriminatedUnion` entries can't be a `ZodEffects`); response `{ok, error?, message?, stderr?, skills, packages}` — `stderr` is the spawned `skills remove`/`pi remove` tail on a failed mutation |
-| `itemResultSchema` / `ItemResult` | schema + type | One engine's outcome (`{target, ok, error?, stderr?}`) inside a `results[]` array — used by `skills_update_all_response` |
+| `itemResultSchema` / `ItemResult` | schema + type | One engine's outcome (`{target, ok, error?, stderr?}`) inside a `results[]` array — used by `skills_update_all_response` and `skills_install_response` |
 | `skillsUpdateAllRequestSchema` / `SkillsUpdateAllRequest`, `skillsUpdateAllResponseSchema` / `SkillsUpdateAllResponse` | schema + type | `skills_update_all_request` (sprint-076/task-001) — `{}`; response `{ok, error?, message?, results: ItemResult[], skills, packages}`, one `ItemResult` per engine (`agent-skills`, `pi-packages`) — a mixed ok/failed `results` array is expected, not an overall failure |
+| `previewSkillSchema` / `PreviewSkill` | schema + type | One installable skill inside a `skills_repo`/`local_path` preview: `name`, `relPath`, `valid`, `exists`, optional `description`/`warnings` — `valid` means frontmatter had a name+description, `exists` means `~/.agents/skills/<sanitized-name>` is already present |
+| `skillsPreviewRequestSchema` / `SkillsPreviewRequest`, `skillsPreviewResponseSchema` / `SkillsPreviewResponse` | schema + type | `skills_preview_request` (sprint-077/task-002, `source` only) — response `{ok, error?, message?, kind, source, skills: PreviewSkill[]}`; `kind`/`source` are the daemon's own `detect(source)` result and the echoed request `source`, present even on a domain failure; `pi_npm`/`pi_git` always answer `skills: []` — package kinds install as a unit, nothing to pick |
+| `skillsInstallRequestSchema` / `SkillsInstallRequest`, `skillsInstallResponseSchema` / `SkillsInstallResponse` | schema + type | `skills_install_request` (sprint-077/task-002) — `source`, optional `skills: string[]` (picked names, `skills_repo` only), optional `replace`; response `{ok, error?, message?, results: ItemResult[], skills, packages}` |
 | `rpcErrorSchema` / `RpcError` | schema + type | Correlated RPC error response |
 | `sessionMessageSchema` / `SessionMessage` | discriminated union | All currently-defined session message types |
 | `sessionMessageBaseSchema` / `SessionMessageBase` | schema + type | Structural fallback (`{ type: string }.passthrough()`) for any session message not yet in the union |
@@ -254,6 +259,26 @@ UI-only scaffolding types:
   (`PI_CAPABILITIES`/`MOCK_CAPABILITIES`, `packages/server/AGENTS.md`) set it `true`
 - `colorTierSchema` — `safe | moderate | dangerous | planning` (drives UI color)
 - `providerIdSchema` — must match `/^[a-z][a-z0-9-]*$/`
+
+### `source-detect.ts`
+
+Pure, zero-dependency classifier for a skill install source string
+(`swe/architecture/pi-resource-management.md` § Source kinds), shared verbatim by the web client
+(live label while the user types a source in `InstallSkillDialog`) and the daemon's own
+`resources/source-detect.ts` wrapper — the **daemon's** classification is always authoritative;
+`skills_preview_request`/`skills_install_request` carry only `source` on the wire, never a
+client-sent `kind`.
+
+| Export | Description |
+|--------|-------------|
+| `SkillSourceKind` | `"pi_npm" \| "pi_git" \| "skills_repo" \| "local_path"` |
+| `DetectedSkillSource` | `{ kind, normalized }` |
+| `detectSkillSource(input)` | Returns `DetectedSkillSource \| null`; `null` covers relative paths, bare words, non-git `http(s)` file URLs, and empty input — rendered as "Unrecognized" client-side, `invalid_source` daemon-side |
+
+No filesystem access: `local_path` is recognized purely syntactically (absolute or
+`~`-prefixed); `normalized` is the whitespace-trimmed input, nothing more — splitting a
+`skills_repo` URL's `/tree/<ref>/<path>` subpath or expanding a `local_path`'s `~` is each
+consumer's own job, not this classifier's.
 
 ---
 

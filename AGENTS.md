@@ -452,7 +452,18 @@ All communication uses a **single WebSocket connection** per client.
   with 600 s per-spawn timeouts; SDK timeouts are 660 s / 1 300 s. Every source string on the
   wire (`PiPackageInfo.source`/`identity`, `SkillInfo.packageSource`, provenance) is passed
   through `redactSource` — git credentials never reach a client or a log — and a remove-package
-  request is matched on that redacted form. Install arrives in sprint 077.
+  request is matched on that redacted form. **Sprint-077 completed the family** with
+  `skills_preview_request` (stateless: a shallow clone into `$PI_STUDIO_HOME/tmp/preview-*` or an
+  in-place scan of a host folder, scratch removed in `finally`; package kinds answer an empty
+  list) and `skills_install_request` (`{source, skills?, replace?}`; the daemon re-runs
+  `detectSkillSource` from `@av-pi-studio/protocol` and never trusts a client-sent kind).
+  `npm:`/`git:` packages install through a spawned `pi install` and are then rewritten to
+  skills-only object form (`extensions`/`prompts`/`themes: []`); Agent Skills repos go through
+  `skills add <src> -g -a pi -y -s <picked…>`; a host folder is registered as a bare
+  `settings.skills` entry and never copied. Failures come back as per-item `ItemResult`s
+  (`ok:false` answers still carry the re-listed `skills`/`packages`), with the redacted tail of
+  the child's output — the `skills` CLI reports failures on stdout, which the runner now
+  captures. SDK timeouts: preview 150 s, install 660 s.
 
 ---
 

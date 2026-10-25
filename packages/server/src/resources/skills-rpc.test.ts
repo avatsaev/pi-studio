@@ -11,11 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  skillsInstallResponseSchema,
   skillsListResponseSchema,
+  skillsPreviewResponseSchema,
   skillsRemoveResponseSchema,
   skillsSetEnabledResponseSchema,
   skillsUpdateAllResponseSchema,
+  type SkillsInstallResponse,
   type SkillsListResponse,
+  type SkillsPreviewResponse,
   type SkillsRemoveResponse,
   type SkillsSetEnabledResponse,
   type SkillsUpdateAllResponse,
@@ -185,6 +189,32 @@ async function rpcUpdateAll(
 ): Promise<SkillsUpdateAllResponse> {
   const { response } = await dispatch(registry, { type: "skills_update_all_request" }, session);
   return skillsUpdateAllResponseSchema.parse(response);
+}
+
+async function rpcPreview(
+  registry: HandlerRegistry,
+  payload: Record<string, unknown>,
+  session?: FakeSession & Session,
+): Promise<SkillsPreviewResponse> {
+  const { response } = await dispatch(
+    registry,
+    { type: "skills_preview_request", ...payload },
+    session,
+  );
+  return skillsPreviewResponseSchema.parse(response);
+}
+
+async function rpcInstall(
+  registry: HandlerRegistry,
+  payload: Record<string, unknown>,
+  session?: FakeSession & Session,
+): Promise<SkillsInstallResponse> {
+  const { response } = await dispatch(
+    registry,
+    { type: "skills_install_request", ...payload },
+    session,
+  );
+  return skillsInstallResponseSchema.parse(response);
 }
 
 function messageType(env: unknown): string | undefined {
@@ -396,6 +426,108 @@ describe("skills_update_all_request", () => {
     const pushIdx = caller.sent.findIndex((env) => messageType(env) === "skills_changed");
     const responseIdx = caller.sent.findIndex(
       (env) => messageType(env) === "skills_update_all_response",
+    );
+    expect(responseIdx).toBeGreaterThan(pushIdx);
+  });
+});
+
+describe("skills_preview_request", () => {
+  it("rejects a malformed request as a domain error, never rpc_error", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcPreview(registry, {});
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/invalid request/);
+  });
+
+  it("an invalid source answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcPreview(registry, { source: "not-a-valid-source" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("invalid_source");
+    expect(res.kind).toBe("invalid_source");
+    expect(res.source).toBe("not-a-valid-source");
+  });
+
+  it("a pi_npm source answers ok:true with no skills to pick", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcPreview(registry, { source: "npm:some-pkg" });
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe("pi_npm");
+    expect(res.skills).toEqual([]);
+  });
+
+  it("a local_path source previews the host folder without a client-sent kind ever being trusted", async () => {
+    const fixture = await buildFixture();
+    const hostDir = join(fixture.home, "host-skills");
+    await writeSkill(hostDir, "alpha-skill");
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcPreview(registry, { source: hostDir, kind: "pi_npm" });
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe("local_path");
+    expect(res.skills.map((s) => s.name)).toEqual(["alpha-skill"]);
+  });
+});
+
+describe("skills_install_request", () => {
+  it("rejects a malformed request as a domain error, never rpc_error, and echoes the current list", async () => {
+    const fixture = await buildFixture();
+    await writeSkill(join(fixture.agentDir, "skills", "alpha"), "alpha-skill");
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcInstall(registry, { skills: "not-an-array" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/invalid request/);
+    expect(res.skills.map((s) => s.name)).toContain("alpha-skill");
+  });
+
+  it("an invalid source answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcInstall(registry, { source: "not-a-valid-source" });
+    expect(res.ok).toBe(false);
+    expect(res.results).toEqual([
+      { target: "not-a-valid-source", ok: false, error: "invalid_source" },
+    ]);
+  });
+
+  it("installs a local_path source, reflected by a fresh list", async () => {
+    const fixture = await buildFixture();
+    const hostDir = join(fixture.home, "host-skills");
+    await writeSkill(hostDir, "alpha-skill");
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcInstall(registry, { source: hostDir });
+    expect(res.ok).toBe(true);
+    expect(res.results).toEqual([{ target: hostDir, ok: true }]);
+    expect(res.skills.map((s) => s.name)).toContain("alpha-skill");
+
+    const list = await rpcList(registry);
+    expect(list.skills.map((s) => s.name)).toContain("alpha-skill");
+  });
+
+  it('broadcasts skills_changed("mutation") once to every active session before the response', async () => {
+    const fixture = await buildFixture();
+    const hostDir = join(fixture.home, "host-skills");
+    await writeSkill(hostDir, "alpha-skill");
+    const { registry, sessions } = boot(fixture.config);
+    const caller = fakeSession();
+    sessions.push(caller);
+
+    await rpcInstall(registry, { source: hostDir }, caller);
+
+    const changedCount = caller.sent.filter((env) => messageType(env) === "skills_changed").length;
+    expect(changedCount).toBe(1);
+    const pushIdx = caller.sent.findIndex((env) => messageType(env) === "skills_changed");
+    const responseIdx = caller.sent.findIndex(
+      (env) => messageType(env) === "skills_install_response",
     );
     expect(responseIdx).toBeGreaterThan(pushIdx);
   });

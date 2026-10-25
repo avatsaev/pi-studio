@@ -513,7 +513,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger: logger.child({ component: "viewer-settings" }),
   });
 
-  // ── Pi resource management: skills + Pi packages (sprint-075) ────────────────
+  // ── Pi resource management: skills + Pi packages (sprint-075/077) ────────────
   const resourcesLogger = logger.child({ component: "resources" });
   const resourceService = new ResourceService({
     config,
@@ -521,6 +521,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     broadcast,
     getActiveSessions,
     logger: resourcesLogger,
+    studioHome: home,
   });
   registerSkillsHandlers(registry, { service: resourceService, logger: resourcesLogger });
 

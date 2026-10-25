@@ -1,7 +1,7 @@
 # Task 004 — Install `npm:`/`git:` Pi packages, skills-only
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -35,9 +35,9 @@ R3/R8: package installed as a unit via spawned (killable) `pi install`, then one
 
 ## Acceptance criteria
 
-- [ ] With a fake spawn that writes a bare entry like Pi does, the final settings.json holds the object form with the three empty arrays
-- [ ] A pre-existing `skills` filter on the entry survives
-- [ ] Spawn timeout ⇒ `timeout`, queue proceeds
+- [x] With a fake spawn that writes a bare entry like Pi does, the final settings.json holds the object form with the three empty arrays
+- [x] A pre-existing `skills` filter on the entry survives
+- [x] Spawn timeout ⇒ `timeout`, queue proceeds
 
 ## Test / verification plan
 

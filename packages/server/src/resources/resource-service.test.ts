@@ -6,7 +6,9 @@
  * Real `fs`, no mocked readers; the real `~/.pi-studio`/`~/.agents` are never touched.
  */
 
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -96,6 +98,9 @@ interface Fixture {
   home: string;
   agentDir: string;
   config: PersistedConfig;
+  /** `$PI_STUDIO_HOME` — preview's scratch root (task-003), kept separate from `home` ($HOME) so
+   *  a `<studioHome>/tmp/preview-*` assertion can't be confused with `~/.agents`. */
+  studioHome: string;
 }
 
 /** A fresh isolated `$HOME`/pi-home pair, `agentDir` derived the same way production does
@@ -109,7 +114,7 @@ async function buildFixture(): Promise<Fixture> {
   await mkdir(agentDir, { recursive: true });
   process.env.HOME = home;
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  return { home, agentDir, config };
+  return { home, agentDir, config, studioHome: join(home, "studio") };
 }
 
 function skillMd(name: string): string {
@@ -126,6 +131,35 @@ async function readSettings(agentDir: string): Promise<Record<string, unknown>> 
     string,
     unknown
   >;
+}
+
+/** A real local git repo (not bare) under `<home>/fixture-repo.git` — the `.git` suffix makes
+ *  the `file://` URL classify as `skills_repo` via `GIT_SUFFIX_URL_RE` (`source-detect.ts`);
+ *  `git clone file://…` works against a non-bare repo's `.git` directory the same as any other
+ *  local transport. Two valid skills (`alpha`, `beta`) plus one `SKILL.md` with no description
+ *  (invalid — task-003 acceptance #1). Returns the `file://` clone URL. */
+function makeGitRepoFixture(home: string): string {
+  const repoDir = join(home, "fixture-repo.git");
+  mkdirSync(repoDir, { recursive: true });
+  const git = (...args: string[]): void => {
+    execFileSync("git", args, { cwd: repoDir, stdio: "ignore" });
+  };
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  mkdirSync(join(repoDir, "skills", "alpha"), { recursive: true });
+  writeFileSync(join(repoDir, "skills", "alpha", "SKILL.md"), skillMd("alpha-skill"), "utf8");
+  mkdirSync(join(repoDir, "skills", "beta"), { recursive: true });
+  writeFileSync(join(repoDir, "skills", "beta", "SKILL.md"), skillMd("beta-skill"), "utf8");
+  mkdirSync(join(repoDir, "skills", "broken"), { recursive: true });
+  writeFileSync(
+    join(repoDir, "skills", "broken", "SKILL.md"),
+    "---\nname: broken\n---\n\nNo description.\n",
+    "utf8",
+  );
+  git("add", "-A");
+  git("commit", "-q", "-m", "init");
+  return `file://${repoDir}`;
 }
 
 function makeService(
@@ -147,6 +181,7 @@ function makeService(
     logger: silentLogger(),
     externalDebounceMs: TEST_DEBOUNCE_MS,
     spawn: overrides.spawn,
+    studioHome: fixture.studioHome,
   });
 }
 
@@ -486,6 +521,25 @@ describe("ResourceService.remove — remove-by-path (sprint-076/task-004)", () =
     await expect(readFile(skillPath, "utf8")).resolves.toContain("standalone-skill");
   });
 
+  it("removing a skill provided by a registered PARENT folder drops that folder entry (siblings go with it)", async () => {
+    const fixture = await buildFixture();
+    const root = join(fixture.home, "hostroot");
+    await writeSkill(join(root, "one"), "one-skill");
+    await writeSkill(join(root, "two"), "two-skill");
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ skills: [root, "-hostroot-unrelated"] }),
+      "utf8",
+    );
+    const service = makeService(fixture);
+
+    const result = await service.remove({ path: join(root, "one", "SKILL.md") });
+    expect(result.ok).toBe(true);
+    expect(result.skills.some((s) => s.name === "one-skill" || s.name === "two-skill")).toBe(false);
+    expect((await readSettings(fixture.agentDir)).skills).toEqual(["-hostroot-unrelated"]);
+    await expect(readFile(join(root, "two", "SKILL.md"), "utf8")).resolves.toContain("two-skill");
+  });
+
   it("refuses and leaves untouched a dir whose realpath escapes its origin root via a symlinked ancestor", async () => {
     const fixture = await buildFixture();
     const outsideDir = join(fixture.home, "outside-root");
@@ -680,5 +734,284 @@ describe("ResourceService.updateAll (sprint-076/task-005)", () => {
       error: "update_failed",
     });
     expect(result.results[1]).toMatchObject({ target: "pi-packages", ok: true });
+  });
+});
+
+describe("ResourceService.preview (sprint-077/task-003)", () => {
+  it("pi_npm/pi_git answer {kind, skills: []} without spawning or touching disk", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: () => {
+        throw new Error("must not spawn for a package kind");
+      },
+    });
+
+    const npmResult = await service.preview("npm:some-pkg");
+    expect(npmResult).toEqual({ ok: true, kind: "pi_npm", source: "npm:some-pkg", skills: [] });
+
+    const gitResult = await service.preview("git:https://example.com/r.git");
+    expect(gitResult).toEqual({
+      ok: true,
+      kind: "pi_git",
+      source: "git:https://example.com/r.git",
+      skills: [],
+    });
+  });
+
+  it("an unrecognized source answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.preview("not-a-valid-source");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("invalid_source");
+  });
+
+  it("local_path previews the host folder in place without copying it", async () => {
+    const fixture = await buildFixture();
+    const hostDir = join(fixture.home, "host-skills");
+    await writeSkill(join(hostDir, "alpha"), "alpha-skill");
+    const service = makeService(fixture);
+
+    const result = await service.preview(hostDir);
+    expect(result.ok).toBe(true);
+    expect(result.kind).toBe("local_path");
+    expect(result.skills).toEqual([
+      expect.objectContaining({ name: "alpha-skill", valid: true, exists: false }),
+    ]);
+    // Nothing copied anywhere under the daemon's own scratch root.
+    await expect(readdir(fixture.studioHome)).rejects.toThrow();
+  });
+
+  it("local_path with a missing directory answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.preview(join(fixture.home, "does-not-exist"));
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("invalid_source");
+  });
+
+  it("a shallow-cloned skills_repo previews three rows, the invalid one flagged, and leaves no scratch dir", async () => {
+    const fixture = await buildFixture();
+    const repoUrl = makeGitRepoFixture(fixture.home);
+    const service = makeService(fixture);
+
+    const result = await service.preview(repoUrl);
+    expect(result.ok).toBe(true);
+    expect(result.kind).toBe("skills_repo");
+    expect(result.skills).toHaveLength(3);
+    const valid = result.skills.filter((s) => s.valid);
+    const invalid = result.skills.filter((s) => !s.valid);
+    expect(valid.map((s) => s.name).toSorted()).toEqual(["alpha-skill", "beta-skill"]);
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]?.name).toBe("broken");
+    expect(invalid[0]?.warnings?.length).toBeGreaterThan(0);
+
+    const tmpEntries = await readdir(join(fixture.studioHome, "tmp")).catch(() => []);
+    expect(tmpEntries.filter((n) => n.startsWith("preview-"))).toEqual([]);
+  });
+
+  it("a clone failure answers preview_failed and still leaves no scratch dir", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.preview("file:///definitely/not/a/real/repo.git");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("preview_failed");
+
+    const tmpEntries = await readdir(join(fixture.studioHome, "tmp")).catch(() => []);
+    expect(tmpEntries.filter((n) => n.startsWith("preview-"))).toEqual([]);
+  });
+
+  it("a clone timeout answers preview_failed and still leaves no scratch dir", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: () => Promise.resolve({ exitCode: null, stderr: "stuck", timedOut: true }),
+    });
+
+    const result = await service.preview("owner/repo");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("preview_failed");
+
+    const tmpEntries = await readdir(join(fixture.studioHome, "tmp")).catch(() => []);
+    expect(tmpEntries.filter((n) => n.startsWith("preview-"))).toEqual([]);
+  });
+});
+
+describe("ResourceService.install — pi_npm/pi_git packages (sprint-077/task-004)", () => {
+  it("a fake spawn that writes a bare entry (like `pi install` does for a new package) ends with the skills-only object form", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: async () => {
+        await writeFile(
+          join(fixture.agentDir, "settings.json"),
+          JSON.stringify({ packages: ["npm:fresh-pkg"] }),
+          "utf8",
+        );
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.install("npm:fresh-pkg");
+    expect(result.ok).toBe(true);
+    expect(result.results).toEqual([{ target: "npm:fresh-pkg", ok: true }]);
+
+    const settings = await readSettings(fixture.agentDir);
+    expect(settings.packages).toEqual([
+      { source: "npm:fresh-pkg", extensions: [], prompts: [], themes: [] },
+    ]);
+  });
+
+  it("a pre-existing skills filter on the matched entry survives the filter write", async () => {
+    const fixture = await buildFixture();
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ packages: [{ source: "npm:old-x", skills: ["foo"] }] }),
+      "utf8",
+    );
+    const calls: string[][] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command }) => {
+        calls.push(command);
+        // `addSourceToSettings` only ever rewrites `source` on an existing same-identity entry
+        // (task-001 spike) — the fake spawn mirrors that by leaving the entry as-is.
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.install("npm:old-x");
+    expect(result.ok).toBe(true);
+    expect(calls[0]).toEqual(expect.arrayContaining(["install", "npm:old-x"]));
+
+    const settings = await readSettings(fixture.agentDir);
+    expect(settings.packages).toEqual([
+      { source: "npm:old-x", skills: ["foo"], extensions: [], prompts: [], themes: [] },
+    ]);
+  });
+
+  it("a spawn timeout answers timeout; the queue proceeds to the next mutation", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: () => Promise.resolve({ exitCode: null, stderr: "stuck", timedOut: true }),
+    });
+
+    const result = await service.install("npm:x");
+    expect(result.ok).toBe(false);
+    expect(result.results).toEqual([
+      { target: "npm:x", ok: false, error: "timeout", stderr: "stuck" },
+    ]);
+
+    const next = await service.enqueueMutation("remove", "skills_repo", "next", async () => ({
+      ok: true,
+    }));
+    expect(next.ok).toBe(true);
+  });
+
+  it("a nonzero spawn exit answers install_failed with the spawn's stderr", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: () => Promise.resolve({ exitCode: 1, stderr: "boom" }),
+    });
+
+    const result = await service.install("npm:x");
+    expect(result.ok).toBe(false);
+    expect(result.results).toEqual([
+      { target: "npm:x", ok: false, error: "install_failed", stderr: "boom" },
+    ]);
+  });
+});
+
+describe("ResourceService.install — skills_repo picks (sprint-077/task-005)", () => {
+  it("spawns `skills add <src> -g -a pi -y -s <picked…>`; results come from the post-spawn existence check", async () => {
+    const fixture = await buildFixture();
+    const calls: string[][] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command }) => {
+        calls.push(command);
+        // Simulate the CLI installing only "alpha", not "beta".
+        await writeSkill(join(fixture.home, ".agents", "skills", "alpha"), "alpha");
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.install("owner/repo", ["alpha", "beta"]);
+    expect(result.ok).toBe(false);
+    expect(result.results).toEqual([
+      { target: "alpha", ok: true },
+      { target: "beta", ok: false, error: "install_failed", stderr: "" },
+    ]);
+
+    expect(calls).toHaveLength(1);
+    const argv = calls[0] as string[];
+    expect(argv).toEqual(expect.arrayContaining(["owner/repo", "-g", "-a", "pi", "-y", "-s"]));
+    expect(argv.slice(argv.indexOf("-s") + 1)).toEqual(["alpha", "beta"]);
+    expect(argv.indexOf("owner/repo")).toBeLessThan(argv.indexOf("-s"));
+  });
+
+  it("a picked name already present without replace is excluded as name_exists, never spawned for that name", async () => {
+    const fixture = await buildFixture();
+    await writeSkill(join(fixture.home, ".agents", "skills", "alpha"), "alpha");
+    const calls: string[][] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command }) => {
+        calls.push(command);
+        await writeSkill(join(fixture.home, ".agents", "skills", "beta"), "beta");
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.install("owner/repo", ["alpha", "beta"]);
+    expect(result.results).toEqual([
+      { target: "alpha", ok: false, error: "name_exists" },
+      { target: "beta", ok: true },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("beta");
+    expect(calls[0]).not.toContain("alpha");
+  });
+
+  it("no picked skills answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.install("owner/repo", []);
+    expect(result.ok).toBe(false);
+    expect(result.results).toEqual([{ target: "owner/repo", ok: false, error: "invalid_source" }]);
+  });
+});
+
+describe("ResourceService.install — local_path (sprint-077/task-005)", () => {
+  it("appends a bare <absPath> to settings.skills once; nothing is copied; shows as a settings_path row", async () => {
+    const fixture = await buildFixture();
+    const hostDir = join(fixture.home, "host-skills");
+    await writeSkill(hostDir, "alpha-skill");
+    const service = makeService(fixture);
+
+    const result = await service.install(hostDir);
+    expect(result.ok).toBe(true);
+    expect(result.results).toEqual([{ target: hostDir, ok: true }]);
+
+    const settings = await readSettings(fixture.agentDir);
+    expect(settings.skills).toEqual([hostDir]);
+
+    const row = result.skills.find((s) => s.name === "alpha-skill");
+    expect(row?.origin).toBe("settings_path");
+
+    // Installing the same path again doesn't duplicate the entry.
+    const again = await service.install(hostDir);
+    expect(again.ok).toBe(true);
+    const settingsAgain = await readSettings(fixture.agentDir);
+    expect(settingsAgain.skills).toEqual([hostDir]);
+  });
+
+  it("a missing directory answers invalid_source", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+    const missing = join(fixture.home, "does-not-exist");
+
+    const result = await service.install(missing);
+    expect(result.ok).toBe(false);
+    expect(result.results).toEqual([{ target: missing, ok: false, error: "invalid_source" }]);
   });
 });

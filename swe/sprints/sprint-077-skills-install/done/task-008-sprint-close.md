@@ -1,7 +1,7 @@
 # Task 008 — Sprint close: live E2E over direct and relay, docs, full gates
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide
 - **Priority:** P1
@@ -41,9 +41,9 @@ Docs: root `AGENTS.md` protocol bullet complete for the family; feature spec sta
 
 ## Acceptance criteria
 
-- [ ] Every step recorded with observed results
-- [ ] All feature acceptance criteria satisfied or explicitly not-run with reason
-- [ ] Full gates green
+- [x] Every step recorded with observed results
+- [x] All feature acceptance criteria satisfied or explicitly not-run with reason
+- [x] Full gates green
 
 ## Test / verification plan
 

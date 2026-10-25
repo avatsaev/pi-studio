@@ -5,6 +5,9 @@ import * as clientIndex from "./index.js";
 import {
   AgentUiError,
   COMPACT_TIMEOUT_MS,
+  detectSkillSource,
+  INSTALL_SKILLS_TIMEOUT_MS,
+  PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
   REMOVE_SKILL_TIMEOUT_MS,
   UPDATE_ALL_SKILLS_TIMEOUT_MS,
   isAgentArchived,
@@ -550,6 +553,77 @@ describe("PiStudioClient — skills (sprint-075)", () => {
       {},
       UPDATE_ALL_SKILLS_TIMEOUT_MS,
     );
+  });
+  it("previewSkillSource sends skills_preview_request with source and the PREVIEW_SKILL_SOURCE_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.previewSkillSource("vercel-labs/agent-skills");
+    expect(payload.ok).toBe(true);
+    expect(payload.kind).toBe("skills_repo");
+    expect(payload.skills).toEqual([
+      {
+        name: "code-review",
+        description: "Review a diff",
+        relPath: "skills/code-review",
+        valid: true,
+        exists: false,
+      },
+    ]);
+    const sent = fake.sent.find((m) => m.type === "skills_preview_request");
+    expect(sent).toEqual({
+      type: "skills_preview_request",
+      requestId: expect.any(String),
+      source: "vercel-labs/agent-skills",
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_preview_request",
+      { source: "vercel-labs/agent-skills" },
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+    );
+  });
+
+  it("installSkills sends skills_install_request with source/skills/replace and the INSTALL_SKILLS_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.installSkills({
+      source: "vercel-labs/agent-skills",
+      skills: ["code-review"],
+      replace: true,
+    });
+    expect(payload.ok).toBe(true);
+    expect(payload.results).toEqual([{ target: "vercel-labs/agent-skills", ok: true }]);
+    const sent = fake.sent.find((m) => m.type === "skills_install_request");
+    expect(sent).toEqual({
+      type: "skills_install_request",
+      requestId: expect.any(String),
+      source: "vercel-labs/agent-skills",
+      skills: ["code-review"],
+      replace: true,
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_install_request",
+      { source: "vercel-labs/agent-skills", skills: ["code-review"], replace: true },
+      INSTALL_SKILLS_TIMEOUT_MS,
+    );
+  });
+
+  it("installSkills omits skills/replace when not provided", async () => {
+    const { client, fake } = await makeFacade();
+    await client.installSkills({ source: "npm:some-pack" });
+    const sent = fake.sent.find((m) => m.type === "skills_install_request");
+    expect(sent).toEqual({
+      type: "skills_install_request",
+      requestId: expect.any(String),
+      source: "npm:some-pack",
+    });
+  });
+
+  it("detectSkillSource is re-exported from the client package (sprint-077/task-006)", () => {
+    expect(detectSkillSource("npm:some-pack")).toEqual({
+      kind: "pi_npm",
+      normalized: "npm:some-pack",
+    });
+    expect(detectSkillSource("not a valid source")).toBeNull();
   });
 });
 

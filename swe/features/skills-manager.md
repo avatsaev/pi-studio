@@ -1,5 +1,8 @@
 # Feature — Skills Manager (Settings → Skills)
 
+> **Status: implemented** (sprints 075 list/toggle, 076 remove/update-all, 077 install; live-verified
+> direct and over the relay).
+
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/pi-resource-management.md](../architecture/pi-resource-management.md)
 > (backend, wire contract, algorithms), [provider-auth-rpc.md](provider-auth-rpc.md) § web-client
@@ -112,7 +115,7 @@ step "results": per ItemResult ✓/✗ with message and bounded stderr (collapsi
 
 Confirm text by origin: symlink → "Removes the link only; <target> is kept."; Agent Skills with
 provenance → "Removes '<name>' for every agent on this machine."; plain dir → "Deletes <path>.";
-skill path → "Stops loading <path>; files are kept." **Remove package** lists the package's skill
+skill path → "Removes the Pi settings entry that provides <path> (other skills from the same folder stop loading too); files are kept." **Remove package** lists the package's skill
 count before calling `removeSkill({packageSource})`.
 
 ### Update all (R5)

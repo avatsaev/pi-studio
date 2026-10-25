@@ -27,7 +27,9 @@ import type {
   ProviderAuthInfo,
   ProviderAuthType,
   SessionMessage,
+  SkillsInstallResponse,
   SkillsListResponse,
+  SkillsPreviewResponse,
   SkillsRemoveResponse,
   SkillsSetEnabledResponse,
   SkillsUpdateAllResponse,
@@ -39,6 +41,10 @@ import type {
   ViewerSettingsUpdate,
 } from "@av-pi-studio/protocol";
 import type { DaemonClient } from "./daemon-client.js";
+
+// Pure skill-install-source classifier (sprint-077/task-002, `@av-pi-studio/protocol`) —
+// re-exported so the web client can classify a pasted source string without a round trip.
+export { detectSkillSource } from "@av-pi-studio/protocol";
 
 /**
  * High-level `PiStudioClient` SDK facade over the low-level `DaemonClient` driver.
@@ -77,6 +83,18 @@ export const REMOVE_SKILL_TIMEOUT_MS = 660 * 1000;
  * sequentially, each bounded at 600 s daemon-side; 1 300 s covers both spawns plus margin.
  */
 export const UPDATE_ALL_SKILLS_TIMEOUT_MS = 1300 * 1000;
+
+/**
+ * RPC timeout for `skills_preview_request`. The daemon bounds its own clone/fetch spawn at 120 s
+ * (`swe/architecture/pi-resource-management.md` § Timeouts); the SDK timeout is set above that.
+ */
+export const PREVIEW_SKILL_SOURCE_TIMEOUT_MS = 150 * 1000;
+
+/**
+ * RPC timeout for `skills_install_request`. The daemon bounds its own `pi install`/`skills add`
+ * spawn at 600 s; 660 s covers one spawn plus margin (same idiom as `REMOVE_SKILL_TIMEOUT_MS`).
+ */
+export const INSTALL_SKILLS_TIMEOUT_MS = 660 * 1000;
 
 // ─── Update handler types ─────────────────────────────────────────────────────
 
@@ -1004,6 +1022,39 @@ export class PiStudioClient {
       "skills_update_all_request",
       {},
       UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    );
+  }
+
+  /** Previews one install source's picklist before installing — `skills_preview_request`.
+   *  `pi_npm`/`pi_git` always resolve `{ok:true, kind, source, skills: []}` (package kinds install
+   *  as a unit, nothing to pick); `skills_repo`/`local_path` resolve the candidate `skills` array.
+   *  Domain failure (e.g. `invalid_source`) resolves `{ok:false, error}`, never thrown; the daemon
+   *  bounds its own clone/fetch spawn at 120 s, so `PREVIEW_SKILL_SOURCE_TIMEOUT_MS` (150 s) is set
+   *  above that rather than the client's default. */
+  async previewSkillSource(source: string): Promise<SkillsPreviewResponse> {
+    return this.daemon.request<SkillsPreviewResponse>(
+      "skills_preview_request",
+      { source },
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+    );
+  }
+
+  /** Installs one source — `skills_install_request`. `skills` is the picked names from a prior
+   *  `previewSkillSource()` call (meaningful for `skills_repo` only; `pi_npm`/`pi_git` install
+   *  every skill the package ships, `local_path` registers the whole folder); `replace` resends an
+   *  already-installed picked name instead of excluding it as `name_exists`. Resolves one
+   *  `ItemResult` per engine/picked-name outcome plus the full post-mutation `{skills, packages}`
+   *  document (domain `{ok:false, error}` on failure, never thrown); the daemon's own spawn bound
+   *  is 600 s, so `INSTALL_SKILLS_TIMEOUT_MS` (660 s) is set above that. */
+  async installSkills(opts: {
+    source: string;
+    skills?: string[];
+    replace?: boolean;
+  }): Promise<SkillsInstallResponse> {
+    return this.daemon.request<SkillsInstallResponse>(
+      "skills_install_request",
+      opts,
+      INSTALL_SKILLS_TIMEOUT_MS,
     );
   }
 

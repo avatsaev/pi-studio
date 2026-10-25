@@ -1,7 +1,7 @@
 # Task 005 — Install Agent Skills repo picks and host-path entries
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -24,7 +24,7 @@ Brief D2/D7: the CLI keeps `.skill-lock.json` consistent; host paths are referen
 ## What to build
 
 - `skills_repo`: `skills` required and non-empty; names already in `~/.agents/skills` without `replace` ⇒ `name_exists` results and excluded; one spawn `skills add <url> -g -a pi -y -s <picked…>`; per name ok iff `<agentsSkillsDir>/<sanitized>/SKILL.md` exists afterwards.
-- `local_path`: append `+<absPath>` to `settings.skills` (no duplicates), `flush`; nothing copied.
+- `local_path`: append a **bare** `<absPath>` to `settings.skills` (no duplicates), `flush`; nothing copied. (Deviates from the architecture doc's literal `"+" + absPath` — a `±`-prefixed entry is only an enable/disable override for an already-discovered path, never a new scan root; see `swe/architecture/pi-resource-management.md`'s resolved TODO(verify) for the code-inspection finding.)
 - Unrecognised source ⇒ `invalid_source`.
 
 ## Out of scope
@@ -33,9 +33,9 @@ Brief D2/D7: the CLI keeps `.skill-lock.json` consistent; host paths are referen
 
 ## Acceptance criteria
 
-- [ ] Fake spawn: argv contains exactly the picked names; results per name from post-spawn existence
-- [ ] Existing name without replace ⇒ `name_exists`, not spawned for that name
-- [ ] Host path appears once in `settings.skills` and as a `settings_path` row
+- [x] Fake spawn: argv contains exactly the picked names; results per name from post-spawn existence
+- [x] Existing name without replace ⇒ `name_exists`, not spawned for that name
+- [x] Host path appears once in `settings.skills` and as a `settings_path` row
 
 ## Test / verification plan
 

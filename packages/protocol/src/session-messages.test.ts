@@ -62,9 +62,14 @@ import {
   sessionMessageSchema,
   skillInfoSchema,
   itemResultSchema,
+  previewSkillSchema,
   skillsChangedSchema,
+  skillsInstallRequestSchema,
+  skillsInstallResponseSchema,
   skillsListRequestSchema,
   skillsListResponseSchema,
+  skillsPreviewRequestSchema,
+  skillsPreviewResponseSchema,
   skillsRemoveRequestSchema,
   skillsRemoveResponseSchema,
   skillsSetEnabledRequestSchema,
@@ -1604,6 +1609,205 @@ describe("skills remove / update_all (sprint-076/task-001)", () => {
         skillsUpdateAllResponseSchema,
         {
           type: "skills_update_all_response",
+          requestId: "r1",
+          ok: true,
+          results: [],
+          skills: [],
+          packages: [],
+        },
+      ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success).toBe(true);
+      if (result.success && "fromTheFuture" in result.data) {
+        expect(result.data.fromTheFuture).toBe("kept");
+      }
+    }
+  });
+});
+
+describe("skills preview / install (sprint-077/task-002)", () => {
+  const fullPreviewSkill = {
+    name: "code-review",
+    description: "Review a diff",
+    relPath: "skills/code-review",
+    warnings: ["missing license"],
+    valid: true,
+    exists: false,
+  };
+  const fullSkill = {
+    name: "code-review",
+    description: "Review a diff",
+    path: "/home/user/.agents/skills/code-review",
+    enabled: true,
+    origin: "agents_dir",
+    originLabel: "~/.agents/skills",
+    removable: true,
+  };
+  const fullPackage = {
+    source: "npm:some-pack",
+    kind: "npm" as const,
+    identity: "some-pack@1.0.0",
+    pinned: true,
+    curated: true,
+    filtered: false,
+    skillCount: 3,
+  };
+
+  it("previewSkillSchema parses every documented field and a bare required-only row", () => {
+    expect(previewSkillSchema.safeParse(fullPreviewSkill).success).toBe(true);
+    expect(
+      previewSkillSchema.safeParse({
+        name: "code-review",
+        relPath: "skills/code-review",
+        valid: true,
+        exists: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("skills_preview_request requires only source", () => {
+    const result = skillsPreviewRequestSchema.safeParse({
+      type: "skills_preview_request",
+      requestId: "r1",
+      source: "vercel-labs/agent-skills",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("skills_preview_response parses the package-kind shape (no skills to pick) and the skills_repo shape", () => {
+    expect(
+      skillsPreviewResponseSchema.safeParse({
+        type: "skills_preview_response",
+        requestId: "r1",
+        ok: true,
+        kind: "pi_npm",
+        source: "npm:some-pack",
+        skills: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      skillsPreviewResponseSchema.safeParse({
+        type: "skills_preview_response",
+        requestId: "r1",
+        ok: true,
+        kind: "skills_repo",
+        source: "vercel-labs/agent-skills",
+        skills: [fullPreviewSkill],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("a skills_preview_response domain failure still carries kind/source", () => {
+    const result = skillsPreviewResponseSchema.safeParse({
+      type: "skills_preview_response",
+      requestId: "r1",
+      ok: false,
+      error: "no_valid_skills",
+      kind: "skills_repo",
+      source: "vercel-labs/agent-skills",
+      skills: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("skills_install_request accepts source alone and source+skills+replace", () => {
+    expect(
+      skillsInstallRequestSchema.safeParse({
+        type: "skills_install_request",
+        requestId: "r1",
+        source: "npm:some-pack",
+      }).success,
+    ).toBe(true);
+    expect(
+      skillsInstallRequestSchema.safeParse({
+        type: "skills_install_request",
+        requestId: "r1",
+        source: "vercel-labs/agent-skills",
+        skills: ["code-review", "docs"],
+        replace: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("skills_install_response parses mixed ok/failed results", () => {
+    const result = skillsInstallResponseSchema.safeParse({
+      type: "skills_install_response",
+      requestId: "r1",
+      ok: true,
+      results: [
+        { target: "code-review", ok: true },
+        { target: "docs", ok: false, error: "name_exists" },
+      ],
+      skills: [fullSkill],
+      packages: [fullPackage],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("skills_preview_request / _response / skills_install_request / _response parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      skills_preview_request: {
+        type: "skills_preview_request",
+        requestId: "r1",
+        source: "vercel-labs/agent-skills",
+      },
+      skills_preview_response: {
+        type: "skills_preview_response",
+        requestId: "r1",
+        ok: true,
+        kind: "skills_repo",
+        source: "vercel-labs/agent-skills",
+        skills: [fullPreviewSkill],
+      },
+      skills_install_request: {
+        type: "skills_install_request",
+        requestId: "r1",
+        source: "vercel-labs/agent-skills",
+        skills: ["code-review"],
+      },
+      skills_install_response: {
+        type: "skills_install_response",
+        requestId: "r1",
+        ok: true,
+        results: [{ target: "code-review", ok: true }],
+        skills: [fullSkill],
+        packages: [fullPackage],
+      },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [previewSkillSchema, fullPreviewSkill],
+      [
+        skillsPreviewRequestSchema,
+        { type: "skills_preview_request", requestId: "r1", source: "vercel-labs/agent-skills" },
+      ],
+      [
+        skillsPreviewResponseSchema,
+        {
+          type: "skills_preview_response",
+          requestId: "r1",
+          ok: true,
+          kind: "pi_npm",
+          source: "npm:some-pack",
+          skills: [],
+        },
+      ],
+      [
+        skillsInstallRequestSchema,
+        { type: "skills_install_request", requestId: "r1", source: "npm:some-pack" },
+      ],
+      [
+        skillsInstallResponseSchema,
+        {
+          type: "skills_install_response",
           requestId: "r1",
           ok: true,
           results: [],

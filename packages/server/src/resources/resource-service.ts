@@ -1,20 +1,30 @@
-import { lstat, realpath, rm, unlink } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
+import { lstat, mkdir, mkdtemp, realpath, rm, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { basename, dirname, join, relative, resolve as resolvePathAbs, sep } from "node:path";
 
-import type { ItemResult, PiPackageInfo, SkillInfo } from "@av-pi-studio/protocol";
+import {
+  detectSkillSource,
+  type DetectedSkillSource,
+  type ItemResult,
+  type PiPackageInfo,
+  type PreviewSkill,
+  type SkillInfo,
+} from "@av-pi-studio/protocol";
 
 import { resolveBundledPiCli } from "../agent/providers/pi/rpc-transport.js";
 import type { PersistedConfig } from "../config/daemon-config.js";
+import { parseSource as parseCuratedSource } from "../extensions/curated-packs.js";
 import { effectivePiHomeKey } from "../extensions/extensions-state.js";
 import { defaultInstallSpawn, type InstallSpawn } from "../extensions/sync-executor.js";
 import type { FileWatchService } from "../files/file-watch-service.js";
+import { expandHome } from "../files/resolve-path.js";
 import type { Logger } from "../logging/logger.js";
 import { createLimiter } from "../util/concurrency.js";
 import type { Session } from "../ws/session.js";
-import { openPiResources } from "./pi-sdk.js";
+import { loadSkillsFromDir, openPiResources } from "./pi-sdk.js";
 import { buildCatalog } from "./skill-catalog.js";
-import { resolveSkillsCli, skillsArgv, spawnEnv } from "./skills-cli.js";
+import { resolveSkillsCli, sanitizeSkillName, skillsArgv, spawnEnv } from "./skills-cli.js";
 import {
   processEnvSnapshot,
   redactSource,
@@ -26,6 +36,8 @@ import {
   packagePattern,
   replacePattern,
   topLevelPattern,
+  type PiPackageEntry,
+  type PiPackageSource,
 } from "./toggle-patterns.js";
 import { toPiPackageInfoList, toSkillInfoList } from "./wire.js";
 
@@ -49,11 +61,31 @@ const DEFAULT_EXTERNAL_DEBOUNCE_MS = 500;
  *  "install, remove, update_all | 600 s per spawn"). */
 const SPAWN_TIMEOUT_MS = 600_000;
 
+/** Daemon-side bound for the preview `git clone` (architecture doc § Timeouts — "preview | 120 s"). */
+const PREVIEW_CLONE_TIMEOUT_MS = 120_000;
+
 export interface ResourceServiceResult {
   ok: boolean;
   /** Free-form domain error string (e.g. `"settings_unreadable"`, `"not_found"`, or a descriptive
    *  malformed-request message) — never thrown as an `rpc_error`. */
   error?: string;
+  skills: SkillInfo[];
+  packages: PiPackageInfo[];
+}
+
+export interface PreviewResult {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  kind: string;
+  source: string;
+  skills: PreviewSkill[];
+}
+
+export interface InstallResult {
+  ok: boolean;
+  error?: string;
+  results: ItemResult[];
   skills: SkillInfo[];
   packages: PiPackageInfo[];
 }
@@ -69,6 +101,10 @@ export interface ResourceServiceDeps {
   /** Injectable process seam for queued mutations (`runSpawn`); defaults to
    *  `defaultInstallSpawn` (`extensions/sync-executor.ts`). Tests pass a fake. */
   spawn?: InstallSpawn;
+  /** `$PI_STUDIO_HOME` — root of the preview scratch directory (`<studioHome>/tmp/preview-*`,
+   *  task-003). Defaults to `process.env.PI_STUDIO_HOME ?? ~/.pi-studio`, mirroring
+   *  `daemon/bootstrap.ts`'s own `resolveHome`. */
+  studioHome?: string;
 }
 
 interface ResourceCtx {
@@ -100,6 +136,67 @@ function buildCtx(config: PersistedConfig): ResourceCtx {
   };
 }
 
+/** `npm:`/`git:` dedup key, ref/version stripped, mirroring `skill-catalog.ts`'s own (unexported)
+ *  `classifySource` — `null` for anything `curated-packs.ts`'s `parseSource` rejects (a
+ *  `local_path` settings entry sitting alongside a `pi_npm`/`pi_git` one), which never matches
+ *  (task-004's `installPiPackage` only ever searches for an `npm:`/`git:` identity). */
+function piPackageIdentity(source: string): string | null {
+  try {
+    return parseCuratedSource(source).identity;
+  } catch {
+    return null;
+  }
+}
+
+interface SkillsRepoSource {
+  cloneUrl: string;
+  ref?: string;
+  subpath?: string;
+}
+
+/** Derive a `git clone` URL (+ optional `--branch ref` / subpath) from a `skills_repo`-classified
+ *  source (task-003 preview). Mirrors the relevant branches of the `skills` CLI's own
+ *  `parseSource` (`dist/cli.mjs`) just enough to shallow-clone and locate the right subtree:
+ *  - A GitHub/GitLab host URL's `/tree/<ref>/<path>` segment supplies both `ref` and `subpath`;
+ *    without it, the bare repo URL is cloned at its default branch.
+ *  - `owner/repo` (optionally `@<skill-name>` — a post-clone skill-name filter for `skills add`,
+ *    not a git ref or subpath; preview deliberately ignores it and shows the whole repo) clones
+ *    `https://github.com/<owner>/<repo>.git`.
+ *  - Anything else (scp-like `git@host:…`, `ssh://…`, any `*.git`-suffixed URL) clones the
+ *    normalized source verbatim. */
+function parseSkillsRepoSource(normalized: string): SkillsRepoSource {
+  if (/^https?:\/\//i.test(normalized)) {
+    try {
+      const url = new URL(normalized);
+      const segments = url.pathname.split("/").filter((s) => s.length > 0);
+      const [owner, rawRepo, marker, ref, ...subpathSegments] = segments;
+      if (owner && rawRepo) {
+        const repo = rawRepo.replace(/\.git$/, "");
+        const cloneUrl = `${url.protocol}//${url.host}/${owner}/${repo}.git`;
+        if (marker === "tree" && ref) {
+          return {
+            cloneUrl,
+            ref,
+            subpath: subpathSegments.length > 0 ? subpathSegments.join("/") : undefined,
+          };
+        }
+        return { cloneUrl };
+      }
+    } catch {
+      // Malformed URL despite matching `GIT_HOST_URL_RE`/`GIT_SUFFIX_URL_RE` upstream — fall
+      // through to cloning the normalized string as-is below.
+    }
+  }
+
+  const ownerRepoMatch = /^([^/]+)\/([^/@]+)(?:@.+)?$/.exec(normalized);
+  if (ownerRepoMatch) {
+    const [, owner, rawRepo] = ownerRepoMatch;
+    return { cloneUrl: `https://github.com/${owner}/${(rawRepo ?? "").replace(/\.git$/, "")}.git` };
+  }
+
+  return { cloneUrl: normalized };
+}
+
 export class ResourceService {
   private readonly config: PersistedConfig;
   private readonly fileWatchService: FileWatchService;
@@ -108,6 +205,8 @@ export class ResourceService {
   private readonly logger: Logger | undefined;
   private readonly externalDebounceMs: number;
   private readonly spawnFn: InstallSpawn;
+  /** `$PI_STUDIO_HOME` — preview scratch root (task-003). */
+  private readonly studioHome: string;
   /** FIFO for preview/install/remove/update_all (tasks 004/005/077) — separate from
    *  `ExtensionsService`'s own sync mutex; `list`/`setEnabled` bypass it entirely (D21,
    *  architecture doc § Queue, watcher, broadcast). */
@@ -127,12 +226,146 @@ export class ResourceService {
     this.logger = deps.logger;
     this.externalDebounceMs = deps.externalDebounceMs ?? DEFAULT_EXTERNAL_DEBOUNCE_MS;
     this.spawnFn = deps.spawn ?? defaultInstallSpawn;
+    this.studioHome =
+      deps.studioHome ?? process.env.PI_STUDIO_HOME ?? join(homedir(), ".pi-studio");
   }
 
   async list(): Promise<ResourceServiceResult> {
     const ctx = buildCtx(this.config);
     this.ensureWatcher(ctx);
     return this.loadResult(ctx);
+  }
+
+  /**
+   * `skills_preview_request` (architecture doc § Behavior & algorithms "Preview", task-003):
+   * stateless — `pi_npm`/`pi_git` answer `{kind, skills: []}` immediately (nothing to pick);
+   * `local_path` scans the host folder in place; `skills_repo` shallow-clones into a scratch dir
+   * under `<studioHome>/tmp/preview-*`, removed in `finally` regardless of outcome. Queued behind
+   * {@link queue} alongside install/remove/update_all (architecture doc § Queue, watcher,
+   * broadcast), but — unlike {@link enqueueMutation} — never writes to `settings.json`, so it
+   * skips `markOwnWrite`/re-list/broadcast entirely.
+   */
+  async preview(source: string): Promise<PreviewResult> {
+    return this.queue(() => this.previewLocked(source));
+  }
+
+  private async previewLocked(source: string): Promise<PreviewResult> {
+    const ctx = buildCtx(this.config);
+    const detected = detectSkillSource(source);
+    if (!detected) {
+      return { ok: false, error: "invalid_source", kind: "invalid_source", source, skills: [] };
+    }
+    const { kind, normalized } = detected;
+
+    if (kind === "pi_npm" || kind === "pi_git") {
+      // Packages install as a unit (R3) — nothing to pick, so no scan is needed.
+      return { ok: true, kind, source, skills: [] };
+    }
+
+    if (kind === "local_path") {
+      const root = expandHome(normalized);
+      if (!existsSync(root) || !statSync(root).isDirectory()) {
+        return { ok: false, error: "invalid_source", kind, source, skills: [] };
+      }
+      return this.buildPreviewResult(ctx, kind, source, root);
+    }
+
+    return this.previewSkillsRepo(ctx, kind, source, normalized);
+  }
+
+  /** `skills_repo`: shallow clone into a scratch dir, scan it (honouring a `/tree/<ref>/<path>`
+   *  subpath), then remove the scratch dir unconditionally. */
+  private async previewSkillsRepo(
+    ctx: ResourceCtx,
+    kind: DetectedSkillSource["kind"],
+    source: string,
+    normalized: string,
+  ): Promise<PreviewResult> {
+    const { cloneUrl, ref, subpath } = parseSkillsRepoSource(normalized);
+    const tmpRoot = join(this.studioHome, "tmp");
+    await mkdir(tmpRoot, { recursive: true });
+    const scratch = await mkdtemp(join(tmpRoot, "preview-"));
+    try {
+      const cloneArgs = ["clone", "--depth", "1"];
+      if (ref) cloneArgs.push("--branch", ref);
+      cloneArgs.push(cloneUrl, scratch);
+      const outcome = await this.runSpawn(
+        ["git", ...cloneArgs],
+        { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
+        PREVIEW_CLONE_TIMEOUT_MS,
+      );
+      if (!outcome.ok) {
+        return {
+          ok: false,
+          error: "preview_failed",
+          message: outcome.stderr || undefined,
+          kind,
+          source,
+          skills: [],
+        };
+      }
+      const root = subpath ? join(scratch, subpath) : scratch;
+      return this.buildPreviewResult(ctx, kind, source, root);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+
+  /** Scans `root` with Pi's own `loadSkillsFromDir`, turning both its loaded `Skill`s (always
+   *  `valid: true` — the loader only returns an entry once description validation passes) and its
+   *  description-less diagnostics (a `SKILL.md` that failed to load at all — `valid: false`) into
+   *  one flat `PreviewSkill[]`, so an invalid skill still gets its own row instead of silently
+   *  disappearing (task-003 acceptance #1). */
+  private buildPreviewResult(
+    ctx: ResourceCtx,
+    kind: string,
+    source: string,
+    root: string,
+  ): PreviewResult {
+    const { skills, diagnostics } = loadSkillsFromDir({ dir: root, source: "preview" });
+    const rows: PreviewSkill[] = [];
+    const coveredPaths = new Set(skills.map((s) => resolvePathAbs(s.filePath)));
+
+    for (const skill of skills) {
+      const warnings = diagnostics
+        .filter(
+          (d) => d.path !== undefined && resolvePathAbs(d.path) === resolvePathAbs(skill.filePath),
+        )
+        .map((d) => d.message);
+      rows.push({
+        name: skill.name,
+        description: skill.description,
+        relPath: relative(root, dirname(skill.filePath)).split(sep).join("/"),
+        warnings: warnings.length > 0 ? warnings : undefined,
+        valid: true,
+        exists: existsSync(join(ctx.agentsSkillsDir, sanitizeSkillName(skill.name), "SKILL.md")),
+      });
+    }
+
+    const seenInvalidPaths = new Set<string>();
+    for (const d of diagnostics) {
+      if (d.path === undefined) continue;
+      const abs = resolvePathAbs(d.path);
+      if (coveredPaths.has(abs) || seenInvalidPaths.has(abs)) continue;
+      seenInvalidPaths.add(abs);
+      const skillDir = dirname(abs);
+      const name = basename(skillDir);
+      const warnings = diagnostics
+        .filter((x) => x.path !== undefined && resolvePathAbs(x.path) === abs)
+        .map((x) => x.message);
+      rows.push({
+        name,
+        relPath: relative(root, skillDir).split(sep).join("/"),
+        warnings,
+        valid: false,
+        exists: existsSync(join(ctx.agentsSkillsDir, sanitizeSkillName(name), "SKILL.md")),
+      });
+    }
+
+    if (!rows.some((r) => r.valid)) {
+      return { ok: false, error: "no_valid_skills", kind, source, skills: rows };
+    }
+    return { ok: true, kind, source, skills: rows };
   }
 
   async setEnabled(path: string, enabled: boolean): Promise<ResourceServiceResult> {
@@ -200,6 +433,193 @@ export class ResourceService {
   }
 
   /**
+   * `skills_install_request` (architecture doc § Behavior & algorithms "Install", tasks
+   * 004/005): dispatches on the daemon's own authoritative `detectSkillSource(source)` — a
+   * client-sent `kind` is never trusted. Queued behind {@link enqueueMutation} alongside
+   * remove/update_all; `markOwnWrite`/re-list/broadcast are handled there, not here.
+   */
+  async install(source: string, picked?: string[], replace?: boolean): Promise<InstallResult> {
+    const detected = detectSkillSource(source);
+    const logKind = detected?.kind ?? "invalid_source";
+    return this.enqueueMutation("install", logKind, source, (ctx) =>
+      this.installSource(ctx, source, detected, picked, replace),
+    );
+  }
+
+  private async installSource(
+    ctx: ResourceCtx,
+    source: string,
+    detected: DetectedSkillSource | null,
+    picked: string[] | undefined,
+    replace: boolean | undefined,
+  ): Promise<{ ok: boolean; results: ItemResult[] }> {
+    if (!detected) {
+      return { ok: false, results: [{ target: source, ok: false, error: "invalid_source" }] };
+    }
+    switch (detected.kind) {
+      case "pi_npm":
+      case "pi_git":
+        return this.installPiPackage(ctx, detected.normalized);
+      case "skills_repo":
+        return this.installSkillsRepo(ctx, detected.normalized, picked, replace);
+      case "local_path":
+        return this.installLocalPath(ctx, detected.normalized);
+    }
+  }
+
+  /** `pi_npm`/`pi_git` (task-004, R3/R8): spawn bundled `pi install <source>` as a unit, then one
+   *  locked write upgrading the matched settings entry to skills-only object form
+   *  (`extensions: [], prompts: [], themes: []`) — any pre-existing `skills` filter on that entry
+   *  survives untouched (task-001 spike: `addSourceToSettings` only ever rewrites `source`). */
+  private async installPiPackage(
+    ctx: ResourceCtx,
+    source: string,
+  ): Promise<{ ok: boolean; results: ItemResult[] }> {
+    const cli = resolveBundledPiCli();
+    if (!cli) {
+      return { ok: false, results: [{ target: source, ok: false, error: "spawn_failed" }] };
+    }
+    const outcome = await this.runSpawn(
+      [process.execPath, cli, "install", source],
+      { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
+      SPAWN_TIMEOUT_MS,
+    );
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        results: [
+          {
+            target: source,
+            ok: false,
+            error: outcome.error ?? "install_failed",
+            stderr: outcome.stderr,
+          },
+        ],
+      };
+    }
+
+    // The install itself succeeded (package fetched, bare `source` written); the filter write is
+    // a second, independent step — its own failure never rolls back the install (D25, no
+    // rollback): the package row simply shows `filtered: false` on the next list.
+    try {
+      const identity = piPackageIdentity(source);
+      const { settings } = await openPiResources(ctx.agentDir, ctx.home);
+      const packages = settings.getPackages();
+      const index = packages.findIndex(
+        (p) => piPackageIdentity(typeof p === "string" ? p : p.source) === identity,
+      );
+      if (index === -1) throw new Error("installed package entry not found in settings");
+      const existing = packages[index]!;
+      const entry: PiPackageEntry =
+        typeof existing === "string" ? { source: existing } : { ...existing };
+      entry.extensions = [];
+      entry.prompts = [];
+      entry.themes = [];
+      const updated: PiPackageSource[] = [...packages];
+      updated[index] = entry;
+      this.markOwnWrite();
+      settings.setPackages(updated);
+      await settings.flush();
+    } catch (err) {
+      this.logger?.warn({ err, source }, "skills_install: skills-only filter write failed");
+      return { ok: false, results: [{ target: source, ok: false, error: "install_failed" }] };
+    }
+
+    return { ok: true, results: [{ target: source, ok: true }] };
+  }
+
+  /** `skills_repo` (task-005): picked names already present under `agentsSkillsDir` without
+   *  `replace` are excluded as `name_exists`, never spawned; the rest go through one `skills add
+   *  <url> -g -a pi -y -s <picked…>` spawn, each name's own result decided by a post-spawn
+   *  `<agentsSkillsDir>/<sanitized>/SKILL.md` existence check (D18's lock file is `skills`'s own
+   *  bookkeeping, never hand-read here for the outcome). */
+  private async installSkillsRepo(
+    ctx: ResourceCtx,
+    source: string,
+    picked: string[] | undefined,
+    replace: boolean | undefined,
+  ): Promise<{ ok: boolean; results: ItemResult[] }> {
+    if (!picked || picked.length === 0) {
+      return { ok: false, results: [{ target: source, ok: false, error: "invalid_source" }] };
+    }
+
+    const toInstall: string[] = [];
+    const results: ItemResult[] = [];
+    for (const name of picked) {
+      const skillDir = join(ctx.agentsSkillsDir, sanitizeSkillName(name), "SKILL.md");
+      if (!replace && existsSync(skillDir)) {
+        results.push({ target: name, ok: false, error: "name_exists" });
+      } else {
+        toInstall.push(name);
+      }
+    }
+    if (toInstall.length === 0) {
+      return { ok: results.every((r) => r.ok), results };
+    }
+
+    const cli = resolveSkillsCli();
+    if (!cli) {
+      for (const name of toInstall) {
+        results.push({ target: name, ok: false, error: "spawn_failed" });
+      }
+      return { ok: false, results };
+    }
+
+    const outcome = await this.runSpawn(
+      [process.execPath, cli, ...skillsArgv("add", source, toInstall)],
+      { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
+      SPAWN_TIMEOUT_MS,
+    );
+    for (const name of toInstall) {
+      const skillDir = join(ctx.agentsSkillsDir, sanitizeSkillName(name), "SKILL.md");
+      results.push(
+        existsSync(skillDir)
+          ? { target: name, ok: true }
+          : {
+              target: name,
+              ok: false,
+              error: outcome.error ?? "install_failed",
+              stderr: outcome.stderr,
+            },
+      );
+    }
+
+    return { ok: results.every((r) => r.ok), results };
+  }
+
+  /** `local_path` (task-005): nothing copied — `settings.skills` gains one bare `<absPath>`
+   *  entry, de-duplicated against any existing entry with the same stripped form (bare or
+   *  `±`-prefixed).
+   *
+   *  Deviation from the architecture doc's literal `"+" + absPath` pseudocode, found by code
+   *  inspection of the installed `@earendil-works/pi-coding-agent` 1.4.0
+   *  (`package-manager.js`'s `resolveLocalEntries`/`isPattern`/`applyPatterns`): a `±`-prefixed
+   *  `settings.skills` entry is parsed as an *override pattern* that only flips the enabled state
+   *  of a path already discovered via a *plain* (unprefixed) entry or auto-discovery — it is
+   *  never itself scanned for resources. A `+<absPath>` entry with no matching plain entry
+   *  resolves zero files. A bare entry, by contrast, goes through `resolveLocalEntries`'s `plain`
+   *  branch (`collectFilesFromPaths`), which is exactly what the existing `remove`'s own
+   *  `settings_path` handling above already assumes (a bare directory entry, e.g. the
+   *  `removes a settings_path entry` test fixture). */
+  private async installLocalPath(
+    ctx: ResourceCtx,
+    source: string,
+  ): Promise<{ ok: boolean; results: ItemResult[] }> {
+    const absPath = expandHome(source);
+    if (!existsSync(absPath) || !statSync(absPath).isDirectory()) {
+      return { ok: false, results: [{ target: source, ok: false, error: "invalid_source" }] };
+    }
+
+    const { settings } = await openPiResources(ctx.agentDir, ctx.home);
+    const deduped = replacePattern(settings.getSkillPaths(), absPath, undefined);
+    deduped.push(absPath);
+    this.markOwnWrite();
+    settings.setSkillPaths(deduped);
+    await settings.flush();
+    return { ok: true, results: [{ target: absPath, ok: true }] };
+  }
+
+  /**
    * `skills_remove_request` (architecture doc § Behavior & algorithms "Remove", D9/D20): removes
    * one top-level skill the way its origin requires, or spawns `pi remove` for a whole package.
    * Queued behind {@link enqueueMutation} alongside install/update_all — `markOwnWrite`/re-list/
@@ -240,10 +660,22 @@ export class ResourceService {
     const skillDir = dirname(row.path);
 
     if (row.origin === "settings_path") {
-      // The literal directory entry (any ± form), not a derived toggle pattern — mirrors how
-      // `install`'s `local_path` branch writes it (architecture doc § Behavior & algorithms
-      // "Install"). Files are untouched.
-      settings.setSkillPaths(replacePattern(settings.getSkillPaths(), skillDir, undefined));
+      // Drop every settings entry (any ± form) that provides this skill: the skill's own folder
+      // or file, or an ANCESTOR folder — `install`'s `local_path` registers the folder the user
+      // named, which may hold several skills (found live, sprint-077: matching only the skill's
+      // own dir was a silent `ok` no-op for a registered parent folder, and the skill stayed).
+      // Siblings from the same folder entry stop loading with it; files are untouched.
+      const entries = settings.getSkillPaths() ?? [];
+      const covering = entries.filter((entry) => {
+        const bare = /^[!+-]/.test(entry) ? entry.slice(1) : entry;
+        const abs = resolvePathAbs(
+          ctx.agentDir,
+          bare === "~" || bare.startsWith("~/") ? join(ctx.home, bare.slice(1)) : bare,
+        );
+        return abs === skillDir || abs === row.path || skillDir.startsWith(abs + sep);
+      });
+      if (covering.length === 0) return { ok: false, error: "not_removable" };
+      settings.setSkillPaths(entries.filter((entry) => !covering.includes(entry)));
       await settings.flush();
       return { ok: true };
     }

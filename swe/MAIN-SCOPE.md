@@ -346,6 +346,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       confirm this is still the case before relying on it.
 - [ ] Window-state persistence and per-window browser panes in desktop are v1-limited; confirm
       current scope before reimplementing multi-window.
-- [ ] Skills manager backend: whether `pi install` preserves an existing same-identity entry's
+- [x] Skills manager backend: whether `pi install` preserves an existing same-identity entry's
       filter arrays — see
       [architecture/pi-resource-management.md § TODO(verify)](architecture/pi-resource-management.md).
+      **Resolved (sprint-077/task-001): it preserves them** — only `source` is rewritten.

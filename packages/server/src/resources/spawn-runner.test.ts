@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { InstallSpawn } from "../extensions/sync-executor.js";
-import { redactSource, runSpawn } from "./spawn-runner.js";
+import { cliFailureText, redactSource, runSpawn } from "./spawn-runner.js";
 
 /**
  * `redactSource`/`runSpawn` (sprint-076/task-003). `redactSource` is pure; `runSpawn` is tested
@@ -90,5 +90,37 @@ describe("runSpawn", () => {
     expect(outcome.stderr).not.toContain("user:tok@");
     expect(outcome.stderr).not.toContain("secret");
     expect(outcome.stderr.length).toBe(2048);
+  });
+});
+
+describe("cliFailureText", () => {
+  it("extracts the failure block from the skills CLI's TUI stdout, dropping spinners and the gutter", () => {
+    const stdout =
+      "\u001b[2m\u001b[0m\n│\n◇  Source: https://github.com/o/r.git\n│\n" +
+      "◒  Fetching skills…◐  Cloning repository…◓  Cloning repository…│\n" +
+      "■  Failed to clone repository\n│\n│  Authentication failed for https://github.com/o/r.git.\n│\n" +
+      "└  Installation failed\n\n■  Canceled\n";
+    const text = cliFailureText(stdout);
+    expect(text).toContain("Failed to clone repository");
+    expect(text).toContain("Authentication failed for https://github.com/o/r.git.");
+    expect(text).not.toMatch(/Cloning|Fetching|│/);
+    expect(text).not.toContain("\u001b");
+  });
+
+  it("falls back to the last cleaned lines when there is no marker", () => {
+    expect(cliFailureText("a\nb\n")).toBe("a\nb");
+  });
+});
+
+describe("runSpawn stdout fallback", () => {
+  it("uses the cleaned stdout failure block when a failed run left stderr empty", async () => {
+    const outcome = await runSpawn(
+      async () => ({ exitCode: 1, stderr: "", stdout: "■  boom: https://u:p@h/x.git\n" }),
+      ["x"],
+      {},
+      1000,
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.stderr).toBe("boom: https://h/x.git");
   });
 });

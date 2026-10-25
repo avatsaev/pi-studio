@@ -1,7 +1,7 @@
 # Task 001 — Spike: does `pi install` keep an existing entry's filter arrays?
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server (investigation)
 - **Priority:** P1
@@ -31,8 +31,8 @@ Throwaway script with `HOME` and `PI_CODING_AGENT_DIR` set to a temp dir **befor
 
 ## Acceptance criteria
 
-- [ ] Observed settings.json before/after recorded
-- [ ] Spec TODO(verify) checked off with the answer and, if filters are lost, task-004 updated to re-apply them after the spawn
+- [x] Observed settings.json before/after recorded
+- [x] Spec TODO(verify) checked off with the answer and, if filters are lost, task-004 updated to re-apply them after the spawn (not needed — filters survived)
 
 ## Test / verification plan
 

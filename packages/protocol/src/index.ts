@@ -21,3 +21,6 @@ export * from "./endpoint.js";
 
 // Provider manifest types.
 export * from "./provider-manifest.js";
+
+// Pure skill-install-source classifier (sprint-077/task-002), shared client/daemon.
+export * from "./source-detect.js";

@@ -1,7 +1,7 @@
 # Task 003 — Stateless preview: shallow clone or local folder → Pi skill loader
 
 - **Sprint:** sprint-077-skills-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -34,9 +34,9 @@ Brief D7 + R2: pick before install; no preview handle, no scratch kept.
 
 ## Acceptance criteria
 
-- [ ] A local fixture repo (file:// URL) with three skills, one invalid, previews three rows with the invalid one flagged
-- [ ] No `preview-*` dir remains after success, failure, or timeout
-- [ ] A host folder previews without being copied
+- [x] A local fixture repo (file:// URL) with three skills, one invalid, previews three rows with the invalid one flagged
+- [x] No `preview-*` dir remains after success, failure, or timeout
+- [x] A host folder previews without being copied
 
 ## Test / verification plan
 

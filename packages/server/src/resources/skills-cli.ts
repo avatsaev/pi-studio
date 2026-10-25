@@ -118,3 +118,20 @@ export function spawnEnv(
     SKILLS_CLONE_TIMEOUT_MS: String(cloneTimeoutMs),
   };
 }
+
+/**
+ * Mirror of the `skills` CLI's own `sanitizeName` (`dist/cli.mjs`): the canonical on-disk
+ * directory name under `~/.agents/skills/` for a skill, derived from its frontmatter `name`. Used
+ * both by preview's `exists` flag (task-003) and install's post-spawn existence check / pre-spawn
+ * `name_exists` detection for `skills_repo` picks (task-005) — never by `remove`, which resolves
+ * the on-disk directory from the catalog's own resolved `path` instead.
+ */
+export function sanitizeSkillName(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9._]+/g, "-")
+      .replace(/^[.-]+|[.-]+$/g, "")
+      .slice(0, 255) || "unnamed-skill"
+  );
+}
