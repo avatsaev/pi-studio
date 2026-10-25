@@ -60,6 +60,7 @@ React 19 · TypeScript 7 (ESM) · Vite 6 · Zustand (client state) · TanStack Q
 Radix UI (dialog/dropdown-menu/popover/tooltip) + floating-ui (overlays) · dnd-kit ·
 Framer Motion · lucide-react · react-markdown + remark-gfm · Shiki (syntax highlighting) ·
 CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code file viewer) ·
+`pdfjs-dist` (PDF file viewer, lazy `vendor-pdfjs` chunk + bundled module Worker) ·
 `@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod (brand-config validation) · CSS Modules ·
 clsx. Tests: Vitest.
 
@@ -458,8 +459,9 @@ src/
                             (`available: (caps) => caps.providerAuth`, capability-gated), Skills
                             (`available: (caps) => caps.skills`, capability-gated — sprint-075/
                             task-006; `skills/` below), and Viewers (`available: () => true`,
-                            capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its one
-                            Molecule Viewer toggle row to disabled-reading-on with a "Requires a
+                            capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its
+                            Molecule Viewer and PDF Viewer toggle rows (a constant `VIEWER_ROWS`
+                            table, one `ViewerRow` each) to disabled-reading-on with a "Requires a
                             newer daemon" note against a `viewerSettings`-incapable daemon rather
                             than hiding the row; see § Invariants "Viewer-disable gate" and
                             "Settings gear reachability").
@@ -708,6 +710,11 @@ src/
                             dotfiles ghost, which looks exactly like "ignored folders aren't
                             dimming"), RightSidebar, DiffView,
                             CodeView, MarkdownFileViewer, ImageViewer, VideoViewer,
+                            PdfViewer (sprint-078 — pdf.js page stack; see AGENTS.md § Invariants
+                            "PDF viewer"), pdf-layout.ts (pure zoom ladder / fit-width / canvas
+                            pixel-ratio / page-position maths) (+ test), pdfjs-runtime.ts (the
+                            app's ONLY `pdfjs-dist` import site: lazy shared module Worker + the
+                            four data-asset URLs),
                             BinaryFallbackViewer, TextViewer, HtmlViewer (sprint-063 — sandboxed
                             iframe preview for `.html`/`.htm`/`.xhtml`; see AGENTS.md § Invariants
                             "HTML preview sandbox"), html-sandbox.ts (`assembleHtmlPreview` +
@@ -724,7 +731,9 @@ src/
                             bytes arrive, one nested pass into an inlined stylesheet's own
                             `url()` refs; see the same invariant) (+ test), viewer-registry (single
                             `VIEWER_REGISTRY: readonly ViewerDescriptor[]` table — `kind`, lazy
-                            `component`, `extensions`, optional `mimePrefixes`, required
+                            `component`, `extensions`, optional `mimePrefixes`, optional `toggle`
+                            (sprint-078 — a Settings → Viewers row id + fallback kind, read by
+                            `resolveViewerKind`), required
                             `liveRefresh` — sprint-063; `VIEWER_BY_KIND`, the extension/MIME
                             lookup tables, and the live-refresh set are all DERIVED from it at
                             module load, not separately maintained; see AGENTS.md § Invariants
@@ -1044,7 +1053,12 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   hook, so none of this requires the hook to be mounted in a particular order relative to them;
   only the replay effect's OWN gate needs the store's `loaded` flag as a dependency. Disabling a
   viewer never touches an ALREADY-OPEN tab of that kind — nothing in this gate closes tabs, it only
-  changes what a FUTURE open resolves to.
+  changes what a FUTURE open resolves to. **File-kind viewers use the same predicate through the
+  registry, not a tab kind** (sprint-078, PDF): a descriptor's `toggle: { id, fallback }` names its
+  viewer-settings row, and `FilePanel` resolves `resolveViewerKind(path, isViewerEnabled)` ONCE per
+  mount (a lazy `useState` initializer, never per render) — a render-time read would swap an
+  already-open PDF tab to the download card the moment the user flips the switch, which is exactly
+  what this gate promises never to do.
 - **Two drag systems coexist on purpose, split by where the gesture STARTS.** A drag beginning on a tab
   already in a strip is dnd-kit (`use-pane-drag.ts`, one `DndContext` owned by `TabPanelHost`); a drag
   beginning on a sidebar row — a session in the list, a file in the Files tree — is native HTML5 DnD
@@ -1578,7 +1592,7 @@ tabId)` — hence `MoleculeViewer`'s `workspaceCwd`/`tabId` props, both threaded
   `resolveWorkspacePath` helper (`lib/paths.ts` — lifted out of this hook, task-002 sprint-045,
   now shared with `timeline/image-src.ts`'s `classifyImageSrc`) — gated on the registry-derived
   `LIVE_REFRESH_KINDS` set (`viewer-registry.ts`, sprint-063 — see AGENTS.md § Invariants "Adding
-  a file viewer"; currently `text`/`markdown`/`image`/`html`; `video` is excluded because a
+  a file viewer"; currently `text`/`markdown`/`image`/`html`/`pdf`; `video` is excluded because a
   refetch would restart playback from zero,
   `binary` fetches nothing eagerly so there is nothing to refresh), and unconditionally
   invalidates that path's `fileRead`/`fileDownload`/`fileDiffByPath` queries on each push — a
@@ -1619,6 +1633,32 @@ mimePrefixes?, liveRefresh }`. `liveRefresh` is a **required** field: a new `Vie
   a second dispatch path with real cost (persisted-tab-identity surface, a second place drag/drop
   and context menus must know about) and the registry is the default, cheaper path for anything
   that can render inside an ordinary `file` tab.
+- **PDF viewer (sprint-078, `swe/features/pdf-file-preview.md`).** `.pdf` is the `pdf`
+  `ViewerKind` inside an ordinary `file` tab (no tab kind of its own, so tab identity stays
+  `file:<path>`), on by default through the `pdfviewer` viewer-settings row (absent row = enabled —
+  no daemon change); disabled falls back to `binary`'s download card. Rules a change must not break:
+  1. **`pdfjs-runtime.ts` is the only `pdfjs-dist` import site.** It owns the shared module Worker
+     (`?worker` import → emitted as a `.js` asset, so no static server needs a `.mjs` MIME mapping)
+     and the data-asset URLs. `vite.config.ts`'s `pdfjsAssetsPlugin` serves/emits the `cmaps`,
+     `standard_fonts`, `wasm` (minus `quickjs-eval.*`, the PDF-JavaScript engine) and `iccs`
+     directories under `<base>/pdfjs/`. Missing data files do not error — pdf.js misrenders — and
+     behind the SPA fallback a 404 would come back as `index.html` with a 200, so keep the plugin
+     and the URLs in lockstep. `pdfjs-dist` is a devDependency (web-client ships only `dist`) and
+     gets its own `vendor-pdfjs` chunk; never let it reach the eager `vendor` chunk.
+  2. **No annotation/form/XFA/scripting layers, ever** — a PDF is untrusted input and nothing in it
+     may run code or open a URL (`enableXfa: false`; pdf.js v6 has no `isEvalSupported` option).
+  3. **Load from bytes, not the object URL.** `useFileDownload` revokes a URL the moment a refresh
+     supersedes it; pdf.js streaming from a revoked blob would fail mid-document. `PdfViewer`
+     fetches the bytes once and hands them over as `data`.
+  4. **A reload swaps documents in one commit**: the new document loads and is measured beside the
+     old one (never committed → destroyed on cleanup; committed → destroyed only when displaced), so
+     the scroll container never remounts and `scrollTop` survives live refresh. A page renders its
+     canvas + text layer off-screen and swaps them in whole, so zoom/reload never flashes blank.
+  5. **Memory is bounded by the window.** Only pages within one viewport of the scroller hold a
+     canvas (IntersectionObserver); far pages are released and the pre-sized block keeps the scroll
+     height. Canvas backing store is `devicePixelRatio`-scaled but capped at `MAX_CANVAS_PIXELS`.
+  6. Hidden tabs stay mounted (hidden by CSS, to preserve scroll/terminal state), so any DOM probe
+     of a PDF viewer must scope to the visible tab.
 - **HTML preview sandbox (sprint-063/064).** `.html`/`.htm`/`.xhtml` files render through
   `HtmlViewer` inside a sandboxed `<iframe sandbox="allow-scripts" srcDoc={…}
 referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object URL as the document

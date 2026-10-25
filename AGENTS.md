@@ -85,6 +85,7 @@ auth-engine exception).
 | QR codes | `qrcode` |
 | Auth | `bcryptjs` (password hashing), `tweetnacl` (keypair for relay pairing) |
 | Molecular structure viewer | `@molviewer/core` (web-client only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
+| PDF viewer | `pdfjs-dist` (web-client only — PDF file viewer, lazy-loaded `vendor-pdfjs` chunk + bundled module Worker; its cmaps/fonts/wasm/ICC data ships under `dist/<target>/pdfjs/`) |
 
 ---
 
@@ -409,7 +410,10 @@ All communication uses a **single WebSocket connection** per client.
   `PiStudioClient` (`getViewerSettings`/`setViewerSettings`/`onViewerSettingsUpdate`/
   `hasViewerSettingsCapability`) and web-client's `viewer-plugins/viewer-settings-store.ts` +
   Settings → Viewers category (`isViewerEnabled(id)` is both a store state method and a
-  module-level export for non-React callers).
+  module-level export for non-React callers). Rows are keyed by whatever id a client sends; the
+  web-client reads two today: `molviewer` and `pdfviewer` (sprint-078, PDF file preview — a
+  file-kind viewer gated through the file-viewer registry rather than a tab kind; absent row =
+  enabled, so it ships on by default with no daemon change).
 - **`compaction` stream event** (sprint-074, `swe/features/context-compaction.md`) makes every
   context compaction visible: a real `agentStreamEventSchema` kind with phases `started` /
   `completed` / `failed` / `canceled`, a `reason` (`manual` / `threshold` / `overflow`), and a

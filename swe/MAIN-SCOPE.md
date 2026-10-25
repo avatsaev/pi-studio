@@ -283,6 +283,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/html-file-preview.md](features/html-file-preview.md)           | feature (UI) | HTML files previewed in a sandboxed iframe; descriptor-driven file-viewer registry; workspace-confined local asset inlining |
+| [features/pdf-file-preview.md](features/pdf-file-preview.md)             | feature (UI) | PDF files rendered in place with pdf.js (lazy pages, text selection, zoom, live refresh); `pdfviewer` viewer-settings toggle, on by default |
 | [features/viewer-unbound-tabs.md](features/viewer-unbound-tabs.md)       | feature (UI) | Viewer plugin tabs opened without a file and saved to a new one: host Save-As dialog, tab rebind, exclusive-create write (phase 5 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [features/ui-components.md](features/ui-components.md)                   | feature (UI) | Shared primitives: pressables, inputs, overlays, headers, feedback            |
 | [features/conversation-fork.md](features/conversation-fork.md)           | feature      | Fork-based conversation time-travel: post-fork timeline resync (daemon) + transcript fork UI (web) |

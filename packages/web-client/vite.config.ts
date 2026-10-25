@@ -1,7 +1,8 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { createReadStream, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
 
 // Two build targets from one source:
@@ -54,14 +55,64 @@ function brandHtmlPlugin(): Plugin {
   };
 }
 
+// pdf.js runtime data the PDF viewer loads by URL on demand (`src/features/files/pdfjs-runtime.ts`
+// builds the matching URLs). Missing files do not fail loudly: pdf.js misrenders the affected PDFs,
+// and behind the SPA fallback a 404 would even come back as `index.html` with a 200.
+// `quickjs-eval.*` is pdf.js's PDF-JavaScript engine; the viewer never runs document scripts.
+const PDFJS_ASSET_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"];
+const PDFJS_ROOT = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
+
+/** Serves (dev) / emits (build) pdf.js's data directories under `<base>/pdfjs/<dir>/`. A request
+ *  is matched against the real directory listing, never joined onto a filesystem path, so only
+ *  those directories' own files are reachable. */
+function pdfjsAssetsPlugin(): Plugin {
+  const files = new Map(
+    PDFJS_ASSET_DIRS.map((dir) => [
+      dir,
+      new Set(
+        readdirSync(resolve(PDFJS_ROOT, dir)).filter((name) => !name.startsWith("quickjs-eval.")),
+      ),
+    ]),
+  );
+  return {
+    name: "pi-studio-pdfjs-assets",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const match = /^\/pdfjs\/([^/]+)\/([^/?#]+)/.exec(req.url ?? "");
+        if (!match || !files.get(match[1])?.has(match[2])) return next();
+        const [, dir, file] = match;
+        res.setHeader(
+          "Content-Type",
+          file.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+        );
+        createReadStream(resolve(PDFJS_ROOT, dir, file)).pipe(res);
+      });
+    },
+    generateBundle() {
+      for (const [dir, names] of files) {
+        for (const name of names) {
+          this.emitFile({
+            type: "asset",
+            fileName: `pdfjs/${dir}/${name}`,
+            source: readFileSync(resolve(PDFJS_ROOT, dir, name)),
+          });
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig(() => {
   const target = process.env.VITE_TARGET ?? "web";
   const isElectron = target === "electron";
 
   return {
-    plugins: [react(), brandHtmlPlugin()],
+    plugins: [react(), brandHtmlPlugin(), pdfjsAssetsPlugin()],
     root: resolve(__dirname),
     base: isElectron ? "./" : "/",
+    // `?worker` entries (today only pdf.js's, `pdfjs-runtime.ts`) are ES modules upstream; emit
+    // them as module workers rather than re-wrapping them as classic IIFE scripts.
+    worker: { format: "es" as const },
     define: {
       "import.meta.env.VITE_TARGET": JSON.stringify(target),
       // Own package.json version, baked in at build time (ConnectionBar.tsx — displayed after
@@ -178,6 +229,10 @@ export default defineConfig(() => {
               return undefined;
             }
             if (id.includes("@molviewer/core") || id.includes("molstar")) return "vendor-molviewer";
+            // pdf.js is imported only by the lazily loaded PDF viewer (`pdfjs-runtime.ts`); without
+            // this rule the catch-all below would put ~450 KB of it in the eager `vendor` chunk.
+            // It has no runtime dependencies, so a fixed name cannot strand a subtree in `vendor`.
+            if (id.includes("/pdfjs-dist/")) return "vendor-pdfjs";
             return "vendor";
           },
         },

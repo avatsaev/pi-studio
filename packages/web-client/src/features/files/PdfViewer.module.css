@@ -1,0 +1,122 @@
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-4) var(--pi-spacing-14);
+  background: var(--pi-color-surface1);
+  border-bottom: 1px solid var(--pi-color-border);
+  font-size: var(--pi-font-size-xs);
+  flex-shrink: 0;
+}
+.pageIndicator,
+.zoom {
+  color: var(--pi-color-foregroundMuted);
+  font-variant-numeric: tabular-nums;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+}
+.zoom {
+  min-width: 3.5em;
+  text-align: center;
+}
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--pi-color-surface0);
+}
+/* Page blocks are laid out by explicit width/height; auto side margins centre a page that is
+   narrower than the pane without making a wider one unreachable on its left. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* PAGE_GAP in PdfViewer.tsx */
+  padding: 16px; /* STACK_PADDING in PdfViewer.tsx */
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.page {
+  position: relative;
+  flex-shrink: 0;
+  margin: 0 auto;
+  background: #fff; /* a PDF page is paper: its own colours assume white, in every theme */
+  border: 1px solid var(--pi-color-border);
+}
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pageError {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pi-spacing-8);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-xs);
+}
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-spacing-12);
+  height: 100%;
+  padding: var(--pi-spacing-20);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-xs);
+}
+
+/* pdf.js text layer: transparent, absolutely positioned spans laid over the canvas so text can be
+   selected and copied. The per-span custom properties (--font-height, --scale-x, --rotate) are set
+   inline by pdf.js's TextLayer; --total-scale-factor is set by PdfViewer. Mirrors the rules in
+   pdfjs-dist/web/pdf_viewer.css (.textLayer) that text-only rendering needs. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  color-scheme: only light;
+  line-height: 1;
+  text-align: initial;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+  text-size-adjust: none;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.textLayer > :not(:global(.markedContent)),
+.textLayer :global(.markedContent) span:not(:global(.markedContent)) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer :global(.markedContent) {
+  display: contents;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--pi-color-accent) 35%, transparent);
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   detectViewerKind,
   isMoleculeFile,
+  resolveViewerKind,
   VIEWER_REGISTRY,
   LIVE_REFRESH_KINDS,
 } from "./viewer-registry.js";
@@ -66,7 +67,8 @@ describe("VIEWER_REGISTRY", () => {
     }
   });
 
-  it("includes text, markdown, image, and html in the live-refresh set", () => {
+  it("includes text, markdown, image, html, and pdf in the live-refresh set", () => {
+    expect(LIVE_REFRESH_KINDS.has("pdf")).toBe(true);
     expect(LIVE_REFRESH_KINDS.has("text")).toBe(true);
     expect(LIVE_REFRESH_KINDS.has("markdown")).toBe(true);
     expect(LIVE_REFRESH_KINDS.has("image")).toBe(true);
@@ -84,5 +86,42 @@ describe("VIEWER_REGISTRY", () => {
     expect(detectViewerKind("legacy.htm")).toBe("html");
     expect(detectViewerKind("doc.xhtml")).toBe("html");
     expect(detectViewerKind("diagram.svg")).toBe("image");
+  });
+});
+
+const mustNotAsk = () => {
+  throw new Error("toggle consulted");
+};
+
+describe("pdf viewer kind", () => {
+  it("detects .pdf by extension (any case) and by MIME hint, and leaves other binaries alone", () => {
+    expect(detectViewerKind("paper.pdf")).toBe("pdf");
+    expect(detectViewerKind("PAPER.PDF")).toBe("pdf");
+    expect(detectViewerKind("blob", { mimeHint: "application/pdf", isBinary: true })).toBe("pdf");
+    expect(detectViewerKind("bundle.zip")).toBe("binary");
+    expect(detectViewerKind("font.woff2")).toBe("binary");
+  });
+
+  it("falls back to the download card while the pdfviewer toggle is off", () => {
+    const asked: string[] = [];
+    const off = (id: string) => (asked.push(id), false);
+    expect(resolveViewerKind("paper.pdf", off)).toBe("binary");
+    expect(asked).toEqual(["pdfviewer"]);
+    expect(resolveViewerKind("paper.pdf", () => true)).toBe("pdf");
+  });
+
+  it("never consults the toggle for a kind that has none", () => {
+    expect(resolveViewerKind("a.png", mustNotAsk)).toBe("image");
+    expect(resolveViewerKind("a.zip", mustNotAsk)).toBe("binary");
+    expect(resolveViewerKind("main.ts", mustNotAsk)).toBe("text");
+  });
+
+  it("every toggle fallback is itself an ungated kind (no fallback chains)", () => {
+    for (const { toggle } of VIEWER_REGISTRY) {
+      if (!toggle) continue;
+      const fallback = VIEWER_REGISTRY.find((d) => d.kind === toggle.fallback);
+      expect(fallback).toBeDefined();
+      expect(fallback?.toggle).toBeUndefined();
+    }
   });
 });

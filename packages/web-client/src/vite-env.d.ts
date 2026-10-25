@@ -11,3 +11,20 @@ declare const __APP_VERSION__: string;
  *  `ConnectionBar.tsx`'s brand label; `vite.config.ts` also bakes it into `index.html`'s
  *  `<title>`. */
 declare const __BRAND_TITLE__: string;
+
+/** Vite's statically replaced `import.meta.env` — only the keys this package reads (the package
+ *  does not load `vite/client` types). `BASE_URL` is `vite.config.ts`'s `base`: `/` for the web
+ *  target, `./` for Electron. */
+interface ImportMetaEnv {
+  readonly BASE_URL: string;
+}
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
+/** Vite `?worker` import: a constructor for the bundled worker entry (`vite.config.ts`'s
+ *  `worker.format` decides classic vs module). */
+declare module "*?worker" {
+  const WorkerConstructor: new (options?: { name?: string }) => Worker;
+  export default WorkerConstructor;
+}
