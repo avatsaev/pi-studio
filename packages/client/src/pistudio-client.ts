@@ -27,6 +27,8 @@ import type {
   ProviderAuthInfo,
   ProviderAuthType,
   SessionMessage,
+  SkillsListResponse,
+  SkillsSetEnabledResponse,
   TimelineDirection,
   ViewerSettings,
   ViewerSettingsGetResponse,
@@ -935,6 +937,36 @@ export class PiStudioClient {
    */
   extensionUiAvailable(): boolean {
     return this.daemon.hasFeature("extensionUi");
+  }
+
+  // ─── Skills (skills_*, sprint-075) ─────────────────────────────────────────
+
+  /** True iff the daemon advertised the `skills` capability in `server_info.features`. */
+  hasSkillsCapability(): boolean {
+    return this.daemon.hasFeature("skills");
+  }
+
+  /** Every resolved Agent Skill plus every resolved `settings.json` package — `skills_list_request`.
+   *  A domain failure (e.g. unreadable `settings.json`) resolves `{ok:false, error}`, never throws. */
+  async listSkills(): Promise<SkillsListResponse> {
+    return this.daemon.request<SkillsListResponse>("skills_list_request", {});
+  }
+
+  /** Enables/disables one skill by path — `skills_set_enabled_request`. Resolves to the full
+   *  post-mutation `{skills, packages}` document (domain `{ok:false}` on failure, never thrown). */
+  async setSkillEnabled(path: string, enabled: boolean): Promise<SkillsSetEnabledResponse> {
+    return this.daemon.request<SkillsSetEnabledResponse>("skills_set_enabled_request", {
+      path,
+      enabled,
+    });
+  }
+
+  /** Subscribe to the daemon's `skills_changed` broadcast — fired after any mutation (this
+   *  client's own or another's) or an external filesystem change the daemon detected. */
+  onSkillsChanged(handler: (reason: string) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if (msg.type === "skills_changed") handler(msg.reason);
+    });
   }
 }
 

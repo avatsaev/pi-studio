@@ -55,10 +55,17 @@ import {
   providerAuthRespondResponseSchema,
   respondToPermissionRequestSchema,
   respondToPermissionResponseSchema,
+  piPackageInfoSchema,
   rpcErrorSchema,
   rpcName,
   sessionEnvelopeSchema,
   sessionMessageSchema,
+  skillInfoSchema,
+  skillsChangedSchema,
+  skillsListRequestSchema,
+  skillsListResponseSchema,
+  skillsSetEnabledRequestSchema,
+  skillsSetEnabledResponseSchema,
   toolCallDetailSchema,
   viewerSettingsEntrySchema,
   viewerSettingsGetRequestSchema,
@@ -1280,6 +1287,174 @@ describe("viewer settings (sprint-073)", () => {
         viewerSettingsUpdateSchema,
         { type: "viewer_settings_update", settings: { version: 1, viewers: {} } },
       ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success, `${message.type} should parse with an unknown field`).toBe(true);
+      if (result.success && "fromTheFuture" in result.data) {
+        expect(result.data.fromTheFuture).toBe("kept");
+      }
+    }
+  });
+});
+
+describe("skills (sprint-075/task-001)", () => {
+  const fullSkill = {
+    name: "code-review",
+    description: "Review a diff",
+    path: "/home/user/.agents/skills/code-review",
+    enabled: true,
+    origin: "agents_dir",
+    originLabel: "~/.agents/skills",
+    packageSource: "npm:some-pack",
+    shadowedBy: "/home/user/.pi/agent/skills/code-review",
+    symlinkTarget: "/opt/skills/code-review",
+    provenance: {
+      source: "npm:some-pack",
+      sourceUrl: "https://npmjs.com/some-pack",
+      installedAt: "2026-10-25T00:00:00Z",
+    },
+    disableModelInvocation: false,
+    warnings: ["no description"],
+    removable: true,
+  };
+  const fullPackage = {
+    source: "npm:some-pack",
+    kind: "npm" as const,
+    identity: "some-pack@1.0.0",
+    pinned: true,
+    curated: true,
+    filtered: false,
+    skillCount: 3,
+  };
+
+  it("skillInfoSchema parses every documented field and a bare required-only row", () => {
+    expect(skillInfoSchema.safeParse(fullSkill).success).toBe(true);
+    expect(
+      skillInfoSchema.safeParse({
+        name: "bare",
+        path: "/x",
+        enabled: false,
+        origin: "agent_dir",
+        originLabel: "agent dir",
+        removable: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("skillInfoSchema accepts an unknown origin string (append-only)", () => {
+    const result = skillInfoSchema.safeParse({ ...fullSkill, origin: "totally_new_origin" });
+    expect(result.success).toBe(true);
+  });
+
+  it("piPackageInfoSchema parses every documented field", () => {
+    expect(piPackageInfoSchema.safeParse(fullPackage).success).toBe(true);
+  });
+
+  it("skills_list_request / skills_list_response / skills_set_enabled_* / skills_changed parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      skills_list_request: { type: "skills_list_request", requestId: "r1" },
+      skills_list_response: {
+        type: "skills_list_response",
+        requestId: "r1",
+        ok: true,
+        skills: [fullSkill],
+        packages: [fullPackage],
+      },
+      skills_set_enabled_request: {
+        type: "skills_set_enabled_request",
+        requestId: "r1",
+        path: "/home/user/.agents/skills/code-review",
+        enabled: false,
+      },
+      skills_set_enabled_response: {
+        type: "skills_set_enabled_response",
+        requestId: "r1",
+        ok: true,
+        skills: [fullSkill],
+        packages: [fullPackage],
+      },
+      skills_changed: { type: "skills_changed", reason: "mutation" },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("a set_enabled request without path or enabled is rejected", () => {
+    expect(
+      skillsSetEnabledRequestSchema.safeParse({
+        type: "skills_set_enabled_request",
+        requestId: "r1",
+      }).success,
+    ).toBe(false);
+    expect(
+      skillsSetEnabledRequestSchema.safeParse({
+        type: "skills_set_enabled_request",
+        requestId: "r1",
+        path: "/x",
+      }).success,
+    ).toBe(false);
+    expect(
+      skillsSetEnabledRequestSchema.safeParse({
+        type: "skills_set_enabled_request",
+        requestId: "r1",
+        enabled: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("a list response with an unknown ok:false error string still parses (domain error, not rpc_error)", () => {
+    const result = skillsListResponseSchema.safeParse({
+      type: "skills_list_response",
+      requestId: "r1",
+      ok: false,
+      error: "settings_unreadable",
+      skills: [],
+      packages: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("skills_changed with an unknown reason string parses (append-only)", () => {
+    const result = skillsChangedSchema.safeParse({
+      type: "skills_changed",
+      reason: "some_future_reason",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [skillInfoSchema, fullSkill],
+      [piPackageInfoSchema, fullPackage],
+      [skillsListRequestSchema, { type: "skills_list_request", requestId: "r1" }],
+      [
+        skillsListResponseSchema,
+        {
+          type: "skills_list_response",
+          requestId: "r1",
+          ok: true,
+          skills: [],
+          packages: [],
+        },
+      ],
+      [
+        skillsSetEnabledRequestSchema,
+        { type: "skills_set_enabled_request", requestId: "r1", path: "/x", enabled: true },
+      ],
+      [
+        skillsSetEnabledResponseSchema,
+        {
+          type: "skills_set_enabled_response",
+          requestId: "r1",
+          ok: true,
+          skills: [],
+          packages: [],
+        },
+      ],
+      [skillsChangedSchema, { type: "skills_changed", reason: "mutation" }],
     ] as const;
     for (const [schema, message] of schemas) {
       const result = schema.safeParse({ ...message, fromTheFuture: "kept" });

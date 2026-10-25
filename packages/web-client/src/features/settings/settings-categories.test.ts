@@ -26,13 +26,25 @@ describe("SETTINGS_CATEGORIES", () => {
     expect(providers.available(withoutAuth)).toBe(false);
     expect(providers.available(withAuth)).toBe(true);
   });
+
+  it("Skills is capability-gated: absent without skills, present with it", () => {
+    const withoutSkills = buildSettingsCategoryCapabilities({});
+    const withSkills = buildSettingsCategoryCapabilities({ skills: true });
+    const skills = SETTINGS_CATEGORIES.find((c) => c.id === "skills")!;
+    expect(skills.available(withoutSkills)).toBe(false);
+    expect(skills.available(withSkills)).toBe(true);
+  });
 });
 
 describe("buildSettingsCategoryCapabilities", () => {
-  it("reads providerAuth from the features map, defaulting falsy/missing to false", () => {
+  it("reads providerAuth and skills from the features map, defaulting falsy/missing to false", () => {
     expect(buildSettingsCategoryCapabilities(undefined).providerAuth).toBe(false);
+    expect(buildSettingsCategoryCapabilities(undefined).skills).toBe(false);
     expect(buildSettingsCategoryCapabilities({}).providerAuth).toBe(false);
+    expect(buildSettingsCategoryCapabilities({}).skills).toBe(false);
     expect(buildSettingsCategoryCapabilities({ providerAuth: false }).providerAuth).toBe(false);
     expect(buildSettingsCategoryCapabilities({ providerAuth: true }).providerAuth).toBe(true);
+    expect(buildSettingsCategoryCapabilities({ skills: false }).skills).toBe(false);
+    expect(buildSettingsCategoryCapabilities({ skills: true }).skills).toBe(true);
   });
 });

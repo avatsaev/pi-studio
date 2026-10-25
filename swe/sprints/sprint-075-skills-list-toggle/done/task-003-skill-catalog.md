@@ -1,7 +1,7 @@
 # Task 003 — `pi-sdk.ts` + `skill-catalog.ts`: build the skill list from Pi's resolver
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1

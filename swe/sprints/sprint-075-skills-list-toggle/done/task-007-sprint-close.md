@@ -1,7 +1,7 @@
 # Task 007 — Sprint close: live E2E against a real daemon, root docs, full gates
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide
 - **Priority:** P1
@@ -25,7 +25,7 @@ Tasks used fixtures; the contract that matters is agreement with a real `pi` on 
 ## What to build
 
 Live E2E (`npm run build && npm start` with a throwaway `--pi-home` **and** `HOME` where possible; two browser windows). Record each result, or not-run with the reason:
-1. Panel lists every skill grouped by origin; dev daemon shows no category.
+1. Panel lists every skill grouped by origin; the dev daemon advertises the flag but answers `unknown_message_type` (amended: it shows an error state, not a hidden category).
 2. Disable a skill → `settings.json` gains the same entry `pi config` writes; a new agent's slash picker lacks `/skill:<name>`; `pi config` shows it unchecked; re-enable reverses both.
 3. Duplicate name in both skill dirs → loser "shadowed by …".
 4. Edit settings.json / run `npx skills add` on the host → both windows update.
@@ -39,9 +39,9 @@ Docs: root `AGENTS.md` protocol bullet for `skills_*` (list/set_enabled/skills_c
 
 ## Acceptance criteria
 
-- [ ] Every E2E step recorded with observed result
-- [ ] Root docs updated
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` green
+- [x] Every E2E step recorded with observed result
+- [x] Root docs updated
+- [x] `npm run build`, `npm run typecheck`, `npm run lint`, `npm test` green
 
 ## Test / verification plan
 

@@ -1,7 +1,7 @@
 # Task 005 — Client SDK: `listSkills`, `setSkillEnabled`, `onSkillsChanged`, `hasSkillsCapability`
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

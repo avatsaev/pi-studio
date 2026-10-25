@@ -273,6 +273,44 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
+      case "skills_list_request": {
+        reply({
+          type: "skills_list_response",
+          requestId,
+          ok: true,
+          skills: [
+            {
+              name: "brave-search",
+              path: "/home/u/.pi/agent/skills/brave-search",
+              enabled: true,
+              origin: "agent_dir",
+              originLabel: "User",
+              removable: true,
+            },
+          ],
+          packages: [],
+        });
+        return;
+      }
+      case "skills_set_enabled_request": {
+        reply({
+          type: "skills_set_enabled_response",
+          requestId,
+          ok: true,
+          skills: [
+            {
+              name: "brave-search",
+              path: msg.path,
+              enabled: msg.enabled,
+              origin: "agent_dir",
+              originLabel: "User",
+              removable: true,
+            },
+          ],
+          packages: [],
+        });
+        return;
+      }
       default:
         reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
     }

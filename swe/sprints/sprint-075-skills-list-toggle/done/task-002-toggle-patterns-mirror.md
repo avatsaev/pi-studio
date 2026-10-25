@@ -1,7 +1,7 @@
 # Task 002 — `toggle-patterns.ts`: mirror of Pi's private skill toggle derivation
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1

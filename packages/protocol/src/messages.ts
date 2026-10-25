@@ -1297,6 +1297,122 @@ export const viewerSettingsUpdateSchema = z
 export type ViewerSettingsUpdate = z.infer<typeof viewerSettingsUpdateSchema>;
 
 // ===========================================================================
+// Skills (swe/architecture/pi-resource-management.md § Wire family `skills_*`) — sprint-075
+// slice 1: list + toggle only. Preview/install/remove/update_all land in sprints 076-077 and
+// reuse `skillInfoSchema`/`piPackageInfoSchema` below.
+// ===========================================================================
+
+/**
+ * One resolved Agent Skill as Pi's `DefaultPackageManager.resolve()` reports it, projected to the
+ * wire. `origin` documents the four values Pi emits today (`"agent_dir" | "agents_dir" |
+ * "package" | "settings_path"`) but stays `z.string()` — a future Pi origin must still parse on
+ * an older client/daemon pair. `removable` reflects Pi's own rule (e.g. a package-owned skill
+ * isn't independently removable); the daemon never re-derives it.
+ */
+export const skillInfoSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    path: z.string(),
+    enabled: z.boolean(),
+    /** `"agent_dir" | "agents_dir" | "package" | "settings_path"` today; open string on the wire. */
+    origin: z.string(),
+    originLabel: z.string(),
+    packageSource: z.string().optional(),
+    shadowedBy: z.string().optional(),
+    symlinkTarget: z.string().optional(),
+    provenance: z
+      .object({
+        source: z.string(),
+        sourceUrl: z.string().optional(),
+        installedAt: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    disableModelInvocation: z.boolean().optional(),
+    warnings: z.array(z.string()).optional(),
+    removable: z.boolean(),
+  })
+  .passthrough();
+export type SkillInfo = z.infer<typeof skillInfoSchema>;
+
+/** One `settings.json` `packages[]` entry resolved against disk. */
+export const piPackageInfoSchema = z
+  .object({
+    source: z.string(),
+    kind: z.enum(["npm", "git", "local"]),
+    identity: z.string(),
+    pinned: z.boolean(),
+    curated: z.boolean(),
+    filtered: z.boolean(),
+    skillCount: z.number(),
+  })
+  .passthrough();
+export type PiPackageInfo = z.infer<typeof piPackageInfoSchema>;
+
+export const skillsListRequestSchema = z
+  .object({
+    type: z.literal("skills_list_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type SkillsListRequest = z.infer<typeof skillsListRequestSchema>;
+
+/**
+ * `ok`/`error` are domain fields, not `rpc_error` (mirrors `extension_packs_set_response`'s
+ * idiom) — e.g. a corrupt `settings.json` answers `{ok:false, error:"settings_unreadable"}`
+ * rather than failing transport-level. `message` is an optional human-readable elaboration.
+ */
+export const skillsListResponseSchema = z
+  .object({
+    type: z.literal("skills_list_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsListResponse = z.infer<typeof skillsListResponseSchema>;
+
+export const skillsSetEnabledRequestSchema = z
+  .object({
+    type: z.literal("skills_set_enabled_request"),
+    requestId: z.string(),
+    path: z.string(),
+    enabled: z.boolean(),
+  })
+  .passthrough();
+export type SkillsSetEnabledRequest = z.infer<typeof skillsSetEnabledRequestSchema>;
+
+export const skillsSetEnabledResponseSchema = z
+  .object({
+    type: z.literal("skills_set_enabled_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsSetEnabledResponse = z.infer<typeof skillsSetEnabledResponseSchema>;
+
+/**
+ * Broadcast, no `requestId` — every connected client re-lists. `reason` is a plain string
+ * (`"mutation" | "external"` documented) so a future reason stays append-only, same idiom as
+ * `agent_timeline_reset`'s `reason`.
+ */
+export const skillsChangedSchema = z
+  .object({
+    type: z.literal("skills_changed"),
+    reason: z.string(),
+  })
+  .passthrough();
+export type SkillsChanged = z.infer<typeof skillsChangedSchema>;
+
+// ===========================================================================
 // Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
 // ===========================================================================
 
@@ -1529,6 +1645,11 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   viewerSettingsSetRequestSchema,
   viewerSettingsSetResponseSchema,
   viewerSettingsUpdateSchema,
+  skillsListRequestSchema,
+  skillsListResponseSchema,
+  skillsSetEnabledRequestSchema,
+  skillsSetEnabledResponseSchema,
+  skillsChangedSchema,
   agentUiRequestSchema,
   agentUiResolvedSchema,
   agentUiRespondRequestSchema,

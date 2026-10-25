@@ -190,6 +190,13 @@ setEnabled(path, enabled):
 replacePattern(arr, pattern, enabled): drop entries whose stripped form == pattern; append ("+"|"-")+pattern
 ```
 
+> Note (sprint-075/task-002, confirmed by task-004's implementation): Pi's own
+> `togglePackageResource` always pushes a replacement `±pattern` entry on a real toggle and never
+> collapses the filter array back to a bare string on that path — the `collapse` step above is
+> only reachable when clearing an override outright (`enabled === undefined`), which the
+> `skills_set_enabled_request` UI never sends. `setEnabled` therefore writes `+…`/`-…` on both
+> enable and disable, package entries included; "collapse" is not used by the UI today.
+
 ### Preview (stateless — R2; `skills_repo` / `local_path` only — R3)
 
 ```

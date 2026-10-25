@@ -1,7 +1,7 @@
 # Task 004 — `ResourceService` list + toggle, file watcher, `skills_*` handlers, production bootstrap
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources, daemon)
 - **Priority:** P1
@@ -42,7 +42,7 @@ This makes the backend live. Toggles bypass any queue (Pi's file lock serialises
 ## Acceptance criteria
 
 - [ ] Toggling an agents_dir skill off writes `-skills/<name>/SKILL.md` to `settings.skills`; a fresh `resolve()` reports it disabled; on again replaces it with `+…`
-- [ ] Toggling a package skill upgrades the entry to object form; re-enabling with no other filters collapses it back
+- [ ] Toggling a package skill upgrades the entry to object form; re-enabling a package skill writes `+…`, exactly as `pi config` does (entry stays object form; no collapse on enable) — **amended from the original "collapses it back" wording**: task-002 found Pi's own `ResourceList` toggle always appends a replacement `±pattern` entry, so Pi's collapse-to-string branch is unreachable on a real enable/disable; `toggle-patterns.ts` only reaches collapse when clearing an override outright (`enabled === undefined`), which `setEnabled` never passes. See `resource-service.test.ts`'s "amended acceptance #2" test and `architecture/pi-resource-management.md` § Toggle's note.
 - [ ] `skills_changed("mutation")` reaches every session before the response
 - [ ] An external write to the watched settings.json yields exactly one `skills_changed("external")`
 - [ ] Dev-bootstrap registry answers `unknown_message_type` for both RPCs

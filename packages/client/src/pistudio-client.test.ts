@@ -446,6 +446,67 @@ describe("PiStudioClient — viewer settings (sprint-073)", () => {
   });
 });
 
+describe("PiStudioClient — skills (sprint-075)", () => {
+  it("hasSkillsCapability reflects the daemon's skills flag", async () => {
+    const { client: withFlag } = await makeFacade({ features: { skills: true } });
+    expect(withFlag.hasSkillsCapability()).toBe(true);
+
+    const { client: withoutFlag } = await makeFacade({ features: { providersSnapshot: true } });
+    expect(withoutFlag.hasSkillsCapability()).toBe(false);
+  });
+
+  it("listSkills sends skills_list_request and resolves the typed response", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.listSkills();
+    expect(payload.ok).toBe(true);
+    expect(payload.skills).toEqual([
+      {
+        name: "brave-search",
+        path: "/home/u/.pi/agent/skills/brave-search",
+        enabled: true,
+        origin: "agent_dir",
+        originLabel: "User",
+        removable: true,
+      },
+    ]);
+    const sent = fake.sent.find((m) => m.type === "skills_list_request");
+    expect(sent).toEqual({ type: "skills_list_request", requestId: expect.any(String) });
+  });
+
+  it("setSkillEnabled sends skills_set_enabled_request with path/enabled and resolves the typed response", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.setSkillEnabled("/home/u/.pi/agent/skills/brave-search", false);
+    expect(payload.ok).toBe(true);
+    expect(payload.skills[0]).toMatchObject({
+      path: "/home/u/.pi/agent/skills/brave-search",
+      enabled: false,
+    });
+    const sent = fake.sent.find((m) => m.type === "skills_set_enabled_request");
+    expect(sent).toEqual({
+      type: "skills_set_enabled_request",
+      requestId: expect.any(String),
+      path: "/home/u/.pi/agent/skills/brave-search",
+      enabled: false,
+    });
+  });
+
+  it("onSkillsChanged fires only for skills_changed pushes; unsubscribe stops delivery", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: string[] = [];
+    const unsubscribe = client.onSkillsChanged((reason) => seen.push(reason));
+
+    fake.push({ type: "agent_update", agentId: "a1", status: "idle" });
+    fake.push({ type: "skills_changed", reason: "mutation" });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toEqual(["mutation"]);
+
+    unsubscribe();
+    fake.push({ type: "skills_changed", reason: "external" });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toHaveLength(1);
+  });
+});
+
 // Deterministic microtask drain — no real wall-clock wait. The scripted daemon delivers every
 // message via `queueMicrotask`, and the SDK's own event handling is synchronous once a message is
 // delivered; a handful of chained ticks comfortably drains any nesting this harness produces.

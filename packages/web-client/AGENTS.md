@@ -454,13 +454,15 @@ src/
                             own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
                             the main bundle ahead of the gear ever being clicked; the panel
                             components stay `lazy()`-loaded regardless of which module imports the
-                            registry array. Two categories today: Model Providers
-                            (`available: (caps) => caps.providerAuth`, capability-gated) and
-                            Viewers (`available: () => true`, capability-INDEPENDENT — ViewersPanel
-                            (+ module.css) degrades its one Molecule Viewer toggle row to
-                            disabled-reading-on with a "Requires a newer daemon" note against a
-                            `viewerSettings`-incapable daemon rather than hiding the row; see §
-                            Invariants "Viewer-disable gate" and "Settings gear reachability").
+                            registry array. Three categories today: Model Providers
+                            (`available: (caps) => caps.providerAuth`, capability-gated), Skills
+                            (`available: (caps) => caps.skills`, capability-gated — sprint-075/
+                            task-006; `skills/` below), and Viewers (`available: () => true`,
+                            capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its one
+                            Molecule Viewer toggle row to disabled-reading-on with a "Requires a
+                            newer daemon" note against a `viewerSettings`-incapable daemon rather
+                            than hiding the row; see § Invariants "Viewer-disable gate" and
+                            "Settings gear reachability").
                             `SettingsDialog.tsx` also owns the stacked-dialog dismissal guard —
                             see AGENTS.md § Invariants "Stacked dialogs"
     provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
@@ -479,6 +481,19 @@ src/
                             provider-auth-store.ts (the one-flow-at-a-time hand-off between the
                             panel's action and the dialog: pending login + `AbortController` +
                             `attempt`, which `LoginDialog` keys on so a retry remounts clean)
+    skills/                 SkillsPanel (+ module.css — sprint-075/task-006, the Skills category:
+                            search box, collapsible origin/package groups, rows with a Switch,
+                            per-row inline error), skills-presentation.ts (+ test — pure:
+                            `buildSkillGroups`/`filterSkillGroups` grouping+ordering+search,
+                            `packageHeaderBadges`, `requiresCuratedConfirm`, `skillErrorMessage` —
+                            error-string → message, unknown strings verbatim), use-skills.ts
+                            (+ test — `useSkillsQuery` (`rpcKeys.skillsList()`, invalidated by
+                            `onSkillsChanged`), `useSkillToggle` (optimistic `setSkillEnabled`,
+                            exact-prior-value rollback + per-row `rowErrors` on a domain failure
+                            or thrown error — never a toast, see § Invariants "Skills panel toggle
+                            + curated confirm"); `applyOptimisticSkillToggle` exported standalone,
+                            same no-jsdom convention as `login-flow.ts`. Remove/Update all/Install
+                            are explicitly NOT rendered here — sprints 076–077.
     chat/                   ChatPanel, Timeline (+ onboarding-nudge.ts — sprint-065/task-006's
                             pure `shouldShowProviderOnboardingNudge`: the empty-timeline slot
                             doubles as the "connect a model provider" CTA when the daemon has the
@@ -2559,3 +2574,15 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     (The composer prefill itself stays request-local, per task-004 — only the relay window's
     transcript truncates; it does not receive the forking client's own prefilled draft, exactly as
     designed.)
+- **Skills panel toggle + curated confirm (sprint-075/task-006).** `use-skills.ts#useSkillToggle`
+  is optimistic: it patches `rpcKeys.skillsList()`'s cached `{skills, packages}` document before
+  `setSkillEnabled` resolves, and rolls back to the exact prior cached value — never a derived
+  "flip it back" — on a domain `{ok:false}` or a thrown transport error, surfacing the failure as
+  that row's `rowErrors[path]` (an inline, dismissible row error) rather than a toast; this
+  deliberately diverges from `viewer-settings-store.ts`'s toast-based rollback, since this panel's
+  spec calls for an inline error (swe/features/skills-manager.md § Error handling: "Toggle fails |
+  Row rolls back; inline error"). Toggling ON a `package`-origin skill whose resolved
+  `PiPackageInfo.curated` is true asks for a `window.confirm` ("Pi-Studio will stop managing this
+  package's updates.") the FIRST time per `packageSource` in a panel session
+  (`SkillsPanel.tsx`'s own `confirmedCurated` state, not persisted) — `requiresCuratedConfirm`
+  (`skills-presentation.ts`) is the pure predicate; a declined confirm is a no-op, no RPC sent.

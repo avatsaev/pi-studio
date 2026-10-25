@@ -283,6 +283,72 @@ src/
                                    route through this instead of a per-call-site inline check.
     index.ts
 
+  resources/                       Pi resource management — skills + Pi packages
+                                    (architecture/pi-resource-management.md). The daemon's one
+                                    mutator over Pi's `settings.json` `packages` array.
+    toggle-patterns.ts             Mirror of Pi's private skill-toggle pattern derivation
+                                    (`modes/interactive/components/config-selector.js`, not
+                                    importable — TUI-only, unexported). `topLevelPattern`/
+                                    `packagePattern` derive the `±pattern` written into
+                                    `settings.skills`/`packages[i].skills`; `replacePattern`
+                                    replaces a same-target entry instead of duplicating it, and
+                                    (`enabled === undefined`) clears one outright;
+                                    `applyPackageToggle` applies that to a `packages[]` entry,
+                                    upgrading a bare source string to `{source}` and collapsing
+                                    back once no filter array remains. To be added to root
+                                    `AGENTS.md`'s Pi-bump checklist beside `thinking-levels.ts`
+                                    (sprint-075/task-007).
+    pi-sdk.ts                     The single importer of Pi's `SettingsManager`/
+                                    `DefaultPackageManager`/`loadSkillsFromDir` (sprint-075/
+                                    task-003) — a Pi bump has exactly one place to check for these
+                                    symbols. `openPiResources(agentDir, cwd)` constructs a fresh,
+                                    reloaded pair per call (tenet: no cache).
+    skill-catalog.ts               buildCatalog(ctx) — `{skills, packages}` exactly as Pi would
+                                    load them, computed fresh on every call (sprint-075/task-003).
+                                    Corrupt `<agentDir>/settings.json` → `settings_unreadable`,
+                                    checked before touching Pi at all. Origin
+                                    (`agent_dir`/`agents_dir`/`package`/`settings_path`) is derived
+                                    from `resolve()`'s own `metadata.source`/`baseDir`, never path
+                                    prefixes. Shadowing: `loadSkillsFromDir` per scan root for
+                                    frontmatter/warnings, then a first-wins-by-name reducer over
+                                    ENABLED rows only, in `resolve()`'s own precedence order — a
+                                    disabled duplicate never wins or shadows. Packages: `kind`/
+                                    `identity`/`pinned` reuse `extensions/curated-packs.ts`'s
+                                    `parseSource` for `npm:`/`git:`, anything else is `local`;
+                                    `curated` checks membership against `CURATED_PACKS`.
+    wire.ts                        `toSkillInfoList`/`toPiPackageInfoList` (sprint-075/task-004) —
+                                    the ONE mapping from `skill-catalog.ts`'s internal
+                                    `CatalogSkill`/`CatalogPackage` to the wire's `SkillInfo`/
+                                    `PiPackageInfo`, dropping the internal-only `baseDir`.
+    resource-service.ts            `ResourceService` — `list()`/`setEnabled(path, enabled)`
+                                    (sprint-075/task-004), both bypassing the not-yet-built
+                                    install/remove/update-all FIFO queue (D21; Pi's own
+                                    `proper-lockfile`-backed `SettingsManager` write already
+                                    serializes concurrent writers at the file level).
+                                    `setEnabled`: re-resolves the catalog, finds the row by
+                                    `path` (absent → `not_found`), derives the toggle pattern via
+                                    `toggle-patterns.ts` (`topLevelPattern` for a top-level skill,
+                                    `packagePattern` for a package skill — object form stays
+                                    object form on re-enable, never collapses; see
+                                    `architecture/pi-resource-management.md` § Toggle), writes
+                                    through `SettingsManager#setSkillPaths`/`#setPackages`,
+                                    `await flush()`, broadcasts `skills_changed("mutation")`
+                                    **before** returning a freshly re-resolved list. Watcher:
+                                    started on the first `skills_*` call via the shared
+                                    `FileWatchService`, subscribed to `<agentDir>/settings.json`,
+                                    `<agentDir>/skills`, `~/.agents/skills`, and the skill-lock
+                                    file; a 500 ms debounce (overridable for tests) broadcasts
+                                    `skills_changed("external")`. An fs event landing inside the
+                                    debounce window of the service's own last write is folded
+                                    into that write's own `"mutation"` broadcast instead of
+                                    producing a second, redundant `"external"` one.
+    skills-rpc.ts                   `registerSkillsHandlers` — `skills_list_request`/
+                                    `skills_set_enabled_request` (`bootstrap.ts` only;
+                                    sprint-075/task-004). Thin: maps `ResourceService`'s results
+                                    onto the wire response; a malformed `set_enabled` shape
+                                    (`ctx.message` is an unvalidated `Record<string, unknown>`)
+                                    is a domain `{ok:false, error}`, never an `rpc_error`.
+
   proxy/
     service-proxy.ts              ServiceProxy — HTTP reverse proxy to localhost agent services.
     service-port-registry.ts      ServicePortRegistry — register/lookup agent service ports.
@@ -1310,6 +1376,47 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
 - **Never rewrite a corrupt `extensions-state.json`.** `loadExtensionsState` returns the literal
   string `"unreadable"` rather than defaults; every caller's fail-safe is to do nothing and log
   once, never reset the file.
+
+### Pi resource management (`resources/`)
+
+The daemon's one mutator over Pi's `settings.json` `packages` array (architecture/
+pi-resource-management.md) — skills + the Pi packages that carry them. Invariants:
+
+- **Pi is the source of truth; no Pi-Studio resource cache.** `ResourceService.list()`/
+  `setEnabled()` re-derive the catalog from `SettingsManager`/`DefaultPackageManager` on every
+  call — a plain `pi config` on the host sees exactly what `skills_list_request` returns.
+- **Never hand-edit `settings.json`.** Every mutation goes through `toggle-patterns.ts`'s pure
+  pattern derivation (`topLevelPattern`/`packagePattern`/`replacePattern`/`applyPackageToggle`)
+  and Pi's own `SettingsManager#setSkillPaths`/`#setPackages`, never direct JSON writes —
+  `pi-sdk.ts` is the single importer of Pi's `SettingsManager`/`DefaultPackageManager`/
+  `loadSkillsFromDir`, so a Pi bump has exactly one place to check for these symbols.
+- **Toggle: re-enabling a package skill writes `+…`, exactly as `pi config` does.** Pi's own
+  `togglePackageResource` always pushes a replacement `±pattern` entry and never collapses a
+  package's filter array back to a bare string on its own toggle path; `applyPackageToggle`
+  mirrors that — collapse-to-string only ever applies to **clearing** an override
+  (`enabled === undefined`, used by `toggle-patterns.ts`'s own differential-fixture tests), never
+  to re-enabling, which is the only call `resource-service.ts` makes.
+- **Domain errors, never `rpc_error`.** `skills-rpc.ts` answers a corrupt `settings.json`
+  (`settings_unreadable`), an unresolved `path` (`not_found`), or a malformed
+  `skills_set_enabled_request` shape (`ctx.message` is an unvalidated `Record<string, unknown>`)
+  as `{ok:false, error}`, mirroring `extensions-rpc.ts`'s `isSlugArray` posture.
+- **Broadcast before responding.** A successful `setEnabled` broadcasts
+  `skills_changed("mutation")` to every active session — the caller included — *before* the RPC
+  response is sent (`viewer-settings-rpc.ts`'s established ordering).
+- **The watcher is daemon-lifetime, started lazily.** `ResourceService` subscribes
+  `<agentDir>/settings.json`, `<agentDir>/skills`, `~/.agents/skills`, and the skill-lock file via
+  the shared `FileWatchService` on the first `skills_*` call, never at bootstrap; a 500 ms
+  debounce (overridable for tests) collapses a burst of external edits into one
+  `skills_changed("external")`. An fs event landing inside the debounce window of the service's
+  own last write is folded into that write's own `"mutation"` broadcast — never a redundant
+  second `"external"` push for a change the daemon made itself.
+- **Production-only.** `registerSkillsHandlers` is wired in `bootstrap.ts` only; `dev-bootstrap.ts`
+  never touches a real pi-home's `settings.json`, so the dev daemon answers `unknown_message_type`
+  for both `skills_*` RPCs (mirrors extensions sync's same production-only posture).
+- **Out of scope for this slice (sprint-075).** Preview/install/remove/update_all, the
+  install/remove/update-all FIFO queue, and redaction land in sprint-076+; `list`/`setEnabled`
+  bypass that queue entirely since Pi's own `proper-lockfile`-backed write already serializes
+  concurrent writers at the file level.
 
 ### Viewer settings (`viewers/`)
 

@@ -77,6 +77,8 @@ import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
+import { ResourceService } from "../resources/resource-service.js";
+import { registerSkillsHandlers } from "../resources/skills-rpc.js";
 
 import {
   SERVER_FEATURES,
@@ -510,6 +512,17 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     getActiveSessions,
     logger: logger.child({ component: "viewer-settings" }),
   });
+
+  // ── Pi resource management: skills + Pi packages (sprint-075) ────────────────
+  const resourcesLogger = logger.child({ component: "resources" });
+  const resourceService = new ResourceService({
+    config,
+    fileWatchService,
+    broadcast,
+    getActiveSessions,
+    logger: resourcesLogger,
+  });
+  registerSkillsHandlers(registry, { service: resourceService, logger: resourcesLogger });
 
   // ── Provider auth: remote-driven Pi login flows (sprint-055) ─────────────────
   const providerAuthLogger = logger.child({ component: "provider-auth" });

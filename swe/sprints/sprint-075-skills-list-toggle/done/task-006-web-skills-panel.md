@@ -1,7 +1,7 @@
 # Task 006 — Web: Settings → Skills panel (groups, rows, toggle, search)
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/settings, features/skills)
 - **Priority:** P1

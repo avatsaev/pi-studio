@@ -119,13 +119,20 @@ Two consequences for anyone touching the Pi integration:
   `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
   path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
   to a global `pi` on `$PATH`.
-- **Two places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
-  neither is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
-  `getSupportedThinkingLevels` + its 7-level ladder) and `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`). Both re-verified at 1.4.0: `splitRef` and pi-ai's
+- **Three places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+  none is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
+  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/curated-packs.ts`'s
+  `splitGitRef` (mirrors Pi's `splitRef`), and `resources/toggle-patterns.ts` (mirrors the
+  skill enable/disable pattern derivation of `ResourceList` in
+  `dist/modes/interactive/components/config-selector.js`, so a Settings → Skills toggle writes
+  exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component).
+  The first two were re-verified at 1.4.0: `splitRef` and pi-ai's
   `getSupportedThinkingLevels` (+ `EXTENDED_THINKING_LEVELS`) are byte-identical to 0.85.1, where
   `deriveThinkingLevels` was differential-tested against Pi's own `get_available_thinking_levels`
-  across all 199 models Pi reported — zero mismatches.
+  across all 199 models Pi reported — zero mismatches. `resources/pi-sdk.ts` is the single
+  importer of the Pi SDK symbols `SettingsManager`, `DefaultPackageManager` and
+  `loadSkillsFromDir` — re-check those exports and `DefaultPackageManager.resolve()`'s
+  skill-resolution behaviour on a bump.
 
 When bumping Pi, diff these surfaces against the previous version: `dist/modes/rpc/rpc-mode.js`
 and `rpc-types.d.ts` (RPC command/event surface), `dist/index.d.ts` (the `SessionManager` /
@@ -423,6 +430,21 @@ All communication uses a **single WebSocket connection** per client.
   Compact now / Cancel) and the composer's client-side `/compact [instructions]` built-in
   (`packages/web-client/AGENTS.md`); `pi-studio agent compact <id>` is the CLI path. `contextPercent`
   is Pi's 0–100 scale on every path.
+- **`skills_*`** (sprint-075, `swe/features/skills-manager.md`) is the Settings → Skills family.
+  `skills_list_request` re-derives the whole list from Pi on every call (Pi's
+  `DefaultPackageManager.resolve()` over `<agentDir>/settings.json`, `<agentDir>/skills`,
+  `~/.agents/skills`; no cache, no Pi-Studio state) and answers `{skills, packages}`;
+  `skills_set_enabled_request` writes the same `±pattern` filter `pi config` writes, through Pi's
+  own `SettingsManager` (the daemon never hand-edits `settings.json`), and answers the re-built
+  list. `skills_changed` is a broadcast with a plain-string `reason` (`"mutation"` before the
+  response to the caller, `"external"` after a debounced host-side edit of the watched files) —
+  like `terminals_update` there is no subscribe RPC; a client just re-lists. Failures are domain
+  `{ok:false, error}` answers (`not_found`, `settings_unreadable`), never `rpc_error`. **Production
+  bootstrap only**: the dev daemon advertises the `skills` flag (it advertises every
+  `SERVER_FEATURES` key) but answers `unknown_message_type`, so a client sees an error state
+  rather than a hidden category there. Consumed by `PiStudioClient`
+  (`listSkills`/`setSkillEnabled`/`onSkillsChanged`/`hasSkillsCapability`) and web-client's
+  Settings → Skills panel. Remove, update-all and install arrive in sprints 076–077.
 
 ---
 

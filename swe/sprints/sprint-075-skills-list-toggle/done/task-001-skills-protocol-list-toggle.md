@@ -1,7 +1,7 @@
 # Task 001 — Protocol: `skills_list` / `skills_set_enabled`, `skills_changed` push, `skills` flag
 
 - **Sprint:** sprint-075-skills-list-toggle
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1

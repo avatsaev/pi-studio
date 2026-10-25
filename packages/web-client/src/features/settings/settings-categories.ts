@@ -8,7 +8,7 @@
  */
 
 import { lazy } from "react";
-import { Atom, KeyRound, type LucideIcon } from "lucide-react";
+import { Atom, KeyRound, Puzzle, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
 /** Server capabilities a settings category may gate its availability on. Grows as new
@@ -16,6 +16,8 @@ import type { ComponentType } from "react";
  *  simply ignores this and always returns true. */
 export interface SettingsCategoryCapabilities {
   providerAuth: boolean;
+  /** sprint-075: `server_info.features.skills` — gates the Skills category. */
+  skills: boolean;
 }
 
 export interface SettingsCategory {
@@ -32,6 +34,10 @@ const ModelProvidersPanel = lazy(() =>
   })),
 );
 
+const SkillsPanel = lazy(() =>
+  import("../skills/SkillsPanel.js").then((m) => ({ default: m.SkillsPanel })),
+);
+
 const ViewersPanel = lazy(() =>
   import("./ViewersPanel.js").then((m) => ({ default: m.ViewersPanel })),
 );
@@ -43,6 +49,16 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: KeyRound,
     component: ModelProvidersPanel,
     available: (caps) => caps.providerAuth,
+  },
+  {
+    // sprint-075/task-006 — capability-gated (unlike Viewers): an old/dev daemon without the
+    // `skills` feature flag hides the category entirely rather than degrading in place, per
+    // swe/features/skills-manager.md § Error handling.
+    id: "skills",
+    label: "Skills",
+    icon: Puzzle,
+    component: SkillsPanel,
+    available: (caps) => caps.skills,
   },
   {
     // Capability-independent (sprint-073/task-006): the row this panel renders degrades to
@@ -65,5 +81,6 @@ export function buildSettingsCategoryCapabilities(
 ): SettingsCategoryCapabilities {
   return {
     providerAuth: Boolean(features?.["providerAuth"]),
+    skills: Boolean(features?.["skills"]),
   };
 }

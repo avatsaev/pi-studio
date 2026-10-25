@@ -211,6 +211,10 @@ const client = new PiStudioClient(daemonClient);
 | `respondToUi(id, response)`   | `Promise<AgentUiRespondResult>`  | `agent_ui_respond_request` RPC — returns, never throws, on a domain `not_found`/`unsupported`                   |
 | `listAgentUi(agentId?)`       | `Promise<{ pending, surfaces }>` | `agent_ui_list_request` RPC — throws `AgentUiError` on failure                                                  |
 | `extensionUiAvailable()`      | `boolean`                        | Whether the daemon advertised `extensionUi` — **not** `supportsExtensionUi()`, a different, provider-level flag |
+| `hasSkillsCapability()`       | `boolean`                        | Whether the daemon advertised `skills` (sprint-075)                                                             |
+| `listSkills()`                | `Promise<SkillsListResponse>`    | `skills_list_request` RPC — domain `{ok:false, error?}` returned, never thrown                                  |
+| `setSkillEnabled(path, on)`   | `Promise<SkillsSetEnabledResponse>` | `skills_set_enabled_request` RPC — resolves the full post-mutation `{skills, packages}` document             |
+| `onSkillsChanged(handler)`    | unsubscribe fn                   | Subscribe to `skills_changed` broadcasts (`handler(reason)`)                                                    |
 | `connection`                  | `DaemonClient`                   | Escape hatch to the underlying driver                                                                           |
 
 ### `PiStudioAgentActions` (from `agent(id)`)
