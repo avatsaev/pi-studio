@@ -311,6 +311,27 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
+      case "skills_remove_request": {
+        reply({
+          type: "skills_remove_response",
+          requestId,
+          ok: true,
+          skills: [],
+          packages: [],
+        });
+        return;
+      }
+      case "skills_update_all_request": {
+        reply({
+          type: "skills_update_all_response",
+          requestId,
+          ok: true,
+          results: [{ target: "agent-skills", ok: true }],
+          skills: [],
+          packages: [],
+        });
+        return;
+      }
       default:
         reply({ type: `${String(msg.type)}_response`, requestId, payload: { ok: true } });
     }

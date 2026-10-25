@@ -199,6 +199,51 @@ export function requiresCuratedConfirm(skill: SkillInfo, packages: PiPackageInfo
   return Boolean(pkg?.curated);
 }
 
+/**
+ * Confirm text for a single removable row's Remove button, by origin — swe/features/
+ * skills-manager.md § Remove. A symlinked entry takes priority over origin since any origin can
+ * in principle be a symlink on disk; `agents_dir` only gets the "every agent on this machine"
+ * wording when it also carries install provenance (a lock-tracked skill), matching the spec's
+ * "Agent Skills with provenance" case — a hand-placed `agents_dir` folder with no provenance
+ * falls through to the generic "plain dir" wording.
+ */
+export function skillRemoveConfirmText(skill: SkillInfo): string {
+  if (skill.symlinkTarget) {
+    return `Removes the link only; ${skill.symlinkTarget} is kept.`;
+  }
+  if (skill.origin === "agents_dir" && skill.provenance) {
+    return `Removes '${skill.name}' for every agent on this machine.`;
+  }
+  if (skill.origin === "settings_path") {
+    return `Stops loading ${skill.path}; files are kept.`;
+  }
+  return `Deletes ${skill.path}.`;
+}
+
+/** Confirm text for a package header's "Remove package" button — names the skill count before
+ *  `removeSkill({packageSource})` drops the whole `settings.json` entry (swe/features/
+ *  skills-manager.md § Remove: "Remove package lists the package's skill count"). */
+export function removePackageConfirmText(pkg: PiPackageInfo): string {
+  const n = pkg.skillCount;
+  return `Remove ${pkg.source}? This removes ${n} skill${n === 1 ? "" : "s"}.`;
+}
+
+/** Toolbar "Update all" confirm text, shipped verbatim from swe/features/skills-manager.md §
+ *  Update all. */
+export const UPDATE_ALL_CONFIRM_TEXT =
+  "Updates every Agent Skills skill and every unpinned Pi package; may take several minutes";
+
+const UPDATE_ALL_TARGET_LABELS: Record<string, string> = {
+  "agent-skills": "Agent Skills",
+  "pi-packages": "Pi packages",
+};
+
+/** Maps an `ItemResult.target` string to its result-row label; an unrecognized target (the
+ *  wire's open-string append-only convention) renders verbatim. */
+export function updateAllTargetLabel(target: string): string {
+  return UPDATE_ALL_TARGET_LABELS[target] ?? target;
+}
+
 const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   settings_unreadable:
     "Can't read settings.json — skills can't be loaded or changed until this is fixed.",

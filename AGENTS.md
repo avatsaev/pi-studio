@@ -68,7 +68,7 @@ auth-engine exception).
 | Concern | Choice |
 |---------|--------|
 | Language | TypeScript 7 (ESM, `"type": "module"`) |
-| Runtime | Node.js ≥ 20 (Node 24 in active development) |
+| Runtime | Node.js ≥ 22.20 (Node 24 in active development) |
 | Build | `tsc -b` per package; root `npm run build` chains them in dependency order |
 | Testing | Vitest (`npm test` at root) |
 | Lint | oxlint (`npm run lint`) |
@@ -76,6 +76,7 @@ auth-engine exception).
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
 | Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `^1.4.0`, see § Pi dependency posture |
+| Agent Skills CLI | `skills` (vercel-labs, **exact-pinned** in `packages/server`; spawned, never imported — `resolveSkillsCli()` reads its own `bin`). 1.7.x needs Node ≥ 22.20, which is why the repo floor is 22.20 (Pi 1.4.0 alone needs 22.19). `remove` is spawned **without `-a`**; `add` needs the source **before** `-s` |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -443,8 +444,15 @@ All communication uses a **single WebSocket connection** per client.
   bootstrap only**: the dev daemon advertises the `skills` flag (it advertises every
   `SERVER_FEATURES` key) but answers `unknown_message_type`, so a client sees an error state
   rather than a hidden category there. Consumed by `PiStudioClient`
-  (`listSkills`/`setSkillEnabled`/`onSkillsChanged`/`hasSkillsCapability`) and web-client's
-  Settings → Skills panel. Remove, update-all and install arrive in sprints 076–077.
+  (`listSkills`/`setSkillEnabled`/`removeSkill`/`updateAllSkills`/`onSkillsChanged`/
+  `hasSkillsCapability`) and web-client's Settings → Skills panel. **Sprint-076 added the two
+  spawned mutations**: `skills_remove_request` (exactly one of `path` | `packageSource`) and
+  `skills_update_all_request` (answers one `ItemResult` per engine, `agent-skills` /
+  `pi-packages`). Both run through the daemon's single FIFO queue (`list`/`set_enabled` bypass it)
+  with 600 s per-spawn timeouts; SDK timeouts are 660 s / 1 300 s. Every source string on the
+  wire (`PiPackageInfo.source`/`identity`, `SkillInfo.packageSource`, provenance) is passed
+  through `redactSource` — git credentials never reach a client or a log — and a remove-package
+  request is matched on that redacted form. Install arrives in sprint 077.
 
 ---
 

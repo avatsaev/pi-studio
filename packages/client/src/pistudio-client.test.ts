@@ -5,6 +5,8 @@ import * as clientIndex from "./index.js";
 import {
   AgentUiError,
   COMPACT_TIMEOUT_MS,
+  REMOVE_SKILL_TIMEOUT_MS,
+  UPDATE_ALL_SKILLS_TIMEOUT_MS,
   isAgentArchived,
   isAgentDeleted,
   isAgentUiRequest,
@@ -504,6 +506,50 @@ describe("PiStudioClient — skills (sprint-075)", () => {
     fake.push({ type: "skills_changed", reason: "external" });
     await flushProviderAuthMicrotasks();
     expect(seen).toHaveLength(1);
+  });
+
+  it("removeSkill sends skills_remove_request with path and the REMOVE_SKILL_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.removeSkill({ path: "/home/u/.pi/agent/skills/brave-search" });
+    expect(payload.ok).toBe(true);
+    const sent = fake.sent.find((m) => m.type === "skills_remove_request");
+    expect(sent).toEqual({
+      type: "skills_remove_request",
+      requestId: expect.any(String),
+      path: "/home/u/.pi/agent/skills/brave-search",
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_remove_request",
+      { path: "/home/u/.pi/agent/skills/brave-search" },
+      REMOVE_SKILL_TIMEOUT_MS,
+    );
+  });
+
+  it("removeSkill sends skills_remove_request with packageSource", async () => {
+    const { client, fake } = await makeFacade();
+    await client.removeSkill({ packageSource: "npm:some-pack" });
+    const sent = fake.sent.find((m) => m.type === "skills_remove_request");
+    expect(sent).toEqual({
+      type: "skills_remove_request",
+      requestId: expect.any(String),
+      packageSource: "npm:some-pack",
+    });
+  });
+
+  it("updateAllSkills sends skills_update_all_request with no payload and the UPDATE_ALL_SKILLS_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.updateAllSkills();
+    expect(payload.ok).toBe(true);
+    expect(payload.results).toEqual([{ target: "agent-skills", ok: true }]);
+    const sent = fake.sent.find((m) => m.type === "skills_update_all_request");
+    expect(sent).toEqual({ type: "skills_update_all_request", requestId: expect.any(String) });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_update_all_request",
+      {},
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    );
   });
 });
 

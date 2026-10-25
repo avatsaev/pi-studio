@@ -6,7 +6,7 @@
  * Real `fs`, no mocked readers; the real `~/.pi-studio`/`~/.agents` are never touched.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -133,6 +133,7 @@ function makeService(
   overrides: Partial<{
     broadcast: (sessions: Iterable<unknown>, message: unknown) => void;
     getActiveSessions: () => Iterable<unknown>;
+    spawn: ConstructorParameters<typeof ResourceService>[0]["spawn"];
   }> = {},
 ): InstanceType<typeof ResourceService> {
   const { broadcast } = overrides.broadcast
@@ -145,6 +146,7 @@ function makeService(
     getActiveSessions: overrides.getActiveSessions ?? (() => []),
     logger: silentLogger(),
     externalDebounceMs: TEST_DEBOUNCE_MS,
+    spawn: overrides.spawn,
   });
 }
 
@@ -342,5 +344,341 @@ describe("ResourceService — watcher (sprint-075/task-004)", () => {
     // have fired a stray "external" push if the own-write fold were broken.
     await sleep(TEST_DEBOUNCE_MS * 6);
     expect(calls).toEqual([{ type: "skills_changed", reason: "mutation" }]);
+  });
+});
+
+describe("ResourceService — queue, spawn, mutation tail (sprint-076/task-003)", () => {
+  it("two queued mutations run strictly in submission order; a concurrent setEnabled isn't blocked by the queue", async () => {
+    const fixture = await buildFixture();
+    const betaDir = join(fixture.home, ".agents", "skills", "beta");
+    await writeSkill(betaDir, "beta-skill");
+    const betaPath = join(betaDir, "SKILL.md");
+    const service = makeService(fixture);
+
+    const order: string[] = [];
+    const { promise: firstGate, resolve: releaseFirst } = Promise.withResolvers<void>();
+
+    const first = service.enqueueMutation("remove", "skills_repo", "first", async (ctx) => {
+      order.push("first-start");
+      await firstGate;
+      order.push("first-end");
+      return { ok: true, target: ctx.agentDir };
+    });
+    const second = service.enqueueMutation("remove", "skills_repo", "second", async () => {
+      order.push("second-start");
+      order.push("second-end");
+      return { ok: true };
+    });
+
+    // `setEnabled` bypasses the queue entirely (D21) — it must settle while the first mutation is
+    // still blocked on `firstGate`, proving it never waits behind the FIFO.
+    const toggleResult = await service.setEnabled(betaPath, false);
+    expect(toggleResult.ok).toBe(true);
+    expect(order).toEqual(["first-start"]); // `second` hasn't started yet — proves FIFO ordering.
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first-start", "first-end", "second-start", "second-end"]);
+  });
+
+  it("a timed-out spawn returns error:'timeout' and the queue proceeds to the next mutation", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture, {
+      spawn: () => Promise.resolve({ exitCode: null, stderr: "stuck", timedOut: true }),
+    });
+
+    const outcome = await service.runSpawn(["pi", "install", "npm:x"], {}, 1000);
+    expect(outcome).toEqual({ ok: false, error: "timeout", exitCode: null, stderr: "stuck" });
+
+    // The queue isn't wedged by the prior timeout — a subsequent queued mutation still runs.
+    const next = await service.enqueueMutation("remove", "skills_repo", "next", async () => ({
+      ok: true,
+    }));
+    expect(next.ok).toBe(true);
+  });
+
+  it("enqueueMutation logs the redacted source and broadcasts+re-lists even on failure", async () => {
+    const fixture = await buildFixture();
+    const { calls, broadcast } = makeBroadcastRecorder();
+    const service = makeService(fixture, { broadcast });
+
+    const result = await service.enqueueMutation(
+      "remove",
+      "skills_repo",
+      "git:https://user:tok@host/r?access_token=x",
+      async () => ({ ok: false, error: "remove_failed", stderr: "boom" }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("remove_failed");
+    expect(calls).toEqual([{ type: "skills_changed", reason: "mutation" }]);
+  });
+});
+
+describe("ResourceService.remove — remove-by-path (sprint-076/task-004)", () => {
+  it("removes a symlinked skill by unlinking the link only, leaving its target directory intact", async () => {
+    const fixture = await buildFixture();
+    const linkTarget = join(fixture.home, "link-target");
+    await writeSkill(linkTarget, "linked-skill");
+    const linkPath = join(fixture.agentDir, "skills", "linked");
+    await mkdir(join(fixture.agentDir, "skills"), { recursive: true });
+    await symlink(linkTarget, linkPath, "dir");
+    const skillPath = join(linkPath, "SKILL.md");
+    const service = makeService(fixture);
+
+    const result = await service.remove({ path: skillPath });
+    expect(result.ok).toBe(true);
+    expect(result.skills.find((s) => s.name === "linked-skill")).toBeUndefined();
+
+    await expect(readFile(join(linkTarget, "SKILL.md"), "utf8")).resolves.toContain("linked-skill");
+  });
+
+  it("lock-tracked removal spawns `skills remove -g -y <name>` without -a; the row disappears", async () => {
+    const fixture = await buildFixture();
+    const betaDir = join(fixture.home, ".agents", "skills", "beta");
+    await writeSkill(betaDir, "beta-skill");
+    const betaPath = join(betaDir, "SKILL.md");
+    const lockPath = join(fixture.home, ".agents", ".skill-lock.json");
+    await mkdir(join(fixture.home, ".agents"), { recursive: true });
+    await writeFile(
+      lockPath,
+      JSON.stringify({ version: 3, skills: { "beta-skill": { source: "owner/repo" } } }),
+      "utf8",
+    );
+
+    const calls: { command: string[]; env: Record<string, string> }[] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command, env }) => {
+        calls.push({ command, env: env as Record<string, string> });
+        await rm(betaDir, { recursive: true, force: true });
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.remove({ path: betaPath });
+    expect(result.ok).toBe(true);
+    expect(result.skills.find((s) => s.name === "beta-skill")).toBeUndefined();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toEqual(expect.arrayContaining(["remove", "-g", "-y", "beta-skill"]));
+    expect(calls[0]?.command).not.toContain("-a");
+    expect(calls[0]?.env.PI_CODING_AGENT_DIR).toBe(fixture.agentDir);
+  });
+
+  it("removes a settings_path entry from settings.skills, leaving its files on disk", async () => {
+    const fixture = await buildFixture();
+    const standaloneDir = join(fixture.home, "extra", "standalone");
+    await writeSkill(standaloneDir, "standalone-skill");
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ skills: [standaloneDir] }),
+      "utf8",
+    );
+    const skillPath = join(standaloneDir, "SKILL.md");
+    const service = makeService(fixture);
+
+    const result = await service.remove({ path: skillPath });
+    expect(result.ok).toBe(true);
+    expect(result.skills.find((s) => s.name === "standalone-skill")).toBeUndefined();
+
+    const settings = await readSettings(fixture.agentDir);
+    expect(settings.skills).toEqual([]);
+    await expect(readFile(skillPath, "utf8")).resolves.toContain("standalone-skill");
+  });
+
+  it("refuses and leaves untouched a dir whose realpath escapes its origin root via a symlinked ancestor", async () => {
+    const fixture = await buildFixture();
+    const outsideDir = join(fixture.home, "outside-root");
+    await writeSkill(join(outsideDir, "escaped"), "escaped-skill");
+    await mkdir(join(fixture.agentDir, "skills"), { recursive: true });
+    await symlink(outsideDir, join(fixture.agentDir, "skills", "trap"), "dir");
+    const skillPath = join(fixture.agentDir, "skills", "trap", "escaped", "SKILL.md");
+    const service = makeService(fixture);
+
+    const result = await service.remove({ path: skillPath });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("not_removable");
+    expect(result.skills.find((s) => s.name === "escaped-skill")).toBeDefined();
+
+    await expect(readFile(skillPath, "utf8")).resolves.toContain("escaped-skill");
+  });
+
+  it("a package row's own path answers not_removable", async () => {
+    const fixture = await buildFixture();
+    const packageRoot = join(fixture.home, "pkgs", "fake-pkg");
+    await writeSkill(join(packageRoot, "skills", "gamma"), "gamma-skill");
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ packages: [packageRoot] }),
+      "utf8",
+    );
+    const skillPath = join(packageRoot, "skills", "gamma", "SKILL.md");
+    const service = makeService(fixture);
+
+    const result = await service.remove({ path: skillPath });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("not_removable");
+  });
+
+  it("an unknown path answers not_found", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.remove({
+      path: join(fixture.agentDir, "skills", "nope", "SKILL.md"),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("not_found");
+  });
+
+  it("a spawn failure answers remove_failed with the spawn's stderr", async () => {
+    const fixture = await buildFixture();
+    const betaDir = join(fixture.home, ".agents", "skills", "beta");
+    await writeSkill(betaDir, "beta-skill");
+    const betaPath = join(betaDir, "SKILL.md");
+    const lockPath = join(fixture.home, ".agents", ".skill-lock.json");
+    await mkdir(join(fixture.home, ".agents"), { recursive: true });
+    await writeFile(
+      lockPath,
+      JSON.stringify({ version: 3, skills: { "beta-skill": { source: "owner/repo" } } }),
+      "utf8",
+    );
+    const service = makeService(fixture, {
+      spawn: () => Promise.resolve({ exitCode: 1, stderr: "boom" }),
+    });
+
+    const result = await service.remove({ path: betaPath });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("remove_failed");
+    expect(result.stderr).toBe("boom");
+  });
+});
+
+describe("ResourceService.remove — remove-by-package (sprint-076/task-004)", () => {
+  it("removes a whole package by spawning `pi remove <source>`", async () => {
+    const fixture = await buildFixture();
+    const packageRoot = join(fixture.home, "pkgs", "fake-pkg");
+    await writeSkill(join(packageRoot, "skills", "gamma"), "gamma-skill");
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ packages: [packageRoot] }),
+      "utf8",
+    );
+
+    const calls: { command: string[]; cwd?: string }[] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command, cwd }) => {
+        calls.push({ command, cwd });
+        await writeFile(
+          join(fixture.agentDir, "settings.json"),
+          JSON.stringify({ packages: [] }),
+          "utf8",
+        );
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.remove({ packageSource: packageRoot });
+    expect(result.ok).toBe(true);
+    expect(result.packages).toEqual([]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toEqual(expect.arrayContaining(["remove", packageRoot]));
+    // Relative local-path entries are relative to agentDir; `pi remove` resolves against its cwd.
+    expect(calls[0]?.cwd).toBe(fixture.agentDir);
+  });
+
+  it("never puts embedded git credentials on the wire, yet removes by the redacted source", async () => {
+    const fixture = await buildFixture();
+    const secret = "git:https://user:tok@127.0.0.1:1/r.git?access_token=sekret";
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ packages: [secret] }),
+      "utf8",
+    );
+
+    const calls: string[][] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command }) => {
+        calls.push(command);
+        await writeFile(
+          join(fixture.agentDir, "settings.json"),
+          JSON.stringify({ packages: [] }),
+          "utf8",
+        );
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const listed = await service.list();
+    const wireSource = listed.packages[0]?.source ?? "";
+    expect(JSON.stringify(listed)).not.toMatch(/sekret|user:tok/);
+
+    const result = await service.remove({ packageSource: wireSource });
+    expect(result.ok).toBe(true);
+    // The spawn receives the real settings entry, not the client's redacted echo.
+    expect(calls[0]).toContain(secret);
+  });
+
+  it("an unknown packageSource answers not_found", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+
+    const result = await service.remove({ packageSource: "npm:does-not-exist" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("not_found");
+  });
+});
+
+describe("ResourceService.updateAll (sprint-076/task-005)", () => {
+  it("spawns `skills update -g -y` then `pi update --extensions`, in sequence, with the spec's env", async () => {
+    const fixture = await buildFixture();
+    const calls: { command: string[]; env: Record<string, string> }[] = [];
+    const service = makeService(fixture, {
+      spawn: async ({ command, env }) => {
+        calls.push({ command, env: env as Record<string, string> });
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+
+    const result = await service.updateAll();
+    expect(result.ok).toBe(true);
+    expect(result.results).toEqual([
+      { target: "agent-skills", ok: true },
+      { target: "pi-packages", ok: true },
+    ]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.command.slice(-3)).toEqual(["update", "-g", "-y"]);
+    expect(calls[1]?.command.slice(-2)).toEqual(["update", "--extensions"]);
+    for (const call of calls) {
+      expect(call.env.PI_CODING_AGENT_DIR).toBe(fixture.agentDir);
+      expect(call.env.GIT_TERMINAL_PROMPT).toBe("0");
+    }
+  });
+
+  it("a failure in the first spawn still runs the second; results report each independently", async () => {
+    const fixture = await buildFixture();
+    let callCount = 0;
+    const service = makeService(fixture, {
+      spawn: () => {
+        callCount += 1;
+        return Promise.resolve(
+          callCount === 1
+            ? { exitCode: 1, stderr: "skills update failed" }
+            : { exitCode: 0, stderr: "" },
+        );
+      },
+    });
+
+    const result = await service.updateAll();
+    expect(callCount).toBe(2);
+    expect(result.ok).toBe(false);
+    expect(result.results[0]).toMatchObject({
+      target: "agent-skills",
+      ok: false,
+      error: "update_failed",
+    });
+    expect(result.results[1]).toMatchObject({ target: "pi-packages", ok: true });
   });
 });

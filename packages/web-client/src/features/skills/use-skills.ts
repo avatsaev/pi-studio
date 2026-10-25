@@ -1,17 +1,27 @@
 /**
- * `useSkillsQuery`/`useSkillToggle` — `skills_list_request` as a TanStack Query (mirrors
- * `use-provider-auth-list.ts`'s convention), invalidated by the daemon's `skills_changed` push,
- * plus an optimistic `skills_set_enabled_request` with exact-prior-value rollback and a per-row
- * inline error — the `use-skills.ts` half of swe/features/skills-manager.md § Data flow, § Toggle.
+ * `useSkillsQuery`/`useSkillToggle`/`useSkillRemove`/`useSkillUpdateAll` — `skills_list_request`
+ * as a TanStack Query (mirrors `use-provider-auth-list.ts`'s convention), invalidated by the
+ * daemon's `skills_changed` push, plus the four mutations: an optimistic
+ * `skills_set_enabled_request` with exact-prior-value rollback and a per-row inline error,
+ * `skills_remove_request` (single skill or whole package) and `skills_update_all_request`, both
+ * of which **replace** the cached `{skills, packages}` document with the response wholesale —
+ * never optimistic, per swe/features/skills-manager.md § Data flow: "install/remove/update
+ * replace query data with the response (never optimistic)". This is the `use-skills.ts` half of
+ * § Data flow, § Toggle, § Remove, § Update all.
  *
  * The optimistic row patch (`applyOptimisticSkillToggle`) is exported and tested standalone per
  * this package's no-jsdom convention (AGENTS.md § "Framework-free testing convention: no
- * jsdom") — `useSkillToggle` itself only wires it to `queryClient`/`client`, untested directly.
+ * jsdom") — the hooks themselves only wire it to `queryClient`/`client`, untested directly.
  */
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SkillInfo, SkillsListResponse } from "@av-pi-studio/protocol";
+import type {
+  PiPackageInfo,
+  SkillInfo,
+  SkillsListResponse,
+  SkillsUpdateAllResponse,
+} from "@av-pi-studio/protocol";
 import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
 import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
 import { skillErrorMessage } from "./skills-presentation.js";
@@ -122,4 +132,122 @@ export function useSkillToggle(): UseSkillToggle {
   }
 
   return { rowErrors, pending, toggle, clearRowError };
+}
+
+/** The wire's `{path}|{packageSource}` xor target — a single skill or a whole package. */
+export type SkillRemoveTarget =
+  | { path: string; packageSource?: undefined }
+  | { path?: undefined; packageSource: string };
+
+function removeTargetKey(target: SkillRemoveTarget): string {
+  return target.path ?? `package:${target.packageSource}`;
+}
+
+export interface UseSkillRemove {
+  /** Per-target in-flight flag, keyed by skill path or `package:<source>`. */
+  pending: Record<string, boolean>;
+  /** Per-target inline error from the most recent failed remove. */
+  errors: Record<string, string>;
+  removeSkill: (skill: SkillInfo) => Promise<void>;
+  removePackage: (pkg: PiPackageInfo) => Promise<void>;
+  clearError: (key: string) => void;
+}
+
+/** `skills_remove_request` for a single skill (`{path}`) or a whole package (`{packageSource}`):
+ *  no optimistic row removal — the response's `{skills, packages}` document replaces the cached
+ *  list wholesale on success (swe/features/skills-manager.md § Data flow), with a domain
+ *  `{ok:false}` or thrown transport error surfaced as `errors[key]` so the row/header stays in
+ *  place with an inline message rather than vanishing speculatively. */
+export function useSkillRemove(): UseSkillRemove {
+  const client = useConnectionStore((s) => s.client);
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function clearError(key: string) {
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  async function run(target: SkillRemoveTarget) {
+    if (!client) return;
+    const key = removeTargetKey(target);
+    clearError(key);
+    setPending((p) => ({ ...p, [key]: true }));
+    try {
+      const result = await client.removeSkill(target);
+      if (!result.ok) {
+        setErrors((prev) => ({
+          ...prev,
+          [key]: skillErrorMessage(result.error, result.message) ?? "Failed to remove.",
+        }));
+        return;
+      }
+      queryClient.setQueryData(rpcKeys.skillsList(), result);
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        [key]: err instanceof Error ? err.message : "Failed to remove.",
+      }));
+    } finally {
+      setPending((p) => {
+        const next = { ...p };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  return {
+    pending,
+    errors,
+    clearError,
+    removeSkill: (skill) => run({ path: skill.path }),
+    removePackage: (pkg) => run({ packageSource: pkg.source }),
+  };
+}
+
+export interface UseSkillUpdateAll {
+  pending: boolean;
+  result: SkillsUpdateAllResponse | null;
+  error: string | null;
+  updateAll: () => Promise<void>;
+  clearResult: () => void;
+}
+
+/** `skills_update_all_request`: no per-row targeting, no optimistic patch — the response's
+ *  `{skills, packages}` replaces the cached list wholesale on success, and the full response
+ *  (including its per-engine `results[]`) is kept so the panel can render the two result rows
+ *  (swe/features/skills-manager.md § Update all) until the next attempt or an explicit dismiss. */
+export function useSkillUpdateAll(): UseSkillUpdateAll {
+  const client = useConnectionStore((s) => s.client);
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<SkillsUpdateAllResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function updateAll() {
+    if (!client) return;
+    setPending(true);
+    setError(null);
+    try {
+      const response = await client.updateAllSkills();
+      if (!response.ok) {
+        setError(skillErrorMessage(response.error, response.message) ?? "Failed to update skills.");
+        return;
+      }
+      setResult(response);
+      queryClient.setQueryData(rpcKeys.skillsList(), response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update skills.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return { pending, result, error, updateAll, clearResult: () => setResult(null) };
 }

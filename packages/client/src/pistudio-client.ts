@@ -28,7 +28,9 @@ import type {
   ProviderAuthType,
   SessionMessage,
   SkillsListResponse,
+  SkillsRemoveResponse,
   SkillsSetEnabledResponse,
+  SkillsUpdateAllResponse,
   TimelineDirection,
   ViewerSettings,
   ViewerSettingsGetResponse,
@@ -61,6 +63,20 @@ import type { DaemonClient } from "./daemon-client.js";
  * this call (`rpcTimeoutMs ≠ socket death`); compaction progress keeps following the stream.
  */
 export const COMPACT_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * RPC timeout for `skills_remove_request`. The daemon bounds its own spawn at 600 s
+ * (`swe/architecture/pi-resource-management.md` § Timeouts); the SDK timeout is set above that so
+ * a slow `skills remove`/`pi remove` process reports its own `timeout` domain error before the
+ * client gives up and treats the socket as dead.
+ */
+export const REMOVE_SKILL_TIMEOUT_MS = 660 * 1000;
+
+/**
+ * RPC timeout for `skills_update_all_request`. Updates both engines (`agent-skills`, `pi-packages`)
+ * sequentially, each bounded at 600 s daemon-side; 1 300 s covers both spawns plus margin.
+ */
+export const UPDATE_ALL_SKILLS_TIMEOUT_MS = 1300 * 1000;
 
 // ─── Update handler types ─────────────────────────────────────────────────────
 
@@ -959,6 +975,36 @@ export class PiStudioClient {
       path,
       enabled,
     });
+  }
+
+  /** Removes one top-level skill by `path`, or one `settings.json` package by `packageSource` —
+   *  exactly one must be set — `skills_remove_request`. Resolves to the full post-mutation
+   *  `{skills, packages}` document (domain `{ok:false, error}` on failure, never thrown); the
+   *  daemon's own spawn bound is 600 s, so the SDK timeout (`REMOVE_SKILL_TIMEOUT_MS`) is set
+   *  above that rather than the client's default. */
+  async removeSkill(
+    target:
+      | { path: string; packageSource?: undefined }
+      | { path?: undefined; packageSource: string },
+  ): Promise<SkillsRemoveResponse> {
+    return this.daemon.request<SkillsRemoveResponse>(
+      "skills_remove_request",
+      target,
+      REMOVE_SKILL_TIMEOUT_MS,
+    );
+  }
+
+  /** Updates every removable skill engine (`agent-skills` via `skills update -g -y`, `pi-packages`
+   *  via `pi update --extensions`) — `skills_update_all_request`. Resolves to a per-engine
+   *  `results: ItemResult[]` (a mixed ok/failed array is expected, not an overall failure) plus the
+   *  full post-mutation `{skills, packages}` document. Both spawns are bounded at 600 s
+   *  daemon-side; `UPDATE_ALL_SKILLS_TIMEOUT_MS` covers both plus margin. */
+  async updateAllSkills(): Promise<SkillsUpdateAllResponse> {
+    return this.daemon.request<SkillsUpdateAllResponse>(
+      "skills_update_all_request",
+      {},
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    );
   }
 
   /** Subscribe to the daemon's `skills_changed` broadcast — fired after any mutation (this

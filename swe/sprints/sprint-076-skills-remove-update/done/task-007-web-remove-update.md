@@ -1,7 +1,7 @@
 # Task 007 — Web: Remove, Remove package, Update all
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/skills)
 - **Priority:** P1
@@ -34,9 +34,9 @@ Completes the second user-visible slice.
 
 ## Acceptance criteria
 
-- [ ] Packaged rows show no Remove
-- [ ] Each origin shows its confirm text
-- [ ] Update all shows per-engine results and the list refreshes
+- [x] Packaged rows show no Remove
+- [x] Each origin shows its confirm text
+- [x] Update all shows per-engine results and the list refreshes
 
 ## Test / verification plan
 

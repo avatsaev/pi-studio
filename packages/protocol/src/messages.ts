@@ -1412,6 +1412,84 @@ export const skillsChangedSchema = z
   .passthrough();
 export type SkillsChanged = z.infer<typeof skillsChangedSchema>;
 
+/**
+ * Base wire shape — used as the `sessionMessageSchema` union member (a `discriminatedUnion` entry
+ * must stay a `ZodObject`, so the xor-refine below wraps this one instead of replacing it).
+ */
+const skillsRemoveRequestShapeSchema = z
+  .object({
+    type: z.literal("skills_remove_request"),
+    requestId: z.string(),
+    path: z.string().optional(),
+    packageSource: z.string().optional(),
+  })
+  .passthrough();
+
+/**
+ * Exactly one of `path` (a top-level skill: `settings_path`/symlink/plain directory) or
+ * `packageSource` (a whole `settings.json` `packages[]` entry) must be set — never both, never
+ * neither. A package-owned skill's own `path` is rejected daemon-side as `not_removable`; this
+ * schema only enforces the wire shape/xor, not daemon-side removability.
+ */
+export const skillsRemoveRequestSchema = skillsRemoveRequestShapeSchema.refine(
+  (v) => (v.path !== undefined) !== (v.packageSource !== undefined),
+  { message: "exactly one of path or packageSource is required" },
+);
+export type SkillsRemoveRequest = z.infer<typeof skillsRemoveRequestSchema>;
+
+/**
+ * `stderr` is the spawned CLI's truncated (≤2048 bytes) stderr tail when the underlying `skills
+ * remove`/`pi remove` process failed; absent on success or on a pre-spawn domain error (e.g.
+ * `not_found`/`not_removable`). `ok`/`error` are domain fields, same idiom as `skills_list_response`.
+ */
+export const skillsRemoveResponseSchema = z
+  .object({
+    type: z.literal("skills_remove_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    stderr: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsRemoveResponse = z.infer<typeof skillsRemoveResponseSchema>;
+
+/** One engine's outcome inside an `ItemResult[]` list (used by `skills_update_all_response`). */
+export const itemResultSchema = z
+  .object({
+    target: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    stderr: z.string().optional(),
+  })
+  .passthrough();
+export type ItemResult = z.infer<typeof itemResultSchema>;
+
+export const skillsUpdateAllRequestSchema = z
+  .object({
+    type: z.literal("skills_update_all_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type SkillsUpdateAllRequest = z.infer<typeof skillsUpdateAllRequestSchema>;
+
+/** One `ItemResult` per engine (`agent-skills` via `skills update -g -y`, `pi-packages` via `pi update --extensions`); a mixed ok/failed `results` array is expected, not an overall failure. */
+export const skillsUpdateAllResponseSchema = z
+  .object({
+    type: z.literal("skills_update_all_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    results: z.array(itemResultSchema),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsUpdateAllResponse = z.infer<typeof skillsUpdateAllResponseSchema>;
+
 // ===========================================================================
 // Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
 // ===========================================================================
@@ -1650,6 +1728,10 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   skillsSetEnabledRequestSchema,
   skillsSetEnabledResponseSchema,
   skillsChangedSchema,
+  skillsRemoveRequestShapeSchema,
+  skillsRemoveResponseSchema,
+  skillsUpdateAllRequestSchema,
+  skillsUpdateAllResponseSchema,
   agentUiRequestSchema,
   agentUiResolvedSchema,
   agentUiRespondRequestSchema,

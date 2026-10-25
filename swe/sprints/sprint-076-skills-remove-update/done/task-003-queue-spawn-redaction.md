@@ -1,7 +1,7 @@
 # Task 003 — `ResourceService` FIFO queue, spawn runner, credential redaction, mutation logging
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -37,9 +37,9 @@ Remove and update (this sprint) and install (077) all run external commands; bui
 
 ## Acceptance criteria
 
-- [ ] Two queued operations run strictly in submission order; a `setEnabled` issued meanwhile completes immediately
-- [ ] A timed-out spawn returns `timeout` and the queue proceeds
-- [ ] `git:https://user:tok@host/r?access_token=x` is fully redacted
+- [x] Two queued operations run strictly in submission order; a `setEnabled` issued meanwhile completes immediately
+- [x] A timed-out spawn returns `timeout` and the queue proceeds
+- [x] `git:https://user:tok@host/r?access_token=x` is fully redacted
 
 ## Test / verification plan
 

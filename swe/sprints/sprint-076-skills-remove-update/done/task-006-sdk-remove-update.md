@@ -1,7 +1,7 @@
 # Task 006 — Client SDK: `removeSkill`, `updateAllSkills`
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1
@@ -33,7 +33,7 @@ Default 30 s RPC timeout would fail real removes/updates.
 
 ## Acceptance criteria
 
-- [ ] Requests carry the right payload and per-call timeout (fake transport)
+- [x] Requests carry the right payload and per-call timeout (fake transport)
 
 ## Test / verification plan
 

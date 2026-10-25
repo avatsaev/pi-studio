@@ -61,7 +61,7 @@ Pi SDK (`node_modules/@earendil-works/pi-coding-agent`, public exports of `dist/
 `skills` CLI 1.7.4 (MIT; `engines.node >=22.20.0`; bin `bin/cli.mjs`; deps `tar`, `yaml`; no
 `exports`/`main` — spawn only):
 
-- Agent `pi` is "universal": `add -g -a pi -y -s <names…> <src>` writes a real directory at
+- Agent `pi` is "universal": `add <src> -g -a pi -y -s <names…>` (source **before** `-s`: it is variadic and swallows a trailing source — verified live) writes a real directory at
   `~/.agents/skills/<sanitized-name>/` and a v3 lock entry (`~/.agents/.skill-lock.json`, or
   `$XDG_STATE_HOME/skills/.skill-lock.json`). Existing names are **silently overwritten**.
 - `remove -g -y <name>` **without `-a`** deletes the canonical copy, unlinks other agents' symlinks
@@ -225,7 +225,7 @@ install(source, picked?, replace?):
         # Unfiltered window = one locked file write between the two steps. Accepted (R8).
     skills_repo:
         picked required; names where exists && !replace ⇒ name_exists results, excluded
-        spawn skills add <url> -g -a pi -y -s <picked…>              (600 s)
+        spawn skills add <url> -g -a pi -y -s <picked…>   (source first in real argv)              (600 s)
         per name: ok iff agentsSkillsDir/<sanitized>/SKILL.md exists afterwards
     local_path: sm.setSkillPaths([...skills, "+" + absPath]); flush    # nothing copied
     broadcast; return {results, ...list()}
@@ -277,6 +277,11 @@ stderr tail ≤ 2 048 bytes.
 `redactSource`: strip `user[:password]@` from URL-like substrings and mask `token`/`access_token`
 query values. Applied to logs, stderr tails, and every wire `source`/`sourceUrl`. Info log per
 mutation `{op, kind, source, outcome, durationMs}`; warn on failure with the redacted tail.
+`wire.ts` redacts `PiPackageInfo.source`/`identity`, `SkillInfo.packageSource` and provenance, so a
+client only ever holds redacted strings; `skills_remove`'s `packageSource` is matched on its
+redacted form and the spawn receives the real settings entry (sprint-076 live finding).
+`pi remove <source>` is spawned with `cwd = agentDir`: Pi resolves a local-path source against its
+cwd, while settings entries are relative to the agentDir (otherwise "No matching package").
 
 ## Data & persistence touchpoints
 

@@ -214,7 +214,8 @@ const client = new PiStudioClient(daemonClient);
 | `hasSkillsCapability()`       | `boolean`                        | Whether the daemon advertised `skills` (sprint-075)                                                             |
 | `listSkills()`                | `Promise<SkillsListResponse>`    | `skills_list_request` RPC — domain `{ok:false, error?}` returned, never thrown                                  |
 | `setSkillEnabled(path, on)`   | `Promise<SkillsSetEnabledResponse>` | `skills_set_enabled_request` RPC — resolves the full post-mutation `{skills, packages}` document             |
-| `onSkillsChanged(handler)`    | unsubscribe fn                   | Subscribe to `skills_changed` broadcasts (`handler(reason)`)                                                    |
+| `removeSkill({path}\|{packageSource})` | `Promise<SkillsRemoveResponse>` | `skills_remove_request` RPC (sprint-076) — exactly one of `path`/`packageSource`; `REMOVE_SKILL_TIMEOUT_MS` (660 s) timeout; domain `{ok:false, error?}` returned, never thrown |
+| `updateAllSkills()`           | `Promise<SkillsUpdateAllResponse>` | `skills_update_all_request` RPC (sprint-076) — updates every engine; `UPDATE_ALL_SKILLS_TIMEOUT_MS` (1 300 s) timeout; resolves `results: ItemResult[]` (mixed ok/failed expected) plus `{skills, packages}` |
 | `connection`                  | `DaemonClient`                   | Escape hatch to the underlying driver                                                                           |
 
 ### `PiStudioAgentActions` (from `agent(id)`)
@@ -233,6 +234,11 @@ timeout instead of `DaemonClient`'s 30 s default — summarising a large context
 fails only that call (`RpcTimeoutError`; the socket stays up). The daemon rejects the request with
 `busy: …` when the agent is running or already compacting; the payload carries
 `estimatedTokensAfter`.
+
+`removeSkill()`/`updateAllSkills()` (sprint-076) similarly pass `REMOVE_SKILL_TIMEOUT_MS` (660 s)
+and `UPDATE_ALL_SKILLS_TIMEOUT_MS` (1 300 s) — the daemon bounds each spawned `skills`/`pi` CLI
+process at 600 s (`swe/architecture/pi-resource-management.md` § Timeouts), so the SDK timeout is
+set comfortably above that per-spawn bound (`updateAllSkills` covers two sequential spawns).
 
 | Method                         | RPC                                                                                                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

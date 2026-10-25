@@ -1,7 +1,7 @@
 # Task 008 — Sprint close: live E2E, docs, full gates
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide
 - **Priority:** P1
@@ -41,8 +41,8 @@ Docs: root `AGENTS.md` Node floor + tech-stack row for `skills` CLI + protocol b
 
 ## Acceptance criteria
 
-- [ ] Every step recorded with observed results
-- [ ] Full gates green
+- [x] Every step recorded with observed results
+- [x] Full gates green
 
 ## Test / verification plan
 

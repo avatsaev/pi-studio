@@ -1,7 +1,7 @@
 # Task 001 — Protocol: `skills_remove` and `skills_update_all`
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1
@@ -35,8 +35,8 @@ Extends the sprint-075 family; append-only.
 
 ## Acceptance criteria
 
-- [ ] Remove with both or neither of `path`/`packageSource` is rejected
-- [ ] Update-all response with mixed ok/failed results parses
+- [x] Remove with both or neither of `path`/`packageSource` is rejected
+- [x] Update-all response with mixed ok/failed results parses
 
 ## Test / verification plan
 

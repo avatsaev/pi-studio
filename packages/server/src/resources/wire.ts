@@ -1,13 +1,17 @@
 import type { PiPackageInfo, SkillInfo } from "@av-pi-studio/protocol";
 
 import type { CatalogPackage, CatalogSkill } from "./skill-catalog.js";
+import { redactSource } from "./spawn-runner.js";
 
 /**
  * Maps `skill-catalog.ts`'s internal `CatalogSkill`/`CatalogPackage` shapes to the wire's
  * `SkillInfo`/`PiPackageInfo` (swe/architecture/pi-resource-management.md § Public contract —
  * `wire.ts`) — the ONE mapping, used by `resource-service.ts`'s `list()`/`setEnabled()` so the
  * wire response can never drift from the internal catalog shape. Drops `CatalogSkill.baseDir`
- * (internal-only — task-004's own pattern-derivation input, never sent on the wire).
+ * (internal-only — task-004's own pattern-derivation input, never sent on the wire). Every
+ * source string leaving the daemon goes through `redactSource` (D29): a git remote's embedded
+ * credentials never reach a client. A client echoes that redacted string back for
+ * `skills_remove`, which `ResourceService` matches on its redacted form.
  */
 
 export function toSkillInfo(skill: CatalogSkill): SkillInfo {
@@ -18,13 +22,17 @@ export function toSkillInfo(skill: CatalogSkill): SkillInfo {
     enabled: skill.enabled,
     origin: skill.origin,
     originLabel: skill.originLabel,
-    packageSource: skill.packageSource,
+    packageSource:
+      skill.packageSource === undefined ? undefined : redactSource(skill.packageSource),
     shadowedBy: skill.shadowedBy,
     symlinkTarget: skill.symlinkTarget,
     provenance: skill.provenance
       ? {
-          source: skill.provenance.source,
-          sourceUrl: skill.provenance.sourceUrl,
+          source: redactSource(skill.provenance.source),
+          sourceUrl:
+            skill.provenance.sourceUrl === undefined
+              ? undefined
+              : redactSource(skill.provenance.sourceUrl),
           installedAt: skill.provenance.installedAt,
         }
       : undefined,
@@ -40,9 +48,9 @@ export function toSkillInfoList(skills: readonly CatalogSkill[]): SkillInfo[] {
 
 export function toPiPackageInfo(pkg: CatalogPackage): PiPackageInfo {
   return {
-    source: pkg.source,
+    source: redactSource(pkg.source),
     kind: pkg.kind,
-    identity: pkg.identity,
+    identity: redactSource(pkg.identity),
     pinned: pkg.pinned,
     curated: pkg.curated,
     filtered: pkg.filtered,

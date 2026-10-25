@@ -1,7 +1,7 @@
 # Task 004 — Remove: every skill origin and whole packages
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -33,11 +33,11 @@ Brief D9/D20: never follow symlinks, keep the skills CLI lock consistent, never 
 
 ## Acceptance criteria
 
-- [ ] Symlink removal leaves the target directory intact
-- [ ] Lock-tracked removal spawns `skills remove` without `-a` (asserted on argv) and the row disappears
-- [ ] Settings-path removal leaves files on disk
-- [ ] A dir whose realpath escapes its root is refused and untouched
-- [ ] Package removal spawns `pi remove <source>`
+- [x] Symlink removal leaves the target directory intact
+- [x] Lock-tracked removal spawns `skills remove -g -y <name>` without `-a` (asserted on argv) and the row disappears
+- [x] Settings-path removal leaves files on disk
+- [x] A dir whose realpath escapes its root is refused and untouched
+- [x] Package removal spawns `pi remove <source>`
 
 ## Test / verification plan
 

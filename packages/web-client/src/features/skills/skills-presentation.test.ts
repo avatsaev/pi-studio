@@ -4,8 +4,11 @@ import {
   buildSkillGroups,
   filterSkillGroups,
   packageHeaderBadges,
+  removePackageConfirmText,
   requiresCuratedConfirm,
   skillErrorMessage,
+  skillRemoveConfirmText,
+  updateAllTargetLabel,
 } from "./skills-presentation.js";
 
 function skill(overrides: Partial<SkillInfo> & Pick<SkillInfo, "name" | "path">): SkillInfo {
@@ -362,5 +365,99 @@ describe("skillErrorMessage", () => {
 
   it("renders an unknown error string verbatim", () => {
     expect(skillErrorMessage("some_future_error")).toBe("some_future_error");
+  });
+});
+
+describe("skillRemoveConfirmText", () => {
+  function removableSkill(overrides: Partial<SkillInfo> & Pick<SkillInfo, "name" | "path">) {
+    return skill({ removable: true, ...overrides });
+  }
+
+  it("symlink: 'Removes the link only; <target> is kept.'", () => {
+    const row = removableSkill({
+      name: "a",
+      path: "/agent/a",
+      origin: "agent_dir",
+      originLabel: "Pi skills",
+      symlinkTarget: "/real/a",
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Removes the link only; /real/a is kept.");
+  });
+
+  it("Agent Skills with provenance: \"Removes '<name>' for every agent on this machine.\"", () => {
+    const row = removableSkill({
+      name: "dup",
+      path: "/agents/dup",
+      origin: "agents_dir",
+      originLabel: "Agent Skills",
+      provenance: { source: "skills_repo" },
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Removes 'dup' for every agent on this machine.");
+  });
+
+  it("skill path: 'Stops loading <path>; files are kept.'", () => {
+    const row = removableSkill({
+      name: "s",
+      path: "/settings/s",
+      origin: "settings_path",
+      originLabel: "Skill paths",
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Stops loading /settings/s; files are kept.");
+  });
+
+  it("plain dir: 'Deletes <path>.'", () => {
+    const row = removableSkill({
+      name: "a",
+      path: "/agent/a",
+      origin: "agent_dir",
+      originLabel: "Pi skills",
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Deletes /agent/a.");
+  });
+
+  it("an agents_dir skill with no provenance falls through to the plain-dir wording", () => {
+    const row = removableSkill({
+      name: "hand",
+      path: "/agents/hand",
+      origin: "agents_dir",
+      originLabel: "Agent Skills",
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Deletes /agents/hand.");
+  });
+
+  it("a symlinked entry is reported as a symlink regardless of origin", () => {
+    const row = removableSkill({
+      name: "s",
+      path: "/settings/s",
+      origin: "settings_path",
+      originLabel: "Skill paths",
+      symlinkTarget: "/real/s",
+    });
+    expect(skillRemoveConfirmText(row)).toBe("Removes the link only; /real/s is kept.");
+  });
+});
+
+describe("removePackageConfirmText", () => {
+  it("names the source and skill count, pluralized", () => {
+    expect(removePackageConfirmText(pkg({ source: "npm:foo", skillCount: 3 }))).toBe(
+      "Remove npm:foo? This removes 3 skills.",
+    );
+  });
+
+  it("singular for exactly one skill", () => {
+    expect(removePackageConfirmText(pkg({ source: "npm:foo", skillCount: 1 }))).toBe(
+      "Remove npm:foo? This removes 1 skill.",
+    );
+  });
+});
+
+describe("updateAllTargetLabel", () => {
+  it("maps known targets", () => {
+    expect(updateAllTargetLabel("agent-skills")).toBe("Agent Skills");
+    expect(updateAllTargetLabel("pi-packages")).toBe("Pi packages");
+  });
+
+  it("renders an unknown target verbatim", () => {
+    expect(updateAllTargetLabel("future-engine")).toBe("future-engine");
   });
 });

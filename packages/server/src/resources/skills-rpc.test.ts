@@ -6,15 +6,19 @@
  * client would.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   skillsListResponseSchema,
+  skillsRemoveResponseSchema,
   skillsSetEnabledResponseSchema,
+  skillsUpdateAllResponseSchema,
   type SkillsListResponse,
+  type SkillsRemoveResponse,
   type SkillsSetEnabledResponse,
+  type SkillsUpdateAllResponse,
 } from "@av-pi-studio/protocol";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -96,7 +100,12 @@ function fakeSession(): FakeSession & Session {
 /** Boots a registry with the skills handlers registered — the same shape `bootstrap.ts` wires,
  *  minus the rest of the daemon. `sessions` is a mutable array so a test can register extra fake
  *  sessions before dispatching a `set` and observe the broadcast on all of them. */
-function boot(config: PersistedConfig): {
+function boot(
+  config: PersistedConfig,
+  overrides: Partial<{
+    spawn: ConstructorParameters<typeof ResourceService>[0]["spawn"];
+  }> = {},
+): {
   registry: HandlerRegistry;
   sessions: (FakeSession & Session)[];
 } {
@@ -113,6 +122,7 @@ function boot(config: PersistedConfig): {
     getActiveSessions: () => sessions,
     logger: silentLogger(),
     externalDebounceMs: 30,
+    spawn: overrides.spawn,
   });
   registerSkillsHandlers(registry, { service, logger: silentLogger() });
   return { registry, sessions };
@@ -154,6 +164,27 @@ async function rpcSetEnabled(
     session,
   );
   return skillsSetEnabledResponseSchema.parse(response);
+}
+
+async function rpcRemove(
+  registry: HandlerRegistry,
+  payload: Record<string, unknown>,
+  session?: FakeSession & Session,
+): Promise<SkillsRemoveResponse> {
+  const { response } = await dispatch(
+    registry,
+    { type: "skills_remove_request", ...payload },
+    session,
+  );
+  return skillsRemoveResponseSchema.parse(response);
+}
+
+async function rpcUpdateAll(
+  registry: HandlerRegistry,
+  session?: FakeSession & Session,
+): Promise<SkillsUpdateAllResponse> {
+  const { response } = await dispatch(registry, { type: "skills_update_all_request" }, session);
+  return skillsUpdateAllResponseSchema.parse(response);
 }
 
 function messageType(env: unknown): string | undefined {
@@ -246,6 +277,125 @@ describe("skills_set_enabled_request", () => {
     const pushIdx = caller.sent.findIndex((env) => messageType(env) === "skills_changed");
     const responseIdx = caller.sent.findIndex(
       (env) => messageType(env) === "skills_set_enabled_response",
+    );
+    expect(responseIdx).toBeGreaterThan(pushIdx);
+  });
+});
+
+describe("skills_remove_request", () => {
+  it("rejects a malformed (neither/both) request as a domain error, never rpc_error", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const { response } = await dispatch(registry, { type: "skills_remove_request" });
+    const parsed = skillsRemoveResponseSchema.parse(response);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toMatch(/invalid request/);
+
+    const both = await dispatch(registry, {
+      type: "skills_remove_request",
+      path: "a",
+      packageSource: "b",
+    });
+    const parsedBoth = skillsRemoveResponseSchema.parse(both.response);
+    expect(parsedBoth.ok).toBe(false);
+    expect(parsedBoth.error).toMatch(/invalid request/);
+  });
+
+  it("removes a settings_path skill by path and reflects it in a fresh list", async () => {
+    const fixture = await buildFixture();
+    const standaloneDir = join(fixture.home, "extra", "standalone");
+    await writeSkill(standaloneDir, "standalone-skill");
+    await writeFile(
+      join(fixture.agentDir, "settings.json"),
+      JSON.stringify({ skills: [standaloneDir] }),
+      "utf8",
+    );
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcRemove(registry, { path: join(standaloneDir, "SKILL.md") });
+    expect(res.ok).toBe(true);
+    expect(res.skills.find((s) => s.name === "standalone-skill")).toBeUndefined();
+
+    const list = await rpcList(registry);
+    expect(list.skills.find((s) => s.name === "standalone-skill")).toBeUndefined();
+  });
+
+  it("an unknown path answers not_found", async () => {
+    const fixture = await buildFixture();
+    const { registry } = boot(fixture.config);
+
+    const res = await rpcRemove(registry, {
+      path: join(fixture.agentDir, "skills", "nope", "SKILL.md"),
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("not_found");
+  });
+
+  it('broadcasts skills_changed("mutation") to every active session before the response', async () => {
+    const fixture = await buildFixture();
+    const alphaDir = join(fixture.agentDir, "skills", "alpha");
+    await writeSkill(alphaDir, "alpha-skill");
+    const { registry, sessions } = boot(fixture.config);
+    const caller = fakeSession();
+    const other = fakeSession();
+    sessions.push(caller, other);
+
+    await mkdir(join(fixture.agentDir, "skills", "linked-base"), { recursive: true });
+    await symlink(alphaDir, join(fixture.agentDir, "skills", "linked-base", "link"), "dir");
+    await rpcRemove(
+      registry,
+      { path: join(fixture.agentDir, "skills", "linked-base", "link", "SKILL.md") },
+      caller,
+    );
+
+    for (const s of [caller, other]) {
+      const idx = s.sent.findIndex((env) => messageType(env) === "skills_changed");
+      expect(idx, "session should receive the broadcast").not.toBe(-1);
+    }
+    const pushIdx = caller.sent.findIndex((env) => messageType(env) === "skills_changed");
+    const responseIdx = caller.sent.findIndex(
+      (env) => messageType(env) === "skills_remove_response",
+    );
+    expect(responseIdx).toBeGreaterThan(pushIdx);
+  });
+});
+
+describe("skills_update_all_request", () => {
+  it("spawns both engines and answers ok:true with one ItemResult per engine", async () => {
+    const fixture = await buildFixture();
+    const calls: string[][] = [];
+    const { registry } = boot(fixture.config, {
+      spawn: ({ command }) => {
+        calls.push(command);
+        return Promise.resolve({ exitCode: 0, stderr: "" });
+      },
+    });
+
+    const res = await rpcUpdateAll(registry);
+    expect(res.ok).toBe(true);
+    expect(res.results).toEqual([
+      { target: "agent-skills", ok: true },
+      { target: "pi-packages", ok: true },
+    ]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('broadcasts skills_changed("mutation") once to every active session before the response', async () => {
+    const fixture = await buildFixture();
+    const { registry, sessions } = boot(fixture.config, {
+      spawn: () => Promise.resolve({ exitCode: 0, stderr: "" }),
+    });
+    const caller = fakeSession();
+    sessions.push(caller);
+
+    await rpcUpdateAll(registry, caller);
+
+    const changedCount = caller.sent.filter((env) => messageType(env) === "skills_changed").length;
+    expect(changedCount).toBe(1);
+    const pushIdx = caller.sent.findIndex((env) => messageType(env) === "skills_changed");
+    const responseIdx = caller.sent.findIndex(
+      (env) => messageType(env) === "skills_update_all_response",
     );
     expect(responseIdx).toBeGreaterThan(pushIdx);
   });

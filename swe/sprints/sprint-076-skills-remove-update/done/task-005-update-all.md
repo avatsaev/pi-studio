@@ -1,7 +1,7 @@
 # Task 005 — `skills_update_all`: `skills update -g -y` + `pi update --extensions`
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (resources)
 - **Priority:** P1
@@ -30,8 +30,8 @@ Replaces the per-skill check (R5): both commands are idempotent and own their ow
 
 ## Acceptance criteria
 
-- [ ] Both commands spawned with the spec's argv/env (fake spawn)
-- [ ] A failure in the first still runs the second; results report each independently
+- [x] Both commands spawned with the spec's argv/env (fake spawn)
+- [x] A failure in the first still runs the second; results report each independently
 
 ## Test / verification plan
 

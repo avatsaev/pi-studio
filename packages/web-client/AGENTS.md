@@ -481,19 +481,38 @@ src/
                             provider-auth-store.ts (the one-flow-at-a-time hand-off between the
                             panel's action and the dialog: pending login + `AbortController` +
                             `attempt`, which `LoginDialog` keys on so a retry remounts clean)
-    skills/                 SkillsPanel (+ module.css — sprint-075/task-006, the Skills category:
-                            search box, collapsible origin/package groups, rows with a Switch,
-                            per-row inline error), skills-presentation.ts (+ test — pure:
+    skills/                 SkillsPanel (+ module.css — sprint-075/task-006 list+toggle, sprint-076/
+                            task-007 remove+update-all: search box, a toolbar Update all with
+                            confirm/busy/dismissible error and two collapsible per-engine result
+                            rows (`UpdateAllResults`, stderr collapsed by default), collapsible
+                            origin/package groups each with a header Remove package button (shown
+                            whenever the group has a `packageInfo`) and its own dismissible inline
+                            error, rows with a Switch + a per-row Remove `IconButton` (shown only
+                            when `skill.removable`, spinner while pending, dismissible inline
+                            error) — none of these remove/update RPCs patch the cache optimistically,
+                            see use-skills.ts below), skills-presentation.ts (+ test — pure:
                             `buildSkillGroups`/`filterSkillGroups` grouping+ordering+search,
                             `packageHeaderBadges`, `requiresCuratedConfirm`, `skillErrorMessage` —
-                            error-string → message, unknown strings verbatim), use-skills.ts
-                            (+ test — `useSkillsQuery` (`rpcKeys.skillsList()`, invalidated by
-                            `onSkillsChanged`), `useSkillToggle` (optimistic `setSkillEnabled`,
-                            exact-prior-value rollback + per-row `rowErrors` on a domain failure
-                            or thrown error — never a toast, see § Invariants "Skills panel toggle
-                            + curated confirm"); `applyOptimisticSkillToggle` exported standalone,
-                            same no-jsdom convention as `login-flow.ts`. Remove/Update all/Install
-                            are explicitly NOT rendered here — sprints 076–077.
+                            error-string → message, unknown strings verbatim —, `skillRemoveConfirmText`
+                            (origin-specific Remove confirm text), `removePackageConfirmText`
+                            (names the package's `skillCount`), `UPDATE_ALL_CONFIRM_TEXT` (shipped
+                            verbatim from the spec), `updateAllTargetLabel` (`"agent-skills"` →
+                            "Agent Skills", `"pi-packages"` → "Pi packages", unknown verbatim)),
+                            use-skills.ts (+ test — `useSkillsQuery` (`rpcKeys.skillsList()`,
+                            invalidated by `onSkillsChanged`), `useSkillToggle` (optimistic
+                            `setSkillEnabled`, exact-prior-value rollback + per-row `rowErrors` on
+                            a domain failure or thrown error — never a toast, see § Invariants
+                            "Skills panel toggle + curated confirm"), `useSkillRemove`
+                            (`skills_remove_request` for a skill `{path}` or a whole package
+                            `{packageSource}`, keyed `path`/`package:<source>`; NEVER optimistic —
+                            on success the response's `{skills, packages}` wholesale-replaces the
+                            cache, a domain failure or thrown error surfaces as `errors[key]`),
+                            `useSkillUpdateAll` (`skills_update_all_request`, no per-row target;
+                            on success wholesale-replaces the cache AND keeps the full response —
+                            including its `results[]` — until the next attempt or an explicit
+                            dismiss, so the panel can render its two result rows); `applyOptimisticSkillToggle`
+                            exported standalone, same no-jsdom convention as `login-flow.ts`.
+                            Install is explicitly NOT rendered here — sprint 077.
     chat/                   ChatPanel, Timeline (+ onboarding-nudge.ts — sprint-065/task-006's
                             pure `shouldShowProviderOnboardingNudge`: the empty-timeline slot
                             doubles as the "connect a model provider" CTA when the daemon has the
@@ -2586,3 +2605,32 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   package's updates.") the FIRST time per `packageSource` in a panel session
   (`SkillsPanel.tsx`'s own `confirmedCurated` state, not persisted) — `requiresCuratedConfirm`
   (`skills-presentation.ts`) is the pure predicate; a declined confirm is a no-op, no RPC sent.
+- **Skills panel Remove / Remove package / Update all (sprint-076/task-007).**
+  `use-skills.ts#useSkillRemove`/`useSkillUpdateAll` are deliberately NOT optimistic, unlike
+  `useSkillToggle` above — swe/features/skills-manager.md § Data flow: "install/remove/update
+  replace query data with the response (never optimistic)" — so a row/package header/result set
+  never disappears or changes speculatively; the row stays exactly as-is, busied and then either
+  gone (because the next `skills_list`/mutation response omits it) or showing an inline error,
+  until the real response lands. `SkillsPanel.tsx`'s row Remove `IconButton` renders only when
+  `skill.removable`; its confirm text is `skills-presentation.ts#skillRemoveConfirmText`'s
+  origin-specific wording (symlink wins over origin since any origin can be a symlink on disk;
+  `agents_dir` only gets the "every agent on this machine" wording when the row also carries
+  `provenance` — a lock-tracked skill — otherwise it falls through to the generic "Deletes
+  \<path\>." wording, since the spec's "Agent Skills with provenance" case is explicitly about
+  provenance, not origin alone). The package header's Remove package button always sends
+  `removeSkill({packageSource})`, never a skill `path`, confirmed by
+  `removePackageConfirmText` which names `PiPackageInfo.skillCount`. Toolbar Update all's confirm
+  text is `UPDATE_ALL_CONFIRM_TEXT`, shipped verbatim from § Update all; its two result rows
+  (`SkillsPanel.tsx#UpdateAllResults`) map each `ItemResult.target` through `updateAllTargetLabel`
+  and collapse `stderr` by default behind a "Show details" toggle, persisting until the next
+  Update all attempt or an explicit "Dismiss" click.
+  - **"Queued…" simplification, documented choice.** The spec names a "Queued…" state only for
+    two installs racing across windows (§ Error handling: "Two installs from two windows | Second
+    shows 'Queued…'"); install is out of scope this sprint and the spec leaves remove/update-all's
+    own queued-state trigger unspecified. Each control here only busies/disables itself
+    ("Working…"/spinner) while its own request is in flight — the daemon's own FIFO queueing (§
+    Acceptance: "Two clients installing at once both complete (FIFO)") means a same-window second
+    click is impossible anyway (the control is disabled), and a same-window click of an
+    *unrelated* control (e.g. Update all while a row Remove is pending) is allowed to fire
+    concurrently rather than being blocked, since nothing in the spec requires client-side
+    cross-mutation serialization and the daemon already serializes server-side.

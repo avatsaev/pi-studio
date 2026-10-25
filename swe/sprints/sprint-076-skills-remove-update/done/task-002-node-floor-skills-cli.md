@@ -1,7 +1,7 @@
 # Task 002 — Node floor ≥22.20, pinned `skills` dependency, `skills-cli.ts`
 
 - **Sprint:** sprint-076-skills-remove-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** repo root, packages/server
 - **Priority:** P1
@@ -36,9 +36,9 @@ The daemon can run the pinned `skills` CLI with the exact argv/env the spec requ
 
 ## Acceptance criteria
 
-- [ ] `resolveSkillsCli()` returns the path declared in the installed package's `bin` (test asserts equality, like the Pi CLI test)
-- [ ] `remove` argv never contains `-a`
-- [ ] `npm install` on a clean checkout under Node 22.20 succeeds
+- [x] `resolveSkillsCli()` returns the path declared in the installed package's `bin` (test asserts equality, like the Pi CLI test)
+- [x] `remove` argv never contains `-a`
+- [x] `npm install` on a clean checkout under Node 22.20 succeeds
 
 ## Test / verification plan
 

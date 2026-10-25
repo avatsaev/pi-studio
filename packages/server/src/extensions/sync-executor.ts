@@ -47,7 +47,13 @@ export interface SyncReport {
 /** Injectable process seam — tests pass a fake; production spawns the bundled pi. The seam owns
  *  the per-package timeout and the process-tree kill; the executor only interprets the result. */
 export interface InstallSpawn {
-  (args: { command: string[]; env: Record<string, string>; timeoutMs: number }): Promise<{
+  (args: {
+    command: string[];
+    env: Record<string, string>;
+    timeoutMs: number;
+    /** Working directory for the child; omitted = the daemon's own cwd. */
+    cwd?: string;
+  }): Promise<{
     exitCode: number | null;
     stderr: string;
     timedOut?: boolean;
@@ -60,10 +66,10 @@ const STDERR_TAIL_MAX = 2048;
 /** The production seam: spawns `command`, captures stderr (unbounded here — the executor bounds
  *  what it stores), and kills the whole process tree on timeout rather than just the direct child,
  *  so a `pi install` that itself forked a build/postinstall step doesn't linger. */
-export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs }) =>
+export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs, cwd }) =>
   new Promise((resolve, reject) => {
     const [bin, ...args] = command;
-    const child = spawn(bin as string, args, { env, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(bin as string, args, { env, cwd, stdio: ["ignore", "ignore", "pipe"] });
 
     let stderr = "";
     let timedOut = false;

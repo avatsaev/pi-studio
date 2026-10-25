@@ -61,11 +61,16 @@ import {
   sessionEnvelopeSchema,
   sessionMessageSchema,
   skillInfoSchema,
+  itemResultSchema,
   skillsChangedSchema,
   skillsListRequestSchema,
   skillsListResponseSchema,
+  skillsRemoveRequestSchema,
+  skillsRemoveResponseSchema,
   skillsSetEnabledRequestSchema,
   skillsSetEnabledResponseSchema,
+  skillsUpdateAllRequestSchema,
+  skillsUpdateAllResponseSchema,
   toolCallDetailSchema,
   viewerSettingsEntrySchema,
   viewerSettingsGetRequestSchema,
@@ -1459,6 +1464,157 @@ describe("skills (sprint-075/task-001)", () => {
     for (const [schema, message] of schemas) {
       const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
       expect(result.success, `${message.type} should parse with an unknown field`).toBe(true);
+      if (result.success && "fromTheFuture" in result.data) {
+        expect(result.data.fromTheFuture).toBe("kept");
+      }
+    }
+  });
+});
+
+describe("skills remove / update_all (sprint-076/task-001)", () => {
+  const fullSkill = {
+    name: "code-review",
+    description: "Review a diff",
+    path: "/home/user/.agents/skills/code-review",
+    enabled: true,
+    origin: "agents_dir",
+    originLabel: "~/.agents/skills",
+    removable: true,
+  };
+  const fullPackage = {
+    source: "npm:some-pack",
+    kind: "npm" as const,
+    identity: "some-pack@1.0.0",
+    pinned: true,
+    curated: true,
+    filtered: false,
+    skillCount: 3,
+  };
+  const fullItemResult = {
+    target: "agent-skills",
+    ok: false,
+    error: "update_failed",
+    stderr: "network unreachable",
+  };
+
+  it("itemResultSchema parses every documented field and a bare required-only row", () => {
+    expect(itemResultSchema.safeParse(fullItemResult).success).toBe(true);
+    expect(itemResultSchema.safeParse({ target: "pi-packages", ok: true }).success).toBe(true);
+  });
+
+  it("skills_remove_request accepts exactly one of path/packageSource and rejects both or neither", () => {
+    expect(
+      skillsRemoveRequestSchema.safeParse({
+        type: "skills_remove_request",
+        requestId: "r1",
+        path: "/home/user/.agents/skills/code-review",
+      }).success,
+    ).toBe(true);
+    expect(
+      skillsRemoveRequestSchema.safeParse({
+        type: "skills_remove_request",
+        requestId: "r1",
+        packageSource: "npm:some-pack",
+      }).success,
+    ).toBe(true);
+    expect(
+      skillsRemoveRequestSchema.safeParse({
+        type: "skills_remove_request",
+        requestId: "r1",
+        path: "/x",
+        packageSource: "npm:some-pack",
+      }).success,
+    ).toBe(false);
+    expect(
+      skillsRemoveRequestSchema.safeParse({
+        type: "skills_remove_request",
+        requestId: "r1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("skills_remove_request / skills_remove_response / skills_update_all_* parse through the session-message union", () => {
+    const cases: Record<string, unknown> = {
+      skills_remove_request: {
+        type: "skills_remove_request",
+        requestId: "r1",
+        path: "/home/user/.agents/skills/code-review",
+      },
+      skills_remove_response: {
+        type: "skills_remove_response",
+        requestId: "r1",
+        ok: true,
+        skills: [fullSkill],
+        packages: [fullPackage],
+      },
+      skills_update_all_request: { type: "skills_update_all_request", requestId: "r1" },
+      skills_update_all_response: {
+        type: "skills_update_all_response",
+        requestId: "r1",
+        ok: true,
+        results: [fullItemResult, { target: "pi-packages", ok: true }],
+        skills: [fullSkill],
+        packages: [fullPackage],
+      },
+    };
+    for (const [type, message] of Object.entries(cases)) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${type} should parse`).toBe(true);
+    }
+  });
+
+  it("a remove response with an unknown ok:false error string and a stderr tail still parses", () => {
+    const result = skillsRemoveResponseSchema.safeParse({
+      type: "skills_remove_response",
+      requestId: "r1",
+      ok: false,
+      error: "remove_failed",
+      stderr: "some stderr tail",
+      skills: [],
+      packages: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("an update_all response with mixed ok/failed results parses", () => {
+    const result = skillsUpdateAllResponseSchema.safeParse({
+      type: "skills_update_all_response",
+      requestId: "r1",
+      ok: true,
+      results: [
+        { target: "agent-skills", ok: true },
+        { target: "pi-packages", ok: false, error: "update_failed", stderr: "boom" },
+      ],
+      skills: [],
+      packages: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("unknown extra fields survive a parse round-trip on every new schema (passthrough)", () => {
+    const schemas = [
+      [skillsRemoveRequestSchema, { type: "skills_remove_request", requestId: "r1", path: "/x" }],
+      [
+        skillsRemoveResponseSchema,
+        { type: "skills_remove_response", requestId: "r1", ok: true, skills: [], packages: [] },
+      ],
+      [itemResultSchema, fullItemResult],
+      [skillsUpdateAllRequestSchema, { type: "skills_update_all_request", requestId: "r1" }],
+      [
+        skillsUpdateAllResponseSchema,
+        {
+          type: "skills_update_all_response",
+          requestId: "r1",
+          ok: true,
+          results: [],
+          skills: [],
+          packages: [],
+        },
+      ],
+    ] as const;
+    for (const [schema, message] of schemas) {
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success).toBe(true);
       if (result.success && "fromTheFuture" in result.data) {
         expect(result.data.fromTheFuture).toBe("kept");
       }
