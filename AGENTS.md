@@ -75,7 +75,7 @@ auth-engine exception).
 | Format | oxfmt (`npm run fmt`) |
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
-| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `^1.1.0`, see § Pi dependency posture |
+| Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `^1.4.0`, see § Pi dependency posture |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -89,7 +89,7 @@ auth-engine exception).
 
 ## Pi dependency posture
 
-`@earendil-works/pi-coding-agent` is ranged **`^1.1.0`** in `packages/server` and `packages/cli`
+`@earendil-works/pi-coding-agent` is ranged **`^1.4.0`** in `packages/server` and `packages/cli`
 (kept identical — the CLI resolves the same bundled binary the daemon spawns).
 
 Pi is 1.x, so ordinary semver applies: the caret accepts Pi's minor and patch releases and stops at
@@ -104,9 +104,12 @@ an explicit `npm update @earendil-works/pi-coding-agent` (or `npm install
 The daemon relies on RPC surface added during the 0.86–1.1 line, so `agents.providers.pi.command`
 overrides must point at a Pi **≥ 1.1.0** too: `runSlashPrompt` reads the `prompt` ack's
 `data.disposition` (Pi ≥ 0.99.0) to tell an inline extension command from a started run, and the
-event mapper reads `agent_settled.aborted` (Pi ≥ 1.1.0). Since 1.0.1 Pi no longer publishes an
-`npm-shrinkwrap.json`, so a global `npm install -g @av-pi-studio/cli` resolves Pi's own
-`@earendil-works/*` dependencies by range rather than Pi's pins; the repo lockfile still pins them.
+event mapper reads `agent_settled.aborted` (Pi ≥ 1.1.0). The `^1.4.0` floor is not an RPC
+requirement — it matches the tested version and guarantees 1.4.0's compaction fixes
+(`/compact <instructions>` honoured across split turns, summaries no longer capped by a fixed
+output limit). Pi ships no `npm-shrinkwrap.json` (since 1.0.1), but since 1.3.0 it pins its own
+`@earendil-works/*` dependencies to exact versions, so a global `npm install -g @av-pi-studio/cli`
+gets a coherent Pi dependency set; the repo lockfile pins them too.
 
 Two consequences for anyone touching the Pi integration:
 
@@ -119,7 +122,7 @@ Two consequences for anyone touching the Pi integration:
 - **Two places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
   neither is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
   `getSupportedThinkingLevels` + its 7-level ladder) and `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`). Both re-verified at 1.1.0: `splitRef` and pi-ai's
+  `splitGitRef` (mirrors Pi's `splitRef`). Both re-verified at 1.4.0: `splitRef` and pi-ai's
   `getSupportedThinkingLevels` (+ `EXTENDED_THINKING_LEVELS`) are byte-identical to 0.85.1, where
   `deriveThinkingLevels` was differential-tested against Pi's own `get_available_thinking_levels`
   across all 199 models Pi reported — zero mismatches.
@@ -131,7 +134,7 @@ and `rpc-types.d.ts` (RPC command/event surface), `dist/index.d.ts` (the `Sessio
 Also diff `dist/core/agent-session.d.ts`: 0.85.0 dropped `auto_retry_end` from the declared
 session-event union while the bundle still emits it, so treat that file's event union as
 advisory — `event-mapper.ts` switches on a loose `string`, and its `auto_retry_end` case is
-still live (still emitted as of 1.1.0). A `.d.ts` deletion there is not proof an event stopped
+still live (still emitted as of 1.4.0). A `.d.ts` deletion there is not proof an event stopped
 being emitted; grep `dist/bundle/chunks/` before removing a mapper case. As of 1.1.0 Pi also
 streams `message_start`/`message_end` for `role: "system"` messages and persists them as `message`
 session entries (mid-conversation prompt/tool changes), alongside new `context_edit`/`usage` entry
