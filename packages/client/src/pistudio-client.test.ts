@@ -5,6 +5,11 @@ import * as clientIndex from "./index.js";
 import {
   AgentUiError,
   COMPACT_TIMEOUT_MS,
+  detectSkillSource,
+  INSTALL_SKILLS_TIMEOUT_MS,
+  PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+  REMOVE_SKILL_TIMEOUT_MS,
+  UPDATE_ALL_SKILLS_TIMEOUT_MS,
   isAgentArchived,
   isAgentDeleted,
   isAgentUiRequest,
@@ -443,6 +448,182 @@ describe("PiStudioClient — viewer settings (sprint-073)", () => {
     });
     await flushProviderAuthMicrotasks();
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe("PiStudioClient — skills (sprint-075)", () => {
+  it("hasSkillsCapability reflects the daemon's skills flag", async () => {
+    const { client: withFlag } = await makeFacade({ features: { skills: true } });
+    expect(withFlag.hasSkillsCapability()).toBe(true);
+
+    const { client: withoutFlag } = await makeFacade({ features: { providersSnapshot: true } });
+    expect(withoutFlag.hasSkillsCapability()).toBe(false);
+  });
+
+  it("listSkills sends skills_list_request and resolves the typed response", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.listSkills();
+    expect(payload.ok).toBe(true);
+    expect(payload.skills).toEqual([
+      {
+        name: "brave-search",
+        path: "/home/u/.pi/agent/skills/brave-search",
+        enabled: true,
+        origin: "agent_dir",
+        originLabel: "User",
+        removable: true,
+      },
+    ]);
+    const sent = fake.sent.find((m) => m.type === "skills_list_request");
+    expect(sent).toEqual({ type: "skills_list_request", requestId: expect.any(String) });
+  });
+
+  it("setSkillEnabled sends skills_set_enabled_request with path/enabled and resolves the typed response", async () => {
+    const { client, fake } = await makeFacade();
+    const payload = await client.setSkillEnabled("/home/u/.pi/agent/skills/brave-search", false);
+    expect(payload.ok).toBe(true);
+    expect(payload.skills[0]).toMatchObject({
+      path: "/home/u/.pi/agent/skills/brave-search",
+      enabled: false,
+    });
+    const sent = fake.sent.find((m) => m.type === "skills_set_enabled_request");
+    expect(sent).toEqual({
+      type: "skills_set_enabled_request",
+      requestId: expect.any(String),
+      path: "/home/u/.pi/agent/skills/brave-search",
+      enabled: false,
+    });
+  });
+
+  it("onSkillsChanged fires only for skills_changed pushes; unsubscribe stops delivery", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: string[] = [];
+    const unsubscribe = client.onSkillsChanged((reason) => seen.push(reason));
+
+    fake.push({ type: "agent_update", agentId: "a1", status: "idle" });
+    fake.push({ type: "skills_changed", reason: "mutation" });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toEqual(["mutation"]);
+
+    unsubscribe();
+    fake.push({ type: "skills_changed", reason: "external" });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toHaveLength(1);
+  });
+
+  it("removeSkill sends skills_remove_request with path and the REMOVE_SKILL_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.removeSkill({ path: "/home/u/.pi/agent/skills/brave-search" });
+    expect(payload.ok).toBe(true);
+    const sent = fake.sent.find((m) => m.type === "skills_remove_request");
+    expect(sent).toEqual({
+      type: "skills_remove_request",
+      requestId: expect.any(String),
+      path: "/home/u/.pi/agent/skills/brave-search",
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_remove_request",
+      { path: "/home/u/.pi/agent/skills/brave-search" },
+      REMOVE_SKILL_TIMEOUT_MS,
+    );
+  });
+
+  it("removeSkill sends skills_remove_request with packageSource", async () => {
+    const { client, fake } = await makeFacade();
+    await client.removeSkill({ packageSource: "npm:some-pack" });
+    const sent = fake.sent.find((m) => m.type === "skills_remove_request");
+    expect(sent).toEqual({
+      type: "skills_remove_request",
+      requestId: expect.any(String),
+      packageSource: "npm:some-pack",
+    });
+  });
+
+  it("updateAllSkills sends skills_update_all_request with no payload and the UPDATE_ALL_SKILLS_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.updateAllSkills();
+    expect(payload.ok).toBe(true);
+    expect(payload.results).toEqual([{ target: "agent-skills", ok: true }]);
+    const sent = fake.sent.find((m) => m.type === "skills_update_all_request");
+    expect(sent).toEqual({ type: "skills_update_all_request", requestId: expect.any(String) });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_update_all_request",
+      {},
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    );
+  });
+  it("previewSkillSource sends skills_preview_request with source and the PREVIEW_SKILL_SOURCE_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.previewSkillSource("vercel-labs/agent-skills");
+    expect(payload.ok).toBe(true);
+    expect(payload.kind).toBe("skills_repo");
+    expect(payload.skills).toEqual([
+      {
+        name: "code-review",
+        description: "Review a diff",
+        relPath: "skills/code-review",
+        valid: true,
+        exists: false,
+      },
+    ]);
+    const sent = fake.sent.find((m) => m.type === "skills_preview_request");
+    expect(sent).toEqual({
+      type: "skills_preview_request",
+      requestId: expect.any(String),
+      source: "vercel-labs/agent-skills",
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_preview_request",
+      { source: "vercel-labs/agent-skills" },
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+    );
+  });
+
+  it("installSkills sends skills_install_request with source/skills/replace and the INSTALL_SKILLS_TIMEOUT_MS timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const payload = await client.installSkills({
+      source: "vercel-labs/agent-skills",
+      skills: ["code-review"],
+      replace: true,
+    });
+    expect(payload.ok).toBe(true);
+    expect(payload.results).toEqual([{ target: "vercel-labs/agent-skills", ok: true }]);
+    const sent = fake.sent.find((m) => m.type === "skills_install_request");
+    expect(sent).toEqual({
+      type: "skills_install_request",
+      requestId: expect.any(String),
+      source: "vercel-labs/agent-skills",
+      skills: ["code-review"],
+      replace: true,
+    });
+    expect(spy).toHaveBeenLastCalledWith(
+      "skills_install_request",
+      { source: "vercel-labs/agent-skills", skills: ["code-review"], replace: true },
+      INSTALL_SKILLS_TIMEOUT_MS,
+    );
+  });
+
+  it("installSkills omits skills/replace when not provided", async () => {
+    const { client, fake } = await makeFacade();
+    await client.installSkills({ source: "npm:some-pack" });
+    const sent = fake.sent.find((m) => m.type === "skills_install_request");
+    expect(sent).toEqual({
+      type: "skills_install_request",
+      requestId: expect.any(String),
+      source: "npm:some-pack",
+    });
+  });
+
+  it("detectSkillSource is re-exported from the client package (sprint-077/task-006)", () => {
+    expect(detectSkillSource("npm:some-pack")).toEqual({
+      kind: "pi_npm",
+      normalized: "npm:some-pack",
+    });
+    expect(detectSkillSource("not a valid source")).toBeNull();
   });
 });
 

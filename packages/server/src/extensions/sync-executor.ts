@@ -47,25 +47,35 @@ export interface SyncReport {
 /** Injectable process seam — tests pass a fake; production spawns the bundled pi. The seam owns
  *  the per-package timeout and the process-tree kill; the executor only interprets the result. */
 export interface InstallSpawn {
-  (args: { command: string[]; env: Record<string, string>; timeoutMs: number }): Promise<{
+  (args: {
+    command: string[];
+    env: Record<string, string>;
+    timeoutMs: number;
+    /** Working directory for the child; omitted = the daemon's own cwd. */
+    cwd?: string;
+  }): Promise<{
     exitCode: number | null;
     stderr: string;
+    /** Tail of stdout (bounded). Only the `skills` CLI needs it — it reports failures there. */
+    stdout?: string;
     timedOut?: boolean;
   }>;
 }
 
 const INSTALL_TIMEOUT_MS = 180_000;
 const STDERR_TAIL_MAX = 2048;
+const STDOUT_TAIL_MAX = 16_384;
 
 /** The production seam: spawns `command`, captures stderr (unbounded here — the executor bounds
  *  what it stores), and kills the whole process tree on timeout rather than just the direct child,
  *  so a `pi install` that itself forked a build/postinstall step doesn't linger. */
-export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs }) =>
+export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs, cwd }) =>
   new Promise((resolve, reject) => {
     const [bin, ...args] = command;
-    const child = spawn(bin as string, args, { env, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(bin as string, args, { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
 
     let stderr = "";
+    let stdout = "";
     let timedOut = false;
     let settled = false;
 
@@ -77,6 +87,10 @@ export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs }) =
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
+    });
+    // Drained (an unread pipe would block the child) but kept bounded: only the tail matters.
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = (stdout + chunk.toString("utf8")).slice(-STDOUT_TAIL_MAX);
     });
 
     child.on("error", (err) => {
@@ -90,7 +104,7 @@ export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs }) =
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode: code, stderr, timedOut });
+      resolve({ exitCode: code, stderr, stdout, timedOut });
     });
   });
 

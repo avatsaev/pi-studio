@@ -1,0 +1,226 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-10);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  flex-shrink: 0;
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-8) var(--pi-spacing-6);
+  background: transparent;
+  border: none;
+  border-radius: var(--pi-radius-md);
+  color: var(--pi-color-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.groupHeader:hover {
+  background: var(--pi-color-surface2);
+}
+
+.chevronExpanded {
+  transform: rotate(90deg);
+}
+
+.groupLabel {
+  font-size: var(--pi-font-size-xs);
+  font-weight: 600;
+  color: var(--pi-color-foregroundMuted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.groupBadges {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+}
+
+.groupCount {
+  margin-left: auto;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  padding-left: var(--pi-spacing-16);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  min-width: 0;
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameMuted {
+  composes: name;
+  color: var(--pi-color-foregroundMuted);
+}
+
+.badge {
+  flex-shrink: 0;
+}
+
+.description {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.descriptionMuted {
+  composes: description;
+  opacity: 0.7;
+}
+
+.rowError {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-statusDanger);
+  text-align: left;
+}
+
+.footnote {
+  margin: 0;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.errorState {
+  color: var(--pi-color-statusDanger);
+}
+
+.removePackageBtn {
+  margin-left: var(--pi-spacing-6);
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-6);
+  flex-shrink: 0;
+}
+
+.updateAllResults {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-8) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface1);
+}
+
+.updateAllResultRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-4);
+}
+
+.updateAllResultHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  min-width: 0;
+}
+
+.updateAllResultLabel {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.updateAllResultError {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-statusDanger);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.updateAllResultToggle {
+  margin-left: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  text-decoration: underline;
+}
+
+.updateAllResultStderr {
+  margin: 0;
+  padding: var(--pi-spacing-6) var(--pi-spacing-8);
+  background: var(--pi-color-surface2);
+  border-radius: var(--pi-radius-sm);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}

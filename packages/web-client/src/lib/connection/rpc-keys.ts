@@ -37,4 +37,7 @@ export const rpcKeys = {
   agentCommands: (sessionId: string) => ["agents", "commands", sessionId] as const,
   /** sprint-065: `listProviderAuth()` result — invalidated after a login (task-004) or logout. */
   providerAuthList: () => ["providers", "auth", "list"] as const,
+  /** sprint-075: `listSkills()` result — invalidated by `onSkillsChanged` and by a successful
+   *  toggle's post-mutation response. */
+  skillsList: () => ["skills", "list"] as const,
 };

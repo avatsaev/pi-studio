@@ -32,6 +32,7 @@ describe("capability flag sets", () => {
         "terminal-restore-modes",
         "thinkingLevels",
         "viewerSettings",
+        "skills",
       ].toSorted(),
     );
   });

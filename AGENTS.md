@@ -68,7 +68,7 @@ auth-engine exception).
 | Concern | Choice |
 |---------|--------|
 | Language | TypeScript 7 (ESM, `"type": "module"`) |
-| Runtime | Node.js ≥ 20 (Node 24 in active development) |
+| Runtime | Node.js ≥ 22.20 (Node 24 in active development) |
 | Build | `tsc -b` per package; root `npm run build` chains them in dependency order |
 | Testing | Vitest (`npm test` at root) |
 | Lint | oxlint (`npm run lint`) |
@@ -76,6 +76,7 @@ auth-engine exception).
 | Schema validation | Zod 3 |
 | WS library | `ws` (server), native `WebSocket` / injected transport (client) |
 | Agent runtime | `@earendil-works/pi-coding-agent` (bundles `pi --mode rpc`, the `pi` provider spawns it) — ranged `^1.4.0`, see § Pi dependency posture |
+| Agent Skills CLI | `skills` (vercel-labs, **exact-pinned** in `packages/server`; spawned, never imported — `resolveSkillsCli()` reads its own `bin`). 1.7.x needs Node ≥ 22.20, which is why the repo floor is 22.20 (Pi 1.4.0 alone needs 22.19). `remove` is spawned **without `-a`**; `add` needs the source **before** `-s` |
 | PTY | `node-pty` |
 | Terminal emulation | `@xterm/headless` |
 | Logging | `pino` + `pino-pretty` + `rotating-file-stream` |
@@ -119,13 +120,20 @@ Two consequences for anyone touching the Pi integration:
   `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
   path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
   to a global `pi` on `$PATH`.
-- **Two places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
-  neither is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
-  `getSupportedThinkingLevels` + its 7-level ladder) and `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`). Both re-verified at 1.4.0: `splitRef` and pi-ai's
+- **Three places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+  none is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
+  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/curated-packs.ts`'s
+  `splitGitRef` (mirrors Pi's `splitRef`), and `resources/toggle-patterns.ts` (mirrors the
+  skill enable/disable pattern derivation of `ResourceList` in
+  `dist/modes/interactive/components/config-selector.js`, so a Settings → Skills toggle writes
+  exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component).
+  The first two were re-verified at 1.4.0: `splitRef` and pi-ai's
   `getSupportedThinkingLevels` (+ `EXTENDED_THINKING_LEVELS`) are byte-identical to 0.85.1, where
   `deriveThinkingLevels` was differential-tested against Pi's own `get_available_thinking_levels`
-  across all 199 models Pi reported — zero mismatches.
+  across all 199 models Pi reported — zero mismatches. `resources/pi-sdk.ts` is the single
+  importer of the Pi SDK symbols `SettingsManager`, `DefaultPackageManager` and
+  `loadSkillsFromDir` — re-check those exports and `DefaultPackageManager.resolve()`'s
+  skill-resolution behaviour on a bump.
 
 When bumping Pi, diff these surfaces against the previous version: `dist/modes/rpc/rpc-mode.js`
 and `rpc-types.d.ts` (RPC command/event surface), `dist/index.d.ts` (the `SessionManager` /
@@ -423,6 +431,39 @@ All communication uses a **single WebSocket connection** per client.
   Compact now / Cancel) and the composer's client-side `/compact [instructions]` built-in
   (`packages/web-client/AGENTS.md`); `pi-studio agent compact <id>` is the CLI path. `contextPercent`
   is Pi's 0–100 scale on every path.
+- **`skills_*`** (sprint-075, `swe/features/skills-manager.md`) is the Settings → Skills family.
+  `skills_list_request` re-derives the whole list from Pi on every call (Pi's
+  `DefaultPackageManager.resolve()` over `<agentDir>/settings.json`, `<agentDir>/skills`,
+  `~/.agents/skills`; no cache, no Pi-Studio state) and answers `{skills, packages}`;
+  `skills_set_enabled_request` writes the same `±pattern` filter `pi config` writes, through Pi's
+  own `SettingsManager` (the daemon never hand-edits `settings.json`), and answers the re-built
+  list. `skills_changed` is a broadcast with a plain-string `reason` (`"mutation"` before the
+  response to the caller, `"external"` after a debounced host-side edit of the watched files) —
+  like `terminals_update` there is no subscribe RPC; a client just re-lists. Failures are domain
+  `{ok:false, error}` answers (`not_found`, `settings_unreadable`), never `rpc_error`. **Production
+  bootstrap only**: the dev daemon advertises the `skills` flag (it advertises every
+  `SERVER_FEATURES` key) but answers `unknown_message_type`, so a client sees an error state
+  rather than a hidden category there. Consumed by `PiStudioClient`
+  (`listSkills`/`setSkillEnabled`/`removeSkill`/`updateAllSkills`/`onSkillsChanged`/
+  `hasSkillsCapability`) and web-client's Settings → Skills panel. **Sprint-076 added the two
+  spawned mutations**: `skills_remove_request` (exactly one of `path` | `packageSource`) and
+  `skills_update_all_request` (answers one `ItemResult` per engine, `agent-skills` /
+  `pi-packages`). Both run through the daemon's single FIFO queue (`list`/`set_enabled` bypass it)
+  with 600 s per-spawn timeouts; SDK timeouts are 660 s / 1 300 s. Every source string on the
+  wire (`PiPackageInfo.source`/`identity`, `SkillInfo.packageSource`, provenance) is passed
+  through `redactSource` — git credentials never reach a client or a log — and a remove-package
+  request is matched on that redacted form. **Sprint-077 completed the family** with
+  `skills_preview_request` (stateless: a shallow clone into `$PI_STUDIO_HOME/tmp/preview-*` or an
+  in-place scan of a host folder, scratch removed in `finally`; package kinds answer an empty
+  list) and `skills_install_request` (`{source, skills?, replace?}`; the daemon re-runs
+  `detectSkillSource` from `@av-pi-studio/protocol` and never trusts a client-sent kind).
+  `npm:`/`git:` packages install through a spawned `pi install` and are then rewritten to
+  skills-only object form (`extensions`/`prompts`/`themes: []`); Agent Skills repos go through
+  `skills add <src> -g -a pi -y -s <picked…>`; a host folder is registered as a bare
+  `settings.skills` entry and never copied. Failures come back as per-item `ItemResult`s
+  (`ok:false` answers still carry the re-listed `skills`/`packages`), with the redacted tail of
+  the child's output — the `skills` CLI reports failures on stdout, which the runner now
+  captures. SDK timeouts: preview 150 s, install 660 s.
 
 ---
 

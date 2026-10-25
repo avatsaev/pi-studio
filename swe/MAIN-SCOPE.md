@@ -269,7 +269,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/extension-ui-rpc.md](features/extension-ui-rpc.md)             | feature      | Daemon-side generic `agent_ui_*` bridge for Pi extension UI (dialogs, retained widget/status surfaces) |
 | [features/connection-resilience.md](features/connection-resilience.md)   | feature      | Background-tab reconnect (worker timers), resume triggers, stale-socket probe |
 | [features/preinstalled-extensions.md](features/preinstalled-extensions.md) | feature      | Curated Pi extension packs auto-installed/updated by the daemon (additive-only sync) |
-| [features/extensions-manager.md](features/extensions-manager.md)         | feature      | Settings-panel Extensions manager: render curated-pack status/sync (existing RPCs) + new `pi_packages_*` install/remove family |
+| [features/extensions-manager.md](features/extensions-manager.md)         | feature      | Settings-panel Extensions manager: render curated-pack status/sync (existing RPCs); Phase B `pi_packages_*` superseded by architecture/pi-resource-management.md |
+| [features/skills-manager.md](features/skills-manager.md)                 | feature      | Settings → Skills: list/enable/disable/remove/install/update-all Pi skills (npm/git packages skills-only, Agent Skills repos, host paths) |
 | [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
@@ -308,6 +309,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/design-system.md](architecture/design-system.md)                 | architecture | Theme tokens, six theme variants, breakpoints, styling-engine rules, overlays |
 | [architecture/structured-generation.md](architecture/structured-generation.md) | architecture | Daemon-side metadata generation (titles, commit messages, branch names)       |
 | [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
+| [architecture/pi-resource-management.md](architecture/pi-resource-management.md) | architecture | Daemon backend over Pi's resolver/settings + pinned `skills` CLI: single `skills_*` family, toggle mirror, stateless preview, FIFO queue, watcher (supersedes extensions-manager Phase B) |
 
 ## 9. Cross-Cutting Conventions
 
@@ -344,3 +346,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       confirm this is still the case before relying on it.
 - [ ] Window-state persistence and per-window browser panes in desktop are v1-limited; confirm
       current scope before reimplementing multi-window.
+- [x] Skills manager backend: whether `pi install` preserves an existing same-identity entry's
+      filter arrays — see
+      [architecture/pi-resource-management.md § TODO(verify)](architecture/pi-resource-management.md).
+      **Resolved (sprint-077/task-001): it preserves them** — only `source` is rewritten.

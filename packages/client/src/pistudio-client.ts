@@ -27,6 +27,12 @@ import type {
   ProviderAuthInfo,
   ProviderAuthType,
   SessionMessage,
+  SkillsInstallResponse,
+  SkillsListResponse,
+  SkillsPreviewResponse,
+  SkillsRemoveResponse,
+  SkillsSetEnabledResponse,
+  SkillsUpdateAllResponse,
   TimelineDirection,
   ViewerSettings,
   ViewerSettingsGetResponse,
@@ -35,6 +41,10 @@ import type {
   ViewerSettingsUpdate,
 } from "@av-pi-studio/protocol";
 import type { DaemonClient } from "./daemon-client.js";
+
+// Pure skill-install-source classifier (sprint-077/task-002, `@av-pi-studio/protocol`) —
+// re-exported so the web client can classify a pasted source string without a round trip.
+export { detectSkillSource } from "@av-pi-studio/protocol";
 
 /**
  * High-level `PiStudioClient` SDK facade over the low-level `DaemonClient` driver.
@@ -59,6 +69,32 @@ import type { DaemonClient } from "./daemon-client.js";
  * this call (`rpcTimeoutMs ≠ socket death`); compaction progress keeps following the stream.
  */
 export const COMPACT_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * RPC timeout for `skills_remove_request`. The daemon bounds its own spawn at 600 s
+ * (`swe/architecture/pi-resource-management.md` § Timeouts); the SDK timeout is set above that so
+ * a slow `skills remove`/`pi remove` process reports its own `timeout` domain error before the
+ * client gives up and treats the socket as dead.
+ */
+export const REMOVE_SKILL_TIMEOUT_MS = 660 * 1000;
+
+/**
+ * RPC timeout for `skills_update_all_request`. Updates both engines (`agent-skills`, `pi-packages`)
+ * sequentially, each bounded at 600 s daemon-side; 1 300 s covers both spawns plus margin.
+ */
+export const UPDATE_ALL_SKILLS_TIMEOUT_MS = 1300 * 1000;
+
+/**
+ * RPC timeout for `skills_preview_request`. The daemon bounds its own clone/fetch spawn at 120 s
+ * (`swe/architecture/pi-resource-management.md` § Timeouts); the SDK timeout is set above that.
+ */
+export const PREVIEW_SKILL_SOURCE_TIMEOUT_MS = 150 * 1000;
+
+/**
+ * RPC timeout for `skills_install_request`. The daemon bounds its own `pi install`/`skills add`
+ * spawn at 600 s; 660 s covers one spawn plus margin (same idiom as `REMOVE_SKILL_TIMEOUT_MS`).
+ */
+export const INSTALL_SKILLS_TIMEOUT_MS = 660 * 1000;
 
 // ─── Update handler types ─────────────────────────────────────────────────────
 
@@ -935,6 +971,99 @@ export class PiStudioClient {
    */
   extensionUiAvailable(): boolean {
     return this.daemon.hasFeature("extensionUi");
+  }
+
+  // ─── Skills (skills_*, sprint-075) ─────────────────────────────────────────
+
+  /** True iff the daemon advertised the `skills` capability in `server_info.features`. */
+  hasSkillsCapability(): boolean {
+    return this.daemon.hasFeature("skills");
+  }
+
+  /** Every resolved Agent Skill plus every resolved `settings.json` package — `skills_list_request`.
+   *  A domain failure (e.g. unreadable `settings.json`) resolves `{ok:false, error}`, never throws. */
+  async listSkills(): Promise<SkillsListResponse> {
+    return this.daemon.request<SkillsListResponse>("skills_list_request", {});
+  }
+
+  /** Enables/disables one skill by path — `skills_set_enabled_request`. Resolves to the full
+   *  post-mutation `{skills, packages}` document (domain `{ok:false}` on failure, never thrown). */
+  async setSkillEnabled(path: string, enabled: boolean): Promise<SkillsSetEnabledResponse> {
+    return this.daemon.request<SkillsSetEnabledResponse>("skills_set_enabled_request", {
+      path,
+      enabled,
+    });
+  }
+
+  /** Removes one top-level skill by `path`, or one `settings.json` package by `packageSource` —
+   *  exactly one must be set — `skills_remove_request`. Resolves to the full post-mutation
+   *  `{skills, packages}` document (domain `{ok:false, error}` on failure, never thrown); the
+   *  daemon's own spawn bound is 600 s, so the SDK timeout (`REMOVE_SKILL_TIMEOUT_MS`) is set
+   *  above that rather than the client's default. */
+  async removeSkill(
+    target:
+      | { path: string; packageSource?: undefined }
+      | { path?: undefined; packageSource: string },
+  ): Promise<SkillsRemoveResponse> {
+    return this.daemon.request<SkillsRemoveResponse>(
+      "skills_remove_request",
+      target,
+      REMOVE_SKILL_TIMEOUT_MS,
+    );
+  }
+
+  /** Updates every removable skill engine (`agent-skills` via `skills update -g -y`, `pi-packages`
+   *  via `pi update --extensions`) — `skills_update_all_request`. Resolves to a per-engine
+   *  `results: ItemResult[]` (a mixed ok/failed array is expected, not an overall failure) plus the
+   *  full post-mutation `{skills, packages}` document. Both spawns are bounded at 600 s
+   *  daemon-side; `UPDATE_ALL_SKILLS_TIMEOUT_MS` covers both plus margin. */
+  async updateAllSkills(): Promise<SkillsUpdateAllResponse> {
+    return this.daemon.request<SkillsUpdateAllResponse>(
+      "skills_update_all_request",
+      {},
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    );
+  }
+
+  /** Previews one install source's picklist before installing — `skills_preview_request`.
+   *  `pi_npm`/`pi_git` always resolve `{ok:true, kind, source, skills: []}` (package kinds install
+   *  as a unit, nothing to pick); `skills_repo`/`local_path` resolve the candidate `skills` array.
+   *  Domain failure (e.g. `invalid_source`) resolves `{ok:false, error}`, never thrown; the daemon
+   *  bounds its own clone/fetch spawn at 120 s, so `PREVIEW_SKILL_SOURCE_TIMEOUT_MS` (150 s) is set
+   *  above that rather than the client's default. */
+  async previewSkillSource(source: string): Promise<SkillsPreviewResponse> {
+    return this.daemon.request<SkillsPreviewResponse>(
+      "skills_preview_request",
+      { source },
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+    );
+  }
+
+  /** Installs one source — `skills_install_request`. `skills` is the picked names from a prior
+   *  `previewSkillSource()` call (meaningful for `skills_repo` only; `pi_npm`/`pi_git` install
+   *  every skill the package ships, `local_path` registers the whole folder); `replace` resends an
+   *  already-installed picked name instead of excluding it as `name_exists`. Resolves one
+   *  `ItemResult` per engine/picked-name outcome plus the full post-mutation `{skills, packages}`
+   *  document (domain `{ok:false, error}` on failure, never thrown); the daemon's own spawn bound
+   *  is 600 s, so `INSTALL_SKILLS_TIMEOUT_MS` (660 s) is set above that. */
+  async installSkills(opts: {
+    source: string;
+    skills?: string[];
+    replace?: boolean;
+  }): Promise<SkillsInstallResponse> {
+    return this.daemon.request<SkillsInstallResponse>(
+      "skills_install_request",
+      opts,
+      INSTALL_SKILLS_TIMEOUT_MS,
+    );
+  }
+
+  /** Subscribe to the daemon's `skills_changed` broadcast — fired after any mutation (this
+   *  client's own or another's) or an external filesystem change the daemon detected. */
+  onSkillsChanged(handler: (reason: string) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if (msg.type === "skills_changed") handler(msg.reason);
+    });
   }
 }
 

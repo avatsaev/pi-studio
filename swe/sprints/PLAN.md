@@ -104,8 +104,11 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 072 | `sprint-072-conversation-fork-ui` | web-client only (consumes 071, adds no protocol): the **fork UI** — hover affordance on confirmed user rows, one dialog with two steps (confirm + "Fork from…" picker), composer prefill, multi-client convergence. Correlation is **ordinal, never id-based**: live `user_message` rows carry the client-minted `clientMessageId` echo while Pi's `entryId` is its own JSONL id — disjoint spaces nothing correlates today — so the clicked row's index among confirmed user rows indexes `get_fork_messages`, the confirm dialog displays the matched entry's own text, and a whitespace-normalized mismatch opens the picker rather than ever forking an unverified entry. Refresh is broadcast-driven for **every** client including the requester, so two windows and a relay phone converge through one handler. | 6 |
 | 073 | `sprint-073-viewer-settings` | cross-package (protocol, server, client, web-client): **chunk A of `docs/MOLVIEWER_DECOUPLING.md`** — a runtime kill switch for the molecule viewer, and the daemon-backed settings family every future viewer plugin will read. Molviewer is currently unconditional: a `.cif` always opens in a 3D viewer, with no way to turn that off. The toggle lives **on the daemon**, not in `localStorage`, because a phone over the relay and a desktop browser talking to the same daemon must not disagree about which viewers exist — so this ships five real `sessionMessageSchema` members (the push included, unlike `provider_auth_flow_event`, because it carries the same durable document on a hot parse path), a `viewerSettings` flag, a new `packages/server/src/viewers/` subsystem over `$PI_STUDIO_HOME/viewer-settings.json`, four `PiStudioClient` methods, a Zustand store, five gated dispatch points, and a Viewers settings category. Three rules carry the design: **the daemon knows nothing about plugins** (rows keyed by whatever id arrives, unknown ids valid, `config` opaque — § 3's dependency rule applied across the wire), **absent row = enabled** (defaults never written, so a fresh daemon and a daemon without the feature look identical to a client), and **every degrade direction offers the viewer** (no capability, failed fetch, corrupt file, pre-hydration — never hide a file behind a daemon version). Two things are load-bearing beyond the obvious: `tabFromIdentity` takes the enabled-predicate as an **injected parameter** rather than reading the store, staying the pure synchronous inverse of `tabIdentity` that phase 3's registry will reuse unchanged; and the layout replay gains a `loaded` condition, because otherwise a persisted `molecule:<path>` races the settings fetch and reopens as a viewer tab the user turned off. Fixes a live bug on the way: `ConnectionBar` gates the settings gear on `providerAuthCapable`, so the first capability-free category would be unreachable against a daemon without `providerAuth`. Hard prerequisite for phase 1 (`swe/architecture/viewer-plugin-system.md`), whose registry reads this store. | 7 |
 | 074 | `sprint-074-context-compaction` | cross-package (protocol, server, client, cli, web-client): **context compaction in the UI** — Compact now from a status-bar context meter (a loading bar replacing the `42% (84k/200k)` text) and `/compact [instructions]` as a client-side composer built-in, plus every compaction (manual **and** Pi's automatic threshold/overflow ones) rendered live as a timeline divider in every connected client. Ships `swe/features/context-compaction.md`. The core finding: the daemon records stream events only inside `runTurn`'s subscription, so manual compactions (which run outside a turn) would be dropped even once mapped; `handleCompact` gets its own subscription window, `busy` guards (Pi's `compact()` aborts a running turn and cancels a concurrent compaction), and resume-on-compact for never-resumed sessions. Fixes two latent bugs on the way: a 30 s RPC timeout that fails long compactions, and a percent-scale guess that renders a 0.7% context as `70%` | 9 |
+| 075 | `sprint-075-skills-list-toggle` | cross-package (protocol, server, client, web-client): **Skills manager, slice 1** — Settings → Skills lists every global skill Pi loads, grouped by origin, with enable/disable that writes exactly what `pi config` writes, and live refresh on host-side edits. Ships the `resources/` backend core (Pi-SDK boundary, toggle mirror, catalog, watcher). | 7 |
+| 076 | `sprint-076-skills-remove-update` | cross-package (protocol, server, client, web-client): **Skills manager, slice 2** — origin-aware Remove, Remove package, Update all; the spawn/queue/redaction machinery; pinned `skills` CLI; Node floor ≥22.20. | 8 |
+| 077 | `sprint-077-skills-install` | cross-package (protocol, server, client, web-client): **Skills manager, slice 3** — install from `npm:`/`git:` Pi packages (skills-only), Agent Skills repos (stateless preview & pick), and host paths. | 8 |
 
-Total: **72 sprints, 373 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **75 sprints, 396 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -2058,6 +2061,63 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-008 | Composer: Send blocked + Stop-cancels while compacting; `/compact` client built-in (picker entry shadowing a same-named Pi command, exact case-sensitive grammar, intercepted in `submit`, never sent or steered, gated while running/agent-less) | feature | task-007 | packages/web-client (features/chat); features/composer-ui § slash commands |
 | task-009 | Sprint close: nine-step live E2E against a real daemon + real `pi` + two browsers (manual, `/compact`, running guard incl. CLI `busy`, cancel, forced threshold auto-compaction, Pi error path, restart hydration + resume-on-compact, old-daemon fallback, `<1%`), root `AGENTS.md`, spec TODO(verify) resolved, full gates | docs | task-001…task-008 | AGENTS.md (root + touched packages); § Acceptance criteria |
 
+### sprint-075-skills-list-toggle
+> **What it ships.** Slice 1 of `features/skills-manager.md` on `architecture/pi-resource-management.md`
+> (grilled 2026-10-25, then simplified R1–R8 in the brief's post-scope review). Pi is the source of
+> truth: the list comes from `DefaultPackageManager.resolve()` on every request, toggles write Pi's
+> own `±pattern` filters through `SettingsManager`. The toggle derivation is private in Pi, so
+> `toggle-patterns.ts` mirrors it and is built and differential-tested first. No release between
+> 075 and 077: the `skills` flag shows the category from this sprint on.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: `skills_list`/`skills_set_enabled`, `skills_changed`, `skills` flag | feature | none | packages/protocol; arch § Wire family |
+| task-002 | `toggle-patterns.ts` Pi mirror, fixtures from Pi's own `ResourceList` | feature | none | packages/server; arch § Toggle |
+| task-003 | `pi-sdk.ts` + `skill-catalog.ts` (origins, shadowing, symlinks, provenance, corrupt settings) | feature | task-001 | packages/server; arch § List |
+| task-004 | `ResourceService` list/toggle, watcher + broadcast, handlers, prod bootstrap | feature | task-002, task-003 | packages/server; arch § Toggle, § Queue/watcher |
+| task-005 | SDK list/toggle/onSkillsChanged/capability | feature | task-001 | packages/client |
+| task-006 | Settings → Skills panel | feature | task-005 | packages/web-client; feature § Panel, § Toggle |
+| task-007 | Sprint close: live E2E, root docs, gates | docs | task-001…task-006 | AGENTS.md; feature § Acceptance (list, toggle, shadow, refresh) |
+
+### sprint-076-skills-remove-update
+> **What it ships.** Slice 2: Remove for every origin (never through symlinks; lock-tracked skills via
+> `skills remove -g -y`, never `-a`), Remove package (`pi remove`), Update all (`skills update -g -y`
+> + `pi update --extensions`). Builds the FIFO queue, spawn runner and redaction on the simplest
+> consumers before install depends on them. Raises the Node floor to ≥22.20 with the pinned `skills`
+> dependency (Pi 1.4.0 already needs 22.19).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: `skills_remove`, `skills_update_all`, `ItemResult` | feature | none | packages/protocol |
+| task-002 | Node ≥22.20, pinned `skills` dep, `skills-cli.ts` | chore | none | repo root, packages/server; arch § Spawn environment |
+| task-003 | FIFO queue, spawn runner, redaction, mutation logs | feature | task-002 | packages/server; arch § Queue, § Redaction |
+| task-004 | Remove: every origin + whole package | feature | task-001, task-003 | packages/server; arch § Remove |
+| task-005 | Update all | feature | task-001, task-003 | packages/server; arch § Update all |
+| task-006 | SDK `removeSkill`, `updateAllSkills` | feature | task-001 | packages/client |
+| task-007 | Web: Remove, Remove package, Update all | feature | task-006 | packages/web-client; feature § Remove, § Update all |
+| task-008 | Sprint close: live E2E, docs, gates | docs | task-001…task-007 | AGENTS.md; feature § Acceptance (remove, update, FIFO, redaction) |
+
+### sprint-077-skills-install
+> **What it ships.** Slice 3: install from `npm:`/`git:` Pi packages (spawned `pi install`, then one
+> write of the skills-only entry — extensions/prompts/themes always disabled), Agent Skills repos
+> (stateless shallow-clone preview & pick, then `skills add -s`), and daemon-host paths
+> (`settings.skills` entry, no copy). Task-001 settles the spec's last TODO(verify) before the package
+> path is built.
+>
+> **Status: done** (all 8 tasks; see the sprint's `done/` summaries). The `skills` flag ships with the
+> full feature from here on — the release hold on 075–077 is lifted.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Spike: `pi install` and existing entry filters | test | none | arch § TODO(verify) |
+| task-002 | Protocol: `detectSkillSource`, preview/install schemas | feature | none | packages/protocol; arch § Source kinds |
+| task-003 | Stateless preview | feature | task-002 | packages/server; arch § Preview |
+| task-004 | Install Pi packages skills-only | feature | task-001, task-002 | packages/server; arch § Install |
+| task-005 | Install repo picks + host paths | feature | task-002, task-003 | packages/server; arch § Install |
+| task-006 | SDK `previewSkillSource`, `installSkills` | feature | task-002 | packages/client |
+| task-007 | Web: Install skill dialog | feature | task-006 | packages/web-client; feature § Install dialog |
+| task-008 | Sprint close: live E2E direct + relay, docs, gates | docs | task-001…task-007 | AGENTS.md; feature § Acceptance (all) |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2203,6 +2263,8 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/viewer-plugin-system.md | **partial** — s073/t001-007 ships only its § Prerequisite (the daemon-backed settings store phase 1's enabled-filter reads). The contract, registry, barrel, panel host and the molviewer move (chunks B/C of `docs/MOLVIEWER_DECOUPLING.md`) are **not yet planned** |
 | features/viewer-unbound-tabs.md | **not planned** — phase 5 / chunk D of `docs/MOLVIEWER_DECOUPLING.md`; depends on chunk B's barrel and stable-id rule |
 | features/context-compaction.md | s074/t001-009 (wire variant + flag; Pi mapping, hydration and mock; daemon subscription window, `busy` guards and resume-on-compact; SDK/CLI timeout; upserted divider row; context meter with the percent-scale fix; popover + shared action; composer gate and `/compact` built-in; real-Pi E2E and docs) |
+| features/skills-manager.md | s075/t005-007 (list, toggle, panel), s076/t006-008 (remove, update all), s077/t006-008 (install dialog, full acceptance) |
+| architecture/pi-resource-management.md | s075/t001-004 (wire, toggle mirror, catalog, service + watcher), s076/t001-005 (spawn/queue/redaction, remove, update all), s077/t001-005 (source detection, preview, installs, TODO(verify) spike) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -2301,3 +2363,5 @@ Carried from the scope; resolve against the live source while implementing the o
       with the `core` pack settles it. If traffic is observed there, the Pi adapter gains a bounded
       internal queue that flushes to the first `onUiRequest` subscriber (not a contract change) —
       s066/t006 closes this either way, with evidence.
+- [ ] Whether `pi install <source>` keeps the filter arrays of an existing same-identity object
+      entry — s077/t001 answers it before s077/t004 builds the package path.

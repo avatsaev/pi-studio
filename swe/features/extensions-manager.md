@@ -7,6 +7,15 @@
 > category registry + `ModelProvidersPanel` pattern this panel clones),
 > `architecture/websocket-protocol` (append-only RPC conventions, flat snake_case naming)
 
+> **Superseded in part (2026-10-25):** Phase B (the `pi_packages_*` family, `piPackages` flag,
+> `packages-service.ts`/`packages-rpc.ts`) is replaced by the backend in
+> [../architecture/pi-resource-management.md](../architecture/pi-resource-management.md), consumed
+> by [skills-manager.md](skills-manager.md). No `pi_packages_*` family ships: package add/remove
+> ride the single `skills_*` family; a future Extensions panel adds what it needs. The tenet
+> "never write `settings.json` directly" is amended to "never hand-edit `settings.json`; mutate
+> only through Pi's own code (spawned CLI or in-process `SettingsManager`)". Phase A (curated-pack
+> panel) is unchanged.
+
 ## Purpose
 
 Two gaps, one Settings surface:

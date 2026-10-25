@@ -1297,6 +1297,292 @@ export const viewerSettingsUpdateSchema = z
 export type ViewerSettingsUpdate = z.infer<typeof viewerSettingsUpdateSchema>;
 
 // ===========================================================================
+// Skills (swe/architecture/pi-resource-management.md § Wire family `skills_*`) — sprint-075
+// slice 1: list + toggle only. Preview/install/remove/update_all land in sprints 076-077 and
+// reuse `skillInfoSchema`/`piPackageInfoSchema` below.
+// ===========================================================================
+
+/**
+ * One resolved Agent Skill as Pi's `DefaultPackageManager.resolve()` reports it, projected to the
+ * wire. `origin` documents the four values Pi emits today (`"agent_dir" | "agents_dir" |
+ * "package" | "settings_path"`) but stays `z.string()` — a future Pi origin must still parse on
+ * an older client/daemon pair. `removable` reflects Pi's own rule (e.g. a package-owned skill
+ * isn't independently removable); the daemon never re-derives it.
+ */
+export const skillInfoSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    path: z.string(),
+    enabled: z.boolean(),
+    /** `"agent_dir" | "agents_dir" | "package" | "settings_path"` today; open string on the wire. */
+    origin: z.string(),
+    originLabel: z.string(),
+    packageSource: z.string().optional(),
+    shadowedBy: z.string().optional(),
+    symlinkTarget: z.string().optional(),
+    provenance: z
+      .object({
+        source: z.string(),
+        sourceUrl: z.string().optional(),
+        installedAt: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    disableModelInvocation: z.boolean().optional(),
+    warnings: z.array(z.string()).optional(),
+    removable: z.boolean(),
+  })
+  .passthrough();
+export type SkillInfo = z.infer<typeof skillInfoSchema>;
+
+/** One `settings.json` `packages[]` entry resolved against disk. */
+export const piPackageInfoSchema = z
+  .object({
+    source: z.string(),
+    kind: z.enum(["npm", "git", "local"]),
+    identity: z.string(),
+    pinned: z.boolean(),
+    curated: z.boolean(),
+    filtered: z.boolean(),
+    skillCount: z.number(),
+  })
+  .passthrough();
+export type PiPackageInfo = z.infer<typeof piPackageInfoSchema>;
+
+export const skillsListRequestSchema = z
+  .object({
+    type: z.literal("skills_list_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type SkillsListRequest = z.infer<typeof skillsListRequestSchema>;
+
+/**
+ * `ok`/`error` are domain fields, not `rpc_error` (mirrors `extension_packs_set_response`'s
+ * idiom) — e.g. a corrupt `settings.json` answers `{ok:false, error:"settings_unreadable"}`
+ * rather than failing transport-level. `message` is an optional human-readable elaboration.
+ */
+export const skillsListResponseSchema = z
+  .object({
+    type: z.literal("skills_list_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsListResponse = z.infer<typeof skillsListResponseSchema>;
+
+export const skillsSetEnabledRequestSchema = z
+  .object({
+    type: z.literal("skills_set_enabled_request"),
+    requestId: z.string(),
+    path: z.string(),
+    enabled: z.boolean(),
+  })
+  .passthrough();
+export type SkillsSetEnabledRequest = z.infer<typeof skillsSetEnabledRequestSchema>;
+
+export const skillsSetEnabledResponseSchema = z
+  .object({
+    type: z.literal("skills_set_enabled_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsSetEnabledResponse = z.infer<typeof skillsSetEnabledResponseSchema>;
+
+/**
+ * Broadcast, no `requestId` — every connected client re-lists. `reason` is a plain string
+ * (`"mutation" | "external"` documented) so a future reason stays append-only, same idiom as
+ * `agent_timeline_reset`'s `reason`.
+ */
+export const skillsChangedSchema = z
+  .object({
+    type: z.literal("skills_changed"),
+    reason: z.string(),
+  })
+  .passthrough();
+export type SkillsChanged = z.infer<typeof skillsChangedSchema>;
+
+/**
+ * Base wire shape — used as the `sessionMessageSchema` union member (a `discriminatedUnion` entry
+ * must stay a `ZodObject`, so the xor-refine below wraps this one instead of replacing it).
+ */
+const skillsRemoveRequestShapeSchema = z
+  .object({
+    type: z.literal("skills_remove_request"),
+    requestId: z.string(),
+    path: z.string().optional(),
+    packageSource: z.string().optional(),
+  })
+  .passthrough();
+
+/**
+ * Exactly one of `path` (a top-level skill: `settings_path`/symlink/plain directory) or
+ * `packageSource` (a whole `settings.json` `packages[]` entry) must be set — never both, never
+ * neither. A package-owned skill's own `path` is rejected daemon-side as `not_removable`; this
+ * schema only enforces the wire shape/xor, not daemon-side removability.
+ */
+export const skillsRemoveRequestSchema = skillsRemoveRequestShapeSchema.refine(
+  (v) => (v.path !== undefined) !== (v.packageSource !== undefined),
+  { message: "exactly one of path or packageSource is required" },
+);
+export type SkillsRemoveRequest = z.infer<typeof skillsRemoveRequestSchema>;
+
+/**
+ * `stderr` is the spawned CLI's truncated (≤2048 bytes) stderr tail when the underlying `skills
+ * remove`/`pi remove` process failed; absent on success or on a pre-spawn domain error (e.g.
+ * `not_found`/`not_removable`). `ok`/`error` are domain fields, same idiom as `skills_list_response`.
+ */
+export const skillsRemoveResponseSchema = z
+  .object({
+    type: z.literal("skills_remove_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    stderr: z.string().optional(),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsRemoveResponse = z.infer<typeof skillsRemoveResponseSchema>;
+
+/** One engine's outcome inside an `ItemResult[]` list (used by `skills_update_all_response`). */
+export const itemResultSchema = z
+  .object({
+    target: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    stderr: z.string().optional(),
+  })
+  .passthrough();
+export type ItemResult = z.infer<typeof itemResultSchema>;
+
+export const skillsUpdateAllRequestSchema = z
+  .object({
+    type: z.literal("skills_update_all_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type SkillsUpdateAllRequest = z.infer<typeof skillsUpdateAllRequestSchema>;
+
+/** One `ItemResult` per engine (`agent-skills` via `skills update -g -y`, `pi-packages` via `pi update --extensions`); a mixed ok/failed `results` array is expected, not an overall failure. */
+export const skillsUpdateAllResponseSchema = z
+  .object({
+    type: z.literal("skills_update_all_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    results: z.array(itemResultSchema),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsUpdateAllResponse = z.infer<typeof skillsUpdateAllResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Skills preview/install (sprint-077/task-002). Client-side source classification lives in
+// `source-detect.ts`'s `detectSkillSource()` — the daemon always re-runs detection
+// authoritatively, so neither request below carries a client-sent `kind`. Reuses
+// `itemResultSchema`/`skillInfoSchema`/`piPackageInfoSchema` above.
+// ---------------------------------------------------------------------------
+
+/**
+ * One installable skill found inside a `skills_repo`/`local_path` preview (never package kinds —
+ * those answer `{ok:true, kind, skills: []}`, nothing to pick). `valid` means frontmatter had a
+ * name + description; `exists` means `~/.agents/skills/<sanitized-name>` is already present
+ * (drives the client's "Already installed — replace" checkbox).
+ */
+export const previewSkillSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    relPath: z.string(),
+    warnings: z.array(z.string()).optional(),
+    valid: z.boolean(),
+    exists: z.boolean(),
+  })
+  .passthrough();
+export type PreviewSkill = z.infer<typeof previewSkillSchema>;
+
+export const skillsPreviewRequestSchema = z
+  .object({
+    type: z.literal("skills_preview_request"),
+    requestId: z.string(),
+    source: z.string(),
+  })
+  .passthrough();
+export type SkillsPreviewRequest = z.infer<typeof skillsPreviewRequestSchema>;
+
+/**
+ * `ok`/`error` are domain fields, same idiom as every other `skills_*` response. `kind` is the
+ * daemon's own `detect(source)` result (never the client's) and `source` echoes the request's
+ * `source` verbatim — both present even on a domain failure (e.g. `invalid_source`), so a client
+ * can still render what it tried against. `pi_npm`/`pi_git` always answer
+ * `{ok:true, kind, source, skills: []}` — package kinds install as a unit, nothing to pick.
+ */
+export const skillsPreviewResponseSchema = z
+  .object({
+    type: z.literal("skills_preview_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    kind: z.string(),
+    source: z.string(),
+    skills: z.array(previewSkillSchema),
+  })
+  .passthrough();
+export type SkillsPreviewResponse = z.infer<typeof skillsPreviewResponseSchema>;
+
+/**
+ * `skills` is the picked skill names from a prior preview — meaningful for `skills_repo` only
+ * (ignored for `pi_npm`/`pi_git`, which install every skill the package ships; irrelevant for
+ * `local_path`, which registers the whole folder). `replace` resends an already-installed picked
+ * name instead of excluding it as `name_exists`.
+ */
+export const skillsInstallRequestSchema = z
+  .object({
+    type: z.literal("skills_install_request"),
+    requestId: z.string(),
+    source: z.string(),
+    skills: z.array(z.string()).optional(),
+    replace: z.boolean().optional(),
+  })
+  .passthrough();
+export type SkillsInstallRequest = z.infer<typeof skillsInstallRequestSchema>;
+
+/**
+ * One `ItemResult` per engine outcome — one entry for `pi_npm`/`pi_git`/`local_path`, one per
+ * picked name for `skills_repo` (e.g. a `name_exists` exclusion still gets its own `ItemResult`).
+ * `skills`/`packages` are the post-mutation list, same idiom as every other mutating `skills_*`
+ * response.
+ */
+export const skillsInstallResponseSchema = z
+  .object({
+    type: z.literal("skills_install_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    message: z.string().optional(),
+    results: z.array(itemResultSchema),
+    skills: z.array(skillInfoSchema),
+    packages: z.array(piPackageInfoSchema),
+  })
+  .passthrough();
+export type SkillsInstallResponse = z.infer<typeof skillsInstallResponseSchema>;
+
+// ===========================================================================
 // Extension UI (features/extension-ui-rpc.md) — additive, new in sprint-066
 // ===========================================================================
 
@@ -1529,6 +1815,19 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   viewerSettingsSetRequestSchema,
   viewerSettingsSetResponseSchema,
   viewerSettingsUpdateSchema,
+  skillsListRequestSchema,
+  skillsListResponseSchema,
+  skillsSetEnabledRequestSchema,
+  skillsSetEnabledResponseSchema,
+  skillsChangedSchema,
+  skillsRemoveRequestShapeSchema,
+  skillsRemoveResponseSchema,
+  skillsUpdateAllRequestSchema,
+  skillsUpdateAllResponseSchema,
+  skillsPreviewRequestSchema,
+  skillsPreviewResponseSchema,
+  skillsInstallRequestSchema,
+  skillsInstallResponseSchema,
   agentUiRequestSchema,
   agentUiResolvedSchema,
   agentUiRespondRequestSchema,

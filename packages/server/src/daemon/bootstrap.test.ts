@@ -199,6 +199,7 @@ describe("production daemon bootstrap", () => {
       { type: "checkout_status_subscribe", cwd: booted.home },
       { type: "extension_packs_list_request" },
       { type: "provider_auth_list_request" },
+      { type: "skills_list_request" },
     ];
     for (const probe of probes) {
       const res = await client.rpc(probe);
@@ -1220,6 +1221,42 @@ describe("provider_auth (sprint-055/task-004)", () => {
       const res = await client.rpc({ type: "provider_auth_list_request" });
       expect(res.type).toBe("rpc_error");
       expect(res.code).toBe("unknown_message_type");
+      client.close();
+    } finally {
+      await dev.close();
+    }
+  }, 15000);
+});
+
+describe("skills (sprint-075/task-004)", () => {
+  it("answers skills_list_request on a production daemon", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const res = await client.rpc({ type: "skills_list_request" });
+    expect(res.type).toBe("skills_list_response");
+    expect(res.ok).toBe(true);
+
+    client.close();
+  }, 15000);
+
+  it("a dev daemon does not register skills_* — answers unknown_message_type, never wires the family", async () => {
+    const dev = startDevDaemon({ host: "127.0.0.1", port: 0, logger: silentLogger() });
+    const port = await listeningPort(dev.httpServer);
+    try {
+      const client = await connect(port);
+      const listRes = await client.rpc({ type: "skills_list_request" });
+      expect(listRes.type).toBe("rpc_error");
+      expect(listRes.code).toBe("unknown_message_type");
+
+      const setRes = await client.rpc({
+        type: "skills_set_enabled_request",
+        path: "/does/not/matter",
+        enabled: false,
+      });
+      expect(setRes.type).toBe("rpc_error");
+      expect(setRes.code).toBe("unknown_message_type");
       client.close();
     } finally {
       await dev.close();

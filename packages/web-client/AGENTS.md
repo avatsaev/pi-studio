@@ -454,13 +454,15 @@ src/
                             own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
                             the main bundle ahead of the gear ever being clicked; the panel
                             components stay `lazy()`-loaded regardless of which module imports the
-                            registry array. Two categories today: Model Providers
-                            (`available: (caps) => caps.providerAuth`, capability-gated) and
-                            Viewers (`available: () => true`, capability-INDEPENDENT — ViewersPanel
-                            (+ module.css) degrades its one Molecule Viewer toggle row to
-                            disabled-reading-on with a "Requires a newer daemon" note against a
-                            `viewerSettings`-incapable daemon rather than hiding the row; see §
-                            Invariants "Viewer-disable gate" and "Settings gear reachability").
+                            registry array. Three categories today: Model Providers
+                            (`available: (caps) => caps.providerAuth`, capability-gated), Skills
+                            (`available: (caps) => caps.skills`, capability-gated — sprint-075/
+                            task-006; `skills/` below), and Viewers (`available: () => true`,
+                            capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its one
+                            Molecule Viewer toggle row to disabled-reading-on with a "Requires a
+                            newer daemon" note against a `viewerSettings`-incapable daemon rather
+                            than hiding the row; see § Invariants "Viewer-disable gate" and
+                            "Settings gear reachability").
                             `SettingsDialog.tsx` also owns the stacked-dialog dismissal guard —
                             see AGENTS.md § Invariants "Stacked dialogs"
     provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
@@ -479,6 +481,67 @@ src/
                             provider-auth-store.ts (the one-flow-at-a-time hand-off between the
                             panel's action and the dialog: pending login + `AbortController` +
                             `attempt`, which `LoginDialog` keys on so a retry remounts clean)
+    skills/                 SkillsPanel (+ module.css — sprint-075/task-006 list+toggle, sprint-076/
+                            task-007 remove+update-all, sprint-077/task-007 toolbar Install
+                            skill…: search box, a toolbar Update all with confirm/busy/dismissible
+                            error and two collapsible per-engine result rows (`UpdateAllResults`,
+                            stderr collapsed by default), collapsible origin/package groups each
+                            with a header Remove package button (shown whenever the group has a
+                            `packageInfo`) and its own dismissible inline error, rows with a
+                            Switch + a per-row Remove `IconButton` (shown only when
+                            `skill.removable`, spinner while pending, dismissible inline error),
+                            and a toolbar Install skill… button opening `InstallSkillDialog` —
+                            mounted unconditionally (its own `open` prop toggles, see
+                            InstallSkillDialog.tsx below) — none of these remove/update/install
+                            RPCs patch the cache optimistically, see use-skills.ts below),
+                            InstallSkillDialog.tsx (+ module.css — sprint-077/task-007: source →
+                            (preview & pick for `skills_repo`/`local_path`) → running → results,
+                            step derived purely by `skills-presentation.ts#installDialogStep` from
+                            `useSkillPreview`/`useSkillInstall`'s in-flight/settled state, never
+                            stored on its own; package kinds (`pi_npm`/`pi_git`) skip straight to
+                            `install()` and show `PACKAGE_SOURCE_NOTICE`; pick rows default
+                            checked iff `valid`, disabled with no reason text beyond an "Invalid"
+                            badge when invalid, an `exists` row needs its own "Already installed —
+                            replace" checkbox before `resolvePickedSkillNames` includes it; results
+                            render per `ItemResult` with collapsible `stderr`, "Done" dismisses and
+                            closes), skills-presentation.ts (+ test — pure:
+                            `buildSkillGroups`/`filterSkillGroups` grouping+ordering+search,
+                            `packageHeaderBadges`, `requiresCuratedConfirm`, `skillErrorMessage` —
+                            error-string → message, unknown strings verbatim —, `skillRemoveConfirmText`
+                            (origin-specific Remove confirm text), `removePackageConfirmText`
+                            (names the package's `skillCount`), `UPDATE_ALL_CONFIRM_TEXT` (shipped
+                            verbatim from the spec), `updateAllTargetLabel` (`"agent-skills"` →
+                            "Agent Skills", `"pi-packages"` → "Pi packages", unknown verbatim),
+                            `detectedSourceLabel`/`isPackageSourceKind`/`canAdvanceFromSource`
+                            (the source step's live label + Next-enabled rule, wrapping the SDK's
+                            `detectSkillSource`), `PACKAGE_SOURCE_NOTICE` (shipped verbatim),
+                            `installDialogStep` (the one step machine: source/previewing/pick/
+                            running/results, derived from preview/install in-flight+settled
+                            booleans), `buildPickRows`/`resolvePickedSkillNames`/
+                            `pickedSkillsNeedReplace`/`hasNoPickedSkills` (pick-row default-checked
+                            + Replace-gating rules — `skills_install_request`'s `replace` flag is
+                            request-wide, so it's computed true iff ANY sent name is an `exists`
+                            row with its own Replace checkbox checked)), use-skills.ts (+ test —
+                            `useSkillsQuery` (`rpcKeys.skillsList()`, invalidated by
+                            `onSkillsChanged`), `useSkillToggle` (optimistic `setSkillEnabled`,
+                            exact-prior-value rollback + per-row `rowErrors` on a domain failure or
+                            thrown error — never a toast, see § Invariants "Skills panel toggle +
+                            curated confirm"), `useSkillRemove` (`skills_remove_request` for a
+                            skill `{path}` or a whole package `{packageSource}`, keyed
+                            `path`/`package:<source>`; NEVER optimistic — on success the response's
+                            `{skills, packages}` wholesale-replaces the cache, a domain failure or
+                            thrown error surfaces as `errors[key]`), `useSkillUpdateAll`
+                            (`skills_update_all_request`, no per-row target; on success
+                            wholesale-replaces the cache AND keeps the full response — including
+                            its `results[]` — until the next attempt or an explicit dismiss, so the
+                            panel can render its two result rows), `useSkillPreview`
+                            (`skills_preview_request`, no cache interaction — a preview mutates
+                            nothing), `useSkillInstall` (`skills_install_request`; on success
+                            wholesale-replaces the cache AND keeps the full response — including
+                            its `results[]` — until the next attempt or an explicit reset, so
+                            `InstallSkillDialog` can render its results step);
+                            `applyOptimisticSkillToggle` exported standalone, same no-jsdom
+                            convention as `login-flow.ts`.
     chat/                   ChatPanel, Timeline (+ onboarding-nudge.ts — sprint-065/task-006's
                             pure `shouldShowProviderOnboardingNudge`: the empty-timeline slot
                             doubles as the "connect a model provider" CTA when the daemon has the
@@ -2559,3 +2622,67 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     (The composer prefill itself stays request-local, per task-004 — only the relay window's
     transcript truncates; it does not receive the forking client's own prefilled draft, exactly as
     designed.)
+- **Skills panel toggle + curated confirm (sprint-075/task-006).** `use-skills.ts#useSkillToggle`
+  is optimistic: it patches `rpcKeys.skillsList()`'s cached `{skills, packages}` document before
+  `setSkillEnabled` resolves, and rolls back to the exact prior cached value — never a derived
+  "flip it back" — on a domain `{ok:false}` or a thrown transport error, surfacing the failure as
+  that row's `rowErrors[path]` (an inline, dismissible row error) rather than a toast; this
+  deliberately diverges from `viewer-settings-store.ts`'s toast-based rollback, since this panel's
+  spec calls for an inline error (swe/features/skills-manager.md § Error handling: "Toggle fails |
+  Row rolls back; inline error"). Toggling ON a `package`-origin skill whose resolved
+  `PiPackageInfo.curated` is true asks for a `window.confirm` ("Pi-Studio will stop managing this
+  package's updates.") the FIRST time per `packageSource` in a panel session
+  (`SkillsPanel.tsx`'s own `confirmedCurated` state, not persisted) — `requiresCuratedConfirm`
+  (`skills-presentation.ts`) is the pure predicate; a declined confirm is a no-op, no RPC sent.
+- **Skills panel Remove / Remove package / Update all (sprint-076/task-007).**
+  `use-skills.ts#useSkillRemove`/`useSkillUpdateAll` are deliberately NOT optimistic, unlike
+  `useSkillToggle` above — swe/features/skills-manager.md § Data flow: "install/remove/update
+  replace query data with the response (never optimistic)" — so a row/package header/result set
+  never disappears or changes speculatively; the row stays exactly as-is, busied and then either
+  gone (because the next `skills_list`/mutation response omits it) or showing an inline error,
+  until the real response lands. `SkillsPanel.tsx`'s row Remove `IconButton` renders only when
+  `skill.removable`; its confirm text is `skills-presentation.ts#skillRemoveConfirmText`'s
+  origin-specific wording (symlink wins over origin since any origin can be a symlink on disk;
+  `agents_dir` only gets the "every agent on this machine" wording when the row also carries
+  `provenance` — a lock-tracked skill — otherwise it falls through to the generic "Deletes
+  \<path\>." wording, since the spec's "Agent Skills with provenance" case is explicitly about
+  provenance, not origin alone). The package header's Remove package button always sends
+  `removeSkill({packageSource})`, never a skill `path`, confirmed by
+  `removePackageConfirmText` which names `PiPackageInfo.skillCount`. Toolbar Update all's confirm
+  text is `UPDATE_ALL_CONFIRM_TEXT`, shipped verbatim from § Update all; its two result rows
+  (`SkillsPanel.tsx#UpdateAllResults`) map each `ItemResult.target` through `updateAllTargetLabel`
+  and collapse `stderr` by default behind a "Show details" toggle, persisting until the next
+  Update all attempt or an explicit "Dismiss" click.
+  - **"Queued…" simplification, documented choice.** The spec names a "Queued…" state only for
+    two installs racing across windows (§ Error handling: "Two installs from two windows | Second
+    shows 'Queued…'"); `InstallSkillDialog` (below) doesn't implement it either — the daemon's own
+    FIFO queueing (§ Acceptance: "Two clients installing at once both complete (FIFO)") means a
+    same-window second click is impossible anyway (the control is disabled while its own request
+    is in flight), and a cross-window second install simply waits longer for its response rather
+    than showing an intermediate state; the spec leaves remove/update-all's own queued-state
+    trigger unspecified too. Each control here only busies/disables itself ("Working…"/spinner)
+    while its own request is in flight, and a same-window click of an *unrelated* control (e.g.
+    Update all while a row Remove is pending) is allowed to fire concurrently rather than being
+    blocked, since nothing in the spec requires client-side cross-mutation serialization and the
+    daemon already serializes server-side.
+- **Install dialog step machine + closing-doesn't-cancel (sprint-077/task-007).**
+  `InstallSkillDialog.tsx` has no step of its own React state — `skills-presentation.ts#installDialogStep`
+  derives `source`/`previewing`/`pick`/`running`/`results` purely from `useSkillPreview`/
+  `useSkillInstall`'s `pending`/`result` flags, so the rendered step can never drift from what
+  actually happened to the two RPCs. `SkillsPanel.tsx` mounts `InstallSkillDialog` unconditionally
+  (only its `open` prop toggles the inner `<Dialog>`), so the two hooks never unmount when the
+  dialog is closed — an in-flight `install()` keeps running and its `results` step is still there
+  if the dialog is reopened before a fresh open-transition resets it, matching swe/features/
+  skills-manager.md § Install dialog: "closing does not cancel (queue continues; result arrives
+  via skills_changed)". A fresh `open` transition (closed→open) resets `source`/the pick rows and
+  calls `preview.reset()` UNLESS an install from a prior open is still pending or already settled
+  — reopening then shows that live/settled state instead of silently discarding it. Package kinds
+  (`pi_npm`/`pi_git`, `isPackageSourceKind`) skip the pick step entirely: Next calls
+  `install()` directly with no `skills`/`replace`, landing on `running` on the very next render
+  (`installDialogStep` sees `installPending` before any preview ever happens). The pick step's
+  Install button sends `resolvePickedSkillNames(pickRows)` as `skills` and
+  `pickedSkillsNeedReplace(pickRows)` as the request's single `replace` flag — never per-row,
+  since the wire's `skills_install_request.replace` is request-wide (see skills-presentation.ts's
+  own comment on `pickedSkillsNeedReplace`); an `exists` row whose own Replace checkbox isn't
+  checked is filtered out client-side rather than round-tripped through the daemon's
+  `name_exists` rejection.

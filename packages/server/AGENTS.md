@@ -283,6 +283,213 @@ src/
                                    route through this instead of a per-call-site inline check.
     index.ts
 
+  resources/                       Pi resource management — skills + Pi packages
+                                    (architecture/pi-resource-management.md). The daemon's one
+                                    mutator over Pi's `settings.json` `packages` array.
+    toggle-patterns.ts             Mirror of Pi's private skill-toggle pattern derivation
+                                    (`modes/interactive/components/config-selector.js`, not
+                                    importable — TUI-only, unexported). `topLevelPattern`/
+                                    `packagePattern` derive the `±pattern` written into
+                                    `settings.skills`/`packages[i].skills`; `replacePattern`
+                                    replaces a same-target entry instead of duplicating it, and
+                                    (`enabled === undefined`) clears one outright;
+                                    `applyPackageToggle` applies that to a `packages[]` entry,
+                                    upgrading a bare source string to `{source}` and collapsing
+                                    back once no filter array remains. To be added to root
+                                    `AGENTS.md`'s Pi-bump checklist beside `thinking-levels.ts`
+                                    (sprint-075/task-007).
+    pi-sdk.ts                     The single importer of Pi's `SettingsManager`/
+                                    `DefaultPackageManager`/`loadSkillsFromDir` (sprint-075/
+                                    task-003) — a Pi bump has exactly one place to check for these
+                                    symbols. `openPiResources(agentDir, cwd)` constructs a fresh,
+                                    reloaded pair per call (tenet: no cache).
+    skill-catalog.ts               buildCatalog(ctx) — `{skills, packages}` exactly as Pi would
+                                    load them, computed fresh on every call (sprint-075/task-003).
+                                    Corrupt `<agentDir>/settings.json` → `settings_unreadable`,
+                                    checked before touching Pi at all. Origin
+                                    (`agent_dir`/`agents_dir`/`package`/`settings_path`) is derived
+                                    from `resolve()`'s own `metadata.source`/`baseDir`, never path
+                                    prefixes. Shadowing: `loadSkillsFromDir` per scan root for
+                                    frontmatter/warnings, then a first-wins-by-name reducer over
+                                    ENABLED rows only, in `resolve()`'s own precedence order — a
+                                    disabled duplicate never wins or shadows. Packages: `kind`/
+                                    `identity`/`pinned` reuse `extensions/curated-packs.ts`'s
+                                    `parseSource` for `npm:`/`git:`, anything else is `local`;
+                                    `curated` checks membership against `CURATED_PACKS`.
+    wire.ts                        `toSkillInfoList`/`toPiPackageInfoList` (sprint-075/task-004) —
+                                    the ONE mapping from `skill-catalog.ts`'s internal
+                                    `CatalogSkill`/`CatalogPackage` to the wire's `SkillInfo`/
+                                    `PiPackageInfo`, dropping the internal-only `baseDir`.
+    resource-service.ts            `ResourceService` — `list()`/`setEnabled(path, enabled)`
+                                    (sprint-075/task-004), both bypassing the FIFO install/remove/
+                                    update-all queue entirely (D21; Pi's own `proper-lockfile`-
+                                    backed `SettingsManager` write already serializes concurrent
+                                    writers at the file level). `setEnabled`: re-resolves the
+                                    catalog, finds the row by `path` (absent → `not_found`),
+                                    derives the toggle pattern via `toggle-patterns.ts`
+                                    (`topLevelPattern` for a top-level skill, `packagePattern` for
+                                    a package skill — object form stays object form on re-enable,
+                                    never collapses; see `architecture/pi-resource-management.md`
+                                    § Toggle), writes through
+                                    `SettingsManager#setSkillPaths`/`#setPackages`,
+                                    `await flush()`, broadcasts `skills_changed("mutation")`
+                                    **before** returning a freshly re-resolved list. Watcher:
+                                    started on the first `skills_*` call via the shared
+                                    `FileWatchService`, subscribed to `<agentDir>/settings.json`,
+                                    `<agentDir>/skills`, `~/.agents/skills`, and the skill-lock
+                                    file; a 500 ms debounce (overridable for tests) broadcasts
+                                    `skills_changed("external")`. An fs event landing inside the
+                                    debounce window of the service's own last write, or while a
+                                    queued mutation is active/pending (`queue.activeCount`/
+                                    `pendingCount`), is folded into that write's/mutation's own
+                                    `"mutation"` broadcast instead of producing a second,
+                                    redundant `"external"` one.
+
+                                    `runSpawn(command, env, timeoutMs)`/`enqueueMutation(op, kind,
+                                    source, fn)` (sprint-076/task-003) are the shared machinery
+                                    `remove`/`updateAll` (and a future `install`, task-077) build
+                                    on. A private `createLimiter(1)` FIFO (`this.queue`, separate
+                                    from `ExtensionsService`'s own mutex) backs
+                                    `enqueueMutation`, which runs `fn(ctx)` behind that queue, then
+                                    always: logs `{op, kind, source: redactSource(source), outcome,
+                                    durationMs}` (info; warn with the redacted stderr tail on
+                                    failure), re-lists, and broadcasts `skills_changed("mutation")`
+                                    — `fn`'s own `ok`/`error` wins over the re-list's, except when
+                                    the re-list itself fails, which then surfaces instead.
+                                    `runSpawn` delegates to `spawn-runner.ts`'s pure function
+                                    through the injectable `spawn: InstallSpawn` constructor dep
+                                    (defaults to `extensions/sync-executor.ts`'s
+                                    `defaultInstallSpawn`; tests pass a fake).
+
+                                    `remove({path} | {packageSource})` (sprint-076/task-004):
+                                    package row by `path` → `not_removable`; `settings_path` →
+                                    drops every `settings.skills` entry (any ± form) that
+                                    provides the skill — its own dir/file or an ANCESTOR folder
+                                    (siblings from that folder go with it; none covering ⇒
+                                    `not_removable`), files untouched; a symlinked skill dir →
+                                    `fs.unlink`s the link only (never follows it, so the real
+                                    target is left intact); `agents_dir` with a lock entry →
+                                    spawns `skills remove -g -y <name>` (never `-a`); a plain
+                                    directory under `agent_dir`/`agents_dir` with no lock entry →
+                                    `fs.rm(recursive)`, but only once `realpath(dir)` is verified
+                                    to stay inside the origin root (`<agentDir>/skills` or
+                                    `~/.agents/skills`) — refused as `not_removable` otherwise,
+                                    closing a symlinked-ancestor escape. Every non-`settings_path`
+                                    branch then also drops the row's toggle `±pattern` (via
+                                    `topLevelPattern`) from `settings.skills`.
+                                    `remove({packageSource})`: `not_found` if no matching
+                                    `packages[]` entry, else spawns bundled `pi remove <source>`
+                                    — Pi owns deleting the install root and the `packages[]` entry.
+
+                                    `updateAll()` (sprint-076/task-005): one `enqueueMutation` call
+                                    spawning `skills update -g -y` then `pi update --extensions` in
+                                    sequence (600 s each) — a failure in the first still runs the
+                                    second; one `ItemResult` per engine (`agent-skills`/
+                                    `pi-packages`); `ok` only when both succeed. Both `remove`'s
+                                    and `updateAll`'s spawns build `env` as
+                                    `{...processEnvSnapshot(), ...spawnEnv(agentDir)}`
+                                    (`spawn-runner.ts`'s new `processEnvSnapshot` keeps `PATH`
+                                    etc. so the child can still find `git`/`node`, while
+                                    `skills-cli.ts`'s `spawnEnv` overrides win) and a shared
+                                    600 s `SPAWN_TIMEOUT_MS`.
+
+                                    `preview(source)` (sprint-077/task-003): queued via
+                                    `this.queue` directly (not `enqueueMutation` — nothing is
+                                    written, so no `markOwnWrite`/re-list/broadcast). Package
+                                    kinds answer `{kind, skills: []}`; `local_path` scans in place;
+                                    `skills_repo` shallow-clones into
+                                    `mkdtemp($PI_STUDIO_HOME/tmp/preview-*)` (120 s,
+                                    `PREVIEW_CLONE_TIMEOUT_MS`), honours a `/tree/<ref>/<path>`
+                                    subpath via the local `parseSkillsRepoSource`, and always
+                                    removes the scratch dir in `finally`. `buildPreviewResult`
+                                    turns `loadSkillsFromDir`'s loaded `Skill`s AND its
+                                    description-less diagnostics into one flat `PreviewSkill[]` so
+                                    an invalid `SKILL.md` still gets a `valid:false` row.
+                                    `studioHome` ($PI_STUDIO_HOME) is a new constructor dep,
+                                    defaulting to `process.env.PI_STUDIO_HOME ?? ~/.pi-studio`
+                                    (mirrors `bootstrap.ts`'s own `resolveHome`).
+
+                                    `install(source, picked?, replace?)` (sprint-077/tasks
+                                    004/005): queued through `enqueueMutation` like every other
+                                    mutation. Dispatches on `detectSkillSource(source)` (never a
+                                    client-sent `kind`). `pi_npm`/`pi_git`:
+                                    `installPiPackage` — spawns `pi install <source>` (600 s),
+                                    then on success a second locked write matches the installed
+                                    entry by `piPackageIdentity` (`curated-packs.ts`'s
+                                    `parseSource(...).identity`) and upgrades it to skills-only
+                                    object form, preserving any existing `skills` filter; a filter
+                                    write failure is a failed `ItemResult` with no rollback (D25).
+                                    `skills_repo`: `installSkillsRepo` — excludes already-installed
+                                    picks as `name_exists` unless `replace`, spawns one `skills
+                                    add <src> -g -a pi -y -s <picked…>`, and decides each name's
+                                    result from a post-spawn
+                                    `<agentsSkillsDir>/<sanitizeSkillName(name)>/SKILL.md`
+                                    existence check. `local_path`: `installLocalPath` — appends a
+                                    **bare** `<absPath>` to `settings.skills` (deviation from the
+                                    architecture doc's literal `"+"`-prefixed pseudocode — see the
+                                    prose invariant below for why).
+    skills-rpc.ts                   `registerSkillsHandlers` — `skills_list_request`/
+                                    `skills_set_enabled_request`/`skills_remove_request`/
+                                    `skills_update_all_request`/`skills_preview_request`/
+                                    `skills_install_request` (`bootstrap.ts` only;
+                                    sprint-075/task-004, sprint-076/tasks 004/005,
+                                    sprint-077/tasks 003/004/005). Thin: maps
+                                    `ResourceService`'s results onto the wire response shape; a
+                                    malformed `set_enabled`/`remove`/`preview`/`install` shape
+                                    (`ctx.message` is an unvalidated `Record<string, unknown>` —
+                                    `remove`'s own xor on `path`/`packageSource` and `install`'s
+                                    own `source`/`skills[]`/`replace` shape are re-checked here,
+                                    same posture as the wire schema's `.refine`) is a domain
+                                    `{ok:false, error}`, never an `rpc_error`.
+    skills-cli.ts                  Resolves the pinned `skills` 1.7.4 dependency's own
+                                    `package.json` `bin` (sprint-076/task-002, mirrors
+                                    `resolveBundledPiCli()` in `agent/providers/pi/
+                                    rpc-transport.ts` — never a hardcoded path). `skillsArgv(op,
+                                    …)` builds `add` (`<src> -g -a pi -y -s <names…>` — source first, `-s` is variadic), `remove`
+                                    (`-g -y <name>` — never `-a`, or a host-wide remove silently
+                                    keeps the canonical copy), and `update` (`-g -y`) argv.
+                                    `spawnEnv(agentDir, cloneTimeoutMs?)` sets
+                                    `PI_CODING_AGENT_DIR`, disables git prompts/telemetry, and
+                                    caps `SKILLS_CLONE_TIMEOUT_MS` below the caller's item
+                                    timeout. `sanitizeSkillName(name)` (sprint-077/task-003)
+                                    mirrors the `skills` CLI's own `sanitizeName` (`dist/cli.mjs`)
+                                    — the canonical `~/.agents/skills/<…>` directory name for a
+                                    skill — used by preview's `exists` flag and install's
+                                    `name_exists`/post-spawn existence checks.
+    spawn-runner.ts                `runSpawn(spawn, command, env, timeoutMs)`/`redactSource(s)`/
+                                    `processEnvSnapshot()` (sprint-076/task-003, `processEnvSnapshot`
+                                    added task-004) — the shared seam every queued mutation
+                                    (install/remove/update_all) interprets its `InstallSpawn`
+                                    result through. `runSpawn` returns `{ok, error?:
+                                    "spawn_failed"|"timeout", exitCode, stderr}`; a plain nonzero
+                                    exit leaves `error` `undefined` so callers map it to their own
+                                    domain reason. `redactSource` (pure) strips `user[:pass]@`
+                                    from URL-like substrings and masks `token`/`access_token`
+                                    query values; applied to the stderr tail *before* it's bounded
+                                    to 2 048 bytes, so truncation can never leave a partial,
+                                    unredacted credential. `processEnvSnapshot()` is `process.env`
+                                    with `undefined` entries dropped — spread first under
+                                    `skills-cli.ts`'s `spawnEnv(agentDir)` overrides so a spawned
+                                    `skills`/`pi` child keeps `PATH` etc. (mirrors
+                                    `extensions/sync-executor.ts`'s own unexported helper of the
+                                    same shape).
+                                    `InstallSpawn` also returns a bounded `stdout` tail: the `skills`
+                                    CLI prints its failures on STDOUT (stderr stays empty — found live,
+                                    sprint-077), so `runSpawn` falls back to `cliFailureText(stdout)`
+                                    (first `■` block, spinners/ANSI/gutter stripped) when a failed run
+                                    has no stderr; either way the text is redacted + capped.
+                                    `InstallSpawn` takes an optional `cwd` (additive; `runSpawn`
+                                    forwards it). Only package removal sets it — to the agentDir,
+                                    because `pi remove` resolves a local-path source against its
+                                    cwd while settings entries are relative to the agentDir
+                                    (found live: `pi remove ../../../pkg` from any other cwd
+                                    answers "No matching package").
+                                    `wire.ts` passes every package/provenance `source`,
+                                    `sourceUrl`, `packageSource` and `identity` through
+                                    `redactSource`, so git credentials never reach a client;
+                                    `remove({packageSource})` matches the request on its
+                                    redacted form and spawns with the REAL settings entry.
+
   proxy/
     service-proxy.ts              ServiceProxy — HTTP reverse proxy to localhost agent services.
     service-port-registry.ts      ServicePortRegistry — register/lookup agent service ports.
@@ -1310,6 +1517,114 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
 - **Never rewrite a corrupt `extensions-state.json`.** `loadExtensionsState` returns the literal
   string `"unreadable"` rather than defaults; every caller's fail-safe is to do nothing and log
   once, never reset the file.
+
+### Pi resource management (`resources/`)
+
+The daemon's one mutator over Pi's `settings.json` `packages` array (architecture/
+pi-resource-management.md) — skills + the Pi packages that carry them. Invariants:
+
+- **Pi is the source of truth; no Pi-Studio resource cache.** `ResourceService.list()`/
+  `setEnabled()` re-derive the catalog from `SettingsManager`/`DefaultPackageManager` on every
+  call — a plain `pi config` on the host sees exactly what `skills_list_request` returns.
+- **Never hand-edit `settings.json`.** Every mutation goes through `toggle-patterns.ts`'s pure
+  pattern derivation (`topLevelPattern`/`packagePattern`/`replacePattern`/`applyPackageToggle`)
+  and Pi's own `SettingsManager#setSkillPaths`/`#setPackages`, never direct JSON writes —
+  `pi-sdk.ts` is the single importer of Pi's `SettingsManager`/`DefaultPackageManager`/
+  `loadSkillsFromDir`, so a Pi bump has exactly one place to check for these symbols.
+- **The `skills` CLI is a pinned exact dependency, resolved, never hardcoded.** `skills-cli.ts`'s
+  `resolveSkillsCli()` reads the installed `skills` package's own `package.json` `bin`, mirroring
+  `resolveBundledPiCli()`; `remove`'s argv never passes `-a` (sprint-076/task-002), since `-a pi`
+  on a remove keeps the canonical copy if any other detected agent still links it.
+- **Toggle: re-enabling a package skill writes `+…`, exactly as `pi config` does.** Pi's own
+  `togglePackageResource` always pushes a replacement `±pattern` entry and never collapses a
+  package's filter array back to a bare string on its own toggle path; `applyPackageToggle`
+  mirrors that — collapse-to-string only ever applies to **clearing** an override
+  (`enabled === undefined`, used by `toggle-patterns.ts`'s own differential-fixture tests), never
+  to re-enabling, which is the only call `resource-service.ts` makes.
+- **Domain errors, never `rpc_error`.** `skills-rpc.ts` answers a corrupt `settings.json`
+  (`settings_unreadable`), an unresolved `path` (`not_found`), or a malformed
+  `skills_set_enabled_request` shape (`ctx.message` is an unvalidated `Record<string, unknown>`)
+  as `{ok:false, error}`, mirroring `extensions-rpc.ts`'s `isSlugArray` posture.
+- **Broadcast before responding.** A successful `setEnabled` broadcasts
+  `skills_changed("mutation")` to every active session — the caller included — *before* the RPC
+  response is sent (`viewer-settings-rpc.ts`'s established ordering).
+- **The watcher is daemon-lifetime, started lazily.** `ResourceService` subscribes
+  `<agentDir>/settings.json`, `<agentDir>/skills`, `~/.agents/skills`, and the skill-lock file via
+  the shared `FileWatchService` on the first `skills_*` call, never at bootstrap; a 500 ms
+  debounce (overridable for tests) collapses a burst of external edits into one
+  `skills_changed("external")`. An fs event landing inside the debounce window of the service's
+  own last write is folded into that write's own `"mutation"` broadcast — never a redundant
+  second `"external"` push for a change the daemon made itself. The same fold applies for the
+  whole span a queued mutation is active or pending (below): its own settings/skill-dir churn
+  never produces a stray `"external"` push either.
+- **One FIFO queue for every mutating operation; `runSpawn` owns the `skills_*` spawn error
+  taxonomy; every source is redacted before it's logged** (sprint-076/task-003).
+  `ResourceService`'s private `createLimiter(1)` queue (`enqueueMutation`) — separate from
+  `ExtensionsService`'s own sync mutex — serializes install/remove/update_all (tasks 004/005/077);
+  `list`/`setEnabled` never touch it. `runSpawn` wraps the injectable `spawn: InstallSpawn`
+  constructor dep (default `extensions/sync-executor.ts`'s `defaultInstallSpawn`) and returns
+  `{ok, error?: "spawn_failed"|"timeout", exitCode, stderr}` — a plain nonzero exit is `ok:false`
+  with no `error`, left for the caller to map to its own `install_failed`/`remove_failed`/
+  `update_failed`. `spawn-runner.ts`'s `redactSource` (pure: strips `user[:pass]@` from URL-like
+  substrings, masks `token`/`access_token` query values) runs on the stderr tail *before* it's
+  bounded to 2 048 bytes, and on every `{op, kind, source, outcome, durationMs}` log line
+  `enqueueMutation` writes — never a raw credential in a log or a wire `source`/`sourceUrl`.
+- **Production-only.** `registerSkillsHandlers` is wired in `bootstrap.ts` only; `dev-bootstrap.ts`
+  never touches a real pi-home's `settings.json`, so the dev daemon answers `unknown_message_type`
+  for both `skills_*` RPCs (mirrors extensions sync's same production-only posture).
+- **`remove`: origin dictates the strategy; realpath containment, never symlink-following, for a
+  plain directory** (sprint-076/task-004, D9/D20). `ResourceService.remove({path}|{packageSource})`
+  is queued through `enqueueMutation` like every other mutation. A package row's own `path` is
+  `not_removable`; `settings_path` drops the literal directory entry from `settings.skills` and
+  leaves files untouched; a symlinked skill dir is `fs.unlink`'d (never followed, so the real
+  target survives); an `agents_dir` skill with a `.skill-lock.json` entry is removed by spawning
+  `skills remove -g -y <name>` (`-a` is never passed — passing it would silently keep the copy);
+  a plain directory with no lock entry is `fs.rm(recursive)`-deleted only after `realpath(dir)` is
+  verified to stay inside its origin root (`<agentDir>/skills`/`~/.agents/skills`) — refused as
+  `not_removable` otherwise, closing an escape through a symlinked ancestor directory (not just a
+  symlinked leaf). `remove({packageSource})` spawns bundled `pi remove <source>`, after checking
+  the source resolves to a real `packages[]` entry (else `not_found`).
+- **`updateAll`: one queued operation, two sequential spawns, independent results**
+  (sprint-076/task-005, R5). `skills update -g -y` then `pi update --extensions` always both run —
+  a failure in the first never skips the second — each producing its own `ItemResult`
+  (`target: "agent-skills"`/`"pi-packages"`); the response's top-level `ok` is true only when both
+  succeed. One re-list/broadcast at the end (from `enqueueMutation`), not per spawn.
+- **`preview`: stateless, queued, never writes `settings.json`** (sprint-077/task-003, R2/R3).
+  `ResourceService.preview(source)` re-runs `detectSkillSource` authoritatively (a client-sent
+  `kind` is never trusted); `pi_npm`/`pi_git` answer `{kind, skills: []}` immediately (nothing to
+  pick — packages install as a unit); `local_path` scans the host folder in place with Pi's own
+  `loadSkillsFromDir`, never copying it; `skills_repo` shallow-clones (`git clone --depth 1
+  [--branch ref]`, 120 s) into `mkdtemp($PI_STUDIO_HOME/tmp/preview-*)`, honours a
+  `/tree/<ref>/<path>` subpath, and removes the scratch dir in a `finally` on every path
+  (success, failure, or timeout). Queued through the same `this.queue`
+  `remove`/`install`/`updateAll` share, but — unlike `enqueueMutation` — skips
+  `markOwnWrite`/re-list/broadcast entirely, since nothing on disk changes. Rows come from both
+  `loadSkillsFromDir`'s loaded `Skill`s (`valid: true`) and its diagnostics for a `SKILL.md` that
+  failed to load at all (no description — `valid: false`), so an invalid skill still gets its own
+  row instead of silently disappearing; `exists` checks
+  `<agentsSkillsDir>/<sanitizeSkillName(name)>/SKILL.md`.
+- **`install`: dispatches on the daemon's own `detectSkillSource(source)`, one `enqueueMutation`
+  call per engine** (sprint-077/tasks 004/005, R3/R8). `pi_npm`/`pi_git`: spawns bundled `pi
+  install <source>` (600 s) as a unit, then one locked write upgrading the matched `packages[]`
+  entry (matched by `curated-packs.ts`'s `parseSource(...).identity`, ref/version stripped) to
+  skills-only object form (`extensions: [], prompts: [], themes: []`) — any pre-existing `skills`
+  filter on that entry is preserved untouched (task-001 spike: `addSourceToSettings` only ever
+  rewrites `source`); the filter write's own failure never rolls back a successful install (D25,
+  no rollback) — the package row simply shows `filtered: false` on the next list. `skills_repo`:
+  picked names already present under `agentsSkillsDir` without `replace` are excluded as
+  `name_exists` and never spawned for that name; the rest go through one `skills add <src> -g -a
+  pi -y -s <picked…>` spawn, each name's own result decided by a post-spawn
+  `<agentsSkillsDir>/<sanitizeSkillName(name)>/SKILL.md` existence check. `local_path`:
+  `settings.skills` gains one **bare** `<absPath>` entry (de-duplicated against any existing
+  entry with the same stripped form) — **deviates from the architecture doc's literal `"+" +
+  absPath` pseudocode**: code inspection of the installed `@earendil-works/pi-coding-agent` 1.4.0
+  (`package-manager.js`'s `resolveLocalEntries`/`isPattern`/`applyPatterns`) shows a
+  `±`-prefixed `settings.skills` entry is parsed purely as an enable/disable *override* for a
+  path already discovered via a *plain* (unprefixed) entry or auto-discovery; a lone
+  `+<absPath>` with no matching plain entry resolves zero files. A bare entry goes through
+  `resolveLocalEntries`'s `plain` branch instead, which is exactly what `remove`'s own
+  `settings_path` handling already assumed. `sanitizeSkillName` (`skills-cli.ts`) mirrors the
+  `skills` CLI's own `sanitizeName` (`dist/cli.mjs`) for the canonical on-disk directory name.
 
 ### Viewer settings (`viewers/`)
 
