@@ -35,6 +35,10 @@ export const agentCapabilityFlagsSchema = z
     // provider's `AgentSession` implements `onUiRequest`/`respondToUi` and dialogs/fire-and-forget
     // extension UI methods are forwarded to clients instead of being auto-cancelled/dropped.
     supportsExtensionUi: z.boolean().optional(),
+    // Agent todos capability (features/agent-todos.md) — additive, optional. When true, the
+    // provider's `AgentSession` implements `onTodos`/`readTodos` (and its client `readTodos`) and the
+    // daemon derives and broadcasts the agent's todo list.
+    supportsTodos: z.boolean().optional(),
   })
   .passthrough();
 export type AgentCapabilityFlags = z.infer<typeof agentCapabilityFlagsSchema>;

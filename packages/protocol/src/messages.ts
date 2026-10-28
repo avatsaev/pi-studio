@@ -1724,6 +1724,93 @@ export const agentUiListResponseSchema = z
 export type AgentUiListResponse = z.infer<typeof agentUiListResponseSchema>;
 
 // ===========================================================================
+// Agent todos (swe/features/agent-todos.md § Wire family) — sprint-079
+// ===========================================================================
+
+/** `deleted` is never sent: the daemon drops the extension's tombstones. */
+export const agentTodoStatusSchema = z.enum(["pending", "in_progress", "completed"]);
+export type AgentTodoStatus = z.infer<typeof agentTodoStatusSchema>;
+
+/**
+ * Hard limits the **daemon** applies before sending (truncating over-long text with `…`, never
+ * rejecting). The schemas below deliberately do not enforce them: a newer daemon may raise a cap
+ * and an older client must still parse the result. Clients read `AGENT_TODOS_MAX_TASKS` for the
+ * "showing the first N" hint.
+ */
+export const AGENT_TODOS_MAX_TASKS = 200;
+export const AGENT_TODO_MAX_SUBJECT_CHARS = 500;
+export const AGENT_TODO_MAX_ACTIVE_FORM_CHARS = 500;
+export const AGENT_TODO_MAX_OWNER_CHARS = 100;
+export const AGENT_TODO_MAX_DESCRIPTION_CHARS = 4000;
+export const AGENT_TODO_MAX_BLOCKED_BY = 50;
+
+export const agentTodoSchema = z
+  .object({
+    /** Safe integer, unique within a snapshot (not enforced: a duplicate renders, never rejects). */
+    id: z.number().int(),
+    subject: z.string(),
+    status: agentTodoStatusSchema,
+    activeForm: z.string().optional(),
+    description: z.string().optional(),
+    owner: z.string().optional(),
+    /** Ids this task waits on; may name an id absent from the snapshot. */
+    blockedBy: z.array(z.number().int()).optional(),
+  })
+  .passthrough();
+export type AgentTodo = z.infer<typeof agentTodoSchema>;
+
+/**
+ * One agent's whole todo list, last-value-wins. `seq` is strictly increasing per agent within one
+ * daemon process lifetime and restarts at 1 after a daemon restart, so a client resets its
+ * per-agent seq on reconnect and refetches. Empty `tasks` means "no list" (panel hidden).
+ */
+export const agentTodosSnapshotSchema = z
+  .object({
+    agentId: z.string(),
+    seq: z.number(),
+    tasks: z.array(agentTodoSchema),
+    /** True when the task cap dropped tasks. */
+    truncated: z.boolean().optional(),
+  })
+  .passthrough();
+export type AgentTodosSnapshot = z.infer<typeof agentTodosSnapshotSchema>;
+
+/** Works for live agents and process-less records. */
+export const agentTodosListRequestSchema = z
+  .object({
+    type: z.literal("agent_todos_list_request"),
+    requestId: z.string(),
+    agentId: z.string(),
+  })
+  .passthrough();
+export type AgentTodosListRequest = z.infer<typeof agentTodosListRequestSchema>;
+
+/**
+ * Success carries `snapshot` (and no `ok`); a refusal carries `ok: false` and an open-string
+ * `error` (`not_found` documented, not enumerated). A failure to read the session never reaches
+ * here as an error: the daemon answers an empty snapshot instead.
+ */
+export const agentTodosListResponseSchema = z
+  .object({
+    type: z.literal("agent_todos_list_response"),
+    requestId: z.string(),
+    snapshot: agentTodosSnapshotSchema.optional(),
+    ok: z.boolean().optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+export type AgentTodosListResponse = z.infer<typeof agentTodosListResponseSchema>;
+
+/** Broadcast to every active session, no subscribe RPC (same shape as `skills_changed`). */
+export const agentTodosUpdateSchema = z
+  .object({
+    type: z.literal("agent_todos_update"),
+    snapshot: agentTodosSnapshotSchema,
+  })
+  .passthrough();
+export type AgentTodosUpdate = z.infer<typeof agentTodosUpdateSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -1834,6 +1921,9 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentUiRespondResponseSchema,
   agentUiListRequestSchema,
   agentUiListResponseSchema,
+  agentTodosListRequestSchema,
+  agentTodosListResponseSchema,
+  agentTodosUpdateSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

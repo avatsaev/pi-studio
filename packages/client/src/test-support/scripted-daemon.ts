@@ -75,10 +75,11 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
     switch (msg.type) {
       case "agent_ui_respond_request":
       case "agent_ui_list_request":
+      case "agent_todos_list_request":
         // Driven manually by each test via `fake.push()` — the ok/error mix (and, for
-        // agent_ui_list_request, the exact moment the reply lands relative to other pushed
-        // events) is exactly what the acceptance criteria differentiate on; an automatic reply
-        // would hide it.
+        // agent_ui_list_request/agent_todos_list_request, the exact moment the reply lands
+        // relative to other pushed events) is exactly what the acceptance criteria
+        // differentiate on; an automatic reply would hide it.
         return;
       case "create_agent_request": {
         const agentId = `agent-${++agentSeq}`;

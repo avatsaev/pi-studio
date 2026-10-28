@@ -286,7 +286,10 @@ src/
                            the pure follow-the-bottom policy Timeline drives through
                            features/chat/use-bottom-anchor; see AGENTS.md § Invariants "Timeline
                            bottom anchor") (+ tests)
-  hooks/                   use-connection (boot), use-viewer-settings (useViewerSettingsBoot —
+  hooks/                   use-connection (boot), use-agent-todos (useAgentTodosBoot — one
+                           `agent_todos_update` subscription per open connection + `refetchTracked()`
+                           on every open; a daemon without the `agentTodos` flag gets `clear()` and
+                           zero requests), use-viewer-settings (useViewerSettingsBoot —
                            hydrates viewer-plugins/viewer-settings-store.ts on connect, subscribes
                            to `viewer_settings_update` for the connection's lifetime, resets on
                            disconnect; mounted after use-connection and before use-pane-layout,
@@ -2726,3 +2729,21 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   own comment on `pickedSkillsNeedReplace`); an `exists` row whose own Replace checkbox isn't
   checked is filtered out client-side rather than round-tripped through the daemon's
   `name_exists` rejection.
+- **Agent todo panel (sprint-080, `swe/features/agent-todos-ui.md`).** `features/chat/todos/`:
+  `TodoPanel.tsx` (+ CSS module) is mounted in `ChatPanel.tsx` between `Timeline` and `Composer`
+  with `session.agentId`; it renders nothing for a draft (`null` id), no snapshot or an empty list.
+  All branching is pure and Node-tested (no jsdom): `todo-panel-model.ts` (counts, in-progress
+  pick, `rowText` = `activeForm` while in progress, blocked label, >5 completed collapse into one
+  group, id-then-index keys), `todo-collapse-codec.ts` (localStorage `pi-studio-agent-todos-ui`,
+  `{version:1, collapsed:[agentId…]}`, only collapsed ids, 500 cap oldest-out, corrupt → empty —
+  a sibling of the pane layout, NOT part of it, because the layout is keyed by tab identity while
+  this is per `agentId`), `agent-todos-store.ts` (`createAgentTodosStore({getClient, kv})` + the
+  app singleton: refcounted `track(agentId)` lists once per agent; `refetchTracked()` resets the SDK
+  reducer's seq first because the daemon restarts `seq` at 1; a failed list silently keeps the last
+  snapshot; collapse writes are debounced 250 ms). Rules: text is React text nodes only (a subject
+  of `<b>x</b>` stays literal); the active row is scrolled by setting the body's `scrollTop`, never
+  `scrollIntoView` (that would also scroll the timeline); a row's text is line-clamped to 3 lines and
+  the blocked label ellipsized so a 500-character subject or 50 blocked ids cannot own the panel;
+  the panel is `flex: 0 0 auto` + `max-height: 40%` (shrinking let a collapsed header be crushed);
+  expanded-row state is local and not persisted. Strings are English literals: web-client has no
+  i18n library, so the spec's `todos.*` i18next keys were dropped. Tokens only (`var(--pi-*)`).

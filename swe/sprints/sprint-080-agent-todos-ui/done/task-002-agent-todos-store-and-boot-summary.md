@@ -1,0 +1,3 @@
+# Task 002 — Summary
+- **Status:** done (2026-10-28)
+`features/chat/todos/agent-todos-store.ts` (`createAgentTodosStore({getClient, kv})` + app singleton; refcounted `track`, `refetchTracked` resets seq then lists tracked agents, `applyUpdate` via the SDK reducer, `clear`, debounced (250 ms) collapse write through the codec; selector hooks), `hooks/use-agent-todos.ts` (one push subscription per open connection; no capability → `clear()` and zero requests), mounted in `app.tsx` `Boot`. 6 store tests (list-once, rejection keeps snapshot, stale push dropped, seq-1 replaces seq-7, no capability → no request, collapse restore + debounce). `npm run build:web-client` ok; oxlint/oxfmt clean. The AGENTS.md source-tree entry is written with task-003/004.

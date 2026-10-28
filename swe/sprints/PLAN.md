@@ -108,8 +108,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 076 | `sprint-076-skills-remove-update` | cross-package (protocol, server, client, web-client): **Skills manager, slice 2** — origin-aware Remove, Remove package, Update all; the spawn/queue/redaction machinery; pinned `skills` CLI; Node floor ≥22.20. | 8 |
 | 077 | `sprint-077-skills-install` | cross-package (protocol, server, client, web-client): **Skills manager, slice 3** — install from `npm:`/`git:` Pi packages (skills-only), Agent Skills repos (stateless preview & pick), and host paths. | 8 |
 | 078 | `sprint-078-pdf-viewer` | web-client only: **PDF viewer**. `.pdf` files render in place with pdf.js (lazy pages, selectable text, fit-width/zoom, live refresh) instead of the download card, behind a `pdfviewer` viewer-settings row that is on by default. No daemon/protocol change. | 5 |
+| 079 | `sprint-079-agent-todos-daemon` | protocol, server, client: **Agent todos, slice 1**. The daemon derives an agent's todo list from rpiv-todo's `todo` tool results and `rpiv-todo-state` session entries, then serves it as the `agent_todos_*` family (list RPC + seq'd broadcast, `agentTodos` flag) with SDK members and a pure reducer. The mock gets `#todo` dev recipes. | 9 |
+| 080 | `sprint-080-agent-todos-ui` | web-client only: **Agent todos, slice 2**. `TodoPanel` between the timeline and the composer in every chat pane: header count and collapsed summary, status rows, completed-task grouping, capped height with in-panel scroll, per-agent collapse persisted. No daemon change. | 4 |
 
-Total: **76 sprints, 401 tasks** (summed from the table above, still excluding 048/049 per the gap
+Total: **78 sprints, 414 tasks** (summed from the table above, still excluding 048/049 per the gap
 noted below). Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
@@ -2138,6 +2140,62 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-004 | Settings → Viewers "PDF Viewer" row (constant row table) | feature | task-003 | packages/web-client (features/settings); § Settings → Viewers |
 | task-005 | Sprint close: live E2E (dev + built bundle via `pi-studio ui`), AGENTS.md, TODO(verify), gates | docs | task-001…task-004 | AGENTS.md (root + web-client); § Acceptance criteria (all) |
 
+### sprint-079-agent-todos-daemon
+> **What it ships.** `features/agent-todos.md`. rpiv-todo's overlay is a factory `setWidget` that Pi
+> never forwards, so the daemon derives the list itself. The Pi adapter recognises `todo` tool ends
+> live and replays the session file's branch (state entries win over tool results), through a
+> **mirrored-internals** module (`providers/pi/todos.ts`, re-checked on an rpiv-todo or Pi bump).
+> A provider-neutral `AgentTodosService` retains, dedupes and sequences snapshots, and broadcasts
+> to every session.
+>
+> **Planning-time refinements to the spec**, applied by t009:
+> - Reconcile triggers are **service-owned**: it subscribes to the session stream and reconciles on
+>   `turn_*` terminals (which Pi's `agent_settled` already maps to) and on `compaction` completed.
+>   Fork goes through a new `onTimelineReset` hook. This replaces the adapter-side settle hook and
+>   resolves the "which event marks run settled" TODO.
+> - The channel carries `AgentTodoList {tasks, truncated}`, because capping happens in the provider.
+> - `supportsTodos` lives on `AgentCapabilityFlags` in `protocol/provider-manifest.ts`.
+> - `sweep` keeps the seq counter, so a re-attached agent never restarts at 1.
+>
+> rpiv-todo is not installed in this checkout, so t001's spike captures its validator and replay
+> source and the live frame shapes before t003 mirrors them.
+>
+> **Status: done** (all 9 tasks; see the sprint's `done/` summaries). Spike findings changed t003/t004
+> (two live signals, no `parentToolCallId` filter); the TODO(verify) entries are resolved.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Spike: real Pi + rpiv-todo frames, `getBranch()` entries, fork replay, sub-agent marker, settle order; capture `isTaskDetails`/`replayFromBranch` | test | none | § TODO(verify), § Pi adapter |
+| task-002 | Protocol: `agent_todos_*` schemas, limit constants, `agentTodos` flag, `supportsTodos` | feature | none | packages/protocol; § Wire family, § Limits |
+| task-003 | Provider contract `onTodos`/`readTodos` + neutral `capAgentTodos` + pure `providers/pi/todos.ts` mirror | feature | task-001, task-002 | packages/server (agent, providers/pi); § Provider contract, § Pi adapter: recognition |
+| task-004 | Pi adapter wiring: raw `todo` intake → `onTodos`; `readTodos()` from the current session file; client process-less read | feature | task-003 | packages/server (providers/pi); § Pi adapter: live updates |
+| task-005 | Mock `emitTodos`/`readTodos` + `#todo` dev recipes | feature | task-003 | packages/server (providers/mock); § A11 |
+| task-006 | `AgentTodosService`: dedupe, seq, broadcast, stream-driven reconcile, process-less list, sweep | feature | task-003 | packages/server (agent/agent-todos); § Daemon service, § Edge cases |
+| task-007 | List handler, both bootstraps, fork `onTimelineReset` hook, dev-daemon WS E2E | feature | task-002, task-005, task-006 | packages/server (daemon, slash-command-operations); § Wire family |
+| task-008 | SDK: `listAgentTodos`/`onAgentTodosUpdate`/`hasAgentTodosCapability` + `agent-todos-state.ts` reducer | feature | task-002 | packages/client; § SDK |
+| task-009 | Sprint close: SDK E2E (incl. restart seq reset), real-Pi live E2E, AGENTS.md (mirror list → four), spec amendments, gates | docs | task-001…task-008 | AGENTS.md (root + 3 packages); § Acceptance A1–A13 |
+
+### sprint-080-agent-todos-ui
+> **What it ships.** `features/agent-todos-ui.md`. `TodoPanel` per chat pane, fed by an app-scoped
+> `agent-todos-store.ts` with one push subscription per connection and a refetch-on-reconnect. All
+> branching lives in pure, Node-tested modules (no jsdom).
+>
+> **Planning-time refinements to the spec**, applied by t004:
+> - The collapse flag lives in a sibling localStorage record (`pi-studio-agent-todos-ui`) keyed by
+>   `agentId`, not in the pane layout. This resolves the persistence-slot TODO.
+> - Strings are English literals: web-client has no i18n, so the spec's i18next keys are dropped.
+> - The visual design has no extractable § 09 chrome, so t003 reuses the extension-dialog card tokens
+>   and gets explicit user sign-off on screenshots.
+>
+> **Status: done** (all 4 tasks; relay transport and a manual two-agent check not run — see t004's summary).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Pure `todo-panel-model.ts` (counts, summary, rows, grouping, blocked label) + collapse codec | feature | s079/t002, s079/t008 | packages/web-client (features/chat/todos); § Pure helpers, § Behavior |
+| task-002 | `agent-todos-store.ts` (refcounted track, reducer, debounced collapse write) + `useAgentTodosBoot` | feature | task-001 | packages/web-client; § Multi-pane, reconnect |
+| task-003 | `TodoPanel` component mounted in `ChatPanel`; dev-daemon browser verification + screenshots for sign-off | feature | task-001, task-002 | packages/web-client (features/chat); § Behavior, § Accessibility, U1–U8, U10 |
+| task-004 | Sprint close: old-daemon, real-Pi and relay live checks; AGENTS.md; spec amendments; gates | docs | task-001…task-003 | AGENTS.md (root + web-client); U9, U11 |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2286,6 +2344,8 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/skills-manager.md | s075/t005-007 (list, toggle, panel), s076/t006-008 (remove, update all), s077/t006-008 (install dialog, full acceptance) |
 | architecture/pi-resource-management.md | s075/t001-004 (wire, toggle mirror, catalog, service + watcher), s076/t001-005 (spawn/queue/redaction, remove, update all), s077/t001-005 (source detection, preview, installs, TODO(verify) spike) |
 | features/pdf-file-preview.md | s078/t001-005 (build plumbing + data assets; `PdfViewer`; registry `pdf` kind + `toggle` gate; Settings row; live E2E + docs) |
+| features/agent-todos.md | s079/t001-009 (spike; wire + flag; contract + Pi mirror; adapter wiring; mock recipes; service; handlers/bootstraps/fork hook; SDK; real-Pi E2E + docs) |
+| features/agent-todos-ui.md | s080/t001-004 (pure model + collapse codec; store + boot; `TodoPanel`; live checks across dev, real Pi, relay + docs) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -2386,3 +2446,11 @@ Carried from the scope; resolve against the live source while implementing the o
       s066/t006 closes this either way, with evidence.
 - [ ] Whether `pi install <source>` keeps the filter arrays of an existing same-identity object
       entry — s077/t001 answers it before s077/t004 builds the package path.
+- [x] rpiv-todo's live RPC shapes: whether `tool_execution_end` for `todo` carries
+      `result.details {tasks, nextId}`, and whether `getBranch()` yields `rpiv-todo-state` custom
+      entries (including after a fork). Whether any `core`-pack path puts sub-agent tool events on
+      the parent stream, and with what marker. **Resolved (s079/t001, rpiv-todo 2.15.0 on Pi 1.4.0):**
+      yes to both; Pi also emits `entry_appended`; `parentToolCallId` marks same-session nested
+      calls, which must be accepted; no core-pack child-session sub-agents exist.
+- [x] Visual sign-off for `TodoPanel` (given on the live dev daemon), since § 09 of the visual spec has no extractable chrome:
+      s080/t003 produces screenshots and s080/t004 records the outcome.

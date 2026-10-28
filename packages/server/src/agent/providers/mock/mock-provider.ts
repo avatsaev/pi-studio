@@ -4,8 +4,10 @@ import type {
   AgentCapabilityFlags,
   AgentSessionConfig,
   AgentStreamEvent,
+  AgentTodo,
 } from "@av-pi-studio/protocol";
 
+import { capAgentTodos } from "../../agent-todos/todo-limits.js";
 import type {
   AgentClient,
   AgentCommandDefinition,
@@ -13,6 +15,7 @@ import type {
   AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
+  AgentTodoList,
   CreateSessionOptions,
   LaunchContext,
   PendingPermission,
@@ -22,6 +25,19 @@ import type {
   ProviderUiResponse,
   Unsubscribe,
 } from "../../provider-contract.js";
+import {
+  advanceTodos,
+  blockedTodos,
+  clearTodos,
+  doneTodos,
+  getTodoScriptHelpText,
+  hugeTodos,
+  literalTodos,
+  manyTodos,
+  parseTodoScript,
+  planTodos,
+  type TodoScriptRecipe,
+} from "./todo-script.js";
 import { getUiScriptHelpText, parseUiScript, type UiScriptStep } from "./ui-script.js";
 
 /**
@@ -39,7 +55,17 @@ export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsToolInvocations: true,
   supportsSteering: true,
   supportsExtensionUi: true,
+  supportsTodos: true,
 };
+
+/** Keyed by `PersistenceHandle.sessionId` (the mock session's own `id`, stable for its whole
+ *  lifetime and reused verbatim by `describePersistence`/`importSession`). Lets
+ *  `MockAgentClient.readTodos(handle)` answer the process-less path in-process, mirroring how a
+ *  real daemon restart would re-read a provider-native file. Entries are replaced on every
+ *  `emitTodos` call, never removed on `close()` — a process-less read happens AFTER the session
+ *  that produced the data has closed, so clearing on close would defeat the whole point of this
+ *  map. Bounded by distinct mock session ids created in the process. */
+const mockTodosByHandle = new Map<string, AgentTodoList>();
 
 const MOCK_MODES: AgentModeDefinition[] = [
   { id: "default", label: "Default" },
@@ -93,6 +119,12 @@ export class MockAgentSession implements AgentSession {
     (response: ProviderUiResponse) => void
   >();
 
+  // Agent todos (sprint-079/task-005): no `pi` process exists to script this family either, so the
+  // mock provider exposes a scripted emitter (`emitTodos`) plus `#todo ...` prompt recipes
+  // (`todo-script.ts`), mirroring the `#ui` precedent above.
+  private readonly todoSubscribers = new Set<(list: AgentTodoList) => void>();
+  private currentTodos: AgentTodoList = { tasks: [], truncated: false };
+
   constructor(
     private readonly config: AgentSessionConfig,
     options: MockSessionOptions = {},
@@ -118,6 +150,9 @@ export class MockAgentSession implements AgentSession {
   startTurn(prompt: string): Promise<{ turnId: string }> {
     const script = parseUiScript(prompt);
     if (script !== null) return this.startUiScriptTurn(script);
+
+    const todoRecipe = parseTodoScript(prompt);
+    if (todoRecipe !== null) return this.startTodoScriptTurn(todoRecipe);
 
     const turnId = randomUUID();
     this.activeTurn = turnId;
@@ -166,6 +201,56 @@ export class MockAgentSession implements AgentSession {
 
     void this.runUiScript(turnId, steps);
     return Promise.resolve({ turnId });
+  }
+
+  /** `#todo ...` prompt (sprint-079/task-005): run a recipe through `emitTodos`, then end the turn
+   *  with a short assistant text confirming what was emitted (or, for `help`, the recipe list)
+   *  instead of the normal echoed turn. Mirrors `startUiScriptTurn`'s shape: resolves immediately
+   *  with the turn id, the emission and the echo happen after `turnDelayMs`. */
+  private startTodoScriptTurn(recipe: TodoScriptRecipe): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    this.activeTurn = turnId;
+    this.emit({ kind: "turn_started", turnId });
+
+    setTimeout(() => {
+      if (this.activeTurn !== turnId) return;
+      let text: string;
+      if (recipe === "help") {
+        text = getTodoScriptHelpText();
+      } else {
+        const list = this.emitTodos(this.buildTodoRecipe(recipe));
+        text = `todo ${recipe}: ${list.tasks.length} task(s)${list.truncated ? " (truncated)" : ""}`;
+      }
+      this.emit({ kind: "assistant_message", messageId: randomUUID(), text, final: true });
+      this.emit({ kind: "turn_completed", turnId });
+      this.activeTurn = null;
+    }, this.turnDelayMs);
+
+    return Promise.resolve({ turnId });
+  }
+
+  /** Builds the raw (uncapped) task list for every recipe except `help`, which `startTodoScriptTurn`
+   *  handles itself. `advance` reads `currentTodos` — the only recipe whose result depends on
+   *  session state — everything else is a pure `todo-script.ts` builder. */
+  private buildTodoRecipe(recipe: Exclude<TodoScriptRecipe, "help">): AgentTodo[] {
+    switch (recipe) {
+      case "plan":
+        return planTodos();
+      case "advance":
+        return advanceTodos(this.currentTodos.tasks);
+      case "done":
+        return doneTodos();
+      case "many":
+        return manyTodos();
+      case "blocked":
+        return blockedTodos();
+      case "literal":
+        return literalTodos();
+      case "huge":
+        return hugeTodos();
+      case "clear":
+        return clearTodos();
+    }
   }
 
   private async runUiScript(turnId: string, steps: UiScriptStep[]): Promise<void> {
@@ -334,6 +419,30 @@ export class MockAgentSession implements AgentSession {
     };
     for (const cb of this.uiSubscribers) cb(req);
     return req;
+  }
+
+  // Agent todos (features/agent-todos.md § Provider contract): `supportsTodos` members. The mock
+  // caps through `capAgentTodos` directly — never through `providers/pi/todos.ts`, which is a
+  // different provider's recognition logic for a different wire shape.
+
+  onTodos(cb: (list: AgentTodoList) => void): Unsubscribe {
+    this.todoSubscribers.add(cb);
+    return () => this.todoSubscribers.delete(cb);
+  }
+
+  readTodos(): AgentTodoList {
+    return this.currentTodos;
+  }
+
+  /** Test/dev hook (sprint-079/task-005): cap `tasks` through `capAgentTodos`, store it as the
+   *  session's current list, publish it to `onTodos` subscribers and the process-less
+   *  `mockTodosByHandle` map, and return what was actually emitted. */
+  emitTodos(tasks: readonly AgentTodo[]): AgentTodoList {
+    const capped = capAgentTodos(tasks);
+    this.currentTodos = capped;
+    mockTodosByHandle.set(this.id, capped);
+    for (const cb of this.todoSubscribers) cb(capped);
+    return capped;
   }
 
   describePersistence(): PersistenceHandle | null {
@@ -513,6 +622,21 @@ export class MockAgentClient implements AgentClient {
 
   isAvailable(): boolean {
     return true;
+  }
+
+  /** Process-less counterpart of `MockAgentSession.readTodos` (features/agent-todos.md § Provider
+   *  contract): the last list `emitTodos` published for this handle's session, from the
+   *  module-level `mockTodosByHandle` map (keyed by `sessionId`) — no session is spawned. An
+   *  unknown handle (never emitted, or no `sessionId`) answers an empty list, matching the
+   *  "missing file is an empty list" convention the real adapter uses. */
+  readTodos(handle: PersistenceHandle): AgentTodoList {
+    const key = handle.sessionId;
+    return (
+      (key !== undefined ? mockTodosByHandle.get(key) : undefined) ?? {
+        tasks: [],
+        truncated: false,
+      }
+    );
   }
 
   async importSession(args: { providerHandleId: string; cwd: string }): Promise<{

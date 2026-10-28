@@ -30,6 +30,11 @@ Provides:
    (including resolved-dialog retention and in-flight submission tracking, sprint-067/task-005)
    plus a controller wiring layer over `PiStudioClient`. **Nothing in this repo renders it yet** —
    see § Extension UI below.
+8. **Agent Todos SDK** (`agent-todos-state.ts`, sprint-079/task-008) — the client consumer of the
+   daemon's `agent_todos_*` wire family (sprint-079): `PiStudioClient.listAgentTodos`/
+   `onAgentTodosUpdate`/`hasAgentTodosCapability`, plus a pure per-agent last-value-wins reducer
+   with reconnect-safe `seq` reset. No controller layer here — the consumer (sprint-080's
+   web-client store) wires it.
 
 ---
 
@@ -44,12 +49,14 @@ src/
   pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls).
   daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
   daemon-client.test.ts
-  pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles + Extension UI SDK surface.
+  pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles + Extension UI + Agent Todos SDK surface.
   pistudio-client.test.ts
   agent-ui-state.ts           Pure Extension UI reducer/selectors + resolved-dialog retention (sprint-067) — no DOM, no I/O, no timers.
   agent-ui-state.test.ts
   agent-ui-controller.ts      AgentUiController — subscribe-then-list rehydration, reconnect resync, agent-lifecycle pruning.
   agent-ui-controller.test.ts
+  agent-todos-state.ts        Pure Agent Todos reducer/selectors (sprint-079) — no DOM, no I/O, no timers.
+  agent-todos-state.test.ts
   test-support/
     scripted-daemon.ts        makeScriptedDaemon()/makeFacade() — shared fake-transport harness for pistudio-client.test.ts and agent-ui-controller.test.ts.
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
@@ -218,6 +225,9 @@ const client = new PiStudioClient(daemonClient);
 | `updateAllSkills()`           | `Promise<SkillsUpdateAllResponse>` | `skills_update_all_request` RPC (sprint-076) — updates every engine; `UPDATE_ALL_SKILLS_TIMEOUT_MS` (1 300 s) timeout; resolves `results: ItemResult[]` (mixed ok/failed expected) plus `{skills, packages}` |
 | `previewSkillSource(source)`  | `Promise<SkillsPreviewResponse>` | `skills_preview_request` RPC (sprint-077) — `PREVIEW_SKILL_SOURCE_TIMEOUT_MS` (150 s) timeout; `pi_npm`/`pi_git` resolve `skills: []` (nothing to pick), `skills_repo`/`local_path` resolve the candidate picklist; domain `{ok:false, error?}` returned, never thrown |
 | `installSkills({source, skills?, replace?})` | `Promise<SkillsInstallResponse>` | `skills_install_request` RPC (sprint-077) — `INSTALL_SKILLS_TIMEOUT_MS` (660 s) timeout; `skills` is the picked names from a prior `previewSkillSource()` (meaningful for `skills_repo` only); resolves `results: ItemResult[]` plus `{skills, packages}` |
+| `hasAgentTodosCapability()`   | `boolean`                        | Whether the daemon advertised `agentTodos` (sprint-079)                                                         |
+| `listAgentTodos(agentId)`     | `Promise<AgentTodosSnapshot>`    | `agent_todos_list_request` RPC, default RPC timeout — throws `AgentTodosError` on `{ok:false}` or a malformed success (no `snapshot`, no `ok:false`); `code` carries the daemon's open-string `error` |
+| `onAgentTodosUpdate(handler)` | unsubscribe fn                   | Subscribe to `agent_todos_update` broadcasts (any agent) — raw pushes, feed through `agent-todos-state.ts`     |
 | `connection`                  | `DaemonClient`                   | Escape hatch to the underlying driver                                                                           |
 
 ### `PiStudioAgentActions` (from `agent(id)`)

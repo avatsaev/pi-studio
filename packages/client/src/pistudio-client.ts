@@ -15,6 +15,9 @@ import type {
   AgentStreamEvent,
   AgentSwitchSessionResponse,
   AgentThinkingLevelsResponse,
+  AgentTodosListResponse,
+  AgentTodosSnapshot,
+  AgentTodosUpdate,
   AgentUiPendingRequest,
   AgentUiRequest,
   AgentUiResolved,
@@ -477,6 +480,29 @@ export function isAgentUiResolved(message: unknown): message is AgentUiResolved 
     m.type === "agent_ui_resolved" &&
     typeof m.requestId === "string" &&
     typeof m.agentId === "string"
+  );
+}
+
+/**
+ * A domain failure reported *in `agent_todos_list_response`* (`{ok:false, error}`) rather than as
+ * an `rpc_error` — same hazard `ProviderAuthError`/`AgentUiError` guard against. `code` forwards
+ * the daemon's `error` string verbatim (open, not enumerated — only `not_found` is documented).
+ */
+export class AgentTodosError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "AgentTodosError";
+  }
+}
+
+/** Narrows an inbound session message to the `agent_todos_update` broadcast. */
+export function isAgentTodosUpdate(message: unknown): message is AgentTodosUpdate {
+  const m = message as { type?: unknown; snapshot?: unknown } | null;
+  return (
+    !!m && m.type === "agent_todos_update" && typeof m.snapshot === "object" && m.snapshot !== null
   );
 }
 
@@ -971,6 +997,50 @@ export class PiStudioClient {
    */
   extensionUiAvailable(): boolean {
     return this.daemon.hasFeature("extensionUi");
+  }
+
+  // ─── Agent Todos (agent_todos_*, sprint-079) ───────────────────────────────
+
+  /** True iff the daemon advertised the `agentTodos` capability in `server_info.features`. An old
+   *  daemon never gets `listAgentTodos`/`onAgentTodosUpdate` called against it. */
+  hasAgentTodosCapability(): boolean {
+    return this.daemon.hasFeature("agentTodos");
+  }
+
+  /**
+   * Reconnect/first-load snapshot for one agent's todo list — `agent_todos_list_request`, the
+   * default RPC timeout. The response is flat (`{type, requestId, snapshot}` on success, no
+   * `ok`), unlike most other RPCs on this facade: `daemon.request` only unwraps a `payload`
+   * field, and this family has none. A domain refusal (`{ok:false, error}`, e.g. unknown
+   * `agentId`) **throws** `AgentTodosError` — the caller treats any rejection as "keep what you
+   * have" (`agent-todos-state.ts`), so a malformed success (neither `snapshot` nor `ok:false`) is
+   * also raised rather than silently returning `undefined`.
+   */
+  async listAgentTodos(agentId: string): Promise<AgentTodosSnapshot> {
+    const payload = await this.daemon.request<AgentTodosListResponse>("agent_todos_list_request", {
+      agentId,
+    });
+    if (payload.ok === false) {
+      throw new AgentTodosError(
+        payload.error ?? "failed to list agent todos",
+        payload.error ?? "unknown",
+      );
+    }
+    if (!payload.snapshot) {
+      throw new AgentTodosError(
+        "malformed agent_todos_list_response: missing snapshot",
+        "malformed_response",
+      );
+    }
+    return payload.snapshot;
+  }
+
+  /** Subscribe to every `agent_todos_update` broadcast (any agent) — raw pushes, undeduped and
+   *  unfiltered by agent; feed them through `agent-todos-state.ts`'s `applyAgentTodosSnapshot`. */
+  onAgentTodosUpdate(handler: (snapshot: AgentTodosSnapshot) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if (isAgentTodosUpdate(msg)) handler(msg.snapshot);
+    });
   }
 
   // ─── Skills (skills_*, sprint-075) ─────────────────────────────────────────

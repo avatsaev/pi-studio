@@ -385,3 +385,118 @@ describe("#ui script trigger (sprint-068, task-001)", () => {
     expect(message && "text" in message ? message.text : undefined).toBe("echo: hello there");
   });
 });
+
+describe("agent todos (sprint-079, task-005)", () => {
+  it("MOCK_CAPABILITIES advertises supportsTodos", () => {
+    expect(MOCK_CAPABILITIES.supportsTodos).toBe(true);
+  });
+
+  it("emitTodos caps through capAgentTodos, reaches onTodos subscribers, and readTodos returns the latest list", async () => {
+    const session = await makeMockSession();
+    const received: unknown[] = [];
+    session.onTodos((list) => received.push(list));
+
+    const huge = Array.from({ length: 250 }, (_, i) => ({
+      id: i + 1,
+      subject: "x".repeat(600),
+      status: "pending" as const,
+    }));
+    const emitted = session.emitTodos(huge);
+
+    expect(emitted.tasks).toHaveLength(200);
+    expect(emitted.truncated).toBe(true);
+    expect(emitted.tasks[0]!.subject.length).toBeLessThanOrEqual(500);
+    expect(received).toEqual([emitted]);
+    expect(session.readTodos()).toEqual(emitted);
+  });
+
+  it("client.readTodos(handle) returns the list last emitted under that handle", async () => {
+    const client = new MockAgentClient();
+    const session = (await client.createSession({
+      provider: "mock",
+      cwd: "/tmp",
+    })) as MockAgentSession;
+    const handle = session.describePersistence()!;
+
+    expect(client.readTodos!(handle)).toEqual({ tasks: [], truncated: false });
+
+    const emitted = session.emitTodos([{ id: 1, subject: "one task", status: "pending" }]);
+    expect(client.readTodos!(handle)).toEqual(emitted);
+
+    const replaced = session.emitTodos([{ id: 2, subject: "replaced", status: "completed" }]);
+    expect(client.readTodos!(handle)).toEqual(replaced);
+  });
+
+  it("client.readTodos(handle) for an unknown handle answers an empty list", () => {
+    const client = new MockAgentClient();
+    expect(client.readTodos!({ provider: "mock", sessionId: "never-emitted" })).toEqual({
+      tasks: [],
+      truncated: false,
+    });
+  });
+
+  it("#todo plan then #todo advance on one session yields two snapshots in order", async () => {
+    const session = await makeMockSession();
+    const snapshots: unknown[] = [];
+    session.onTodos((list) => snapshots.push(list));
+
+    await session.run("#todo plan");
+    await session.run("#todo advance");
+
+    expect(snapshots).toHaveLength(2);
+    const [plan, advanced] = snapshots as {
+      tasks: { id: number; status: string }[];
+    }[];
+    expect(plan!.tasks[0]!.status).toBe("in_progress");
+    expect(advanced!.tasks[0]!.status).toBe("completed");
+    expect(advanced!.tasks[1]!.status).toBe("in_progress");
+  });
+
+  it("#todo help lists the recipes as assistant text and emits no snapshot", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const snapshots: unknown[] = [];
+    session.onTodos((list) => snapshots.push(list));
+
+    await session.run("#todo help");
+
+    expect(snapshots).toHaveLength(0);
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain("#todo plan");
+    expect(events.some((e) => e.kind === "turn_completed")).toBe(true);
+  });
+
+  it("an unrecognised #todo recipe falls back to help text and emits no snapshot", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    const snapshots: unknown[] = [];
+    session.onTodos((list) => snapshots.push(list));
+
+    await session.run("#todo banana");
+
+    expect(snapshots).toHaveLength(0);
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toContain(
+      "#todo script recipes",
+    );
+  });
+
+  it("#todo clear emits an empty list", async () => {
+    const session = await makeMockSession();
+    await session.run("#todo plan");
+    const snapshots: unknown[] = [];
+    session.onTodos((list) => snapshots.push(list));
+
+    await session.run("#todo clear");
+
+    expect(snapshots).toEqual([{ tasks: [], truncated: false }]);
+  });
+
+  it("an ordinary prompt is unaffected by #todo wiring", async () => {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    await session.run("hello again");
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : undefined).toBe("echo: hello again");
+  });
+});

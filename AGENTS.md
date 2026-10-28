@@ -121,13 +121,18 @@ Two consequences for anyone touching the Pi integration:
   `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
   path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
   to a global `pi` on `$PATH`.
-- **Three places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+- **Four places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
   none is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
   `getSupportedThinkingLevels` + its 7-level ladder), `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`), and `resources/toggle-patterns.ts` (mirrors the
+  `splitGitRef` (mirrors Pi's `splitRef`), `resources/toggle-patterns.ts` (mirrors the
   skill enable/disable pattern derivation of `ResourceList` in
   `dist/modes/interactive/components/config-selector.js`, so a Settings → Skills toggle writes
-  exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component).
+  exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component), and
+  `providers/pi/todos.ts` (sprint-079; mirrors **`@juicesharp/rpiv-todo`**'s `isTaskDetails`/
+  `replayFromBranch`, its `todo` tool name and `rpiv-todo-state` entry type — verified at rpiv-todo
+  2.15.0 on Pi 1.4.0 — so it is re-checked on an **rpiv-todo** bump too: the curated pack source is
+  unpinned, so it can drift without a repo change, and drift fails closed to an unchanged or empty
+  list; it also depends on Pi's `entry_appended`/`tool_execution_end` frame shapes).
   The first two were re-verified at 1.4.0: `splitRef` and pi-ai's
   `getSupportedThinkingLevels` (+ `EXTENDED_THINKING_LEVELS`) are byte-identical to 0.85.1, where
   `deriveThinkingLevels` was differential-tested against Pi's own `get_available_thinking_levels`
@@ -468,6 +473,24 @@ All communication uses a **single WebSocket connection** per client.
   (`ok:false` answers still carry the re-listed `skills`/`packages`), with the redacted tail of
   the child's output — the `skills` CLI reports failures on stdout, which the runner now
   captures. SDK timeouts: preview 150 s, install 660 s.
+- **`agent_todos_*`** (sprint-079, `swe/features/agent-todos.md`) carries an agent's todo list.
+  rpiv-todo's overlay is a factory `setWidget` Pi never forwards (see `agent_ui_*` above), so the
+  daemon derives the list itself from Pi's `todo` tool results and `rpiv-todo-state` session
+  entries and serves it as three real `sessionMessageSchema` members — `agent_todos_list_request`/
+  `_response` (works for live **and** process-less agents; the response is flat: `{snapshot}` on
+  success, `{ok:false, error:"not_found"}` otherwise, never `rpc_error`) and the
+  `agent_todos_update` broadcast to **every** session (no subscribe RPC, like `skills_changed`).
+  Snapshots are whole-list, last-value-wins, with a `seq` that is per agent **per daemon process**
+  (restarts at 1): a client resets its tracked seq on reconnect and refetches (`resetAgentTodosSeq`).
+  Advertised by the `agentTodos` flag; `AgentCapabilityFlags.supportsTodos` lives in
+  `protocol/provider-manifest.ts`. Registered in **both** bootstraps (the mock provider produces
+  scripted lists through `#todo plan|advance|done|many|blocked|literal|huge|clear|help` prompts).
+  Live-verified end to end against a real `pi --mode rpc` + rpiv-todo 2.15.0 (sprint-079/task-009):
+  frames, settle/compaction/fork reconcile, process-less list after a daemon restart, archive sweep,
+  no task text in debug logs. **Consumer**: `PiStudioClient` (`listAgentTodos`/`onAgentTodosUpdate`/
+  `hasAgentTodosCapability`, `AgentTodosError`) and the pure `agent-todos-state.ts` reducer. **Sprint-080 shipped the web
+  panel** (`packages/web-client`'s `TodoPanel`, between the timeline and the composer; per-agent collapse in
+  localStorage `pi-studio-agent-todos-ui`; see `packages/web-client/AGENTS.md`'s "Agent todo panel").
 
 ---
 

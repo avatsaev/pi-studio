@@ -30,6 +30,8 @@ import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
+import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
+import { AgentTodosService } from "../agent/agent-todos/agent-todos-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService, getTimeline } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
@@ -277,12 +279,26 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // `onSessionAttached` below can close over it.
   const agentUiService = new AgentUiService({ broadcast, getActiveSessions, logger });
 
+  // ── Agent todos (features/agent-todos.md) — also before the manager (`onSessionAttached`), but it
+  // reads the agent record + live session back through `manager`, so those are lazy closures.
+  const agentTodosService = new AgentTodosService({
+    broadcast,
+    getActiveSessions,
+    getAgent: (agentId) => manager.get(agentId),
+    resolveClient,
+    logger,
+  });
+
   // ── Disk-persisted agent manager (recovers agents on boot) ───────────────────
   const manager = new AgentManager({
     home,
     saveAgent: (record) => saveAgent(home, record),
     loadAllAgents: () => loadAllAgents(home),
-    onSessionAttached: (agentId, session) => agentUiService.attach(agentId, session),
+    // `onSessionAttached` is a single slot: compose every bridge that watches a new session.
+    onSessionAttached: (agentId, session) => {
+      agentUiService.attach(agentId, session);
+      agentTodosService.attach(agentId, session);
+    },
     logger,
   });
 
@@ -295,6 +311,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       logger.info({ agentId: event.agentId }, event.type.replace("_", " "));
       broadcast(getActiveSessions(), { type: "session", message: event });
       agentUiService.sweep(event.agentId, "aborted");
+      agentTodosService.sweep(event.agentId);
     }
   });
 
@@ -326,6 +343,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     resolveClient,
     broadcast,
     logger,
+    onTimelineReset: (agentId) => agentTodosService.reconcile(agentId),
   });
   slashCommandOps.registerHandlers(registry, getActiveSessions);
 
@@ -335,6 +353,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   permissionService.registerHandlers(registry, getActiveSessions);
 
   registerAgentUiHandlers(registry, { service: agentUiService, logger });
+  registerAgentTodosHandlers(registry, { service: agentTodosService });
 
   // ── Directory listing (agents) ────────────────────────────────────────────────
   registry.register("list_agents_request", (ctx) => ({

@@ -290,6 +290,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/session-tree-navigation.md](features/session-tree-navigation.md) | feature      | Pi `/tree` in the web app: session-tree view + in-place time-travel navigation (Phase 2 gated on an upstream `navigate_tree` Pi RPC) |
 | [features/provider-usage.md](features/provider-usage.md)                 | feature (UI) | Per-provider spend/quota balances + rate-limit windows (+ small protocol amendment) |
 | [features/context-compaction.md](features/context-compaction.md)         | feature      | Manual `/compact` + status-bar trigger, live `compaction` stream events (manual + auto), context-usage meter bar |
+| [features/agent-todos.md](features/agent-todos.md)                       | feature      | Daemon derives the `rpiv-todo` list (live `entry_appended`/`tool_execution_end` + session-file replay) into a typed `agent_todos_*` family (list + broadcast) + SDK — **shipped (sprint-079)** |
+| [features/agent-todos-ui.md](features/agent-todos-ui.md)                 | feature (UI) | Read-only, collapsible agent todo panel above the composer in each chat pane — **shipped (sprint-080)** |
 | [features/provider-auth-ui.md](features/provider-auth-ui.md)             | feature (UI) | Client SDK login-flow methods + settings dialog shell (Model Providers category), login dialog, onboarding nudge |
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
 | [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |
@@ -351,3 +353,11 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       filter arrays — see
       [architecture/pi-resource-management.md § TODO(verify)](architecture/pi-resource-management.md).
       **Resolved (sprint-077/task-001): it preserves them** — only `source` is rewritten.
+- [x] Agent todos, daemon half: Pi RPC frames, `getBranch()` entries, settle ordering and nested/sub-agent
+      events — see [features/agent-todos.md § TODO(verify)](features/agent-todos.md).
+      **Resolved (sprint-079/task-001): verified against Pi 1.4.0 + rpiv-todo 2.15.0**; nested
+      `ctx.executeTool` calls are same-session and are accepted (`parentToolCallId` is not a child list);
+      Pi also emits `entry_appended` for every state change, which the adapter uses alongside
+      `tool_execution_end`.
+- [x] Agent todos, UI half: persistence slot (sibling localStorage record) and visual sign-off (given)
+      ([features/agent-todos-ui.md](features/agent-todos-ui.md)).

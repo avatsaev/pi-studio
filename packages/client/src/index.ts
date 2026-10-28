@@ -24,6 +24,9 @@ export * from "./pistudio-client.js";
 // Extension-UI pure state module (reducer/selectors, sprint-067).
 export * from "./agent-ui-state.js";
 
+// Agent Todos pure state module (reducer/selectors, sprint-079).
+export * from "./agent-todos-state.js";
+
 // Extension-UI controller (subscribe-then-list, reconnect resync, agent pruning, sprint-067).
 export * from "./agent-ui-controller.js";
 
