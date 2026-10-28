@@ -37,6 +37,13 @@ export interface SlashCommandOpsDeps {
   resolveClient: (provider: string) => AgentClient;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   logger?: Logger;
+  /**
+   * Called after a fork rebinds the agent's native session and the timeline is reset (the same
+   * branch that broadcasts `agent_timeline_reset`). The agent-todos service re-reads the new
+   * branch here: the todo list is derived from the session file, which just changed. Not a stream
+   * event, so nothing else would tell it.
+   */
+  onTimelineReset?: (agentId: string) => void;
 }
 
 export interface ListProviderModelsResult {
@@ -305,6 +312,7 @@ export class SlashCommandOperationsService {
           agentId,
           reason: "fork",
         });
+        this.deps.onTimelineReset?.(agentId);
       }
     }
     return { type: "agent_fork_response", payload };

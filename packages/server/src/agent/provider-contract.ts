@@ -2,6 +2,7 @@ import type {
   AgentCapabilityFlags,
   AgentSessionConfig,
   AgentStreamEvent,
+  AgentTodo,
   ImageAttachment,
 } from "@av-pi-studio/protocol";
 
@@ -139,6 +140,16 @@ export interface PendingPermission {
   requestId: string;
   toolName?: string;
   detail?: unknown;
+}
+
+/**
+ * One agent's todo list as a provider reports it: already sorted by id and capped to the protocol
+ * limits (`capAgentTodos`), so `truncated` has to travel with the tasks. The service adds the
+ * agent id and `seq` to make the wire `AgentTodosSnapshot`.
+ */
+export interface AgentTodoList {
+  tasks: AgentTodo[];
+  truncated: boolean;
 }
 
 /**
@@ -293,6 +304,18 @@ export interface AgentSession {
   onUiRequest?(cb: (req: ProviderUiRequest) => void): Unsubscribe;
   /** Answer a dialog by its provider-scoped `requestId` (never the daemon's minted wire id). */
   respondToUi?(providerRequestId: string, response: ProviderUiResponse): void;
+
+  // Agent todos (features/agent-todos.md) — present only where the provider supports it
+  // (capabilities.supportsTodos). Payloads are provider-neutral `AgentTodoList`s, already capped; the
+  // daemon never sees an extension's own task shape.
+  /** Subscribe to live snapshots of the agent's whole todo list (last-value-wins). */
+  onTodos?(cb: (list: AgentTodoList) => void): Unsubscribe;
+  /**
+   * Re-derive the list from the session's CURRENT native session file (re-read each call, so it
+   * follows a fork/new_session rebind). Throws on an unreadable file so the caller can log it with
+   * the agent id; a missing file is an empty list.
+   */
+  readTodos?(): AgentTodoList;
 }
 
 /** A provider client: creates/resumes sessions and exposes discovery. */
@@ -343,4 +366,10 @@ export interface AgentClient {
    * (`session-hydration.ts`). Providers without durable native history omit this.
    */
   hydrateTimeline?(handle: PersistenceHandle): TimelineRow[];
+  /**
+   * Process-less counterpart of `AgentSession.readTodos`: derive the list from a provider-native
+   * resume handle without spawning anything (the `hydrateTimeline` precedent), for a record that
+   * has no live session after a daemon restart. Throws on an unreadable file.
+   */
+  readTodos?(handle: PersistenceHandle): AgentTodoList;
 }

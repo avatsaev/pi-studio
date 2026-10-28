@@ -113,6 +113,14 @@ src/
                                    surfaces, first-wins resolution, terminal-only sweeps.
       agent-ui-rpc.ts             registerAgentUiHandlers — agent_ui_respond_request /
                                    agent_ui_list_request (both bootstraps).
+    agent-todos/                  Agent todos (sprint-079, swe/features/agent-todos.md) — see
+                                   "Agent todos" below.
+      agent-todos-service.ts      AgentTodosService — per-agent list + seq, dedupe, stream-driven
+                                   reconcile, process-less list, seq-keeping sweep.
+      agent-todos-rpc.ts          registerAgentTodosHandlers — agent_todos_list_request (both
+                                   bootstraps; the flat response).
+      todo-limits.ts              capAgentTodos — the provider-neutral id sort + 200-task / field /
+                                   blockedBy caps, shared by the Pi adapter and the mock.
     manifest.ts                   ProviderManifest registry.
     structured-generation.ts      Daemon-side LLM-backed metadata generation (agent titles, commit
                                    messages, PR text, branch names) — `generate(task, opts)` tries
@@ -133,18 +141,28 @@ src/
                                    implements the generic UI channel (`onUiRequest`/`respondToUi`) —
                                    translates raw `extension_ui_request` events and stamps
                                    `extension_ui_response` replies (sprint-066, see "Extension UI"
-                                   below); PI_CAPABILITIES.supportsExtensionUi: true.
+                                   below); PI_CAPABILITIES.supportsExtensionUi: true. Also the
+                                   agent-todos channel (`onTodos`/`readTodos`, client `readTodos`;
+                                   sprint-079, see "Agent todos"); PI_CAPABILITIES.supportsTodos: true.
         event-mapper.ts           Maps raw Pi JSONL events → AgentStreamEvent.
         rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
         session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
-                                   Pi's own on-disk JSONL session file (no live process needed).
+                                   Pi's own on-disk JSONL session file (no live process needed);
+                                   `readTodosFromSessionFile` (throws on an unreadable file).
         session-hydration.test.ts
+        todos.ts                  MIRRORED rpiv-todo internals (sprint-079): isTodoDetails,
+                                   replayTodosFromBranch, toAgentTodos, todoDetailsFromFrame.
+        todos.test.ts
+        todos-wiring.test.ts
         transport-errors.test.ts
         pi-adapter.test.ts
       mock/
         mock-provider.ts          MockAgentClient — in-process stub, no credentials needed;
                                    `MockAgentSession.emitUiRequest`/`uiResponses` (sprint-066) let
                                    tests script the generic UI channel with no `pi` process.
+                                   `emitTodos`/`readTodos` + `#todo …` recipes (sprint-079).
+        todo-script.ts            Pure `#todo` recipe parser + builders (dev daemon).
+        todo-script.test.ts
         mock-provider.test.ts
 
   ws/
@@ -1190,6 +1208,62 @@ silently unusable in RPC mode.
   no RPC-mode representation — only the plain `string[]` form serializes to `widgetLines`. Surface
   retention/rebuild/clear-by-omission are instead proven against the mock provider
   (`agent-ui-e2e.test.ts`), a Pi-core limitation outside this package's control, not a bridge bug.
+
+### Agent todos (`agent/agent-todos/`, `agent/providers/pi/todos.ts`)
+
+rpiv-todo's overlay is a factory `setWidget` Pi never forwards (see Extension UI above), so the
+daemon derives an agent's todo list itself and serves it as the `agent_todos_*` family
+(`swe/features/agent-todos.md`; sprint-079). Wire shapes: `packages/protocol/AGENTS.md`.
+
+- **Provider-neutral channel.** `AgentSession` gained optional `onTodos(cb)`/`readTodos()` and
+  `AgentClient` an optional `readTodos(handle)`, all carrying `AgentTodoList = {tasks, truncated}`
+  (already capped: capping is the provider's job, so `truncated` has to travel with the list).
+  `capabilities.supportsTodos` advertises them. Everything rpiv-todo-specific stays in the Pi adapter.
+- **`providers/pi/todos.ts` deliberately mirrors rpiv-todo internals** (verified at
+  `@juicesharp/rpiv-todo@2.15.0` / Pi 1.4.0): the `todo` tool name, the `rpiv-todo-state` custom
+  entry type, `isTodoDetails` (the extension's strict "skip the whole snapshot if any task is
+  malformed" rule, so a foreign `todo` tool shows no panel instead of a wrong one) and
+  `replayTodosFromBranch` (state entries beat `toolResult` details once any exist). Re-check it on an
+  rpiv-todo bump (the curated pack source is unpinned) and a Pi bump. It is listed with the other
+  mirrored internals in the root `AGENTS.md`.
+- **Two live signals.** Pi 1.4.0 announces a `todo` change as `entry_appended` (the state entry;
+  fires for **every** state change, including nested `ctx.executeTool` calls such as Pi's `codemode`,
+  which never produce a `toolResult`) and then `tool_execution_end` (`details` = `{action, params,
+  tasks, nextId, error?}`; `isError` is `false` even for a failed call, whose `details.error` is set and
+  `tasks` unchanged). `todoDetailsFromFrame` accepts both from the raw intake in `PiAgentSession`, in
+  addition to the normal event mapping. **`parentToolCallId` is deliberately not inspected**: it marks
+  a nested call in the *same* session, which mutates the same list. The tasks list includes `deleted`
+  tombstones; `toAgentTodos` drops them, `metadata` and `nextId`.
+- **`AgentTodosService`** retains `{seq, list}` per agent in memory only. `publish` compares with
+  `isDeepStrictEqual` **before** bumping `seq`, so Pi's double announcement and an unchanged settled
+  turn broadcast nothing. The service owns every reconcile trigger by subscribing to the session's
+  own stream in `attach`: `turn_completed|turn_failed|turn_canceled` (Pi's `agent_settled`, mapped in
+  `event-mapper.ts`) and `compaction` `completed` call `reconcile` → `readTodos()`. Fork is an explicit
+  `reconcile` through `SlashCommandOperations`' `onTimelineReset` dep (`agent_timeline_reset` is not a
+  stream event). `attach` does not clear the retained list before seeding, so a respawn with an equal
+  list is silent. `sweep` (archive/delete) broadcasts an empty snapshot only if a list existed and
+  **keeps the seq counter** (a re-attached agent restarting at `seq: 1` would be dropped as stale).
+- **`list`** answers `not_found` for an unknown record. Otherwise a cached or freshly read snapshot: a
+  live session via `readTodos()`, a process-less record via `resolveClient(provider).readTodos(handle)`
+  (never `createSession`). The first load is stored with the `seq` bump but **not** broadcast. A read
+  error warns with the agent id and error message only (never task text) and answers an empty
+  snapshot; it is not remembered, so the next `list` retries. A reader of the Pi session file throws on
+  a corrupt file and returns an empty list for a missing one.
+- **Both bootstraps** construct the service before `AgentManager` (lazy `getAgent`/`resolveClient`
+  closures), compose it with the UI bridge in the single-slot `onSessionAttached`, sweep it in the
+  archive/delete branch of `manager.subscribe`, bind `onTimelineReset`, and register the handler. The
+  dev daemon needs it because the mock is the scripted producer.
+- **Mock recipes** (dev daemon, `providers/mock/todo-script.ts`, pure parser): send a prompt
+  `#todo plan | advance | done | many | blocked | literal | huge | clear | help` to emit scripted
+  snapshots (`plan`: 4 tasks, one `in_progress` with an `activeForm`; `advance`: completes the current
+  task and starts the next; `many`: 12 tasks, 7 completed; `blocked`: `blockedBy` incl. a dangling id
+  plus `description`/`owner`; `literal`: markdown/HTML in a subject; `huge`: 250 tasks with over-cap
+  fields; `clear`: empty list). `#todo` alone or an unknown recipe answers the help text. The `#ui`
+  recipes (extension dialogs) are a separate family in `ui-script.ts`.
+- **Tests:** `agent-todos-service.test.ts`, `todo-limits.test.ts`, `providers/pi/todos.test.ts` (fixtures are
+  the frames recorded from a real Pi/rpiv-todo run), `providers/pi/todos-wiring.test.ts`, the
+  mock's `todo-script.test.ts`, the fork case in `slash-command-ops.test.ts`, and the real-dev-daemon
+  `daemon/agent-todos-e2e.test.ts`.
 
 ### Terminal subsystem (`terminal/`)
 

@@ -1,0 +1,184 @@
+/* TodoPanel — read-only agent todo list above the composer (swe/features/agent-todos-ui.md).
+   Same card family as the extension-dialog card (AskCard): surface1, neutral border, radius-lg.
+   Tokens only; no literal sizes. */
+
+.panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  margin: var(--pi-spacing-4) var(--pi-spacing-12);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-lg);
+  background: var(--pi-color-surface1);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+  padding: var(--pi-spacing-6) var(--pi-spacing-12);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--pi-color-foreground);
+  font-size: var(--pi-font-size-xs);
+  text-align: left;
+}
+
+.header:focus-visible,
+.rowButton:focus-visible {
+  outline: var(--pi-border-width-1) solid var(--pi-color-accent);
+  outline-offset: calc(var(--pi-border-width-1) * -1);
+}
+
+.chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.label {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.count {
+  color: var(--pi-color-foregroundMuted);
+  flex-shrink: 0;
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-color-foregroundMuted);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 0 var(--pi-spacing-6);
+  list-style: none;
+  border-top: var(--pi-border-width-1) solid var(--pi-color-border);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+}
+
+.rowButton,
+.rowStatic {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pi-spacing-8);
+  width: 100%;
+  padding: var(--pi-spacing-3) var(--pi-spacing-12);
+  background: none;
+  border: none;
+  color: var(--pi-color-foreground);
+  font-size: var(--pi-font-size-xs);
+  text-align: left;
+}
+
+.rowButton {
+  cursor: pointer;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--pi-spacing-16);
+  height: var(--pi-spacing-16);
+}
+
+.iconInProgress {
+  color: var(--pi-color-accent);
+}
+
+.iconCompleted {
+  color: var(--pi-color-statusSuccess);
+}
+
+.iconPending {
+  color: var(--pi-color-foregroundMuted);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  /* A pathological 500-character subject must not own the panel. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.textCompleted {
+  color: var(--pi-color-foregroundMuted);
+  text-decoration: line-through;
+}
+
+.id {
+  flex-shrink: 0;
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-2xs);
+}
+
+.blocked {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-color-statusWarning);
+  font-size: var(--pi-font-size-2xs);
+}
+
+.details {
+  margin: 0;
+  padding: 0 var(--pi-spacing-12) var(--pi-spacing-4) var(--pi-spacing-32);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-2xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  flex-shrink: 0;
+  padding: var(--pi-spacing-4) var(--pi-spacing-12);
+  border-top: var(--pi-border-width-1) solid var(--pi-color-border);
+  color: var(--pi-color-foregroundMuted);
+  font-size: var(--pi-font-size-2xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.nested {
+  margin: 0;
+  padding: 0 0 0 var(--pi-spacing-16);
+  list-style: none;
+}

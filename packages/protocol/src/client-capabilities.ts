@@ -52,6 +52,7 @@ export const SERVER_FEATURES = {
   forkTimelineSync: "forkTimelineSync",
   compactionEvents: "compactionEvents",
   skills: "skills",
+  agentTodos: "agentTodos",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -97,6 +98,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   compactionEvents: COMPAT({ name: "compactionEvents", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(skills): added 0.0.0, remove by TBD
   skills: COMPAT({ name: "skills", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(agentTodos): added 0.0.0, remove by TBD
+  agentTodos: COMPAT({ name: "agentTodos", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

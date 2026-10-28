@@ -50,6 +50,7 @@ protocol ping. RPC timeouts are operation failures and must **not** be treated a
 | `file_watch_subscribe`/`unsubscribe`, `file_changed` | Live filesystem watches (see file-explorer-transfer) |
 | Terminal `subscribe`/`input`/`capture`/`create`/`kill`/`rename` | Terminal control |
 | `skills_*_request`/response, `skills_changed` (broadcast to every session, no subscribe RPC) | Skill list/toggle/install/remove/update-all, incl. Pi package add/remove (see skills-manager, pi-resource-management) |
+| `agent_todos_list_request`/response, `agent_todos_update` (full per-agent snapshot broadcast to every session, `seq`-ordered, no subscribe RPC; `agentTodos` flag) | Agent todo list derived from the `rpiv-todo` extension (see agent-todos) |
 
 Correlated RPCs carry a `requestId` echoed in the response; failures emit `rpc_error` with the same
 `requestId`.

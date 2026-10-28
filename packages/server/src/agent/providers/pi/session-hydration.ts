@@ -1,8 +1,10 @@
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 
+import type { AgentTodoList } from "../../provider-contract.js";
 import type { TimelineRow } from "../../timeline-store.js";
 import { mapToolCall } from "./event-mapper.js";
+import { replayTodosFromBranch } from "./todos.js";
 
 /**
  * Rehydrate a daemon `TimelineRow[]` from Pi's own on-disk JSONL session file (docs:
@@ -205,4 +207,16 @@ export function hydrateTimelineFromSessionFile(sessionFile: string): TimelineRow
   }
   closeTurn();
   return rows;
+}
+
+/**
+ * Re-derive the agent's todo list from Pi's own on-disk JSONL session file, without spawning a
+ * process (task-004 — the process-less counterpart of the live `onTodos` fan-out). Unlike
+ * `hydrateTimelineFromSessionFile`, an unreadable/corrupt file THROWS rather than returning an
+ * empty result: the caller (the agent-todos service) logs the failure with the agent id
+ * (spec: warn + empty), which a silently empty list here would prevent.
+ */
+export function readTodosFromSessionFile(sessionFile: string): AgentTodoList {
+  const entries = SessionManager.open(sessionFile).getBranch();
+  return replayTodosFromBranch(entries);
 }

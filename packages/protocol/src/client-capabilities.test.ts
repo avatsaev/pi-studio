@@ -20,6 +20,7 @@ describe("capability flag sets", () => {
   it("exports SERVER_FEATURES keys", () => {
     expect(Object.keys(SERVER_FEATURES).toSorted()).toEqual(
       [
+        "agentTodos",
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
         "daemonStatusRpc",

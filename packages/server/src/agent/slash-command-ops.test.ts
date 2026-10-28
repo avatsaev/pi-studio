@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import type { AgentStreamEvent } from "@av-pi-studio/protocol";
+import type { AgentStreamEvent, AgentTodo, AgentTodosSnapshot } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
-import type { AgentClient, AgentSession } from "./provider-contract.js";
+import type { AgentClient, AgentSession, AgentTodoList } from "./provider-contract.js";
+import { AgentTodosService } from "./agent-todos/agent-todos-service.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService, getTimeline, seedTimeline } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -932,5 +933,111 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
     order.push("response resolved");
 
     expect(order).toEqual(["hydrate", "broadcast:agent_timeline_reset", "response resolved"]);
+  });
+});
+
+const task = (id: number): AgentTodo => ({ id, subject: `t${id}`, status: "pending" });
+
+describe("agent_fork_request — agent todos reconcile (sprint-079/task-007)", () => {
+  /** A live session whose list and native session file change together on `fork()`. */
+  function todoForkingSession(fileLists: Record<string, AgentTodoList>, overrides = {}) {
+    let file = "/sessions/before.jsonl";
+    return sessionStub({
+      describePersistence: () => ({ provider: "pi", nativeHandle: file }),
+      onTodos: () => () => {},
+      readTodos: () => fileLists[file]!,
+      fork: () => {
+        file = "/sessions/after.jsonl";
+        return Promise.resolve({ text: "forked", cancelled: false });
+      },
+      ...overrides,
+    });
+  }
+
+  async function setup(session: AgentSession) {
+    const broadcasts: unknown[] = [];
+    const manager = new AgentManager({
+      home: "/unused",
+      saveAgent: () => Promise.resolve(),
+      loadAllAgents: () => Promise.resolve([]),
+      now: () => NOW,
+    });
+    const client = {
+      provider: "pi",
+      capabilities: {},
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+    } as unknown as AgentClient;
+    const todos = new AgentTodosService({
+      broadcast: (_, m) => broadcasts.push(m),
+      getActiveSessions: () => [],
+      getAgent: (id) => manager.get(id),
+      resolveClient: () => client,
+    });
+    const ops = new SlashCommandOperationsService({
+      manager,
+      resolveClient: () => client,
+      broadcast: (_, m) => broadcasts.push(m),
+      onTimelineReset: (agentId) => todos.reconcile(agentId),
+    });
+    await manager.add({
+      id: "a1",
+      provider: "pi",
+      cwd: "/work",
+      createdAt: NOW,
+      updatedAt: NOW,
+      labels: {},
+      lastStatus: "idle",
+      config: {},
+      timeline: [],
+    });
+    manager.attachSession("a1", session);
+    await manager.persistSessionHandle("a1");
+    todos.attach("a1", session);
+    return { ops, broadcasts };
+  }
+
+  it("a fork that moves the session file re-reads the new branch and broadcasts the changed list after the reset", async () => {
+    const session = todoForkingSession({
+      "/sessions/before.jsonl": { tasks: [task(1), task(2), task(3)], truncated: false },
+      "/sessions/after.jsonl": { tasks: [task(1)], truncated: false },
+    });
+    const { ops, broadcasts } = await setup(session);
+    broadcasts.length = 0; // drop the attach seed
+
+    await ops.handleFork({ agentId: "a1", entryId: "e1" }, () => []);
+
+    expect(broadcasts.map((m) => (m as { type?: string }).type)).toEqual([
+      "agent_timeline_reset",
+      "session",
+    ]);
+    const update = (broadcasts[1] as { message: { type: string; snapshot: AgentTodosSnapshot } })
+      .message;
+    expect(update.type).toBe("agent_todos_update");
+    expect(update.snapshot.seq).toBe(2);
+    expect(update.snapshot.tasks.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("a fork that leaves the list unchanged, or is cancelled, broadcasts no todos update", async () => {
+    const same = { tasks: [task(1)], truncated: false };
+    const { ops, broadcasts } = await setup(
+      todoForkingSession({ "/sessions/before.jsonl": same, "/sessions/after.jsonl": same }),
+    );
+    broadcasts.length = 0;
+    await ops.handleFork({ agentId: "a1", entryId: "e1" }, () => []);
+    expect(broadcasts.map((m) => (m as { type: string }).type)).toEqual(["agent_timeline_reset"]);
+
+    const cancelled = await setup(
+      todoForkingSession(
+        {
+          "/sessions/before.jsonl": same,
+          "/sessions/after.jsonl": { tasks: [], truncated: false },
+        },
+        { fork: () => Promise.resolve({ text: "", cancelled: true }) },
+      ),
+    );
+    cancelled.broadcasts.length = 0;
+    await cancelled.ops.handleFork({ agentId: "a1", entryId: "e1" }, () => []);
+    expect(cancelled.broadcasts).toHaveLength(0);
   });
 });

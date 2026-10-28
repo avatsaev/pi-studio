@@ -18,6 +18,7 @@ import type {
   AgentModelDefinition,
   AgentSession,
   AgentSessionStats,
+  AgentTodoList,
   CreateSessionOptions,
   ImportableSessionRow,
   ImportSessionArgs,
@@ -33,7 +34,6 @@ import type {
 } from "../../provider-contract.js";
 import type { TimelineRow } from "../../timeline-store.js";
 import { createPiEventMapper } from "./event-mapper.js";
-import { hydrateTimelineFromSessionFile } from "./session-hydration.js";
 import {
   createProcessTransport,
   defaultPiCommand,
@@ -41,7 +41,9 @@ import {
   type PiTransportFactory,
   resolveBinaryOnPath,
 } from "./rpc-transport.js";
+import { hydrateTimelineFromSessionFile, readTodosFromSessionFile } from "./session-hydration.js";
 import { deriveThinkingLevels } from "./thinking-levels.js";
+import { toAgentTodos, todoDetailsFromFrame } from "./todos.js";
 
 /**
  * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·modes·features /
@@ -59,6 +61,7 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsToolInvocations: true,
   supportsSteering: true,
   supportsExtensionUi: true,
+  supportsTodos: true,
 };
 
 export interface PiClientDeps {
@@ -181,6 +184,7 @@ class PiAgentSession implements AgentSession {
 
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
+  private readonly todoSubscribers = new Set<(list: AgentTodoList) => void>();
   private readonly history: AgentStreamEvent[] = [];
   private readonly eventMapper = createPiEventMapper();
   private modes: AgentModeDefinition[] = [];
@@ -204,6 +208,17 @@ class PiAgentSession implements AgentSession {
         const req = translateUiRequest(rec);
         for (const cb of this.uiSubscribers) cb(req);
         return;
+      }
+      // Agent todos (features/agent-todos.md § Pi adapter: live updates) — runs IN ADDITION to
+      // the mapping below; the timeline row for the same frame is unchanged. Pi announces a
+      // `todo` change twice (`entry_appended` then `tool_execution_end`); the service, not this
+      // adapter, dedupes the pair. No `parentToolCallId` filter on purpose: a nested call (e.g.
+      // `ctx.executeTool`/`codemode`) runs in the same session and mutates the same list, so it
+      // is a legitimate snapshot too.
+      const details = todoDetailsFromFrame(raw);
+      if (details) {
+        const list = toAgentTodos(details);
+        for (const cb of this.todoSubscribers) cb(list);
       }
       const event = this.eventMapper.map(raw);
       if (event) this.emit(event);
@@ -396,6 +411,19 @@ class PiAgentSession implements AgentSession {
    *  redirect which dialog it resolves (features/extension-ui-rpc.md § Public contract). */
   respondToUi(providerRequestId: string, response: ProviderUiResponse): void {
     this.transport.notify("extension_ui_response", { ...response, id: providerRequestId });
+  }
+
+  onTodos(cb: (list: AgentTodoList) => void): Unsubscribe {
+    this.todoSubscribers.add(cb);
+    return () => this.todoSubscribers.delete(cb);
+  }
+
+  /** Re-read `this.sessionFile` each call so it follows a fork/new_session rebind
+   * (`refreshSessionFile`). Throws on an unreadable file so the caller (the agent-todos service)
+   * can log it with the agent id; no file at all is a legitimate empty state, not an error. */
+  readTodos(): AgentTodoList {
+    if (!this.sessionFile) return { tasks: [], truncated: false };
+    return readTodosFromSessionFile(this.sessionFile);
   }
 
   describePersistence(): PersistenceHandle | null {
@@ -822,6 +850,14 @@ export class PiAgentClient implements AgentClient {
     const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
     if (!sessionFile) return [];
     return hydrateTimelineFromSessionFile(sessionFile);
+  }
+
+  /** Process-less counterpart of `AgentSession.readTodos`, for a record with no live session
+   * (e.g. after a daemon restart). Reads `handle.nativeHandle` directly; never spawns `pi`. */
+  readTodos(handle: PersistenceHandle): AgentTodoList {
+    const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
+    if (!sessionFile) return { tasks: [], truncated: false };
+    return readTodosFromSessionFile(sessionFile);
   }
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DaemonClient, RpcTimeoutError } from "./daemon-client.js";
 import * as clientIndex from "./index.js";
 import {
+  AgentTodosError,
   AgentUiError,
   COMPACT_TIMEOUT_MS,
   detectSkillSource,
@@ -12,6 +13,7 @@ import {
   UPDATE_ALL_SKILLS_TIMEOUT_MS,
   isAgentArchived,
   isAgentDeleted,
+  isAgentTodosUpdate,
   isAgentUiRequest,
   isAgentUiResolved,
   PiStudioClient,
@@ -1219,5 +1221,109 @@ describe("PiStudioClient — extension UI SDK surface (sprint-067/task-001)", ()
     expect(isAgentDeleted({ type: "agent_archived", agentId: "a1" })).toBe(false);
     expect(isAgentArchived({ type: "agent_update", agentId: "a1", status: "idle" })).toBe(false);
     expect(isAgentDeleted({ type: "agent_update", agentId: "a1", status: "idle" })).toBe(false);
+  });
+});
+
+describe("PiStudioClient — agent todos SDK surface (sprint-079/task-008)", () => {
+  it("hasAgentTodosCapability reflects the daemon's agentTodos flag", async () => {
+    const { client: withFlag } = await makeFacade({ features: { agentTodos: true } });
+    expect(withFlag.hasAgentTodosCapability()).toBe(true);
+
+    const { client: withoutFlag } = await makeFacade({ features: { providersSnapshot: true } });
+    expect(withoutFlag.hasAgentTodosCapability()).toBe(false);
+  });
+
+  it("listAgentTodos sends agent_todos_list_request and resolves the snapshot on success", async () => {
+    const { client, fake } = await makeFacade({ features: { agentTodos: true } });
+    const promise = client.listAgentTodos("agent-1");
+    const sent = fake.sent.find((m) => m.type === "agent_todos_list_request");
+    expect(sent).toEqual({
+      type: "agent_todos_list_request",
+      requestId: expect.any(String),
+      agentId: "agent-1",
+    });
+    fake.push({
+      type: "agent_todos_list_response",
+      requestId: sent?.requestId,
+      snapshot: { agentId: "agent-1", seq: 1, tasks: [] },
+    });
+    await expect(promise).resolves.toEqual({ agentId: "agent-1", seq: 1, tasks: [] });
+  });
+
+  it("listAgentTodos rejects with a typed AgentTodosError carrying the server's error code on {ok:false}", async () => {
+    const { client, fake } = await makeFacade({ features: { agentTodos: true } });
+    const promise = client.listAgentTodos("missing-agent");
+    const sent = fake.sent.find((m) => m.type === "agent_todos_list_request");
+    fake.push({
+      type: "agent_todos_list_response",
+      requestId: sent?.requestId,
+      ok: false,
+      error: "not_found",
+    });
+    await expect(promise).rejects.toThrow(AgentTodosError);
+    await expect(promise).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("listAgentTodos rejects with AgentTodosError on a malformed success (no snapshot, no ok:false)", async () => {
+    const { client, fake } = await makeFacade({ features: { agentTodos: true } });
+    const promise = client.listAgentTodos("agent-1");
+    const sent = fake.sent.find((m) => m.type === "agent_todos_list_request");
+    fake.push({
+      type: "agent_todos_list_response",
+      requestId: sent?.requestId,
+    });
+    await expect(promise).rejects.toThrow(AgentTodosError);
+  });
+
+  it("onAgentTodosUpdate fires only for agent_todos_update pushes and stops after unsubscribe", async () => {
+    const { client, fake } = await makeFacade({ features: { agentTodos: true } });
+    const seen: Array<{ agentId: string; seq: number }> = [];
+    const unsubscribe = client.onAgentTodosUpdate((snapshot) =>
+      seen.push({ agentId: snapshot.agentId, seq: snapshot.seq }),
+    );
+
+    fake.push({ type: "agent_update", agentId: "a1", status: "idle" });
+    fake.push({
+      type: "agent_todos_update",
+      snapshot: { agentId: "agent-1", seq: 1, tasks: [] },
+    });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toEqual([{ agentId: "agent-1", seq: 1 }]);
+
+    unsubscribe();
+    fake.push({
+      type: "agent_todos_update",
+      snapshot: { agentId: "agent-1", seq: 2, tasks: [] },
+    });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toHaveLength(1);
+  });
+
+  it("isAgentTodosUpdate accepts the real shape and rejects other types/shapes", () => {
+    expect(
+      isAgentTodosUpdate({
+        type: "agent_todos_update",
+        snapshot: { agentId: "agent-1", seq: 1, tasks: [] },
+      }),
+    ).toBe(true);
+    expect(isAgentTodosUpdate({ type: "agent_todos_update" })).toBe(false);
+    expect(isAgentTodosUpdate({ type: "agent_update", agentId: "a1", status: "idle" })).toBe(false);
+    expect(isAgentTodosUpdate(null)).toBe(false);
+  });
+
+  it("all three facade members and the guard/error class are reachable from the package root", () => {
+    const client = new PiStudioClient(
+      new DaemonClient({
+        url: "ws://mock/ws",
+        clientId: "c1",
+        clientType: "cli",
+        transport: makeScriptedDaemon().transport,
+      }),
+    );
+    expect(typeof client.hasAgentTodosCapability).toBe("function");
+    expect(typeof client.listAgentTodos).toBe("function");
+    expect(typeof client.onAgentTodosUpdate).toBe("function");
+    expect(clientIndex.isAgentTodosUpdate).toBe(isAgentTodosUpdate);
+    expect(clientIndex.AgentTodosError).toBe(AgentTodosError);
   });
 });

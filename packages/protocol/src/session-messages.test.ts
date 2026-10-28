@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
+  AGENT_TODO_MAX_SUBJECT_CHARS,
+  AGENT_TODOS_MAX_TASKS,
   agentCloneResponseSchema,
   agentCompactRequestSchema,
   agentCompactResponseSchema,
@@ -26,6 +28,10 @@ import {
   agentStatusMessageSchema,
   agentStreamEventSchema,
   agentSwitchSessionRequestSchema,
+  agentTodosListRequestSchema,
+  agentTodosListResponseSchema,
+  agentTodosSnapshotSchema,
+  agentTodosUpdateSchema,
   agentUiListRequestSchema,
   agentUiListResponseSchema,
   agentUiPendingRequestSchema,
@@ -1823,5 +1829,90 @@ describe("skills preview / install (sprint-077/task-002)", () => {
         expect(result.data.fromTheFuture).toBe("kept");
       }
     }
+  });
+});
+
+describe("agent todos (sprint-079/task-002)", () => {
+  const task = {
+    id: 1,
+    subject: "Write tests",
+    status: "in_progress",
+    activeForm: "writing tests",
+  };
+  const snapshot = {
+    agentId: "a1",
+    seq: 3,
+    tasks: [task, { id: 2, subject: "Ship", status: "pending" }],
+  };
+
+  it("parses every member of the family through sessionMessageSchema", () => {
+    const messages = [
+      { type: "agent_todos_list_request", requestId: "r1", agentId: "a1" },
+      { type: "agent_todos_list_response", requestId: "r1", snapshot },
+      { type: "agent_todos_list_response", requestId: "r1", ok: false, error: "not_found" },
+      { type: "agent_todos_update", snapshot },
+    ];
+    for (const message of messages) {
+      const result = sessionMessageSchema.safeParse(message);
+      expect(result.success, `${message.type} should parse`).toBe(true);
+    }
+  });
+
+  it("never accepts a deleted task: the daemon drops tombstones", () => {
+    const withDeleted = {
+      ...snapshot,
+      tasks: [{ id: 1, subject: "Gone", status: "deleted" }],
+    };
+    expect(agentTodosSnapshotSchema.safeParse(withDeleted).success).toBe(false);
+    expect(
+      agentTodosUpdateSchema.safeParse({ type: "agent_todos_update", snapshot: withDeleted })
+        .success,
+    ).toBe(false);
+  });
+
+  it("keeps unknown fields on every level (append-only wire)", () => {
+    const update = agentTodosUpdateSchema.parse({
+      type: "agent_todos_update",
+      future: 1,
+      snapshot: { ...snapshot, futureSnap: 2, tasks: [{ ...task, futureTask: 3 }] },
+    });
+    expect(update).toMatchObject({ future: 1, snapshot: { futureSnap: 2 } });
+    expect(update.snapshot.tasks[0]).toMatchObject({ futureTask: 3 });
+    expect(
+      agentTodosListRequestSchema.parse({
+        type: "agent_todos_list_request",
+        requestId: "r1",
+        agentId: "a1",
+        extra: true,
+      }),
+    ).toMatchObject({ extra: true });
+  });
+
+  it("parses an old-daemon snapshot without `truncated`, and an error with an unlisted reason", () => {
+    const parsed = agentTodosListResponseSchema.parse({
+      type: "agent_todos_list_response",
+      requestId: "r1",
+      snapshot,
+    });
+    expect(parsed.snapshot?.truncated).toBeUndefined();
+    expect(parsed.ok).toBeUndefined();
+    expect(
+      agentTodosListResponseSchema.safeParse({
+        type: "agent_todos_list_response",
+        requestId: "r1",
+        ok: false,
+        error: "some_future_reason",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("does not enforce the daemon-side caps, so a newer daemon can raise them", () => {
+    const tasks = Array.from({ length: AGENT_TODOS_MAX_TASKS + 50 }, (_, i) => ({
+      id: i + 1,
+      subject: "x".repeat(AGENT_TODO_MAX_SUBJECT_CHARS + 1),
+      status: "pending",
+    }));
+    expect(agentTodosSnapshotSchema.safeParse({ agentId: "a1", seq: 1, tasks }).success).toBe(true);
+    expect(AGENT_TODOS_MAX_TASKS).toBe(200);
   });
 });

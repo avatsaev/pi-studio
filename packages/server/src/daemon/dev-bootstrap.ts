@@ -17,6 +17,8 @@ import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
+import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
+import { AgentTodosService } from "../agent/agent-todos/agent-todos-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
 import { AgentService } from "../agent/agent-service.js";
 import { deterministicFallback } from "../agent/structured-generation.js";
@@ -89,6 +91,17 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // sibling UI scope needs to develop against it.
   const agentUiService = new AgentUiService({ broadcast, getActiveSessions, logger });
 
+  // ── Agent todos (features/agent-todos.md) — registered in dev for the same reason as the UI
+  // bridge: the mock provider is the scripted producer (`#todo …` prompts). `manager` and
+  // `resolveClient` are declared below, so both are read lazily.
+  const agentTodosService = new AgentTodosService({
+    broadcast,
+    getActiveSessions,
+    getAgent: (agentId) => manager.get(agentId),
+    resolveClient: (provider) => resolveClient(provider),
+    logger,
+  });
+
   // ── In-memory agent manager (no disk persistence in dev mode) ──────────────
   const agentsById = new Map<string, AgentRecord>();
   const manager = new AgentManager({
@@ -98,7 +111,11 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     },
     loadAllAgents: async () => [...agentsById.values()],
     deleteAgent: async (_cwd, id) => agentsById.delete(id),
-    onSessionAttached: (agentId, session) => agentUiService.attach(agentId, session),
+    // `onSessionAttached` is a single slot: compose every bridge that watches a new session.
+    onSessionAttached: (agentId, session) => {
+      agentUiService.attach(agentId, session);
+      agentTodosService.attach(agentId, session);
+    },
     logger,
   });
 
@@ -113,6 +130,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     if (event.type === "agent_archived" || event.type === "agent_deleted") {
       broadcast(getActiveSessions(), { type: "session", message: event });
       agentUiService.sweep(event.agentId, "aborted");
+      agentTodosService.sweep(event.agentId);
     }
   });
 
@@ -144,6 +162,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     resolveClient,
     broadcast,
     logger,
+    onTimelineReset: (agentId) => agentTodosService.reconcile(agentId),
   });
   slashCommandOps.registerHandlers(registry, getActiveSessions);
 
@@ -153,6 +172,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   permissionService.registerHandlers(registry, getActiveSessions);
 
   registerAgentUiHandlers(registry, { service: agentUiService, logger });
+  registerAgentTodosHandlers(registry, { service: agentTodosService });
 
   // Unlike extensions (production-only), this subsystem must exist in dev: the web client is
   // developed against the dev daemon, and without it every dev session runs the
