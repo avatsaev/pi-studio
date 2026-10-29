@@ -173,6 +173,12 @@ log "Publishing to npm (dependency order: ${PUBLISH_ORDER[*]})"
 for pkg in "${PUBLISH_ORDER[@]}"; do
   echo
   echo "--- @av-pi-studio/$pkg@$NEXT_VERSION ---"
+  # Idempotent re-runs: a previous run may have published some packages before failing (e.g. a
+  # missing trusted-publisher registration on a later one). Re-publishing a version is an error.
+  if [[ "$DRY_RUN" != true ]] && npm view "@av-pi-studio/$pkg@$NEXT_VERSION" version >/dev/null 2>&1; then
+    echo "already on npm — skipping"
+    continue
+  fi
   if [[ "$DRY_RUN" == true ]]; then
     npm publish --dry-run --access public -w "packages/$pkg"
   else
