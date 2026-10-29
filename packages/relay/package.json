@@ -35,5 +35,10 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/relay"
   }
 }

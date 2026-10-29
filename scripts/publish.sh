@@ -15,7 +15,8 @@
 #   npm run publish -- --dry-run    # do everything except the actual `npm publish`
 #   npm run publish -- --no-bump    # publish the current versions as-is (no version bump)
 #
-# Requires: npm login (interactive; the registry may prompt for 2FA/OTP).
+# Requires: npm login locally (interactive; the registry may prompt for 2FA/OTP). In GitHub
+# Actions no login is needed: publishing uses npm trusted publishing (OIDC, `id-token: write`).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,10 +49,14 @@ command -v node >/dev/null || die "node is required"
 command -v npm >/dev/null || die "npm is required"
 
 log "Checking npm auth"
-if ! npm whoami >/dev/null 2>&1; then
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  # Trusted publishing: the OIDC token is exchanged at publish time; `npm whoami` has no login.
+  echo "Running in GitHub Actions — publishing via npm trusted publishing (OIDC)"
+elif ! npm whoami >/dev/null 2>&1; then
   die "not logged into npm — run 'npm login' first"
+else
+  echo "Logged in as $(npm whoami)"
 fi
-echo "Logged in as $(npm whoami)"
 
 log "Checking git working tree"
 if [[ -n "$(git status --porcelain)" ]]; then

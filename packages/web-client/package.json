@@ -60,5 +60,10 @@
     "vite": "^6.4.3",
     "zod": "^3.23.0",
     "zustand": "^5.0.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/web-client"
   }
 }

@@ -18,8 +18,12 @@ concurrency:
   group: release-main
   cancel-in-progress: false
 
+# `id-token: write` lets `npm publish` exchange the GitHub OIDC token for a short-lived publish
+# credential (npm trusted publishing) — no long-lived NPM_TOKEN is used. Each published package
+# must have this repo + workflow (release.yml) registered as a Trusted Publisher on npmjs.com.
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -37,14 +41,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; don't rely on whatever the runner image bundles.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@^11.5.1 && npm --version
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Configure npm auth
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Docker Hub login
         run: echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin

@@ -227,7 +227,10 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    packages publicly, so the screenshots ship in the cli tarball (`assets`, ~470 KB of webp) and
 #    are served from there. Screenshots are webp at 2x their README display width: PNG at this size
 #    was 1.9 MB for the same four images.
-#    Requires: npm login. Aborts if the git working tree isn't clean.
+#    Requires: npm login locally. In CI (.github/workflows/release.yml) it uses npm trusted
+#    publishing (GitHub OIDC, `id-token: write`, npm >= 11.5.1) — no NPM_TOKEN secret; each of the
+#    six packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
 npm run publish -- --no-bump     # publish current versions as-is, no version bump

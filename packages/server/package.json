@@ -48,5 +48,10 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/which": "^3.0.4",
     "@types/ws": "^8.18.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/server"
   }
 }

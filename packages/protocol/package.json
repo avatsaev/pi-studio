@@ -21,5 +21,10 @@
   },
   "dependencies": {
     "zod": "^3.23.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/protocol"
   }
 }

@@ -22,5 +22,10 @@
   "dependencies": {
     "@av-pi-studio/protocol": "^0.0.113",
     "@av-pi-studio/relay": "^0.0.113"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/client"
   }
 }
