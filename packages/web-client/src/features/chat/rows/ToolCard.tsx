@@ -36,6 +36,7 @@ import {
   toolOutputLineCount,
 } from "@pi-studio-ui/timeline/tool-mapping.js";
 import type { ToolRow } from "@pi-studio-ui/timeline/row-model.js";
+import { liveTail } from "@pi-studio-ui/timeline/live-tail.js";
 import { RowShell } from "./RowShell.js";
 import styles from "./rows.module.css";
 
@@ -68,6 +69,9 @@ function statusTrailing(row: ToolRow) {
   }
   if (row.status === "error") {
     return <span className={styles.toolStatusError}>{row.statusText || "error"}</span>;
+  }
+  if (row.status === "canceled") {
+    return <span className={styles.toolStatusUnknown}>{row.statusText || "canceled"}</span>;
   }
   // row.status === "running": the wire's free-form statusText may carry a value other than
   // "running" itself (e.g. "awaiting_approval") that the normalized enum collapses into
@@ -132,6 +136,7 @@ export function ToolCard({
           row.status === "running" && styles.toolCardBodyRunning,
           row.status === "completed" && styles.toolCardBodyCompleted,
           row.status === "error" && styles.toolCardBodyError,
+          row.status === "canceled" && styles.toolCardBodyCanceled,
         )}
       >
         <div
@@ -183,6 +188,11 @@ export function ToolCard({
             )}
           </span>
         </div>
+        {row.status === "running" && row.tool.output && (
+          <pre className={clsx(styles.toolCode, styles.toolLiveTail)}>
+            {liveTail(row.tool.output)}
+          </pre>
+        )}
         {outputLines > 0 && (
           <div className={styles.toolOutputStrip}>output · {outputLines} lines</div>
         )}

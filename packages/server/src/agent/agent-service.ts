@@ -87,6 +87,11 @@ export function resetTimeline(
  * Record `event` on `agentId`'s timeline and broadcast it as an `agent_stream` frame carrying the
  * daemon-owned seq/timestamp. The one append-and-broadcast path for stream events: `runTurn`'s
  * subscription and any operation that subscribes outside a turn (today: compaction) both use it.
+ *
+ * Two kinds are EPHEMERAL (live-stream-only, see timeline-streaming.md § Timeline model): a partial
+ * `tool_call` (a superseded in-flight output snapshot) and `queue_update` (a snapshot of the
+ * pending steer/follow-up queues). They are broadcast with a daemon-owned `timestamp` but NO `seq`,
+ * and are never appended to the timeline, so they never appear in fetched history.
  */
 export function appendStreamEvent(
   agentId: string,
@@ -94,6 +99,13 @@ export function appendStreamEvent(
   broadcast: (sessions: Iterable<Session>, message: unknown) => void,
   sessions: Iterable<Session>,
 ): void {
+  if ((event.kind === "tool_call" && event.partial) || event.kind === "queue_update") {
+    broadcast(sessions, {
+      type: "session",
+      message: { type: "agent_stream", agentId, timestamp: new Date().toISOString(), event },
+    });
+    return;
+  }
   const row = getOrCreateTimeline(agentId).append(event);
   broadcast(sessions, {
     type: "session",

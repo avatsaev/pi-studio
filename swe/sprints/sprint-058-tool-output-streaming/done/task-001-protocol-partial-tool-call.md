@@ -1,12 +1,14 @@
 # Task 001 — Protocol: optional `partial` on the `tool_call` stream event
 
 - **Sprint:** sprint-058-tool-output-streaming
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1
 - **Estimated size:** XS
 - **Depends on:** none
+- **Spec re-baselined:** 2026-11-03 against the current tree (sprints 059–080 have landed since the
+  original draft; line anchors below are current as of that date)
 
 ## Goal
 
@@ -17,26 +19,29 @@ the daemon can mark an in-flight output snapshot as ephemeral without introducin
 
 This is the whole wire surface of the sprint — deliberately one field. The reason a new `kind` was
 rejected: the web client's `mergeTool()` upsert already replaces `output` with the latest non-empty
-value for a given `callId` (`packages/web-client/src/timeline/reducer.ts:116-123`), so an
-**unmodified** client renders streamed output correctly the moment the daemon starts sending it. A
-new kind would mean every consumer needs a new case before anything renders at all.
+value for a given `callId` (`packages/web-client/src/timeline/reducer.ts`, `mergeTool` ≈ L140 and
+`onToolCall` ≈ L149), so an **unmodified** client renders streamed output correctly the moment the
+daemon starts sending it. A new kind would mean every consumer needs a new case before anything
+renders at all.
 
 `partial` is what separates "ephemeral snapshot" from "real timeline row" for the two consumers that
 must treat them differently: the persistence branch (task 004) and the coalescer (task 003). It is
 **not** copied onto the client's row model — it describes the delivery, not the tool call.
 
 No `ToolCallDetail` change: the snapshot travels in the existing `output` field, which every tool
-kind already has (`messages.ts:225-254`).
+kind already has (`messages.ts` ≈ L231–262).
 
-`agent_stream.seq` is **already** optional (`messages.ts:311`), so the no-`seq` ephemeral broadcast
-in task 004 needs no schema change here. Verify this rather than re-adding it.
+`agent_stream.seq` is **already** optional (`messages.ts:338`, `seq: z.number().optional()`), so
+the no-`seq` ephemeral broadcast in task 004 needs no schema change here. Verify this rather than
+re-adding it.
 
 ## Scope references
 
 - `swe/features/tool-output-streaming.md` § Public Contract → Protocol amendment, § Design tenets 1–2
 - `swe/architecture/websocket-protocol.md` — append-only rules
-- `packages/protocol/src/messages.ts:285-290` — the `tool_call` branch to extend
-- `packages/protocol/src/messages.ts:308-314` — `agentStreamSchema` (confirm `seq` optional)
+- `packages/protocol/src/messages.ts:292-297` — the `tool_call` branch to extend
+- `packages/protocol/src/messages.ts:335-341` — `agentStreamSchema` (confirm `seq` optional)
+- `packages/protocol/src/session-messages.test.ts` ≈ L188–212 — the stream-kind discrimination test
 - Modify: `packages/protocol/src/messages.ts`, `packages/protocol/src/session-messages.test.ts`
 
 ## What to build
@@ -72,8 +77,11 @@ Leave `status` an open string. It already is, and partials use the existing `"ru
       **without** the field, producing an unchanged parse for the last case.
 - [ ] An `agent_stream` envelope validates **without** `seq` (proving the ephemeral shape needs no
       schema change) and with `seq` present.
-- [ ] The existing `AgentStreamEvent` discrimination test
-      (`session-messages.test.ts:139`) still passes untouched; all 10 kinds still discriminate.
+- [ ] The existing stream-kind discrimination test in `session-messages.test.ts` still passes
+      untouched; every kind in its current list (11 today — `user_message`, `assistant_message`,
+      `reasoning`, `tool_call`, `turn_started`, `turn_completed`, `turn_failed`, `turn_canceled`,
+      `error`, `queue_update`, `compaction`) still discriminates. Do not hardcode a count in new
+      assertions.
 - [ ] No existing field is removed, renamed, or narrowed; `partial` is optional.
 - [ ] The schema comment states the producer/consumer obligations (no `seq`, no persistence,
       supersede-not-accumulate).
@@ -91,3 +99,4 @@ Leave `status` an open string. It already is, and partials use the existing `"ru
 - Root invariant 1 (append-only) and invariant 2 (protocol has zero workspace imports) both apply —
   this task adds a field and nothing else.
 - Do not add a `COMPAT(...)` tag: this is a new optional field, not a back-compat shim.
+- `packages/protocol/AGENTS.md` is updated in task 007's docs sweep, not here.

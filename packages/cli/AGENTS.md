@@ -155,6 +155,14 @@ for events with nothing to show (textless `assistant_message.final` block-close 
 deltas). `logs` and `attach` skip empty renders rather than printing a blank line; `--json` mode
 dumps every event verbatim, markers included.
 
+**Partial tool output is suppressed (sprint-058).** The daemon streams ephemeral `tool_call` events
+with `partial: true` (live tool output snapshots, up to ~5/s per call). `agent attach` (and its
+top-level `attach` alias) skip them at the subscription site in `agent-commands.ts` — before the
+`--json` branch, so **both** plain and `--json` modes print nothing for a partial and no duplicate
+`[tool running]` lines appear. `agent logs`/`log` are fetch-based and never see partials (they are
+never persisted). Rendering streamed tool output in the CLI is not implemented; the live tail is a
+web-client affordance.
+
 `session` through `last-message` (sprint-037) are CLI equivalents of Pi built-in slash commands
 that have a real Pi RPC equivalent (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`,
 `/name`, `/export`, `/model`, `/copy`). Built-ins with no RPC equivalent (`/settings`, `/hotkeys`,

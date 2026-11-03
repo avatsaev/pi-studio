@@ -211,6 +211,29 @@ describe("AgentStreamEvent + ToolCallDetail discrimination", () => {
     expect(agentStreamEventSchema.safeParse({ kind: "tool_call" }).success).toBe(false);
   });
 
+  it("accepts tool_call with and without the optional partial flag", () => {
+    const tool = { kind: "shell", command: "ls", output: "a" };
+    for (const partial of [true, false, undefined]) {
+      const parsed = agentStreamEventSchema.safeParse({ kind: "tool_call", tool, partial });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data).toMatchObject({ partial });
+    }
+    expect(
+      agentStreamEventSchema.safeParse({ kind: "tool_call", tool, partial: "x" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a seq-less agent_stream envelope carrying a partial tool_call", () => {
+    const base = {
+      type: "agent_stream",
+      agentId: "a",
+      timestamp: "2026-11-03T00:00:00.000Z",
+      event: { kind: "tool_call", tool: { kind: "shell", command: "ls" }, partial: true },
+    };
+    expect(sessionMessageSchema.safeParse(base).success).toBe(true);
+    expect(sessionMessageSchema.safeParse({ ...base, seq: 4 }).success).toBe(true);
+  });
+
   it("discriminates tool-call kinds and rejects unknown ones", () => {
     for (const kind of ["shell", "read", "edit", "write", "search", "fetch", "task"]) {
       expect(toolCallDetailSchema.safeParse({ kind }).success).toBe(true);

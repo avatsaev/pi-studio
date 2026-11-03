@@ -1,0 +1,73 @@
+---
+title: Web UI
+subtitle: The production browser UI — chat, terminals, file diffs, and split panes.
+---
+
+`pi-studio ui` serves the production Pi-Studio browser UI — a three-column workspace (sessions
+on the left, chat/terminal/code in the middle, files and git changes on the right) — as a static
+site, with no separate install or build step. Point it at any daemon, local or remote:
+
+```bash
+pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
+pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
+```
+
+| Flag | Description |
+|---|---|
+| `--ui-host <host>` | Interface the static server binds to |
+| `--ui-port <port>` | Port the static server listens on (default `4173`) |
+| `--daemon-host <host>` | Pre-fills the printed URL's `?host=&connect=1` so the browser tab auto-connects (falls back to the global `--host`) |
+
+The command serves the built `@av-pi-studio/web-client` SPA (`dist/web`) via a minimal static
+file server with SPA fallback — it never itself probes or starts a daemon — and blocks until
+`SIGINT`/`SIGTERM`.
+
+## Tool calls, inline
+
+Every tool call an agent makes (read/edit/write/shell) renders as its own card, with live diff
+stats, right in the chat:
+
+<img src="/images/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" />
+
+## Git diffs
+
+Review what changed without leaving the tab — a full diff view, line by line:
+
+<img src="/images/git-diff.webp" alt="Pi-Studio web UI — git changes diff view" />
+
+## Split panes
+
+Split the workspace into multiple panes — chat next to a live terminal (backed by `node-pty`), a
+file, or another session — and the layout persists across reloads:
+
+<img src="/images/split-panes.webp" alt="Pi-Studio web UI — split panes with chat and a live terminal side by side" />
+
+## Syntax-highlighted files
+
+Every file opens with full syntax highlighting:
+
+<img src="/images/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" />
+
+## Branding the UI
+
+The toolbar title and the browser favicon can be overridden **at build time**, with no source
+changes — useful for a reseller/operator shipping their own branded distribution. With both
+variables unset, the build is byte-for-byte the default Pi-Studio distribution; no theme, accent
+color, or logo override is part of this mechanism.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `PI_STUDIO_BRAND_TITLE` | `Pi-Studio` | The document `<title>` and the connection bar's brand label |
+| `PI_STUDIO_BRAND_ICON` | _(unset → default favicon)_ | Path to a `.svg`, `.png`, or `.ico` file that replaces the favicon |
+
+```bash
+PI_STUDIO_BRAND_TITLE="Acme Coder" \
+PI_STUDIO_BRAND_ICON="/path/to/acme-icon.svg" \
+npm run build:web -w @av-pi-studio/web-client
+```
+
+Each variable is independent — set only the title, only the icon, or neither. Both are also
+honored by the dev server, so a branded checkout previews correctly locally. `PI_STUDIO_BRAND_ICON`
+must point at an existing `.svg`, `.png`, or `.ico` file: a missing file or an unsupported
+extension fails the build with a clear error rather than silently falling back to the default
+icon. `docker/web-client.Dockerfile` accepts both as build args — see [Docker](/configuration/docker).

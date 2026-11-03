@@ -18,9 +18,14 @@ function str(value: unknown): string | undefined {
 
 const COMPACTION_REASONS = ["manual", "threshold", "overflow"] as const;
 
-/** Join `result.content` text blocks (Pi RPC `tool_execution_end` shape) into one string. */
+/**
+ * Join a tool payload's content text blocks into one string. Pi reports a tool's text under two
+ * keys depending on the event: `result.content` on `tool_execution_end`, and
+ * `partialResult.content` on `tool_execution_update` (update events carry no `result`; Pi
+ * `docs/json.md` § tool events). One reader for both — `result` wins when present.
+ */
 function outputOf(tool: Record<string, unknown>): string | undefined {
-  const content = asRecord(tool.result).content;
+  const content = asRecord(tool.result).content ?? asRecord(tool.partialResult).content;
   if (!Array.isArray(content)) return undefined;
   const text = content
     .filter((block): block is { type: string; text?: string } => asRecord(block).type === "text")
@@ -30,12 +35,14 @@ function outputOf(tool: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Map a Pi tool-call payload to a normalized `ToolCallDetail`. Accepts either a
- * `tool_execution_start`-shaped record (`toolName` + `args`) or a `tool_execution_end`-shaped one
- * (`toolName` + `result`, no `args`). For `edit`, the human-readable unified `patch` is only
- * present on the *end* event under `result.details.patch`, so it is pulled from there when args
- * carry no diff. `output` (tool stdout/result text) is only present on *end* events — `start`
- * events have no `result` yet, so `outputOf` yields `undefined` for them, which is correct.
+ * Map a Pi tool-call payload to a normalized `ToolCallDetail`. Accepts a
+ * `tool_execution_start`-shaped record (`toolName` + `args`), a `tool_execution_update`-shaped one
+ * (`toolName` + `args` + `partialResult`) or a `tool_execution_end`-shaped one (`toolName` +
+ * `result`, no `args`). For `edit`, the human-readable unified `patch` is only present on the
+ * *end* event under `result.details.patch`, so it is pulled from there when args carry no diff.
+ * `output` (tool stdout/result text) follows the event: absent on `start` events (no `result` or
+ * `partialResult` yet, so `outputOf` yields `undefined` — correct), the output *so far* on
+ * `update` events (`partialResult`), and the final output on `end` events (`result`).
  */
 export function mapToolCall(raw: unknown): ToolCallDetail {
   const tool = asRecord(raw);
@@ -100,7 +107,8 @@ export interface PiEventMapper {
  * Stateful Pi event mapper (features/agent-sessions.md § Stream events).
  *
  * Real Pi RPC events (docs/rpc.md): `agent_start`/`agent_end`, `turn_start`/`turn_end`,
- * `message_update` (carrying an `assistantMessageEvent` delta), `tool_execution_start|end`, etc.
+ * `message_update` (carrying an `assistantMessageEvent` delta), `tool_execution_start|update|end`,
+ * etc.
  *
  * Pi's session run loop emits ONE `agent_end` **per low-level run** — a retryable error,
  * overflow-compaction, or a queued steering/follow-up message all loop into another run before
@@ -212,6 +220,17 @@ export function createPiEventMapper(): PiEventMapper {
             tool: mapToolCall(event),
             status: "running",
           };
+        // In-flight output snapshot. Ephemeral (`partial: true`): the mapper stays stateless and
+        // forwards exactly the text Pi sent — never concatenating successive updates; rate control
+        // and ordering against the terminal event live in `PiAgentSession` (tool-output-coalescer).
+        case "tool_execution_update":
+          return {
+            kind: "tool_call",
+            callId: str(event.toolCallId),
+            tool: mapToolCall(event),
+            status: "running",
+            partial: true,
+          };
         case "tool_execution_end":
           return {
             kind: "tool_call",
@@ -296,7 +315,6 @@ export function createPiEventMapper(): PiEventMapper {
         case "turn_end":
         case "message_start":
         case "message_end":
-        case "tool_execution_update":
         case "auto_retry_start":
         case "auto_retry_end":
           return null;
@@ -311,11 +329,11 @@ export function createPiEventMapper(): PiEventMapper {
 /**
  * Stateless convenience wrapper — maps a single event through a **fresh** mapper instance. Fine
  * for one-off/unit assertions of turn-agnostic events (`agent_start`, `message_update`,
- * `tool_execution_start|end`, `queue_update`, unknown types). It cannot report a turn's terminal
- * event on its own: since disposition is latched from a *prior* `agent_end` in the same session,
- * a lone `agent_end`/`agent_settled` call here always sees fresh (`"completed"`) state. Callers
- * observing a full turn lifecycle (e.g. `PiAgentSession`) MUST use `createPiEventMapper()` and
- * reuse one instance for the session's lifetime.
+ * `tool_execution_start|update|end`, `queue_update`, unknown types). It cannot report a turn's
+ * terminal event on its own: since disposition is latched from a *prior* `agent_end` in the same
+ * session, a lone `agent_end`/`agent_settled` call here always sees fresh (`"completed"`) state.
+ * Callers observing a full turn lifecycle (e.g. `PiAgentSession`) MUST use `createPiEventMapper()`
+ * and reuse one instance for the session's lifetime.
  */
 export function mapPiEvent(raw: unknown): AgentStreamEvent | null {
   return createPiEventMapper().map(raw);

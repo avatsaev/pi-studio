@@ -6,7 +6,7 @@
 
 import type { ToolCallDetail } from "@av-pi-studio/protocol";
 
-export type ToolCallStatus = "running" | "completed" | "error";
+export type ToolCallStatus = "running" | "completed" | "error" | "canceled";
 
 export interface UserRow {
   kind: "user";

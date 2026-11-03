@@ -1,0 +1,70 @@
+---
+title: Daemon & Auth
+subtitle: Start the daemon, pair clients, and log in to model providers.
+---
+
+## `daemon`
+
+| Command | Description |
+|---|---|
+| `daemon start` | Spawn a local daemon if one isn't already running, then print a pairing QR |
+| `daemon stop` | Send `SIGTERM` to the local daemon |
+| `daemon restart` | Stop then start the local daemon |
+| `daemon status` | Print health + PID |
+| `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json` |
+| `daemon pair` | Print the pairing URL/QR for an already-running daemon |
+| `daemon rotate-key` | Mint a fresh pairing keypair — revokes every previously issued pairing link/QR |
+
+`pi-studio onboard` (top-level) is an alias for `daemon start`'s behavior, and bare `pi-studio`
+does the same thing. See [Daemon configuration](/configuration/daemon) for the environment
+variables and `config.json` fields that shape how a started daemon behaves.
+
+## `auth`
+
+| Command | Description |
+|---|---|
+| `auth login [provider] [--type api_key\|oauth] [--api-key <key>]` | Log in to a model provider. With no arguments, pick one interactively; `--api-key` is the headless path |
+| `auth status [--json]` | Show which providers are configured, how (api key / oauth), and from where (stored credential vs. an ambient env var) |
+| `auth logout <provider>` | Remove a stored credential. Idempotent, and tells you when an ambient env var still configures the provider |
+
+```bash
+pi-studio auth login                          # interactive: filter the provider list, pick, enter key
+pi-studio auth login openai --api-key sk-...  # headless — for scripts, CI, Dockerfiles
+pi-studio auth status
+```
+
+<Note>
+  `auth` is local and daemon-free — unlike every other group, it never opens a WebSocket. It
+  writes Pi's own credential store at `<piHome>/agent/auth.json` (see the `--pi-home` global
+  option), the exact file the daemon's spawned agents read, so a credential you add here is
+  picked up on the next agent spawn with no daemon restart. Interactive prompts need a TTY; use
+  `--api-key` with an explicit provider for non-interactive setups. Secrets are never echoed, and
+  the store is written `0600`.
+</Note>
+
+## `relay`
+
+| Command | Description |
+|---|---|
+| `relay start [--listen <host:port>]` | Spawn a local relay server (default `0.0.0.0:7000`), wait for health |
+| `relay stop` | Send `SIGTERM` to the local relay |
+| `relay status [--listen <host:port>]` | Print up/down for the relay at that address |
+
+Runs as its own managed process, entirely decoupled from daemon lifecycle. Point a daemon at it
+via `daemon.relay.endpoint` in `config.json` (or `PI_STUDIO_RELAY_ENDPOINT`), not through this
+command — see [E2EE relay](/configuration/relay) for the full picture of when and why to run one.
+
+## `pi`
+
+| Command | Description |
+|---|---|
+| `pi [args...]` | Run the embedded Pi coding-agent CLI, forwarding every argument verbatim |
+
+A pure pass-through proxy to the exact `pi` binary bundled inside
+`@earendil-works/pi-coding-agent` (the same one the daemon spawns) — so `pi-studio pi ...` is a
+drop-in replacement for a globally-installed `pi`, with none of its flags, subcommands, or
+interactive TUI reimplemented. `pi-studio pi` alone launches the interactive TUI, exactly like
+bare `pi`; `pi-studio pi -p "prompt"` runs non-interactively. `--pi-home` (must come before `pi`
+on the command line) redirects the bundled CLI's `.pi` config dir, same as it does for a
+locally-spawned daemon. Falls back to a global `pi` on `$PATH` if the bundled dependency isn't
+installed. Never touches the daemon or the wire protocol.

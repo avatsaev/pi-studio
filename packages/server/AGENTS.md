@@ -43,7 +43,10 @@ src/
                                    forked branch through. appendStreamEvent(agentId, event,
                                    broadcast, sessions) (sprint-074) — the one append-to-timeline +
                                    `agent_stream` broadcast path, used by `runTurn` and by any
-                                   operation that subscribes outside a turn (compaction);
+                                   operation that subscribes outside a turn (compaction). Ephemeral
+                                   branch (sprint-058): a `tool_call` with `partial` and every
+                                   `queue_update` are broadcast with a daemon `timestamp`, no `seq`,
+                                   and are never appended to the timeline (so never fetched);
                                    ensureTimelineSeeded(agentId, manager, resolveClient) — seeds a
                                    store-less agent from `hydrateTimeline` (used by
                                    `timeline-rpc.ts` and `handleCompact`).
@@ -145,6 +148,10 @@ src/
                                    agent-todos channel (`onTodos`/`readTodos`, client `readTodos`;
                                    sprint-079, see "Agent todos"); PI_CAPABILITIES.supportsTodos: true.
         event-mapper.ts           Maps raw Pi JSONL events → AgentStreamEvent.
+        tool-output-coalescer.ts  createToolOutputCoalescer (sprint-058) — per-callId partial
+                                   `tool_call` throttle for `PiAgentSession.emit()`; exports
+                                   PARTIAL_MIN_INTERVAL_MS (200) and PARTIAL_OUTPUT_CAP_BYTES
+                                   (65536); injected clock/timers for tests.
         rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
         session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
                                    Pi's own on-disk JSONL session file (no live process needed);
@@ -163,6 +170,9 @@ src/
                                    `emitTodos`/`readTodos` + `#todo …` recipes (sprint-079).
         todo-script.ts            Pure `#todo` recipe parser + builders (dev daemon).
         todo-script.test.ts
+        tool-script.ts            Pure `#tool` recipe parser + `toolScriptEvents` builders
+                                   (sprint-058, dev daemon): shell / empty / help.
+        tool-script.test.ts
         mock-provider.test.ts
 
   ws/
@@ -936,6 +946,17 @@ creation" above.
   tier for rendered markdown there); see `assistant_message.final` in `packages/protocol/
   AGENTS.md`. `session-hydration.ts` sets the same flag on each whole text/thinking block it
   replays out of Pi's JSONL, so restored history finalizes identically.
+- **Tool output streaming (sprint-058, `swe/features/tool-output-streaming.md`).**
+  `tool_execution_update` maps to a partial `tool_call` (`status: "running"`, `partial: true`);
+  `outputOf` reads `result.content ?? partialResult.content`. `PiAgentSession.emit()` routes
+  mapped events through `createToolOutputCoalescer` (`tool-output-coalescer.ts`, injectable clock):
+  per `callId`, leading + trailing edge every `PARTIAL_MIN_INTERVAL_MS` (200), latest snapshot wins,
+  output tail-capped to `PARTIAL_OUTPUT_CAP_BYTES` (65536). Partials are never pushed into the
+  session's replay history; any non-partial event for a call, a turn terminal or `close()` cancels
+  pending flushes, so no partial follows its call's terminal event. **Snapshot-vs-delta is
+  tool-specific:** Pi's `partialResult` contract says whether it replaces or extends the earlier
+  update depends on the tool; only `bash` (accumulated snapshots) is verified. A delta-style tool
+  would render only its latest chunk — a documented degradation, not reconciled here.
 - **`agent_end`'s `messages` array is the only place a live turn's real outcome is decided** — it
   used to unconditionally map to `turn_completed`, ignoring the payload entirely. `session-
   hydration.ts` (restore-from-JSONL) always correctly read the closing assistant message's
@@ -1260,6 +1281,12 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
   plus `description`/`owner`; `literal`: markdown/HTML in a subject; `huge`: 250 tasks with over-cap
   fields; `clear`: empty list). `#todo` alone or an unknown recipe answers the help text. The `#ui`
   recipes (extension dialogs) are a separate family in `ui-script.ts`.
+- **Mock `#tool` recipe** (sprint-058, `providers/mock/tool-script.ts`, pure parser; `mock-provider.ts`
+  `startToolScriptTurn`): `#tool` / `#tool shell` emits a `shell` start row, 3 `partial: true`
+  snapshots with growing accumulated output, a `completed` end row, then the usual echo; `#tool empty`
+  ends with an empty final output (exercises the terminal-output-authority edge on the client);
+  `#tool help` answers the recipe list with no tool events. Mock partials bypass the Pi coalescer
+  (by design) and are kept out of the mock's `history`. Separate family from `#ui` and `#todo`.
 - **Tests:** `agent-todos-service.test.ts`, `todo-limits.test.ts`, `providers/pi/todos.test.ts` (fixtures are
   the frames recorded from a real Pi/rpiv-todo run), `providers/pi/todos-wiring.test.ts`, the
   mock's `todo-script.test.ts`, the fork case in `slash-command-ops.test.ts`, and the real-dev-daemon

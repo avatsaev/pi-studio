@@ -259,6 +259,8 @@ src/
                            reached from — sprint-073/task-005, see § Invariants "Viewer-disable gate"
   timeline/                streaming/render model: reducer, row-model, compaction.ts (+ test — pure
                            `isCompactionPending(rows)` and `compactionLabel(row)`, sprint-074/task-005),
+                           live-tail.ts (+ test — `LIVE_TAIL_LINES` = 12 and the pure `liveTail(output)`
+                           the running-tool card renders, sprint-058),
                            tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
@@ -1172,6 +1174,23 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   `timeline/compaction.ts`'s `isCompactionPending` is the selector composer/meter gating reads;
   never derive "compacting" from anything else. Compaction rows are not `user` rows, so they never
   touch `userMessageCount`.
+- **Live tool output tail (sprint-058, `swe/features/tool-output-streaming.md`).** The daemon streams
+  ephemeral `tool_call` events with `partial: true` (accumulated output so far, no `seq`) while a
+  tool runs. `reducer.ts`'s `onToolCall` upserts the row by `callId` exactly as before — while
+  `running`, `mergeToolForStatus` replaces `output` with each non-empty snapshot — and `partial` is
+  not copied onto the row, so an old reducer already renders streamed output in the expanded body.
+  `ToolCard.tsx` adds the live tail: while `row.status === "running"` and `tool.output` is
+  non-empty it renders a block (`styles.toolLiveTail`, height-capped) of `liveTail(output)` —
+  `timeline/live-tail.ts`, the last `LIVE_TAIL_LINES = 12` lines, newest last — even when collapsed.
+  Three rules keep it honest: (1) **the terminal event's `output` is authoritative** — on
+  `completed`/`error`, `mergeToolForStatus` takes `output` verbatim (absent/empty included) instead
+  of keeping the last partial, so the live view equals a reload of the persisted start + end rows;
+  never "optimize" this into an append/keep-non-empty merge; (2) **`closeRunningTools`** (called from
+  `onTurnFailed`/`onTurnCanceled`, never `onTurnCompleted`) closes any tool row still `running` to
+  `"error"`/`"canceled"`, since an aborted tool never gets its end event and the tail would stay
+  pinned; (3) **`"canceled"`** is a client-local `ToolCallStatus` member (`row-model.ts`) — never on
+  the wire. Partials do not trigger `invalidateAfterToolCompletion` (it fires only on
+  `status === "completed"`).
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/

@@ -99,6 +99,11 @@ These restrictions apply to *rows* — sources that know what they point at. A c
 design, so it cannot honor the directory restriction; that accepted relaxation is documented in
 that doc's § Known Limitations.
 
+A Files-tree row (file **or** folder) also carries a fourth, composer-only payload, `ref`
+([composer-path-drop.md](composer-path-drop.md)). It is never pane-droppable. While a `ref`-carrying
+drag is over a composer drop zone, the pane host treats the pointer as over no pane (no preview, no
+open/split), even if the composer refuses the drop. Drags without `ref` are unaffected.
+
 ### Persisted layout record
 
 One **versioned** record per client, holding an entry per workspace:

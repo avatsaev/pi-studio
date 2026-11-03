@@ -1,0 +1,75 @@
+instances:
+  - url: https://pi-studio.docs.buildwithfern.com
+title: Pi-Studio Docs
+logo:
+  light: assets/logo-light.svg
+  dark: assets/logo-dark.svg
+  height: 28
+  right-text: Docs
+favicon: assets/favicon.svg
+navbar-links:
+  - type: github
+    value: https://github.com/avatsaev/pi-studio
+navigation:
+  - page: Welcome
+    path: pages/welcome.mdx
+    slug: welcome
+  - page: Quickstart
+    path: pages/quickstart.mdx
+    slug: quickstart
+  - section: CLI Reference
+    slug: cli-reference
+    contents:
+      - page: Overview
+        path: pages/cli/overview.mdx
+        slug: overview
+      - page: Agent & Sessions
+        path: pages/cli/agent.mdx
+        slug: agent-sessions
+      - page: Daemon & Auth
+        path: pages/cli/daemon-and-auth.mdx
+        slug: daemon-and-auth
+      - page: Feature Groups
+        path: pages/cli/feature-groups.mdx
+        slug: feature-groups
+  - page: Web UI
+    path: pages/web-ui.mdx
+    slug: web-ui
+  - section: Configuration & Deployment
+    slug: configuration
+    contents:
+      - page: Daemon Configuration
+        path: pages/configuration/daemon.mdx
+        slug: daemon
+      - page: E2EE Relay
+        path: pages/configuration/relay.mdx
+        slug: relay
+      - page: Docker
+        path: pages/configuration/docker.mdx
+        slug: docker
+# Mirrors packages/web-client's default dark theme (theme/variants.ts "dark") and light theme.
+colors:
+  accent-primary:
+    light: "#253e6f"
+    dark: "#a2b4d7"
+  background:
+    light: "#ffffff"
+    dark: "#181b1a"
+  border:
+    light: "#e4e4e7"
+    dark: "#252b2a"
+  sidebar-background:
+    light: "#fafafa"
+    dark: "#141716"
+  header-background:
+    light: "#ffffff"
+    dark: "#181b1a"
+  card-background:
+    light: "#f4f4f5"
+    dark: "#1e2120"
+layout:
+  searchbar-placement: header
+  content-width: 760px
+theme:
+  sidebar: minimal
+  footer-nav: minimal

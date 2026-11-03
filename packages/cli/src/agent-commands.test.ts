@@ -323,6 +323,38 @@ describe("agent commands", () => {
     expect(out.join("\n")).toContain("turn completed");
   });
 
+  it("attach ignores partial tool_call frames in plain and json modes", async () => {
+    for (const json of [false, true]) {
+      const fake = makeFake();
+      const { client, ctx, out } = await connectedClient(fake.transport);
+      const done = attachAgent(client, ctx, "a1", { untilTurnEnd: true, json });
+      const partial = {
+        type: "agent_stream",
+        agentId: "a1",
+        event: {
+          kind: "tool_call",
+          callId: "c1",
+          status: "running",
+          partial: true,
+          tool: { kind: "shell", command: "npm test" },
+        },
+      };
+      fake.push(partial);
+      fake.push({
+        type: "agent_stream",
+        agentId: "a1",
+        event: { kind: "assistant_message", text: "hi" },
+      });
+      fake.push(partial);
+      fake.push({ type: "agent_stream", agentId: "a1", event: { kind: "turn_completed" } });
+      expect(await done).toBe(0);
+      const text = out.join("\n");
+      expect(text).not.toContain("npm test");
+      expect(text).toContain("hi");
+      expect(out).toHaveLength(2);
+    }
+  });
+
   it("attach resolves when the abort signal fires", async () => {
     const fake = makeFake();
     const { client, ctx } = await connectedClient(fake.transport);

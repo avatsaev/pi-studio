@@ -241,6 +241,7 @@ dependency-free smoke test, use the `mock` provider instead.
 ## More
 
 - Full CLI command reference and library API: [`packages/cli/README.md`](packages/cli/README.md)
+- User-facing docs site (Fern) source: [`fern/`](fern/) — preview with `cd fern && fern docs dev`
 - Building from source, running tests, and the monorepo layout:
   [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Architecture and feature specs: [`swe/`](swe/) — [`MAIN-SCOPE.md`](swe/MAIN-SCOPE.md) is the

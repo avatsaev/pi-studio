@@ -1,0 +1,66 @@
+---
+title: Overview
+subtitle: Global options, connection resolution, and the default action.
+---
+
+The CLI never runs daemon or relay code in-process — it only speaks the WebSocket API to drive an
+existing daemon. `daemon start`/`relay start` spawn a detached subprocess; every other command
+connects as a client. See [Quickstart](/quickstart) if you haven't installed it yet.
+
+## Global options
+
+| Flag | Description |
+|---|---|
+| `-H, --host <host>` | Daemon target — bare `host:port`, or a URL with a `ws://`/`wss://` or `http://`/`https://` scheme (e.g. `workstation.local:6767`, `https://box.local:6767`) |
+| `--password <password>` | Password for a password-protected daemon |
+| `--home <dir>` | Override `$PI_STUDIO_HOME` (used for the client-id store) |
+| `--pi-home <dir>` | Override `$PI_STUDIO_PI_HOME` — the bundled Pi CLI's own `.pi` config dir. Selects the `auth.json` the `auth` group reads/writes, and is forwarded to a locally-spawned daemon and to `pi-studio pi`. Must precede the subcommand |
+| `--json` | Render command output as JSON instead of a table |
+| `-v, --version` | Print the installed CLI version and exit |
+
+## Connection resolution
+
+- `--host host:port` → `ws://host:port`
+- a `ws://`/`wss://` URL is used as-is
+- `http://`/`https://` are accepted for familiarity and mapped to `ws://`/`wss://` (the daemon is
+  an HTTP server that upgrades to WebSocket on the same port); `wss://`/`https://` imply TLS
+- with no `--host`, the CLI targets `ws://127.0.0.1:6767`
+
+## Default action (no subcommand)
+
+- `pi-studio <path>` — open that path as a project on the daemon.
+- `pi-studio` (bare) — ensure a local daemon is running, then print a pairing QR code.
+
+## Command groups
+
+| Group | Covers |
+|---|---|
+| [Agent & Sessions](/cli-reference/agent-sessions) | `agent run`/`ls`/`attach`/`send`/`steer`/… and session management (`/session`, `compact`, `fork`, `clone`, …) |
+| [Daemon & Auth](/cli-reference/daemon-and-auth) | `daemon start`/`stop`/`pair`/`rotate-key`, `auth login`/`status`/`logout`, `relay start`/`stop` |
+| [Feature groups](/cli-reference/feature-groups) | `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, `worktree` |
+| [Web UI](/web-ui) | `pi-studio ui` and the browser client |
+
+Run `pi-studio --help` (or `<command> --help`) at any time for the full, live command tree.
+
+## Using it as a library
+
+The CLI's building blocks are also exported for programmatic use:
+
+```ts
+import { withDaemon } from "@av-pi-studio/cli";
+
+await withDaemon(ctx, opts, async (daemonClient) => {
+  // daemonClient is a connected @av-pi-studio/client DaemonClient
+});
+```
+
+`withDaemon` resolves the target URL from `--host`/defaults, connects, runs your callback, then
+disconnects — handling `RpcError`s and connection failures with clean stderr output and non-zero
+exit codes along the way.
+
+## Self-updating
+
+```bash
+pi-studio update          # self-update to the latest @av-pi-studio/cli on npm
+pi-studio update --check  # report whether an update is available, without installing
+```

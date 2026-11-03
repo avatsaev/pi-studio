@@ -500,3 +500,78 @@ describe("agent todos (sprint-079, task-005)", () => {
     expect(message && "text" in message ? message.text : undefined).toBe("echo: hello again");
   });
 });
+
+describe("#tool scenario (sprint-058, task-004)", () => {
+  async function toolEvents(prompt: string) {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    await session.run(prompt);
+    const replayed: AgentStreamEvent[] = [];
+    for await (const e of session.streamHistory()) replayed.push(e);
+    return { events, replayed };
+  }
+
+  it("#tool shell emits start, 3 growing partials, end, then the echo", async () => {
+    const { events } = await toolEvents("#tool shell");
+    expect(events.map((e) => e.kind)).toEqual([
+      "turn_started",
+      "tool_call",
+      "tool_call",
+      "tool_call",
+      "tool_call",
+      "tool_call",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    const tools = events.filter((e) => e.kind === "tool_call");
+    expect(tools.map((e) => e.status)).toEqual([
+      "running",
+      "running",
+      "running",
+      "running",
+      "completed",
+    ]);
+    expect(tools.map((e) => e.partial === true)).toEqual([false, true, true, true, false]);
+    expect(new Set(tools.map((e) => e.callId)).size).toBe(1);
+
+    const partialOutputs = tools.filter((e) => e.partial).map((e) => e.tool.output ?? "");
+    expect(partialOutputs).toHaveLength(3);
+    expect(partialOutputs[1]!.startsWith(partialOutputs[0]!)).toBe(true);
+    expect(partialOutputs[2]!.startsWith(partialOutputs[1]!)).toBe(true);
+    expect(partialOutputs[2]!.length).toBeGreaterThan(partialOutputs[0]!.length);
+    expect(tools[4]!.tool.output?.startsWith(partialOutputs[2]!)).toBe(true);
+  });
+
+  it("a bare #tool runs the shell recipe", async () => {
+    const { events } = await toolEvents("#tool");
+    expect(events.filter((e) => e.kind === "tool_call")).toHaveLength(5);
+  });
+
+  it("#tool empty ends with an empty final output", async () => {
+    const { events } = await toolEvents("#tool empty");
+    const tools = events.filter((e) => e.kind === "tool_call");
+    expect(tools.filter((e) => e.partial)).toHaveLength(3);
+    const end = tools.at(-1)!;
+    expect(end.status).toBe("completed");
+    expect(end.tool).toMatchObject({ kind: "shell", output: "" });
+  });
+
+  it("streamHistory yields start and end events but no partials", async () => {
+    const { replayed } = await toolEvents("#tool shell");
+    const tools = replayed.filter((e) => e.kind === "tool_call");
+    expect(tools.some((e) => e.partial === true)).toBe(false);
+    expect(tools.map((e) => e.status)).toEqual(["running", "completed"]);
+  });
+
+  it("#tool help lists the recipes and emits no tool events", async () => {
+    const { events } = await toolEvents("#tool help");
+    expect(events.some((e) => e.kind === "tool_call")).toBe(false);
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : "").toContain("#tool shell");
+  });
+
+  it("an unrecognised #tool recipe shows help", async () => {
+    const { events } = await toolEvents("#tool banana");
+    expect(events.some((e) => e.kind === "tool_call")).toBe(false);
+  });
+});
