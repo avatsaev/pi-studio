@@ -1,7 +1,7 @@
 # Task 006 — Sprint close: cross-browser checks, docs, spec amendments, full gates
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** repo-wide
 - **Priority:** P1

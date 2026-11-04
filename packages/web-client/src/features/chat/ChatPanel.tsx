@@ -40,7 +40,11 @@ export function ChatPanel({ tab, owningPaneId }: ChatPanelProps) {
       <TurnProgressBar running={session.status === "running"} />
       <Timeline session={session} owningPaneId={owningPaneId} workspaceCwd={tab.workspaceCwd} />
       <TodoPanel agentId={session.agentId} />
-      <Composer sessionId={session.id} />
+      <Composer
+        sessionId={session.id}
+        workspaceCwd={tab.workspaceCwd}
+        owningPaneId={owningPaneId}
+      />
     </Panel>
   );
 }

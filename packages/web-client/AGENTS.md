@@ -425,7 +425,11 @@ src/
                             plus `containsPoint` for the native drag's own hit-testing)
                             (+ test), external-drag.ts (the sidebar→pane transport: one MIME per
                             dragged kind, payload decode, and the shared already-degraded region
-                            resolution; documents why that half is native DnD and not dnd-kit)
+                            resolution; documents why that half is native DnD and not dnd-kit. Also
+                            the composer-only path-ref drag (`PATH_REF_MIME` + helpers, deliberately
+                            NOT an `ExternalDragKind`), the `composerDropProps` marker and the pure
+                            `yieldsToComposer` predicate the pane host consults — § Invariants
+                            "Composer path drop")
                             (+ test), pane-layout-view.ts (pure store-tree → renderable
                             rects/dividers projection) (+ test), reopen-client-tabs.ts
                             (`tabFromIdentity` — the exact inverse of `tabIdentity` for the kinds no
@@ -570,7 +574,9 @@ src/
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             client built-ins + `parseBuiltinInvocation`, unit-tested),
                             composer-gate.ts (+ test — pure `canSubmitDraft`/`canCompact`,
-                            sprint-074/task-008), use-bottom-anchor (the timeline's bottom-anchor
+                            sprint-074/task-008), composer-path-drop.ts (+ test — pure `refRoot`/
+                            `relativeRefPath`/`formatRefToken`/`planInsertion`/`decideComposerDrop`
+                            for dropping a Files-tree row onto the composer, sprint-081), use-bottom-anchor (the timeline's bottom-anchor
                             controller: gesture/scroll/resize listeners over
                             timeline/bottom-anchor.ts's pure state machine), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning/Compaction rows, ToolCard — UserRow's
@@ -1304,6 +1310,37 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Circular buttons override `.btn`'s radius through `.card .roundBtn`, not `!important`** —
     CSS-module file order across chunks isn't guaranteed, so a bare `.roundBtn` rule ties with
     `Button.module.css`'s own single-class `.btn` rule and may lose.
+- **Composer path drop (sprint-081, `swe/features/composer-path-drop.md`).** Dropping a Files-tree
+  row, file or folder, anywhere on the composer's `.card` inserts its workspace-relative path at the
+  textarea caret. Load-bearing rules:
+  - **A third drag payload, not an `ExternalDragKind`.** Every draggable tree row also writes
+    `PATH_REF_MIME` (`external-drag.ts`; a folder's value ends in `/`). It is kept OUT of
+    `ExternalDragKind`/`KINDS`/`readExternalDrag`: a folder row carries only `MOVE_MIME` + the ref,
+    and a pane host gating on `externalDragKind(...) !== null` would start previewing a split for a
+    folder, which has no tab. `effectAllowed` is `copyMove` for folders too (the composer sets
+    `dropEffect = "copy"`; a `dropEffect` outside `effectAllowed` is a rejected drop). No row ever
+    carries `text/plain`.
+  - **The pane host yields, decided by the host.** `useExternalPaneDrop` treats a path-ref drag whose
+    target is inside the `composerDropProps()` marker (`data-composer-drop`, defined once in
+    `external-drag.ts` beside `isInComposerDrop`) as over no pane: preview cleared, no
+    `preventDefault`, nothing on drop. It holds even while the composer refuses (compacting), so a
+    release can never fall through to an open or split. A drag WITHOUT a path-ref (chat row,
+    timeline file link) stays a pane drop over the composer.
+  - **Strict relative path.** `relativeRefPath` (segment-boundary containment against
+    `refRoot(session.cwd, homeDir)`), NOT `lib/paths.ts` `relativeToRoot`, which returns an
+    out-of-root path unchanged and would insert an absolute path. Outside the root or an
+    unresolved `~` root: refused through the composer's inline `pickError` line ("Not inside this
+    workspace"), cleared by the next edit; the draft is untouched.
+  - **`execCommand("insertText")` with a `setRangeText` fallback** (`Composer.tsx#insertPathAt`).
+    The controlled textarea loses native undo on any programmatic value write, so the primary path
+    fires a real `input` event (one undo removes exactly the insertion). Success means it returned
+    true AND the value changed; otherwise the fallback runs the shared `applyDraftChange` pipeline
+    and loses the whole undo history. A textarea mounted with a non-empty draft reports a caret at 0
+    until first focus, so until then the drop ignores the caret and appends
+    (`everFocusedRef`; `swe/notes/composer-path-drop-spike.md`).
+  - **Compacting is inert**: no outline, no insert, and the host still yields. A running turn is
+    NOT special-cased (steer mode accepts the edit like typing). The drop focuses the owning pane
+    (`focusPane`), since a drop fires no `pointerdown`. Never log path text.
 - **`set_editor_text` composer feedback (sprint-069/task-007, § 11).** The draft is no longer
   `Composer.tsx`'s own `useState` — it reads/writes `stores/draft-store.ts`'s `drafts[sessionId]`
   directly, so a `set_editor_text` effect can replace a session's draft even while no composer for

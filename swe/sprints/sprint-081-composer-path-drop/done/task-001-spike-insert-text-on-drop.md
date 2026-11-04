@@ -1,7 +1,7 @@
 # Task 001 — Spike: `execCommand('insertText')` inside a native drop on the controlled composer
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/web-client (features/chat)
 - **Priority:** P1

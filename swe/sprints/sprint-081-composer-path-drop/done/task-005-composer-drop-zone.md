@@ -1,7 +1,7 @@
 # Task 005 — Composer drop zone: affordance, insertion, refusal, focus
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/chat)
 - **Priority:** P1

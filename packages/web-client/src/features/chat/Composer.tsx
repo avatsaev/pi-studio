@@ -54,6 +54,7 @@ import {
   useState,
   type ChangeEvent,
   type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
 } from "react";
 import { clsx } from "clsx";
@@ -74,9 +75,17 @@ import { useThinkingLevels } from "@pi-studio-ui/hooks/use-thinking-levels.js";
 import { useIsCompacting } from "@pi-studio-ui/hooks/use-is-compacting.js";
 import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
 import { compactionLabel, pendingCompaction } from "@pi-studio-ui/timeline/compaction.js";
+import {
+  composerDropProps,
+  hasPathRef,
+  readPathRef,
+} from "@pi-studio-ui/features/workspace/external-drag.js";
+import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { isComposerBusy } from "./composer-busy.js";
 import { canCompact, canSubmitDraft, shouldRestoreCompactDraft } from "./composer-gate.js";
+import { decideComposerDrop, refRoot, type InsertionPlan } from "./composer-path-drop.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { ThinkingMenu } from "./ThinkingMenu.js";
@@ -97,6 +106,10 @@ const MAX_TEXTAREA_HEIGHT = 160;
 
 export interface ComposerProps {
   sessionId: string;
+  /** The workspace (layout key) and pane this composer's chat tab lives in — a path drop focuses
+   *  that pane, since a drop fires no `pointerdown` for the pane's own click-to-focus. */
+  workspaceCwd: string;
+  owningPaneId: string | null;
 }
 
 function autoResize(el: HTMLTextAreaElement): void {
@@ -115,7 +128,7 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function Composer({ sessionId }: ComposerProps) {
+export function Composer({ sessionId, workspaceCwd, owningPaneId }: ComposerProps) {
   const client = useConnectionStore((s) => s.client);
   const session = useSessionStore((s) => s.sessions[sessionId]);
   const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
@@ -184,6 +197,12 @@ export function Composer({ sessionId }: ComposerProps) {
   const [flashing, setFlashing] = useState(false);
   const noteTimeoutRef = useRef<number | null>(null);
   const flashTimeoutRef = useRef<number | null>(null);
+  // A Files-tree row is being dragged over the card (`composer-path-drop.ts`). And whether the
+  // textarea has ever had focus since mount: a textarea mounted with a non-empty draft reports a
+  // caret at 0 until then, so the drop ignores the caret and appends instead.
+  const [dragOver, setDragOver] = useState(false);
+  const everFocusedRef = useRef(false);
+  const homeDir = useHomeDir();
 
   // Consumes this session's queued feedback the instant it is both PENDING and VISIBLE — either
   // condition can arrive first (an effect while already visible; becoming visible with a feedback
@@ -217,6 +236,19 @@ export function Composer({ sessionId }: ComposerProps) {
       if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
     };
   }, []);
+
+  // Only while a drag hovers the card: a cancelled drag (Escape) or a release elsewhere never
+  // reaches the card's own handlers, because `dragend` fires on the drag SOURCE.
+  useEffect(() => {
+    if (!dragOver) return;
+    const clear = (): void => setDragOver(false);
+    document.addEventListener("dragend", clear);
+    document.addEventListener("drop", clear);
+    return () => {
+      document.removeEventListener("dragend", clear);
+      document.removeEventListener("drop", clear);
+    };
+  }, [dragOver]);
 
   const running = session?.status === "running";
   const compacting = useIsCompacting(sessionId);
@@ -284,10 +316,11 @@ export function Composer({ sessionId }: ComposerProps) {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
-    const next = ev.target.value;
+  /** The draft's change pipeline — typing and a path drop's `setRangeText` fallback share it, so
+   *  both write the draft, autosize, recompute the `/` menu and clear the inline errors. */
+  function applyDraftChange(el: HTMLTextAreaElement, next: string): void {
     setDraftText(sessionId, next);
-    autoResize(ev.target);
+    autoResize(el);
     // `/` at the very start opens the menu and keeps it open while the name is still being typed;
     // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
     // only recognizes a command at index 0 (`agent-session.js` `text.startsWith("/")`).
@@ -296,6 +329,76 @@ export function Composer({ sessionId }: ComposerProps) {
     const shouldOpen = shouldOpenMenu(next);
     if (shouldOpen !== menuOpen) setMenuOpen(shouldOpen);
     if (shouldOpen) setHighlight(0);
+  }
+
+  function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
+    applyDraftChange(ev.target, ev.target.value);
+  }
+
+  /** The card claims a drag only when it carries a Files-tree path-ref and the composer is not
+   *  compacting. A refused drag is left alone; the pane host still yields (`yieldsToComposer`). */
+  function acceptsPathRef(ev: DragEvent<HTMLElement>): boolean {
+    return !compacting && hasPathRef(ev.dataTransfer.types);
+  }
+
+  function handleCardDragOver(ev: DragEvent<HTMLElement>): void {
+    if (!acceptsPathRef(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
+  }
+
+  function handleCardDragLeave(ev: DragEvent<HTMLElement>): void {
+    // `dragleave` bubbles and refires on every child boundary inside the card; only a leave to an
+    // element outside it is the drag actually leaving (same guard as the Files tree container).
+    if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return;
+    setDragOver(false);
+  }
+
+  /** Replace `plan`'s range with its text. `execCommand("insertText")` is the primary path because
+   *  it is the only one that keeps native undo on a controlled textarea (it fires a real `input`
+   *  event, so `onChange` runs the normal pipeline). When it fails — returns false, throws, or
+   *  leaves the value unchanged — fall back to `setRangeText`, which loses the whole undo history
+   *  (swe/notes/composer-path-drop-spike.md). */
+  function insertPathAt(el: HTMLTextAreaElement, plan: InsertionPlan): void {
+    el.focus();
+    el.setSelectionRange(plan.start, plan.end);
+    const before = el.value;
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, plan.insert) && el.value !== before;
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      el.setRangeText(plan.insert, plan.start, plan.end, "end");
+      applyDraftChange(el, el.value);
+    }
+    el.setSelectionRange(plan.caret, plan.caret);
+    // A drop fires no `pointerdown`, so the pane's click-to-focus never ran.
+    if (owningPaneId !== null) useLayoutStore.getState().focusPane(workspaceCwd, owningPaneId);
+  }
+
+  function handleCardDrop(ev: DragEvent<HTMLElement>): void {
+    const { types } = ev.dataTransfer;
+    // Not ours (chat row, timeline link, OS file): leave it to the pane host, exactly as before.
+    if (!hasPathRef(types)) return;
+    setDragOver(false);
+    if (compacting) return;
+    ev.preventDefault();
+    const el = textareaRef.current;
+    if (!el) return;
+    const decision = decideComposerDrop({
+      refValue: readPathRef(types, (mime) => ev.dataTransfer.getData(mime)),
+      compacting,
+      root: refRoot(session?.cwd ?? "", homeDir),
+      text: el.value,
+      selStart: el.selectionStart,
+      selEnd: el.selectionEnd,
+      neverFocused: !everFocusedRef.current,
+    });
+    if (decision.kind === "refuse") setPickError("Not inside this workspace");
+    else if (decision.kind === "insert") insertPathAt(el, decision.plan);
   }
 
   function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -520,7 +623,19 @@ export function Composer({ sessionId }: ComposerProps) {
 
   return (
     <div className={styles.composer}>
-      <div className={clsx(styles.card, flashing && styles.flash, compacting && styles.compacting)}>
+      <div
+        className={clsx(
+          styles.card,
+          flashing && styles.flash,
+          compacting && styles.compacting,
+          dragOver && !compacting && styles.dropTarget,
+        )}
+        {...composerDropProps()}
+        onDragEnter={handleCardDragOver}
+        onDragOver={handleCardDragOver}
+        onDragLeave={handleCardDragLeave}
+        onDrop={handleCardDrop}
+      >
         <div className={styles.textareaWrap}>
           <div className={styles.highlightLayer} aria-hidden>
             {span ? (
@@ -546,6 +661,9 @@ export function Composer({ sessionId }: ComposerProps) {
                   : "Ask anything…  ⏎ send · ⇧⏎ newline · / commands"
             }
             onChange={handleTextareaChange}
+            onFocus={() => {
+              everFocusedRef.current = true;
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             data-session-id={sessionId}

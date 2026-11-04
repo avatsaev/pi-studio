@@ -1,7 +1,7 @@
 # Task 004 — Pane drop host yields to a composer drop zone for path-ref drags
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (hooks, features/workspace)
 - **Priority:** P1

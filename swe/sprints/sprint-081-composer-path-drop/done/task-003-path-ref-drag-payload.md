@@ -1,7 +1,7 @@
 # Task 003 — Drag transport: composer-only path-ref payload on every Files-tree row
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/workspace, features/files)
 - **Priority:** P1

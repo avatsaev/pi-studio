@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_DRAG_MIME,
+  PATH_REF_MIME,
+  composerDropProps,
+  encodePathRef,
   externalDragKind,
+  hasPathRef,
+  isInComposerDrop,
   pathDragStartHandler,
   readExternalDrag,
+  readPathRef,
   resolveExternalDropRegion,
+  yieldsToComposer,
 } from "./external-drag.js";
 import type { PaneNode } from "./pane-tree.js";
 
@@ -58,6 +65,67 @@ describe("readExternalDrag", () => {
   it("is null for a drag that is not ours", () => {
     const os = transfer({ "text/plain": "hello" });
     expect(readExternalDrag(os.types, os.read)).toBeNull();
+  });
+});
+
+describe("path-ref drag", () => {
+  it("never makes a pane see a folder drag, and leaves a file row as `path`", () => {
+    expect(externalDragKind([MOVE_MIME, PATH_REF_MIME])).toBeNull();
+    expect(externalDragKind([MOVE_MIME, EXTERNAL_DRAG_MIME.path, PATH_REF_MIME])).toBe("path");
+  });
+
+  it("is invisible to readExternalDrag", () => {
+    const folder = transfer({ [MOVE_MIME]: "/r/d", [PATH_REF_MIME]: "/r/d/" });
+    expect(readExternalDrag(folder.types, folder.read)).toBeNull();
+  });
+
+  it("round-trips a file and a folder through encode/read", () => {
+    const file = transfer({ [PATH_REF_MIME]: encodePathRef("/r/a.ts", false) });
+    expect(hasPathRef(file.types)).toBe(true);
+    expect(readPathRef(file.types, file.read)).toBe("/r/a.ts");
+
+    const folder = transfer({ [PATH_REF_MIME]: encodePathRef("/r/src", true) });
+    expect(readPathRef(folder.types, folder.read)).toBe("/r/src/");
+  });
+
+  it("gives a folder exactly one trailing slash", () => {
+    expect(encodePathRef("/r/src/", true)).toBe("/r/src/");
+    expect(encodePathRef("/r/src//", true)).toBe("/r/src/");
+  });
+
+  it("is null when absent or blank", () => {
+    expect(hasPathRef([MOVE_MIME])).toBe(false);
+    expect(readPathRef([MOVE_MIME], () => "x")).toBeNull();
+    const blank = transfer({ [PATH_REF_MIME]: "  \n" });
+    expect(readPathRef(blank.types, blank.read)).toBeNull();
+  });
+});
+
+describe("yieldsToComposer", () => {
+  it("yields only for a path-ref drag inside a composer zone", () => {
+    expect(yieldsToComposer([MOVE_MIME, EXTERNAL_DRAG_MIME.path, PATH_REF_MIME], true)).toBe(true);
+    expect(yieldsToComposer([MOVE_MIME, PATH_REF_MIME], true)).toBe(true);
+  });
+
+  it("does not yield for a drag without a path-ref (chat row, timeline link)", () => {
+    expect(yieldsToComposer([EXTERNAL_DRAG_MIME.chat], true)).toBe(false);
+    expect(yieldsToComposer([EXTERNAL_DRAG_MIME.path], true)).toBe(false);
+  });
+
+  it("does not yield outside a composer zone", () => {
+    expect(yieldsToComposer([MOVE_MIME, EXTERNAL_DRAG_MIME.path, PATH_REF_MIME], false)).toBe(
+      false,
+    );
+  });
+});
+
+describe("composer drop zone marker", () => {
+  it("is found by the same lookup that reads it back", () => {
+    const [attr] = Object.keys(composerDropProps());
+    const zone = { closest: (selector: string) => (selector === `[${attr}]` ? zone : null) };
+    expect(isInComposerDrop(zone as unknown as EventTarget)).toBe(true);
+    expect(isInComposerDrop({ closest: () => null } as unknown as EventTarget)).toBe(false);
+    expect(isInComposerDrop(null)).toBe(false);
   });
 });
 

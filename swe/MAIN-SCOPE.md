@@ -281,7 +281,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/file-link-rendering.md](features/file-link-rendering.md)     | feature (UI) | Markdown file links in chat opened as an actionable file-tab dispatch + drag-to-split, capability-gated agent instruction |
 | [features/mermaid-diagram-rendering.md](features/mermaid-diagram-rendering.md) | feature (UI) | Fenced `mermaid` code blocks in chat rendered as live diagrams, capability-gated agent instruction |
 | [features/composer-ui.md](features/composer-ui.md)                       | feature (UI) | Composer regions, submit/queue, autocomplete, controls, attachments, voice    |
-| [features/composer-path-drop.md](features/composer-path-drop.md)         | feature (UI) | Drag a Files-tree file/folder onto the composer to insert its workspace-relative path at the caret (new composer-only `ref` drag kind) — **planned (sprint-081)** |
+| [features/composer-path-drop.md](features/composer-path-drop.md)         | feature (UI) | Drag a Files-tree file/folder onto the composer to insert its workspace-relative path at the caret (new composer-only path-ref drag payload) — **shipped (sprint-081)** |
 | [features/feature-panels-ui.md](features/feature-panels-ui.md)           | feature (UI) | File explorer/preview, git diff/PR/review, terminal, browser, subagents track |
 | [features/html-file-preview.md](features/html-file-preview.md)           | feature (UI) | HTML files previewed in a sandboxed iframe; descriptor-driven file-viewer registry; workspace-confined local asset inlining |
 | [features/pdf-file-preview.md](features/pdf-file-preview.md)             | feature (UI) | PDF files rendered in place with pdf.js (lazy pages, text selection, zoom, live refresh); `pdfviewer` viewer-settings toggle, on by default |
@@ -362,6 +362,9 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       `tool_execution_end`.
 - [x] Agent todos, UI half: persistence slot (sibling localStorage record) and visual sign-off (given)
       ([features/agent-todos-ui.md](features/agent-todos-ui.md)).
-- [ ] Composer path drop: `execCommand('insertText')` undo spike across Chrome/Firefox/Safari, pane
-      focus on drop, never-focused-caret rule, and the `relativeToRoot` sibling-prefix bug — see
+- [x] Composer path drop shipped (sprint-081): `execCommand('insertText')` spike (Chromium), pane
+      focus on drop and the never-focused-caret rule resolved — see
       [features/composer-path-drop.md § TODO(verify)](features/composer-path-drop.md).
+- [ ] Composer path drop, still open: Firefox and Safari checks of native undo (not run; no such
+      browser was available), and the `relativeToRoot` sibling-prefix bug (also affects the tree's
+      *Copy Relative Path*).

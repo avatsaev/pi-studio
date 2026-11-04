@@ -2238,6 +2238,10 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 > **Not in this sprint:** the `lib/paths.ts` `relativeToRoot` sibling-prefix bug (it also affects
 > *Copy Relative Path*), spec TODO #4, which is a follow-up; and the deferred drag sources (Changes
 > tab, timeline links).
+>
+> **Status: done** (all 6 tasks; verified live in Chromium only. Firefox and Safari were not run, the
+> OS-file-upload drop, a drop during a running turn, and the timeline-link regression could not be
+> exercised by the harness. See t001/t005/t006 summaries and `notes/composer-path-drop-spike.md`.)
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

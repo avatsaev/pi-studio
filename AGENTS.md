@@ -28,7 +28,8 @@ packages/
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal,
                split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
-               per-pane tab strips, persisted per workspace along with which one was in view).
+               per-pane tab strips, persisted per workspace along with which one was in view); drag a
+               Files-tree file or folder onto the chat composer to insert its relative path.
 
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.

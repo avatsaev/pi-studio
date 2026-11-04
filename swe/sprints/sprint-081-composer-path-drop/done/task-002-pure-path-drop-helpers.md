@@ -1,7 +1,7 @@
 # Task 002 — Pure helpers: `relativeRefPath`, `formatRefToken`, `planInsertion`
 
 - **Sprint:** sprint-081-composer-path-drop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/web-client (features/chat)
 - **Priority:** P1
