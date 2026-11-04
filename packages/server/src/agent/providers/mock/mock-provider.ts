@@ -38,6 +38,12 @@ import {
   planTodos,
   type TodoScriptRecipe,
 } from "./todo-script.js";
+import {
+  getToolScriptHelpText,
+  parseToolScript,
+  toolScriptEvents,
+  type ToolScriptRecipe,
+} from "./tool-script.js";
 import { getUiScriptHelpText, parseUiScript, type UiScriptStep } from "./ui-script.js";
 
 /**
@@ -134,7 +140,10 @@ export class MockAgentSession implements AgentSession {
   }
 
   private emit(event: AgentStreamEvent): void {
-    this.history.push(event);
+    // Ephemeral partial tool snapshots reach subscribers but never the replay buffer — the mirror
+    // of the Pi coalescer's history rule (tool-output-streaming.md tenet 2), so a post-restart
+    // hydration contains no partials.
+    if (!(event.kind === "tool_call" && event.partial)) this.history.push(event);
     for (const cb of this.subscribers) cb(event);
   }
 
@@ -153,6 +162,9 @@ export class MockAgentSession implements AgentSession {
 
     const todoRecipe = parseTodoScript(prompt);
     if (todoRecipe !== null) return this.startTodoScriptTurn(todoRecipe);
+
+    const toolRecipe = parseToolScript(prompt);
+    if (toolRecipe !== null) return this.startToolScriptTurn(toolRecipe);
 
     const turnId = randomUUID();
     this.activeTurn = turnId;
@@ -220,6 +232,31 @@ export class MockAgentSession implements AgentSession {
       } else {
         const list = this.emitTodos(this.buildTodoRecipe(recipe));
         text = `todo ${recipe}: ${list.tasks.length} task(s)${list.truncated ? " (truncated)" : ""}`;
+      }
+      this.emit({ kind: "assistant_message", messageId: randomUUID(), text, final: true });
+      this.emit({ kind: "turn_completed", turnId });
+      this.activeTurn = null;
+    }, this.turnDelayMs);
+
+    return Promise.resolve({ turnId });
+  }
+
+  /** `#tool ...` prompt (sprint-058/task-004): after `turnDelayMs`, emit the scripted tool-call
+   *  lifecycle (start, 3 partials, end) synchronously — no timers between tool events — then the
+   *  usual echo and `turn_completed`. `help` emits the recipe list and no tool events. */
+  private startToolScriptTurn(recipe: ToolScriptRecipe): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    this.activeTurn = turnId;
+    this.emit({ kind: "turn_started", turnId });
+
+    setTimeout(() => {
+      if (this.activeTurn !== turnId) return;
+      let text: string;
+      if (recipe === "help") {
+        text = getToolScriptHelpText();
+      } else {
+        for (const event of toolScriptEvents(recipe, randomUUID())) this.emit(event);
+        text = `echo: #tool ${recipe}`;
       }
       this.emit({ kind: "assistant_message", messageId: randomUUID(), text, final: true });
       this.emit({ kind: "turn_completed", turnId });

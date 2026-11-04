@@ -171,6 +171,27 @@ async function waitForAgentTitle(
   }
 }
 
+/** The stream event `kind` of a captured `agent_stream` frame ("" when the frame has no event). */
+function kindOf(frame: Record<string, unknown>): string {
+  const event = frame.event;
+  if (event && typeof event === "object" && "kind" in event && typeof event.kind === "string") {
+    return event.kind;
+  }
+  return "";
+}
+
+/** True for an `agent_stream` frame carrying a `tool_call` event flagged `partial: true`. */
+function isPartialToolCallFrame(frame: Record<string, unknown>): boolean {
+  const event = frame.event;
+  return (
+    kindOf(frame) === "tool_call" &&
+    typeof event === "object" &&
+    event !== null &&
+    "partial" in event &&
+    event.partial === true
+  );
+}
+
 describe("production daemon bootstrap", () => {
   it("registers the full RPC surface (no 'no handler' errors) and resolves pi as the provider", async () => {
     const booted = await boot();
@@ -274,6 +295,58 @@ describe("production daemon bootstrap", () => {
 
     client.close();
   }, 15000);
+
+  it.each(["#tool", "#tool empty"])(
+    "streams partial tool_call frames without seq, and never persists them (%s)",
+    async (prompt) => {
+      const booted = await boot();
+      handle = booted.handle;
+      const client = await connect(booted.port);
+
+      const streamFrames: Record<string, unknown>[] = [];
+      client.ws.on("message", (data: Buffer) => {
+        const env = JSON.parse(data.toString("utf8"));
+        if (env.type === "session" && env.message?.type === "agent_stream") {
+          streamFrames.push(env.message);
+        }
+      });
+
+      const created = await client.rpc({
+        type: "create_agent_request",
+        config: { provider: "mock", cwd: booted.home },
+      });
+      const agentId = (created.payload as { agentId?: string })?.agentId as string;
+      expect(agentId).toBeTruthy();
+      await client.rpc({ type: "send_agent_prompt", agentId, prompt });
+
+      const deadline = Date.now() + 4000;
+      while (!streamFrames.some((f) => kindOf(f) === "turn_completed")) {
+        if (Date.now() > deadline) throw new Error("timed out waiting for turn_completed");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      const partials = streamFrames.filter(isPartialToolCallFrame);
+      expect(partials.length).toBeGreaterThan(0);
+      for (const frame of partials) {
+        expect("seq" in frame).toBe(false);
+        expect(typeof frame.timestamp).toBe("string");
+      }
+
+      const fetched = await client.rpc({
+        type: "fetch_agent_timeline_request",
+        agentId,
+        direction: "after",
+      });
+      const items = fetched.items as Array<{ kind: string; events?: Array<{ partial?: boolean }> }>;
+      const toolItems = items.filter((i) => i.kind === "tool_call");
+      expect(toolItems).toHaveLength(1);
+      expect(toolItems[0]!.events).toHaveLength(2);
+      expect(toolItems[0]!.events!.some((e) => e.partial === true)).toBe(false);
+
+      client.close();
+    },
+    15000,
+  );
   it("list_agents reports the pinned thinking level for drafts and the live (clamped) level once spawned (sprint-070)", async () => {
     const booted = await boot();
     handle = booted.handle;

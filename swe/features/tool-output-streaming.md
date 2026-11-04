@@ -8,11 +8,16 @@
 ## Purpose
 
 A long-running tool call is **silent dead air** today. Pi emits `tool_execution_update` events
-while a tool runs — carrying the *accumulated* partial output so far (`partialResult.content`, not
-a delta; Pi `docs/rpc.md` § tool_execution_start/update/end) — but the Pi event mapper
+while a tool runs — carrying the partial output so far under `partialResult.content`, not `result`
+(Pi 1.4.0 `docs/json.md` § tool events; `dist/core/extensions/types.d.ts`
+`ToolExecutionUpdateEvent`) — but the Pi event mapper
 (`packages/server/src/agent/providers/pi/event-mapper.ts`, "Ignored" branch) drops them. The
-`ToolCard` for a 2-minute `npm test` shows a bare `running` badge until `tool_execution_end`
-lands; the turn is indistinguishable from a hung one.
+`ToolCard` for a 2-minute `npm test` shows a spinner and a static `output · N lines` strip until
+`tool_execution_end` lands; the turn is indistinguishable from a hung one.
+
+> **Spec re-baselined 2026-11-03.** Sprints 059 (chat timeline redesign), 074 (compaction events)
+> and 079 (todos) landed after this scope was drafted. The design tenets are unchanged; the
+> implementation notes below describe the current tree.
 
 This scope streams that partial output to the chat UI: the tool card shows a live, growing tail of
 stdout/result text while the tool runs, converging on the authoritative final output at
@@ -32,13 +37,18 @@ completion.
    `AgentTimelineStore`, never returned by `fetch_agent_timeline_request`, never pushed to the
    provider's `history` replay buffer. The persisted timeline record for a tool call stays exactly
    what it is today: start row + end row.
-3. **Lossless coalescing.** Because each snapshot is *accumulated* (replace, not append), dropping
-   intermediate snapshots loses nothing. The daemon coalesces per `callId` to bound broadcast rate
-   and frame size regardless of how fast the tool prints.
+3. **Lossless coalescing for snapshot-style tools.** Pi's `partialResult` contract is per tool:
+   "whether it replaces or extends an earlier update depends on that tool's result contract"
+   (`json.md`). `bash` — the only tool verified — sends **accumulated** snapshots (replace, not
+   append), already self-throttled at 100 ms and self-capped at ~50 KB / 2000 lines. For such
+   tools dropping intermediate snapshots loses nothing. The daemon coalesces per `callId` to
+   bound broadcast rate and frame size regardless of how fast the tool prints. A delta-style
+   custom tool would render its latest chunk instead of the whole output — documented
+   degradation, not reconciled in this scope.
 4. **A partial never outruns its terminal.** No `partial: true` event for a `callId` may be
    delivered after that call's terminal `tool_call` (`completed`/`error`) — a stale trailing
-   snapshot would regress the card's status badge from `completed` back to `running`
-   (`onToolCall` derives row status from the latest event).
+   snapshot would regress the card's status from `completed` back to `running` **and** its
+   `statusText` back to `"running"` (`onToolCall` derives both from the latest event).
 
 ## Public Contract
 
@@ -62,9 +72,13 @@ No other schema change. `ToolCallDetail` is untouched — the snapshot travels i
 | `tool_execution_update` | `{ kind: "tool_call", callId: toolCallId, tool: mapToolCall(event), status: "running", partial: true }` |
 
 `mapToolCall`'s `outputOf()` must read `result.content ?? partialResult.content` — update events
-carry the accumulated text under `partialResult`, not `result` (same
-`{type: "text", text}`-block join as today). `args` are present on update events, so
-command/path/query detail maps exactly as for `tool_execution_start`.
+carry the partial text under `partialResult`, not `result` (same `{type: "text", text}`-block
+join as today). `args` are present on update events, so command/path/query detail maps exactly
+as for `tool_execution_start`. Non-partial `tool_call` producers are `tool_execution_start`
+(`"running"`), `message_update`/`toolcall_end` (`"started"`) and `tool_execution_end`
+(`"completed"`/`"error"`); a partial may follow any of them. Nested tool calls (`toolCallId`
+`<parent>/<n>`, `parentToolCallId`) flow through unchanged, as their start/end already do.
+`bash`'s initial empty update (`content: []`) maps to a partial with no `output` field.
 
 ### Wire shape of a partial broadcast
 
@@ -114,34 +128,48 @@ on mapped event e for callId c:
     else:
         unchanged path
 
-on mapped turn terminal (turn_completed / turn_failed / turn_canceled) or session close:
+on mapped turn terminal (turn_completed / turn_failed / turn_canceled) or PiAgentSession.close():
     cancel all pending flushes                           # no partial after turn terminal
 ```
 
-### Server — persistence policy (`agent-service.ts` runTurn subscriber)
+### Server — persistence policy (`agent-service.ts` `appendStreamEvent`)
+
+`appendStreamEvent` is the single append-and-broadcast rule site (used by `runTurn`'s subscriber
+and by `slash-command-operations.ts` for out-of-turn `compaction` events). The ephemeral branch
+lives inside it:
 
 ```
-on event from session.subscribe:
-    if event.kind == "tool_call" and event.partial:
-        broadcast agent_stream { agentId, timestamp: now(), event }   # NO timeline.append, NO seq
+appendStreamEvent(agentId, event):
+    if (event.kind == "tool_call" and event.partial) or event.kind == "queue_update":
+        broadcast agent_stream { agentId, timestamp: now(), event }     # NO timeline.append, NO seq
     else:
         row = timeline.append(event)                                   # unchanged
         broadcast agent_stream { agentId, seq: row.seq, timestamp: row.timestamp, event }
 ```
 
-The mock provider's shell scenario emits 2–3 `partial: true` snapshots directly — bypassing the
-Pi-only coalescer, deterministically and by design — so this branch is smoke-testable without
-credentials.
+`queue_update` is folded in because `timeline-streaming.md` specifies it as never persisted / no
+`seq`; before this change the code appended it (resolved, see TODO(verify) 1).
+
+The mock provider gains a `#tool` prompt recipe (mirroring `#ui …`/`#todo …`): a `shell` start
+row, 2–3 `partial: true` snapshots with growing accumulated output, a `completed` end row, then the
+usual echo — bypassing the Pi-only coalescer, deterministically and by design — so this branch is
+smoke-testable without credentials. `#tool empty` ends with an empty final output to exercise the
+terminal-authority edge. Mock partials bypass the mock's own `history` buffer, mirroring the Pi
+coalescer's history exclusion.
 
 ### Client — reducer (`packages/web-client/src/timeline/reducer.ts`)
 
 Two small client-local changes; everything else is existing behavior:
 
-- **Turn-terminal closes open tool rows.** `turn_canceled`/`turn_failed` mark any tool row still
-  `"running"` as `"canceled"`/`"error"` — an aborted tool never receives its `tool_execution_end`,
-  and a row stuck on `running` would otherwise pin the live tail on screen forever. (This also
-  fixes the pre-existing stale-badge defect, which existed before streaming made it prominent;
-  `"canceled"` is a new client-local `ToolRow` status with a muted badge.)
+- **Turn-terminal closes open tool rows.** `onTurnCanceled`/`onTurnFailed` both route through
+  `onTurnCompleted` (= `cancelStartedCompactions(finalizeStreamingRows(state))`), which closes
+  streaming prose and `started` compaction rows but **no tool rows**. A new
+  `closeRunningTools(state, status)` helper, shaped like `cancelStartedCompactions`, marks any
+  tool row still `"running"` as `"canceled"` (cancel) / `"error"` (fail) — an aborted tool never
+  receives its `tool_execution_end`, and a row stuck on `running` would otherwise pin the live
+  tail on screen forever. It is called from the two terminal handlers, never from
+  `onTurnCompleted`. (This also fixes the pre-existing stale-spinner defect; `"canceled"` is a new
+  client-local `ToolCallStatus` member rendered as muted trailing text.)
 - **The terminal event's `output` is authoritative.** On a `completed`/`error` upsert, `output` is
   taken from the terminal event verbatim — including absent/empty — instead of `mergeTool`'s
   keep-non-empty rule; other fields (command/path/diff) still merge. Without this, an end event
@@ -158,29 +186,33 @@ not copied onto the row. Invariants preserved:
 
 ### Client — `ToolCard` live tail (`features/chat/rows/ToolCard.tsx`)
 
+- The card (post-sprint-059) already shows an `output · N lines` strip whenever `tool.output` is
+  non-empty, so the count ticks up live with no change. The tail adds the content.
 - While `row.status === "running"` and `tool.output` is non-empty, render a **live output tail**
-  below the header even when collapsed: monospace block (existing `toolCode` style), last
-  `LIVE_TAIL_LINES = 12` lines, newest at the bottom.
-- On terminal status the card returns to its normal presentation (collapsed header-only unless the
-  user expanded it); the expanded body shows the full final output as today.
-- The virtualized timeline already re-measures rows via `measureElement` and keeps bottom-stick on
-  row growth (`Timeline.tsx`) — a growing tail needs no special handling, but the tail block must
-  cap its own height (no unbounded card growth) so re-measure cost stays constant.
+  as a distinct block between the header and the strip, even when collapsed: monospace block
+  (existing `toolCode` style), last `LIVE_TAIL_LINES = 12` lines, newest at the bottom.
+- On terminal status the card returns to its normal presentation (header + strip, expanded body
+  via `toolBody` if the user opened it); the expanded body shows the full final output as today.
+- The virtualized timeline already re-measures rows via `measureElement` and keeps bottom-stick
+  on row growth (`Timeline.tsx` + `use-bottom-anchor.ts`) — a growing tail needs no special
+  handling, but the tail block must cap its own height (own class, not `.toolBody`'s 420 px) so
+  re-measure cost stays constant.
 
 ### Client — CLI (`packages/cli/src/agent-commands.ts`)
 
-`pi-studio agent watch`/`attach` print one line per stream event, so partials would otherwise
+`pi-studio agent attach` prints one line per stream event, so partials would otherwise
 print a duplicate `[<kind> running] …` line up to 5×/s for the tool's whole lifetime. Both render
 modes skip `partial: true` events entirely (plain text **and** `--json` — the guard sits at the
-subscription site, since `--json` bypasses `formatStreamEvent`). The fetch-based `agent log` path
+subscription site, since `--json` bypasses `formatStreamEvent`). The fetch-based `agent logs` path
 needs no change: partials never appear in fetched pages. Rendering streamed output in the CLI is
 explicitly out of scope — the live tail is a web-client affordance.
 
 ## Data & Persistence
 
-**None.** Partial events never reach `AgentTimelineStore.append`, the persisted
-`AgentRecord.timeline`, provider `history`, or `fetch_agent_timeline_request` pages. A client that
-reconnects mid-tool-call sees no output until the next partial (≤200 ms away while the tool
+**None.** Partial events never reach `AgentTimelineStore.append`, provider `history` (so never a
+post-restart hydration), or `fetch_agent_timeline_request` pages. (`AgentRecord.timeline` on disk
+is not a meaningful surface: it is `[]` at create and never written from the store.) A client
+that reconnects mid-tool-call sees no output until the next partial (≤200 ms away while the tool
 prints) or the end event — acceptable by design.
 
 ## Error Handling & Edge Cases
@@ -196,12 +228,12 @@ prints) or the end event — acceptable by design.
 | Non-text `partialResult.content` blocks | Joined text blocks only (existing `outputOf` filter); empty join ⇒ no output field ⇒ snapshot still merges harmlessly |
 | Client reconnect mid-tool | No partials in fetched history; live tail resumes on next broadcast |
 | Terminal event with absent/empty output after streamed partials | Terminal `output` is authoritative: the reducer takes it verbatim (other fields still merge), so the live view equals a post-reload hydration of the persisted start + end rows |
-| CLI `agent watch`/`attach` mid-stream | Partial events print nothing in either render mode — no duplicate `[… running]` lines |
+| CLI `agent attach` mid-stream | Partial events print nothing in either render mode — no duplicate `[… running]` lines |
 
 ## Dependencies
 
 - Internal: Pi event mapper + `PiAgentSession` emission path, `agent-service` runTurn subscriber,
-  mock provider, web-client timeline reducer + `ToolCard`, CLI `agent watch`/`attach` rendering.
+  mock provider, web-client timeline reducer + `ToolCard`, CLI `agent attach` rendering.
 - Specs: [timeline-streaming.md](timeline-streaming.md) (ephemeral no-`seq` convention),
   [timeline-rendering.md](timeline-rendering.md) (tool-call card contract).
 
@@ -222,7 +254,7 @@ prints) or the end event — acceptable by design.
 - [ ] `invalidateAfterToolCompletion` does not fire for partial events.
 - [ ] Snapshots larger than 64 KiB are tail-truncated on the wire; the end event's full output is
       untouched.
-- [ ] Mock provider emits partial snapshots in its shell scenario; an end-to-end dev-daemon smoke
+- [ ] Mock provider emits partial snapshots via its `#tool` recipe; an end-to-end dev-daemon smoke
       run shows the live tail without Pi credentials.
 - [ ] Old-client simulation: applying a partial event through the reducer without any client
       change still merges `output` into the existing row (regression-locks tenet 1).
@@ -230,15 +262,33 @@ prints) or the end event — acceptable by design.
       (`"canceled"`/`"error"`) and no live tail remains rendered.
 - [ ] A terminal `tool_call` whose output is absent/empty clears previously merged partial output —
       the live view converges with what a reload of the persisted timeline shows.
-- [ ] `pi-studio agent watch` and `attach` print nothing for partial events, in both plain and
+- [ ] `pi-studio agent attach` prints nothing for partial events, in both plain and
       `--json` modes.
 
 ## TODO(verify)
 
-- [ ] `queue_update` is *specified* as never-persisted (timeline-streaming.md) but
-      `agent-service.ts`'s subscriber currently appends every non-user event, `queue_update`
-      included. Align it with the same ephemeral branch introduced here, or document why it stays.
-- [ ] Whether Pi itself already truncates `partialResult` (its `details.truncation` field) tightly
-      enough that the 64 KiB daemon-side cap rarely triggers.
-- [ ] Exact placement of the coalescer (`PiAgentSession.emit` wrapper vs. a standalone
-      `tool-output-coalescer.ts`) — decide at implementation; injectable clock either way.
+- [x] **Resolved — `queue_update` alignment.** `queue_update` was aligned with the ephemeral
+      branch: `appendStreamEvent` now broadcasts it with a daemon `timestamp`, no `seq`, and no
+      `timeline.append`, matching `timeline-streaming.md`. No existing assertion broke.
+- [x] **Resolved — 64 KiB daemon-side cap vs real Pi output.** Live run (2026-11-03, real Pi,
+      `global.anthropic.claude-sonnet-5-5` via LiteLLM, a 20-iteration `bash` loop): the largest
+      partial snapshot was 151 bytes, so the cap did **not** trigger, consistent with `bash`
+      capping its own snapshot at ~50 KB / 2000 lines (`dist/core/tools/truncate.js`). The cap
+      stays as protection for unbounded custom tools and is unit-tested in
+      `tool-output-coalescer.test.ts`. Observed delivery: 21 partials over 9.5 s (~2.2/s; gaps
+      201–503 ms, because `bash` itself emits about every 500 ms for this loop), none carrying a
+      `seq`, the terminal event last, no partial after it, final output intact (20 lines).
+- [x] **Resolved — interrupt mid-tool.** Stopping a turn during a long `bash` call: real Pi still
+      delivers its own `tool_execution_end` (with an error result), so the card closes as `error`
+      with the final output, the live tail disappears, a manually expanded card stays expanded, and
+      the transcript shows `(canceled)`. The client's `"canceled"` closure (`closeRunningTools`) is
+      therefore a safety net for a turn that ends with no end event; it was not exercised live.
+- [x] **Resolved — coalescer placement.** A standalone
+      `packages/server/src/agent/providers/pi/tool-output-coalescer.ts`
+      (`createToolOutputCoalescer`, injected clock/timers), owned by `PiAgentSession` and called
+      from its `emit()`; the mapper stays pure.
+- [ ] **Still open — non-`bash` delta-style `partialResult`.** Whether any tool other than `bash`
+      emits delta-style `partialResult` in practice (Pi's own tools + the curated extension
+      packs) is unverified; only `bash` was exercised live. If one does, decide whether the mapper
+      should accumulate per `callId` for it or leave the documented degradation (the client then
+      renders only the latest chunk).

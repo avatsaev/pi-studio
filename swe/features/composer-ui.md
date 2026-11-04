@@ -254,6 +254,8 @@ among panes). No message-history (up/down recall) shortcut. `TODO(verify)`.
 ## TODO(verify)
 - [ ] Whether message-history recall exists anywhere.
 - [ ] Exact outer drop-zone implementation (the composer only exposes add-images).
+  (Distinct from the Files-tree path drop onto the composer card, which inserts text, not an
+  attachment — [composer-path-drop.md](composer-path-drop.md).)
 - [ ] Use of the `submitting` voice phase.
 - [ ] Exact merge precedence between create-agent preferences and a pinned quick-launch profile when both
       apply.

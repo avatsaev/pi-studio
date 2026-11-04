@@ -146,6 +146,22 @@ function mergeTool(prev: ToolCallDetail, next: ToolCallDetail): ToolCallDetail {
   return merged as ToolCallDetail;
 }
 
+/**
+ * A terminal event's `output` is authoritative: taken verbatim (absent/empty clears streamed
+ * partial output) so the live view equals a replay of the persisted start + end rows. Other
+ * fields keep `mergeTool`'s keep-non-empty semantics.
+ */
+function mergeToolForStatus(
+  prev: ToolCallDetail,
+  next: ToolCallDetail,
+  status: "running" | "completed" | "error",
+): ToolCallDetail {
+  const merged = mergeTool(prev, next);
+  if (status === "running") return merged;
+  const { output: _output, ...rest } = merged as ToolCallDetail & { output?: string };
+  return (next.output ? { ...rest, output: next.output } : rest) as ToolCallDetail;
+}
+
 function onToolCall(
   state: TimelineState,
   event: Extract<AgentStreamEvent, { kind: "tool_call" }>,
@@ -167,7 +183,7 @@ function onToolCall(
     const statusText = event.status ?? row.statusText;
     rows[existingIndex] = {
       ...row,
-      tool: mergeTool(row.tool, event.tool),
+      tool: mergeToolForStatus(row.tool, event.tool, status),
       status,
       ...(statusText !== undefined ? { statusText } : {}),
     };
@@ -215,6 +231,20 @@ function cancelStartedCompactions(state: TimelineState): TimelineState {
   return { ...state, rows };
 }
 
+/**
+ * An aborted/failed turn never delivers `tool_execution_end` for in-flight tools, so a row left
+ * `running` would keep its spinner (and live output tail) forever. Not applied on a normal
+ * `turn_completed`, where every end event was delivered.
+ */
+function closeRunningTools(state: TimelineState, status: "canceled" | "error"): TimelineState {
+  if (!state.rows.some((r) => r.kind === "tool" && r.status === "running")) return state;
+  const rows = state.rows.map(
+    (r): TimelineRow =>
+      r.kind === "tool" && r.status === "running" ? { ...r, status, statusText: status } : r,
+  );
+  return { ...state, rows };
+}
+
 function onTurnCompleted(state: TimelineState): TimelineState {
   return cancelStartedCompactions(finalizeStreamingRows(state));
 }
@@ -254,7 +284,7 @@ function onTurnFailed(
   error: string | undefined,
   timestamp?: string,
 ): TimelineState {
-  const finalized = onTurnCompleted(state);
+  const finalized = closeRunningTools(onTurnCompleted(state), "error");
   const row: TimelineRow = {
     kind: "error",
     id: nextRowId(),
@@ -265,7 +295,7 @@ function onTurnFailed(
 }
 
 function onTurnCanceled(state: TimelineState, timestamp?: string): TimelineState {
-  const finalized = onTurnCompleted(state);
+  const finalized = closeRunningTools(onTurnCompleted(state), "canceled");
   const row: TimelineRow = { kind: "system", id: nextRowId(), text: "(canceled)", timestamp };
   return { ...finalized, rows: [...finalized.rows, row] };
 }

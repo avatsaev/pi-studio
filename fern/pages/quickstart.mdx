@@ -1,0 +1,86 @@
+---
+title: Quickstart
+subtitle: Install the CLI, log in to a model provider, and run your first agent.
+---
+
+## Install
+
+```bash
+npm install -g @av-pi-studio/cli
+```
+
+This exposes the `pi-studio` binary on your `PATH`. Without a global install, run it via `npx`:
+
+```bash
+npx @av-pi-studio/cli [options] [command] [args]
+```
+
+<Note>
+  `pi-studio` bundles the [Pi](https://pi.dev) coding agent (`@earendil-works/pi-coding-agent`) —
+  no separate global `pi` install is required.
+</Note>
+
+## Log in to a model provider
+
+The `pi` provider needs a model-provider credential before it can run a turn:
+
+```bash
+pi-studio auth login                          # interactive: pick a provider, enter a key
+pi-studio auth login openai --api-key sk-...  # headless, for scripts/CI
+pi-studio auth status                         # what's configured, and from where
+```
+
+This writes Pi's own credential store (`~/.pi/agent/auth.json` by default) — the exact file the
+daemon's spawned agents read, so a credential is picked up on the next agent spawn with no daemon
+restart. `auth` is entirely local and never opens a connection to a daemon. See
+[CLI reference: Daemon & Auth](/cli-reference/daemon-and-auth) for the full command group.
+
+## Start the daemon and open the UI
+
+```bash
+# start a local daemon (if one isn't already running) and print a pairing QR code
+pi-studio daemon start
+
+# open the full browser UI, pointed at that daemon
+pi-studio ui
+```
+
+`pi-studio ui` serves the production browser UI as a static site with no separate install or
+build step — see [Web UI](/web-ui) for a tour of what it looks like.
+
+## Or stay in the terminal
+
+```bash
+pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
+pi-studio agent ls
+pi-studio agent attach <agentId>
+```
+
+`run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
+(`pi-studio ls`, `pi-studio run …`). See [CLI reference: Agent & Sessions](/cli-reference/agent-sessions)
+for the full command set.
+
+## Target a remote daemon
+
+Every command accepts `--host` to drive a daemon on another machine instead of the local one:
+
+```bash
+pi-studio --host workstation.local:6767 agent ls
+```
+
+A bare `host:port` is resolved to `ws://host:port`; `http(s)://` URLs are accepted for
+familiarity and mapped to `ws(s)://`, since the daemon is an HTTP server that upgrades to
+WebSocket on the same port. With no `--host`, the CLI targets `ws://127.0.0.1:6767`. If the
+daemon isn't reachable directly — behind a NAT or firewall — see the
+[E2EE relay](/configuration/relay).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="CLI reference" href="/cli-reference/overview" icon="solid terminal">
+    Global options, connection resolution, and every command group.
+  </Card>
+  <Card title="Daemon configuration" href="/configuration/daemon" icon="solid gear">
+    Environment variables, `config.json`, and passwords.
+  </Card>
+</CardGroup>

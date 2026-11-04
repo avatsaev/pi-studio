@@ -313,6 +313,7 @@ export function attachAgent(
     const unsubscribe = client.onSessionMessage((msg) => {
       const m = msg as unknown as { type?: string; agentId?: string; event?: AgentStreamEvent };
       if (m.type !== "agent_stream" || m.agentId !== agentId || !m.event) return;
+      if (m.event.kind === "tool_call" && m.event.partial) return;
       if (opts.json) {
         ctx.sink.write(renderJson(m.event));
       } else {

@@ -1,0 +1,50 @@
+---
+title: Agent & Sessions
+subtitle: Create, drive, and inspect agents from the command line.
+---
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `agent run --provider pi/<model> "prompt"` | Create an agent and run the first turn |
+| `agent ls` | List all agents |
+| `agent attach <agentId>` | Stream an agent's live events |
+| `agent send <agentId> "prompt"` | Send a follow-up prompt |
+| `agent steer <agentId> "message"` | Steer a running turn (after current tool calls) |
+| `agent follow-up <agentId> "message"` | Queue a message for after the agent stops |
+| `agent stop <agentId>` | Interrupt the current turn |
+| `agent wait <agentId>` | Block until the agent goes idle or closes |
+| `agent logs <agentId> [-n <limit>]` | Print paged timeline history |
+| `agent inspect <agentId>` | Print the full agent record |
+| `agent update <agentId>` | Update model/mode/thinking/title |
+| `agent archive <agentId>` | Soft-delete |
+| `agent delete <agentId>` | Hard delete |
+| `agent reload <agentId>` | Resume a closed session |
+| `agent import <sessionRef>` | Import a provider-native session by handle |
+
+`run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
+(`pi-studio ls`, `pi-studio run …`).
+
+## Provider spec parsing
+
+The `--provider` flag on `agent run` parses as `<provider>/<model>`:
+
+- `pi/claude-3-5-sonnet` → provider `pi`, model `claude-3-5-sonnet`
+- bare `pi` → provider only (uses the provider's default model)
+- `mock` → the credential-free mock provider, useful for a dependency-free smoke test
+
+## Session management
+
+Session management mirrors Pi's own slash commands — `agent session` (`/session`), `compact`,
+`new-session`, `resume-session`, `fork`, `fork-messages`, `clone`, `name`, `export`, `model`,
+`cycle-model`, `last-message`, and `commands` (list extensions/prompts/skills). Run
+`pi-studio agent --help` for the full, live set.
+
+## Example
+
+```bash
+pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
+pi-studio agent ls
+pi-studio agent attach <agentId>
+```

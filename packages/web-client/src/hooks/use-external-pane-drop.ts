@@ -30,8 +30,10 @@
 import { useCallback, useEffect, useState, type DragEvent, type RefObject } from "react";
 import {
   externalDragKind,
+  isInComposerDrop,
   readExternalDrag,
   resolveExternalDropRegion,
+  yieldsToComposer,
   type ExternalDragPayload,
 } from "@pi-studio-ui/features/workspace/external-drag.js";
 import {
@@ -199,6 +201,14 @@ export function useExternalPaneDrop(
 
   const onDragOver = useCallback(
     (event: DragEvent<HTMLElement>) => {
+      // A path-ref drag over the composer belongs to the composer, accepted or not: no preview (this
+      // also clears the one a pane body set a moment ago — the host's own `dragleave` guard never
+      // fires for a move that stays inside it) and no `preventDefault`, so the composer's own
+      // `dropEffect` stands. Decided per event, so re-entering a pane body resumes previewing.
+      if (yieldsToComposer(event.dataTransfer.types, isInComposerDrop(event.target))) {
+        setPreview(null);
+        return;
+      }
       // Not one of ours: stay inert so the drag keeps whatever meaning it already had — and note that
       // without a `preventDefault` here the browser never fires `drop` on this element at all.
       if (externalDragKind(event.dataTransfer.types) === null) return;
@@ -225,6 +235,10 @@ export function useExternalPaneDrop(
 
   const onDrop = useCallback(
     (event: DragEvent<HTMLElement>) => {
+      if (yieldsToComposer(event.dataTransfer.types, isInComposerDrop(event.target))) {
+        setPreview(null);
+        return;
+      }
       const payload = readExternalDrag(event.dataTransfer.types, (mime) =>
         event.dataTransfer.getData(mime),
       );

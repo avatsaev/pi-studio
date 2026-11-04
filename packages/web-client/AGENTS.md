@@ -259,6 +259,8 @@ src/
                            reached from — sprint-073/task-005, see § Invariants "Viewer-disable gate"
   timeline/                streaming/render model: reducer, row-model, compaction.ts (+ test — pure
                            `isCompactionPending(rows)` and `compactionLabel(row)`, sprint-074/task-005),
+                           live-tail.ts (+ test — `LIVE_TAIL_LINES` = 12 and the pure `liveTail(output)`
+                           the running-tool card renders, sprint-058),
                            tool-mapping, markdown
                            (react-markdown wrapper; `Markdown` for finalized text and
                            `StreamingMarkdown` for a row still being written; `img` node →
@@ -423,7 +425,11 @@ src/
                             plus `containsPoint` for the native drag's own hit-testing)
                             (+ test), external-drag.ts (the sidebar→pane transport: one MIME per
                             dragged kind, payload decode, and the shared already-degraded region
-                            resolution; documents why that half is native DnD and not dnd-kit)
+                            resolution; documents why that half is native DnD and not dnd-kit. Also
+                            the composer-only path-ref drag (`PATH_REF_MIME` + helpers, deliberately
+                            NOT an `ExternalDragKind`), the `composerDropProps` marker and the pure
+                            `yieldsToComposer` predicate the pane host consults — § Invariants
+                            "Composer path drop")
                             (+ test), pane-layout-view.ts (pure store-tree → renderable
                             rects/dividers projection) (+ test), reopen-client-tabs.ts
                             (`tabFromIdentity` — the exact inverse of `tabIdentity` for the kinds no
@@ -568,7 +574,9 @@ src/
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             client built-ins + `parseBuiltinInvocation`, unit-tested),
                             composer-gate.ts (+ test — pure `canSubmitDraft`/`canCompact`,
-                            sprint-074/task-008), use-bottom-anchor (the timeline's bottom-anchor
+                            sprint-074/task-008), composer-path-drop.ts (+ test — pure `refRoot`/
+                            `relativeRefPath`/`formatRefToken`/`planInsertion`/`decideComposerDrop`
+                            for dropping a Files-tree row onto the composer, sprint-081), use-bottom-anchor (the timeline's bottom-anchor
                             controller: gesture/scroll/resize listeners over
                             timeline/bottom-anchor.ts's pure state machine), Attachments,
                             rows/ (Assistant/User/System/Error/Reasoning/Compaction rows, ToolCard — UserRow's
@@ -1172,6 +1180,23 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   `timeline/compaction.ts`'s `isCompactionPending` is the selector composer/meter gating reads;
   never derive "compacting" from anything else. Compaction rows are not `user` rows, so they never
   touch `userMessageCount`.
+- **Live tool output tail (sprint-058, `swe/features/tool-output-streaming.md`).** The daemon streams
+  ephemeral `tool_call` events with `partial: true` (accumulated output so far, no `seq`) while a
+  tool runs. `reducer.ts`'s `onToolCall` upserts the row by `callId` exactly as before — while
+  `running`, `mergeToolForStatus` replaces `output` with each non-empty snapshot — and `partial` is
+  not copied onto the row, so an old reducer already renders streamed output in the expanded body.
+  `ToolCard.tsx` adds the live tail: while `row.status === "running"` and `tool.output` is
+  non-empty it renders a block (`styles.toolLiveTail`, height-capped) of `liveTail(output)` —
+  `timeline/live-tail.ts`, the last `LIVE_TAIL_LINES = 12` lines, newest last — even when collapsed.
+  Three rules keep it honest: (1) **the terminal event's `output` is authoritative** — on
+  `completed`/`error`, `mergeToolForStatus` takes `output` verbatim (absent/empty included) instead
+  of keeping the last partial, so the live view equals a reload of the persisted start + end rows;
+  never "optimize" this into an append/keep-non-empty merge; (2) **`closeRunningTools`** (called from
+  `onTurnFailed`/`onTurnCanceled`, never `onTurnCompleted`) closes any tool row still `running` to
+  `"error"`/`"canceled"`, since an aborted tool never gets its end event and the tail would stay
+  pinned; (3) **`"canceled"`** is a client-local `ToolCallStatus` member (`row-model.ts`) — never on
+  the wire. Partials do not trigger `invalidateAfterToolCompletion` (it fires only on
+  `status === "completed"`).
 - **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
@@ -1285,6 +1310,37 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   - **Circular buttons override `.btn`'s radius through `.card .roundBtn`, not `!important`** —
     CSS-module file order across chunks isn't guaranteed, so a bare `.roundBtn` rule ties with
     `Button.module.css`'s own single-class `.btn` rule and may lose.
+- **Composer path drop (sprint-081, `swe/features/composer-path-drop.md`).** Dropping a Files-tree
+  row, file or folder, anywhere on the composer's `.card` inserts its workspace-relative path at the
+  textarea caret. Load-bearing rules:
+  - **A third drag payload, not an `ExternalDragKind`.** Every draggable tree row also writes
+    `PATH_REF_MIME` (`external-drag.ts`; a folder's value ends in `/`). It is kept OUT of
+    `ExternalDragKind`/`KINDS`/`readExternalDrag`: a folder row carries only `MOVE_MIME` + the ref,
+    and a pane host gating on `externalDragKind(...) !== null` would start previewing a split for a
+    folder, which has no tab. `effectAllowed` is `copyMove` for folders too (the composer sets
+    `dropEffect = "copy"`; a `dropEffect` outside `effectAllowed` is a rejected drop). No row ever
+    carries `text/plain`.
+  - **The pane host yields, decided by the host.** `useExternalPaneDrop` treats a path-ref drag whose
+    target is inside the `composerDropProps()` marker (`data-composer-drop`, defined once in
+    `external-drag.ts` beside `isInComposerDrop`) as over no pane: preview cleared, no
+    `preventDefault`, nothing on drop. It holds even while the composer refuses (compacting), so a
+    release can never fall through to an open or split. A drag WITHOUT a path-ref (chat row,
+    timeline file link) stays a pane drop over the composer.
+  - **Strict relative path.** `relativeRefPath` (segment-boundary containment against
+    `refRoot(session.cwd, homeDir)`), NOT `lib/paths.ts` `relativeToRoot`, which returns an
+    out-of-root path unchanged and would insert an absolute path. Outside the root or an
+    unresolved `~` root: refused through the composer's inline `pickError` line ("Not inside this
+    workspace"), cleared by the next edit; the draft is untouched.
+  - **`execCommand("insertText")` with a `setRangeText` fallback** (`Composer.tsx#insertPathAt`).
+    The controlled textarea loses native undo on any programmatic value write, so the primary path
+    fires a real `input` event (one undo removes exactly the insertion). Success means it returned
+    true AND the value changed; otherwise the fallback runs the shared `applyDraftChange` pipeline
+    and loses the whole undo history. A textarea mounted with a non-empty draft reports a caret at 0
+    until first focus, so until then the drop ignores the caret and appends
+    (`everFocusedRef`; `swe/notes/composer-path-drop-spike.md`).
+  - **Compacting is inert**: no outline, no insert, and the host still yields. A running turn is
+    NOT special-cased (steer mode accepts the edit like typing). The drop focuses the owning pane
+    (`focusPane`), since a drop fires no `pointerdown`. Never log path text.
 - **`set_editor_text` composer feedback (sprint-069/task-007, § 11).** The draft is no longer
   `Composer.tsx`'s own `useState` — it reads/writes `stores/draft-store.ts`'s `drafts[sessionId]`
   directly, so a `set_editor_text` effect can replace a session's draft even while no composer for

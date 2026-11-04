@@ -139,6 +139,10 @@
   border-color: color-mix(in srgb, var(--pi-color-statusSuccess) 45%, transparent);
 }
 
+.toolCardBodyCanceled {
+  border-color: color-mix(in srgb, var(--pi-color-border) 80%, transparent);
+}
+
 .toolCardBodyError {
   border-color: color-mix(in srgb, var(--pi-color-destructive) 45%, transparent);
 }
@@ -261,6 +265,13 @@
 
 .toolOpenButton:hover {
   color: var(--pi-color-foreground);
+}
+
+.toolLiveTail {
+  border-top: var(--pi-border-width-1) solid
+    color-mix(in srgb, var(--pi-color-border) 60%, transparent);
+  max-height: calc(12 * 1.5 * var(--pi-font-size-xs) + 2 * var(--pi-spacing-8));
+  overflow: hidden;
 }
 
 .toolBody {

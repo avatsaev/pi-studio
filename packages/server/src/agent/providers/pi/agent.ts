@@ -44,6 +44,7 @@ import {
 import { hydrateTimelineFromSessionFile, readTodosFromSessionFile } from "./session-hydration.js";
 import { deriveThinkingLevels } from "./thinking-levels.js";
 import { toAgentTodos, todoDetailsFromFrame } from "./todos.js";
+import { createToolOutputCoalescer } from "./tool-output-coalescer.js";
 
 /**
  * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·modes·features /
@@ -187,6 +188,10 @@ class PiAgentSession implements AgentSession {
   private readonly todoSubscribers = new Set<(list: AgentTodoList) => void>();
   private readonly history: AgentStreamEvent[] = [];
   private readonly eventMapper = createPiEventMapper();
+  /** Owns ephemeral `partial: true` tool output: throttled, tail-capped, kept out of `history`. */
+  private readonly partialOutput = createToolOutputCoalescer({
+    deliver: (event) => this.fanOut(event),
+  });
   private modes: AgentModeDefinition[] = [];
   private mode: string | null;
   private model: string | undefined;
@@ -226,7 +231,16 @@ class PiAgentSession implements AgentSession {
   }
 
   private emit(event: AgentStreamEvent): void {
+    // Partials are live-stream-only (features/tool-output-streaming.md): the coalescer delivers
+    // them to subscribers itself, so they never reach `history` and its replay. Every other event
+    // keeps the record-then-fan-out path; the coalescer has already cancelled any partial
+    // flush it supersedes (a call's terminal, a turn terminal), so no partial outruns it.
+    if (this.partialOutput.accept(event)) return;
     this.history.push(event);
+    this.fanOut(event);
+  }
+
+  private fanOut(event: AgentStreamEvent): void {
     for (const cb of this.subscribers) cb(event);
   }
 
@@ -620,6 +634,7 @@ class PiAgentSession implements AgentSession {
   }
 
   close(): Promise<void> {
+    this.partialOutput.cancelAll();
     this.subscribers.clear();
     return this.transport.close();
   }

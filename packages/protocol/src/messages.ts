@@ -294,6 +294,14 @@ export const agentStreamEventSchema = z.discriminatedUnion("kind", [
     callId: z.string().optional(),
     tool: toolCallDetailSchema,
     status: z.string().optional(),
+    /**
+     * Ephemeral in-flight output snapshot (Pi `tool_execution_update`). Producer contract: broadcast
+     * with no `seq`, never appended to the timeline, never replayed from history, and never sent
+     * after the call's terminal event. Consumer contract: upsert by `callId` and let the snapshot
+     * supersede earlier output — never accumulate. Describes the delivery, not the tool call, so a
+     * client must not store it on its row model.
+     */
+    partial: z.boolean().optional(),
   }),
   z.object({ kind: z.literal("turn_started"), turnId: z.string().optional() }),
   z.object({ kind: z.literal("turn_completed"), turnId: z.string().optional() }),

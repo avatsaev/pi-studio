@@ -97,6 +97,69 @@ export function readExternalDrag(
 }
 
 /**
+ * The composer-only path-ref drag (swe/features/composer-path-drop.md § Public contract 1): every
+ * Files-tree row, file **or folder**, carries its absolute path under this MIME so the composer can
+ * insert a relative path. A directory's value carries a trailing `/`, the only directory signal that
+ * survives `getData` (the `types` list is the sole mid-drag signal).
+ *
+ * Deliberately NOT an `ExternalDragKind`: a folder row carries only `MOVE_MIME` plus this, and a
+ * pane host gating on `externalDragKind(...) !== null` would start previewing a split for a folder
+ * drop — exactly what a pane must never do, since there is no directory tab. Keeping it out of
+ * `KINDS`/`readExternalDrag` leaves those as the pane-host vocabulary.
+ */
+export const PATH_REF_MIME = "application/x-pi-studio-path-ref";
+
+/** Whether a drag's `types` advertises a path-ref payload. */
+export function hasPathRef(types: readonly string[]): boolean {
+  return types.includes(PATH_REF_MIME);
+}
+
+/** The path-ref value for a row: a directory gets exactly one trailing `/`. */
+export function encodePathRef(absPath: string, isDirectory: boolean): string {
+  const bare = absPath.replace(/\/+$/, "");
+  return isDirectory ? `${bare}/` : absPath;
+}
+
+/**
+ * Decode the path-ref at drop time (`read` is `dataTransfer.getData`). Trimmed; blank or absent is
+ * `null`, a drag we recognise but cannot act on.
+ */
+export function readPathRef(
+  types: readonly string[],
+  read: (mime: string) => string,
+): string | null {
+  if (!hasPathRef(types)) return null;
+  const value = read(PATH_REF_MIME).trim();
+  return value === "" ? null : value;
+}
+
+/**
+ * Marks the composer card as a path-ref drop zone, and spreads onto it. Written down exactly once,
+ * here, beside `isInComposerDrop` which reads it back: the zone and the pane host's lookup live in
+ * different files, and a rename that hit only one of them would silently stop the host yielding.
+ */
+const COMPOSER_DROP_ATTR = "data-composer-drop";
+
+export function composerDropProps(): Record<string, string> {
+  return { [COMPOSER_DROP_ATTR]: "" };
+}
+
+/** Whether a drag event's target sits inside a marked composer drop zone. */
+export function isInComposerDrop(target: EventTarget | null): boolean {
+  return (target as Element | null)?.closest?.(`[${COMPOSER_DROP_ATTR}]`) != null;
+}
+
+/**
+ * Whether the pane host must treat the pointer as over **no pane**: a path-ref drag over a composer
+ * drop zone belongs to the composer alone, whether or not the composer accepts it (it refuses while
+ * compacting), so the release can never fall through to an open or split. A drag without a path-ref
+ * (a chat row, a timeline file link) is unaffected and stays a pane drop even over the composer.
+ */
+export function yieldsToComposer(types: readonly string[], targetInsideComposer: boolean): boolean {
+  return targetInsideComposer && hasPathRef(types);
+}
+
+/**
  * The region a drop at `pointer` would actually apply — already degraded by `effectiveDropRegion`, so
  * the preview and the drop read one value and cannot disagree. Same contract `use-pane-drag` holds
  * for internal drags, and the reason both go through `pane-dnd` rather than checking `canSplit` again.

@@ -48,7 +48,11 @@ import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
 import { createEntry } from "./create-entry.js";
 import { openFileTab } from "./open-file-tab.js";
-import { EXTERNAL_DRAG_MIME } from "@pi-studio-ui/features/workspace/external-drag.js";
+import {
+  EXTERNAL_DRAG_MIME,
+  PATH_REF_MIME,
+  encodePathRef,
+} from "@pi-studio-ui/features/workspace/external-drag.js";
 import styles from "./FileExplorer.module.css";
 
 const ROW_HEIGHT_PX = 28;
@@ -157,18 +161,21 @@ export function FileExplorer() {
   }
 
   /**
-   * A row carries up to two payloads and *where* it is dropped picks the meaning: another row is a
+   * A row carries up to three payloads and *where* it is dropped picks the meaning: another row is a
    * move (`MOVE_MIME`, handled here), a pane body is an open (`EXTERNAL_DRAG_MIME.path`, handled by
-   * `use-external-pane-drop.ts`). A directory offers no open payload — there is no directory tab —
-   * so dragging one over a pane previews nothing rather than previewing a split that would be refused.
+   * `use-external-pane-drop.ts`), the composer is a relative-path insert (`PATH_REF_MIME`, files and
+   * folders alike). A directory offers no open payload — there is no directory tab — so dragging one
+   * over a pane previews nothing rather than previewing a split that would be refused.
    *
-   * `effectAllowed` must cover both outcomes: this tree sets `dropEffect = "move"` for its own rows
-   * and a pane sets `"copy"`, and a `dropEffect` outside `effectAllowed` is a rejected drop.
+   * `effectAllowed` must cover every outcome: this tree sets `dropEffect = "move"` for its own rows,
+   * a pane sets `"copy"`, and so does the composer, and a `dropEffect` outside `effectAllowed` is a
+   * rejected drop — hence `copyMove` for folders too.
    */
   function handleDragStartRow(path: string, isDirectory: boolean, e: DragEvent) {
     e.dataTransfer.setData(MOVE_MIME, path);
     if (!isDirectory) e.dataTransfer.setData(EXTERNAL_DRAG_MIME.path, path);
-    e.dataTransfer.effectAllowed = isDirectory ? "move" : "copyMove";
+    e.dataTransfer.setData(PATH_REF_MIME, encodePathRef(path, isDirectory));
+    e.dataTransfer.effectAllowed = "copyMove";
     dragSourceRef.current = path;
   }
 

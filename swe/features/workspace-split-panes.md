@@ -99,6 +99,15 @@ These restrictions apply to *rows* — sources that know what they point at. A c
 design, so it cannot honor the directory restriction; that accepted relaxation is documented in
 that doc's § Known Limitations.
 
+A Files-tree row (file **or** folder) also carries a composer-only payload, the path-ref
+(`PATH_REF_MIME`, [composer-path-drop.md](composer-path-drop.md)). It is deliberately **not** an
+external-drag kind: it never reaches `externalDragKind`/`readExternalDrag`, so a pane never previews
+or acts on it (a folder row would otherwise preview a split for something with no tab). While a
+path-ref-carrying drag is over a composer drop zone, the pane host treats the pointer as over no pane
+(no preview, no open/split, no `preventDefault`), even if the composer refuses the drop (compacting).
+Drags without a path-ref (chat rows, timeline file links) are unaffected. Folder rows now advertise
+`effectAllowed = "copyMove"` so the composer's `dropEffect = "copy"` is accepted.
+
 ### Persisted layout record
 
 One **versioned** record per client, holding an entry per workspace:

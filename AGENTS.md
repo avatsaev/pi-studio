@@ -28,13 +28,18 @@ packages/
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal,
                split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
-               per-pane tab strips, persisted per workspace along with which one was in view).
+               per-pane tab strips, persisted per workspace along with which one was in view); drag a
+               Files-tree file or folder onto the chat composer to insert its relative path.
 
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
                     stream events). Server architecture docs live in `packages/server/docs/`.
 docker/             Dockerfiles + compose for the daemon, relay, and web UI (see docker/README.md).
+fern/               User-facing docs site (Fern): docs.yml navigation + MDX pages (install, CLI, web UI,
+                    daemon config, relay, Docker). Preview `cd fern && fern docs dev`; validate
+                    `fern check`. Content mirrors README.md / packages/cli/README.md / docker/README.md —
+                    update both when user-facing behavior changes.
 ```
 
 ### Dependency graph (compile-time, from each package's `package.json`)
@@ -494,6 +499,16 @@ All communication uses a **single WebSocket connection** per client.
   `hasAgentTodosCapability`, `AgentTodosError`) and the pure `agent-todos-state.ts` reducer. **Sprint-080 shipped the web
   panel** (`packages/web-client`'s `TodoPanel`, between the timeline and the composer; per-agent collapse in
   localStorage `pi-studio-agent-todos-ui`; see `packages/web-client/AGENTS.md`'s "Agent todo panel").
+- **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
+  `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
+  snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**
+  (`agent_stream.seq` is optional) and are never appended to the `AgentTimelineStore`, so they never
+  appear in `fetch_agent_timeline_request` pages or the provider's replay history.
+  `appendStreamEvent` (`packages/server/src/agent/agent-service.ts`) is the single rule site for the
+  persisted-vs-ephemeral decision. Partials are throttled upstream by the Pi provider's
+  `tool-output-coalescer.ts` (200 ms per call, 64 KiB tail cap). The mock provider's `#tool` prompt
+  (`#tool` / `#tool shell` / `#tool empty` / `#tool help`) emits a scripted start → partials → end
+  tool call for credential-free smoke tests. See `docs/agent-stream-events.md`.
 
 ---
 

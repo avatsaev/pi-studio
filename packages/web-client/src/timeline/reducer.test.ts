@@ -51,6 +51,82 @@ describe("timeline reducer — tool-call detail merge", () => {
   });
 });
 
+function toolRows(s: typeof EMPTY_TIMELINE) {
+  return s.rows.flatMap((r) => (r.kind === "tool" ? [r] : []));
+}
+
+function partial(callId: string, output: string): AgentStreamEvent {
+  return {
+    kind: "tool_call",
+    callId,
+    tool: { kind: "shell", output },
+    status: "running",
+    partial: true,
+  };
+}
+
+describe("timeline reducer — live tool output (partials)", () => {
+  it("replaces output with each snapshot and keeps status/statusText running", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, toolCall("c1", { kind: "shell", command: "npm test" }, "running"));
+    for (const snap of ["a", "ab", "abc"]) s = applyStreamEvent(s, partial("c1", snap));
+    const rows = toolRows(s);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.tool).toEqual({ kind: "shell", command: "npm test", output: "abc" });
+    expect(rows[0]!.status).toBe("running");
+    expect(rows[0]!.statusText).toBe("running");
+    expect("partial" in rows[0]!).toBe(false);
+  });
+
+  it("creates a row for a partial with an unknown callId", () => {
+    const s = applyStreamEvent(EMPTY_TIMELINE, partial("c9", "hello"));
+    const rows = toolRows(s);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.tool.output).toBe("hello");
+    expect(rows[0]!.status).toBe("running");
+  });
+
+  it("clears partial output when the terminal event has none, keeping the command", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, toolCall("c1", { kind: "shell", command: "ls" }, "running"));
+    s = applyStreamEvent(s, partial("c1", "stale"));
+    s = applyStreamEvent(s, toolCall("c1", { kind: "shell" }, "completed"));
+    const row = toolRows(s)[0]!;
+    expect(row.status).toBe("completed");
+    expect(row.tool).toEqual({ kind: "shell", command: "ls" });
+  });
+
+  it("replaces partial output with the terminal event's output", () => {
+    let s = EMPTY_TIMELINE;
+    s = applyStreamEvent(s, toolCall("c1", { kind: "shell", command: "ls" }, "running"));
+    s = applyStreamEvent(s, partial("c1", "partial"));
+    s = applyStreamEvent(s, toolCall("c1", { kind: "shell", output: "final" }, "completed"));
+    expect(toolRows(s)[0]!.tool).toEqual({ kind: "shell", command: "ls", output: "final" });
+  });
+
+  it("closes running tool rows on cancel/fail but not on completion or terminal rows", () => {
+    const build = () => {
+      let s = EMPTY_TIMELINE;
+      s = applyStreamEvent(s, { kind: "turn_started" });
+      s = applyStreamEvent(s, toolCall("done", { kind: "shell", command: "a" }, "running"));
+      s = applyStreamEvent(s, toolCall("done", { kind: "shell" }, "completed"));
+      s = applyStreamEvent(s, toolCall("live", { kind: "shell", command: "b" }, "running"));
+      return applyStreamEvent(s, partial("live", "out"));
+    };
+    const statuses = (s: typeof EMPTY_TIMELINE) => toolRows(s).map((r) => r.status);
+
+    const canceled = applyStreamEvent(build(), { kind: "turn_canceled" });
+    expect(statuses(canceled)).toEqual(["completed", "canceled"]);
+    expect(toolRows(canceled)[1]!.statusText).toBe("canceled");
+
+    const failed = applyStreamEvent(build(), { kind: "turn_failed", error: "boom" });
+    expect(statuses(failed)).toEqual(["completed", "error"]);
+
+    const completed = applyStreamEvent(build(), { kind: "turn_completed" });
+    expect(statuses(completed)).toEqual(["completed", "running"]);
+  });
+});
+
 describe("timeline reducer — tool statusText passthrough", () => {
   it("carries an unrecognized wire status as statusText while normalizing status to running", () => {
     let s = EMPTY_TIMELINE;

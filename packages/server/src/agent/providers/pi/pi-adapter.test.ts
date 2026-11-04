@@ -287,6 +287,11 @@ function compactionIdOf(event: AgentStreamEvent | null): string {
   return event.compactionId;
 }
 
+/** A Pi tool payload's `content` array holding one text block. */
+function textContent(value: string): { content: { type: string; text: string }[] } {
+  return { content: [{ type: "text", text: value }] };
+}
+
 describe("event mapper", () => {
   it("maps tool names to ToolCallDetail kinds", () => {
     expect(mapToolCall({ name: "bash", input: { command: "ls" } })).toEqual({
@@ -354,6 +359,173 @@ describe("event mapper", () => {
       callId: "c1",
       tool: { kind: "shell", command: undefined },
       status: "running",
+    });
+  });
+
+  describe("tool_execution_update (sprint-058)", () => {
+    it("maps to a running partial tool_call carrying the partialResult text", () => {
+      const mapped = mapPiEvent({
+        type: "tool_execution_update",
+        toolCallId: "c1",
+        toolName: "bash",
+        args: { command: "make" },
+        partialResult: textContent("building..."),
+      });
+      expect(mapped).toEqual({
+        kind: "tool_call",
+        callId: "c1",
+        tool: { kind: "shell", command: "make", output: "building..." },
+        status: "running",
+        partial: true,
+      });
+    });
+
+    it("reads output from partialResult when result is absent, and from result when present", () => {
+      const fromPartial = mapPiEvent({
+        type: "tool_execution_update",
+        toolCallId: "c1",
+        toolName: "bash",
+        partialResult: textContent("partial"),
+      });
+      expect(fromPartial?.kind === "tool_call" && fromPartial.tool.output).toBe("partial");
+      const fromResult = mapPiEvent({
+        type: "tool_execution_update",
+        toolCallId: "c1",
+        toolName: "bash",
+        result: textContent("result"),
+      });
+      expect(fromResult?.kind === "tool_call" && fromResult.tool.output).toBe("result");
+      const both = mapPiEvent({
+        type: "tool_execution_update",
+        toolCallId: "c1",
+        toolName: "bash",
+        result: textContent("result"),
+        partialResult: textContent("partial"),
+      });
+      expect(both?.kind === "tool_call" && both.tool.output).toBe("result");
+      const end = mapPiEvent({
+        type: "tool_execution_end",
+        toolCallId: "c1",
+        toolName: "bash",
+        result: textContent("final"),
+      });
+      expect(end?.kind === "tool_call" && end.tool.output).toBe("final");
+    });
+
+    it("start and message_update/toolcall_end carry no partial and no output", () => {
+      const start = mapPiEvent({
+        type: "tool_execution_start",
+        toolCallId: "c1",
+        toolName: "bash",
+        args: { command: "make" },
+      });
+      expect(start).toMatchObject({ kind: "tool_call", status: "running" });
+      expect(start).not.toHaveProperty("partial");
+      expect(start?.kind === "tool_call" && start.tool.output).toBeUndefined();
+
+      const started = mapPiEvent({
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "toolcall_end",
+          toolCall: { id: "c1", name: "bash", arguments: { command: "make" } },
+        },
+      });
+      expect(started).toMatchObject({ kind: "tool_call", callId: "c1", status: "started" });
+      expect(started).not.toHaveProperty("partial");
+    });
+
+    it("tool_execution_end keeps its status, no partial, and the edit patch", () => {
+      const completed = mapPiEvent({
+        type: "tool_execution_end",
+        toolCallId: "c-edit",
+        toolName: "edit",
+        result: { content: [{ type: "text", text: "ok" }], details: { patch: "@@ patch" } },
+        isError: false,
+      });
+      expect(completed).toMatchObject({
+        kind: "tool_call",
+        status: "completed",
+        tool: { kind: "edit", diff: "@@ patch", output: "ok" },
+      });
+      expect(completed).not.toHaveProperty("partial");
+      const failed = mapPiEvent({
+        type: "tool_execution_end",
+        toolCallId: "c1",
+        toolName: "bash",
+        result: textContent("boom"),
+        isError: true,
+      });
+      expect(failed).toMatchObject({ status: "error" });
+      expect(failed).not.toHaveProperty("partial");
+    });
+
+    it("maps command/path/query detail identically for update and start with the same args", () => {
+      for (const [toolName, args] of [
+        ["bash", { command: "ls" }],
+        ["read", { path: "/a.txt" }],
+        ["grep", { pattern: "needle" }],
+      ] as const) {
+        const start = mapPiEvent({ type: "tool_execution_start", toolCallId: "c", toolName, args });
+        const update = mapPiEvent({
+          type: "tool_execution_update",
+          toolCallId: "c",
+          toolName,
+          args,
+          partialResult: { content: [] },
+        });
+        expect(update).toMatchObject({ kind: "tool_call", partial: true });
+        expect(update?.kind === "tool_call" && update.tool).toEqual(
+          start?.kind === "tool_call" && start.tool,
+        );
+      }
+    });
+
+    it("never concatenates successive updates for one callId", () => {
+      const mapper = createPiEventMapper();
+      const outputs = ["a", "ab", "abc"].map((snapshot) => {
+        const mapped = mapper.map({
+          type: "tool_execution_update",
+          toolCallId: "c1",
+          toolName: "bash",
+          partialResult: textContent(snapshot),
+        });
+        return mapped?.kind === "tool_call" ? mapped.tool.output : null;
+      });
+      expect(outputs).toEqual(["a", "ab", "abc"]);
+    });
+
+    it("yields no output field for empty or non-text partialResult content", () => {
+      for (const partialResult of [
+        { content: [] },
+        { content: [{ type: "image", data: "xx" }] },
+        { content: [{ type: "text", text: "" }] },
+      ]) {
+        const mapped = mapPiEvent({
+          type: "tool_execution_update",
+          toolCallId: "c1",
+          toolName: "bash",
+          partialResult,
+        });
+        expect(mapped).toMatchObject({ kind: "tool_call", partial: true });
+        expect(mapped?.kind === "tool_call" && mapped.tool.output).toBeUndefined();
+      }
+    });
+
+    it("passes a nested toolCallId through as the callId", () => {
+      const mapped = mapPiEvent({
+        type: "tool_execution_update",
+        toolCallId: "parent/1",
+        parentToolCallId: "parent",
+        toolName: "bash",
+        args: { command: "ls" },
+        partialResult: textContent("x"),
+      });
+      expect(mapped).toMatchObject({
+        kind: "tool_call",
+        callId: "parent/1",
+        status: "running",
+        partial: true,
+      });
     });
   });
 
@@ -652,6 +824,65 @@ describe("PiAgentClient", () => {
       kind: "shell",
       command: "ls",
     });
+  });
+
+  it("delivers partial tool output live but keeps it out of streamHistory (start + end stay)", async () => {
+    class PartialFakeTransport extends FakeTransport {
+      override notify(command: string): void {
+        this.notifies.push(command);
+        if (command !== "prompt") return;
+        this.fire({ type: "agent_start" });
+        this.fire({
+          type: "tool_execution_start",
+          toolCallId: "c1",
+          toolName: "bash",
+          args: { command: "make" },
+        });
+        for (const text of ["one", "two", "three"]) {
+          this.fire({
+            type: "tool_execution_update",
+            toolCallId: "c1",
+            toolName: "bash",
+            args: { command: "make" },
+            partialResult: { content: [{ type: "text", text }] },
+          });
+        }
+        this.fire({
+          type: "tool_execution_end",
+          toolCallId: "c1",
+          toolName: "bash",
+          result: { content: [{ type: "text", text: "three\ndone" }] },
+          isError: false,
+        });
+        this.fire({ type: "agent_end" });
+        this.fire({ type: "agent_settled" });
+      }
+    }
+    const client = new PiAgentClient({
+      command: ["pi", "--mode", "rpc"],
+      transportFactory: (args) => new PartialFakeTransport(args),
+      binaryResolver: () => true,
+    });
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const live: AgentStreamEvent[] = [];
+    session.subscribe((e) => live.push(e));
+    await session.run("go");
+
+    const livePartials = live.filter((e) => e.kind === "tool_call" && e.partial);
+    expect(livePartials.length).toBeGreaterThanOrEqual(1);
+    expect(livePartials[0]).toMatchObject({ callId: "c1", tool: { output: "one" } });
+
+    const history: AgentStreamEvent[] = [];
+    for await (const event of session.streamHistory()) history.push(event);
+    expect(history.some((e) => e.kind === "tool_call" && e.partial)).toBe(false);
+    const calls = history.filter((e) => e.kind === "tool_call");
+    expect(calls.map((e) => (e.kind === "tool_call" ? e.status : null))).toEqual([
+      "running",
+      "completed",
+    ]);
+    // The terminal is the last tool_call delivered live: no trailing partial after it.
+    const liveCalls = live.filter((e) => e.kind === "tool_call");
+    expect(liveCalls[liveCalls.length - 1]).toMatchObject({ status: "completed" });
   });
 
   it("discovers sessionFile and model via get_state on createSession (sprint-042)", async () => {

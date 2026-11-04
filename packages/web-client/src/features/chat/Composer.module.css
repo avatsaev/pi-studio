@@ -27,10 +27,17 @@
 .card.flash {
   border-color: color-mix(in srgb, var(--pi-color-accentBright) 45%, var(--pi-color-border) 55%);
 }
+/* A Files-tree row is being dragged over the card (composer-path-drop): the same accent border
+   `.card:has(.textarea:focus)` draws, as a class toggle — no element is added inside the card, since
+   the highlight mirror must stay aligned with the textarea. Never applied while compacting. */
+.card.dropTarget {
+  border-color: var(--pi-color-accent);
+}
 /* § 13: no transition at all — an instant cut in and out. JS compensates by holding the class for
    1s instead of 400ms so the flash is still visible without motion. */
 @media (prefers-reduced-motion: reduce) {
-  .card.flash {
+  .card.flash,
+  .card.dropTarget {
     transition: none;
   }
 }
