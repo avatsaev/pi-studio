@@ -6,9 +6,9 @@ modular, typed, performant app.
 > **Status: implemented.** The 3-column workspace shell, connection layer, sessions sidebar,
 > chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
 > system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
-> the **Electron-specific runtime code does not exist yet** — no `getIsElectron()`, no injected
-> daemon URL, no `contextBridge` consumer. That is `swe/sprints/sprint-033-desktop`
-> scope (task-001), not shipped. See `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
+> the **Electron-specific runtime code does not exist** — no `getIsElectron()`, no injected
+> daemon URL, no `contextBridge` consumer — and no Electron shell is currently planned. See
+> `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
 
 > **Design system reference:** `DESIGN_SYSTEM.md` (this directory) documents the full token
@@ -37,8 +37,8 @@ web-client  →  @av-pi-studio/protocol (wire types + binary codecs)
 ```
 
 Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.
-The future Electron shell (`@av-pi-studio/desktop`, planned in `swe/sprints/sprint-033-desktop`,
-not yet a package — see `swe/features/desktop-app.md`) is meant to consume this package's
+The Electron shell (`@av-pi-studio/desktop`) is not a package and is not currently planned — see
+`swe/features/desktop-app.md` for the spec. It would consume this package's
 `build:electron` output as its renderer and own daemon supervision; this package stays a pure
 renderer and must not gain Node-only dependencies.
 
@@ -885,9 +885,9 @@ store.ts#connect()` routes between the two via `resolveConnectTarget()`
 client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
-  adding `getIsElectron()` platform gating are **not yet implemented** — both are
-  sprint-033-desktop/task-001 scope, to be added to `connection-store.ts` and a new
-  `platform/electron.ts` module respectively when that sprint is implemented.
+  adding `getIsElectron()` platform gating are **not implemented** and have no planned sprint; they
+  would be added to `connection-store.ts` and a new `platform/electron.ts` module respectively if an
+  Electron shell is ever built.
 - **Connection resume triggers (sprint-050).** `lib/connection/resume-triggers.ts`'s
   `attachResumeTriggers()` is installed once, at module scope in `main.tsx` (never inside a React
   effect — `<StrictMode>` double-invokes dev effects, which would attach two listener sets). It

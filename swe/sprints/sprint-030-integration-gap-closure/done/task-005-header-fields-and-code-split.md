@@ -1,7 +1,7 @@
 # Task 005 — Workspace header live fields & bundle code-splitting
 
 - **Sprint:** sprint-030-integration-gap-closure
-- **Status:** in_progress
+- **Status:** done (partial — closed 2026-11-07; the live scripts-count / setup-availability criterion was not delivered, see summary)
 - **Estimated size:** M
 - **Depends on:** task-001..004; sprint 031 (setup panel data), sprint 009 (service proxy)
 
@@ -61,4 +61,6 @@ Investigation confirmed there is no existing client-facing source:
 `scriptsCount`/`setupAvailable` from that new data source. `scriptsCount: 0` / `setupAvailable: false`
 remain the correct current values until then.
 
-Leaving this task in `in_progress/` per the loop rules.
+Closed out of sprint-030 on 2026-11-07 with the blocked criterion unmet; sprint-031 (the
+dependency above) was subsequently removed from the plan. See
+`task-005-header-fields-and-code-split-summary.md`.

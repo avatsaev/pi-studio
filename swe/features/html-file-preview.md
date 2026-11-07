@@ -9,8 +9,8 @@
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),
 > [../architecture/design-system.md](../architecture/design-system.md)
 
-> **Render stack:** DOM clients only — web-client today, plus the Electron shell once
-> sprint-033-desktop hosts the same bundle. Nothing in this feature adds an RPC message type, an
+> **Render stack:** DOM clients only — web-client today (an Electron shell hosting the same bundle is
+> not currently planned). Nothing in this feature adds an RPC message type, an
 > HTTP route, or a new binary opcode: the document arrives over the existing `file_read_request` /
 > chunked binary download paths, and every asset over the same binary download path. The daemon is
 > unchanged.

@@ -59,13 +59,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 025 | `sprint-025-composer-full` | Draft persistence (IndexedDB), full submission pipeline, attachments (image/GitHub/browser), autocomplete with real data, voice dictation, provider usage | 4 |
 | 026 | `sprint-026-timeline-full` | Streaming message render, syntax highlighting, tool call detail sheets + permission RPC, thinking/activity/compaction, rewind/fork integration | 4 |
 | 027 | `sprint-027-git-full` | Production diff viewer (unified/split + word-level), commit box, branch switcher, PR panel with real data, checkout status, worktree UI | 4 |
-| 028 | `sprint-028-polish-a11y` | Loading skeletons, empty states, error boundaries, animations (framer-motion), responsive breakpoints, keyboard a11y, theme variants, custom scrollbar | 5 |
 | 029 | `sprint-029-final-app-shell` | Assemble the real root shell (theme boundary, left sidebar, command center, shortcuts) replacing the ad hoc placeholder; wire real screens (Home/Sessions/Schedules/Settings) to live data via adapters; assemble the real Workspace screen (tab strip/pane tree/header); wire boot gating + route grammar + onboarding | 4 |
 | 030 | `sprint-030-integration-gap-closure` | Close integration gaps in the shipped web app: agent-detail route, new-agent provider picker, tab context actions + pinned quick-launch, schedule detail view, live header fields + bundle code-splitting | 5 |
-| 031 | `sprint-031-provider-usage-setup-backend` | New daemon/protocol scope: provider-usage RPC + UI wiring, workspace setup-panel/scripts surface (feeds s030 header fields) | 3 |
 | 032 | `sprint-032-relay-e2ee` | Relay crypto/channels, daemon+client transports, Cloudflare server | 4 |
-| 033 | `sprint-033-desktop` | Electron shell+daemon supervisor, multi-window, native integrations (permissions/updates), browser panes | 4 |
-| 034 | `sprint-034-ssh-gateway-connections` | Electron-only SSH tunnel profiles, bridge/runtime integration, UI, hardening | 5 |
 | 035 | `sprint-035-production-daemon` | Real production daemon: bootstrap + real Pi provider + disk persistence, register ALL handlers, terminals/binary frames, security + E2E (no mocks) | 4 |
 | 036 | `sprint-036-paseo-ux-parity` | Full Paseo UX/UI parity for the whole app: design tokens, sidebar redesign, navigation screens, workspace shell, timeline/composer, feature panels + wiring gaps | 6 |
 | 037 | `sprint-037-agent-slash-commands` | Server+SDK+CLI support for Pi built-in slash commands that have RPC equivalents (`/session`, `/compact`, `/new`, `/resume`, `/fork`, `/clone`, `/name`, `/export`, `/model`, `/copy`): protocol schemas, provider-contract + Pi adapter, daemon handlers, mock, SDK facade, CLI (web-client deferred) | 6 |
@@ -332,26 +328,16 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-003 | Client relay transport + pairing (QR fragment) | task-001; s007/task-001 | architecture/relay-e2ee, client-app-runtime |
 | task-004 | Cloudflare relay server adapter | task-002, task-003 | architecture/relay-e2ee; MAIN-SCOPE §6 |
 
-### sprint-033-desktop
-| Task | Title | Depends on | Covers (scope files) |
-|------|-------|------------|----------------------|
-| task-001 | Electron shell + managed daemon supervisor | web-client (React+Vite DOM app, `build:web`/`build:electron` already wired); s004/task-005 | features/desktop-app; architecture/daemon-bootstrap, client-app-runtime |
-| task-002 | Multi-window model + land-on-project | task-001; s008/task-002 | features/desktop-app |
-| task-003 | Native integrations (dialogs/menus/titlebar/notifications/auto-update) | task-001 | features/desktop-app |
-| task-004 | In-app browser panes (webview) | task-003 | features/desktop-app |
-
-### sprint-034-ssh-gateway-connections
-| Task | Title | Depends on | Covers (scope files) |
-|------|-------|------------|----------------------|
-| task-001 | SSH gateway profile and security model | s013/task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
-| task-002 | Electron SSH tunnel manager | task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
-| task-003 | Preload bridge and app runtime integration | task-002; s013/task-001; s033/task-001 | architecture/ssh-gateway-connections; architecture/client-app-runtime; features/desktop-app |
-| task-004 | SSH connection UI and diagnostics | task-003; s013/task-002; s013/task-004 | architecture/ssh-gateway-connections; features/app-navigation-screens; features/desktop-app |
-| task-005 | Secret storage hardening, cleanup, and docs | task-004 | architecture/ssh-gateway-connections; architecture/auth-security; features/desktop-app |
-
 ### sprint-030-integration-gap-closure
 > Added after a post-implementation audit of the shipped web app (sprints 017–029 done). Closes
 > concrete integration gaps so the built app truly "uses all the features". Do before shipping.
+>
+> **Status: closed** (2026-11-07) — tasks 001–004 done; task-005 closed **partial**: code-splitting and
+> the real `isElectron` shipped, but the live `scriptsCount`/`setupAvailable` header fields were never
+> delivered. They needed the workspace scripts/setup surface of the former sprint-031/task-003, which was
+> never built and has since been removed from the plan, and `packages/app` / `LiveWorkspacePage` have
+> been replaced by `packages/web-client`. Any future header-field work is a new task scoped against
+> `web-client`, not a resumption of this one. See t005's summary.
 
 | Task | Title | Depends on | Covers (scope files) |
 |------|-------|------------|----------------------|
@@ -359,17 +345,7 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-002 | New-agent provider/profile picker (replace hardcoded mock) | task-001; s005, s013/s019 | features/agent-providers, app-navigation-screens, composer-ui |
 | task-003 | Workspace tab context actions & pinned quick-launch | s014/s020, s024 | features/workspace-ui, agent-sessions |
 | task-004 | Schedule detail view | s019, s010 | features/schedules-heartbeats, app-navigation-screens |
-| task-005 | Workspace header live fields & bundle code-splitting | task-001..004; s031/task-003, s009 | features/workspace-ui, service-proxy; architecture/client-app-runtime |
-
-### sprint-031-provider-usage-setup-backend
-> New protocol/server scope flagged in the Open-questions list: provider-usage RPC and the setup/
-> scripts surface. Needed before the provider-usage UI and workspace-header fields can show live data.
-
-| Task | Title | Depends on | Covers (scope files) |
-|------|-------|------------|----------------------|
-| task-001 | Provider-usage daemon RPC + protocol schema | s005, s006, s002 | features/provider-usage; architecture/websocket-protocol, structured-generation |
-| task-002 | Wire provider-usage UI to live data | task-001; s025, s019 | features/provider-usage, composer-ui, app-navigation-screens |
-| task-003 | Setup panel & workspace scripts surface | s009, s003, s016 | features/service-proxy, feature-panels-ui; architecture/config |
+| task-005 | Workspace header live fields & bundle code-splitting | task-001..004; s009 (s031/task-003 since removed) | features/workspace-ui, service-proxy; architecture/client-app-runtime |
 
 ### sprint-037-agent-slash-commands
 > Server + SDK + CLI support for the subset of Pi built-in slash commands that have Pi RPC

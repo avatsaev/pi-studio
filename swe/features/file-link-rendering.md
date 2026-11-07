@@ -9,8 +9,8 @@
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md)
 
-> **Render stack:** DOM clients only — web-client today, plus the Electron shell once
-> sprint-033-desktop wires it to host the same bundle (the desktop package is still a placeholder).
+> **Render stack:** DOM clients only — web-client today (an Electron shell hosting the same bundle is
+> not currently planned; the desktop package does not exist).
 > Markdown rendering is `react-markdown` + `remark-gfm`. Opening the referenced file reuses the
 > existing tab-store "open a path as a tab" dispatch and the existing pane drag-and-drop payload
 > defined in [workspace-split-panes.md](workspace-split-panes.md) § Drag sources. Nothing in this
@@ -60,7 +60,7 @@ Appended to the same client-capability registry `inline_image_markdown` lives in
 same `supports(caps, flag)` helper. Purely additive — a client that omits it behaves exactly as
 today, and a client may advertise either flag, both, or neither independently.
 
-Advertised by: web-client (and, once sprint-033-desktop wires it, the Electron desktop shell).
+Advertised by: web-client (and any future Electron desktop shell hosting the same bundle).
 Not advertised by: CLI, MCP.
 
 ### Markdown link source classification
