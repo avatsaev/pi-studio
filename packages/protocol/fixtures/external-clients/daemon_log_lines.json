@@ -1,0 +1,23 @@
+{
+  "type": "daemon_log_lines",
+  "direction": "server_to_client",
+  "description": "Flat log push to subscribed sessions only, flushed within ~100 ms; dropped is incremental; carries no requestId.",
+  "since": "0.0.115",
+  "stage": 2,
+  "requiresFeature": "daemonObservability",
+  "volatile": ["/message/lines/0/time", "/message/lines/0/level", "/message/lines/0/msg"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "daemon_log_lines",
+      "lines": [
+        {
+          "time": 1767225600000,
+          "level": "info",
+          "msg": "external fixture log line"
+        }
+      ],
+      "dropped": 0
+    }
+  }
+}

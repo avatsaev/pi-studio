@@ -1,0 +1,58 @@
+{
+  "type": "daemon_status_update",
+  "direction": "server_to_client",
+  "description": "Flat status push to subscribed sessions only, every 5 s; carries no requestId.",
+  "since": "0.0.115",
+  "stage": 2,
+  "requiresFeature": "daemonObservability",
+  "volatile": [
+    "/message/payload/version",
+    "/message/payload/startedAt",
+    "/message/payload/uptimeMs",
+    "/message/payload/pid",
+    "/message/payload/nodeVersion",
+    "/message/payload/memory/rss",
+    "/message/payload/memory/heapUsed",
+    "/message/payload/memory/heapTotal",
+    "/message/payload/cpuPercent",
+    "/message/payload/eventLoopLagMs",
+    "/message/payload/agentsByStatus/idle",
+    "/message/payload/clients/0/clientId",
+    "/message/payload/clients/0/appVersion",
+    "/message/payload/clients/0/connectedAt",
+    "/message/payload/clients/0/remoteAddress"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "daemon_status_update",
+      "payload": {
+        "version": "0.0.115",
+        "startedAt": 1767225600000,
+        "uptimeMs": 7520.5,
+        "pid": 4242,
+        "nodeVersion": "v24.0.0",
+        "memory": {
+          "rss": 172122112,
+          "heapUsed": 65642672,
+          "heapTotal": 115298304
+        },
+        "cpuPercent": 1.5,
+        "eventLoopLagMs": 0.5,
+        "agentsByStatus": {
+          "idle": 2
+        },
+        "clients": [
+          {
+            "clientId": "client-1",
+            "clientType": "cli",
+            "appVersion": "pistudiodashboard/0.1.0",
+            "connectedAt": 1767225600000,
+            "remoteAddress": "127.0.0.1",
+            "transport": "direct"
+          }
+        ]
+      }
+    }
+  }
+}

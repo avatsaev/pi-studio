@@ -1,0 +1,28 @@
+{
+  "type": "agent_stream",
+  "direction": "server_to_client",
+  "description": "Ephemeral in-flight tool output snapshot: broadcast WITHOUT seq, never persisted or replayed; supersedes earlier output by callId.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId", "/message/timestamp", "/message/event/callId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_stream",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "event": {
+        "kind": "tool_call",
+        "callId": "00000000-0000-4000-8000-000000000002",
+        "status": "running",
+        "partial": true,
+        "tool": {
+          "kind": "shell",
+          "command": "npm test",
+          "output": "> running suite A"
+        }
+      }
+    }
+  }
+}

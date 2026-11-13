@@ -5,11 +5,11 @@ import { type CliContext, type GlobalOptions, EXIT_OK, withDaemon } from "./cli-
 import { renderJson, renderObject, renderTable } from "./output.js";
 
 /**
- * Feature command groups (features/cli.md § Command tree): chat, terminal, loop, schedule, permit,
- * provider, worktree, plus top-level `open`/`<path>`. Each command maps to the same WS RPC as its
- * app/MCP equivalent.
+ * Feature command groups (features/cli.md § Command tree): chat, terminal, loop, schedule, provider,
+ * worktree, plus top-level `open`/`<path>`. Each command maps to the same WS RPC as its app/MCP
+ * equivalent.
  *
- * Terminal / worktree / provider / permission RPC names match registered daemon handlers and MCP
+ * Terminal / worktree / provider RPC names match registered daemon handlers and MCP
  * tools. Chat / loop / schedule wire names follow the daemon's `_request` convention and the message
  * names in the per-feature scopes (e.g. `ChatCreateRequest` → `chat_create_request`); their daemon
  * handlers land in an integration sprint — flagged TODO(verify) in `FEATURE_RPC`.
@@ -46,9 +46,6 @@ export const FEATURE_RPC = {
   scheduleRunOnce: "schedule_run_once_request",
   scheduleLogs: "schedule_logs_request",
   scheduleDelete: "schedule_delete_request",
-  // permit (registered: respond_to_permission alias). list — TODO(verify).
-  permitRespond: "respond_to_permission",
-  permitList: "list_permissions_request",
   // provider (MCP tools / facade RPCs).
   providerList: "list_providers",
   providerModels: "list_models",
@@ -273,35 +270,6 @@ export function registerFeatureCommands(
     .command("delete <id>")
     .description("delete a schedule")
     .action((id: string) => run(FEATURE_RPC.scheduleDelete, { scheduleId: id }, ack("deleted")));
-
-  // ── permit ──
-  const permit = program.command("permit").description("tool-call permissions");
-  permit
-    .command("ls")
-    .description("list pending permission requests")
-    .action(() =>
-      run(
-        FEATURE_RPC.permitList,
-        {},
-        tableOf("permissions", ["permissionRequestId", "tool", "agentId"]),
-      ),
-    );
-  permit
-    .command("allow <permissionRequestId>")
-    .description("allow a pending permission")
-    .action((id: string) =>
-      run(
-        FEATURE_RPC.permitRespond,
-        { permissionRequestId: id, response: "allow" },
-        ack("allowed"),
-      ),
-    );
-  permit
-    .command("deny <permissionRequestId>")
-    .description("deny a pending permission")
-    .action((id: string) =>
-      run(FEATURE_RPC.permitRespond, { permissionRequestId: id, response: "deny" }, ack("denied")),
-    );
 
   // ── provider ──
   const provider = program.command("provider").description("agent providers");

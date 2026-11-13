@@ -1,0 +1,20 @@
+{
+  "type": "agent_ui_respond_request",
+  "direction": "client_to_server",
+  "description": "Answer a pending select dialog with the chosen option.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/uiRequestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_respond_request",
+      "requestId": "req-1",
+      "uiRequestId": "ui-req-1",
+      "response": {
+        "value": "a"
+      }
+    }
+  }
+}

@@ -97,7 +97,7 @@ node packages/server/dist/daemon/main.js
 On startup the daemon prints its identity and readiness:
 
 ```
-pi-studio daemon listening on http://0.0.0.0:6767
+pi-studio daemon listening on http://127.0.0.1:6767
   serverId: 3f2a…
   home:     /home/you/.pi-studio
   provider: pi
@@ -107,7 +107,8 @@ pi-studio daemon listening on http://0.0.0.0:6767
 
 By default the daemon:
 
-- listens on **`0.0.0.0:6767`** (override with `PI_STUDIO_LISTEN`) — reachable over the LAN
+- listens on **`127.0.0.1:6767`** (loopback only). Override with `PI_STUDIO_LISTEN` or `config.json` `daemon.listen` (env wins); for LAN access use `0.0.0.0:6767` **together with `PI_STUDIO_PASSWORD`** — an unprotected non-loopback bind logs a warning
+- (**Upgrade note:** earlier builds bound `0.0.0.0` by default. To keep LAN access set `PI_STUDIO_LISTEN=0.0.0.0:6767` or `daemon.listen`, together with `PI_STUDIO_PASSWORD`.)
 - stores all state under **`$PI_STUDIO_HOME`** (default **`~/.pi-studio`**)
 - writes logs to **`$PI_STUDIO_HOME/logs/`**
 - uses the **`pi`** provider
@@ -129,7 +130,7 @@ curl http://127.0.0.1:6767/api/health
 `src/daemon/dev-main.ts` is a development entry that wires only a **minimal handler subset**
 (`dev-bootstrap.ts`: agent list/archive/delete, workspaces/projects listing, providers, file
 read/diff, schedule listing — no terminals, git ops, worktrees, chat, loops, or relay), the mock
-provider, and in-memory state, and binds `0.0.0.0` with developer-friendly defaults. From the root:
+provider, and in-memory state, and binds `127.0.0.1:6767` (override with `PI_STUDIO_LISTEN`; non-loopback logs a no-auth warning) with developer-friendly defaults. From the root:
 
 ```bash
 npm run dev:daemon
@@ -171,7 +172,7 @@ All optional.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State + config + logs directory |
-| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Daemon listen address (`host:port`) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`, then the default |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (comma-separated, or `true` to allow all) |
 | `PI_STUDIO_SERVER_ID` | _(persisted/generated)_ | Stable server identity |
@@ -185,7 +186,7 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 
-> Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` and connecting via the
+> Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` (opt-in) and connecting via the
 > server's IP needs no extra config. To reach the daemon by **hostname**, add it to
 > `PI_STUDIO_HOSTNAMES`.
 
@@ -266,7 +267,7 @@ All communication rides a **single WebSocket connection** per client.
 - `rpc_error` — a correlated error response (carries the originating `requestId`).
 
 A non-`hello` first frame closes the socket. RPC names follow a dotted convention —
-`domain.provider.operation.direction` (e.g. `agent.permission.respond.request`); legacy flat names
+`domain.provider.operation.direction` (e.g. `checkout.github.set_auto_merge.request`); legacy flat names
 are accepted via aliases but never generated.
 
 ### Binary frames — terminal + file transfer
@@ -370,13 +371,12 @@ src/
     dev-bootstrap.ts    Dev handler wiring (local testing only).
     orchestration-rpc.ts
 
-  agent/                Agent lifecycle, provider registry, timeline, permissions.
+  agent/                Agent lifecycle, provider registry, timeline.
     agent-manager.ts    Single source of truth for agent state + FSM + persistence + broadcast.
     agent-service.ts    RPC handler wiring for agent operations.
     provider-contract.ts  AgentClient / AgentSession interfaces (the ONLY provider surface).
     provider-registry.ts  Register/resolve AgentClient by provider id.
     timeline-store.ts   Append/page/cursor the agent event log.
-    permissions.ts      Park + resolve tool-call permission requests.
     providers/pi/       Real Pi provider (spawn, JSONL transport, event mapper).
     providers/mock/     In-process synthetic provider.
 

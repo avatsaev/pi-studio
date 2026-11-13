@@ -1,0 +1,24 @@
+{
+  "type": "agent_ui_request",
+  "direction": "server_to_client",
+  "description": "Answerable dialog: pick one option (expectsResponse true).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId", "/message/createdAt"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_request",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "agentId": "00000000-0000-4000-8000-000000000002",
+      "method": "select",
+      "expectsResponse": true,
+      "payload": {
+        "title": "Pick one",
+        "options": ["a", "b"]
+      },
+      "createdAt": 1767225600000
+    }
+  }
+}

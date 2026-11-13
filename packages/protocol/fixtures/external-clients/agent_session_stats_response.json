@@ -1,0 +1,30 @@
+{
+  "type": "agent_session_stats_response",
+  "direction": "server_to_client",
+  "description": "Session statistics. payload is passthrough; the dev daemon's stable subset is pinned, a real Pi agent adds more fields.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": [
+    "/message/payload/sessionId",
+    "/message/payload/totalMessages",
+    "/message/requestId",
+    "/message/payload/model",
+    "/message/payload/tokens/total"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_session_stats_response",
+      "payload": {
+        "sessionId": "00000000-0000-4000-8000-000000000001",
+        "totalMessages": 22,
+        "tokens": {
+          "total": 0
+        },
+        "model": "mock-model"
+      },
+      "requestId": "req-1"
+    }
+  }
+}

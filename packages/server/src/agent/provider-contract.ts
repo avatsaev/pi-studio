@@ -136,12 +136,6 @@ export interface ProviderRuntimeInfo {
   extra?: Record<string, unknown>;
 }
 
-export interface PendingPermission {
-  requestId: string;
-  toolName?: string;
-  detail?: unknown;
-}
-
 /**
  * One agent's todo list as a provider reports it: already sorted by id and capped to the protocol
  * limits (`capAgentTodos`), so `truncated` has to travel with the tasks. The service adds the
@@ -241,9 +235,6 @@ export interface AgentSession {
   getAvailableModes(): AgentModeDefinition[];
   getCurrentMode(): string | null;
   setMode(id: string): Promise<void>;
-
-  getPendingPermissions(): PendingPermission[];
-  respondToPermission(requestId: string, response: unknown): Promise<void>;
 
   describePersistence(): PersistenceHandle | null;
   interrupt(): Promise<void>;

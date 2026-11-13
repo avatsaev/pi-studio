@@ -1,0 +1,19 @@
+{
+  "type": "hello",
+  "direction": "client_to_server",
+  "description": "Handshake: the first frame on a connection. The daemon answers with the status.server_info frame.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/clientId"],
+  "frame": {
+    "type": "hello",
+    "clientId": "client-1",
+    "clientType": "cli",
+    "protocolVersion": 1,
+    "appVersion": "pistudiodashboard/0.1.0",
+    "capabilities": {
+      "reasoning_merge_enum": true
+    }
+  }
+}

@@ -250,7 +250,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/agent-providers.md](features/agent-providers.md)               | feature      | Pi provider adapter, modes/models/features, configuration                     |
 | [features/timeline-streaming.md](features/timeline-streaming.md)         | feature      | Append-only timeline, live stream, authoritative paged catch-up sync          |
 | [features/tool-output-streaming.md](features/tool-output-streaming.md)   | feature      | Live in-flight tool output: ephemeral coalesced `tool_call` partial snapshots (+ small protocol amendment) |
-| [features/tool-permissions.md](features/tool-permissions.md)             | feature      | Tool-call permission request/approve/deny flow                                |
+| [features/tool-permissions.md](features/tool-permissions.md)             | feature      | **Retired (sprint-086)** — tool-call permission flow                                |
 | [features/projects-workspaces.md](features/projects-workspaces.md)       | feature      | Project/workspace registries, reconciliation, open-project                    |
 | [features/worktrees.md](features/worktrees.md)                           | feature      | Pi-Studio-managed git worktrees, setup/teardown, auto-archive                 |
 | [features/git-checkout.md](features/git-checkout.md)                     | feature      | Git status/diff/branch/commit/push/pull/stash + GitHub PRs                    |
@@ -297,6 +297,9 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/keyboard-shortcuts.md](features/keyboard-shortcuts.md)         | feature (UI) | Global shortcut registry, focus-scope dispatch, customizable overrides        |
 | [features/localization.md](features/localization.md)                     | feature (UI) | i18next-based multi-language UI, live language switching                      |
 | [features/white-label-branding.md](features/white-label-branding.md)     | feature (UI) | Build-time brand config: product name/title, accent colors, logo/icons        |
+| [features/web-ui-agent-deep-link.md](features/web-ui-agent-deep-link.md) | feature (UI) | shipped (sprint-082) — Web UI `#agent=<agentId>` URL-fragment deep link: selects that agent's chat after connect + restore, coexists with `#offer=`, unknown-agent notice |
+| [features/daemon-status-rpc.md](features/daemon-status-rpc.md)           | feature      | **Shipped (sprint-084/085).** `daemonObservability` flag: `daemon_status_*` (version, uptime, cpu/mem, event-loop lag, agents by status, connected clients) + 5 s subscribe push |
+| [features/daemon-log-streaming.md](features/daemon-log-streaming.md)     | feature      | **Shipped (sprint-085).** `daemon_logs_subscribe/_unsubscribe` + `daemon_log_lines`: pino tap, in-memory tail ≤ 1000, minLevel filter, 200 lines/s cap with dropped counter |
 
 ### Architecture
 
@@ -314,6 +317,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/structured-generation.md](architecture/structured-generation.md) | architecture | Daemon-side metadata generation (titles, commit messages, branch names)       |
 | [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [architecture/pi-resource-management.md](architecture/pi-resource-management.md) | architecture | Daemon backend over Pi's resolver/settings + pinned `skills` CLI: single `skills_*` family, toggle mirror, stateless preview, FIFO queue, watcher (supersedes extensions-manager Phase B) |
+| [architecture/external-client-fixtures.md](architecture/external-client-fixtures.md) | architecture | Canonical JSON fixtures of every wire message external clients (Pi Studio Dashboard) consume + in-process daemon contract test; changing a fixture shape is a breaking change — **shipped (sprint-083)** |
 
 ## 9. Cross-Cutting Conventions
 
@@ -368,3 +372,16 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 - [ ] Composer path drop, still open: Firefox and Safari checks of native undo (not run; no such
       browser was available), and the `relativeToRoot` sibling-prefix bug (also affects the tree's
       *Copy Relative Path*).
+- [x] Daemon `listen` default bug: `packages/server/src/daemon/main.ts` defaults `listen` to
+      `0.0.0.0:6767` while `config/daemon-config.ts`, `daemon/index.ts` and the docs say
+      `127.0.0.1:6767`; no password by default. Separate fix, outside the dashboard effort
+      (dashboard brief D35, [daemon-monitoring-dashboard.md](../../pi-studio-dashboard/swe/grills/daemon-monitoring-dashboard.md)).
+      **Decided 2026-11-13: loopback default, `daemon.listen` honoured, warn on an unprotected
+      non-loopback bind (no refusal, because Docker binds `0.0.0.0`), dev daemon included.** Planned
+      as sprint-087. **Shipped in sprint-087** (daemon now binds `127.0.0.1:6767` by default).
+- [x] Tool-permission channel is dormant in production: `PermissionService.requestPermission` and
+      `cancelPending` have no non-test caller, the Pi adapter's `getPendingPermissions()` returns
+      `[]`, `interrupt_agent` does not call `cancelPending`, and the web client has no permission UI.
+      Pi's questions travel on `agent_ui_*` instead ([features/extension-ui-rpc.md](features/extension-ui-rpc.md));
+      the dashboard answers those (brief D36). **Decided 2026-11-13: retire the family** (daemon
+      service, contract members, MCP tools, CLI `permit`; wire schemas kept unread). **Resolved: retired in sprint-086.**

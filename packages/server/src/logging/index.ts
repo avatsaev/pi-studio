@@ -1,3 +1,4 @@
+export { LogTap, type LogTapListener } from "./log-tap.js";
 export {
   createDaemonLogger,
   createLogger,

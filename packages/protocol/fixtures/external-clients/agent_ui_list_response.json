@@ -1,0 +1,50 @@
+{
+  "type": "agent_ui_list_response",
+  "direction": "server_to_client",
+  "description": "Pending dialogs and retained surfaces (each array holds one representative element).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": [
+    "/message/payload/pending/0/requestId",
+    "/message/payload/pending/0/agentId",
+    "/message/payload/pending/0/createdAt",
+    "/message/payload/surfaces/0/agentId",
+    "/message/payload/surfaces/0/updatedAt",
+    "/message/requestId"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_list_response",
+      "payload": {
+        "ok": true,
+        "pending": [
+          {
+            "requestId": "00000000-0000-4000-8000-000000000001",
+            "agentId": "00000000-0000-4000-8000-000000000002",
+            "method": "select",
+            "expectsResponse": true,
+            "payload": {
+              "title": "Pick one",
+              "options": ["a", "b"]
+            },
+            "createdAt": 1767225600000
+          }
+        ],
+        "surfaces": [
+          {
+            "agentId": "00000000-0000-4000-8000-000000000002",
+            "method": "setStatus",
+            "surfaceKey": "status:build",
+            "payload": {
+              "statusText": "building"
+            },
+            "updatedAt": 1767225600000
+          }
+        ]
+      },
+      "requestId": "req-1"
+    }
+  }
+}

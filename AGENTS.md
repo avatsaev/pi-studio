@@ -26,7 +26,7 @@ packages/
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
-  web-client/  Production React/Vite browser UI — connection, chat, sessions, files, git, terminal,
+  web-client/  Production React/Vite browser UI (supports `#agent=<id>` deep links) — connection, chat, sessions, files, git, terminal,
                split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
                per-pane tab strips, persisted per workspace along with which one was in view); drag a
                Files-tree file or folder onto the chat composer to insert its relative path.
@@ -179,7 +179,7 @@ npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 0.0.0.0)
+# Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
 npm run dev:daemon
 
 # Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
@@ -282,7 +282,7 @@ tRPC API directly via `curl` for status polling, rather than waiting on an upstr
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
-| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` (production `main.ts`); the CLI's local-spawn path binds `127.0.0.1:6767` instead | Daemon bind address (`host:port`) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
@@ -315,7 +315,7 @@ All communication uses a **single WebSocket connection** per client.
 - RPC names are overwhelmingly **flat snake_case** (`create_agent_request`, `list_agents_request`,
   `chat_create_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
   not a "legacy" fallback. A small minority use a dotted `domain.provider.operation.direction` form
-  (`agent.permission.respond.request`, `agent.rewind.request`,
+  (`agent.rewind.request`,
   `checkout.github.set_auto_merge.request`); where a dotted name exists, the flat form is usually
   also registered as an alias (`registry.registerAlias(flatName, dottedName)`) for compatibility.
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
@@ -360,6 +360,15 @@ All communication uses a **single WebSocket connection** per client.
   transport (task-007): a credential entered in the browser lands in the exact `auth.json` a
   daemon-spawned `pi --mode rpc` child reads, with no secret leaking into any log, frame beyond its
   own `provider_auth_respond_request`, `localStorage`, or the DOM.
+- **`daemon_status_*` / `daemon_logs_*` / `daemon_log_lines`** (sprint-084/085,
+  `swe/features/daemon-status-rpc.md`, `swe/features/daemon-log-streaming.md`) are the read-only
+  observability family, advertised together as `server_info.features.daemonObservability`
+  (`daemonStatusRpc` stays advertised with no handler). Authenticated sessions only, no role gate.
+  Subscriptions are per-session and pushes go to subscribed sessions only (flat messages, no
+  `requestId`, no broadcast): status every 5 s; logs flushed within ~100 ms from a 1000-line ring
+  with a 200 lines/s per-subscriber cap and an incremental `dropped` counter. `minLevel` is clamped
+  to the daemon's level; an injected logger without the tap (or `silentLogger()`) yields an empty
+  stream. File and stdout output are unchanged; streamed copies are sanitised best-effort.
 - **`agent_ui_*`** (sprint-066, `swe/features/extension-ui-rpc.md`) bridges Pi's generic extension
   UI protocol (`docs/rpc.md` § Extension UI Protocol) onto the daemon: **every** extension dialog
   (`select`/`confirm`/`input`/`editor`) and retained surface (`setStatus`/`setWidget`/`setTitle`)
@@ -373,7 +382,7 @@ All communication uses a **single WebSocket connection** per client.
   emission), never the provider's own request id — the one field a client must never source from
   Pi's own protocol. Two lifecycle rules invert the family's nearest neighbours on purpose: a
   client **disconnecting** never cancels a pending dialog (opposite of `provider_auth_*`), and
-  **interrupting** an agent touches nothing (opposite of tool-call permissions) — dialogs and
+  **interrupting** an agent touches nothing — dialogs and
   surfaces are agent-lifetime state, swept only on archive/delete/respawn
   (`packages/server/AGENTS.md`'s "Extension UI" subsystem section). **Sprint-066 shipped only the
   daemon side**; sprint-067 gave `packages/client` a consumer — `PiStudioClient`'s five-member
@@ -508,7 +517,19 @@ All communication uses a **single WebSocket connection** per client.
   persisted-vs-ephemeral decision. Partials are throttled upstream by the Pi provider's
   `tool-output-coalescer.ts` (200 ms per call, 64 KiB tail cap). The mock provider's `#tool` prompt
   (`#tool` / `#tool shell` / `#tool empty` / `#tool help`) emits a scripted start → partials → end
-  tool call for credential-free smoke tests. See `docs/agent-stream-events.md`.
+  tool call for credential-free smoke tests; `#stream reasoning|fail|error` emits the `reasoning`,
+  `turn_failed` and `error` kinds the normal mock turn never produces. See `docs/agent-stream-events.md`.
+- **External-client wire fixtures (sprint-083, `swe/architecture/external-client-fixtures.md`).**
+  `packages/protocol/fixtures/external-clients/` holds one canonical JSON frame per wire message an
+  external client (the Rust dashboard) consumes or sends, shipped in the protocol package's npm
+  `files`. **A fixture's shape is a published contract**: additive changes just edit/add the file; a
+  breaking change (removed/renamed/retyped field, removed variant) needs the fixture edited in the
+  same commit, a `formatVersion` bump in `manifest.json` and a dated `CHANGELOG.md` entry. Layer A
+  (`packages/protocol/src/external-fixtures.test.ts`) validates the files and guards the signature;
+  Layer B (`packages/server/src/daemon/external-fixtures-e2e.test.ts`) proves a live dev daemon still
+  matches. Regenerate signatures with `npm run fixtures:update -w @av-pi-studio/protocol`; print
+  candidates with `node packages/server/scripts/record-external-fixtures.ts` (after `npm run
+  build:server`). See `packages/protocol/fixtures/external-clients/README.md`.
 
 ---
 

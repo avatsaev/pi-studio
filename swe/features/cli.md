@@ -9,7 +9,7 @@
 
 `pi-studio` is a Commander.js terminal client that speaks the same WebSocket protocol as the app and can
 also start/manage a local daemon. It mirrors most daemon capabilities (agents, chat, terminals,
-loops, schedules, permissions, providers, worktrees) with Docker-style ergonomics. Common
+loops, schedules, providers, worktrees) with Docker-style ergonomics. Common
 agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio run`, etc.).
 
 ## Public Contract
@@ -28,7 +28,6 @@ agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio r
 | `terminal` | `ls`, `create`, `capture`, `send-keys`, `kill` |
 | `loop` | `run`, `ls`, `inspect`, `logs`, `stop` |
 | `schedule` | `create`, `ls`, `inspect`, `update`, `pause`, `resume`, `run-once`, `logs`, `delete` |
-| `permit` | `allow`, `deny`, `ls` |
 | `provider` | `ls`, `models` |
 | `worktree` | `create`, `ls`, `archive` |
 | top-level | `pi-studio <path>` (open), `onboard`, `open`, `update [--check]` (self-update via `npm install -g`, then always also runs `pi update --extensions` to update already-installed pi extensions) |

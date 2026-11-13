@@ -384,7 +384,8 @@ export const fetchAgentTimelineResponseSchema = z.object({
 export type FetchAgentTimelineResponse = z.infer<typeof fetchAgentTimelineResponseSchema>;
 
 // ===========================================================================
-// Tool-call permissions
+// Tool-call permissions — RETIRED (sprint-086): schemas kept (append-only), never read or
+// registered by the daemon; every type here answers `rpc_error unknown_message_type`.
 // ===========================================================================
 
 export const agentPermissionRequestSchema = z.object({
@@ -1305,6 +1306,188 @@ export const viewerSettingsUpdateSchema = z
 export type ViewerSettingsUpdate = z.infer<typeof viewerSettingsUpdateSchema>;
 
 // ===========================================================================
+// Daemon status (swe/features/daemon-status-rpc.md) — read-only process observability:
+// one-shot `daemon_status_request`, plus a per-session subscription that pushes
+// `daemon_status_update` every 5 s to subscribers only. The gating flag
+// is `daemonObservability` (shared with the log family); `daemonStatusRpc` stays untouched and
+// handler-less. `transport` is a strict enum: both values are daemon-defined.
+// ===========================================================================
+
+export const daemonClientInfoSchema = z
+  .object({
+    clientId: z.string(),
+    clientType: z.string(),
+    appVersion: z.string().optional(),
+    connectedAt: z.number(),
+    remoteAddress: z.string().optional(),
+    transport: z.enum(["direct", "relay"]),
+  })
+  .passthrough();
+export type DaemonClientInfo = z.infer<typeof daemonClientInfoSchema>;
+
+export const daemonStatusSchema = z
+  .object({
+    version: z.string(),
+    startedAt: z.number(),
+    uptimeMs: z.number(),
+    pid: z.number(),
+    nodeVersion: z.string(),
+    memory: z
+      .object({ rss: z.number(), heapUsed: z.number(), heapTotal: z.number() })
+      .passthrough(),
+    cpuPercent: z.number(),
+    eventLoopLagMs: z.number(),
+    agentsByStatus: z.record(z.string(), z.number()),
+    clients: z.array(daemonClientInfoSchema),
+  })
+  .passthrough();
+export type DaemonStatus = z.infer<typeof daemonStatusSchema>;
+
+export const daemonStatusRequestSchema = z
+  .object({
+    type: z.literal("daemon_status_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type DaemonStatusRequest = z.infer<typeof daemonStatusRequestSchema>;
+
+export const daemonStatusResponseSchema = z
+  .object({
+    type: z.literal("daemon_status_response"),
+    requestId: z.string(),
+    payload: daemonStatusSchema,
+  })
+  .passthrough();
+export type DaemonStatusResponse = z.infer<typeof daemonStatusResponseSchema>;
+
+export const daemonStatusSubscribeRequestSchema = z
+  .object({
+    type: z.literal("daemon_status_subscribe_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type DaemonStatusSubscribeRequest = z.infer<typeof daemonStatusSubscribeRequestSchema>;
+
+export const daemonStatusSubscribeResponseSchema = z
+  .object({
+    type: z.literal("daemon_status_subscribe_response"),
+    requestId: z.string(),
+    payload: z.union([
+      z
+        .object({
+          ok: z.literal(true),
+          intervalMs: z.number(),
+          status: daemonStatusSchema,
+        })
+        .passthrough(),
+      z.object({ ok: z.literal(false), error: z.string() }).passthrough(),
+    ]),
+  })
+  .passthrough();
+export type DaemonStatusSubscribeResponse = z.infer<typeof daemonStatusSubscribeResponseSchema>;
+
+export const daemonStatusUnsubscribeRequestSchema = z
+  .object({
+    type: z.literal("daemon_status_unsubscribe_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type DaemonStatusUnsubscribeRequest = z.infer<typeof daemonStatusUnsubscribeRequestSchema>;
+
+export const daemonStatusUnsubscribeResponseSchema = z
+  .object({
+    type: z.literal("daemon_status_unsubscribe_response"),
+    requestId: z.string(),
+    payload: z.object({ ok: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type DaemonStatusUnsubscribeResponse = z.infer<typeof daemonStatusUnsubscribeResponseSchema>;
+
+/** Flat push to subscribed sessions only; carries no `requestId`. */
+export const daemonStatusUpdateSchema = z
+  .object({
+    type: z.literal("daemon_status_update"),
+    payload: daemonStatusSchema,
+  })
+  .passthrough();
+export type DaemonStatusUpdate = z.infer<typeof daemonStatusUpdateSchema>;
+
+// ===========================================================================
+// Daemon log streaming (swe/features/daemon-log-streaming.md) — per-session, filtered,
+// rate-capped tail of the daemon logger. `minLevel`/`tail` are validated daemon-side so a bad
+// value yields a domain `invalid_level`/`invalid_tail` response, never an `rpc_error`; the
+// request schema is therefore deliberately loose on those two fields. `LogLine.level` is an open
+// string (the six pino names today) so a future level still parses.
+// ===========================================================================
+
+export const logLineSchema = z
+  .object({
+    time: z.number(),
+    level: z.string(),
+    msg: z.string(),
+    fields: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type LogLine = z.infer<typeof logLineSchema>;
+
+export const daemonLogsSubscribeRequestSchema = z
+  .object({
+    type: z.literal("daemon_logs_subscribe_request"),
+    requestId: z.string(),
+    minLevel: z.string(),
+    tail: z.number().optional(),
+  })
+  .passthrough();
+export type DaemonLogsSubscribeRequest = z.infer<typeof daemonLogsSubscribeRequestSchema>;
+
+export const daemonLogsSubscribeResponseSchema = z
+  .object({
+    type: z.literal("daemon_logs_subscribe_response"),
+    requestId: z.string(),
+    payload: z.union([
+      z
+        .object({
+          ok: z.literal(true),
+          minLevel: z.string(),
+          effectiveLevel: z.string(),
+          lines: z.array(logLineSchema),
+          dropped: z.number(),
+        })
+        .passthrough(),
+      z.object({ ok: z.literal(false), error: z.string() }).passthrough(),
+    ]),
+  })
+  .passthrough();
+export type DaemonLogsSubscribeResponse = z.infer<typeof daemonLogsSubscribeResponseSchema>;
+
+export const daemonLogsUnsubscribeRequestSchema = z
+  .object({
+    type: z.literal("daemon_logs_unsubscribe_request"),
+    requestId: z.string(),
+  })
+  .passthrough();
+export type DaemonLogsUnsubscribeRequest = z.infer<typeof daemonLogsUnsubscribeRequestSchema>;
+
+export const daemonLogsUnsubscribeResponseSchema = z
+  .object({
+    type: z.literal("daemon_logs_unsubscribe_response"),
+    requestId: z.string(),
+    payload: z.object({ ok: z.boolean() }).passthrough(),
+  })
+  .passthrough();
+export type DaemonLogsUnsubscribeResponse = z.infer<typeof daemonLogsUnsubscribeResponseSchema>;
+
+/** Flat push to subscribed sessions only; carries no `requestId`. `dropped` is incremental. */
+export const daemonLogLinesSchema = z
+  .object({
+    type: z.literal("daemon_log_lines"),
+    lines: z.array(logLineSchema),
+    dropped: z.number(),
+  })
+  .passthrough();
+export type DaemonLogLines = z.infer<typeof daemonLogLinesSchema>;
+
+// ===========================================================================
 // Skills (swe/architecture/pi-resource-management.md § Wire family `skills_*`) — sprint-075
 // slice 1: list + toggle only. Preview/install/remove/update_all land in sprints 076-077 and
 // reuse `skillInfoSchema`/`piPackageInfoSchema` below.
@@ -1910,6 +2093,18 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   viewerSettingsSetRequestSchema,
   viewerSettingsSetResponseSchema,
   viewerSettingsUpdateSchema,
+  daemonStatusRequestSchema,
+  daemonStatusResponseSchema,
+  daemonStatusSubscribeRequestSchema,
+  daemonStatusSubscribeResponseSchema,
+  daemonStatusUnsubscribeRequestSchema,
+  daemonStatusUnsubscribeResponseSchema,
+  daemonStatusUpdateSchema,
+  daemonLogsSubscribeRequestSchema,
+  daemonLogsSubscribeResponseSchema,
+  daemonLogsUnsubscribeRequestSchema,
+  daemonLogsUnsubscribeResponseSchema,
+  daemonLogLinesSchema,
   skillsListRequestSchema,
   skillsListResponseSchema,
   skillsSetEnabledRequestSchema,

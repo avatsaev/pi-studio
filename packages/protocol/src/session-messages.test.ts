@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { SERVER_FEATURES } from "./client-capabilities.js";
 import {
   AGENT_TODO_MAX_SUBJECT_CHARS,
   AGENT_TODOS_MAX_TASKS,
@@ -8,6 +9,19 @@ import {
   agentCompactRequestSchema,
   agentCompactResponseSchema,
   agentCycleModelResponseSchema,
+  daemonLogLinesSchema,
+  daemonLogsSubscribeRequestSchema,
+  daemonLogsSubscribeResponseSchema,
+  daemonLogsUnsubscribeRequestSchema,
+  daemonLogsUnsubscribeResponseSchema,
+  daemonStatusRequestSchema,
+  daemonStatusResponseSchema,
+  daemonStatusSchema,
+  daemonStatusSubscribeRequestSchema,
+  daemonStatusSubscribeResponseSchema,
+  daemonStatusUnsubscribeRequestSchema,
+  daemonStatusUnsubscribeResponseSchema,
+  daemonStatusUpdateSchema,
   agentExportHtmlRequestSchema,
   agentExportHtmlResponseSchema,
   agentForkMessagesResponseSchema,
@@ -1937,5 +1951,155 @@ describe("agent todos (sprint-079/task-002)", () => {
     }));
     expect(agentTodosSnapshotSchema.safeParse({ agentId: "a1", seq: 1, tasks }).success).toBe(true);
     expect(AGENT_TODOS_MAX_TASKS).toBe(200);
+  });
+});
+
+describe("daemon_status_* (sprint-084/task-002)", () => {
+  const status = {
+    version: "0.0.1",
+    startedAt: 1,
+    uptimeMs: 2,
+    pid: 3,
+    nodeVersion: "v22.0.0",
+    memory: { rss: 1, heapUsed: 1, heapTotal: 1 },
+    cpuPercent: 0,
+    eventLoopLagMs: 0,
+    agentsByStatus: { idle: 1 },
+    clients: [
+      { clientId: "c1", clientType: "web", connectedAt: 1, transport: "direct" },
+      { clientId: "c2", clientType: "cli", connectedAt: 2, transport: "relay", appVersion: "x/1" },
+    ],
+  };
+
+  it("every message is a sessionMessageSchema member and keeps unknown fields", () => {
+    const cases = [
+      [daemonStatusRequestSchema, { type: "daemon_status_request", requestId: "r" }],
+      [
+        daemonStatusResponseSchema,
+        { type: "daemon_status_response", requestId: "r", payload: status },
+      ],
+      [
+        daemonStatusSubscribeRequestSchema,
+        { type: "daemon_status_subscribe_request", requestId: "r" },
+      ],
+      [
+        daemonStatusSubscribeResponseSchema,
+        {
+          type: "daemon_status_subscribe_response",
+          requestId: "r",
+          payload: { ok: true, intervalMs: 5000, status },
+        },
+      ],
+      [
+        daemonStatusSubscribeResponseSchema,
+        {
+          type: "daemon_status_subscribe_response",
+          requestId: "r",
+          payload: { ok: false, error: "not_supported" },
+        },
+      ],
+      [
+        daemonStatusUnsubscribeRequestSchema,
+        { type: "daemon_status_unsubscribe_request", requestId: "r" },
+      ],
+      [
+        daemonStatusUnsubscribeResponseSchema,
+        { type: "daemon_status_unsubscribe_response", requestId: "r", payload: { ok: true } },
+      ],
+      [daemonStatusUpdateSchema, { type: "daemon_status_update", payload: status }],
+    ] as const;
+    for (const [schema, message] of cases) {
+      expect(sessionMessageSchema.safeParse(message).success, message.type).toBe(true);
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success, message.type).toBe(true);
+      if (result.success) expect(result.data).toHaveProperty("fromTheFuture", "kept");
+    }
+  });
+
+  it("DaemonStatus and DaemonClientInfo are passthrough", () => {
+    const parsed = daemonStatusSchema.parse({
+      ...status,
+      extra: 1,
+      clients: [{ ...status.clients[0], extraClient: 2 }],
+    });
+    expect(parsed).toHaveProperty("extra", 1);
+    expect(parsed.clients[0]).toHaveProperty("extraClient", 2);
+  });
+
+  it("advertises daemonObservability next to the handler-less daemonStatusRpc", () => {
+    expect(Object.keys(SERVER_FEATURES)).toContain("daemonObservability");
+    expect(Object.keys(SERVER_FEATURES)).toContain("daemonStatusRpc");
+  });
+});
+
+describe("daemon_logs_* / daemon_log_lines (sprint-085/task-001)", () => {
+  const line = { time: 1, level: "warn", msg: "m", fields: { a: 1 } };
+
+  it("every message is a sessionMessageSchema member and keeps unknown fields", () => {
+    const cases = [
+      [
+        daemonLogsSubscribeRequestSchema,
+        { type: "daemon_logs_subscribe_request", requestId: "r", minLevel: "info", tail: 10 },
+      ],
+      [
+        daemonLogsSubscribeResponseSchema,
+        {
+          type: "daemon_logs_subscribe_response",
+          requestId: "r",
+          payload: {
+            ok: true,
+            minLevel: "debug",
+            effectiveLevel: "info",
+            lines: [line],
+            dropped: 0,
+          },
+        },
+      ],
+      [
+        daemonLogsSubscribeResponseSchema,
+        {
+          type: "daemon_logs_subscribe_response",
+          requestId: "r",
+          payload: { ok: false, error: "invalid_tail" },
+        },
+      ],
+      [
+        daemonLogsUnsubscribeRequestSchema,
+        { type: "daemon_logs_unsubscribe_request", requestId: "r" },
+      ],
+      [
+        daemonLogsUnsubscribeResponseSchema,
+        { type: "daemon_logs_unsubscribe_response", requestId: "r", payload: { ok: true } },
+      ],
+      [daemonLogLinesSchema, { type: "daemon_log_lines", lines: [line], dropped: 3 }],
+    ] as const;
+    for (const [schema, message] of cases) {
+      expect(sessionMessageSchema.safeParse(message).success, message.type).toBe(true);
+      const result = schema.safeParse({ ...message, fromTheFuture: "kept" });
+      expect(result.success, message.type).toBe(true);
+      if (result.success) expect(result.data).toHaveProperty("fromTheFuture", "kept");
+    }
+  });
+
+  it("lets invalid minLevel/tail reach the handler and tolerates unknown levels", () => {
+    expect(
+      daemonLogsSubscribeRequestSchema.safeParse({
+        type: "daemon_logs_subscribe_request",
+        requestId: "r",
+        minLevel: "loud",
+        tail: 1001,
+      }).success,
+    ).toBe(true);
+    expect(
+      daemonLogLinesSchema.safeParse({
+        type: "daemon_log_lines",
+        lines: [{ time: 1, level: "audit", msg: "", extra: 1 }],
+        dropped: 0,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("advertises daemonObservability next to the handler-less daemonStatusRpc", () => {
+    expect(Object.keys(SERVER_FEATURES)).toContain("daemonObservability");
   });
 });

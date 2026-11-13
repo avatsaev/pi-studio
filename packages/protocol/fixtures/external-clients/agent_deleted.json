@@ -1,0 +1,16 @@
+{
+  "type": "agent_deleted",
+  "direction": "server_to_client",
+  "description": "An agent was deleted.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_deleted",
+      "agentId": "00000000-0000-4000-8000-000000000001"
+    }
+  }
+}

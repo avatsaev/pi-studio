@@ -1,0 +1,18 @@
+{
+  "type": "agent_ui_resolved",
+  "direction": "server_to_client",
+  "description": "A dialog was cancelled (reason cancelled). Documented reason; no daemon code path emits it today.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_resolved",
+      "requestId": "req-1",
+      "agentId": "agent-1",
+      "reason": "cancelled"
+    }
+  }
+}

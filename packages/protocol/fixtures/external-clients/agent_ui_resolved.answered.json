@@ -1,0 +1,18 @@
+{
+  "type": "agent_ui_resolved",
+  "direction": "server_to_client",
+  "description": "A dialog is no longer answerable (reason answered).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_resolved",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "agentId": "00000000-0000-4000-8000-000000000002",
+      "reason": "answered"
+    }
+  }
+}

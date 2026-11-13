@@ -18,7 +18,6 @@ import type {
   AgentTodoList,
   CreateSessionOptions,
   LaunchContext,
-  PendingPermission,
   PersistenceHandle,
   ProviderRuntimeInfo,
   ProviderUiRequest,
@@ -38,6 +37,12 @@ import {
   planTodos,
   type TodoScriptRecipe,
 } from "./todo-script.js";
+import {
+  getStreamScriptHelpText,
+  parseStreamScript,
+  streamScriptEvents,
+  type StreamScriptRecipe,
+} from "./stream-script.js";
 import {
   getToolScriptHelpText,
   parseToolScript,
@@ -72,6 +77,10 @@ export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
  *  that produced the data has closed, so clearing on close would defeat the whole point of this
  *  map. Bounded by distinct mock session ids created in the process. */
 const mockTodosByHandle = new Map<string, AgentTodoList>();
+
+/** `fork` entry id that makes the mock rebind its persistence handle (sprint-083/task-002), so the
+ *  real `agent_timeline_reset` broadcast path is reachable without a Pi session file. */
+export const MOCK_REBIND_ENTRY_ID = "mock-rebind";
 
 const MOCK_MODES: AgentModeDefinition[] = [
   { id: "default", label: "Default" },
@@ -165,6 +174,9 @@ export class MockAgentSession implements AgentSession {
 
     const toolRecipe = parseToolScript(prompt);
     if (toolRecipe !== null) return this.startToolScriptTurn(toolRecipe);
+
+    const streamRecipe = parseStreamScript(prompt);
+    if (streamRecipe !== null) return this.startStreamScriptTurn(streamRecipe);
 
     const turnId = randomUUID();
     this.activeTurn = turnId;
@@ -260,6 +272,33 @@ export class MockAgentSession implements AgentSession {
       }
       this.emit({ kind: "assistant_message", messageId: randomUUID(), text, final: true });
       this.emit({ kind: "turn_completed", turnId });
+      this.activeTurn = null;
+    }, this.turnDelayMs);
+
+    return Promise.resolve({ turnId });
+  }
+
+  /** `#stream ...` prompt (sprint-083/task-002): after `turnDelayMs`, emit the event kinds the
+   *  normal mock turn never produces (`reasoning`, `turn_failed`, `error`) through the same
+   *  `emit` path, ending on a terminal turn event. `help` emits the recipe list as assistant text. */
+  private startStreamScriptTurn(recipe: StreamScriptRecipe): Promise<{ turnId: string }> {
+    const turnId = randomUUID();
+    this.activeTurn = turnId;
+    this.emit({ kind: "turn_started", turnId });
+
+    setTimeout(() => {
+      if (this.activeTurn !== turnId) return;
+      if (recipe === "help") {
+        this.emit({
+          kind: "assistant_message",
+          messageId: randomUUID(),
+          text: getStreamScriptHelpText(),
+          final: true,
+        });
+        this.emit({ kind: "turn_completed", turnId });
+      } else {
+        for (const event of streamScriptEvents(recipe, turnId, randomUUID())) this.emit(event);
+      }
       this.activeTurn = null;
     }, this.turnDelayMs);
 
@@ -419,14 +458,6 @@ export class MockAgentSession implements AgentSession {
     return Promise.resolve([...MOCK_THINKING_LEVELS]);
   }
 
-  getPendingPermissions(): PendingPermission[] {
-    return [];
-  }
-
-  respondToPermission(): Promise<void> {
-    return Promise.resolve();
-  }
-
   onUiRequest(cb: (req: ProviderUiRequest) => void): Unsubscribe {
     this.uiSubscribers.add(cb);
     return () => this.uiSubscribers.delete(cb);
@@ -483,7 +514,12 @@ export class MockAgentSession implements AgentSession {
   }
 
   describePersistence(): PersistenceHandle | null {
-    return { provider: this.provider, sessionId: this.id, nativeHandle: `mock:${this.id}` };
+    const generation = this.forkGeneration > 0 ? `:fork-${this.forkGeneration}` : "";
+    return {
+      provider: this.provider,
+      sessionId: this.id,
+      nativeHandle: `mock:${this.id}${generation}`,
+    };
   }
 
   // Slash-command operations (sprint-037) + command discovery (sprint-040): deterministic,
@@ -537,7 +573,13 @@ export class MockAgentSession implements AgentSession {
     return Promise.resolve({ cancelled: false });
   }
 
+  /** Fork generation: `fork(MOCK_REBIND_ENTRY_ID)` bumps it, which changes the native handle
+   *  `describePersistence` reports — the condition under which `handleFork` resets the timeline and
+   *  broadcasts `agent_timeline_reset`. Every other entry id leaves the handle alone (inert stub). */
+  private forkGeneration = 0;
+
   fork(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    if (entryId === MOCK_REBIND_ENTRY_ID) this.forkGeneration += 1;
     return Promise.resolve({ text: `mock forked text for ${entryId}`, cancelled: false });
   }
 

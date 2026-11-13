@@ -27,7 +27,9 @@ const quiet = (s: { stream: Writable }, opts: CreateLoggerOptions = {}): CreateL
 describe("createLogger", () => {
   it("writes structured NDJSON to a rotating file when logDir is set", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-studio-log-"));
-    const log = createLogger(quiet(sink(), { logDir: dir, level: "info", bindings: { name: "pi-studio" } }));
+    const log = createLogger(
+      quiet(sink(), { logDir: dir, level: "info", bindings: { name: "pi-studio" } }),
+    );
     log.info({ slot: 1 }, "terminal opened");
     log.warn("heads up");
     // rotating-file-stream flushes asynchronously; give it a tick.
@@ -53,10 +55,16 @@ describe("createLogger", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // stdout got it as NDJSON…
-    const stdoutLine = s.text().trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    const stdoutLine = s
+      .text()
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(stdoutLine[0]).toMatchObject({ level: 30, msg: "connection open", conn: "abc" });
     // …and so did the rotating file.
-    const contents = readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("");
+    const contents = readdirSync(dir)
+      .map((f) => readFileSync(join(dir, f), "utf8"))
+      .join("");
     expect(contents).toContain("connection open");
   });
 

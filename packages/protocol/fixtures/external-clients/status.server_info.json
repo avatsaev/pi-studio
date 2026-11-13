@@ -1,0 +1,27 @@
+{
+  "type": "status",
+  "direction": "server_to_client",
+  "description": "Handshake reply: server identity, version and feature flags (a subset of flags is pinned; the daemon may add more).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/payload/serverId", "/payload/hostname", "/payload/version", "/payload/homeDir"],
+  "frame": {
+    "type": "status",
+    "payload": {
+      "status": "server_info",
+      "serverId": "00000000-0000-4000-8000-000000000001",
+      "hostname": "daemon-host",
+      "version": "0.0.115",
+      "homeDir": "/home/user",
+      "capabilities": {},
+      "features": {
+        "extensionUi": true,
+        "thinkingLevels": true,
+        "forkTimelineSync": true,
+        "compactionEvents": true,
+        "agentTodos": true
+      }
+    }
+  }
+}

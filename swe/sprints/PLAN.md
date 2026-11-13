@@ -107,9 +107,17 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 079 | `sprint-079-agent-todos-daemon` | protocol, server, client: **Agent todos, slice 1**. The daemon derives an agent's todo list from rpiv-todo's `todo` tool results and `rpiv-todo-state` session entries, then serves it as the `agent_todos_*` family (list RPC + seq'd broadcast, `agentTodos` flag) with SDK members and a pure reducer. The mock gets `#todo` dev recipes. | 9 |
 | 080 | `sprint-080-agent-todos-ui` | web-client only: **Agent todos, slice 2**. `TodoPanel` between the timeline and the composer in every chat pane: header count and collapsed summary, status rows, completed-task grouping, capped height with in-panel scroll, per-agent collapse persisted. No daemon change. | 4 |
 | 081 | `sprint-081-composer-path-drop` | web-client only: **Composer path drop**. Drag a Files-tree file or folder onto the composer card to insert its workspace-relative path at the textarea caret. Smart spacing, folder `/`, backtick-wrapping only for whitespace/backtick, native undo, refusal outside the workspace root. A new composer-only path-ref drag payload; the pane host yields to the composer for it. No daemon/protocol change. | 6 |
+| 082 | `sprint-082-agent-deep-link` | web-client only: **Agent deep link** (dashboard stage 1). A `#agent=<id>` URL fragment selects that agent's chat, as a sidebar click would, once the connection is open and session restore has hydrated the list. Unknown agent → one toast. Applied once; the `agent` key is then stripped from the address bar. Coexists with `#offer=` and the existing `?host=&connect=1`. A bare link never connects. No daemon/protocol change. | 3 |
+| 083 | `sprint-083-external-client-fixtures` | protocol + server tests: **External-client wire fixtures** (dashboard stage 1). Canonical JSON fixtures for every message the dashboard consumes or sends, in `packages/protocol/fixtures/external-clients/` (manifest, README rule, CHANGELOG, shape signatures). Layer A (Zod, manifest, secret scan, breaking-change guard) and Layer B (live dev-daemon match, including the schema-less types). Changing a fixture's shape is a breaking change. | 7 |
+| 084 | `sprint-084-daemon-status-rpc` | protocol + server: **Daemon status RPC** (dashboard stage 2, part 1). `daemon_status_*` one-shot plus a 5 s per-session push (version, uptime, cpu, memory, event-loop lag, agents by status, connected clients incl. `appVersion`/transport/address). `SERVER_VERSION` moves to `version.ts` and replaces the `"1.0.0"`/`"0.1.0-dev"` handshake placeholders. Registered but **not advertised** until s085. | 6 |
+| 085 | `sprint-085-daemon-log-streaming` | protocol + server: **Daemon log streaming** (dashboard stage 2, part 2). A pino tap with a 1000-line in-memory ring (truncated, sanitised copy; file/stdout byte-identical), `daemon_logs_subscribe/_unsubscribe` + `daemon_log_lines` with a `minLevel` filter and 200 lines/s per-subscriber cap + `dropped`. Then flips `daemonObservability` on for both families and adds the stage 2 fixtures. | 6 |
+| 086 | `sprint-086-retire-permission-channel` | server + cli (+ docs): **Retire the tool-permission channel** (MAIN-SCOPE § 10, decided 2026-11-13). Nothing produces a permission request: Pi gates tools through extensions over `agent_ui_*`, and Pi does not implement `respond_to_permission`. Removes `PermissionService`, the provider-contract members, the MCP permission tools and the CLI `permit` group. Wire schemas are kept unread (append-only; rewind precedent, s071/t001). Independent of 082–085. | 3 |
+| 087 | `sprint-087-daemon-loopback-default` | server (+ docs): **Daemon loopback default** (MAIN-SCOPE § 10, D35; decided 2026-11-13). `main.ts` and `dev-main.ts` hard-code `0.0.0.0:6767` while everything else says `127.0.0.1:6767`, and literal IPs always pass the Host allowlist, so a password-less daemon is drivable from the LAN. Default becomes loopback; `config.json` `daemon.listen` finally takes effect (`PI_STUDIO_LISTEN` → config → default); an unprotected non-loopback bind logs a loud warning (warn, not refuse: Docker binds `0.0.0.0` on purpose). | 3 |
 
-Total: **79 sprints, 420 tasks** (summed from the table above, still excluding 048/049 per the gap
-noted below). Recompute from the table rather than trusting a hand-maintained figure.
+Total: **81 sprints, 431 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
+Recompute from the table rather than trusting a hand-maintained figure.
 
 > **Index gap (found while planning sprint 050, not introduced by it):**
 > `sprint-048-workspace-split-panes-model` and `sprint-049-workspace-split-panes-ui` exist on disk
@@ -2228,6 +2236,182 @@ noted below). Recompute from the table rather than trusting a hand-maintained fi
 | task-005 | Composer drop zone: `decideComposerDrop`, affordance, insertion with native undo/fallback, refusal notice, pane focus | feature | task-001…task-004 | § Behavior, § Edge cases; D3, D8–D12, D16–D18 |
 | task-006 | Sprint close: Firefox/Safari checks, AGENTS.md (web-client + root), fern line, spec amendments, gates | docs | task-001…task-005 | § Acceptance criteria; AGENTS.md; spec TODOs |
 
+### sprint-082-agent-deep-link
+> **What it ships.** `features/web-ui-agent-deep-link.md` (dashboard brief D13/D24). It is the
+> contract the dashboard's "Open in web UI" builds against:
+> `<webUiUrl>/?host=<ws url>&connect=1#agent=<urlencoded id>`. All grammar and cleanup rules are pure,
+> Node-tested helpers. The apply step runs after `runSessionRestore` settles, so it overrides
+> restore's default focus instead of racing it.
+>
+> **Planning-time refinements to the spec**, applied by t003:
+> - The notice is an English literal: web-client has no i18n (as in sprint-080). This resolves
+>   TODO #3.
+> - Archived agents get the same "not found" toast. This resolves TODO #4: there is no second RPC.
+> - The bare-link question (TODO #1) follows the spec's recommendation. The dashboard appends
+>   `host` + `connect=1`, and the web UI never auto-connects.
+>
+> **Status: done** (all 3 tasks, 2026-11-13; verified live in a browser against a mock dev daemon).
+> The browser checks covered selecting an older agent, a `hashchange` select, the not-found toast,
+> URL cleanup, and a bare link not connecting on its own. Still TODO(verify): relay pairing combined
+> with `agent=` (`#offer=…&agent=…`), and a manual Connect followed by the select.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Pure `parseAgentDeepLink`/`stripAgentParam` + `deep-link-store`; `parsePairingUrl` coexistence test | feature | none | § URL grammar, § Fragment cleanup policy |
+| task-002 | `applyAgentDeepLink` after restore settles, `useAgentDeepLinkBoot` (`hashchange`), one-shot, layout-restore guard test | feature | task-001 | § Behavior contract 1–4, § Timing, § Edge cases; TODO #2 |
+| task-003 | Sprint close: live browser checks, AGENTS.md (web-client + root), fern `web-ui.mdx`, spec amendments, gates | docs | task-001, task-002 | § Acceptance criteria; TODO #1–#4 |
+
+### sprint-083-external-client-fixtures
+> **What it ships.** `architecture/external-client-fixtures.md` (brief D22/D34): the stage 1
+> fixture set, plus both test layers. A spike runs first. Planning found that the mock provider
+> has no visible producer for `reasoning`, `turn_failed`, `error` or a `user_message` stream event,
+> and that `agent_timeline_reset` only comes from a real fork. t001 records a producer decision per
+> row, and t002 builds only the missing ones.
+>
+> **Planning-time refinements to the spec**, applied by t007:
+> - The spike's capture script **is** the optional recorder
+>   (`packages/server/scripts/record-external-fixtures.ts`), so no throwaway code is written.
+> - The shared raw-`ws` helper (`test-support/daemon-test-client.ts`) is built here. s084/s085's
+>   E2E tests reuse it.
+> - A fixture that can only be produced by hand carries an explicit manifest `exception` marker,
+>   which the coverage guard accepts. A schema-less type may never be an exception.
+> - **No permission fixtures.** The `agent_permission_*` / `agent.permission.respond.*` rows are
+>   dropped, along with the dev-handle `permissionService` hook. The family is retired in s086
+>   (decided before s083 so no external client ever pins it).
+>
+> **Status: done** (all 7 tasks, 2026-11-13): 48 fixtures, Layer A at 62 tests, Layer B at 55
+> tests. Findings:
+> - The daemon has no producer for `agent_status` or for `agent_ui_resolved.cancelled`, so both
+>   are manifest `exception` fixtures.
+> - An additive field change needs `fixtures:update` to refresh `.signatures.json`.
+> - `.signatures.json` ships in the npm package.
+>
+> See the t001 note `notes/external-client-fixtures-spike.md`.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Spike: capture every stage 1 frame from the dev daemon, producer decision per row; capture script becomes the recorder | test | none | § Required fixture set; § TODO(verify) #1–#5 |
+| task-002 | Shared `daemon-test-client.ts`, missing mock stream producers / reset hook | feature | task-001 | § Files (test-support, dev-bootstrap) |
+| task-003 | Fixture dir, manifest, README rule, CHANGELOG; handshake/liveness/agents/timeline/stats/interrupt/error/health fixtures | feature | task-001 | § Location and layout, § File format, § Compatibility rule |
+| task-004 | `agent_stream.*` (11), `agent_ui_*`, `agent_timeline_reset` fixtures | feature | task-002, task-003 | § Required fixture set (stage 1), minus the retired permission rows |
+| task-005 | Layer A: manifest equality, schema validation, secret scan, signature guard, `fixtures:update` | test | task-003, task-004 | § Layer A, § Shape signature |
+| task-006 | Layer B: live dev-daemon scenario, `shapeMatches`, client-input acceptance, coverage guard | test | task-002, task-004, task-005 | § Layer B |
+| task-007 | Sprint close: `fixtures` in protocol npm `files`, AGENTS.md (root, protocol, server), spec amendments, gates | docs | task-001…task-006 | § Acceptance criteria |
+
+### sprint-084-daemon-status-rpc
+> **What it ships.** `features/daemon-status-rpc.md` (brief D23/D30/D33), except advertisement. The
+> service samples only while there is at least one subscriber (one shared `unref()`ed timer, one
+> snapshot per tick). `Session` gains `connectedAt`/`appVersion`/`remoteAddress`/`transport`.
+> t001 also fulfils `features/self-update.md`'s `server_info.version` row.
+>
+> **Planning-time refinements to the spec**, applied by t006:
+> - `daemonObservability` is **not** added here. Every `SERVER_FEATURES` key is advertised on both
+>   handshakes, and the flag covers log streaming too (D30). It lands in s085/t005, so the family
+>   is registered but dark at sprint end.
+> - No `curated-packs` re-export of `SERVER_VERSION`. Importers migrate (clean-cutover rule).
+> - `AgentManager.list()` already excludes archived agents (`agent-manager.ts:221`), which resolves
+>   that TODO at planning time.
+> - The relay-replacement disposal gap (`resetRelaySession` only deletes from `relaySessions`) is
+>   verified and fixed in t003, because it affects every per-session subscription, not just this
+>   one.
+>
+> **Status: done** (all 6 tasks, 2026-11-13). Every spec TODO(verify) item is resolved. The status
+> cost test measured 0.84 ms per 60 s with 10 subscribers and 500 agents. The relay replacement now
+> disposes subscriptions.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `version.ts` `SERVER_VERSION`; real `server_info.version` at direct/relay/dev handshakes | refactor | none | § `server_info.version`; self-update.md version row |
+| task-002 | Protocol: `daemon_status_*` schemas, `DaemonStatus`/`DaemonClientInfo` (no flag) | feature | none | § Wire messages |
+| task-003 | `Session` connection metadata; relay replacement runs session-close disposal | feature | none | § Session metadata; TODO relay close |
+| task-004 | `DaemonStatusService` (injected sampler, CPU/lag, shared timer, subscribers, cost budget test) | feature | task-001…task-003 | § Behavior & algorithms; D33 |
+| task-005 | `registerDaemonStatusHandlers`, both bootstraps, `onSessionClose`, dev-daemon E2E, auth check | feature | task-004, s083/task-002 | § Acceptance criteria |
+| task-006 | Sprint close: AGENTS.md (server, protocol), spec TODO resolutions, gates | docs | task-001…task-005 | § TODO(verify) |
+
+### sprint-085-daemon-log-streaming
+> **What it ships.** `features/daemon-log-streaming.md` (brief D29–D31/D33), then the shared
+> `daemonObservability` flag for both families, then the stage 2 fixtures from
+> `architecture/external-client-fixtures.md`. The ring and sanitiser act on the tap's copy only.
+> stdout and file output are proven byte-identical.
+>
+> **Planning-time refinements to the spec**, applied by t006:
+> - Sanitizer keys match **whole key names** (case-insensitive), so `tokens`/`inputTokens` usage
+>   counters are not redacted. This resolves the `token` TODO.
+> - Both bootstraps accept an optional `logTap`, so tests can share one tap between an injected
+>   `createLogger({tap, …})` logger and the service. Without it, an injected logger yields an
+>   empty stream (`effectiveLevel:"silent"`), as specified.
+> - A sentinel that leaks in the redaction scenario is fixed at the logging call site, never by
+>   widening the sanitizer.
+> - `minLevel`/`tail` stay loose in the request schema, so invalid values reach the handler and get
+>   the specified domain errors rather than `rpc_error`.
+>
+> **Status: done** (all 6 tasks, 2026-11-13). `daemonObservability` is advertised on both
+> handshakes, and 13 stage-2 fixtures pass Layers A and B. Combined cost run: 0.83 % of one core
+> (500 agents, status and logs subscribed, 200 lines/s for 60 s; whole-process upper bound) against
+> the < 1 % budget, with a 0.38 % idle baseline. Note: the pre-existing `daemonStatusRpc` *client*
+> capability key in `client-capabilities.ts` is unrelated to this family and is left untouched.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: `daemon_logs_*`, `daemon_log_lines`, `LogLine` schemas | feature | s084/task-002 | § Wire messages |
+| task-002 | `LogTap` (ring 1000, truncation, sanitizer, non-JSON/multi-line) + `createLogger({tap})`, byte-identity test | feature | none | § Tapping pino, § Backlog, § Line cap, § Redaction |
+| task-003 | `DaemonLogsService`: validation, replace-on-resubscribe, 200/s bucket, 100 ms batcher, `dropped` | feature | task-002 | § Subscribe / deliver / cap, § Lifecycle |
+| task-004 | Handlers, tap in both bootstraps (`logTap` option), dev-daemon E2E, sentinel redaction scenario, auth | feature | task-001, task-003, s083/task-002 | § Acceptance criteria |
+| task-005 | `SERVER_FEATURES.daemonObservability` + COMPAT; stage 2 fixtures (status + logs) with Layer B scenarios | feature | task-004, s084/task-005, s083/task-006 | status/log § Capability flag; fixtures § Stage 2 |
+| task-006 | Sprint close: combined cost run, AGENTS.md (root, server, protocol), fern, spec amendments, gates | docs | task-001…task-005 | both specs § Acceptance; D33 |
+
+### sprint-086-retire-permission-channel
+> **What it ships.** The decision on MAIN-SCOPE § 10's permission question: retire. The evidence:
+> - `PermissionService.requestPermission`/`cancelPending` have no non-test caller;
+> - the Pi adapter's `getPendingPermissions()` returns `[]`, and its `respondToPermission` sends a
+>   command Pi does not implement;
+> - Pi's approval model is an extension hooking `tool_call` and asking through `ctx.ui`, which
+>   already reaches clients as `agent_ui_request` (s066–069; dashboard brief D36).
+>
+> This follows s071/t001's rewind retirement: the daemon surface is removed, and the protocol
+> schemas stay, unread. A client sending a permission RPC now gets `unknown_message_type`.
+>
+> **Not in this sprint:** the Pi manifest's `plan`/`default`/`full-access` modes, which are stored
+> locally and enforce nothing (open question below).
+>
+> **Status: done** (all 3 tasks, 2026-11-13). Permission RPCs now answer `rpc_error
+> unknown_message_type` (asserted in `daemon/bootstrap.test.ts`), and `permit` is gone from
+> `pi-studio --help`. See the t001–t003 summaries.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Remove `PermissionService`, bootstrap registrations, `AgentSession` permission members (Pi/mock); schemas kept | refactor | none | features/tool-permissions.md (retirement) |
+| task-002 | Remove MCP `list_pending_permissions`/`respond_to_permission` and the CLI `permit` group | refactor | task-001 | mcp-server.md, cli.md |
+| task-003 | Sprint close: AGENTS/README/fern sweep, `tool-permissions.md` → retired, MAIN-SCOPE § 10 resolved, gates | docs | task-001, task-002 | MAIN-SCOPE § 10 |
+
+### sprint-087-daemon-loopback-default
+> **What it ships.** The D35 fix. Production (`pi-studio-daemon` bin, `npm start`) and the dev
+> daemon bind `127.0.0.1:6767` unless the operator opts in, matching `DEFAULT_DAEMON_LISTEN`, the
+> config schema, `protocol/endpoint.ts`, MAIN-SCOPE § 2 and the CLI spawn path. The CLI and Docker
+> already pass an explicit `PI_STUDIO_LISTEN` and are unaffected.
+>
+> **Decisions (2026-11-13):**
+> - Precedence is `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → `127.0.0.1:6767`. This
+>   revives a config key that was parsed but never read.
+> - An unprotected non-loopback bind **warns** (log + banner), it does not refuse, because the
+>   Docker quickstart binds `0.0.0.0` with an optional password.
+> - The dev daemon gets the same default: it has no auth and still serves file reads.
+>
+> Users who relied on LAN access opt back in with `PI_STUDIO_LISTEN=0.0.0.0:6767` (plus
+> `PI_STUDIO_PASSWORD`). This is recorded as a release note.
+>
+> **Status: done** (all 3 tasks, 2026-11-13). `daemon/listen.test.ts` covers the default,
+> precedence, an invalid `daemon.listen`, and the single warning. A live `npm run dev:daemon` with no
+> `PI_STUDIO_LISTEN` logged `listening on http://127.0.0.1:6767` (orchestrator, 2026-11-13). Still
+> TODO(verify): the Docker compose smoke. The upgrade note lives in `packages/server/README.md`
+> because the repo has no CHANGELOG.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Loopback default; `startDaemon` resolves listen from config when host/port omitted; `handle.listen`; regression test | bugfix | none | MAIN-SCOPE § 10 (D35), § 2 |
+| task-002 | `isLoopbackHost` + one-time unprotected-bind warning; dev daemon default loopback | feature | task-001 | D35 hardening |
+| task-003 | Sprint close: README/AGENTS/fern/docker docs, release note, MAIN-SCOPE § 10 resolved, gates | docs | task-001, task-002 | docs |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2328,7 +2512,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/timeline-streaming.md | s002/t003, s006/t001,t003, s015/t001, s058/t004 (second member of the ephemeral no-`seq` family, and the task that finally makes `queue_update`'s specified never-persisted status true in code), s058/t007 (live-vs-authoritative convergence exercised for a streamed tool call) |
 | features/conversation-fork.md | s071/t001-004 (daemon: rewind-surface removal, `resetTimeline` + `forkTimelineSync`, `handleFork` resync + `agent_timeline_reset` broadcast, close), s072/t001-006 (web-client: reset receipt, affordance + ordinal correlation, dialog + picker, completion/prefill/errors, compact + keyboard, live E2E). The fork RPCs themselves shipped in s037/t004 — this pair adds the resync and the UI those RPCs never had a consumer for |
 | features/tool-output-streaming.md | s058/t001-007 (optional `partial` field; mapper + `partialResult` reader; coalescer with terminal-cancellation; ephemeral broadcast + mock partials; `ToolCard` live tail + turn-terminal row closing + terminal-output authority; CLI watch suppression; cross-layer E2E + docs) |
-| features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004. **§ Question-permission bridge is SUPERSEDED** by features/extension-ui-rpc.md (s066) — Pi's dialogs are bridged by the generic `agent_ui_*` family instead, and this doc's `questionKind`/`allowComment` fields are noted as never-wired residue; the mode-gated tool-approval half remains dormant and unplanned |
+| features/tool-permissions.md | s002/t003, s006/t005, s010/t001 (MCP mirror), s011/t004 (permit), s015/t003-004. **§ Question-permission bridge is SUPERSEDED** by features/extension-ui-rpc.md (s066) — Pi's dialogs are bridged by the generic `agent_ui_*` family instead. **The whole channel is retired by s086/t001-003** (daemon service, contract members, MCP tools, CLI `permit` removed; wire schemas kept unread) |
 | features/projects-workspaces.md | s008/t001-002, s013/t003 |
 | features/worktrees.md | s003/t003, s008/t003, s011/t004, s013/t003 |
 | features/git-checkout.md | s008/t004-006, s009/t006 (diff highlight), s016/t003 |
@@ -2379,6 +2563,10 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/agent-todos.md | s079/t001-009 (spike; wire + flag; contract + Pi mirror; adapter wiring; mock recipes; service; handlers/bootstraps/fork hook; SDK; real-Pi E2E + docs) |
 | features/agent-todos-ui.md | s080/t001-004 (pure model + collapse codec; store + boot; `TodoPanel`; live checks across dev, real Pi, relay + docs) |
 | features/composer-path-drop.md | s081/t001-006 (spike; pure helpers; path-ref payload; pane-host yield; composer drop zone; cross-browser checks + docs). Spec TODO #4 (`relativeToRoot` bug) deliberately left as a follow-up |
+| features/web-ui-agent-deep-link.md | s082/t001-003 (pure parse/strip + store; apply after restore + `hashchange`; live browser checks + docs) |
+| architecture/external-client-fixtures.md | s083/t001-007 (spike + recorder; test client + producers; stage 1 fixtures; Layer A + signature guard; Layer B; publish + docs); stage 2 fixtures in s085/t005 |
+| features/daemon-status-rpc.md | s084/t001-006 (version source; schemas; `Session` metadata; service; handlers/bootstraps/E2E; docs); flag + fixtures in s085/t005 |
+| features/daemon-log-streaming.md | s085/t001-006 (schemas; tap; service; handlers/bootstraps/E2E incl. redaction; flag + stage 2 fixtures; cost run + docs) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -2494,3 +2682,26 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Follow-up (unplanned): `lib/paths.ts` `relativeToRoot("/repo2/x", "/repo")` yields `"2/x"` and
       returns out-of-root paths unchanged; it affects the Files tree's *Copy Relative Path*
       (`features/composer-path-drop.md` § TODO(verify) #4).
+- [x] Deep link (s082): answered by s082/t002's layout-restore guard test. The apply runs after
+      `runSessionRestore` settles, and a pane-claim restore does not replace the deep-link tab.
+- [x] Fixtures (s083): answered by s083/t001 (`notes/external-client-fixtures-spike.md`). Mock
+      producers were added for `reasoning`, `turn_failed` and `error`, and a mock fork rebind
+      produces `agent_timeline_reset`. `agent_status` and `agent_ui_resolved.cancelled` have no
+      daemon producer, so they are manifest exceptions. `fixtures/` ships in the protocol npm
+      `files` (s083/t007).
+- [x] Daemon status (s084): relay replacement now disposes per-session subscriptions (t003).
+      `startedAt` is the bootstrap start, with both bootstraps building the service at the same
+      point, and `clients[]` stays uncapped (t006).
+- [x] Log streaming (s085): pino writes exactly one newline-terminated line per `write` (asserted
+      in a test). Each bootstrap builds its own `LogTap` before its logger unless a `logTap` is
+      injected, so bootstrap order is unchanged (s085/t002, t004).
+- [x] **Daemon listen default (MAIN-SCOPE § 10, brief D35): decided 2026-11-13.** Loopback
+      default, `daemon.listen` honoured, warn (not refuse) on an unprotected non-loopback bind, and
+      the dev daemon included. Planned as s087.
+- [x] **Tool-permission channel (MAIN-SCOPE § 10, brief D36): decided 2026-11-13, retire.** Planned
+      as s086. s083 drops the permission fixtures, so no external client pins the family.
+- [ ] Provider modes: the Pi manifest offers `plan`/`default`/`full-access` (`colorTier`
+      `"dangerous"`), but `setMode` only stores the id locally and Pi enforces nothing. Either make
+      a mode mean something (e.g. a pi-studio extension gating `tool_call` via `ctx.ui`, which would
+      ride `agent_ui_*`) or stop offering modes that imply a guarantee. Unplanned; found while
+      planning s086.

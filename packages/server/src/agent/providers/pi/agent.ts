@@ -24,7 +24,6 @@ import type {
   ImportSessionArgs,
   ImportSessionResult,
   LaunchContext,
-  PendingPermission,
   PersistenceHandle,
   ProviderRuntimeInfo,
   ProviderUiRequest,
@@ -404,15 +403,6 @@ class PiAgentSession implements AgentSession {
     // Pi RPC has no `set_mode` command (modes are a Pi-Studio concept layered over the provider).
     // Track it locally; model/thinking changes go through setModel/setThinkingOption.
     this.mode = id;
-    return Promise.resolve();
-  }
-
-  getPendingPermissions(): PendingPermission[] {
-    return [];
-  }
-
-  respondToPermission(requestId: string, response: unknown): Promise<void> {
-    this.transport.notify("respond_to_permission", { requestId, response });
     return Promise.resolve();
   }
 

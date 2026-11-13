@@ -1,0 +1,17 @@
+{
+  "type": "agent_status",
+  "direction": "server_to_client",
+  "description": "Agent status message. Defined by agentStatusMessageSchema but no daemon code path emits it today.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_status",
+      "agentId": "agent-1",
+      "status": "idle"
+    }
+  }
+}

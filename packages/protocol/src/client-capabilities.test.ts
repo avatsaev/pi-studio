@@ -23,6 +23,7 @@ describe("capability flag sets", () => {
         "agentTodos",
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
+        "daemonObservability",
         "daemonStatusRpc",
         "extensionPacks",
         "extensionUi",

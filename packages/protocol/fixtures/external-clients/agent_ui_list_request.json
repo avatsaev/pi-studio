@@ -1,0 +1,17 @@
+{
+  "type": "agent_ui_list_request",
+  "direction": "client_to_server",
+  "description": "Late-join catch-up: list pending dialogs and retained surfaces for one agent (omit agentId for all agents).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_list_request",
+      "requestId": "req-1",
+      "agentId": "agent-1"
+    }
+  }
+}

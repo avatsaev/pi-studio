@@ -326,8 +326,6 @@ describe("send prompt", () => {
       getAvailableModes: () => [],
       getCurrentMode: () => null,
       setMode: () => Promise.resolve(),
-      getPendingPermissions: () => [],
-      respondToPermission: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",
@@ -391,8 +389,6 @@ describe("send prompt", () => {
       getAvailableModes: () => [],
       getCurrentMode: () => null,
       setMode: () => Promise.resolve(),
-      getPendingPermissions: () => [],
-      respondToPermission: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",
@@ -457,8 +453,6 @@ describe("send prompt", () => {
       getAvailableModes: () => [],
       getCurrentMode: () => null,
       setMode: () => Promise.resolve(),
-      getPendingPermissions: () => [],
-      respondToPermission: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",

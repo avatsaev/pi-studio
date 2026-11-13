@@ -11,6 +11,13 @@ export class Session {
   readonly clientId: string;
   readonly clientType: string;
   capabilities: Record<string, boolean>;
+  /** Epoch ms of the handshake. A wall-clock fact for the connected-clients list. */
+  readonly connectedAt: number;
+  /** The hello's `appVersion`, verbatim; a connection fact (never persisted as a capability). */
+  readonly appVersion: string | undefined;
+  /** Socket peer address; direct sessions only (the relay has no peer address). */
+  readonly remoteAddress: string | undefined;
+  readonly transport: "direct" | "relay";
   private readonly socket: WebSocket;
 
   constructor(opts: {
@@ -19,11 +26,19 @@ export class Session {
     clientType: string;
     capabilities: Record<string, boolean>;
     socket: WebSocket;
+    connectedAt?: number;
+    appVersion?: string;
+    remoteAddress?: string;
+    transport?: "direct" | "relay";
   }) {
     this.id = opts.id;
     this.clientId = opts.clientId;
     this.clientType = opts.clientType;
     this.capabilities = opts.capabilities;
+    this.connectedAt = opts.connectedAt ?? Date.now();
+    this.appVersion = opts.appVersion;
+    this.remoteAddress = opts.remoteAddress;
+    this.transport = opts.transport ?? "direct";
     this.socket = opts.socket;
   }
 

@@ -1,0 +1,22 @@
+{
+  "type": "agent_stream",
+  "direction": "server_to_client",
+  "description": "agent_stream frame carrying a reasoning event.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId", "/message/seq", "/message/timestamp"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_stream",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "seq": 12,
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "event": {
+        "kind": "reasoning",
+        "text": "mock reasoning"
+      }
+    }
+  }
+}

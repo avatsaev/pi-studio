@@ -1,0 +1,64 @@
+{
+  "type": "daemon_status_subscribe_response",
+  "direction": "server_to_client",
+  "description": "Subscription accepted; carries the push interval and an immediate snapshot.",
+  "since": "0.0.115",
+  "stage": 2,
+  "requiresFeature": "daemonObservability",
+  "volatile": [
+    "/message/requestId",
+    "/message/payload/status/version",
+    "/message/payload/status/startedAt",
+    "/message/payload/status/uptimeMs",
+    "/message/payload/status/pid",
+    "/message/payload/status/nodeVersion",
+    "/message/payload/status/memory/rss",
+    "/message/payload/status/memory/heapUsed",
+    "/message/payload/status/memory/heapTotal",
+    "/message/payload/status/cpuPercent",
+    "/message/payload/status/eventLoopLagMs",
+    "/message/payload/status/agentsByStatus/idle",
+    "/message/payload/status/clients/0/clientId",
+    "/message/payload/status/clients/0/appVersion",
+    "/message/payload/status/clients/0/connectedAt",
+    "/message/payload/status/clients/0/remoteAddress"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "daemon_status_subscribe_response",
+      "payload": {
+        "ok": true,
+        "intervalMs": 5000,
+        "status": {
+          "version": "0.0.115",
+          "startedAt": 1767225600000,
+          "uptimeMs": 7520.5,
+          "pid": 4242,
+          "nodeVersion": "v24.0.0",
+          "memory": {
+            "rss": 172122112,
+            "heapUsed": 65642672,
+            "heapTotal": 115298304
+          },
+          "cpuPercent": 1.5,
+          "eventLoopLagMs": 0.5,
+          "agentsByStatus": {
+            "idle": 2
+          },
+          "clients": [
+            {
+              "clientId": "client-1",
+              "clientType": "cli",
+              "appVersion": "pistudiodashboard/0.1.0",
+              "connectedAt": 1767225600000,
+              "remoteAddress": "127.0.0.1",
+              "transport": "direct"
+            }
+          ]
+        }
+      },
+      "requestId": "req-1"
+    }
+  }
+}

@@ -1,5 +1,13 @@
 # Tool-Call Permissions — Clean Room Scope
 
+> **Status: retired (sprint-086, decided 2026-11-13).** Nothing in production ever emitted a
+> permission request: `PermissionService.requestPermission`/`cancelPending` had no non-test
+> caller, the Pi adapter\'s `getPendingPermissions()` returned `[]` and its `respondToPermission`
+> notified a command Pi does not implement. Pi gates tools through extensions, whose questions
+> travel on `agent_ui_*` — see [extension-ui-rpc.md](extension-ui-rpc.md). The daemon service,
+> `AgentSession` members, MCP tools and CLI `permit` group were removed; the wire schemas remain in
+> `packages/protocol` (append-only, unread). The text below is historical.
+
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [agent-sessions.md](agent-sessions.md), [agent-providers.md](agent-providers.md),
 > [mcp-server.md](mcp-server.md), [cli.md](cli.md),

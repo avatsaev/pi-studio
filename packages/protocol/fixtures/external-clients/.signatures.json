@@ -1,0 +1,559 @@
+{
+  "formatVersion": 1,
+  "files": {
+    "agent_archived.json": {
+      "/message/agentId": "string",
+      "/message/archivedAt": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_deleted.json": {
+      "/message/agentId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_session_stats_request.json": {
+      "/message/agentId": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_session_stats_response.json": {
+      "/message/payload/model": "string",
+      "/message/payload/sessionId": "string",
+      "/message/payload/tokens/total": "number",
+      "/message/payload/totalMessages": "number",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_status.json": {
+      "/message/agentId": "string",
+      "/message/status": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.assistant_message.json": {
+      "/message/agentId": "string",
+      "/message/event/final": "boolean",
+      "/message/event/kind": "string",
+      "/message/event/messageId": "string",
+      "/message/event/text": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.compaction.json": {
+      "/message/agentId": "string",
+      "/message/event/compactionId": "string",
+      "/message/event/kind": "string",
+      "/message/event/phase": "string",
+      "/message/event/reason": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.error.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/message": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.reasoning.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/text": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.tool_call.json": {
+      "/message/agentId": "string",
+      "/message/event/callId": "string",
+      "/message/event/kind": "string",
+      "/message/event/status": "string",
+      "/message/event/tool/command": "string",
+      "/message/event/tool/kind": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.tool_call.partial.json": {
+      "/message/agentId": "string",
+      "/message/event/callId": "string",
+      "/message/event/kind": "string",
+      "/message/event/partial": "boolean",
+      "/message/event/status": "string",
+      "/message/event/tool/command": "string",
+      "/message/event/tool/kind": "string",
+      "/message/event/tool/output": "string",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.turn_canceled.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/turnId": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.turn_completed.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/turnId": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.turn_failed.json": {
+      "/message/agentId": "string",
+      "/message/event/error": "string",
+      "/message/event/kind": "string",
+      "/message/event/turnId": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.turn_started.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/turnId": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_stream.user_message.json": {
+      "/message/agentId": "string",
+      "/message/event/kind": "string",
+      "/message/event/messageId": "string",
+      "/message/event/text": "string",
+      "/message/seq": "number",
+      "/message/timestamp": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_timeline_reset.json": {
+      "/message/agentId": "string",
+      "/message/reason": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_list_request.json": {
+      "/message/agentId": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_list_response.json": {
+      "/message/payload/ok": "boolean",
+      "/message/payload/pending/0/agentId": "string",
+      "/message/payload/pending/0/createdAt": "number",
+      "/message/payload/pending/0/expectsResponse": "boolean",
+      "/message/payload/pending/0/method": "string",
+      "/message/payload/pending/0/payload/options/0": "string",
+      "/message/payload/pending/0/payload/options/1": "string",
+      "/message/payload/pending/0/payload/title": "string",
+      "/message/payload/pending/0/requestId": "string",
+      "/message/payload/surfaces/0/agentId": "string",
+      "/message/payload/surfaces/0/method": "string",
+      "/message/payload/surfaces/0/payload/statusText": "string",
+      "/message/payload/surfaces/0/surfaceKey": "string",
+      "/message/payload/surfaces/0/updatedAt": "number",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.confirm.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/message": "string",
+      "/message/payload/title": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.editor.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/prefill": "string",
+      "/message/payload/title": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.input.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/placeholder": "string",
+      "/message/payload/title": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.notify.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/message": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.select.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/options/0": "string",
+      "/message/payload/options/1": "string",
+      "/message/payload/title": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.setStatus.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload/statusText": "string",
+      "/message/requestId": "string",
+      "/message/surfaceKey": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_request.setStatus.removed.json": {
+      "/message/agentId": "string",
+      "/message/createdAt": "number",
+      "/message/expectsResponse": "boolean",
+      "/message/method": "string",
+      "/message/payload": "object",
+      "/message/removed": "boolean",
+      "/message/requestId": "string",
+      "/message/surfaceKey": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_resolved.aborted.json": {
+      "/message/agentId": "string",
+      "/message/reason": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_resolved.answered.json": {
+      "/message/agentId": "string",
+      "/message/reason": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_resolved.cancelled.json": {
+      "/message/agentId": "string",
+      "/message/reason": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_resolved.timeout.json": {
+      "/message/agentId": "string",
+      "/message/reason": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_respond_request.confirm.json": {
+      "/message/requestId": "string",
+      "/message/response/confirmed": "boolean",
+      "/message/type": "string",
+      "/message/uiRequestId": "string",
+      "/type": "string"
+    },
+    "agent_ui_respond_request.select.json": {
+      "/message/requestId": "string",
+      "/message/response/value": "string",
+      "/message/type": "string",
+      "/message/uiRequestId": "string",
+      "/type": "string"
+    },
+    "agent_ui_respond_response.not_found.json": {
+      "/message/payload/error": "string",
+      "/message/payload/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_ui_respond_response.ok.json": {
+      "/message/payload/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_update.json": {
+      "/message/agentId": "string",
+      "/message/labels": "object",
+      "/message/status": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "agent_update.model.json": {
+      "/message/agentId": "string",
+      "/message/model": "string",
+      "/message/modelProvider": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_log_lines.json": {
+      "/message/dropped": "number",
+      "/message/lines/0/level": "string",
+      "/message/lines/0/msg": "string",
+      "/message/lines/0/time": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_logs_subscribe_request.json": {
+      "/message/minLevel": "string",
+      "/message/requestId": "string",
+      "/message/tail": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_logs_subscribe_response.json": {
+      "/message/payload/dropped": "number",
+      "/message/payload/effectiveLevel": "string",
+      "/message/payload/lines/0/level": "string",
+      "/message/payload/lines/0/msg": "string",
+      "/message/payload/lines/0/time": "number",
+      "/message/payload/minLevel": "string",
+      "/message/payload/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_logs_unsubscribe_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_logs_unsubscribe_response.json": {
+      "/message/payload/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_response.json": {
+      "/message/payload/agentsByStatus/idle": "number",
+      "/message/payload/clients/0/appVersion": "string",
+      "/message/payload/clients/0/clientId": "string",
+      "/message/payload/clients/0/clientType": "string",
+      "/message/payload/clients/0/connectedAt": "number",
+      "/message/payload/clients/0/remoteAddress": "string",
+      "/message/payload/clients/0/transport": "string",
+      "/message/payload/cpuPercent": "number",
+      "/message/payload/eventLoopLagMs": "number",
+      "/message/payload/memory/heapTotal": "number",
+      "/message/payload/memory/heapUsed": "number",
+      "/message/payload/memory/rss": "number",
+      "/message/payload/nodeVersion": "string",
+      "/message/payload/pid": "number",
+      "/message/payload/startedAt": "number",
+      "/message/payload/uptimeMs": "number",
+      "/message/payload/version": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_subscribe_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_subscribe_response.json": {
+      "/message/payload/intervalMs": "number",
+      "/message/payload/ok": "boolean",
+      "/message/payload/status/agentsByStatus/idle": "number",
+      "/message/payload/status/clients/0/appVersion": "string",
+      "/message/payload/status/clients/0/clientId": "string",
+      "/message/payload/status/clients/0/clientType": "string",
+      "/message/payload/status/clients/0/connectedAt": "number",
+      "/message/payload/status/clients/0/remoteAddress": "string",
+      "/message/payload/status/clients/0/transport": "string",
+      "/message/payload/status/cpuPercent": "number",
+      "/message/payload/status/eventLoopLagMs": "number",
+      "/message/payload/status/memory/heapTotal": "number",
+      "/message/payload/status/memory/heapUsed": "number",
+      "/message/payload/status/memory/rss": "number",
+      "/message/payload/status/nodeVersion": "string",
+      "/message/payload/status/pid": "number",
+      "/message/payload/status/startedAt": "number",
+      "/message/payload/status/uptimeMs": "number",
+      "/message/payload/status/version": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_unsubscribe_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_unsubscribe_response.json": {
+      "/message/payload/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "daemon_status_update.json": {
+      "/message/payload/agentsByStatus/idle": "number",
+      "/message/payload/clients/0/appVersion": "string",
+      "/message/payload/clients/0/clientId": "string",
+      "/message/payload/clients/0/clientType": "string",
+      "/message/payload/clients/0/connectedAt": "number",
+      "/message/payload/clients/0/remoteAddress": "string",
+      "/message/payload/clients/0/transport": "string",
+      "/message/payload/cpuPercent": "number",
+      "/message/payload/eventLoopLagMs": "number",
+      "/message/payload/memory/heapTotal": "number",
+      "/message/payload/memory/heapUsed": "number",
+      "/message/payload/memory/rss": "number",
+      "/message/payload/nodeVersion": "string",
+      "/message/payload/pid": "number",
+      "/message/payload/startedAt": "number",
+      "/message/payload/uptimeMs": "number",
+      "/message/payload/version": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "fetch_agent_timeline_request.json": {
+      "/message/agentId": "string",
+      "/message/direction": "string",
+      "/message/limit": "number",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "fetch_agent_timeline_response.json": {
+      "/message/agentId": "string",
+      "/message/collapsed": "boolean",
+      "/message/endCursor": "string",
+      "/message/hasNewer": "boolean",
+      "/message/items/0/event/kind": "string",
+      "/message/items/0/event/messageId": "string",
+      "/message/items/0/event/text": "string",
+      "/message/items/0/kind": "string",
+      "/message/items/0/sourceSeq": "number",
+      "/message/items/0/timestamp": "string",
+      "/message/requestId": "string",
+      "/message/seqEnd": "number",
+      "/message/seqStart": "number",
+      "/message/sourceSeqRanges/0/end": "number",
+      "/message/sourceSeqRanges/0/start": "number",
+      "/message/startCursor": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "health.json": {
+      "/body/status": "string",
+      "/contentType": "string",
+      "/status": "number"
+    },
+    "hello.json": {
+      "/appVersion": "string",
+      "/capabilities/reasoning_merge_enum": "boolean",
+      "/clientId": "string",
+      "/clientType": "string",
+      "/protocolVersion": "number",
+      "/type": "string"
+    },
+    "interrupt_agent.json": {
+      "/message/agentId": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "interrupt_response.json": {
+      "/message/agentId": "string",
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "list_agents_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "list_agents_response.json": {
+      "/message/agents/0/agentId": "string",
+      "/message/agents/0/cwd": "string",
+      "/message/agents/0/labels": "object",
+      "/message/agents/0/lastActivity": "number",
+      "/message/agents/0/model": "string",
+      "/message/agents/0/provider": "string",
+      "/message/agents/0/status": "string",
+      "/message/agents/0/thinkingLevel": "string",
+      "/message/agents/0/title": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "ping.json": {
+      "/clientSentAt": "number",
+      "/requestId": "string",
+      "/type": "string"
+    },
+    "pong.json": {
+      "/clientSentAt": "number",
+      "/requestId": "string",
+      "/serverReceivedAt": "number",
+      "/serverSentAt": "number",
+      "/type": "string"
+    },
+    "rpc_error.json": {
+      "/message/code": "string",
+      "/message/message": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "status.server_info.json": {
+      "/payload/capabilities": "object",
+      "/payload/features/agentTodos": "boolean",
+      "/payload/features/compactionEvents": "boolean",
+      "/payload/features/extensionUi": "boolean",
+      "/payload/features/forkTimelineSync": "boolean",
+      "/payload/features/thinkingLevels": "boolean",
+      "/payload/homeDir": "string",
+      "/payload/hostname": "string",
+      "/payload/serverId": "string",
+      "/payload/status": "string",
+      "/payload/version": "string",
+      "/type": "string"
+    }
+  }
+}

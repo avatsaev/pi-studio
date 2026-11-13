@@ -1,0 +1,16 @@
+{
+  "type": "pong",
+  "direction": "server_to_client",
+  "description": "JSON liveness reply (top-level frame). Timestamps are epoch milliseconds.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/requestId", "/clientSentAt", "/serverReceivedAt", "/serverSentAt"],
+  "frame": {
+    "type": "pong",
+    "requestId": "req-1",
+    "clientSentAt": 1767225600000,
+    "serverReceivedAt": 1767225600000,
+    "serverSentAt": 1767225600000
+  }
+}

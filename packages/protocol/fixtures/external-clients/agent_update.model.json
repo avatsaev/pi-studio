@@ -1,0 +1,18 @@
+{
+  "type": "agent_update",
+  "direction": "server_to_client",
+  "description": "Model change broadcast (emitted beyond the Zod schema: model, modelProvider, optional thinkingLevel).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId", "/message/model", "/message/modelProvider"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_update",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "model": "mock-2",
+      "modelProvider": "mock"
+    }
+  }
+}

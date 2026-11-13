@@ -1,0 +1,34 @@
+{
+  "type": "daemon_logs_subscribe_response",
+  "direction": "server_to_client",
+  "description": "Subscription accepted: the level in force and the requested backlog (one representative line); dropped counts lines the rate cap discarded.",
+  "since": "0.0.115",
+  "stage": 2,
+  "requiresFeature": "daemonObservability",
+  "volatile": [
+    "/message/requestId",
+    "/message/payload/lines/0/time",
+    "/message/payload/lines/0/level",
+    "/message/payload/lines/0/msg"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "daemon_logs_subscribe_response",
+      "payload": {
+        "ok": true,
+        "minLevel": "info",
+        "effectiveLevel": "info",
+        "lines": [
+          {
+            "time": 1767225600000,
+            "level": "info",
+            "msg": "external fixture log line"
+          }
+        ],
+        "dropped": 0
+      },
+      "requestId": "req-1"
+    }
+  }
+}

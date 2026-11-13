@@ -175,3 +175,49 @@ describe("onSessionClose hook", () => {
     expect(handle.sessions.size).toBe(0);
   });
 });
+
+const helloWith = (clientId: string, appVersion?: string) =>
+  JSON.stringify({
+    type: "hello",
+    clientId,
+    clientType: "cli",
+    protocolVersion: 1,
+    ...(appVersion ? { appVersion } : {}),
+  });
+
+describe("Session connection metadata (sprint-084/task-003)", () => {
+  it("retains hello.appVersion, peer address, transport and connectedAt on the Session", async () => {
+    const before = Date.now();
+    const { port, sessions } = await startServer();
+    const ws = await connect(port);
+    ws.send(helloWith("meta-1", "pistudiodashboard/0.1.0"));
+    await nextMessage(ws);
+    const s = sessions[0]!;
+    expect(s.appVersion).toBe("pistudiodashboard/0.1.0");
+    expect(s.transport).toBe("direct");
+    expect(s.remoteAddress).toMatch(/127\.0\.0\.1$/);
+    expect(s.connectedAt).toBeGreaterThanOrEqual(before);
+    expect(s.connectedAt).toBeLessThanOrEqual(Date.now());
+    ws.close();
+  });
+
+  it("leaves appVersion undefined when the hello omits it, and never writes it to the capability store", async () => {
+    const stored = new Map<string, Record<string, boolean>>();
+    const { port, sessions } = await startServer({
+      capabilityStore: {
+        get: (id) => stored.get(id),
+        set: (id, caps) => void stored.set(id, caps),
+      },
+    });
+    const ws = await connect(port);
+    ws.send(helloWith("meta-2"));
+    await nextMessage(ws);
+    expect(sessions[0]!.appVersion).toBeUndefined();
+    ws.close();
+    const ws2 = await connect(port);
+    ws2.send(helloWith("meta-3", "x/1"));
+    await nextMessage(ws2);
+    expect(stored.get("meta-3")).toEqual({});
+    ws2.close();
+  });
+});

@@ -1,0 +1,17 @@
+{
+  "type": "agent_timeline_reset",
+  "direction": "server_to_client",
+  "description": "The agent's timeline was replaced (after a fork); clients must refetch it. No Zod schema.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "forkTimelineSync",
+  "volatile": ["/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_timeline_reset",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "reason": "fork"
+    }
+  }
+}

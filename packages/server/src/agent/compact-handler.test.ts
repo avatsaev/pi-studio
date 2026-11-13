@@ -77,12 +77,6 @@ class ScriptedSession implements AgentSession {
   setMode(): Promise<void> {
     return Promise.resolve();
   }
-  getPendingPermissions() {
-    return [];
-  }
-  respondToPermission(): Promise<void> {
-    return Promise.resolve();
-  }
   describePersistence() {
     return null;
   }

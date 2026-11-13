@@ -25,16 +25,22 @@ import { deterministicFallback } from "../agent/structured-generation.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
 import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
-import { PermissionService } from "../agent/permissions.js";
 import { createMockClient } from "../agent/providers/mock/mock-provider.js";
 import { ProviderRegistry } from "../agent/provider-registry.js";
 import { FileExplorerService } from "../files/file-explorer.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { LogTap } from "../logging/log-tap.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
+import { registerDaemonLogsHandlers } from "../observability/daemon-logs-rpc.js";
+import { DaemonLogsService } from "../observability/daemon-logs-service.js";
+import { registerDaemonStatusHandlers } from "../observability/daemon-status-rpc.js";
+import { DaemonStatusService } from "../observability/daemon-status-service.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
+import { SERVER_VERSION } from "../version.js";
 import { wrapSessionEnvelope } from "./bootstrap.js";
+import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
 
 export interface DevBootstrapOptions {
   host: string;
@@ -43,6 +49,12 @@ export interface DevBootstrapOptions {
   hostnames?: true | string[];
   /** Operational logger. Defaults to a stdout dev logger (`PI_STUDIO_LOG_LEVEL`, pretty on a TTY). */
   logger?: Logger;
+  /**
+   * Live log-stream tap (daemon log streaming). Defaults to a fresh `LogTap` attached to the
+   * logger the bootstrap builds itself; when `logger` is injected the caller must have passed the
+   * same tap to `createLogger({tap})` (an injected logger without it streams nothing).
+   */
+  logTap?: LogTap;
   /**
    * Delay (ms) before a mock turn auto-completes (`MockSessionOptions.turnDelayMs`). Defaults to
    * the mock provider's own default (5ms) — long enough for `interrupt` to win a race, too short
@@ -77,7 +89,8 @@ function broadcast(sessions: Iterable<Session>, message: unknown): void {
 }
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const serverId = opts.serverId ?? randomUUID();
-  const logger = opts.logger ?? createDaemonLogger(undefined);
+  const logTap = opts.logTap ?? new LogTap();
+  const logger = opts.logger ?? createDaemonLogger(undefined, { tap: logTap });
 
   // Services receive `getActiveSessions` backed by the module-level `broadcast` (hoisted
   // above) and a mutable holder so they can be registered before the WS server exists.
@@ -100,6 +113,20 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     getAgent: (agentId) => manager.get(agentId),
     resolveClient: (provider) => resolveClient(provider),
     logger,
+  });
+
+  // ── Daemon status (features/daemon-status-rpc.md) — reads agents lazily through `manager`.
+  const daemonStatusService = new DaemonStatusService({
+    listAgents: () => manager.list(),
+    getActiveSessions: () => [...getActiveSessions()],
+    send: (session, envelope) => session.send(envelope),
+    logger: logger.child({ component: "daemon-status" }),
+  });
+
+  // ── Daemon log streaming (features/daemon-log-streaming.md)
+  const daemonLogsService = new DaemonLogsService({
+    tap: logTap,
+    send: (session, envelope) => session.send(envelope),
   });
 
   // ── In-memory agent manager (no disk persistence in dev mode) ──────────────
@@ -168,11 +195,10 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   registerTimelineHandler(registry, { manager, resolveClient });
 
-  const permissionService = new PermissionService({ manager, broadcast });
-  permissionService.registerHandlers(registry, getActiveSessions);
-
   registerAgentUiHandlers(registry, { service: agentUiService, logger });
   registerAgentTodosHandlers(registry, { service: agentTodosService });
+  registerDaemonStatusHandlers(registry, { service: daemonStatusService });
+  registerDaemonLogsHandlers(registry, { service: daemonLogsService });
 
   // Unlike extensions (production-only), this subsystem must exist in dev: the web client is
   // developed against the dev daemon, and without it every dev session runs the
@@ -369,13 +395,17 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
     hostname: opts.host,
-    version: "0.1.0-dev",
+    version: SERVER_VERSION,
     logger,
     onSession: (session) => {
       logger.info(
         { clientId: session.clientId, clientType: session.clientType },
         "ws client connected",
       );
+    },
+    onSessionClose: (session) => {
+      daemonStatusService.disposeSession(session);
+      daemonLogsService.disposeSession(session);
     },
     onMessage: (session, frame) => {
       if ("text" in frame) {
@@ -389,6 +419,10 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   sessionsHolder.sessions = wsHandle.sessions;
 
   httpServer.listen(opts.port, opts.host);
+  // The dev daemon has no auth at all.
+  if (!isLoopbackHost(opts.host)) {
+    logger.warn({ host: opts.host, port: opts.port }, UNPROTECTED_BIND_WARNING);
+  }
 
   return {
     httpServer,
@@ -397,6 +431,8 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     manager,
     close: async () => {
       logger.info("dev daemon shutting down");
+      daemonStatusService.dispose();
+      daemonLogsService.dispose();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     },

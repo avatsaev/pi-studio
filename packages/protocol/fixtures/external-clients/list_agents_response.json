@@ -1,0 +1,39 @@
+{
+  "type": "list_agents_response",
+  "direction": "server_to_client",
+  "description": "Directory of agents. Built inline in the daemon bootstrap (no Zod schema).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": [
+    "/message/requestId",
+    "/message/agents/0/agentId",
+    "/message/agents/0/lastActivity",
+    "/message/agents/0/status",
+    "/message/agents/0/title",
+    "/message/agents/0/cwd",
+    "/message/agents/0/provider",
+    "/message/agents/0/model",
+    "/message/agents/0/thinkingLevel"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "list_agents_response",
+      "requestId": "req-1",
+      "agents": [
+        {
+          "agentId": "00000000-0000-4000-8000-000000000001",
+          "status": "idle",
+          "title": "hello",
+          "cwd": "/tmp",
+          "labels": {},
+          "lastActivity": 1767225600000,
+          "provider": "mock",
+          "model": "mock-model",
+          "thinkingLevel": "off"
+        }
+      ]
+    }
+  }
+}

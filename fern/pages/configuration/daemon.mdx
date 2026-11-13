@@ -10,7 +10,7 @@ All are optional.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State + config + logs directory |
-| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Daemon listen address (`host:port`) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`. For LAN access set `0.0.0.0:6767` and `PI_STUDIO_PASSWORD` (a non-loopback bind without a password logs a warning) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
@@ -46,6 +46,16 @@ pi-studio daemon rotate-key
 
 The daemon mints a new keypair, restarts, and prints a fresh QR — all clients must re-pair, but
 your password and relay settings are untouched.
+
+## Remote status and logs
+
+A connected, authenticated client (direct or through the relay) can read the daemon's status and
+stream its logs: when `server_info.features.daemonObservability` is `true`, the `daemon_status_*`
+and `daemon_logs_*` messages are available. Log streaming mirrors the logger at its configured
+`PI_STUDIO_LOG_LEVEL` (a client can only narrow it) and is rate-limited to 200 lines per second
+per client; the log file and stdout are unchanged. Sensitive-looking fields and bearer tokens are
+redacted before a line is streamed, but redaction is best-effort, not a guarantee. No new
+environment variable is involved.
 
 ## The `pi` provider
 

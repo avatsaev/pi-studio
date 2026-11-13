@@ -53,6 +53,7 @@ export const SERVER_FEATURES = {
   compactionEvents: "compactionEvents",
   skills: "skills",
   agentTodos: "agentTodos",
+  daemonObservability: "daemonObservability",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -100,6 +101,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   skills: COMPAT({ name: "skills", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(agentTodos): added 0.0.0, remove by TBD
   agentTodos: COMPAT({ name: "agentTodos", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(daemonObservability): added 0.0.0, remove by TBD
+  daemonObservability: COMPAT({ name: "daemonObservability", addedIn: "0.0.0", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

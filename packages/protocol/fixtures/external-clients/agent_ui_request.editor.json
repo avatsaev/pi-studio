@@ -1,0 +1,24 @@
+{
+  "type": "agent_ui_request",
+  "direction": "server_to_client",
+  "description": "Multi-line editor dialog; the dashboard hands this off to the web client.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId", "/message/createdAt"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_request",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "agentId": "00000000-0000-4000-8000-000000000002",
+      "method": "editor",
+      "expectsResponse": true,
+      "payload": {
+        "title": "Edit",
+        "prefill": "text"
+      },
+      "createdAt": 1767225600000
+    }
+  }
+}
