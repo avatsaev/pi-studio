@@ -1,0 +1,19 @@
+{
+  "type": "capture_terminal_response",
+  "direction": "server_to_client",
+  "description": "Current screen text; `ok:false` with an empty `screen` when the slot does not exist.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/slot", "/message/screen"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "capture_terminal_response",
+      "slot": 1,
+      "ok": true,
+      "screen": "$ ",
+      "requestId": "req-1"
+    }
+  }
+}

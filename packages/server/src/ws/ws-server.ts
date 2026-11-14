@@ -146,6 +146,7 @@ export function createWebSocketServer(
           id: randomUUID(),
           clientId: hello.data.clientId,
           clientType: hello.data.clientType,
+          platform: hello.data.platform,
           capabilities,
           socket: ws,
           appVersion: hello.data.appVersion,

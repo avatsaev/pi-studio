@@ -5,7 +5,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@av-pi-studio/ui-library": resolve(__dirname, "packages/ui-library/src/index.ts"),
-      "@web-client": resolve(__dirname, "packages/web-client/src"),
+      // More specific key first: aliases are prefix matches.
+      "@av-pi-studio/workbench/fonts.css": resolve(__dirname, "packages/workbench/src/fonts.css"),
+      "@av-pi-studio/workbench": resolve(__dirname, "packages/workbench/src/index.ts"),
     },
   },
   test: {

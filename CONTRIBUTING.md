@@ -134,8 +134,10 @@ Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`r
 
 ### Web UI dev server
 
-`@av-pi-studio/web-client` is the production React 19 + Vite 6 browser UI shown in the README's
-screenshots. It talks to the daemon only through the `@av-pi-studio/client` SDK (never a raw
+`@av-pi-studio/web-client` is the production browser shell: a thin Vite 6 app that renders
+`@av-pi-studio/workbench` (the React 19 application shown in the README's screenshots) with a
+browser host. The UI code lives in `packages/workbench`; both are resolved from source, so edits
+there hot-reload. It talks to the daemon only through the `@av-pi-studio/client` SDK (never a raw
 WebSocket).
 For UI work, run it under Vite with hot reload instead of through `pi-studio ui`:
 
@@ -151,8 +153,7 @@ Enter the daemon URL and optional password in the toolbar and click **Connect**.
 bare `host:port`, a `ws://`/`wss://` URL, or `http://`/`https://` (mapped to `ws`/`wss` — the daemon
 upgrades HTTP to WebSocket on the same port), e.g. `127.0.0.1:6767` or `https://box.local:6767`. The
 password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
-static bundle: `npm run build:web-client` (or `build:electron -w packages/web-client` for the
-future Electron shell in `packages/desktop`).
+static bundle: `npm run build:web-client` (emits `packages/web-client/dist/web`).
 
 > `npm run dev:daemon` runs `dev-main.js` → `dev-bootstrap.ts`, a **minimal** dev daemon (mock
 > provider, a small handler subset) for iterating on the UI without credentials. It is **not** the
@@ -179,8 +180,9 @@ packages/
   server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
   cli/         pi-studio terminal client + local daemon/relay lifecycle control
   relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
-  web-client/  production React/Vite browser UI
-  desktop/     Electron wrapper (later sprint — placeholder)
+  web-client/  browser shell: renders the workbench, ships the static SPA
+  ui-library/  publishable React design system
+  workbench/   the client application as a library (web-client and the desktop app consume it)
 swe/   specifications + the sprint implementation plan
 ```
 
@@ -192,7 +194,9 @@ relay     ───────────────────────�
 client    ──────► protocol, relay
 server    ──────► protocol, relay
 cli       ──────► protocol, client, relay  (+ resolves server/web-client paths, no runtime import)
-web-client──────► protocol, client
+ui-library ─────────────────────────────► (no workspace deps)
+workbench ──────► protocol, client, ui-library
+web-client──────► protocol, client, ui-library, workbench
 ```
 
 The detailed specifications live under [`swe/`](swe/) —

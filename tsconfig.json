@@ -5,6 +5,8 @@
     { "path": "./packages/relay" },
     { "path": "./packages/client" },
     { "path": "./packages/ui-library" },
+    { "path": "./packages/workbench" },
+    { "path": "./packages/workbench/tsconfig.vite.json" },
     { "path": "./packages/server" },
     { "path": "./packages/cli" }
   ]

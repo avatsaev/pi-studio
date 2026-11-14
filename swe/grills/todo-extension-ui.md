@@ -62,7 +62,7 @@
 | Daemon mapping | `providers/pi/event-mapper.ts` `mapToolCall`, `session-hydration.ts:117` | Tool results map to a closed `ToolCallDetail` union (shell/read/edit/write/search/fetch/task); `details` is read only for edit patch; `custom` entries are dropped on hydration |
 | Wire | `packages/protocol/src/messages.ts:232` | `toolCallDetailSchema` is a closed discriminated union; append-only rule applies |
 | Retained surfaces | `swe/features/extension-ui-rpc.md`, `agent-ui-service.ts`, `packages/client/src/agent-ui-state.ts` | Daemon+SDK retain `setStatus/setWidget(string[])/setTitle` per agent, no renderer in web-client (§09/§10 unbuilt) |
-| UI spec | `swe/UI design/redesign 0.1.0/Extension Dialogs Visual Spec.html` §09–§10 | Widget block / status strip visual spec exists, generic (not todo-specific) |
+| UI spec | `docs/UI design/redesign 0.1.0/Extension Dialogs Visual Spec.html` §09–§10 | Widget block / status strip visual spec exists, generic (not todo-specific) |
 
 ## Happy path
 1. Daemon has `rpiv-todo` (core pack); user prompts an agent in a chat pane.

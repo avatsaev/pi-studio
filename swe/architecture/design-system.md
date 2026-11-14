@@ -247,8 +247,9 @@ Metro's `.web` / `.native` / `.electron` file-extension resolution does not exis
 achieves the same web-vs-Electron split three ways:
 1. **Runtime gating** — `getIsElectron()` chooses behavior inside a shared module (e.g. browser pane
    placeholder vs `<webview>`, clipboard API vs Electron bridge).
-2. **Build-time flags** — `import.meta.env.VITE_TARGET` (`web` | `electron`) lets Vite dead-code-eliminate
-   the unused branch for each build.
+2. **Build-time flags** — a build-target flag let Vite dead-code-eliminate the unused branch for each
+   build. *(Removed 2026-11-14 with the Electron target; the desktop client is a Tauri host of
+   `@av-pi-studio/workbench`, see [workbench-host-adapter.md](workbench-host-adapter.md).)*
 3. **Dynamic `import()`** — Electron-only modules (SSH bridge, `<webview>` wrapper, native menu glue) are
    loaded via `await import(...)` guarded by `getIsElectron()`, so they never enter the pure-web chunk.
 

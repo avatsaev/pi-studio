@@ -1,0 +1,31 @@
+{
+  "type": "create_terminal_response",
+  "direction": "server_to_client",
+  "description": "The new terminal's inventory entry (the PTY's real grid size). `service` appears only for script-backed terminals.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": [
+    "/message/requestId",
+    "/message/terminal/slot",
+    "/message/terminal/name",
+    "/message/terminal/cwd"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "create_terminal_response",
+      "terminal": {
+        "slot": 1,
+        "workspaceId": "workspace-1",
+        "name": "terminal-1",
+        "cwd": "/tmp/pi-studio-fixture",
+        "shell": "/bin/sh",
+        "cols": 80,
+        "rows": 24,
+        "closed": false
+      },
+      "requestId": "req-1"
+    }
+  }
+}

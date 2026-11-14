@@ -41,6 +41,7 @@ src/
   session-messages.test.ts
   validation.test.ts
   external-fixtures.test.ts               Layer A of the external-client fixture contract test (sprint-083).
+  external-binary-fixtures.test.ts        Round-trips the nine binary-frame fixtures in fixtures/external-clients/binary/ through the real codecs (sprint-096).
 scripts/                                  Not compiled, not published.
   external-fixtures-support.ts            Loaders, JSON-pointer access, shape signatures, breaking-change guard, secret scan.
   update-fixture-signatures.ts            `npm run fixtures:update` — regenerates fixtures/external-clients/.signatures.json.
@@ -56,8 +57,8 @@ fixtures/external-clients/                Published external-client wire fixture
 
 | Export | Kind | Purpose |
 |--------|------|---------|
-| `clientTypeSchema` / `ClientType` | schema + type | `"mobile" \| "browser" \| "cli" \| "mcp"` |
-| `helloSchema` / `Hello` | Zod schema + type | Client→Server first frame (clientId, clientType, protocolVersion, capabilities) |
+| `clientTypeSchema` / `ClientType` | schema + type | `"mobile" \| "browser" \| "cli" \| "mcp"`. **Closed on purpose**: a 0.0.117 daemon rejects an unknown value (silently over the relay), so a new kind of client connects as one of these and says what it is through `hello.platform` |
+| `helloSchema` / `Hello`, `PLATFORM_MAX_LENGTH` (32) | Zod schema + type + const | Client→Server first frame (clientId, clientType, protocolVersion, capabilities, optional `platform`). `platform` is a free-form lowercase label (the desktop app sends `"desktop"` with `clientType: "browser"`); a non-string or over-long value is DROPPED via `.catch(undefined)` so the handshake still succeeds, and any daemon that predates it ignores it. `daemonClientInfoSchema` entries gain the optional `platform` too |
 | `statusSchema` / `Status` | schema + type | Server→Client `server_info` wrapper after handshake |
 | `serverInfoPayloadSchema` / `ServerInfoPayload` | schema + type | Payload inside `status` (serverId, hostname, version, `homeDir`, capabilities, features). `homeDir` is the **daemon host's** `os.homedir()` — the authoritative value a client expands a `~`-prefixed `cwd`/path against; optional only for daemons predating it, in which case a client leaves tilde paths unexpanded instead of guessing (a browser MUST NOT derive it: macOS `/Users/<me>` vs Linux `/home/<me>`) |
 | `pingSchema` / `Ping` | schema + type | JSON liveness ping (Client→Server) |
@@ -132,6 +133,7 @@ existed) and no client ever consumed it.
 | `agentUiListRequestSchema` / `AgentUiListRequest`, `agentUiListResponseSchema` / `AgentUiListResponse` | schema + type | `agent_ui_list_request` (optional `agentId`) — reconnect catch-up: current pending dialogs + retained surfaces, one agent or all |
 | `agentTodoSchema` / `AgentTodo`, `agentTodoStatusSchema` / `AgentTodoStatus`, `agentTodosSnapshotSchema` / `AgentTodosSnapshot` | schema + type | One agent's whole todo list (sprint-079/task-002, `swe/features/agent-todos.md`): `{agentId, seq, tasks, truncated?}`, each task `{id, subject, status: "pending" \| "in_progress" \| "completed", activeForm?, description?, owner?, blockedBy?}`. `deleted` is never sent (the enum rejects it). `seq` is per daemon process lifetime and restarts at 1 after a restart |
 | `agentTodosListRequestSchema` / `AgentTodosListRequest`, `agentTodosListResponseSchema` / `AgentTodosListResponse` | schema + type | `agent_todos_list_request` (`agentId`) — works for live and process-less agents. Response is flat: success `{requestId, snapshot}` (no `ok`), refusal `{requestId, ok: false, error}` with `error` an open string (`not_found` documented). A session read failure is an empty snapshot, never an error |
+| `fileUploadCompleteSchema` / `FileUploadComplete` (`{type, transferId, stream, ok, bytesWritten, error?}`, `.passthrough()`) | schema + type | Real `sessionMessageSchema` member (sprint-096), though the rest of the `file_*` family is schema-less: pushed once to the uploading session when `file_upload_request.ack` was `true`, after the file is closed (`ok`) or the upload failed (`error`, e.g. `open_failed (EISDIR)`). Gated by `fileTransferAck`. A partial file is left on disk after a failure |
 | `agentTodosUpdateSchema` / `AgentTodosUpdate` | schema + type | `agent_todos_update` `{snapshot}` — broadcast to every active session, no subscribe RPC (like `skills_changed`). Real `sessionMessageSchema` member, not a passthrough push |
 | `AGENT_TODOS_MAX_TASKS` (200), `AGENT_TODO_MAX_SUBJECT_CHARS` / `_ACTIVE_FORM_CHARS` (500), `_OWNER_CHARS` (100), `_DESCRIPTION_CHARS` (4000), `_BLOCKED_BY` (50) | consts | Daemon-side limits, applied by truncating with `…`. The schemas deliberately do **not** enforce them (a newer daemon may raise a cap); clients read `AGENT_TODOS_MAX_TASKS` for the "first N" hint |
 | `agentSetThinkingRequestSchema` / `AgentSetThinkingRequest`, `agentSetThinkingResponseSchema` / `AgentSetThinkingResponse` | schema + type | `agent_set_thinking_request` (`agentId`, `level`) — sets the agent's thinking level; response resolves to the EFFECTIVE (possibly Pi-clamped) level, never the requested one |
@@ -212,7 +214,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync`, `compactionEvents`, `skills`, `agentTodos`, `daemonObservability` — features the daemon advertises in `server_info.features` (`compactionEvents`: the daemon emits `compaction` stream events for manual and automatic compactions and rejects `agent_compact_request` with `busy` while the agent is running or already compacting; `daemonObservability` (sprint-085): gates the read-only `daemon_status_*` and `daemon_logs_*` / `daemon_log_lines` families (`daemonStatusRpc` stays advertised with no handler); `agentTodos` (sprint-079): gates the `agent_todos_*` family; `skills` (sprint-075/task-001): gates the `skills_*` RPC family — list + toggle Agent Skills, see `swe/architecture/pi-resource-management.md`) |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync`, `compactionEvents`, `skills`, `agentTodos`, `daemonObservability`, `fileTransferAck` — features the daemon advertises in `server_info.features` (`fileTransferAck` (sprint-096): `file_upload_request.ack: true` is honoured and answered with a `file_upload_complete` push; `compactionEvents`: the daemon emits `compaction` stream events for manual and automatic compactions and rejects `agent_compact_request` with `busy` while the agent is running or already compacting; `daemonObservability` (sprint-085): gates the read-only `daemon_status_*` and `daemon_logs_*` / `daemon_log_lines` families (`daemonStatusRpc` stays advertised with no handler); `agentTodos` (sprint-079): gates the `agent_todos_*` family; `skills` (sprint-075/task-001): gates the `skills_*` RPC family — list + toggle Agent Skills, see `swe/architecture/pi-resource-management.md`) |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`
@@ -333,6 +335,19 @@ the contract. **A fixture's shape is the contract for clients outside this repo*
   format, Zod validation where a schema exists, secret scan, signature guard. Layer B is
   `packages/server/src/daemon/external-fixtures-e2e.test.ts`. `README.md` in the directory has the
   full format and the how-to-add steps. The tool-permission family is retired and has no fixtures.
+- File-transfer and terminal families (sprint-096, `since` 0.0.118): `file_download_token_*`,
+  `file_download_*`, `file_upload_*`, `file_upload_complete` (`requiresFeature: "fileTransferAck"`,
+  as is the `ack` upload request), `{create,subscribe,list,rename,capture,kill}_terminal_*` and the
+  `terminals_update` broadcast. Most have no Zod schema (Layer B is their only guard; `token` values
+  are the literal `"FAKE"`); `file_upload_complete` is validated by `fileUploadCompleteSchema`.
+- Binary frames (sprint-096, `since` 0.0.118): nine fixtures (`file_transfer.{begin,chunk,end,error}`,
+  `terminal.{output,input,resize,snapshot,restore}`) in the **`binary/` subdirectory** with their own
+  `binary/manifest.json` and `formatVersion`. A subdirectory, not top-level files, because the Rust
+  dashboard's vendored-fixture test fails on any top-level `*.json` that `manifest.json` does not
+  list. Each holds a complete frame as `hex` plus its `decoded` form; `src/external-binary-fixtures.test.ts`
+  decodes/encodes every one with the real codec and fails on an unlisted or missing file. No live layer,
+  no signature guard: changing a frame's `hex` or `decoded` shape is breaking (bump the binary
+  `formatVersion` + dated `CHANGELOG.md` entry).
 
 ---
 

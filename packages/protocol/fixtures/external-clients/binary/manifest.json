@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "frames": [
+    {
+      "file": "file_transfer.begin.json",
+      "family": "file_transfer",
+      "opcode": "Begin",
+      "direction": "both"
+    },
+    {
+      "file": "file_transfer.chunk.json",
+      "family": "file_transfer",
+      "opcode": "Chunk",
+      "direction": "both"
+    },
+    {
+      "file": "file_transfer.end.json",
+      "family": "file_transfer",
+      "opcode": "End",
+      "direction": "both"
+    },
+    {
+      "file": "file_transfer.error.json",
+      "family": "file_transfer",
+      "opcode": "Error",
+      "direction": "both"
+    },
+    {
+      "file": "terminal.output.json",
+      "family": "terminal",
+      "opcode": "Output",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "terminal.input.json",
+      "family": "terminal",
+      "opcode": "Input",
+      "direction": "client_to_server"
+    },
+    {
+      "file": "terminal.resize.json",
+      "family": "terminal",
+      "opcode": "Resize",
+      "direction": "client_to_server"
+    },
+    {
+      "file": "terminal.snapshot.json",
+      "family": "terminal",
+      "opcode": "Snapshot",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "terminal.restore.json",
+      "family": "terminal",
+      "opcode": "Restore",
+      "direction": "server_to_client"
+    }
+  ]
+}

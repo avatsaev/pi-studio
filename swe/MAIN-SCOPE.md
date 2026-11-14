@@ -38,14 +38,14 @@ capability flags.
 | Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
 | Lint/format         | oxlint / oxfmt                                                    |                                                               |
 | Styling (app)       | **Pi-Studio: CSS custom properties (theme tokens) + CSS Modules** (reference app uses Unistyles) | Same token vocabulary; DOM medium |
-| Build (web/desktop) | **Pi-Studio: Vite** (`VITE_TARGET=web`/`electron`); runtime `getIsElectron()` + guarded dynamic `import()` replace Metro `.web`/`.native`/`.electron` extensions |                                                               |
+| Build (web/desktop) | **Pi-Studio: Vite**, one `web` target (`dist/web`). The build-target switch and its `electron` target were removed 2026-11-14; the desktop client (Tauri, separate repo) consumes `@av-pi-studio/workbench` |                                                               |
 | Website             | TanStack Router + Cloudflare Workers                              | Marketing/docs (`pi-studio.sh`), out of scope here            |
 
 > **Render-stack decision (Pi-Studio).** The reference app is a cross-platform Expo / React-Native-Web
 > codebase. Pi-Studio ships **web + Electron only (no iOS/Android)** and therefore renders its UI on a
 > **React 19 + Vite DOM** stack: `View`/`Text` → `div`/`span`, Unistyles → CSS custom properties + CSS
-> Modules, expo-router → `react-router`, Metro platform extensions → `getIsElectron()` + build-time
-> `VITE_TARGET` + guarded dynamic `import()`. The visual language, theme tokens, six variants, screens,
+> Modules, expo-router → `react-router`, Metro platform extensions → (historically) `getIsElectron()` +
+> a build-time target flag + guarded dynamic `import()`. The visual language, theme tokens, six variants, screens,
 > and interactions are preserved (UI/UX mirrors the reference). The sprint 012–016 UI **logic** is
 > framework-agnostic view models; sprints 017–022 are the DOM **render layer**. See
 > [architecture/design-system.md](architecture/design-system.md) § UI technology stack and
@@ -110,16 +110,24 @@ module and ships prebuilt binaries for common platforms.
   capability flags. Depended on by everyone; depends on no one. (`packages/protocol`)
 - **Client** — Low-level daemon WebSocket driver + higher-level `Pi-StudioClient` SDK facade used by
   the web client and CLI. (`packages/client`)
-- **Web Client** — Production React/Vite browser UI; manages saved host connections, sessions,
-  timeline reducers, composer, file explorer, git changes, terminal. (`packages/web-client`)
+- **Web Client** — The browser shell: a thin Vite SPA that renders the workbench with a browser host
+  (build-time brand title/favicon, pdf.js worker). Ships the static `dist/web` that `pi-studio ui` and the
+  Docker image serve. (`packages/web-client`)
 - **UI Library** — Publishable React design system extracted from the web client: primitives,
   theme/tokens/appearance, accent-only brand injection, one prebuilt stylesheet. Depends on no
   workspace package; see `swe/grills/ui-library.md`. (`packages/ui-library`)
 - **UI Gallery** — Private Vite+React gallery app that renders every primitive family against the
   built ui-library `dist` across all six themes; never published or deployed. (`packages/ui-gallery`)
+- **Workbench** — *Built (sprints 091–094, release wiring in 095; first npm release with the merge of `feat/workbench`).*
+  Publishable library holding the application itself (connection, sessions, chat/timeline, composer,
+  files and viewers, git, terminals, settings; features, stores, reducers) behind a host adapter, so
+  the browser shell and the desktop app share one UI; see `architecture/workbench-package.md` and
+  `architecture/workbench-host-adapter.md`. (`packages/workbench`)
 - **CLI** — Terminal client; can also start/manage a local daemon. (`packages/cli`)
-- **Desktop** — Electron shell that bundles + supervises a daemon and embeds the web app, with
-  native file dialogs, menus, auto-update, in-app browser webviews. (`packages/desktop`)
+- **Desktop** — Native shell around the same UI. *Direction changed 2026-11-14:* built as a Tauri
+  app with a Rust backend in a separate repository (`pi-studio-desktop`), consuming the workbench
+  from npm; see `docs/desktop-client-handoff.md`. The Electron shell described in
+  `features/desktop-app.md` was never built in this repository (`packages/desktop` does not exist).
 - **Relay** — E2EE bridge for remote access. Client and daemon channels with identical API.
   (`packages/relay`)
 - **SSH gateway** — Electron-only SSH local-port tunnel to a remote daemon's localhost WebSocket
@@ -154,9 +162,10 @@ module and ships prebuilt binaries for common platforms.
 | `packages/protocol/src/client-capabilities.ts`                                    | Client capability flag constants                                   |
 | `packages/client/src/daemon-client.ts`                                            | Low-level WS driver                                                |
 | `packages/client/src/index.ts`                                                    | `Pi-StudioClient` SDK facade                                       |
-| `packages/web-client/src/`                                                        | React/Vite browser client (features, stores, timeline, workspace) |
+| `packages/workbench/src/`                                                         | The client application (features, stores, timeline, workspace, host adapter, shell components) |
+| `packages/web-client/src/`                                                        | Browser shell: `main.tsx`, brand override, build config |
 | `packages/cli/src/commands/`                                                      | CLI command tree                                                   |
-| `packages/desktop/src/`                                                           | Electron main/preload, daemon supervision, features                |
+| _(separate repo `pi-studio-desktop`)_                                              | Tauri + Rust desktop app; consumes `@av-pi-studio/workbench` (`docs/desktop-client-handoff.md`) |
 | `packages/relay/src/`                                                             | E2EE channels, crypto, Cloudflare adapter                          |
 
 ## 5. Data Model Overview
@@ -277,7 +286,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/extensions-manager.md](features/extensions-manager.md)         | feature      | Settings-panel Extensions manager: render curated-pack status/sync (existing RPCs); Phase B `pi_packages_*` superseded by architecture/pi-resource-management.md |
 | [features/skills-manager.md](features/skills-manager.md)                 | feature      | Settings → Skills: list/enable/disable/remove/install/update-all Pi skills (npm/git packages skills-only, Agent Skills repos, host paths) |
 | [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
-| [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
+| [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
+| [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -323,6 +333,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [architecture/pi-resource-management.md](architecture/pi-resource-management.md) | architecture | Daemon backend over Pi's resolver/settings + pinned `skills` CLI: single `skills_*` family, toggle mirror, stateless preview, FIFO queue, watcher (supersedes extensions-manager Phase B) |
 | [architecture/external-client-fixtures.md](architecture/external-client-fixtures.md) | architecture | Canonical JSON fixtures of every wire message external clients (Pi Studio Dashboard) consume + in-process daemon contract test; changing a fixture shape is a breaking change — **shipped (sprint-083)** |
+| [architecture/workbench-package.md](architecture/workbench-package.md) | architecture | `@av-pi-studio/workbench`: the application moved out of `web-client` into a prebuilt library (whole app + shell regions), `web-client` reduced to a browser shell, `electron` target removed — **shipped (sprints 091, 092, 094, 095; released with the merge of `feat/workbench`)** |
+| [architecture/workbench-host-adapter.md](architecture/workbench-host-adapter.md) | architecture | The one object a shell supplies to the workbench: storage, clipboard, dialogs, links, launch intent, transport factory, reconnect timing, file transfer, pdf.js runtime; `createBrowserHost` reproduces today's behaviour — **shipped (sprint-093)** |
 
 ## 9. Cross-Cutting Conventions
 
@@ -390,3 +402,17 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       Pi's questions travel on `agent_ui_*` instead ([features/extension-ui-rpc.md](features/extension-ui-rpc.md));
       the dashboard answers those (brief D36). **Decided 2026-11-13: retire the family** (daemon
       service, contract members, MCP tools, CLI `permit`; wire schemas kept unread). **Resolved: retired in sprint-086.**
+- [x] Workbench packaging: katex stylesheet inlining in library mode, consumer dev-server
+      pre-bundling, the form of the packed-tarball smoke consumer — **resolved in sprint-091**
+      (`swe/notes/workbench-packaging-spike.md`). The public region names `PaneArea` and
+      `WorkspaceShell` were kept (proposed as-is; the engineer said "proceed" on 2026-11-14 without asking for changes); see
+      [architecture/workbench-package.md § TODO(verify)](architecture/workbench-package.md).
+- [ ] Workbench host: `window.confirm`/`alert`/`prompt` and `target="_blank"` in a Tauri webview —
+      open until the desktop app runs it. Drag-and-drop upload sources and StrictMode-safe host
+      installation were resolved in sprint-093 — see
+      [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
+- [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
+      file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The
+      water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads are unpaced
+      and the relay path was not exercised live — see
+      [features/desktop-client-protocol-followups.md § TODO(verify)](features/desktop-client-protocol-followups.md).

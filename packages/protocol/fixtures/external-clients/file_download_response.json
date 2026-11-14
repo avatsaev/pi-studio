@@ -1,0 +1,19 @@
+{
+  "type": "file_download_response",
+  "direction": "server_to_client",
+  "description": "Sent after the End frame. On failure `ok:false` with `error` (invalid_or_expired_token, invalid_stream, read_failed, connection_closed).",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/stream", "/message/transferId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_response",
+      "stream": 1,
+      "ok": true,
+      "transferId": "dl-1-1767225600000",
+      "requestId": "req-1"
+    }
+  }
+}

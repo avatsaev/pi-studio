@@ -1,0 +1,18 @@
+{
+  "type": "kill_terminal_response",
+  "direction": "server_to_client",
+  "description": "`ok:false` when the slot does not exist. A kill also broadcasts `terminals_update`.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/slot"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "kill_terminal_response",
+      "slot": 1,
+      "ok": true,
+      "requestId": "req-1"
+    }
+  }
+}

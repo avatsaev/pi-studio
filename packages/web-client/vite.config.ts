@@ -1,15 +1,15 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { dirname, resolve } from "node:path";
-import { createReadStream, readdirSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
+// By relative source path: this file is loaded by Node, where the Vite alias that maps the
+// workbench to its sources does not apply. The same module is published as
+// `@av-pi-studio/workbench/vite` (the pack smoke proves that entry).
+import { pdfjsAssetsPlugin } from "../workbench/vite/index.js";
 
-// Two build targets from one source:
-//   - web:      served over HTTP, absolute base, /daemon-ws dev proxy.
-//   - electron: loaded from file:// inside a BrowserWindow, relative base so
-//               assets resolve without a web server.
-// Selected via VITE_TARGET (defaults to "web").
+// One build target: the browser SPA in `dist/web` (served over HTTP, absolute base, /daemon-ws dev
+// proxy). The CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve that directory.
 const { version: APP_VERSION }: { version: string } = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf8"),
 );
@@ -55,75 +55,24 @@ function brandHtmlPlugin(): Plugin {
   };
 }
 
-// pdf.js runtime data the PDF viewer loads by URL on demand (`src/features/files/pdfjs-runtime.ts`
-// builds the matching URLs). Missing files do not fail loudly: pdf.js misrenders the affected PDFs,
-// and behind the SPA fallback a 404 would even come back as `index.html` with a 200.
-// `quickjs-eval.*` is pdf.js's PDF-JavaScript engine; the viewer never runs document scripts.
-const PDFJS_ASSET_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"];
-const PDFJS_ROOT = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
-
-/** Serves (dev) / emits (build) pdf.js's data directories under `<base>/pdfjs/<dir>/`. A request
- *  is matched against the real directory listing, never joined onto a filesystem path, so only
- *  those directories' own files are reachable. */
-function pdfjsAssetsPlugin(): Plugin {
-  const files = new Map(
-    PDFJS_ASSET_DIRS.map((dir) => [
-      dir,
-      new Set(
-        readdirSync(resolve(PDFJS_ROOT, dir)).filter((name) => !name.startsWith("quickjs-eval.")),
-      ),
-    ]),
-  );
-  return {
-    name: "pi-studio-pdfjs-assets",
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const match = /^\/pdfjs\/([^/]+)\/([^/?#]+)/.exec(req.url ?? "");
-        if (!match || !files.get(match[1])?.has(match[2])) return next();
-        const [, dir, file] = match;
-        res.setHeader(
-          "Content-Type",
-          file.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
-        );
-        createReadStream(resolve(PDFJS_ROOT, dir, file)).pipe(res);
-      });
-    },
-    generateBundle() {
-      for (const [dir, names] of files) {
-        for (const name of names) {
-          this.emitFile({
-            type: "asset",
-            fileName: `pdfjs/${dir}/${name}`,
-            source: readFileSync(resolve(PDFJS_ROOT, dir, name)),
-          });
-        }
-      }
-    },
-  };
-}
-
 export default defineConfig(() => {
-  const target = process.env.VITE_TARGET ?? "web";
-  const isElectron = target === "electron";
-
   return {
     plugins: [react(), brandHtmlPlugin(), pdfjsAssetsPlugin()],
     root: resolve(__dirname),
-    base: isElectron ? "./" : "/",
+    base: "/",
     // `?worker` entries (today only pdf.js's, `pdfjs-runtime.ts`) are ES modules upstream; emit
     // them as module workers rather than re-wrapping them as classic IIFE scripts.
     worker: { format: "es" as const },
     define: {
-      "import.meta.env.VITE_TARGET": JSON.stringify(target),
       // Own package.json version, baked in at build time (ConnectionBar.tsx — displayed after
-      // the brand title). Ambient type in `src/vite-env.d.ts`.
+      // the brand title). Ambient type in `packages/workbench/src/vite-env.d.ts`.
       __APP_VERSION__: JSON.stringify(APP_VERSION),
       // Build-time brand title override, resolved above from `PI_STUDIO_BRAND_TITLE`. Ambient
-      // type in `src/vite-env.d.ts`.
+      // type in `packages/workbench/src/vite-env.d.ts`.
       __BRAND_TITLE__: JSON.stringify(BRAND_TITLE),
     },
     build: {
-      outDir: isElectron ? "dist/electron" : "dist/web",
+      outDir: "dist/web",
       emptyOutDir: true,
       // No sourcemap consumer exists (no Sentry/error-tracking upload, nothing reads .map at
       // runtime) — generating them for these large vendor chunks (18MB+ for a single chunk) blew
@@ -246,7 +195,8 @@ export default defineConfig(() => {
         // this specifier into a real package `exports` entry.
         "@av-pi-studio/ui-library/reset.css": resolve(__dirname, "../ui-library/src/reset.css"),
         "@av-pi-studio/ui-library": resolve(__dirname, "../ui-library/src/index.ts"),
-        "@web-client": resolve(__dirname, "src"),
+        "@av-pi-studio/workbench/fonts.css": resolve(__dirname, "../workbench/src/fonts.css"),
+        "@av-pi-studio/workbench": resolve(__dirname, "../workbench/src/index.ts"),
       },
     },
     server: {

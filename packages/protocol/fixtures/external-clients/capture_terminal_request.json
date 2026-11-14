@@ -1,0 +1,17 @@
+{
+  "type": "capture_terminal_request",
+  "direction": "client_to_server",
+  "description": "One-shot screen text of a terminal; does not subscribe.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/slot"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "capture_terminal_request",
+      "requestId": "req-1",
+      "slot": 1
+    }
+  }
+}

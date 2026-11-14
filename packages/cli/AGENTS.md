@@ -86,7 +86,7 @@ src/
   update-control.test.ts
 
   promise-with-resolvers.d.ts   Promise.withResolvers() ambient decl (lib predates ES2024;
-                                 mirrors web-client/src/lib/promise-with-resolvers.d.ts).
+                                 mirrors workbench/src/lib/promise-with-resolvers.d.ts).
 
   program.test.ts
   cli-core.test.ts
@@ -516,7 +516,7 @@ no reachable direct host to offer. `printPairing` also forwards `config.app.base
 (`PI_STUDIO_APP_BASE_URL` env override) as `baseUrl` — self-hosted/local deployments (e.g. the
 Docker compose stack, `docker/docker-compose.yml`) should set this to their own reachable
 web-client origin instead of the unreachable default. The QR/link encodes this URL so a
-browser/mobile client can scan/paste it to connect directly (`web-client`'s
+browser/mobile client can scan/paste it to connect directly (`workbench`'s
 `connection-store.ts#connect()` detects the link via `@av-pi-studio/client`'s `parsePairingUrl` and
 branches to `createRelayTransport` when it carries a relay offer).
 

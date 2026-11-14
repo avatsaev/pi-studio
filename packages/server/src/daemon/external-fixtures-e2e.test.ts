@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -197,7 +199,7 @@ describe("daemon output matches the fixtures", () => {
 // ── client-input fixtures ─────────────────────────────────────────────────────────────────────
 
 /** `frame` with its volatile ids replaced by live values; `requestId` is stamped by the helper. */
-function withLiveIds(fixture: Fixture, live: Record<string, string>): WireFrame {
+function withLiveIds(fixture: Fixture, live: Record<string, unknown>): WireFrame {
   const message = structuredClone(messageOf(fixture.frame));
   for (const pointer of fixture.volatile) {
     const key = pointer.split("/").at(-1) ?? "";
@@ -244,6 +246,57 @@ async function raiseDialog(
   return String(messageOf(frame).requestId);
 }
 
+/** Input fixtures whose live request needs a temp file, a download token or a real terminal. */
+const LIVE_RESOURCE_TYPES: Record<string, true> = {
+  file_download_token_request: true,
+  file_download_request: true,
+  file_upload_request: true,
+  create_terminal_request: true,
+  subscribe_terminal_request: true,
+  list_terminals_request: true,
+  rename_terminal_request: true,
+  capture_terminal_request: true,
+  kill_terminal_request: true,
+};
+
+function terminalSlot(terminal: unknown): number {
+  if (typeof terminal !== "object" || terminal === null || !("slot" in terminal)) {
+    throw new Error("create_terminal_response carries no terminal slot");
+  }
+  return Number(terminal.slot);
+}
+
+/** Fills `live` with real values for `LIVE_RESOURCE_TYPES`; records terminals it spawns. */
+async function prepareLiveResources(
+  type: string,
+  scratch: string,
+  live: Record<string, unknown>,
+  terminals: number[],
+): Promise<void> {
+  if (type === "file_download_token_request" || type === "file_download_request") {
+    const path = join(scratch, "download.txt");
+    await writeFile(path, "synthetic fixture download body\n");
+    live.path = path;
+    if (type === "file_download_request") {
+      live.token = String((await client.rpc("file_download_token_request", { path })).token);
+    }
+  } else if (type === "file_upload_request") {
+    live.path = join(scratch, "upload.txt");
+  } else if (type === "create_terminal_request") {
+    live.cwd = scratch;
+  } else if (type.endsWith("_terminal_request") || type === "list_terminals_request") {
+    const created = await client.rpc("create_terminal_request", {
+      workspaceId: "workspace-1",
+      name: "terminal-1",
+      cwd: scratch,
+      shell: "/bin/sh",
+    });
+    const slot = terminalSlot(created.terminal);
+    terminals.push(slot);
+    live.slot = slot;
+  }
+}
+
 describe("client-input fixtures are accepted and answered with the paired response shape", () => {
   for (const entry of inputs) {
     it(entry.file, async () => {
@@ -274,27 +327,38 @@ describe("client-input fixtures are accepted and answered with the paired respon
         return;
       }
 
-      const agentId = await liveAgent();
-      const live: Record<string, string> = { agentId };
-      if (entry.type === "agent_ui_respond_request") {
-        live.uiRequestId = await raiseDialog(
-          agentId,
-          entry.file.includes(".select") ? "select" : "confirm",
-        );
+      const scratch = await mkdtemp(join(tmpdir(), "pi-studio-fixture-"));
+      const terminals: number[] = [];
+      try {
+        const agentId = entry.type in LIVE_RESOURCE_TYPES ? "" : await liveAgent();
+        const live: Record<string, unknown> = { agentId };
+        await prepareLiveResources(entry.type, scratch, live, terminals);
+        if (entry.type === "agent_ui_respond_request") {
+          live.uiRequestId = await raiseDialog(
+            agentId,
+            entry.file.includes(".select") ? "select" : "confirm",
+          );
+        }
+        if (entry.type === "daemon_logs_subscribe_request") {
+          // The fixture asks for a one-line backlog.
+          dev.logger.info("external fixture log line");
+        }
+        if (entry.type === "agent_ui_list_request") {
+          // Same content the scenario (and so the fixture) uses: dialog payloads are literal.
+          await raiseDialog(agentId, "select", { title: "Pick one", options: ["a", "b"] });
+          await raiseDialog(agentId, "setStatus", { statusText: "building" }, "status:build");
+        }
+        const { type: _type, requestId: _requestId, ...body } = withLiveIds(fixture, live);
+        const reply = await client.rpcFrame(entry.type, body);
+        expect(messageOf(reply).type, "must not be an rpc_error").not.toBe("rpc_error");
+        expectMatch(`${entry.file} → ${entry.response}`, paired, reply);
+        if (entry.type === "create_terminal_request") {
+          terminals.push(terminalSlot(messageOf(reply).terminal));
+        }
+      } finally {
+        for (const slot of terminals) await client.rpc("kill_terminal_request", { slot });
+        await rm(scratch, { recursive: true, force: true });
       }
-      if (entry.type === "daemon_logs_subscribe_request") {
-        // The fixture asks for a one-line backlog.
-        dev.logger.info("external fixture log line");
-      }
-      if (entry.type === "agent_ui_list_request") {
-        // Same content the scenario (and so the fixture) uses: dialog payloads are literal.
-        await raiseDialog(agentId, "select", { title: "Pick one", options: ["a", "b"] });
-        await raiseDialog(agentId, "setStatus", { statusText: "building" }, "status:build");
-      }
-      const { type: _type, requestId: _requestId, ...body } = withLiveIds(fixture, live);
-      const reply = await client.rpcFrame(entry.type, body);
-      expect(messageOf(reply).type, "must not be an rpc_error").not.toBe("rpc_error");
-      expectMatch(`${entry.file} → ${entry.response}`, paired, reply);
     });
   }
 });

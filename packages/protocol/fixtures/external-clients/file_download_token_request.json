@@ -1,0 +1,17 @@
+{
+  "type": "file_download_token_request",
+  "direction": "client_to_server",
+  "description": "Ask for a single-use download token for a file path on the daemon host.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/path"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_token_request",
+      "requestId": "req-1",
+      "path": "/tmp/pi-studio-fixture/download.txt"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "family": "file_transfer",
+  "opcode": "Chunk",
+  "direction": "both",
+  "description": "Raw file bytes after the header. Senders cut chunks at 32 KiB; the codec accepts any length.",
+  "since": "0.0.118",
+  "hex": "11 03 68 65 6c 6c 6f",
+  "decoded": {
+    "opcode": "Chunk",
+    "stream": 3,
+    "dataHex": "68 65 6c 6c 6f"
+  }
+}

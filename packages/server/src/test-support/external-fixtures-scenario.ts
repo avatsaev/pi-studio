@@ -1,4 +1,9 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
+
+import { encodeFileTransferFrame } from "@av-pi-studio/protocol";
 
 import type { MockAgentSession } from "../agent/providers/mock/mock-provider.js";
 import { MOCK_REBIND_ENTRY_ID } from "../agent/providers/mock/mock-provider.js";
@@ -80,6 +85,17 @@ export function variantKey(frame: WireFrame): string | undefined {
     case "interrupt_response":
     case "agent_ui_list_response":
     case "rpc_error":
+    case "file_download_token_response":
+    case "file_download_response":
+    case "file_upload_response":
+    case "file_upload_complete":
+    case "create_terminal_response":
+    case "subscribe_terminal_response":
+    case "list_terminals_response":
+    case "rename_terminal_response":
+    case "capture_terminal_response":
+    case "kill_terminal_response":
+    case "terminals_update":
       return type;
     default:
       return undefined;
@@ -101,6 +117,82 @@ const isType =
     const m = messageOf(frame);
     return m.type === type && extra(m);
   };
+
+/** Text of the file the scenario downloads; the fixtures only pin its shape, never its bytes. */
+const SCENARIO_DOWNLOAD_TEXT = "synthetic fixture download body\n";
+
+/** `Begin → Chunk → End` upload frames (client → daemon) for `stream`, with fake literal content. */
+function uploadFrames(stream: number, transferId: string): Uint8Array[] {
+  return [
+    encodeFileTransferFrame({ opcode: "Begin", stream, meta: { transferId, fileName: "up.txt" } }),
+    encodeFileTransferFrame({
+      opcode: "Chunk",
+      stream,
+      data: new TextEncoder().encode("synthetic fixture upload body\n"),
+    }),
+    encodeFileTransferFrame({ opcode: "End", stream, ok: true }),
+  ];
+}
+
+/**
+ * File transfer, all inside a temp dir: token → download of a small file; upload with `ack: true`
+ * driven as a client (Begin/Chunk/End), then the `file_upload_complete` push.
+ */
+async function runFileTransferSteps(client: TestClient): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "pi-studio-fixture-"));
+  try {
+    const downloadPath = join(dir, "download.txt");
+    await writeFile(downloadPath, SCENARIO_DOWNLOAD_TEXT);
+    const tokenResponse = await client.rpc("file_download_token_request", { path: downloadPath });
+    await client.rpc("file_download_request", { token: String(tokenResponse.token) });
+
+    const transferId = "scenario-upload";
+    const uploadPath = join(dir, "upload.txt");
+    const upload = await client.rpc("file_upload_request", {
+      path: uploadPath,
+      transferId,
+      ack: true,
+    });
+    for (const frame of uploadFrames(Number(upload.stream), transferId)) client.ws.send(frame);
+    await client.waitFor(isType("file_upload_complete"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Terminal control RPCs against one real PTY running a plain `/bin/sh` (never the user's shell or
+ * its rc files). The terminal is always killed, even when a step fails.
+ */
+async function runTerminalSteps(client: TestClient): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "pi-studio-fixture-"));
+  let slot: number | undefined;
+  try {
+    const created = await client.rpc("create_terminal_request", {
+      workspaceId: "workspace-1",
+      cwd: dir,
+      shell: "/bin/sh",
+      name: "terminal-1",
+      cols: 80,
+      rows: 24,
+    });
+    const terminal = created.terminal;
+    if (typeof terminal !== "object" || terminal === null || !("slot" in terminal)) {
+      throw new Error("create_terminal_response carries no terminal slot");
+    }
+    slot = Number(terminal.slot);
+    await client.waitFor(isType("terminals_update"));
+    await client.rpc("subscribe_terminal_request", { slot, cols: 80, rows: 24 });
+    await client.rpc("list_terminals_request");
+    await client.rpc("rename_terminal_request", { slot, name: "scenario-renamed" });
+    await client.rpc("capture_terminal_request", { slot });
+    await client.rpc("kill_terminal_request", { slot });
+    slot = undefined;
+  } finally {
+    if (slot !== undefined) await client.rpc("kill_terminal_request", { slot });
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 export async function runExternalFixtureScenario(
   dev: DevBootstrapHandle,
@@ -238,6 +330,9 @@ export async function runExternalFixtureScenario(
   dev.logger.info("external fixture live line");
   await waitFor(isType("daemon_log_lines"), 2000);
   await rpc("daemon_logs_unsubscribe_request");
+
+  await runFileTransferSteps(client);
+  await runTerminalSteps(client);
 
   const captured = new Map<string, WireFrame>();
   for (const frame of client.frames) {

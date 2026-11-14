@@ -1,9 +1,9 @@
 # `@av-pi-studio/web-client`
 
-The production React/Vite browser UI for Pi-Studio — connects to a daemon over WebSocket
-(`@av-pi-studio/client`) and renders chat sessions, agent-stream timelines, tool calls, terminals,
-a file/diff viewer, and git status. Ships as a prebuilt static SPA (`dist/web`), served by
-`pi-studio ui`, `docker/web-client.Dockerfile`, or any static file host.
+The Pi-Studio browser app: a thin Vite shell that renders `@av-pi-studio/workbench` (the
+application — chat, timelines, terminals, files, git; see `packages/workbench/README.md`) with a
+browser host. Ships as a prebuilt static SPA (`dist/web`), served by `pi-studio ui`,
+`docker/web-client.Dockerfile`, or any static file host.
 
 ---
 
@@ -24,8 +24,8 @@ With both variables unset, the build is byte-for-byte the default **Pi-Studio** 
 | `PI_STUDIO_BRAND_ICON` | _(unset → `public/favicon.svg`)_ | Path to a `.svg`, `.png`, or `.ico` file that replaces the favicon |
 
 Both are read once, at Vite config-eval time, by `vite.config.ts`'s `brandHtmlPlugin` (backed by
-the pure resolver in `src/brand/build-brand.ts`) — they apply identically to `npm run dev`,
-`npm run build:web`, and `npm run build:electron`.
+the pure resolver in `src/brand/build-brand.ts`) — they apply identically to `npm run dev` and
+`npm run build:web`.
 
 ### Usage
 
@@ -97,9 +97,9 @@ npm run build:web -w @av-pi-studio/web-client  # browser build (dist/web)
 npx vitest run packages/web-client
 ```
 
-The design system (primitives, theme/tokens, appearance, breakpoints) lives in
-`@av-pi-studio/ui-library` (`packages/ui-library`), a devDependency resolved from source through a
-Vite alias in dev/build/tests and bundled into the SPA; `src/theme/fonts.css`,
-`src/brand/build-brand.ts` and `src/global.css` stay here. See `AGENTS.md` (architecture, source
-layout, invariants) and `packages/ui-library/DESIGN_SYSTEM.md` (theme/token pipeline, primitives)
-for the rest of this package's documentation.
+This package is the shell only: `src/main.tsx` (stylesheets, `createBrowserHost` with the build-time
+brand title/version and the pdf.js worker, `<Workbench>`), `src/global.css` (the `#root` rule),
+`src/brand/build-brand.ts` and `vite.config.ts`. The application is `@av-pi-studio/workbench`
+(`packages/workbench`) and the design system `@av-pi-studio/ui-library` (`packages/ui-library`);
+both are devDependencies resolved from source through Vite aliases and bundled into the SPA. See
+`AGENTS.md` for this package and `packages/workbench/AGENTS.md` for the application.

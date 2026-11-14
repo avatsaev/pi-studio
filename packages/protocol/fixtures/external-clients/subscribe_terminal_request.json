@@ -1,0 +1,19 @@
+{
+  "type": "subscribe_terminal_request",
+  "direction": "client_to_server",
+  "description": "Attach to one terminal's binary stream; `cols`/`rows` (optional) resize the PTY before the snapshot. `restoreMode` is optional.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/slot"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "subscribe_terminal_request",
+      "requestId": "req-1",
+      "slot": 1,
+      "cols": 80,
+      "rows": 24
+    }
+  }
+}

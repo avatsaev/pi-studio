@@ -1,0 +1,13 @@
+{
+  "family": "terminal",
+  "opcode": "Input",
+  "direction": "client_to_server",
+  "description": "Keystrokes for one slot, passed through verbatim to the PTY.",
+  "since": "0.0.118",
+  "hex": "02 01 6c 73 0d",
+  "decoded": {
+    "opcode": "Input",
+    "slot": 1,
+    "dataHex": "6c 73 0d"
+  }
+}

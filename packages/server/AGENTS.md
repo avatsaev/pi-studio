@@ -47,7 +47,10 @@ src/
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
-                                   auth; a small handler subset for local testing.
+                                   auth; a handler subset for local testing that includes file
+                                   transfer (`FileTransferService` + upload binary handler) and
+                                   terminals (`registerTerminalHandlers` + binary handler), wired as
+                                   in bootstrap.ts; `close()` kills every PTY.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
                                    wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay — outbound E2EE relay dial (@av-pi-studio/relay),
@@ -593,7 +596,8 @@ src/
 - Wraps one WebSocket connection.
 - `session.send(msg)` — sends a JSON-serialised message.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
-- `session.clientId`, `session.clientType`, `session.capabilities`.
+- `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.capabilities`.
+- `session.bufferedAmount` (the socket's unflushed bytes, `undefined` for the relay's stand-in socket) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
 - Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A replaced/reset relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
 
 ### Agent subsystem (`agent/`)
@@ -836,7 +840,7 @@ creation" above.
   `pi` (maps `RpcSlashCommand.sourceInfo`) and `mock` (fixed 3-entry list, one per source, for
   dependency-free testing); unimplemented on a provider → `rpc_error`, never silent. Consumed by the
   SDK (`client.agent(id).listCommands()`), CLI (`pi-studio agent commands <agentId>`), and the
-  web-client's `/` composer picker (`packages/web-client/AGENTS.md` § Slash-command picker).
+  web-client's `/` composer picker (`packages/workbench/AGENTS.md` § Slash-command picker).
 - **A `/`-prefixed prompt must not hang the turn** (`providers/pi/agent.ts`'s `run`/
   `runSlashPrompt`, web-client slash commands): Pi runs an extension command inline and returns
   from `prompt()` immediately — **no turn lifecycle event is ever emitted for it** — but
@@ -1166,7 +1170,7 @@ list.
 - **Live-verified** (not just unit/integration-tested): two browser tabs on the same dev daemon and
   the same agent, one sends the first prompt, the daemon-generated title lands in the sidebar row
   AND the chat tab label in BOTH tabs with no reload — proving the `agent_update` broadcast reaches
-  every connected client, not just the originating one (`web-client/AGENTS.md`'s "Auto-generated
+  every connected client, not just the originating one (`workbench/AGENTS.md`'s "Auto-generated
   session titles" invariant covers the client-side listener).
 
 ### Extension UI (`agent/agent-ui/`)
@@ -1432,7 +1436,7 @@ Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed
   overview) broadcasts to **every** active session on create, rename, kill, self-exit,
   `start_workspace_script`, and — as of sprint-053/task-007 — a size-changing resize from either
   size path. The web client has two consumers today: `use-terminal-exit-watch.ts`'s
-  `useTerminalExitWatch` (sprint-053/task-003, `packages/web-client/AGENTS.md`), reconciling open
+  `useTerminalExitWatch` (sprint-053/task-003, `packages/workbench/AGENTS.md`), reconciling open
   terminal tabs against the live list to mark an exited PTY's tab `exited`; and
   `TerminalPanel.tsx`'s own per-panel listener (sprint-053/task-007), which re-seeds
   `believedSizeRef` from a matching entry's `cols`/`rows` so a second attached client's stale belief
@@ -1526,6 +1530,25 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - `startDownload`'s `Begin` frame now carries `meta.mimeType` (via `file-explorer.ts`'s exported
   `mimeHintForFile`), so `FileTransferClient` no longer relies on browser blob-URL sniffing for a
   known extension; an unknown extension still falls back to `application/octet-stream`.
+- **Sprint-096 hardening and acknowledgement** (`swe/features/desktop-client-protocol-followups.md` § 2):
+  - *Paced download.* `startDownload(token, stream, sink, pacing?)` pauses the disk read while
+    `session.bufferedAmount` is above `DOWNLOAD_HIGH_WATER_BYTES` (1 MiB) and resumes at or below
+    `DOWNLOAD_LOW_WATER_BYTES` (256 KiB), polling every 10 ms (`ws` has no drain event). The marks were
+    chosen, not measured, and are injectable (`FileTransferDeps`). A socket that cannot report its queue
+    (**the relay's stand-in socket**) is not paced, so relay downloads still queue the whole file: the
+    spec's bounds hold for direct connections only. A socket that closes mid-transfer ends it with no
+    further frames (`connection_closed`).
+  - *Read error.* One `Error` frame, no `End`; the RPC answers `{ok:false, error:"read_failed"}`.
+  - *Owned streams.* Each pending upload records the opening session's id; binary frames from any
+    other session are ignored, and `disposeSession(session)` (called from both `onSessionClose` and
+    the relay-session reset) frees the stream and closes the handle. Frames carry the `PendingUpload`
+    they were queued for, so a frame still in flight can never land on a recycled stream id.
+  - *`fileTransferAck`.* `file_upload_request.ack === true` makes the daemon push
+    `file_upload_complete` (`{transferId, stream, ok, bytesWritten, error?}`) to the uploading
+    session once the file is closed or the upload failed: mkdir/open/write/close failure
+    (`<stage>_failed (<errno>)`), a client `Error` frame (its message), or an `End` with no `Begin`
+    (`no_begin`). No push without `ack`, and none when the session is gone. **A partial file is left on
+    disk after a failure** (decided; unchanged from before).
 - File downloads happen over the WebSocket via binary frames, not HTTP.
 - Unbounded file size (no inline ceiling like `file_read_request`).
 
@@ -1778,7 +1801,7 @@ fires `onSessionClose`) and `dispose()` on `close()`.
   `process.cpuUsage()` since the previous sample; 0 on the first), `memory`, `eventLoopLagMs`
   (`monitorEventLoopDelay` mean; NaN -> 0), `agentsByStatus`, `clients[]` (uncapped; sorted by
   `connectedAt` then `clientId`).
-- **`Session` metadata** (`ws/session.ts`): `appVersion`, `connectedAt`, `remoteAddress`,
+- **`Session` metadata** (`ws/session.ts`): `appVersion`, `platform`, `connectedAt`, `remoteAddress`,
   `transport: "direct" | "relay"`; the defaults keep directly constructed test sessions valid.
 - **Timer lifecycle:** one shared `unref()`ed `setInterval` and one event-loop histogram exist only
   while >= 1 session is subscribed; one snapshot and one envelope per tick shared by all
@@ -2006,4 +2029,7 @@ no scenario producer fails the coverage guard, and a manifest `exception` fixtur
 unproduced). A daemon change that alters a fixtured shape fails here: update the fixture per the
 bump + note rule (protocol AGENTS.md). `scripts/record-external-fixtures.ts` runs the same scenario
 and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, so run
-`npm run build:server` first. Not run in CI.
+`npm run build:server` first. Not run in CI. The scenario also drives file transfer (token → download,
+`ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
+(create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
+the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.

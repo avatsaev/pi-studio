@@ -1,0 +1,18 @@
+{
+  "type": "file_upload_response",
+  "direction": "server_to_client",
+  "description": "The stream the client must use. Failure: `ok:false` with `error` (missing_fields, no_free_stream).",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/stream"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_upload_response",
+      "ok": true,
+      "stream": 1,
+      "requestId": "req-1"
+    }
+  }
+}

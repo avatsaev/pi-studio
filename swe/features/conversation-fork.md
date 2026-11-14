@@ -218,7 +218,7 @@ onAgentTimelineReset(agentId):                      # every client, incl. the re
 - Failure (rpc_error — e.g. the unsaved-session error, unknown entry) → toast the message, dialog
   returns to idle, retry allowed.
 
-### Alignment with the visual spec (`swe/UI design/fork-rewind-ui-specs/`)
+### Alignment with the visual spec (`docs/UI design/fork-rewind-ui-specs/`)
 
 The visual spec is **split by concern** — open only the part you are building. The index
 (`Fork Conversation Visual Spec.dc.html`) carries § 00 scope, § 14 the acceptance checklist and a

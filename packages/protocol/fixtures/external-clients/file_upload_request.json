@@ -1,0 +1,19 @@
+{
+  "type": "file_upload_request",
+  "direction": "client_to_server",
+  "description": "Open an upload: the daemon assigns a stream; the client then sends Begin/Chunk*/End binary frames on it. `ack:true` asks for a `file_upload_complete` push when the stream ends.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": "fileTransferAck",
+  "volatile": ["/message/requestId", "/message/path", "/message/transferId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_upload_request",
+      "requestId": "req-1",
+      "path": "/tmp/pi-studio-fixture/upload.txt",
+      "transferId": "transfer-1",
+      "ack": true
+    }
+  }
+}

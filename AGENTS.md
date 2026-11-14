@@ -26,13 +26,18 @@ packages/
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
   relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
-  web-client/  Production React/Vite browser UI (supports `#agent=<id>` deep links) — connection, chat, sessions, files, git, terminal,
-               split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
-               per-pane tab strips, persisted per workspace along with which one was in view); drag a
-               Files-tree file or folder onto the chat composer to insert its relative path.
+  web-client/  The browser shell: a thin Vite SPA rendering `@av-pi-studio/workbench` with a browser host (`main.tsx`,
+               build-time brand title/favicon override, pdf.js worker, `vite.config.ts`). Ships only the prebuilt
+               static SPA (`dist/web`) that `pi-studio ui` and the Docker image serve. See packages/web-client/AGENTS.md.
   ui-library/  `@av-pi-studio/ui-library` — publishable React design system extracted from web-client: primitives,
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
+  workbench/   `@av-pi-studio/workbench` — the client application as a library (connection, sessions, chat/timeline,
+               composer, files and viewers, git, terminals, settings; split panes with per-pane tab strips, persisted per
+               workspace; `#agent=<id>` deep links; drag a Files-tree entry onto the composer to insert its path), consumed
+               by web-client and the separate-repo desktop app through one `WorkbenchHost` object
+               (`swe/architecture/workbench-package.md`, `workbench-host-adapter.md`). Public API: shell components, three
+               hooks, `createBrowserHost`; entries `.`, `./styles.css`, `./fonts.css`, `./vite`. See packages/workbench/README.md.
   ui-gallery/  Private (never published/deployed) Vite+React gallery app that consumes the BUILT ui-library `dist`
                through its package `exports`; theme switcher + a section per primitive family.
 
@@ -55,8 +60,9 @@ relay       ──────────────────────�
 client      ──────► protocol, relay
 server      ──────► protocol, relay
 cli         ──────► protocol, client, relay, server, web-client
-web-client  ──────► protocol, client, ui-library   (ui-library is a devDependency, bundled into the SPA)
+web-client  ──────► protocol, client, ui-library, workbench   (devDependencies, bundled into the SPA)
 ui-library  ──────► (no workspace deps)
+workbench   ──────► protocol, client, ui-library
 ui-gallery  ──────► ui-library
 ```
 
@@ -72,7 +78,8 @@ planner a connected daemon runs — no daemon lifecycle, no WS server, no `pi` p
 auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above. `ui-library` is the
-shared UI contract (no workspace deps); web-client resolves it from source through a Vite alias.
+shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
+Vite aliases (the workbench's published `dist` is proven by `packages/workbench/scripts/pack-smoke.sh`).
 
 ---
 
@@ -97,8 +104,8 @@ shared UI contract (no workspace deps); web-client resolves it from source throu
 | Interactive terminal prompts | `@inquirer/prompts` (cli only — `auth login` picker/masked input; lazy-imported) |
 | QR codes | `qrcode` |
 | Auth | `bcryptjs` (password hashing), `tweetnacl` (keypair for relay pairing) |
-| Molecular structure viewer | `@molviewer/core` (web-client only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
-| PDF viewer | `pdfjs-dist` (web-client only — PDF file viewer, lazy-loaded `vendor-pdfjs` chunk + bundled module Worker; its cmaps/fonts/wasm/ICC data ships under `dist/<target>/pdfjs/`) |
+| Molecular structure viewer | `@molviewer/core` (workbench only — molecule/crystal file viewer, lazy-loaded `vendor-molviewer` chunk) |
+| PDF viewer | `pdfjs-dist` (workbench — PDF file viewer; the worker comes from the host and the cmaps/fonts/wasm/ICC data from the workbench's `./vite` plugin, shipped under `dist/web/pdfjs/`) |
 
 ---
 
@@ -187,7 +194,7 @@ npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
+# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
 npm run dev:daemon
 
 # Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
@@ -219,11 +226,11 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 ```bash
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
 #    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies — e.g.
-#    web-client's @av-pi-studio/client/protocol/ui-library, which are devDependencies since web-client ships
+#    web-client's @av-pi-studio/client/protocol/ui-library/workbench, which are devDependencies since web-client ships
 #    no runtime deps, only its prebuilt dist), builds+typechecks+tests, then publishes
-#    protocol/relay/client/ui-library/web-client/server/cli (7 packages) to npm in that dependency
+#    protocol/relay/client/ui-library/workbench/web-client/server/cli (8 packages) to npm in that dependency
 #    order (`PUBLISH_ORDER` in scripts/publish.sh; `ui-gallery` is private and never published).
-#    The single version line lives in packages/*/package.json (all 7 kept identical; the script
+#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
 #    reads packages/protocol/package.json as the reference). The root package.json intentionally
 #    has NO "version" field — it is a private workspace root that nothing publishes and nothing
 #    reads; do not add one back, or it will silently drift from the real version. Every published
@@ -243,11 +250,14 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    was 1.9 MB for the same four images.
 #    Requires: npm login locally. In CI (.github/workflows/release.yml) it uses npm trusted
 #    publishing (GitHub OIDC, `id-token: write`, npm >= 11.5.1) — no NPM_TOKEN secret; each of the
-#    seven packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
-#    A brand-new package (e.g. ui-library's first release) cannot be registered as a Trusted
+#    eight packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    A brand-new package (e.g. the workbench's first release) cannot be registered as a Trusted
 #    Publisher until it exists on npm: do a one-time placeholder `npm publish` and register
 #    `release.yml` as its Trusted Publisher BEFORE merging the change that first publishes it.
-#    See packages/ui-library/RELEASING.md (also covers rollback).
+#    See packages/workbench/RELEASING.md (also covers rollback and the rehearsal rule: run
+#    `npm run publish -- --dry-run` in a throwaway worktree before merging a branch that adds a
+#    package; private workspace packages must depend on workspace packages with "*").
+#    (ui-library's runbook: packages/ui-library/RELEASING.md.)
 #    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
@@ -317,6 +327,10 @@ Also reads `$PI_STUDIO_HOME/config.json`.
 
 ## Protocol overview
 
+> **Reading note.** Entries below that credit `web-client` with UI work (sprints 058–082) describe code
+> that has lived in `packages/workbench` since sprint 092; `web-client` is now only the browser shell.
+> Their `packages/web-client/AGENTS.md` pointers were retargeted to `packages/workbench/AGENTS.md`.
+
 All communication uses a **single WebSocket connection** per client.
 
 - **Text frames** carry JSON envelopes discriminated by `type`:
@@ -346,7 +360,7 @@ All communication uses a **single WebSocket connection** per client.
   (`packages/server/src/terminal/terminal-rpc.ts`) is a variant of the same convention with no
   subscribe RPC at all: the daemon broadcasts it to **every** active session unconditionally on
   five terminal lifecycle events (create/rename/kill/self-exit/`start_workspace_script`,
-  sprint-053/task-003), and a client just listens (`packages/web-client`'s
+  sprint-053/task-003), and a client just listens (`packages/workbench`'s
   `use-terminal-exit-watch.ts`) rather than subscribing per path. `agent_timeline_reset`
   (sprint-071, `packages/server/src/agent/slash-command-operations.ts`'s `handleFork`) is the same
   no-subscribe-RPC variant: `{ type: "agent_timeline_reset", agentId, reason }` broadcasts to
@@ -355,7 +369,7 @@ All communication uses a **single WebSocket connection** per client.
   cached timeline for `agentId` and refetch from scratch; `reason` is currently always `"fork"`. An
   extension-cancelled fork rebinds nothing and emits neither the reset nor the broadcast.
   **Sprint-072 gave `web-client` the row/menu fork affordance and dialog** that actually emits
-  `agent_fork_request` (`packages/web-client/AGENTS.md`'s "Conversation fork" invariant) —
+  `agent_fork_request` (`packages/workbench/AGENTS.md`'s "Conversation fork" invariant) —
   live-verified end to end including over the relay transport (task-006): two windows on the same
   agent, one direct and one relay-connected, both converged to the same truncated transcript the
   instant a fork was confirmed in the other, no reload.
@@ -371,7 +385,7 @@ All communication uses a **single WebSocket connection** per client.
   `auth.json` on the **daemon host** at the same path a daemon-spawned `pi --mode rpc` agent reads
   (`packages/server/AGENTS.md`'s "Provider auth" subsystem section). **Shipped, not just
   wire-capable**: `web-client`'s Settings dialog (gear at `ConnectionBar`'s top-right → Model
-  Providers, sprint-065, `packages/web-client/AGENTS.md`'s Provider auth invariants) is the
+  Providers, sprint-065, `packages/workbench/AGENTS.md`'s Provider auth invariants) is the
   concrete browser client for this family — live-verified end to end including over the relay
   transport (task-007): a credential entered in the browser lands in the exact `auth.json` a
   daemon-spawned `pi --mode rpc` child reads, with no secret leaking into any log, frame beyond its
@@ -408,12 +422,12 @@ All communication uses a **single WebSocket connection** per client.
   for the four dialog kinds (`select`/`confirm`/`input`/`editor`, plus an unrecognised-method
   fallback) — every lifecycle state (pending, in-flight, resolved, non-answerable, multiple at
   once, recovered-after-reload) and full keyboard/focus ownership, composed inline into the chat
-  transcript (`packages/web-client/AGENTS.md`'s "Extension UI dialogs" invariant). **Sprint-069
+  transcript (`packages/workbench/AGENTS.md`'s "Extension UI dialogs" invariant). **Sprint-069
   gave `web-client` discoverability and transients** — § 08's attention signals on four surfaces
   (session row, collapsed workspace header, pane tab strip, plus an `aria-live` screen-reader
   announcement region) so a pending dialog raised anywhere is no longer invisible outside its own
   transcript, and § 11's two fire-and-forget effects (`notify` toasts via a new app-wide toast
-  host, and `set_editor_text` composer replacement) (`packages/web-client/AGENTS.md`'s "Toast
+  host, and `set_editor_text` composer replacement) (`packages/workbench/AGENTS.md`'s "Toast
   host", "Both transient effects are now wired", and "Announcements" invariants). **Still
   unrendered**: the retained surfaces (`setStatus`/`setWidget`/`setTitle`, § 09/§ 10) — a later
   sprint's scope (070 became the thinking-level selector), not yet wired to anything.
@@ -427,7 +441,7 @@ All communication uses a **single WebSocket connection** per client.
   catalogue client-side. The daemon-side persistence chain (replay order model-then-thinking,
   clamp write-back on every model change) is task-003. **Task-005 shipped the composer
   consumer**: `web-client`'s `ThinkingMenu` (brain-icon picker in `.toolbarRight`, immediately
-  after `ModelMenu`) — see `packages/web-client/AGENTS.md`'s "Thinking-level selector" invariant.
+  after `ModelMenu`) — see `packages/workbench/AGENTS.md`'s "Thinking-level selector" invariant.
 - **`viewer_settings_*`** (sprint-073, `docs/MOLVIEWER_DECOUPLING.md` § 4.4) is the daemon-backed
   viewer-settings family — the runtime kill switch for the molecule viewer and the settings
   document every future viewer plugin reads. Five real `sessionMessageSchema` members **including
@@ -471,7 +485,7 @@ All communication uses a **single WebSocket connection** per client.
   `~N%` estimate from the response, with no divider. The SDK uses a 10-minute `COMPACT_TIMEOUT_MS`.
   Consumed by `web-client`'s status-bar context meter (a loading bar; click opens a popover with
   Compact now / Cancel) and the composer's client-side `/compact [instructions]` built-in
-  (`packages/web-client/AGENTS.md`); `pi-studio agent compact <id>` is the CLI path. `contextPercent`
+  (`packages/workbench/AGENTS.md`); `pi-studio agent compact <id>` is the CLI path. `contextPercent`
   is Pi's 0–100 scale on every path.
 - **`skills_*`** (sprint-075, `swe/features/skills-manager.md`) is the Settings → Skills family.
   `skills_list_request` re-derives the whole list from Pi on every call (Pi's
@@ -522,8 +536,19 @@ All communication uses a **single WebSocket connection** per client.
   frames, settle/compaction/fork reconcile, process-less list after a daemon restart, archive sweep,
   no task text in debug logs. **Consumer**: `PiStudioClient` (`listAgentTodos`/`onAgentTodosUpdate`/
   `hasAgentTodosCapability`, `AgentTodosError`) and the pure `agent-todos-state.ts` reducer. **Sprint-080 shipped the web
-  panel** (`packages/web-client`'s `TodoPanel`, between the timeline and the composer; per-agent collapse in
-  localStorage `pi-studio-agent-todos-ui`; see `packages/web-client/AGENTS.md`'s "Agent todo panel").
+  panel** (`packages/workbench`'s `TodoPanel`, between the timeline and the composer; per-agent collapse in
+  localStorage `pi-studio-agent-todos-ui`; see `packages/workbench/AGENTS.md`'s "Agent todo panel").
+- **Desktop-client protocol follow-ups (sprint-096, `swe/features/desktop-client-protocol-followups.md`).**
+  Three additive changes for the Rust desktop client. (1) `hello.platform`: an optional free-form string
+  (max 32 chars; a bad value is dropped, not rejected) carried to `Session.platform` and `daemon_status`
+  client entries; `clientType` stays a closed enum (the desktop app connects as `browser` +
+  `platform: "desktop"`) because a 0.0.117 daemon rejects an unknown value, silently over the relay.
+  (2) File-transfer flow control: the daemon paces a download on the socket's buffered amount (direct
+  connections only; the relay's stand-in socket reports none), sends `Error` without a trailing `End`
+  on a read error, and ignores upload frames from a session that does not own the stream; an upload
+  request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
+  `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
+  after a failed upload. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**
@@ -545,7 +570,13 @@ All communication uses a **single WebSocket connection** per client.
   Layer B (`packages/server/src/daemon/external-fixtures-e2e.test.ts`) proves a live dev daemon still
   matches. Regenerate signatures with `npm run fixtures:update -w @av-pi-studio/protocol`; print
   candidates with `node packages/server/scripts/record-external-fixtures.ts` (after `npm run
-  build:server`). See `packages/protocol/fixtures/external-clients/README.md`.
+  build:server`). See `packages/protocol/fixtures/external-clients/README.md`. Coverage includes the
+  file-transfer RPCs (`file_download_*`, `file_upload_*`, `file_upload_complete`) and the terminal
+  RPCs/broadcast (`*_terminal_request`/`_response`, `terminals_update`), all `since` 0.0.118 (sprint-096).
+  The nine file-transfer/terminal **binary frames** are fixtured in the `binary/` subdirectory (own
+  manifest and `formatVersion`, round-trip-tested against the real codecs by
+  `external-binary-fixtures.test.ts`); a subdirectory because the dashboard's vendored test rejects
+  unlisted top-level `*.json`.
 
 ---
 
@@ -650,4 +681,5 @@ tolerated without a migration framework.
 | relay | `packages/relay/AGENTS.md` |
 | web-client | `packages/web-client/AGENTS.md` |
 | ui-library | `packages/ui-library/AGENTS.md` |
+| workbench | `packages/workbench/AGENTS.md` |
 | ui-gallery | `packages/ui-gallery/AGENTS.md` |

@@ -2,7 +2,7 @@
 
 Low-level WebSocket driver (`DaemonClient`) and high-level SDK facade (`PiStudioClient`), plus
 relay E2EE transport, pairing, and binary-frame demux (terminal + file-transfer). This package is
-consumed by `cli` and `web-client`.
+consumed by `cli` and the `workbench` (rendered by `web-client`).
 
 ---
 
@@ -34,7 +34,7 @@ Provides:
    daemon's `agent_todos_*` wire family (sprint-079): `PiStudioClient.listAgentTodos`/
    `onAgentTodosUpdate`/`hasAgentTodosCapability`, plus a pure per-agent last-value-wins reducer
    with reconnect-safe `seq` reset. No controller layer here — the consumer (sprint-080's
-   web-client store) wires it.
+   workbench store) wires it.
 
 ---
 
@@ -64,6 +64,8 @@ src/
   terminal-router.test.ts
   file-transfer-client.ts     FileTransferClient — binary file-download/-upload frame demux + assembly.
   file-transfer-client.test.ts
+  file-transfer-upload.test.ts  Paced/acknowledged/cancellable upload against a fake transport with a scripted `bufferedAmount`.
+  (the real-daemon upload test is packages/cli/src/file-transfer-sdk-e2e.test.ts: cli depends on both client and server.)
 ```
 
 ---
@@ -80,6 +82,7 @@ interface Transport {
   sendBinary(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
   readonly isOpen: boolean;
+  readonly bufferedAmount?: number; // bytes queued by send*() not yet on the wire; optional
 
   onMessage: ((data: string | ArrayBuffer | Blob) => void) | null;
   onClose: ((code: number, reason: string) => void) | null;
@@ -89,7 +92,7 @@ interface Transport {
 
 `createWebSocketTransport(factory?: WsFactory)` — default direct-WebSocket implementation.
 `factory` is an injectable `(url, protocols?) => AnyWebSocket` (tests, or a custom factory carrying
-a bearer-password subprotocol — see `web-client`'s `connection-store.ts` for that pattern). With no
+a bearer-password subprotocol — see `workbench`'s `lib/connection/connection-store.ts` for that pattern). With no
 factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). `connect()` forces
 `ws.binaryType = "arraybuffer"` on the created socket (browsers/RN default to `"blob"`, which would
 otherwise route every binary frame through `DaemonClient.handleIncoming`'s async `Blob.arrayBuffer()`
@@ -115,6 +118,14 @@ to find the daemon on the relay without a separately-transmitted session id), co
 file-transfer chunks) — carried as the channel's `e2ee_bin` sibling wire frame to text `e2ee_app`
 (`@av-pi-studio/relay`'s `channel.ts`); still a JSON text WS frame under the hood (base64-wrapped
 ciphertext), never a raw binary WebSocket frame, so no relay-server change was needed.
+
+`Transport.bufferedAmount` is **optional**: bytes accepted by `sendText`/`sendBinary` but not yet
+handed to the network. `createWebSocketTransport` returns the socket's `bufferedAmount` (`undefined`
+when there is no socket); `createRelayTransport` returns its relay socket's `bufferedAmount` too —
+the channel encrypts and writes synchronously, so that queue is exactly the (base64-inflated)
+ciphertext still waiting to leave. A transport that cannot report it (the desktop app's Rust bridge,
+any out-of-tree implementation) simply omits the property: `FileTransferClient.upload` then treats
+it as never congested and does not pace. `DaemonClient.bufferedAmount` forwards it.
 
 `parsePairingUrl(input)` (`pairing.ts`) parses a pairing URL's fragment
 (`#offer=<base64>&host=...` or, for a relay-routed daemon, `#offer=<base64>&relay=<endpoint>
@@ -148,6 +159,7 @@ valid pairing link," never fall back to an unauthenticated connection.
 | `onTerminalFrame(handler)`              | Subscribe to decoded inbound terminal binary frames. Returns unsubscribe fn.                             |
 | `onFileTransferFrame(handler)`          | Subscribe to decoded inbound file-transfer binary frames. Returns unsubscribe fn.                        |
 | `onStateChange(handler)`                | Subscribe to connection state transitions. Returns unsubscribe fn.                                       |
+| `bufferedAmount`                        | The transport's unsent byte count; `undefined` when the transport does not report one.                   |
 | `state`                                 | Current `ConnectionState`                                                                                |
 | `serverId`                              | Server identity from the last `server_info`                                                              |
 | `features`                              | Feature flags map from the last `server_info`                                                            |
@@ -166,7 +178,8 @@ valid pairing link," never fall back to an unauthenticated connection.
 {
   url: string;              // WebSocket URL (e.g. "ws://127.0.0.1:6767") — passed to transport.connect()
   clientId: string;         // Stable client identity sent in hello
-  clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp"
+  clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp" (closed enum)
+  platform?: string;        // hello.platform, sent only when set; the desktop app sends "desktop" (with clientType "browser")
   protocolVersion?: number; // Defaults to PROTOCOL_VERSION = 1
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise
@@ -344,7 +357,7 @@ regression test in `pistudio-client.test.ts`:
   sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
   `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
   alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
-  way — `web-client`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
+  way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
   agent turns), so a relay-mediated daemon death is _correctly_ reported now, just not _quickly_;
   the relay protocol has no peer-liveness signal for the client to react to sooner
   (`@av-pi-studio/relay`'s `RelaySessionBridge` only logs `onUnregister` server-side, it never
@@ -474,7 +487,7 @@ Drives automatic reconnect after socket drop:
   `maxAttempts` (default `Infinity`).
 - On each attempt: calls `daemonClient.connect()` which re-issues the full `hello` handshake.
 - Fires `onReconnected(handler)` after success; `onReconnectFailed(handler)` on error.
-- All timer/RNG dependencies are injectable for deterministic tests (`web-client`'s
+- All timer/RNG dependencies are injectable for deterministic tests (`workbench`'s
   `connection-store.ts` injects Worker-backed timers — sprint-050 — so backoff scheduling keeps
   accuracy in a hidden/throttled tab).
 - `reconnectNow()` (sprint-050) — cancel any pending backoff timer and attempt a reconnect
@@ -484,7 +497,7 @@ Drives automatic reconnect after socket drop:
   reconnect notifies `onReconnected` with `attempt: 0` — the convention that distinguishes it from
   a ladder attempt (always ≥ 1). A forced attempt that fails re-enters the normal failure path,
   which restarts the ladder at rung 1. Exists so an external resume signal (tab became visible, OS
-  reports network back — see `web-client`'s `lib/connection/resume-triggers.ts`) can bypass a
+  reports network back — see the workbench's `host.connection.onResume` and `lib/connection/resume-handler.ts`) can bypass a
   throttled backoff delay. `scheduleReconnect()` is single-armed (at most one pending timer at a
   time) so `reconnectNow()`'s `clearTimer` call is always authoritative.
 
@@ -531,11 +544,12 @@ const files = new FileTransferClient(daemonClient);
 files.start(); // begin routing (idempotent)
 const { bytes, fileName, mimeType } = await files.download(path);
 // requests a single-use token, then the chunked transfer, assembling Begin → Chunk* → End
-await files.upload(path, bytes);
-// requests an upload stream (server keys it by a fresh transferId), then pushes
-// Begin → Chunk* → End frames the server writes to `path` (creates parent dirs, overwrites
-// any existing file — no confirmation server-side; callers must confirm before calling).
-files.stop(); // stop routing; pending downloads are rejected
+await files.upload(path, source, { onProgress, signal });
+// source: Uint8Array | Blob | AsyncIterable<Uint8Array>. Requests an upload stream (server keys it
+// by a fresh transferId), then pushes Begin → Chunk* → End frames the server writes to `path`
+// (creates parent dirs, overwrites any existing file — no confirmation server-side; callers must
+// confirm before calling). A bare `Uint8Array` call (no options) behaves as before.
+files.stop(); // stop routing; pending downloads and uploads are rejected
 ```
 
 - **Stream ids come from the protocol's shared pool** (`nextFreeSlot`/`SLOT_SPACE`) and are
@@ -547,6 +561,31 @@ files.stop(); // stop routing; pending downloads are rejected
   socket shared with every in-flight `Chunk` frame — a large transfer ahead of it can deliver a
   token that is already dead (routine over relay). By the time the rejection arrives that backlog
   has drained, so one clean attempt suffices; further looping would only spin on a broken link.
+- **`upload()` streams and paces.** Chunks are at most 32 KiB (`Begin`/`Chunk`/`End` opcodes and the
+  chunk size are unchanged). A `Blob` is read one `slice()` at a time (never `arrayBuffer()` of the
+  whole file); an async iterable is pulled one item at a time and oversized items are re-cut.
+  Before each chunk it polls (10 ms timer) while `daemon.bufferedAmount` is above
+  `UPLOAD_HIGH_WATER_BYTES` (1 MiB, exported; **chosen, not measured**), so the socket queue stays
+  within the mark plus one frame. No `bufferedAmount` → never congested. `onProgress(sent, total?)`
+  fires after every chunk (cumulative `sent`; `total` is the byte length for `Uint8Array`/`Blob`,
+  `undefined` for an iterable; an empty source reports `(0, 0)`). `new FileTransferClient(daemon,
+  { highWaterBytes?, sleep? })` overrides the mark and the timer (tests).
+- **Completion depends on `server_info.features.fileTransferAck`.** With it, the request carries
+  `ack: true` and `upload()` resolves on the matching `file_upload_complete` push (by `transferId`;
+  the listener is registered before `Begin` goes out), rejecting with the daemon's `error` when
+  `ok` is false — a failure push mid-transfer also stops sending. That wait has **no timeout** (it
+  is not an RPC), so a long upload is never cut off by `rpcTimeoutMs`. Without the feature (older
+  daemon) it resolves once the transport's buffered amount reaches 0 (or is unknown) after `End` —
+  the bytes have left this machine, not necessarily reached the disk.
+- **Cancel and failure leave nothing behind.** `signal` aborting sends an `Error` frame for the
+  stream (only before `End`, and only if the daemon has not already reported the transfer done —
+  stream ids get reused) and rejects with a `DOMException` named `AbortError`; an abort while the
+  `file_upload_request` is still in flight returns the stream when it arrives. A source error does
+  the same with a plain `Error`. A dropped connection (any non-`open` state change) or `stop()`
+  rejects without sending. In every case the abort/state/session listeners are removed and
+  `pendingUploads` returns to 0.
+- **No `Promise.withResolvers` in `src/`.** The SDK runs in browsers/React Native older than ES2024
+  and compiles with `lib: ES2023`; use `new Promise` here (tests may use `withResolvers`).
 
 ---
 
@@ -581,11 +620,15 @@ function` on upload) — never call `crypto.randomUUID()` directly in this packa
 ```bash
 npx vitest run packages/client
 npx vitest run packages/cli/src/agent-ui-sdk-e2e.test.ts   # cross-package Extension UI E2E (real daemon)
+npx vitest run packages/cli/src/file-transfer-sdk-e2e.test.ts   # upload() against a real daemon (ack, bytes on disk)
 ```
 
 Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets —
-with one exception: `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) drives a
-real `PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
+with two exceptions, both in `cli` because `client` and `server` have no dependency edge in either
+direction. `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) drives a real
+`PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
 (`@av-pi-studio/server`'s `startDevDaemon`), proving interoperability beyond this package's own
-scripted-transport tests. It lives in `cli`, not here, because `client` and `server` have no
-dependency edge in either direction.
+scripted-transport tests. `packages/cli/src/file-transfer-sdk-e2e.test.ts` (sprint-096/task-004) is
+the second: `FileTransferClient.upload()` against the same dev daemon, checking that it resolves on
+the daemon's `file_upload_complete`, that the bytes on disk match, and that a daemon-side failure
+rejects with the daemon's error.

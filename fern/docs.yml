@@ -47,7 +47,7 @@ navigation:
       - page: Docker
         path: pages/configuration/docker.mdx
         slug: docker
-# Mirrors packages/web-client's default dark theme (theme/variants.ts "dark") and light theme.
+# Mirrors packages/ui-library's default dark theme (src/theme/variants.ts "dark") and light theme.
 colors:
   accent-primary:
     light: "#253e6f"

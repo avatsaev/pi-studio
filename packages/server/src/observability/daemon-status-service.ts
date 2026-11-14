@@ -76,6 +76,7 @@ function toClientInfo(session: Session): DaemonClientInfo {
   return {
     clientId: session.clientId,
     clientType: session.clientType,
+    ...(session.platform !== undefined ? { platform: session.platform } : {}),
     ...(session.appVersion !== undefined ? { appVersion: session.appVersion } : {}),
     connectedAt: session.connectedAt,
     ...(session.remoteAddress !== undefined ? { remoteAddress: session.remoteAddress } : {}),

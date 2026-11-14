@@ -1,0 +1,13 @@
+{
+  "family": "terminal",
+  "opcode": "Restore",
+  "direction": "server_to_client",
+  "description": "Reflowable-tier restore, sent only to a client that advertised `terminal_reflowable_snapshot`: a serialization of the daemon screen model. The payload is opaque to the codec; the text here is a stand-in.",
+  "since": "0.0.118",
+  "hex": "05 01 72 65 73 74 6f 72 65 2d 70 61 79 6c 6f 61 64",
+  "decoded": {
+    "opcode": "Restore",
+    "slot": 1,
+    "dataHex": "72 65 73 74 6f 72 65 2d 70 61 79 6c 6f 61 64"
+  }
+}

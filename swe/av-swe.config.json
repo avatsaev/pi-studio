@@ -19,6 +19,8 @@
   "gateNotes": {
     "perPackageBuild": "npm run build:<pkg> (e.g. npm run build:web-client) — preferred inside a task; the full `build` gate runs at sprint end",
     "focusedTest": "npx vitest run <path> — preferred inside a task; the full `test` gate runs at sprint end",
-    "fmt": "npx oxfmt <changed files> — scoped, never a project-wide reformat"
+    "fmt": "npx oxfmt <changed files> — scoped, never a project-wide reformat",
+    "parallelWave": "Subagents share one working tree: each runs only its package build (`npm run build:<pkg>`) and `npx vitest run <its paths>`, never `npm run build`/`npm test`/`npm run clean` (they rewrite every package's dist under siblings). The orchestrator runs the full gates once per wave. `docs/desktop-client-handoff.md`, `swe/sprints/PLAN.md` and spec status lines are orchestrator-owned during a wave: subagents report the edits in their summaries.",
+    "liveChecks": "Browser/daemon checks need ports and a shared browser: run them in the orchestrator after the wave gate, not inside subagents. Dev daemon: `npm run dev:daemon` (mock, 127.0.0.1:6767 by default — set PI_STUDIO_LISTEN to another port when the user's daemon owns 6767)."
   }
 }

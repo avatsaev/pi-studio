@@ -1,0 +1,820 @@
+/**
+ * Composer — a bordered card holding an autosizing textarea with a **bottom toolbar** beneath it
+ * (attach / slash-commands on the left, model picker + send/steer/stop on the right), replacing
+ * the old single-row "textarea flanked by loose buttons" layout. Send/stop semantics are
+ * unchanged (POC `initChatPanel`/`send()`,
+ * POC_TO_APP_PLAN_UI.md §4.4). Every send goes through `ensureMaterialized` (`stores/
+ * materialize.ts`) first: a brand-new session (`agentId: null`) becomes a real, persisted draft
+ * via a no-`initialPrompt` `createAgent` call — the daemon persists the record but does NOT spawn
+ * a provider process yet (`agent-service.ts` `handleCreate`'s deferred-draft branch); the process
+ * spawns lazily on this very send (`spawnOrResumeSession`). `ensureMaterialized` is a no-op once
+ * already bound, so this is the single path for both "first message ever" and every follow-up:
+ * `client.agent(agentId).send(...)`. Stop → `client.agent(agentId).interrupt()`.
+ *
+ * Because the agent is bound (materialized) *before* this call, `useAgentStream` (attaches once
+ * `agentId` is set) is already subscribed by the time `send`'s turn starts streaming — unlike the
+ * old "one RPC does create-agent-and-run-the-first-turn" path, there is no window where the first
+ * turn's events arrive on a raw broadcast nobody is listening to, so this file no longer needs a
+ * first-turn gate/latch dance for a still-unbound session.
+ *
+ * OPTIMISTIC ECHO: `send_agent_prompt` blocks server-side until the whole turn finishes, and even
+ * the *first* broadcast event only fires once the agent process is booted/warm — for a session
+ * materializing on this very send, that means a real process-spawn+handshake before anything
+ * appears (see AGENTS.md "First-message latency"). To hide that, `submit` mints a
+ * `clientMessageId` and inserts the user's row into the timeline *synchronously*, before the RPC
+ * is even issued. The daemon echoes the same id back verbatim as the `user_message` event's
+ * `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`); the reducer
+ * (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and confirms it in
+ * place instead of appending a duplicate.
+ *
+ * MODEL & MATERIALIZATION: a chat materializes the instant its tab is created
+ * (`tab-store.ts` `openNewChat` calls `ensureMaterialized`, which also resolves and pins the
+ * default model into the record if none was set yet) — long before this composer even mounts, in
+ * the common case. `submit`'s own `ensureMaterialized` call below is the retry path: it only does
+ * real work when the eager materialize failed or never ran (opened while disconnected). Picking a
+ * different model (`handleSelectModel` below, moved here from `StatusBar.tsx` with the toolbar)
+ * updates the already-materialized
+ * record's `config.model`/`config.modelProvider` directly — replayed by the server on first spawn
+ * regardless of whether it's the resolved default or an explicit pick (`spawnOrResumeSession`).
+ *
+ * STEERING: while the agent is running, the primary action becomes **Steer** instead of Send
+ * (`send_agent_prompt` is only legal when idle — see AGENTS.md "Steering"). Steer reuses the exact
+ * optimistic-echo + reconciliation path above (`clientMessageId` in, same `user_message` echo
+ * back), just against `client.agent(id).steer(...)` instead of `.send(...)`, and marks the
+ * optimistic row `queued: true` so `UserRow` can show a "queued" badge until a `queue_update`
+ * stream event drops the text from its `steering[]` list (`timeline/reducer.ts`'s
+ * `onQueueUpdate`). Follow-up (`.followUp(...)`, delivered only after the turn fully stops) is
+ * intentionally not surfaced here — SDK/CLI only for now. Steering only makes sense against a
+ * live agent — never triggers materialization itself.
+ */
+
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
+import { clsx } from "clsx";
+import { ArrowUp, Brain, ChevronDown, Cpu, Navigation, Plus, Slash, Square } from "lucide-react";
+import { Button, Spinner, TextArea, filterOptions } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { randomId } from "../../lib/random-id.js";
+import { useDraftStore } from "../../stores/draft-store.js";
+import { ensureMaterialized } from "../../stores/materialize.js";
+import { useSessionStore } from "../../stores/session-store.js";
+import { useIsTabVisible, tabIds } from "../../stores/tab-store.js";
+import { useAgentCommands } from "../../hooks/use-agent-commands.js";
+import { useProviderModels } from "../../hooks/use-provider-models.js";
+import { useThinkingLevels } from "../../hooks/use-thinking-levels.js";
+import { useIsCompacting } from "../../hooks/use-is-compacting.js";
+import { useCompactionStore } from "../../stores/compaction-store.js";
+import { compactionLabel, pendingCompaction } from "../../timeline/compaction.js";
+import { composerDropProps, hasPathRef, readPathRef } from "../workspace/external-drag.js";
+import { useHomeDir } from "../../hooks/use-home-dir.js";
+import { useLayoutStore } from "../../stores/layout-store.js";
+import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
+import { isComposerBusy } from "./composer-busy.js";
+import { canCompact, canSubmitDraft, shouldRestoreCompactDraft } from "./composer-gate.js";
+import { decideComposerDrop, refRoot, type InsertionPlan } from "./composer-path-drop.js";
+import { CommandMenu } from "./CommandMenu.js";
+import { ModelMenu } from "./ModelMenu.js";
+import { ThinkingMenu } from "./ThinkingMenu.js";
+import { levelsForModel } from "./thinking-level-source.js";
+import {
+  applyCommand,
+  CLIENT_BUILTIN_COMMANDS,
+  commandOptions,
+  knownCommandSpan,
+  moveHighlight,
+  parseBuiltinInvocation,
+  parseSlashToken,
+  shouldOpenMenu,
+} from "./slash-commands.js";
+import styles from "./Composer.module.css";
+
+const MAX_TEXTAREA_HEIGHT = 160;
+
+export interface ComposerProps {
+  sessionId: string;
+  /** The workspace (layout key) and pane this composer's chat tab lives in — a path drop focuses
+   *  that pane, since a drop fires no `pointerdown` for the pane's own click-to-focus. */
+  workspaceCwd: string;
+  owningPaneId: string | null;
+}
+
+function autoResize(el: HTMLTextAreaElement): void {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+}
+
+/** `steer_agent_response`'s `{ ok: false }` — no live turn, or the provider lacks steering. */
+function isOkFalse(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "ok" in value && value.ok === false;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+export function Composer({ sessionId, workspaceCwd, owningPaneId }: ComposerProps) {
+  const client = useConnectionStore((s) => s.client);
+  const session = useSessionStore((s) => s.sessions[sessionId]);
+  const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
+  const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
+  const setCwd = useSessionStore((s) => s.setCwd);
+  const setModel = useSessionStore((s) => s.setModel);
+  const setThinkingLevel = useSessionStore((s) => s.setThinkingLevel);
+  const serverInfo = useConnectionStore((s) => s.serverInfo);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const thinkingCapable = Boolean(serverInfo?.features?.["thinkingLevels"]);
+  // Live session: authoritative levels via `agent_thinking_levels_request`, fetched only while
+  // the menu is open; the `[agentId, model]` key refetches automatically on a model change.
+  // NOTE: `userMessageCount > 0` is the liveness proxy — a session spawns only on first send
+  // (`spawnOrResumeSession` runs on message send), so a fresh draft with no user turn yet has
+  // never spawned and must not issue this live-only query at all (server-side `requireSession`
+  // deterministically rejects it, and `retry: false` on the hook stops TanStack from retrying a
+  // rejection that can never succeed). A session with history may still hit that rejection right
+  // after a daemon restart (resume is lazy, deferred to the next send) — the catalogue fallback
+  // below covers that window too.
+  const { data: liveLevels } = useThinkingLevels(
+    session?.agentId,
+    session?.model,
+    thinkingOpen && Boolean(session?.agentId) && (session?.userMessageCount ?? 0) > 0,
+  );
+  // Draft (no live session): the already-cached model catalogue answers — the same query key
+  // ModelMenu populates, so the draft lookup costs no extra RPC. `levelsForModel` always returns
+  // at least the full fallback ladder, so this is never empty.
+  const { data: catalogue } = useProviderModels("pi", session?.agentId);
+  const catalogueLevels = levelsForModel(session?.model, catalogue);
+  const thinkingLevels =
+    liveLevels !== undefined && liveLevels.length > 0 ? liveLevels : catalogueLevels;
+  // Hidden when the server lacks the capability, or a live session's fetch authoritatively came
+  // back empty (the current model truly has no thinking modes). Never hidden merely because the
+  // live query hasn't resolved/doesn't apply — the catalogue fallback covers that.
+  const showThinkingMenu =
+    thinkingCapable && !(liveLevels !== undefined && liveLevels.length === 0);
+  // Draft text is lifted into `draft-store.ts` (sprint-069/task-007), not local state — a
+  // `set_editor_text` extension effect must be able to write a session's draft even while this
+  // component is unmounted (no chat tab open for that session yet), and this same slot is what a
+  // freshly-mounted composer for that session reads as its initial text.
+  const text = useDraftStore((s) => s.drafts[sessionId] ?? "");
+  const setDraftText = useDraftStore((s) => s.setDraft);
+  const [images, setImages] = useState<PendingImage[]>([]);
+  // Two independent busy flags: `sending` guards Send/create-agent, whose RPC blocks
+  // server-side for the *entire* turn (`runTurn` doesn't resolve until the turn ends — see
+  // AGENTS.md "Steering"); `steering` guards the separate, fire-and-forget steer RPC. Sharing
+  // one flag would leave the Steer button disabled for the whole turn, since the original
+  // send's promise stays pending throughout it.
+  const [sending, setSending] = useState(false);
+  const [steering, setSteering] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+
+  // `set_editor_text` visual feedback (sprint-069/task-007, § 11). `visible` mirrors
+  // `agent-ui-store.ts`'s own `isTabVisible(tabIds.chat(sessionId))` check at effect-application
+  // time; here it additionally drives WHEN a queued feedback is shown/consumed as this composer's
+  // own on-screen state changes.
+  const visible = useIsTabVisible(tabIds.chat(sessionId));
+  const pendingFeedback = useDraftStore((s) => s.pendingFeedback[sessionId]);
+  const [note, setNote] = useState<string | null>(null);
+  // A rejected model/thinking pick (e.g. "Model not found" from an agent whose process predates a
+  // models.json edit): the optimistic pick is reverted and this says why, until the next edit/pick.
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [flashing, setFlashing] = useState(false);
+  const noteTimeoutRef = useRef<number | null>(null);
+  const flashTimeoutRef = useRef<number | null>(null);
+  // A Files-tree row is being dragged over the card (`composer-path-drop.ts`). And whether the
+  // textarea has ever had focus since mount: a textarea mounted with a non-empty draft reports a
+  // caret at 0 until then, so the drop ignores the caret and appends instead.
+  const [dragOver, setDragOver] = useState(false);
+  const everFocusedRef = useRef(false);
+  const homeDir = useHomeDir();
+
+  // Consumes this session's queued feedback the instant it is both PENDING and VISIBLE — either
+  // condition can arrive first (an effect while already visible; becoming visible with a feedback
+  // already queued from a background replacement), and either transition must re-check. Never
+  // gated on `text` itself: ordinary typing changes `drafts[sessionId]` too and must not re-fire
+  // this.
+  useEffect(() => {
+    if (!visible || pendingFeedback === undefined) return;
+    const feedback = useDraftStore.getState().consumeFeedback(sessionId);
+    if (!feedback) return;
+    setNote(feedback.copy === "filled" ? "Your message was filled in" : "Your draft was replaced");
+    if (noteTimeoutRef.current !== null) window.clearTimeout(noteTimeoutRef.current);
+    noteTimeoutRef.current = window.setTimeout(() => setNote(null), 4000);
+    // Caret at the end of the new text (§ 11) — never calls `.focus()`, so this never steals focus
+    // from a pending-question card (sprint-068/task-008) or a composer the user is typing in.
+    const el = textareaRef.current;
+    if (el) el.setSelectionRange(el.value.length, el.value.length);
+    if (feedback.flash) {
+      setFlashing(true);
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = window.setTimeout(
+        () => setFlashing(false),
+        prefersReducedMotion() ? 1000 : 400,
+      );
+    }
+  }, [visible, pendingFeedback, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (noteTimeoutRef.current !== null) window.clearTimeout(noteTimeoutRef.current);
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
+    };
+  }, []);
+
+  // Only while a drag hovers the card: a cancelled drag (Escape) or a release elsewhere never
+  // reaches the card's own handlers, because `dragend` fires on the drag SOURCE.
+  useEffect(() => {
+    if (!dragOver) return;
+    const clear = (): void => setDragOver(false);
+    document.addEventListener("dragend", clear);
+    document.addEventListener("drop", clear);
+    return () => {
+      document.removeEventListener("dragend", clear);
+      document.removeEventListener("drop", clear);
+    };
+  }, [dragOver]);
+
+  const running = session?.status === "running";
+  const compacting = useIsCompacting(sessionId);
+  const compactError = useCompactionStore((s) => s.lastErrorBySession[sessionId]);
+  const compactSession = useCompactionStore((s) => s.compactSession);
+  const cancelCompaction = useCompactionStore((s) => s.cancelCompaction);
+  const clearCompactError = useCompactionStore((s) => s.clearError);
+  const hasAgent = Boolean(session?.agentId);
+  const busy = isComposerBusy(running, sending, steering);
+  const canSubmit = canSubmitDraft({
+    hasClient: Boolean(client),
+    busy,
+    compacting,
+    running,
+    hasAgent,
+    text,
+    hasImages: images.length > 0,
+  });
+
+  // Read-through cached exactly like `use-provider-models.ts` (see the hook's own docstring):
+  // reopening the `/` menu — including the auto-open that fires on every `/` keystroke — shows
+  // the cached rows immediately instead of a spinner every time.
+  const { data: commands = [], isLoading, isError, error } = useAgentCommands(sessionId, menuOpen);
+  const { options, hiddenExtensionCount } = commandOptions(commands, {
+    running,
+    builtinsDisabled: !canCompact({ running, compacting, hasAgent }),
+  });
+  const token = parseSlashToken(text);
+  const filtered = token ? filterOptions(options, token.name) : options;
+  const commandNames = [...CLIENT_BUILTIN_COMMANDS, ...commands].map((c) => c.name);
+  // The span to highlight in the textarea — only a token Pi will actually recognize as a command.
+  const span = knownCommandSpan(text, commandNames);
+  // While compacting, the composer is read-only and shows its own status line: the timeline's
+  // divider may be scrolled out of view, and a field that still accepts typing reads as "ready".
+  const pendingRow = compacting ? pendingCompaction(session?.timeline.rows ?? []) : undefined;
+  const compactingLabel = pendingRow ? compactionLabel(pendingRow) : "Compacting context…";
+
+  async function addImageFile(file: File): Promise<void> {
+    if (!file.type.startsWith("image/")) return;
+    try {
+      const image = await readImageFile(file);
+      setImages((prev) => [...prev, image]);
+    } catch {
+      // Best-effort attachment read — ignore unreadable files (POC has no error UI here either).
+    }
+  }
+
+  function handleFileInputChange(ev: ChangeEvent<HTMLInputElement>): void {
+    for (const file of ev.target.files ?? []) void addImageFile(file);
+    ev.target.value = "";
+  }
+
+  function handlePaste(ev: ClipboardEvent<HTMLTextAreaElement>): void {
+    if (compacting) return;
+    for (const item of ev.clipboardData.items) {
+      if (item.type.startsWith("image/")) {
+        ev.preventDefault();
+        const file = item.getAsFile();
+        if (file) void addImageFile(file);
+      }
+    }
+  }
+
+  function handleRemoveImage(index: number): void {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  /** The draft's change pipeline — typing and a path drop's `setRangeText` fallback share it, so
+   *  both write the draft, autosize, recompute the `/` menu and clear the inline errors. */
+  function applyDraftChange(el: HTMLTextAreaElement, next: string): void {
+    setDraftText(sessionId, next);
+    autoResize(el);
+    // `/` at the very start opens the menu and keeps it open while the name is still being typed;
+    // the first space (or any non-slash draft) closes it. Never reopens for a `/` mid-text — Pi
+    // only recognizes a command at index 0 (`agent-session.js` `text.startsWith("/")`).
+    if (compactError) clearCompactError(sessionId);
+    if (pickError) setPickError(null);
+    const shouldOpen = shouldOpenMenu(next);
+    if (shouldOpen !== menuOpen) setMenuOpen(shouldOpen);
+    if (shouldOpen) setHighlight(0);
+  }
+
+  function handleTextareaChange(ev: ChangeEvent<HTMLTextAreaElement>): void {
+    applyDraftChange(ev.target, ev.target.value);
+  }
+
+  /** The card claims a drag only when it carries a Files-tree path-ref and the composer is not
+   *  compacting. A refused drag is left alone; the pane host still yields (`yieldsToComposer`). */
+  function acceptsPathRef(ev: DragEvent<HTMLElement>): boolean {
+    return !compacting && hasPathRef(ev.dataTransfer.types);
+  }
+
+  function handleCardDragOver(ev: DragEvent<HTMLElement>): void {
+    if (!acceptsPathRef(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
+  }
+
+  function handleCardDragLeave(ev: DragEvent<HTMLElement>): void {
+    // `dragleave` bubbles and refires on every child boundary inside the card; only a leave to an
+    // element outside it is the drag actually leaving (same guard as the Files tree container).
+    if (ev.currentTarget.contains(ev.relatedTarget as Node | null)) return;
+    setDragOver(false);
+  }
+
+  /** Replace `plan`'s range with its text. `execCommand("insertText")` is the primary path because
+   *  it is the only one that keeps native undo on a controlled textarea (it fires a real `input`
+   *  event, so `onChange` runs the normal pipeline). When it fails — returns false, throws, or
+   *  leaves the value unchanged — fall back to `setRangeText`, which loses the whole undo history
+   *  (swe/notes/composer-path-drop-spike.md). */
+  function insertPathAt(el: HTMLTextAreaElement, plan: InsertionPlan): void {
+    el.focus();
+    el.setSelectionRange(plan.start, plan.end);
+    const before = el.value;
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, plan.insert) && el.value !== before;
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      el.setRangeText(plan.insert, plan.start, plan.end, "end");
+      applyDraftChange(el, el.value);
+    }
+    el.setSelectionRange(plan.caret, plan.caret);
+    // A drop fires no `pointerdown`, so the pane's click-to-focus never ran.
+    if (owningPaneId !== null) useLayoutStore.getState().focusPane(workspaceCwd, owningPaneId);
+  }
+
+  function handleCardDrop(ev: DragEvent<HTMLElement>): void {
+    const { types } = ev.dataTransfer;
+    // Not ours (chat row, timeline link, OS file): leave it to the pane host, exactly as before.
+    if (!hasPathRef(types)) return;
+    setDragOver(false);
+    if (compacting) return;
+    ev.preventDefault();
+    const el = textareaRef.current;
+    if (!el) return;
+    const decision = decideComposerDrop({
+      refValue: readPathRef(types, (mime) => ev.dataTransfer.getData(mime)),
+      compacting,
+      root: refRoot(session?.cwd ?? "", homeDir),
+      text: el.value,
+      selStart: el.selectionStart,
+      selEnd: el.selectionEnd,
+      neverFocused: !everFocusedRef.current,
+    });
+    if (decision.kind === "refuse") setPickError("Not inside this workspace");
+    else if (decision.kind === "insert") insertPathAt(el, decision.plan);
+  }
+
+  function handleKeyDown(ev: KeyboardEvent<HTMLTextAreaElement>): void {
+    // Read-only while compacting: Escape cancels (the keyboard twin of the Stop button), and
+    // nothing below may run — the Backspace-chip and menu branches would edit the frozen draft.
+    if (compacting) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        void cancelCompaction(sessionId);
+      }
+      return;
+    }
+    // A single Backspace deletes the WHOLE recognized command token, like a chip/mention, instead
+    // of forcing the user to peck through it one character at a time. Scoped to `!menuOpen` (the
+    // command has already been accepted/typed in full and the menu closed) so it never fights
+    // the ArrowDown/Enter accept flow below while the user is still actively narrowing a match.
+    if (!menuOpen && span && ev.key === "Backspace") {
+      const el = ev.currentTarget;
+      const caret = el.selectionStart;
+      if (caret !== null && caret === el.selectionEnd) {
+        // Also swallow the single trailing space `applyCommand` appends, so the draft goes
+        // straight back to empty (or to whatever args followed) in one keystroke, not two.
+        const deletableEnd = span.end + (text[span.end] === " " ? 1 : 0);
+        if (caret > 0 && caret <= deletableEnd) {
+          ev.preventDefault();
+          const next = text.slice(deletableEnd);
+          setDraftText(sessionId, next);
+          el.setSelectionRange(0, 0);
+          autoResize(el);
+          return;
+        }
+      }
+    }
+    if (menuOpen && filtered.length > 0) {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        setHighlight((i) => moveHighlight(i, ev.key === "ArrowDown" ? 1 : -1, filtered.length));
+        return;
+      }
+      // Enter and Tab both accept the preselected command — they complete the token, they do NOT
+      // send. The user still has to press Enter again to submit, so a command can take arguments.
+      if ((ev.key === "Enter" && !ev.shiftKey) || ev.key === "Tab") {
+        ev.preventDefault();
+        const picked = filtered[highlight];
+        if (picked && !picked.disabled) applySelectedCommand(picked.value);
+        return;
+      }
+    }
+    if (menuOpen && ev.key === "Escape") {
+      ev.preventDefault();
+      setMenuOpen(false);
+      return;
+    }
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      void submit(running ? "steer" : "send");
+    }
+  }
+
+  function applySelectedCommand(name: string): void {
+    const next = applyCommand(text, name);
+    setDraftText(sessionId, next);
+    setMenuOpen(false);
+    setHighlight(0);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(next.length, next.length);
+      autoResize(el);
+    }
+  }
+
+  async function submit(mode: "send" | "steer"): Promise<void> {
+    if (!client || !session) return;
+    if (mode === "steer" ? steering : sending) return;
+    // Steering only makes sense against a live agent — a running session always has one.
+    if (mode === "steer" && !session.agentId) return;
+    const trimmed = text.trim();
+    if (!trimmed && images.length === 0) return;
+    // Enter reaches here without going through the Send button's `disabled`, so the same gate
+    // applies: compacting blocks everything, and a `/compact` draft never becomes a steer.
+    if (!canSubmit) return;
+
+    // Client built-ins run here and never reach `send`/`steer`: no optimistic user row. The draft
+    // clears up front like an ordinary send — the RPC resolves only when the compaction ends, and
+    // the composer's compacting state, not a lingering `/compact`, is what says it is running.
+    const builtin = parseBuiltinInvocation(trimmed);
+    if (builtin) {
+      setMenuOpen(false);
+      setDraftText(sessionId, "");
+      if (textareaRef.current) autoResize(textareaRef.current);
+      const result = await compactSession(sessionId, builtin.args);
+      if (shouldRestoreCompactDraft(result, useDraftStore.getState().drafts[sessionId] ?? "")) {
+        setDraftText(sessionId, text);
+        if (textareaRef.current) autoResize(textareaRef.current);
+      }
+      return;
+    }
+
+    setDraftText(sessionId, "");
+    // A bare Enter (or the Send/Steer button) can fire while the menu is still open — e.g. the
+    // draft is a command-like token with no filter match yet (`filtered.length === 0`), so the
+    // accept branch in `handleKeyDown` never ran. Close it here too, not just in `applyCommand`'s
+    // trailing-space path, so a send never leaves the menu stuck open over an empty draft.
+    setMenuOpen(false);
+    if (textareaRef.current) autoResize(textareaRef.current);
+    const sentImages = images;
+    setImages([]);
+
+    const prompt = trimmed || "Describe this image";
+    const rpcImages =
+      sentImages.length > 0
+        ? sentImages.map((img) => ({ mimeType: img.mimeType, data: img.data }))
+        : undefined;
+
+    // Optimistic echo: render the user's row synchronously instead of waiting for the daemon's
+    // `user_message` broadcast (see file header). `clientMessageId` is round-tripped through the
+    // RPC below and echoed back verbatim as the broadcast event's `messageId`, which is how the
+    // reducer reconciles this row instead of appending a duplicate once the server confirms it.
+    // Steered rows are additionally marked `queued: true` (cleared by a later `queue_update`).
+    const clientMessageId = randomId();
+    addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages, mode === "steer");
+
+    const setBusy = mode === "steer" ? setSteering : setSending;
+    setBusy(true);
+    try {
+      if (mode === "steer") {
+        // Fire-and-forget injection into the live turn — never touches materialization, which
+        // only applies to the send-only, no-agent-yet path below.
+        const result = await client
+          .agent(session.agentId!)
+          .steer(prompt, { clientMessageId, images: rpcImages });
+        if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
+      } else {
+        if (!session.agentId) setCwd(sessionId, session.cwd || "~");
+        // Retry path (see file header "MODEL & MATERIALIZATION") for a session whose eager
+        // materialize (`tab-store.ts` `openNewChat`) never ran or failed — a no-op once already
+        // bound. `useAgentStream` attaches the instant `agentId` is bound, before this turn's
+        // first event can possibly arrive (see file header), so `send` needs no separate
+        // first-turn broadcast path the way a combined create-and-run RPC used to.
+        const agentId = await ensureMaterialized(client, sessionId);
+        await client.agent(agentId).send(prompt, { clientMessageId, images: rpcImages });
+      }
+    } catch {
+      // RPC rejection before any `user_message` broadcast arrived (e.g. dropped connection) —
+      // the optimistic row would otherwise stay pending forever with no feedback. If the server
+      // *did* manage to broadcast `user_message` first (the row is already reconciled), this is
+      // a no-op — `markUserMessageFailed` only touches a still-pending row. Turn-level failures
+      // that occur after that point still surface via `agent_stream` `error`/`turn_failed`
+      // events (POC swallows the RPC rejection the same way; the stream is the source of truth
+      // for those).
+      markUserMessageFailed(sessionId, clientMessageId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleStop(): void {
+    if (!session?.agentId) return;
+    // A compaction is aborted by the same Pi `abort` a running turn is; going through the store
+    // keeps "cancel a compaction" in one place.
+    if (compacting) void cancelCompaction(sessionId);
+    else void client?.agent(session.agentId).interrupt();
+  }
+
+  /**
+   * `modelProvider` is the model's OWN underlying LLM provider (e.g. `"anthropic"`) — REQUIRED by
+   * `client.agent(id).setModel(provider, modelId)`'s `provider` argument. Never hardcode the
+   * pi-studio provider id ("pi") here; Pi has no model registered under a provider literally
+   * named "pi" (sprint-043's "Model not found: pi/<modelId>" bug).
+   *
+   * Single path regardless of whether the session is already materialized: `ensureMaterialized`
+   * is a no-op once bound (the common case now that `tab-store.ts` `openNewChat` materializes
+   * eagerly) and otherwise awaits whatever in-flight materialize is already running — the
+   * `setModel` optimistic pick two lines up already updated the entry that materialize reads
+   * `config.model`/`config.modelProvider` from, so there is no dropped-pick race even when this
+   * fires while the eager materialize is still in flight.
+   */
+  function handleSelectModel(modelId: string, modelProvider?: string): void {
+    const previous = { model: session?.model, provider: session?.modelProvider };
+    setModel(sessionId, modelId, modelProvider); // optimistic display pick either way
+    setPickError(null);
+    if (!client || !modelProvider) return;
+    void (async () => {
+      const agentId = await ensureMaterialized(client, sessionId);
+      await client.agent(agentId).setModel(modelProvider, modelId);
+    })().catch((rejection: unknown) => {
+      // Undo the optimistic pick — unless something newer (another pick, an `agent_update`)
+      // already replaced it — so the picker never claims a model the agent isn't on.
+      const current = useSessionStore.getState().sessions[sessionId];
+      if (current?.model === modelId && current.modelProvider === modelProvider) {
+        setModel(sessionId, previous.model, previous.provider);
+      }
+      const message = rejection instanceof Error ? rejection.message : String(rejection);
+      setPickError(`Couldn't switch model: ${message}`);
+    });
+  }
+  /**
+   * Sprint-070 thinking-level pick, mirroring `handleSelectModel`'s optimistic-then-materialize
+   * shape: the store flips immediately, `ensureMaterialized` is a no-op once bound, the response's
+   * EFFECTIVE level lands in the store when it resolves (correcting a clamped pick), and a
+   * rejection reverts the pick and says why.
+   */
+  function handleSelectThinking(level: string): void {
+    const previous = session?.thinkingLevel;
+    setThinkingLevel(sessionId, level); // optimistic either way
+    setPickError(null);
+    if (!client) return;
+    void (async () => {
+      const agentId = await ensureMaterialized(client, sessionId);
+      const res = await client.agent(agentId).setThinking(level);
+      // The daemon answers the EFFECTIVE (possibly clamped) level — never trust the request.
+      setThinkingLevel(sessionId, res.level);
+    })().catch((rejection: unknown) => {
+      if (useSessionStore.getState().sessions[sessionId]?.thinkingLevel === level) {
+        setThinkingLevel(sessionId, previous);
+      }
+      const message = rejection instanceof Error ? rejection.message : String(rejection);
+      setPickError(`Couldn't set thinking level: ${message}`);
+    });
+  }
+
+  return (
+    <div className={styles.composer}>
+      <div
+        className={clsx(
+          styles.card,
+          flashing && styles.flash,
+          compacting && styles.compacting,
+          dragOver && !compacting && styles.dropTarget,
+        )}
+        {...composerDropProps()}
+        onDragEnter={handleCardDragOver}
+        onDragOver={handleCardDragOver}
+        onDragLeave={handleCardDragLeave}
+        onDrop={handleCardDrop}
+      >
+        <div className={styles.textareaWrap}>
+          <div className={styles.highlightLayer} aria-hidden>
+            {span ? (
+              <>
+                <mark className={styles.commandMark}>{text.slice(0, span.end)}</mark>
+                {text.slice(span.end)}
+              </>
+            ) : (
+              text
+            )}
+          </div>
+          <TextArea
+            ref={textareaRef}
+            className={styles.textarea}
+            rows={1}
+            value={text}
+            readOnly={compacting}
+            placeholder={
+              compacting
+                ? "Compacting context…  esc cancel"
+                : running
+                  ? "Steer the running turn…  ⏎ steer · ⇧⏎ newline"
+                  : "Ask anything…  ⏎ send · ⇧⏎ newline · / commands"
+            }
+            onChange={handleTextareaChange}
+            onFocus={() => {
+              everFocusedRef.current = true;
+            }}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            data-session-id={sessionId}
+          />
+        </div>
+        <Attachments images={images} onRemove={handleRemoveImage} />
+        <div className={styles.toolbar}>
+          <Button
+            className={styles.toolBtn}
+            variant="ghost"
+            size="sm"
+            iconOnly
+            title="Attach image"
+            aria-label="Attach image"
+            disabled={compacting}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Plus size={16} />
+          </Button>
+          <CommandMenu
+            open={menuOpen && !compacting}
+            onOpenChange={setMenuOpen}
+            options={filtered}
+            highlightedIndex={highlight}
+            onSelect={applySelectedCommand}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={error instanceof Error ? error.message : undefined}
+            hiddenExtensionCount={hiddenExtensionCount}
+            renderTrigger={() => (
+              <Button
+                className={styles.toolBtn}
+                variant="ghost"
+                size="sm"
+                iconOnly
+                disabled={compacting}
+                title="Slash commands"
+                aria-label="Slash commands"
+              >
+                <Slash size={16} />
+              </Button>
+            )}
+          />
+          <div className={styles.toolbarRight}>
+            <ModelMenu
+              currentModel={session?.model}
+              currentModelProvider={session?.modelProvider}
+              provider="pi"
+              agentId={session?.agentId}
+              onSelect={handleSelectModel}
+              renderTrigger={(currentModel, currentModelName) => {
+                // A separate id span only earns its place when the name actually differs from the
+                // id — a provider reporting no display name would otherwise render "id (id)".
+                const showId = currentModelName !== undefined && currentModelName !== currentModel;
+                return (
+                  <button
+                    type="button"
+                    className={styles.modelBtn}
+                    disabled={!client}
+                    title={
+                      currentModel
+                        ? `Model: ${currentModelName ?? currentModel}${showId ? ` (${currentModel})` : ""}`
+                        : "Select model"
+                    }
+                  >
+                    <Cpu size={14} aria-hidden="true" />
+                    <span className={styles.modelLabel}>
+                      {currentModelName ?? currentModel ?? "Model"}
+                    </span>
+                    {showId && <span className={styles.modelId}>({currentModel})</span>}
+                    <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
+                  </button>
+                );
+              }}
+            />
+            {showThinkingMenu && (
+              <ThinkingMenu
+                currentLevel={session?.thinkingLevel}
+                levels={thinkingLevels}
+                open={thinkingOpen}
+                onOpenChange={setThinkingOpen}
+                onSelect={handleSelectThinking}
+                renderTrigger={(currentLevel) => (
+                  <button
+                    type="button"
+                    className={styles.modelBtn}
+                    disabled={!client}
+                    title={currentLevel ? `Thinking: ${currentLevel}` : "Thinking level"}
+                  >
+                    <Brain size={14} aria-hidden="true" />
+                    <span className={styles.modelLabel}>{currentLevel ?? "Thinking"}</span>
+                    <ChevronDown size={13} className={styles.modelChevron} aria-hidden="true" />
+                  </button>
+                )}
+              />
+            )}
+            {(running || compacting) && (
+              <Button
+                className={styles.roundBtn}
+                variant="destructive"
+                size="sm"
+                iconOnly
+                title={compacting ? "Cancel the compaction" : "Stop the running turn"}
+                aria-label="Stop"
+                onClick={handleStop}
+              >
+                <Square size={14} />
+              </Button>
+            )}
+            <Button
+              className={styles.roundBtn}
+              size="sm"
+              iconOnly
+              disabled={!canSubmit}
+              title={running ? "Steer the running turn" : "Send"}
+              aria-label={running ? "Steer" : "Send"}
+              onClick={() => void submit(running ? "steer" : "send")}
+            >
+              {running ? <Navigation size={16} /> : <ArrowUp size={18} />}
+            </Button>
+          </div>
+        </div>
+      </div>
+      <div role="status">
+        {compacting && (
+          <div className={styles.compactStatus}>
+            <Spinner size="xs" aria-label="Compacting" />
+            <span className={styles.compactStatusText}>{compactingLabel}</span>
+            <button
+              type="button"
+              className={styles.compactCancel}
+              title="Cancel the compaction (Esc)"
+              onClick={() => void cancelCompaction(sessionId)}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+      {note !== null && <div className={styles.note}>{note}</div>}
+      {compactError && (
+        <div role="alert" className={styles.inlineError}>
+          {compactError}
+        </div>
+      )}
+      {pickError && (
+        <div role="alert" className={styles.inlineError}>
+          {pickError}
+        </div>
+      )}
+      <input
+        ref={fileInputRef}
+        className={styles.hiddenFileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileInputChange}
+      />
+    </div>
+  );
+}

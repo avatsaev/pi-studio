@@ -1,0 +1,31 @@
+{
+  "type": "terminals_update",
+  "direction": "server_to_client",
+  "description": "Broadcast to every session when the terminal inventory changes (create, rename, resize, exit/kill).",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": [
+    "/message/terminals/0/slot",
+    "/message/terminals/0/name",
+    "/message/terminals/0/cwd"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "terminals_update",
+      "terminals": [
+        {
+          "slot": 1,
+          "workspaceId": "workspace-1",
+          "name": "terminal-1",
+          "cwd": "/tmp/pi-studio-fixture",
+          "shell": "/bin/sh",
+          "cols": 80,
+          "rows": 24,
+          "closed": false
+        }
+      ]
+    }
+  }
+}

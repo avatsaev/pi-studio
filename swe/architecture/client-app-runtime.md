@@ -74,12 +74,14 @@ HostRuntimeController:
 > policy is replaced by the Vite module-selection policy below (see also
 > [design-system.md](design-system.md) § Module-selection policy).
 - **Web is the baseline.** All shared components render to the DOM; there is no React Native runtime.
-- **`getIsElectron()`** (cached) is the single source of truth for desktop-only behavior. Two build
-  targets exist, distinguished by `import.meta.env.VITE_TARGET` (`"web"` | `"electron"`).
+- **`getIsElectron()`** (cached) was specified as the single source of truth for desktop-only
+  behavior. *Superseded 2026-11-14:* the Electron build target was removed; the desktop client is a
+  Tauri app supplying a host object to `@av-pi-studio/workbench` (`workbench-host-adapter.md`).
 - **Selecting Electron-only code** (in precedence order):
   1. Runtime branch inside a shared module: `if (getIsElectron()) { … }` for small differences
      (clipboard, open-external, titlebar affordance).
-  2. Build-time flag `import.meta.env.VITE_TARGET` for whole branches Vite can dead-code-eliminate.
+  2. A build-time target flag for whole branches Vite can dead-code-eliminate (removed with the
+     Electron target, 2026-11-14).
   3. Dynamic `await import("./thing.electron.ts")` guarded by `getIsElectron()` for heavy Electron-only
      modules (SSH bridge, `<webview>` browser pane, native menu glue) so they never enter the web chunk.
   Name Electron-only files `*.electron.ts(x)` by convention and import them only through the guarded

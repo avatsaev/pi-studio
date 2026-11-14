@@ -10,10 +10,11 @@ import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import type { Server as HttpServer } from "node:http";
+import { join } from "node:path";
 import { expandHome } from "../files/resolve-path.js";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
-import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
+import { HandlerRegistry, routeBinaryFrame, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
@@ -28,6 +29,7 @@ import { registerTimelineHandler } from "../agent/timeline-rpc.js";
 import { createMockClient } from "../agent/providers/mock/mock-provider.js";
 import { ProviderRegistry } from "../agent/provider-registry.js";
 import { FileExplorerService } from "../files/file-explorer.js";
+import { FileTransferService } from "../files/file-transfer.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
@@ -37,6 +39,8 @@ import { registerDaemonLogsHandlers } from "../observability/daemon-logs-rpc.js"
 import { DaemonLogsService } from "../observability/daemon-logs-service.js";
 import { registerDaemonStatusHandlers } from "../observability/daemon-status-rpc.js";
 import { DaemonStatusService } from "../observability/daemon-status-service.js";
+import { TerminalManager } from "../terminal/terminal-manager.js";
+import { makeTerminalBinaryHandler, registerTerminalHandlers } from "../terminal/terminal-rpc.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { SERVER_VERSION } from "../version.js";
 import { wrapSessionEnvelope } from "./bootstrap.js";
@@ -325,7 +329,34 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // ── File explorer: real directory listing + file preview from disk ───────
   // (features/file-explorer-transfer.md). Lets the workspace Explorer + file
   // preview panes show actual files.
-  new FileExplorerService().registerHandlers(registry);
+  //
+  // Same wiring as production `bootstrap.ts`: the explorer issues download tokens through the
+  // transfer service, which also owns the token / download / upload RPCs and the upload binary
+  // handler.
+  const fileTransfer = new FileTransferService();
+  new FileExplorerService({ issueDownloadToken: fileTransfer.issueDownloadToken }).registerHandlers(
+    registry,
+  );
+  fileTransfer.registerHandlers(registry);
+  const fileTransferBinary = fileTransfer.binaryHandler();
+
+  // ── Terminals: manager + control RPCs + binary stream (same wiring as production) ──────────
+  const terminalManager = new TerminalManager({ logger });
+  registerTerminalHandlers(
+    registry,
+    {
+      manager: terminalManager,
+      broadcast,
+      restoreModesEnabled: true,
+      projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
+    },
+    getActiveSessions,
+  );
+  const terminalBinaryHandler = makeTerminalBinaryHandler(
+    terminalManager,
+    broadcast,
+    getActiveSessions,
+  );
 
   // Simple file diff RPC for the POC UI. Untracked (brand-new) files have no git-tracked "before"
   // state, so a plain `git diff` against them is always empty — git only diffs a path once it's
@@ -354,8 +385,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   });
 
   // Simple text file read RPC for the POC UI (returns up to `MAX_INLINE_FILE_READ_BYTES` of
-  // UTF-8 text; larger files must use the chunked binary download path instead — note
-  // download-token RPCs are not registered in this dev bootstrap; see AGENTS.md). Async so a
+  // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
   // multi-MB read/decode never blocks the event loop.
   registry.register("file_read_request", async (ctx) => {
     const filePath = String(ctx.message.path ?? "");
@@ -406,12 +436,18 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     onSessionClose: (session) => {
       daemonStatusService.disposeSession(session);
       daemonLogsService.disposeSession(session);
+      fileTransfer.disposeSession(session);
     },
     onMessage: (session, frame) => {
       if ("text" in frame) {
         void routeTextFrame(session, frame.text, registry);
+      } else {
+        // Binary frames: try terminal (Input/Resize) then file-transfer (upload) decoders.
+        routeBinaryFrame(session, frame.binary, (s, bytes) => {
+          terminalBinaryHandler(s, bytes);
+          fileTransferBinary(s, bytes);
+        });
       }
-      // Binary (terminal) frames not wired in dev bootstrap yet.
     },
   });
 
@@ -432,6 +468,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     close: async () => {
       logger.info("dev daemon shutting down");
       daemonStatusService.dispose();
+      terminalManager.killAll();
       daemonLogsService.dispose();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

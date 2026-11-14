@@ -61,6 +61,58 @@ contract the Zod-only protocol cannot give: many list/stat/orchestration respons
   never be an exception. Current exceptions: `agent_status`, `agent_ui_resolved.cancelled`.
 - The tool-permission family (`agent_permission_*`, `agent.permission.respond.*`) was retired in
   sprint-086 and deliberately has no fixtures.
+- File-transfer and terminal fixtures (since 0.0.118) cover the JSON control frames only: the
+  `file_download_*`/`file_upload_*` RPCs, `file_upload_complete` (gated by `fileTransferAck`, as is
+  the `ack` upload request) and the `*_terminal_*` RPCs plus the `terminals_update` broadcast.
+  Most of these have no Zod schema, so Layer B is their guard. Download tokens appear as the literal
+  `"FAKE"` (volatile). The binary frames are fixtured separately, see "Binary frames" below.
+
+## Binary frames
+
+File-transfer and terminal data travel in binary frames, not JSON. Their fixtures live in the
+**`binary/` subdirectory** (since 0.0.118), with their own manifest and their own `formatVersion`
+(starting at 1), so `manifest.json` and the JSON `formatVersion` are untouched. They are in a
+subdirectory on purpose: a consumer that checks "every top-level `*.json` is listed in
+`manifest.json`" (the Rust dashboard's vendored-fixture test does) would fail on top-level binary
+files. A plain `rsync -a --delete` of this directory carries `binary/` along harmlessly.
+
+| File | Purpose |
+|---|---|
+| `binary/manifest.json` | `{"formatVersion": 1, "frames": [{"file","family","opcode","direction"}]}` — lists the nine frame fixtures; the test fails on an unlisted or missing file |
+| `binary/<family>.<opcode>.json` | One fixture per frame: `file_transfer.{begin,chunk,end,error}`, `terminal.{output,input,resize,snapshot,restore}` |
+
+```jsonc
+{
+  "family": "file_transfer",   // | "terminal"
+  "opcode": "Chunk",
+  "direction": "both",         // | "server_to_client" | "client_to_server"
+  "description": "…",
+  "since": "0.0.118",
+  "hex": "11 03 68 65 6c 6c 6f",             // the COMPLETE frame: opcode, stream/slot, payload
+  "decoded": { "opcode": "Chunk", "stream": 3, "dataHex": "68 65 6c 6c 6f" }
+}
+```
+
+- Frame layout is `[opcode][stream or slot][payload]`. File-transfer opcodes: `Begin` 0x10,
+  `Chunk` 0x11, `End` 0x12, `Error` 0x13. Terminal opcodes: `Output` 0x01, `Input` 0x02,
+  `Resize` 0x03, `Snapshot` 0x04, `Restore` 0x05. File-transfer frames are valid in **both**
+  directions (a download is daemon → client, an upload client → daemon).
+- `decoded` is the typed frame. Raw payloads (`Chunk`, `Output`, `Input`, `Snapshot`, `Restore`)
+  appear as `dataHex`; `Begin` carries its metadata object, `End` an `ok` boolean, `Error` a
+  `message`, `Resize` `rows` and `cols`.
+- **How to use them.** Decode every `hex` with your own codec and compare with `decoded`; encode
+  `decoded` with your own codec and compare with `hex`. For `Begin` and `Resize`, whose payload is
+  JSON, compare the *parsed* payload rather than the bytes: key order and whitespace are not part of
+  the contract (the fixtures show what the TypeScript codec writes). `Snapshot` and `Restore`
+  payloads are opaque to the codec; the bytes shown are stand-ins.
+- Layer A for binary frames is `src/external-binary-fixtures.test.ts`: it decodes each `hex` with the
+  real codec, encodes `decoded` back to the same bytes, checks the first byte against a table of the
+  wire opcode values, and fails on an unlisted or missing file. There is no live-daemon layer.
+- **Breaking-change rule.** A change to an existing frame's `hex` (a different opcode byte, header
+  or payload encoding) or to the `decoded` shape is breaking: bump `formatVersion` in
+  `binary/manifest.json` and add a dated `CHANGELOG.md` entry naming the file. A new frame fixture
+  is additive. This rule is enforced by review and by the round-trip test (a codec edit that moves
+  the bytes fails it); there is no signature guard for binary fixtures.
 
 ## Compatibility rule ("bump + note")
 

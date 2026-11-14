@@ -1,30 +1,13 @@
-// Build-time constants injected by vite.config.ts's `define`. Both the dev server and the
-// production build set these, so every entry point that reaches ConnectionBar.tsx goes through
-// Vite — there is no runtime fallback.
+/// <reference types="vite/client" />
+// ^ `?worker` imports and `import.meta.env` (main.tsx's pdf.js runtime).
 
-/** This package's own version, read from package.json at build time (features/cli.md's web-client
- *  equivalent — see AGENTS.md § Versioning). Displayed in the connection bar after the brand. */
+// Build-time constants injected by vite.config.ts's `define`. Both the dev server and the
+// production build set these; main.tsx passes them to the workbench through the browser host.
+
+/** This package's own version, read from package.json at build time. Shown in the connection bar. */
 declare const __APP_VERSION__: string;
 
 /** Build-time white-label title override (`PI_STUDIO_BRAND_TITLE`, `vite.config.ts`'s
- *  `brandHtmlPlugin` + `src/brand/build-brand.ts`). Defaults to "Pi-Studio". Used by
- *  `ConnectionBar.tsx`'s brand label; `vite.config.ts` also bakes it into `index.html`'s
- *  `<title>`. */
+ *  `brandHtmlPlugin` + `src/brand/build-brand.ts`). Defaults to "Pi-Studio". Shown in the
+ *  connection bar; `vite.config.ts` also bakes it into `index.html`'s `<title>`. */
 declare const __BRAND_TITLE__: string;
-
-/** Vite's statically replaced `import.meta.env` — only the keys this package reads (the package
- *  does not load `vite/client` types). `BASE_URL` is `vite.config.ts`'s `base`: `/` for the web
- *  target, `./` for Electron. */
-interface ImportMetaEnv {
-  readonly BASE_URL: string;
-}
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
-
-/** Vite `?worker` import: a constructor for the bundled worker entry (`vite.config.ts`'s
- *  `worker.format` decides classic vs module). */
-declare module "*?worker" {
-  const WorkerConstructor: new (options?: { name?: string }) => Worker;
-  export default WorkerConstructor;
-}

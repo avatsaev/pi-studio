@@ -1,0 +1,21 @@
+{
+  "type": "subscribe_terminal_response",
+  "direction": "server_to_client",
+  "description": "Subscription result; `cols`/`rows` echo the PTY's real size. Failure: `ok:false`, `error:\"no_such_terminal\"`.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/slot"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "subscribe_terminal_response",
+      "slot": 1,
+      "ok": true,
+      "restoreMode": "basic",
+      "cols": 80,
+      "rows": 24,
+      "requestId": "req-1"
+    }
+  }
+}

@@ -42,6 +42,11 @@ export interface DaemonClientOptions {
   url: string;
   clientId: string;
   clientType: ClientType;
+  /**
+   * Free-form platform label sent as `hello.platform` when set (the desktop app sends `"desktop"`
+   * with `clientType: "browser"`). Informational; daemons that predate the field ignore it.
+   */
+  platform?: string;
   protocolVersion?: number;
   appVersion?: string;
   capabilities?: Record<string, boolean>;
@@ -130,6 +135,10 @@ export class DaemonClient {
   get serverCapabilities(): Record<string, unknown> {
     return this._serverCapabilities;
   }
+  /** The transport's unsent byte count, or `undefined` when the transport cannot report one. */
+  get bufferedAmount(): number | undefined {
+    return this.transport.bufferedAmount;
+  }
   /** True iff the daemon advertised the given `server_info.features.*` flag truthy. */
   hasFeature(flag: string): boolean {
     return Boolean(this._features[flag]);
@@ -155,6 +164,7 @@ export class DaemonClient {
         type: "hello",
         clientId: this.options.clientId,
         clientType: this.options.clientType,
+        platform: this.options.platform,
         protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
         appVersion: this.options.appVersion,
         capabilities: this.options.capabilities,
@@ -316,8 +326,7 @@ export class DaemonClient {
   private handleBinaryFrame(bytes: Uint8Array): void {
     const opcodeByte = bytes[0];
     const isFileTransfer =
-      opcodeByte !== undefined &&
-      Object.values(FileTransferOpcode).includes(opcodeByte as never);
+      opcodeByte !== undefined && Object.values(FileTransferOpcode).includes(opcodeByte as never);
     if (isFileTransfer) {
       const frame = tryDecodeFileTransferFrame(bytes);
       if (!frame) return; // malformed frame — drop rather than throw

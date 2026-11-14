@@ -173,7 +173,7 @@ LRU.
   no DnD splitting (split actions hidden).
 
 ### Desktop tab strip
-Redesigned in sprint-061 to the 0.1.0 UI redesign's § 07 (`swe/UI design/redesign 0.1.0/Redesign
+Redesigned in sprint-061 to the 0.1.0 UI redesign's § 07 (`docs/UI design/redesign 0.1.0/Redesign
 Handoff Spec.dc.html`). One strip per pane, absolutely positioned across the top of its pane's rect.
 
 - **Band.** Height 36 (`WORKSPACE_SECONDARY_HEADER_HEIGHT`, `platform/breakpoints.ts`), declared once
