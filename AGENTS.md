@@ -322,6 +322,10 @@ Also reads `$PI_STUDIO_HOME/config.json`.
 
 ## Protocol overview
 
+> **Reading note.** Entries below that credit `web-client` with UI work (sprints 058–082) describe code
+> that has lived in `packages/workbench` since sprint 092; `web-client` is now only the browser shell.
+> Their `packages/web-client/AGENTS.md` pointers were retargeted to `packages/workbench/AGENTS.md`.
+
 All communication uses a **single WebSocket connection** per client.
 
 - **Text frames** carry JSON envelopes discriminated by `type`:

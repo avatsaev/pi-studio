@@ -7,11 +7,12 @@ this repository, what to build in Rust, and why.
 Written 2026-11-14 against pi-studio `0.0.117`. Everything under "exists today" was checked against
 the code at that version. Anything marked **planned** or **unverified** was not.
 
-**This document is kept current.** The work it describes as planned is being built in this
-repository now, and every task in that plan must update this file when it changes something
-stated here. "Plan and progress" below shows how far that work has got. Last updated: 2026-11-14
-(sprint 094 done on `feat/workbench`: `packages/workbench` builds a publishable library with its
-final public API and README, proven by a packed-tarball consumer; not published yet — sprint 095).
+**This document is kept current.** The workbench is built in this repository, and every task in
+that plan updates this file when it changes something stated here. "Plan and progress" below shows
+how far that work has got. Last updated: 2026-11-14 (sprints 091–095 done on `feat/workbench`:
+`packages/workbench` is a publishable library with a final public API, a README, a release
+runbook and a packed-tarball smoke test; the first npm release happens when the branch merges to
+`main`).
 
 ## Status of the pieces
 
@@ -19,7 +20,7 @@ final public API and README, proven by a packed-tarball consumer; not published 
 |---|---|
 | `@av-pi-studio/protocol`, `client`, `relay` | Published on npm, in use |
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
-| Workbench package `@av-pi-studio/workbench` | **Planned, not built** (sprints 091–095, see "Plan and progress"). Specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Section "The workbench" describes the intended contract, not an API you can import today. Read its README once it exists and trust that over this document |
+| Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Planned, not built** (sprint 096). `swe/features/desktop-client-protocol-followups.md`: a `platform` field in the handshake, paced uploads and downloads with a completion signal, and fixtures for file transfer and terminals |
 | `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
@@ -35,7 +36,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
-| 095 | Release wiring; first npm release of the workbench | **Milestone 1 can start** | Not started |
+| 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | Not started |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
@@ -101,7 +102,7 @@ graph TD
 ```
 
 The seam between the two halves is narrow on purpose: one interface for socket frames
-(`Transport`, exists today) and one for platform services (the host adapter, planned).
+(`Transport`, exists today) and one for platform services (the host adapter, `WorkbenchHost`).
 
 ## What to reuse
 
@@ -113,35 +114,44 @@ The seam between the two halves is narrow on purpose: one interface for socket f
 | `@av-pi-studio/client` | `DaemonClient` (handshake, RPC correlation, liveness), `PiStudioClient` facade, `ReconnectionManager`, file transfer and terminal routers | The webview keeps using this |
 | `@av-pi-studio/relay` | Relay E2EE channel primitives (TypeScript) | Reference implementation for the Rust port |
 | `@av-pi-studio/ui-library` | Design tokens, six themes, primitives, `styles.css`, `reset.css` | See `packages/ui-library/README.md` and `DESIGN_SYSTEM.md` |
-| Workbench (**planned**) | The application: every feature, its stores and its reducers | See below |
+| `@av-pi-studio/workbench` | The application: every feature, its stores and its reducers, behind one host object | See below |
 
 All packages are versioned in lockstep and every push to `main` publishes a release, so pin exact
 versions in the desktop repository and upgrade deliberately.
 
-### The workbench (planned)
+### The workbench
 
 At 0.0.117 `packages/web-client` was an application, not a library: it published only a built
-`dist` and had no `exports`. About 31k lines in 227 files; the browser-specific shell (`main.tsx`,
-`app.tsx`, `AppProviders.tsx`, `WorkspacePage.tsx`) was 138 of them. On `feat/workbench` the
-application code now lives in `packages/workbench/src` (sprint 092; same relative paths, so the
-paths in the host table below are relative to that directory). Not published yet. What moved:
+`dist` and had no `exports`. About 31k lines in 227 files; the browser-specific shell was 138 of
+them. The application code now lives in `packages/workbench/src` (same relative paths as before,
+so the paths in the host table below are relative to that directory), and `web-client` is a thin
+shell that renders it. What moved:
 
 - `features/`: chat (composer, timeline, attachments, todos), workspace (split panes, tab strips),
   terminal, files (explorer and viewers), sessions, settings, skills, provider auth, extension UI.
 - `stores/`, `hooks/`, `timeline/`, `lib/`, `viewer-plugins/`.
 
-Intended shape:
+Shape (full tables in `packages/workbench/README.md`):
 
-- A whole-app entry (one component plus a host object) so the desktop app renders the full UI on
-  day one.
-- Feature-level entries for when the desktop app wants its own layout.
-- A **host adapter**: one object the embedding shell supplies. `web-client` implements it with
-  browser APIs; the desktop app implements it with Tauri calls.
+- A whole-app entry: `<Workbench host={…}>` renders the full UI, so the desktop app has everything
+  on day one. `WorkbenchProvider` installs the host and `WorkbenchBoot` runs startup, for shells
+  that compose their own layout.
+- Region components for a custom layout: `WorkspaceShell`, `ConnectionBar`, `SessionList`,
+  `PaneArea`, `RightSidebar`, `StatusBar`, `OpenWorkspaceDialog`, `SettingsDialog` (lazy). Region
+  guards throw if one renders outside the provider. `PaneArea` and `WorkspaceShell` are the public
+  names of the internal `TabPanelHost` and `WorkspacePage`.
+- Hooks: `useConnection`, `useShellLayout`, `useSettingsDialog`.
+- `createBrowserHost()`: the browser implementation of the host, a reference for your own.
+- Package entries: `.`, `./styles.css`, `./fonts.css` (the terminal font), `./vite` (the pdf.js data
+  plugin). The published `dist` has no bundled dependencies (`scripts/check-dist.mjs` enforces it).
+- A **host adapter** (`WorkbenchHost`): one object the embedding shell supplies. `web-client`
+  implements it with browser APIs (`createBrowserHost`); the desktop app implements it with Tauri
+  calls.
 
-The host adapter has to cover the browser-bound code that exists in `web-client` today. This list
-is the checked inventory; the adapter's real method names will be in the workbench README.
+The host adapter covers all the browser-bound code that used to live in `web-client`. The
+workbench README holds the authoritative method list; this is the checked inventory.
 
-Built in sprint 093 (`packages/workbench/src/host/`, contract in
+Host contract (built in sprint 093: `packages/workbench/src/host/`, specified in
 `swe/architecture/workbench-host-adapter.md`; the types are in `src/host/types.ts`, and
 `src/test/test-host.ts` is an in-memory recording host worth copying for your own tests). Members: `app` (`{title,
 version}` for the connection bar), `storage` (a **synchronous** key/value store: if your Tauri
@@ -187,11 +197,13 @@ Constraints to know before consuming it:
   Two windows do not share memory; they converge through the daemon, which already broadcasts
   state changes to every session.
 - **It needs a bundler that understands it.** There are lazy chunks (viewers, settings panels,
-  markdown), a pdf.js module worker, and pdf.js data files that `web-client`'s Vite config serves
-  from `node_modules`. Expect to consume it with Vite 6 and `@vitejs/plugin-react` 4. The packaging
-  spike (`swe/notes/workbench-packaging-spike.md`) showed a plain Vite consumer of a package built
-  this way needs no `optimizeDeps` setting; third-party stylesheets (katex) and the terminal font
-  arrive as bare imports and plain files, which your bundler emits.
+  markdown) and pdf.js data files. You build the pdf.js module worker yourself (`?worker`, from the
+  same `pdfjs-dist` version) and hand it over as `host.pdf`; the data files come from the
+  `@av-pi-studio/workbench/vite` plugin. Expect to consume it with Vite 6 and
+  `@vitejs/plugin-react` 4. The packaging spike (`swe/notes/workbench-packaging-spike.md`) and
+  `scripts/pack-smoke.sh` showed a plain Vite consumer needs no `optimizeDeps` setting; katex's
+  stylesheet and the terminal font arrive as bare imports (`@av-pi-studio/workbench/fonts.css`),
+  which your bundler emits.
 - **React 19.** `ui-library` declares `react` and `react-dom` `^19.0.0` as peer dependencies.
 
 ## What to build in Rust
