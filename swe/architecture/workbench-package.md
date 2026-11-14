@@ -266,30 +266,34 @@ layout across the upgrade. Where the keys are stored becomes a host decision.
 
 ## Acceptance criteria
 
-- [ ] `packages/workbench` exists, builds with `npm run build:workbench`, and its `dist` contains
+Checked in sprint 095 task-003 (2026-11-14); evidence per criterion in `swe/notes/workbench-acceptance.md`.
+Criterion 5 holds for build, typecheck, lint and tests; `fmt:check` has pre-existing failures outside this branch (see the note).
+Criterion 12 is ticked on the rehearsal recorded there.
+
+- [x] `packages/workbench` exists, builds with `npm run build:workbench`, and its `dist` contains
       `index.js`, `index.d.ts`, `styles.css`, `fonts.css`, the font files and the `vite` entry.
-- [ ] `packages/web-client/src` contains only the shell: `main.tsx`, `brand/`, type declarations.
+- [x] `packages/web-client/src` contains only the shell: `main.tsx`, `brand/`, type declarations.
       No `features/`, `stores/`, `hooks/`, `timeline/`, `lib/` or `viewer-plugins/` directory
       remains there.
-- [ ] No source file in the repository imports `@web-client/`.
-- [ ] Every test that existed before the move still exists and passes; the total test count does
+- [x] No source file in the repository imports `@web-client/`.
+- [x] Every test that existed before the move still exists and passes; the total test count does
       not drop.
-- [ ] `npm run build`, `npm run typecheck`, `npm run lint` and `npm test` pass.
-- [ ] `web-client`'s `dist/web` loads and behaves as before: connect to a dev daemon, run a mock
+- [x] `npm run build`, `npm run typecheck`, `npm run lint` and `npm test` pass.
+- [x] `web-client`'s `dist/web` loads and behaves as before: connect to a dev daemon, run a mock
       turn, split a pane, open a terminal, open a file. Total `dist/web` size stays within 1% of
       the pre-change build.
-- [ ] `dist` of the workbench contains no third-party module code, no base64 font or worker, and no
+- [x] `dist` of the workbench contains no third-party module code, no base64 font or worker, and no
       `?worker`, `import.meta.env`, `__APP_VERSION__` or `__BRAND_TITLE__`.
-- [ ] Every dynamic import present in the sources is still a dynamic import in `dist`.
-- [ ] A consumer built from the **packed tarball** (no alias, outside the workspace resolution)
+- [x] Every dynamic import present in the sources is still a dynamic import in `dist`.
+- [x] A consumer built from the **packed tarball** (no alias, outside the workspace resolution)
       renders `Workbench`, connects to a dev daemon and streams a mock turn, with no console
       errors.
-- [ ] The same consumer can render a custom shell from `WorkbenchProvider`, `WorkbenchBoot`,
+- [x] The same consumer can render a custom shell from `WorkbenchProvider`, `WorkbenchBoot`,
       `SessionList` and `PaneArea`, and connect through `useConnection()`.
-- [ ] `build:electron` and `VITE_TARGET` are gone; `pi-studio ui` and the web-client Docker image
+- [x] `build:electron` and `VITE_TARGET` are gone; `pi-studio ui` and the web-client Docker image
       still build and serve.
-- [ ] `scripts/publish.sh --dry-run` succeeds on a clean tree with the new package in the order.
-- [ ] Docs are updated in the same change: `packages/workbench/{README.md,AGENTS.md,CHANGELOG.md}`,
+- [x] `scripts/publish.sh --dry-run` succeeds on a clean tree with the new package in the order.
+- [x] Docs are updated in the same change: `packages/workbench/{README.md,AGENTS.md,CHANGELOG.md}`,
       `packages/web-client/{README.md,AGENTS.md}`, root `AGENTS.md` and `README.md`,
       `docs/build-layering.md`, `docs/desktop-client-handoff.md` (replace "planned" with the real
       API).

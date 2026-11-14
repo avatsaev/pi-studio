@@ -1,7 +1,7 @@
 # Task 003 — Acceptance sweep and pre-merge gate
 
 - **Sprint:** sprint-095-workbench-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** whole repository
 - **Priority:** P1
