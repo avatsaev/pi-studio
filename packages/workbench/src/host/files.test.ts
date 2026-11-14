@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type FileTransferClient } from "@av-pi-studio/client";
 import { createBrowserFiles } from "./browser-files.js";
 import { installHost, resetHostForTests } from "./install.js";
-import { type UploadSource } from "./types.js";
-import { uploadSources, type UploadStatus } from "../features/files/upload-sources.js";
+import { type UploadOptions, type UploadSource } from "./types.js";
+import {
+  batchPercent,
+  uploadSources,
+  type UploadStatus,
+} from "../features/files/upload-sources.js";
 import { type FileDownload, supersedeDownload } from "../hooks/use-file-download.js";
 import { uploadAndRefresh } from "../hooks/use-file-transfer.js";
 import { createTestHost } from "../test/test-host.js";
@@ -64,6 +68,59 @@ describe("upload through the host", () => {
 
     expect(confirm).toHaveBeenCalledWith("Overwrite this file? a.txt");
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("hands the SDK the File itself, never its bytes, and forwards progress", async () => {
+    const file = new File([new Uint8Array(10)], "big.bin");
+    const arrayBuffer = vi.spyOn(file, "arrayBuffer");
+    const upload = vi.fn(async (_path: string, _source: unknown, options?: UploadOptions) => {
+      options?.onProgress?.(5, 10);
+    });
+    const files = createBrowserFiles(() => ({ upload }) as unknown as FileTransferClient);
+    const seen: Array<[number, number | undefined]> = [];
+
+    await files.upload("/work", file, { onProgress: (sent, total) => seen.push([sent, total]) });
+
+    expect(upload).toHaveBeenCalledTimes(1);
+    const [target, passed] = upload.mock.calls[0]!;
+    expect(target).toBe("/work/big.bin");
+    expect(passed).toBe(file); // the same object: no copy, no arrayBuffer()
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(seen).toEqual([[5, 10]]);
+  });
+
+  it("shows the batch's percentage on the status line, changing it only when the percent changes", async () => {
+    const statuses: UploadStatus[] = [];
+    const sources: UploadSource[] = [
+      { name: "a.bin", size: 100 },
+      { name: "b.bin", size: 300 },
+    ];
+    await uploadSources("/work", sources, {
+      existing: new Set(),
+      confirm: async () => true,
+      upload: async (_dir, s, options) => {
+        const size = s.size ?? 0;
+        // Many chunk callbacks per percent point.
+        for (let sent = 0; sent <= size; sent += size / 40) options?.onProgress?.(sent, size);
+      },
+      setStatus: (s) => statuses.push(s),
+    });
+
+    const percents = statuses
+      .map((s) => /(\d+)%$/.exec(s.text)?.[1])
+      .filter((p): p is string => p !== undefined)
+      .map(Number);
+    expect(percents.at(-1)).toBe(100);
+    expect(percents).toEqual(percents.toSorted((a, b) => a - b)); // never goes backwards
+    expect(new Set(percents).size).toBe(percents.length); // no repeated status for one percent
+    expect(percents).toContain(25); // the first file ends at 100 of 400 bytes
+    expect(statuses.at(-1)).toEqual({ text: "Uploaded 2 files", error: false });
+  });
+
+  it("leaves out the percentage when a source's size is unknown", () => {
+    expect(batchPercent([{ name: "a" }, { name: "b", size: 4 }], 0, 2)).toBeNull();
+    expect(batchPercent([{ name: "a", size: 0 }], 0, 0)).toBeNull();
+    expect(batchPercent([{ name: "a", size: 8 }], 0, 4)).toBe(50);
   });
 });
 

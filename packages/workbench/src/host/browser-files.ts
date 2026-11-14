@@ -1,10 +1,16 @@
 /**
- * The browser host's `files`: today's in-memory paths. Uploads read the `File`'s bytes, save-to-disk
- * downloads into memory and clicks a download anchor, and viewers get a `Blob` object URL.
+ * The browser host's `files`: uploads hand the `File` itself to the SDK (sliced and paced there, so a
+ * large upload never sits in memory), save-to-disk downloads into memory and clicks a download
+ * anchor, and viewers get a `Blob` object URL.
  */
 
 import { type FileTransferClient } from "@av-pi-studio/client";
-import { type HostFiles, type UploadSource, type ViewableFile } from "./types.js";
+import {
+  type HostFiles,
+  type UploadOptions,
+  type UploadSource,
+  type ViewableFile,
+} from "./types.js";
 
 /** `Blob`'s DOM typings require an `ArrayBuffer`-backed view; the assembled `Uint8Array`'s
  *  `ArrayBufferLike` backing doesn't satisfy that on its own, so copy first. */
@@ -14,12 +20,13 @@ function toBlob(bytes: Uint8Array, mimeType?: string): Blob {
 
 export function createBrowserFiles(transfer: () => FileTransferClient): HostFiles {
   return {
-    async upload(dir: string, source: UploadSource): Promise<void> {
+    async upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void> {
       if (!(source instanceof Blob)) {
         throw new Error("the browser host can only upload File/Blob sources");
       }
       const target = dir ? `${dir}/${source.name}` : source.name;
-      await transfer().upload(target, new Uint8Array(await source.arrayBuffer()));
+      // The Blob itself, never `arrayBuffer()`: the SDK slices it chunk by chunk.
+      await transfer().upload(target, source, { onProgress: options?.onProgress });
     },
 
     async saveToDisk(path: string): Promise<void> {

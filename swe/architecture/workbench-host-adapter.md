@@ -34,7 +34,7 @@ Every browser-bound call site in the code that moves:
 | Agent deep link | `hooks/use-agent-deep-link-boot.ts` (`#agent=<id>`, `hashchange`), `features/sessions/apply-agent-deep-link.ts` (`history.replaceState`) |
 | Socket creation | `lib/connection/connection-store.ts`: direct `WebSocket` with the `pi-studio.bearer.<password>` subprotocol, or `createRelayTransport` for a pairing link |
 | Reconnect timing | `lib/connection/worker-timers.ts` (passed to `ReconnectionManager`), `lib/connection/resume-triggers.ts` (`visibilitychange`, `online`; attached in `main.tsx`) |
-| Upload | `hooks/use-file-transfer.ts`: `File.arrayBuffer()` then `FileTransferClient.upload` |
+| Upload | `hooks/use-file-transfer.ts`: `File.arrayBuffer()` then `FileTransferClient.upload` (at 0.0.117; now the `File` itself is the SDK's chunk source) |
 | Save to disk | `hooks/use-file-transfer.ts`: download to memory, `Blob`, synthetic anchor click |
 | View URL for a remote file | `hooks/use-file-download.ts`: download to memory, `Blob`, object URL. Used by the image, video, PDF, molecule and binary-fallback viewers |
 | pdf.js runtime | `features/files/pdfjs-runtime.ts`: `?worker` import, `import.meta.env.BASE_URL` |
@@ -73,7 +73,7 @@ interface WorkbenchHost {
     onResume(listener: () => void): () => void;
   };
   files: {
-    upload(dir: string, source: UploadSource): Promise<void>;
+    upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
     saveToDisk(path: string): Promise<void>;
     openForView(path: string): Promise<ViewableFile>;
     pickUploads?(): Promise<UploadSource[]>;
@@ -109,7 +109,7 @@ Supporting types:
 | `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer` |
 | `connection.timers` | Passed to `ReconnectionManager`. Must keep firing when the window is hidden |
 | `connection.onResume` | Fires when the host believes a stale connection may need checking: the window became visible, the network came back, the machine woke. The workbench decides what to do (`resolveResumeAction`, unchanged) |
-| `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the upload is complete as far as the host can tell; rejects on failure. Today that means "every frame was sent", because the daemon sends no completion signal; the follow-ups spec adds one. The workbench then refreshes the explorer listing |
+| `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options.onProgress(sent, total?)` is optional. The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005). The workbench then refreshes the explorer listing |
 | `files.saveToDisk` | Saves a daemon file to the user's machine. Where it lands is the host's business. Rejects on failure; resolves without saving if the user cancels a native dialog |
 | `files.openForView` | Returns a URL a media element, `fetch` or pdf.js can read. The workbench calls `release()` when the URL is superseded or the viewer unmounts |
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
@@ -206,8 +206,8 @@ Storage keys and value formats do not change. Only the backing store becomes hos
 - [../features/pdf-file-preview.md](../features/pdf-file-preview.md): the worker and asset base
   become host-supplied.
 - [../features/desktop-client-protocol-followups.md](../features/desktop-client-protocol-followups.md):
-  upload backpressure changes what the browser host's `files.upload` does internally, not this
-  contract.
+  upload backpressure changes what the browser host's `files.upload` does internally; the only
+  contract change is the optional `UploadOptions.onProgress` (sprint-096/task-005).
 
 ## Acceptance criteria
 

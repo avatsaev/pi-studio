@@ -113,9 +113,22 @@ export interface ViewableFile {
   release(): void;
 }
 
+/** Optional extras the workbench passes to `files.upload`. A host may ignore them. */
+export interface UploadOptions {
+  /**
+   * Bytes handed to the transport so far, and the source's total when known. Called as the upload
+   * runs (monotonic, possibly many times per second); the explorer turns it into a percentage.
+   */
+  onProgress?(sent: number, total?: number): void;
+}
+
 export interface HostFiles {
-  /** Upload `source` to `<dir>/<source.name>` on the daemon. Rejects on failure. */
-  upload(dir: string, source: UploadSource): Promise<void>;
+  /**
+   * Upload `source` to `<dir>/<source.name>` on the daemon. Resolves only once the daemon has
+   * confirmed the file is written (with a daemon that advertises `fileTransferAck`; an older daemon
+   * resolves when the bytes have left the machine). Rejects with the daemon's reason on failure.
+   */
+  upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
   /** Copy the daemon file at `path` to the user's machine (save dialog, downloads folder). */
   saveToDisk(path: string): Promise<void>;
   /** Make the daemon file at `path` displayable by URL. */

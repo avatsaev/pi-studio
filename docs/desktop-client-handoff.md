@@ -158,7 +158,7 @@ version}` for the connection bar), `storage` (a **synchronous** key/value store:
 storage is asynchronous, load it into memory before the first render and write behind),
 `clipboard.writeText`, `dialogs.confirm/alert/prompt` (all promise-returning, so native Tauri
 dialogs fit directly), an optional `links.openExternal(url)` (when present, every external link
-in the app calls it instead of navigating), `files` (`upload(dir, source)`, `saveToDisk(path)`,
+in the app calls it instead of navigating), `files` (`upload(dir, source, {onProgress?}?)` (resolve only once the daemon confirmed the write, reject with its reason; `onProgress(sent, total?)` drives the explorer's percentage), `saveToDisk(path)`,
 `openForView(path)` → `{url, mimeType?, fileName?, release()}`, optional `pickUploads()`; every
 viewer, inline chat image and "Download" button goes through these, so a Rust host can stream to
 disk and serve viewer URLs from a custom protocol; an `UploadSource` is `{name, size?}`, and you must
@@ -275,11 +275,11 @@ step. It needs SDK changes and should wait for a measured reason.
 
 ### 2. File transfer engine
 
-How transfers work today, and why they hit limits:
+How transfers worked at 0.0.117, and why they hit limits (the upload rows are fixed on this branch: the browser host now passes the `File` to the SDK, which slices, paces and waits for the daemon's confirmation; downloads are unchanged):
 
 | Today | Consequence |
 |---|---|
-| Upload reads the whole file with `file.arrayBuffer()`, then queues every chunk at once with no backpressure (the browser host's `files.upload`, `file-transfer-client.ts`) | Memory use is at least the file size; large files stall or crash the tab |
+| *(fixed)* Upload read the whole file with `file.arrayBuffer()`, then queued every chunk at once with no backpressure (the browser host's `files.upload`, `file-transfer-client.ts`) | Memory use was at least the file size; large files stalled or crashed the tab. Now: a 600 MB upload through the Files explorer kept the tab's JS heap at 14–19 MB, finished with matching SHA-256, and after a forced GC the renderer was back at its baseline (without GC its RSS climbs by the transient 32 KiB slices until V8 collects) |
 | Download collects chunks in an array, concatenates them, then copies into a `Blob` (`file-transfer-client.ts`, the browser host's `files.openForView`/`saveToDisk`) | Two to three copies of the file in memory |
 | Transfers share the one WebSocket with RPC and terminal data | A large transfer delays chat and terminal frames |
 | Text viewers stop at 30 MiB; inline reads stop at 5 MiB (`MAX_INLINE_FILE_READ_BYTES`) | Large files cannot be previewed |

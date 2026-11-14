@@ -34,13 +34,14 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`
   (`createTransport(target, {password})` → `Transport | undefined`, called once per `connect()`;
-  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source)`,
+  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, {onProgress?})`,
   `saveToDisk(path)`, `openForView(path)` → `ViewableFile {url, mimeType?, fileName?, release()}`,
   optional `pickUploads()`; `UploadSource` = `{name, size?}`, a `File` satisfies it) and the
   optional `pdf` (`createWorker()`, `assetBaseUrl`; absent → `PdfUnavailableError` → the PDF
   viewer's error state). The browser host takes `pdf` as a `createBrowserHost` option because only
   the application bundle can build the worker.
-- `browser-files.ts` — the browser `files` (today's in-memory paths: `File` bytes for upload,
+- `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
+  paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
   download + anchor click for save, `Blob` object URL + idempotent revoke for view), reaching the
   live connection only through `lib/connection/live-file-transfer.ts`'s `currentFileTransfer()`.
   Every viewer, `lib/inline-image-cache.ts` and every "Download" action (`features/files/
@@ -1232,15 +1233,12 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
   `html { font-size: 125% }`; don't reintroduce a root-percentage override, since px paddings /
   icon sizes / row heights don't grow with it and it duplicates the scale with a second lever.
   For per-user sizing, point people at the Appearance setting rather than editing the table.
-- **File upload/download/delete run only against a daemon that wires `FileTransferService` +
-  `FileExplorerService`'s `file_delete_request`** (`bootstrap.ts` — the production bootstrap;
-  `dev-bootstrap.ts` wires `FileExplorerService` for listing/preview but NOT `FileTransferService`,
-  so upload/download RPCs have no handler there). The dev daemon also registers no terminal-RPC
-  service (`create_terminal_request` has no handler under `dev-bootstrap.ts`) — smoke-testing the
-  Files sidebar's transfer actions or terminals (via `Ctrl/Cmd+T` or the TabStrip "+" menu) needs
-  `npm start`/`npm run start:server`, not `npm run dev:daemon`. Creating a file/folder
-  (`file_create_request`, also on `FileExplorerService`) works under both bootstraps, unlike
-  upload/download.
+- **File upload/download/delete run against a daemon that wires `FileTransferService` +
+  `FileExplorerService`'s `file_delete_request`.** Both bootstraps do since sprint-096
+  (`dev-bootstrap.ts` now also wires `FileTransferService` and the terminal handlers, as `bootstrap.ts`
+  does), so the Files sidebar's transfer actions and terminals (`Ctrl/Cmd+T`, the TabStrip "+" menu)
+  can be smoke-tested against `npm run dev:daemon` too. Creating a file/folder (`file_create_request`)
+  works under both.
 - **No confirmation for upload overwrite/delete happens server-side.** `FileExplorer.tsx` confirms
   an upload that would clash with an existing name before calling `useFileTransfer().upload()`;
   `FileContextMenu.tsx` confirms before `file_delete_request`. The daemon executes both

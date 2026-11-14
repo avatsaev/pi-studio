@@ -1,7 +1,7 @@
 # Task 005 — Browser host: upload without reading the file into memory
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, files)
 - **Priority:** P1
