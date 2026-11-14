@@ -8,7 +8,8 @@
 # - Builds, typechecks, and tests before publishing anything.
 # - Publishes the library packages to npm in dependency order (protocol/relay have no
 #   workspace deps and go first; client depends on protocol+relay; ui-library has no workspace
-#   deps and precedes web-client, which consumes it; web-client is a static-asset dependency of
+#   deps; workbench (the application as a library) consumes protocol/client/ui-library and
+#   precedes web-client, which consumes it; web-client is a static-asset dependency of
 #   cli, built and published before it; server/cli depend on the others and go last).
 #
 # Usage:
@@ -24,10 +25,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 # Packages actually published to the npm registry, in dependency order.
-PUBLISH_ORDER=(protocol relay client ui-library web-client server cli)
+PUBLISH_ORDER=(protocol relay client ui-library workbench web-client server cli)
 
 # Every workspace package, kept in version lockstep for a consistent release tag.
-ALL_PACKAGES=(protocol relay client ui-library server cli web-client)
+ALL_PACKAGES=(protocol relay client ui-library workbench server cli web-client)
 
 DRY_RUN=false
 BUMP=true
