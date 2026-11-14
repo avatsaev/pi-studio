@@ -1,8 +1,10 @@
 # Feature — Desktop-Client Protocol Follow-ups
 
-> **Status: in progress (2026-11-14), sprint 096.** Built: § 1 (`hello.platform`), the daemon side of § 2
-> (paced download, `Error` without `End`, session-owned upload streams, `fileTransferAck` +
-> `file_upload_complete`). Not built: the SDK/browser half of § 2 and § 3. Runs after
+> **Status: shipped (2026-11-14), sprint 096** on `feat/desktop-protocol-followups`, stacked on
+> `feat/workbench`; the next release (0.0.118) is the first to carry it. Everything in § 1–§ 3 is built:
+> `hello.platform`, the daemon's paced download / `Error` without `End` / session-owned upload streams,
+> `fileTransferAck` + `file_upload_complete`, the SDK's paced `upload` with progress and abort, the
+> browser host's streaming upload, and JSON + binary fixtures. Runs after
 > [../architecture/workbench-package.md](../architecture/workbench-package.md).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
@@ -198,24 +200,34 @@ None. No stored entity changes.
 
 ## Acceptance criteria
 
-- [ ] A `hello` with `platform: "desktop"` and `clientType: "browser"` is accepted by the current
+- [x] A `hello` with `platform: "desktop"` and `clientType: "browser"` is accepted by the current
       daemon and by a 0.0.117 daemon; the current daemon reports `platform` in `daemon_status`.
-- [ ] Uploading a file several times larger than the SDK's high-water mark over a throttled socket
+      *(0.0.117: checked against the published `@av-pi-studio/server@0.0.117`. Current: unit test, and
+      a `desktop` session listed in `daemon_status_request` on a live production daemon.)*
+- [x] Uploading a file several times larger than the SDK's high-water mark over a throttled socket
       keeps the transport's buffered amount bounded; a test asserts the bound.
-- [ ] With `fileTransferAck`, `upload()` resolves only after `file_upload_complete`, and the file
-      on disk has exactly the uploaded bytes at that moment.
-- [ ] A daemon-side write failure rejects `upload()` with the daemon's error.
-- [ ] Against a daemon without the flag, `upload()` still completes and writes the correct bytes.
-- [ ] Aborting an upload leaves no open handle and no occupied stream on the daemon.
-- [ ] A download to a client that reads slowly keeps the daemon's socket buffer bounded; a test
-      asserts the bound.
-- [ ] A download read error produces an `Error` frame and no `End`.
-- [ ] An upload frame sent from a session that does not own the stream is ignored.
-- [ ] `web-client` uploads a file larger than 500 MB without holding it in memory, and the Files
-      tree shows it afterwards.
-- [ ] Every message and binary frame in the Fixtures table has a fixture; the existing fixture
-      tests cover them; `manifest.json`'s `formatVersion` is unchanged.
-- [ ] `docs/desktop-client-handoff.md`, `packages/protocol/AGENTS.md`,
+      *(`file-transfer-upload.test.ts`: "never queues more than the high-water mark plus one frame".)*
+- [x] With `fileTransferAck`, `upload()` resolves only after `file_upload_complete`, and the file
+      on disk has exactly the uploaded bytes at that moment. *(Scripted-transport test, and
+      `cli/src/file-transfer-sdk-e2e.test.ts` against a real dev daemon.)*
+- [x] A daemon-side write failure rejects `upload()` with the daemon's error.
+- [x] Against a daemon without the flag, `upload()` still completes and writes the correct bytes.
+- [x] Aborting an upload leaves no open handle and no occupied stream on the daemon. *(Abort sends an
+      `Error` frame; the daemon reports it as a failed completion and frees the stream; a closed
+      session frees its streams.)*
+- [x] A download to a client that reads slowly keeps the daemon's socket buffer bounded; a test
+      asserts the bound. *(`file-transfer.test.ts`. Also seen live: a 600 MiB download to a paused client
+      grew the daemon's RSS by ~58 MB.)*
+- [x] A download read error produces an `Error` frame and no `End`.
+- [x] An upload frame sent from a session that does not own the stream is ignored.
+- [x] `web-client` uploads a file larger than 500 MB without holding it in memory, and the Files
+      tree shows it afterwards. *(Live: a 600 MiB file through the Files explorer; JS heap stayed at
+      14–19 MB, the SHA-256 matched, the file appeared in the tree. Renderer RSS rises transiently with
+      the 32 KiB slices until V8 collects, and returned to baseline after a forced GC.)*
+- [x] Every message and binary frame in the Fixtures table has a fixture; the existing fixture
+      tests cover them; `manifest.json`'s `formatVersion` is unchanged. *(Binary frames live in
+      `fixtures/external-clients/binary/` with their own manifest.)*
+- [x] `docs/desktop-client-handoff.md`, `packages/protocol/AGENTS.md`,
       `packages/client/AGENTS.md`, `packages/server/AGENTS.md`, the fixtures `README.md` and the
       root `AGENTS.md` protocol section are updated in the same change.
 
@@ -246,3 +258,7 @@ None. No stored entity changes.
   `FileTransferDeps`. SDK upload: `UPLOAD_HIGH_WATER_BYTES` = 1 MiB, 10 ms poll, also chosen, not
   measured. A daemon without `fileTransferAck` cannot confirm the file reached disk: the SDK
   resolves once its transport buffer drains after `End`.
+  **Live check (task-008, loopback, isolated production daemon):** 600 MiB each way — upload from the
+  Files explorer in ~5 s, download to a TCP-paused client with ~58 MB daemon RSS growth, then a
+  matching SHA-256. LAN, relay and slower links were not measured; the relay path was not run live
+  (unit tests and code reading only).

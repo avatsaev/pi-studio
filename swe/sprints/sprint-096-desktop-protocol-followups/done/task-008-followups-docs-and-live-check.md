@@ -1,7 +1,7 @@
 # Task 008 — Follow-ups close: documentation and live checks
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs, packages/*/AGENTS.md, swe/
 - **Priority:** P1

@@ -287,7 +287,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/skills-manager.md](features/skills-manager.md)                 | feature      | Settings → Skills: list/enable/disable/remove/install/update-all Pi skills (npm/git packages skills-only, Agent Skills repos, host paths) |
 | [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
-| [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **planned (sprint-096)** |
+| [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -411,6 +411,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       open until the desktop app runs it. Drag-and-drop upload sources and StrictMode-safe host
       installation were resolved in sprint-093 — see
       [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
-- [ ] Desktop protocol follow-ups: dev-daemon coverage of file transfer and terminal handlers,
-      buffered amount on the relay path, partial file after a failed upload, water marks — see
+- [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
+      file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The
+      water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads are unpaced
+      and the relay path was not exercised live — see
       [features/desktop-client-protocol-followups.md § TODO(verify)](features/desktop-client-protocol-followups.md).

@@ -9,10 +9,11 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 
 **This document is kept current.** The workbench is built in this repository, and every task in
 that plan updates this file when it changes something stated here. "Plan and progress" below shows
-how far that work has got. Last updated: 2026-11-14 (sprints 091–095 done on `feat/workbench`:
-`packages/workbench` is a publishable library with a final public API, a README, a release
-runbook and a packed-tarball smoke test; the first npm release happens when the branch merges to
-`main`).
+how far that work has got. Last updated: 2026-11-14 (sprints 091–096 done: 091–095 on `feat/workbench`
+(`packages/workbench` is a publishable library with a final public API, a README, a release runbook
+and a packed-tarball smoke test; the first npm release happens when the branch merges to `main`),
+096 on `feat/desktop-protocol-followups`, stacked on it. Changes from 096 are marked "0.0.118": that
+is the first version that carries them).
 
 ## Status of the pieces
 
@@ -21,7 +22,7 @@ runbook and a packed-tarball smoke test; the first npm release happens when the 
 | `@av-pi-studio/protocol`, `client`, `relay` | Published on npm, in use |
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
-| Protocol follow-ups for this client | **In progress on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`). Built so far: `hello.platform`, daemon-side pacing/ownership/error handling, `fileTransferAck` + `file_upload_complete`. Still to come: SDK paced upload, streaming browser upload, file/terminal fixtures, dev-daemon handlers. Spec: `swe/features/desktop-client-protocol-followups.md`: a `platform` field in the handshake, paced uploads and downloads with a completion signal, and fixtures for file transfer and terminals |
+| Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md` |
 | `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
@@ -37,7 +38,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
 | 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
-| 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | **In progress** (tasks 001–003 done: handshake field, daemon pacing/ownership/error, `fileTransferAck`) |
+| 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | **Done** on `feat/desktop-protocol-followups` (merge after `feat/workbench`; the next release, 0.0.118, carries it). Live-checked against an isolated production daemon: 600 MiB upload from the browser UI, 600 MiB download to a paused client, a `desktop`-platform session in `daemon_status` |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
 published SDK. It can be prototyped before the first release, against `web-client`'s behaviour, but it
@@ -294,7 +295,12 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Upload:** `file_upload_request {path, transferId}` answers `{ok, stream}`; the client then
   sends `Begin` (with `transferId`), `Chunk`…, `End`. The daemon writes to the target path.
 - Chunks are 32 KiB. Stream ids are one byte (256), allocated by the daemon across all sessions.
-- No upload size cap was found in the daemon; the ceiling today is client memory.
+- No upload size cap was found in the daemon. The ceiling used to be client memory; the browser host no longer holds an upload in memory (0.0.118).
+- **Measured (sprint 096, loopback, isolated production daemon):** a 600 MiB file downloaded to a client
+  whose TCP socket was paused for 6 s grew the daemon's RSS by ~58 MB (against a 600 MiB file; no
+  unpaced control run was made), and the download then completed with a matching SHA-256 in ~7 s. A 600 MiB upload from
+  the browser UI took ~5 s. These are loopback figures; LAN and relay were not measured, and the water
+  marks are still the chosen 1 MiB / 256 KiB.
 - **Upload completion (daemon, shipped in this branch).** Send `ack: true` in
   `file_upload_request` when `server_info.features.fileTransferAck` is set, and the daemon pushes
   `{type:"session", message:{type:"file_upload_complete", transferId, stream, ok, bytesWritten, error?}}`
@@ -318,8 +324,8 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   connections only**: the relay's stand-in socket cannot report a queue, so relay downloads are
   unpaced. A read error sends one `Error` frame and **no** `End`; the `file_download_response` then
   says `ok:false, error:"read_failed"`. Treat `Error` as final.
-- The daemon's reaction to an invalid `hello` on a direct connection (not only the relay) is the
-  not silent: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
+- The daemon's reaction to an invalid `hello` on a direct connection (not only the relay) is **not**
+  silent: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
   fails validation. Only the relay path ignores it without an answer. Either way `clientType` must
   stay inside the enum.
 

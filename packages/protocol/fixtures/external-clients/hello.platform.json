@@ -5,9 +5,7 @@
   "since": "0.0.118",
   "stage": 1,
   "requiresFeature": null,
-  "volatile": [
-    "/clientId"
-  ],
+  "volatile": ["/clientId"],
   "frame": {
     "type": "hello",
     "clientId": "client-1",

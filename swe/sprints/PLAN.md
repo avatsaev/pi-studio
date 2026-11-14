@@ -121,7 +121,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 093 | `sprint-093-workbench-host` | workbench (+ web-client wiring): **Workbench, slice 3 — host adapter.** One host object for everything browser-bound: `app`, `storage`, `clipboard`, `dialogs` (21 call sites), `links`, `launch`, `connection` (transport factory, timers, resume), `files`, `pdf` + the pdf.js Vite plugin as a package export; a source-scan guard and a recording test host. `createBrowserHost` reproduces today's behaviour. | 7 |
 | 094 | `sprint-094-workbench-build-api` | workbench: **Workbench, slice 4 — build + API.** Library build (`piwb-` scoped `styles.css`, copied fonts, `./vite` entry, strict `exports`) with `dist` assertions; public API (whole app, shell regions, three hooks, guards); packed-tarball smoke consumer (whole app + custom shell); package docs with `web-client`'s AGENTS slimmed. | 4 |
 | 095 | `sprint-095-workbench-release` | scripts, docker, docs: **Workbench, slice 5 — release.** `publish.sh` order + Dockerfile, a rehearsed `--dry-run` publish in a throwaway worktree, repository-level docs and the desktop handoff doc, acceptance sweep. Single merge to `main` after the engineer's placeholder publish + Trusted Publisher registration. | 3 |
-| 096 | `sprint-096-desktop-protocol-followups` | protocol + server + client (+ workbench browser host): **Desktop-client protocol follow-ups.** `hello.platform`; daemon transfer hardening (paced download, `Error` without `End`, session-owned upload streams); `fileTransferAck` + `file_upload_complete`; SDK paced streaming upload with progress and cancel; browser upload without reading the file into memory; dev-daemon file/terminal handlers + JSON fixtures; binary frame fixtures; docs + live checks. Own branch, after 095 merges. | 8 |
+| 096 | `sprint-096-desktop-protocol-followups` | protocol + server + client (+ workbench browser host): **Desktop-client protocol follow-ups.** `hello.platform`; daemon transfer hardening (paced download, `Error` without `End`, session-owned upload streams); `fileTransferAck` + `file_upload_complete`; SDK paced streaming upload with progress and cancel; browser upload without reading the file into memory; dev-daemon file/terminal handlers + JSON fixtures; binary frame fixtures; docs + live checks. **Done (2026-11-14)** on `feat/desktop-protocol-followups`, cut from `feat/workbench` (stacked, so its browser-host task is not blocked on the 095 merge); merge after it. | 8 |
 
 Total: **90 sprints, 476 tasks**, recomputed from the table above when sprints 082–087 were added
 (2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14) and by 091–096 (+6/+30, 2026-11-14). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
@@ -2557,7 +2557,7 @@ Waves (av-swe `implement`, parallel by default): t001 → t002 → t003 — a st
 | task-004 | SDK: `Transport.bufferedAmount`, paced streaming `upload`, progress, cancel, ack | feature | task-003 | followups § 2 (SDK), § Paced upload |
 | task-005 | Browser host: upload without reading the file into memory, progress | feature | task-004, sprint-093/task-005 | followups § Web client; host-adapter `files.upload` |
 | task-006 | Dev-daemon file-transfer + terminal handlers; JSON fixtures for both families | feature | task-001, task-003 | followups § 3 (JSON) |
-| task-007 | Binary frame fixtures + `binary-manifest.json` | feature | task-006 | followups § 3 (binary) |
+| task-007 | Binary frame fixtures + `binary/manifest.json` (a subdirectory, because the dashboard's re-vendor test rejects unlisted top-level JSON) | feature | task-006 | followups § 3 (binary) |
 | task-008 | Docs close (handoff doc to the real wire), spec ticks, live checks | docs | task-001…task-007 | followups § Acceptance criteria |
 
 Waves (av-swe `implement`, parallel by default):
@@ -2887,5 +2887,6 @@ Carried from the scope; resolve against the live source while implementing the o
       Tauri-side questions (`window.confirm`, `target="_blank"`) belong to the desktop repository.
 - [x] Follow-ups: does the dev daemon register file-transfer and terminal handlers? **No**
       (checked at planning, 2026-11-14) — s096/t006 registers them.
-- [ ] Follow-ups: buffered amount on the relay path; water marks; partial file after a failed
-      upload; dashboard vendoring vs `binary-manifest.json` — s096/t002, t003, t007.
+- [x] Follow-ups: buffered amount on the relay path; water marks; partial file after a failed
+      upload; dashboard vendoring vs binary manifest — resolved in s096 (water marks chosen, not
+      measured; relay downloads unpaced; see the spec's § TODO(verify)).
