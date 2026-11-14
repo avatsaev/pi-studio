@@ -26,7 +26,7 @@ import {
   nextAnchorState,
   type AnchorEvent,
   type ViewportMetrics,
-} from "@pi-studio-ui/timeline/bottom-anchor.js";
+} from "@web-client/timeline/bottom-anchor.js";
 
 /** How long after a user input a `scroll` event still counts as that input's doing. */
 const GESTURE_WINDOW_MS = 500;

@@ -9,14 +9,14 @@ import {
   installActiveWorkspaceRestore,
   restoreActiveWorkspace,
 } from "./restore-active-workspace.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useTabStore, type Tab } from "@web-client/stores/tab-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
 import {
   resetLayoutStore,
   resetSessionStore,
   resetTabStore,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 
 const A = "/work/a";
 const B = "/work/b";

@@ -3,7 +3,7 @@ import { loadInlineImage, type InlineImageState } from "./use-inline-image.js";
 import {
   clearInlineImageCache,
   MAX_INLINE_IMAGE_ENTRIES,
-} from "@pi-studio-ui/lib/inline-image-cache.js";
+} from "@web-client/lib/inline-image-cache.js";
 
 function stubObjectUrls(): void {
   let counter = 0;

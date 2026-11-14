@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tabAttentionStatus } from "./tab-attention.js";
-import { statusDotColor } from "@pi-studio-ui/ui/status-dot.js";
-import type { Tab, TabKind } from "@pi-studio-ui/stores/tab-store.js";
+import { statusDotColor } from "@av-pi-studio/ui-library";
+import type { Tab, TabKind } from "@web-client/stores/tab-store.js";
 
 function chatTab(id = "t1"): Tab {
   return {

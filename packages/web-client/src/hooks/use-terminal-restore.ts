@@ -30,13 +30,10 @@
 
 import { useEffect, useRef } from "react";
 import type { PiStudioClient } from "@av-pi-studio/client";
-import {
-  daemonHomeDir,
-  useConnectionStore,
-} from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+import { daemonHomeDir, useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
 
 interface TerminalRestoreEntry {
   slot: number;

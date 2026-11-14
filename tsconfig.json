@@ -4,6 +4,7 @@
     { "path": "./packages/protocol" },
     { "path": "./packages/relay" },
     { "path": "./packages/client" },
+    { "path": "./packages/ui-library" },
     { "path": "./packages/server" },
     { "path": "./packages/cli" }
   ]

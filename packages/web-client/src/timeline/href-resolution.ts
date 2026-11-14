@@ -6,8 +6,8 @@
  * percent-decoded) or null if external/unresolvable.
  */
 
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { collapseDotSegments, resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
+import { collapseDotSegments, resolveWorkspacePath } from "@web-client/lib/paths.js";
 
 /** Matches a leading `scheme:` (e.g. `http:`, `file:`, `mailto:`) — not a Windows drive letter
  *  (`C:\...`) or a bare `:` with no scheme name. Exported for `html-assets.ts` (sprint-064), which

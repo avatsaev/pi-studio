@@ -10,9 +10,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { AgentCommandDescriptor } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { ensureMaterialized } from "@web-client/stores/materialize.js";
 
 export function useAgentCommands(sessionId: string, enabled = true) {
   const client = useConnectionStore((s) => s.client);

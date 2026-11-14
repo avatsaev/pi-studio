@@ -6,17 +6,17 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyExternalDrop } from "./use-external-pane-drop.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { leafIds } from "@pi-studio-ui/features/workspace/pane-tree.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
-import type { ExternalDragPayload } from "@pi-studio-ui/features/workspace/external-drag.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import { leafIds } from "@web-client/features/workspace/pane-tree.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
+import type { ExternalDragPayload } from "@web-client/features/workspace/external-drag.js";
 import {
   resetLayoutStore,
   resetSessionStore,
   resetTabStore,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 
 const CWD = "/work";
 

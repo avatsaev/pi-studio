@@ -13,10 +13,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, MoveHorizontal, ZoomIn, ZoomOut } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
+import { Button, EmptyState, Spinner } from "@av-pi-studio/ui-library";
+import { useFileDownload } from "@web-client/hooks/use-file-download.js";
 import { PDFJS_ASSET_URLS, loadPdfjs } from "./pdfjs-runtime.js";
 import {
   canvasPixelRatio,

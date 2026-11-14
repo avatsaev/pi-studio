@@ -6,9 +6,9 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { reopenClientTabs, tabFromIdentity } from "./reopen-client-tabs.js";
-import { tabIdentity, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
+import { tabIdentity, useTabStore } from "@web-client/stores/tab-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import type { ValidatedWorkspaceLayout } from "@web-client/lib/pane-layout-persistence.js";
 
 const CWD = "/work";
 

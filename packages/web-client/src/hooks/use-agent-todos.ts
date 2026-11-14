@@ -8,8 +8,8 @@
  */
 
 import { useEffect } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useAgentTodosStore } from "@pi-studio-ui/features/chat/todos/agent-todos-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useAgentTodosStore } from "@web-client/features/chat/todos/agent-todos-store.js";
 
 export function useAgentTodosBoot(): void {
   const status = useConnectionStore((s) => s.status);

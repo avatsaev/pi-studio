@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyAgentDeepLink, type AgentDeepLinkDeps } from "@pi-studio-ui/lib/agent-deep-link.js";
-import { useDeepLinkStore } from "@pi-studio-ui/stores/deep-link-store.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { tabIds, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { applyAgentDeepLink, type AgentDeepLinkDeps } from "@web-client/lib/agent-deep-link.js";
+import { useDeepLinkStore } from "@web-client/stores/deep-link-store.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { tabIds, useTabStore } from "@web-client/stores/tab-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 import {
   resetLayoutStore,
   resetSessionStore,
   resetTabStore,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 import { openChatTab } from "./open-chat-tab.js";
 
 function entry(id: string, agentId: string): SessionEntry {

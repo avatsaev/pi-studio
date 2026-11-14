@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { PiStudioClient, ViewerSettingsPatch } from "@av-pi-studio/client";
 import type { ViewerSettings } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { resetToastStoreForTests, useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { resetToastStoreForTests, useToastStore } from "@av-pi-studio/ui-library";
 import { isViewerEnabled, useViewerSettingsStore } from "./viewer-settings-store.js";
 
 /**

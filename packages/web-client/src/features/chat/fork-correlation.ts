@@ -11,7 +11,7 @@
  * level visibility gate this correlation sits behind).
  */
 
-import type { TimelineRow, UserRow } from "@pi-studio-ui/timeline/row-model.js";
+import type { TimelineRow, UserRow } from "@web-client/timeline/row-model.js";
 
 export interface ForkTarget {
   entryId: string;

@@ -8,10 +8,10 @@ import {
   percent,
   resolveOwningPaneId,
 } from "./pane-layout-view.js";
-import { createPaneLayout, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
+import { createPaneLayout, useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useTabStore, type Tab } from "@web-client/stores/tab-store.js";
 import { leafIds } from "./pane-tree.js";
-import { resetLayoutStore, resetTabStore } from "@pi-studio-ui/test/reset-stores.js";
+import { resetLayoutStore, resetTabStore } from "@web-client/test/reset-stores.js";
 
 const CWD = "/work";
 

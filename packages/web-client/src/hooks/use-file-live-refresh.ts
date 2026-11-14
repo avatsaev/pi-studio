@@ -15,10 +15,10 @@
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
-import { LIVE_REFRESH_KINDS } from "@pi-studio-ui/features/files/viewer-registry.js";
-import type { ViewerKind } from "@pi-studio-ui/features/files/viewer-registry.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { resolveWorkspacePath } from "@web-client/lib/paths.js";
+import { LIVE_REFRESH_KINDS } from "@web-client/features/files/viewer-registry.js";
+import type { ViewerKind } from "@web-client/features/files/viewer-registry.js";
 import { useFileWatch } from "./use-file-watch.js";
 
 /**

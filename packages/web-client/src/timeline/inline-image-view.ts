@@ -8,7 +8,7 @@
  */
 
 import type { ImageSrcClassification } from "./image-src.js";
-import type { InlineImageState } from "@pi-studio-ui/hooks/use-inline-image.js";
+import type { InlineImageState } from "@web-client/hooks/use-inline-image.js";
 
 export type InlineImageView =
   | { kind: "remote"; src: string; alt?: string }

@@ -11,7 +11,7 @@
  * tilde paths unexpanded" rather than guessing.
  */
 
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 
 export function useHomeDir(): string | null {
   return useConnectionStore((s) => s.serverInfo?.homeDir ?? null);

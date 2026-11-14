@@ -22,7 +22,7 @@
 
 import { useRef } from "react";
 import { clsx } from "clsx";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
 import type { Divider } from "./pane-tree.js";
 import styles from "./PaneDividers.module.css";
 

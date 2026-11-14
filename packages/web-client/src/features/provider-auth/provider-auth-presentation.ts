@@ -7,7 +7,7 @@
  */
 
 import type { ProviderAuthInfo, ProviderAuthType } from "@av-pi-studio/protocol";
-import type { StatusBadgeVariant } from "@pi-studio-ui/ui/status-badge.js";
+import type { StatusBadgeVariant } from "@av-pi-studio/ui-library";
 
 export interface ProviderAuthBadge {
   label: string;

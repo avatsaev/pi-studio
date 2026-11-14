@@ -23,8 +23,8 @@
 import { create } from "zustand";
 import type { ViewerSettings, ViewerSettingsEntry } from "@av-pi-studio/protocol";
 import type { ViewerSettingsPatch } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useToastStore } from "@av-pi-studio/ui-library";
 
 export interface ViewerSettingsState {
   loaded: boolean;

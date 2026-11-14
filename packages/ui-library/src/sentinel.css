@@ -1,0 +1,5 @@
+/* Dev-diagnostic sentinel: ThemeBoundary reads this custom property to detect that styles.css was
+   imported (theme/dev-warnings.ts). Imported from src/index.ts so it is always in the bundle. */
+:root {
+  --piui-stylesheet: 1;
+}

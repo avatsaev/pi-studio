@@ -5,8 +5,8 @@
  */
 
 import { CircleAlert } from "lucide-react";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import type { ErrorRow as ErrorRowModel } from "@pi-studio-ui/timeline/row-model.js";
+import { Icon } from "@av-pi-studio/ui-library";
+import type { ErrorRow as ErrorRowModel } from "@web-client/timeline/row-model.js";
 import { RowShell } from "./RowShell.js";
 import styles from "./rows.module.css";
 

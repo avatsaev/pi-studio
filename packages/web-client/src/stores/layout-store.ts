@@ -48,9 +48,9 @@ import {
   type PaneNode,
   type SplitPath,
   type SplitRegion,
-} from "@pi-studio-ui/features/workspace/pane-tree.js";
-import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
-import { randomId } from "@pi-studio-ui/lib/random-id.js";
+} from "@web-client/features/workspace/pane-tree.js";
+import type { ValidatedWorkspaceLayout } from "@web-client/lib/pane-layout-persistence.js";
+import { randomId } from "@web-client/lib/random-id.js";
 
 export interface WorkspacePaneLayout {
   tree: PaneNode;

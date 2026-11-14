@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { statusDotColor } from "@pi-studio-ui/ui/status-dot.js";
+import { statusDotColor } from "@av-pi-studio/ui-library";
 import {
   connectionBarView,
   connectionDot,

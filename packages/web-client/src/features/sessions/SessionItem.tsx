@@ -10,11 +10,9 @@
 import type { DragEvent } from "react";
 import { MoreVertical } from "lucide-react";
 import { clsx } from "clsx";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
-import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { useAgentUiPending } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
+import { Icon, IconButton, StatusDot } from "@av-pi-studio/ui-library";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
+import { useAgentUiPending } from "@web-client/features/agent-ui/agent-ui-store.js";
 import { sidebarSessionView } from "./session-presentation.js";
 import styles from "./SessionList.module.css";
 

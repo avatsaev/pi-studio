@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
+import type { TimelineRow } from "@web-client/timeline/row-model.js";
 import {
   buildConfirmedOrdinalByRowId,
   collectConfirmedUserRows,

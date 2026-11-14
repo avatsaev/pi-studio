@@ -9,15 +9,13 @@
  */
 
 import { useState } from "react";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Popover, PopoverContent } from "@pi-studio-ui/components/primitives/Popover.js";
-import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
-import { useIsCompacting } from "@pi-studio-ui/hooks/use-is-compacting.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import type { SessionStats } from "@pi-studio-ui/stores/stats-store.js";
-import { compactionLabel, pendingCompaction } from "@pi-studio-ui/timeline/compaction.js";
+import { Button, Popover, PopoverContent, TextArea } from "@av-pi-studio/ui-library";
+import { useIsCompacting } from "@web-client/hooks/use-is-compacting.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useCompactionStore } from "@web-client/stores/compaction-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import type { SessionStats } from "@web-client/stores/stats-store.js";
+import { compactionLabel, pendingCompaction } from "@web-client/timeline/compaction.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { meterState, meterText, meterTitle } from "./context-meter.js";
 import { compactAction } from "./compact-action.js";

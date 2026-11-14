@@ -21,11 +21,10 @@
 import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { DiffView, parseDiff } from "@pi-studio-ui/features/files/DiffView.js";
-import { openFileTab } from "@pi-studio-ui/features/files/open-file-tab.js";
-import { resolveFileOpenTarget } from "@pi-studio-ui/timeline/file-open-target.js";
+import { Icon, Spinner } from "@av-pi-studio/ui-library";
+import { DiffView, parseDiff } from "@web-client/features/files/DiffView.js";
+import { openFileTab } from "@web-client/features/files/open-file-tab.js";
+import { resolveFileOpenTarget } from "@web-client/timeline/file-open-target.js";
 import {
   toolIcon,
   toolBadge,
@@ -34,9 +33,9 @@ import {
   toolPrimaryField,
   toolDiffStats,
   toolOutputLineCount,
-} from "@pi-studio-ui/timeline/tool-mapping.js";
-import type { ToolRow } from "@pi-studio-ui/timeline/row-model.js";
-import { liveTail } from "@pi-studio-ui/timeline/live-tail.js";
+} from "@web-client/timeline/tool-mapping.js";
+import type { ToolRow } from "@web-client/timeline/row-model.js";
+import { liveTail } from "@web-client/timeline/live-tail.js";
 import { RowShell } from "./RowShell.js";
 import styles from "./rows.module.css";
 

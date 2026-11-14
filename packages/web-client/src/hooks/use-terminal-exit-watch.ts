@@ -29,8 +29,8 @@
  */
 
 import { useEffect } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useTabStore, type TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useTabStore, type TerminalTabData } from "@web-client/stores/tab-store.js";
 
 export interface TerminalsUpdateMessage {
   type: "terminals_update";

@@ -24,30 +24,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { measureElement as measureElementDefault, useVirtualizer } from "@tanstack/react-virtual";
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { useProviderAuthList } from "@pi-studio-ui/hooks/use-provider-auth-list.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { AT_BOTTOM_THRESHOLD_PX, lastRowUserId } from "@pi-studio-ui/timeline/bottom-anchor.js";
-import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
-import { AskCard, AskMoreRow } from "@pi-studio-ui/features/agent-ui/AskCard.js";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
+import { Button, EmptyState } from "@av-pi-studio/ui-library";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { useProviderAuthList } from "@web-client/hooks/use-provider-auth-list.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { AT_BOTTOM_THRESHOLD_PX, lastRowUserId } from "@web-client/timeline/bottom-anchor.js";
+import type { TimelineRow } from "@web-client/timeline/row-model.js";
+import { AskCard, AskMoreRow } from "@web-client/features/agent-ui/AskCard.js";
 import {
   askEntryKey,
   layoutAskEntries,
   mergeAskEntries,
   type AskEntry,
-} from "@pi-studio-ui/features/agent-ui/ask-list.js";
-import { placeAsksInRows } from "@pi-studio-ui/features/agent-ui/ask-placement.js";
+} from "@web-client/features/agent-ui/ask-list.js";
+import { placeAsksInRows } from "@web-client/features/agent-ui/ask-placement.js";
 import {
   useAgentUiPending,
   useAgentUiResolved,
-} from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
+} from "@web-client/features/agent-ui/agent-ui-store.js";
 import { shouldShowProviderOnboardingNudge } from "./onboarding-nudge.js";
 import { AssistantRow } from "./rows/AssistantRow.js";
 import { ReasoningRow } from "./rows/ReasoningRow.js";

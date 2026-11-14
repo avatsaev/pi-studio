@@ -7,9 +7,8 @@
 
 import { useState } from "react";
 import { FileQuestion } from "lucide-react";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
+import { Button, Spinner } from "@av-pi-studio/ui-library";
+import { useFileDownload } from "@web-client/hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./BinaryFallbackViewer.module.css";
 

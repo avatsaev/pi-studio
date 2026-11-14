@@ -31,9 +31,7 @@ import {
 import { clsx } from "clsx";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useDroppable } from "@dnd-kit/core";
-import { MenuContent, MenuItem } from "@pi-studio-ui/components/primitives/Menu.js";
-import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
+import { MenuContent, MenuItem, IconButton, Icon, StatusDot } from "@av-pi-studio/ui-library";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -46,14 +44,13 @@ import {
   type TabKind,
   type ChatTabData,
   type TerminalTabData,
-} from "@pi-studio-ui/stores/tab-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useAgentUiPending } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
+} from "@web-client/stores/tab-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useAgentUiPending } from "@web-client/features/agent-ui/agent-ui-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 import { tabAttentionStatus } from "./tab-attention.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useViewerSettingsStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 import { canSplit, type SplitRegion } from "./pane-tree.js";
 import styles from "./TabStrip.module.css";
 

@@ -24,14 +24,10 @@
 import { useEffect, useRef } from "react";
 import { GitFork } from "lucide-react";
 import { clsx } from "clsx";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Dialog, DialogClose } from "@pi-studio-ui/components/primitives/Dialog.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { useClient } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { speak } from "@pi-studio-ui/stores/announcer-store.js";
-import { useForkStore } from "@pi-studio-ui/stores/fork-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+import { Button, Dialog, DialogClose, EmptyState, Icon, speak } from "@av-pi-studio/ui-library";
+import { useClient } from "@web-client/lib/connection/connection-store.js";
+import { useForkStore } from "@web-client/stores/fork-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
 import { nextPickerFocusIndex } from "./fork-picker-nav.js";
 import { applyForkError, applyForkSuccess } from "./fork-result.js";
 import styles from "./ForkDialog.module.css";

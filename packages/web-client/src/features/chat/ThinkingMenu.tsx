@@ -25,7 +25,7 @@
 import type { ReactNode } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
-import { MenuContent } from "@pi-studio-ui/components/primitives/Menu.js";
+import { MenuContent } from "@av-pi-studio/ui-library";
 import modelMenuStyles from "./ModelMenu.module.css";
 
 export interface ThinkingMenuProps {

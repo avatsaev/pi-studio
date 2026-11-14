@@ -24,17 +24,13 @@ import {
   Settings,
 } from "lucide-react";
 import { clsx } from "clsx";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
-import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { Button, Icon, Spinner, StatusDot, TextInput } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 import {
   buildSettingsCategoryCapabilities,
   SETTINGS_CATEGORIES,
 } from "../settings/settings-categories.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
 import styles from "./ConnectionBar.module.css";
 

@@ -12,15 +12,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProviderAuthInfo } from "@av-pi-studio/protocol";
-import {
-  Button,
-  EmptyState,
-  Spinner,
-  StatusBadge,
-} from "@pi-studio-ui/components/primitives/index.js";
-import { useProviderAuthList } from "@pi-studio-ui/hooks/use-provider-auth-list.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { Button, EmptyState, Spinner, StatusBadge } from "@av-pi-studio/ui-library";
+import { useProviderAuthList } from "@web-client/hooks/use-provider-auth-list.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 import { providerAuthBadge, providerAuthLoginChoices } from "./provider-auth-presentation.js";
 import { useProviderAuthUiStore } from "./provider-auth-store.js";
 import styles from "./ModelProvidersPanel.module.css";

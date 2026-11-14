@@ -15,8 +15,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { acquireInlineImage, releaseInlineImage } from "@pi-studio-ui/lib/inline-image-cache.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { acquireInlineImage, releaseInlineImage } from "@web-client/lib/inline-image-cache.js";
 import { transferFor } from "./file-transfer-instance.js";
 
 export type InlineImageState =

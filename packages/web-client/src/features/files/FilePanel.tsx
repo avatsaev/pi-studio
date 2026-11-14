@@ -21,14 +21,11 @@
 
 import { Suspense, useState } from "react";
 import { clsx } from "clsx";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useFileDiff } from "@pi-studio-ui/hooks/use-file-diff.js";
-import { useFileLiveRefresh } from "@pi-studio-ui/hooks/use-file-live-refresh.js";
-import type { Tab, FileTabData, DiffTabData } from "@pi-studio-ui/stores/tab-store.js";
-import { isViewerEnabled } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { Button, Spinner, Panel, EmptyState } from "@av-pi-studio/ui-library";
+import { useFileDiff } from "@web-client/hooks/use-file-diff.js";
+import { useFileLiveRefresh } from "@web-client/hooks/use-file-live-refresh.js";
+import type { Tab, FileTabData, DiffTabData } from "@web-client/stores/tab-store.js";
+import { isViewerEnabled } from "@web-client/viewer-plugins/viewer-settings-store.js";
 import { DiffView } from "./DiffView.js";
 import { resolveViewerKind, VIEWER_BY_KIND } from "./viewer-registry.js";
 import styles from "./FilePanel.module.css";

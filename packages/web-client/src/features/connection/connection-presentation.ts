@@ -8,8 +8,8 @@
  */
 
 import type { ConnectionState } from "@av-pi-studio/client";
-import type { StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
-import { resolveConnectTarget } from "@pi-studio-ui/lib/connection/resolve-connect-target.js";
+import type { StatusDotInput } from "@av-pi-studio/ui-library";
+import { resolveConnectTarget } from "@web-client/lib/connection/resolve-connect-target.js";
 
 /**
  * The four states § 08 draws, plus `closing` — a real `ConnectionState` the spec doesn't cover,

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { PiStudioClient } from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import type { QueryClient } from "@tanstack/react-query";
-import { useStatsStore } from "@pi-studio-ui/stores/stats-store.js";
+import { useStatsStore } from "@web-client/stores/stats-store.js";
 import { applyAgentStreamEvent } from "./agent-stream-events.js";
 
 function apply(event: AgentStreamEvent): void {

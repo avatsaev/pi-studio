@@ -14,7 +14,7 @@
  * still renders, unstyled/unscripted for those refs, with a "not inlined" note listing them.
  */
 
-import { dirOf } from "@pi-studio-ui/lib/paths.js";
+import { dirOf } from "@web-client/lib/paths.js";
 import {
   confineAssetRef,
   dataUri,

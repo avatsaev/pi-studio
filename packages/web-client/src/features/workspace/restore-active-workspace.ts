@@ -20,9 +20,9 @@
  * swe/features/workspace-split-panes.md § Restoring a persisted layout
  */
 
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, type ChatTabData } from "@pi-studio-ui/stores/tab-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, type ChatTabData } from "@web-client/stores/tab-store.js";
 
 /**
  * Watch for the settle point and restore the view once. Returns the unsubscribe, which is also called

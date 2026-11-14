@@ -19,9 +19,9 @@
  */
 
 import type { AgentStatus as ProtocolAgentStatus } from "@av-pi-studio/protocol";
-import type { StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
-import { toDotStatus } from "@pi-studio-ui/features/sessions/status-map.js";
-import type { Tab } from "@pi-studio-ui/stores/tab-store.js";
+import type { StatusDotInput } from "@av-pi-studio/ui-library";
+import { toDotStatus } from "@web-client/features/sessions/status-map.js";
+import type { Tab } from "@web-client/stores/tab-store.js";
 
 /**
  * `sessionStatus` is `undefined` for a chat tab whose session hasn't landed in the store yet (an

@@ -3,7 +3,7 @@
  * takes plain values, so the whole decision table is unit-testable.
  */
 
-import type { SessionStats } from "@pi-studio-ui/stores/stats-store.js";
+import type { SessionStats } from "@web-client/stores/stats-store.js";
 import { formatPercent, formatTokens } from "./status-bar-format.js";
 
 export type MeterState =

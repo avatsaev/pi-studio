@@ -26,9 +26,9 @@
  * swe/features/workspace-split-panes.md § Restoring a persisted layout, § Tab identity
  */
 
-import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
-import { tabIds, useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
-import { isViewerEnabled as isViewerEnabledFromStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import type { ValidatedWorkspaceLayout } from "@web-client/lib/pane-layout-persistence.js";
+import { tabIds, useTabStore, type Tab } from "@web-client/stores/tab-store.js";
+import { isViewerEnabled as isViewerEnabledFromStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 
 /** `diff:staged:/a/b.ts` / `diff:worktree:/a/b.ts` — the only identity with a middle segment. */
 const DIFF_IDENTITY = /^diff:(staged|worktree):(.+)$/;

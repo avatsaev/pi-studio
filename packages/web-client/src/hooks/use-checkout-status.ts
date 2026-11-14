@@ -8,8 +8,8 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useGitStore, type CheckoutStatusProjection } from "@pi-studio-ui/stores/git-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useGitStore, type CheckoutStatusProjection } from "@web-client/stores/git-store.js";
 
 interface CheckoutStatusUpdateMessage {
   type: "checkout_status_update";

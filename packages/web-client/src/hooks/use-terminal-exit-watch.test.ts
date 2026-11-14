@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { isTerminalsUpdate, reconcileLiveTerminals } from "./use-terminal-exit-watch.js";
-import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
-import { resetTabStore } from "@pi-studio-ui/test/reset-stores.js";
+import { useTabStore, type Tab } from "@web-client/stores/tab-store.js";
+import { resetTabStore } from "@web-client/test/reset-stores.js";
 
 beforeEach(() => {
   resetTabStore();

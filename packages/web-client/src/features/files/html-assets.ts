@@ -26,9 +26,9 @@
  *    (not this module) is what actually isolates the previewed document.
  */
 
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { collapseDotSegments, resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
-import { SCHEME_RE, percentDecode } from "@pi-studio-ui/timeline/href-resolution.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
+import { collapseDotSegments, resolveWorkspacePath } from "@web-client/lib/paths.js";
+import { SCHEME_RE, percentDecode } from "@web-client/timeline/href-resolution.js";
 
 /** One candidate local-asset reference found in the document (or, for `context: "font"`/`"image"`
  *  origin, in an already-inlined stylesheet's `url(...)`). `raw` is matched *as authored* — HTML

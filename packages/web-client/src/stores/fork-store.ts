@@ -28,7 +28,7 @@
  */
 
 import { create } from "zustand";
-import type { ForkTarget } from "@pi-studio-ui/features/chat/fork-correlation.js";
+import type { ForkTarget } from "@web-client/features/chat/fork-correlation.js";
 
 export type ForkDialogState =
   | { status: "closed" }

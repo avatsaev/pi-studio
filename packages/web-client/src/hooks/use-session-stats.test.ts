@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { applySessionStats, shouldRepollOnStatusChange } from "./use-session-stats.js";
-import { useStatsStore } from "@pi-studio-ui/stores/stats-store.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { useStatsStore } from "@web-client/stores/stats-store.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 import type { AgentSessionStatsResponse } from "@av-pi-studio/protocol";
 
 function hydrated(overrides: Partial<SessionEntry> = {}): SessionEntry {

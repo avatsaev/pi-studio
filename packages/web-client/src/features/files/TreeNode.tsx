@@ -10,7 +10,7 @@ import { clsx } from "clsx";
 import type { TreeRow } from "./file-tree.js";
 import type { GitRowStatus } from "./git-status-index.js";
 import type { DragEvent } from "react";
-import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
+import { IconButton } from "@av-pi-studio/ui-library";
 import { TreeDraftRow } from "./TreeDraftRow.js";
 import { TreeRenameRow } from "./TreeRenameRow.js";
 import styles from "./FileExplorer.module.css";

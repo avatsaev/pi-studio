@@ -11,17 +11,12 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Pencil, Square, Archive as ArchiveIcon, GitFork, Trash2 } from "lucide-react";
-import {
-  MenuCursorTrigger,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-} from "@pi-studio-ui/components/primitives/Menu.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useForkMenu } from "@pi-studio-ui/features/chat/use-fork-action.js";
+import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useForkMenu } from "@web-client/features/chat/use-fork-action.js";
 
 export function SessionContextMenu() {
   const menu = useUiStore((s) => s.sessionMenu);

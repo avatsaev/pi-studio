@@ -15,10 +15,10 @@
  */
 
 import { create } from "zustand";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { applyCompactionEstimate } from "@pi-studio-ui/stores/stats-store.js";
-import { isCompactionPending } from "@pi-studio-ui/timeline/compaction.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { applyCompactionEstimate } from "@web-client/stores/stats-store.js";
+import { isCompactionPending } from "@web-client/timeline/compaction.js";
 
 /** Why `compactSession` sent nothing. `failed` is not a refusal — the RPC ran and rejected. */
 export type CompactRefusal = "disconnected" | "no-agent" | "running" | "compacting";

@@ -80,10 +80,9 @@ example), then `scripts/dokploy-deploy.sh web-client --tag <that-tag>`.
 
 ### Scope
 
-Only the title and favicon are build-time-overridable today. `src/brand/config.ts` (a
-`BrandConfig` shape covering accent colors, a logo triplet, links, and legal text) is a separate,
-broader scaffold ported from an earlier clean-room spec — it has no loader wired to it
-(`getActiveBrand()` always returns the built-in default) and is not part of this feature. See
+Only the title and favicon are build-time-overridable today. The ui-library's accent-only
+`brandConfig` prop on `ThemeBoundary` (see `packages/ui-library/DESIGN_SYSTEM.md`) is a separate
+runtime seam with no loader wired to it in this package and is not part of this feature. See
 `AGENTS.md`'s § Invariants "Build-time brand override" for the full rationale, and
 `src/brand/build-brand.ts`/`src/brand/build-brand.test.ts` for the implementation.
 
@@ -98,5 +97,9 @@ npm run build:web -w @av-pi-studio/web-client  # browser build (dist/web)
 npx vitest run packages/web-client
 ```
 
-See `AGENTS.md` (architecture, source layout, invariants) and `DESIGN_SYSTEM.md` (theme/token
-pipeline, primitives) for the rest of this package's documentation.
+The design system (primitives, theme/tokens, appearance, breakpoints) lives in
+`@av-pi-studio/ui-library` (`packages/ui-library`), a devDependency resolved from source through a
+Vite alias in dev/build/tests and bundled into the SPA; `src/theme/fonts.css`,
+`src/brand/build-brand.ts` and `src/global.css` stay here. See `AGENTS.md` (architecture, source
+layout, invariants) and `packages/ui-library/DESIGN_SYSTEM.md` (theme/token pipeline, primitives)
+for the rest of this package's documentation.

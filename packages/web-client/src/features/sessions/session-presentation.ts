@@ -5,8 +5,8 @@
  * isolation (design spec § 03, § 02, § 07).
  */
 
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import type { StatusDotInput } from "@pi-studio-ui/ui/status-dot.js";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
+import type { StatusDotInput } from "@av-pi-studio/ui-library";
 import { toDotStatus } from "./status-map.js";
 
 export type SidebarSessionState = "running" | "failed" | "empty" | "idle" | "needsInput";

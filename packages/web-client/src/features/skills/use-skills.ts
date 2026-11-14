@@ -32,8 +32,8 @@ import type {
   SkillsPreviewResponse,
   SkillsUpdateAllResponse,
 } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 import { asListDocument, hasItemResults, skillErrorMessage } from "./skills-presentation.js";
 
 /** Patches one skill's `enabled` field in an already-fetched list response — the optimistic half

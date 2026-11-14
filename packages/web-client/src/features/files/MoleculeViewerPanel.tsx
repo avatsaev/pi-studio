@@ -5,9 +5,9 @@
  * `MoleculeViewer` for everything else.
  */
 
-import { useIsTabVisible, type MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
-import type { PanelProps } from "@pi-studio-ui/features/workspace/panel-registry.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { useIsTabVisible, type MoleculeTabData } from "@web-client/stores/tab-store.js";
+import type { PanelProps } from "@web-client/features/workspace/panel-registry.js";
+import { Panel } from "@av-pi-studio/ui-library";
 import { MoleculeViewer } from "./MoleculeViewer.js";
 
 export function MoleculeViewerPanel({ tab }: PanelProps) {

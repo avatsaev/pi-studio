@@ -25,11 +25,9 @@
 import { useState } from "react";
 import { Clock, GitFork, User } from "lucide-react";
 import { clsx } from "clsx";
-import { Dialog } from "@pi-studio-ui/components/primitives/Dialog.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
-import { formatMetaTime } from "@pi-studio-ui/timeline/format-meta-time.js";
-import type { UserRow as UserRowModel } from "@pi-studio-ui/timeline/row-model.js";
+import { Dialog, Icon, IconButton } from "@av-pi-studio/ui-library";
+import { formatMetaTime } from "@web-client/timeline/format-meta-time.js";
+import type { UserRow as UserRowModel } from "@web-client/timeline/row-model.js";
 import { RowShell } from "./RowShell.js";
 import shellStyles from "./RowShell.module.css";
 import styles from "./rows.module.css";

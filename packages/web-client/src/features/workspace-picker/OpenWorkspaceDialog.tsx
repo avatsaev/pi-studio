@@ -11,18 +11,16 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, Folder, FolderPlus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Dialog, DialogClose } from "@pi-studio-ui/components/primitives/index.js";
-import { TextInput } from "@pi-studio-ui/components/primitives/TextInput.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { useExplorer } from "@pi-studio-ui/hooks/use-explorer.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { openWorkspace } from "@pi-studio-ui/features/sessions/open-workspace.js";
-import { createEntry } from "@pi-studio-ui/features/files/create-entry.js";
+import { Button, Dialog, DialogClose, TextInput, EmptyState } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
+import { useExplorer } from "@web-client/hooks/use-explorer.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { openWorkspace } from "@web-client/features/sessions/open-workspace.js";
+import { createEntry } from "@web-client/features/files/create-entry.js";
 import styles from "./OpenWorkspaceDialog.module.css";
 
 export function OpenWorkspaceDialog() {

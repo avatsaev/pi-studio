@@ -14,16 +14,16 @@
  * § Data & Persistence
  */
 
-import { localKvStore } from "@pi-studio-ui/providers/kv-store.js";
+import { localStorageKvStore } from "@av-pi-studio/ui-library";
 import {
   leafIds,
   PANE_LAYOUT_VERSION,
   parsePaneTree,
   type PaneNode,
-} from "@pi-studio-ui/features/workspace/pane-tree.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { tabIdentity, useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
+} from "@web-client/features/workspace/pane-tree.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { tabIdentity, useTabStore, type Tab } from "@web-client/stores/tab-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
 
 /** Matches the `pi-studio-appearance` key convention already used by the appearance store. */
 const STORAGE_KEY = "pi-studio-pane-layout";
@@ -79,7 +79,7 @@ export interface ValidatedWorkspaceLayout {
 export function loadPaneLayout(): LoadedPaneLayout {
   const workspaces = new Map<string, ValidatedWorkspaceLayout>();
   const empty: LoadedPaneLayout = { workspaces, activeWorkspaceCwd: null };
-  const raw = localKvStore.get(STORAGE_KEY);
+  const raw = localStorageKvStore.get(STORAGE_KEY);
   if (!raw) return empty;
 
   let parsed: unknown;
@@ -207,7 +207,7 @@ function writePaneLayout(): void {
     workspaces,
     activeWorkspaceCwd: useTabStore.getState().activeWorkspaceCwd ?? undefined,
   };
-  localKvStore.set(STORAGE_KEY, JSON.stringify(record));
+  localStorageKvStore.set(STORAGE_KEY, JSON.stringify(record));
 }
 
 // ─── Triggers ──────────────────────────────────────────────────────────────────────────────

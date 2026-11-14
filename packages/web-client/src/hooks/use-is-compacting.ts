@@ -6,9 +6,9 @@
  * `compactionEvents`). The single selector the meter and composer gate on.
  */
 
-import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { isCompactionPending } from "@pi-studio-ui/timeline/compaction.js";
+import { useCompactionStore } from "@web-client/stores/compaction-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { isCompactionPending } from "@web-client/timeline/compaction.js";
 
 export function useIsCompacting(sessionId: string | null): boolean {
   const timelinePending = useSessionStore((s) =>

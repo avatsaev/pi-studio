@@ -12,8 +12,8 @@ import {
   applyStreamEvent as applyStreamEventToTimeline,
   addOptimisticUserMessage as addOptimisticUserMessageToTimeline,
   markUserMessageFailed as markUserMessageFailedInTimeline,
-} from "@pi-studio-ui/timeline/reducer.js";
-import type { TimelineState } from "@pi-studio-ui/timeline/reducer.js";
+} from "@web-client/timeline/reducer.js";
+import type { TimelineState } from "@web-client/timeline/reducer.js";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 
 export interface SessionEntry {

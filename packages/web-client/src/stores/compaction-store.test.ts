@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiStudioClient } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { useStatsStore } from "@pi-studio-ui/stores/stats-store.js";
-import { applyStreamEvent, EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { useStatsStore } from "@web-client/stores/stats-store.js";
+import { applyStreamEvent, EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 import { useCompactionStore } from "./compaction-store.js";
 
 interface Fake {

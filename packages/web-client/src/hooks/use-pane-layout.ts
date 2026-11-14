@@ -34,12 +34,12 @@ import {
   installPaneLayoutPersistence,
   loadPaneLayout,
   type LoadedPaneLayout,
-} from "@pi-studio-ui/lib/pane-layout-persistence.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { reopenClientTabs } from "@pi-studio-ui/features/workspace/reopen-client-tabs.js";
-import { installActiveWorkspaceRestore } from "@pi-studio-ui/features/workspace/restore-active-workspace.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+} from "@web-client/lib/pane-layout-persistence.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { reopenClientTabs } from "@web-client/features/workspace/reopen-client-tabs.js";
+import { installActiveWorkspaceRestore } from "@web-client/features/workspace/restore-active-workspace.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useViewerSettingsStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 
 const EMPTY_RECORD: LoadedPaneLayout = { workspaces: new Map(), activeWorkspaceCwd: null };
 

@@ -9,18 +9,16 @@
  * delta-based `resizeLeftSidebar`/`resizeRightSidebar` actions.
  */
 
-import { ConnectionBar } from "@pi-studio-ui/features/connection/ConnectionBar.js";
-import { SessionList } from "@pi-studio-ui/features/sessions/SessionList.js";
+import { ConnectionBar } from "@web-client/features/connection/ConnectionBar.js";
+import { SessionList } from "@web-client/features/sessions/SessionList.js";
 // No TabStrip here since sprint-049: strips are per pane and live inside TabPanelHost, positioned
 // across the top of each pane's rect (features/workspace/pane-layout-view.ts).
-import { TabPanelHost } from "@pi-studio-ui/features/workspace/TabPanelHost.js";
-import { RightSidebar } from "@pi-studio-ui/features/files/RightSidebar.js";
-import { StatusBar } from "@pi-studio-ui/features/workspace/StatusBar.js";
-import { OpenWorkspaceDialog } from "@pi-studio-ui/features/workspace-picker/OpenWorkspaceDialog.js";
-import { Announcer } from "@pi-studio-ui/components/primitives/Announcer.js";
-import { ResizeHandle } from "@pi-studio-ui/components/primitives/ResizeHandle.js";
-import { ToastViewport } from "@pi-studio-ui/components/primitives/ToastViewport.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { TabPanelHost } from "@web-client/features/workspace/TabPanelHost.js";
+import { RightSidebar } from "@web-client/features/files/RightSidebar.js";
+import { StatusBar } from "@web-client/features/workspace/StatusBar.js";
+import { OpenWorkspaceDialog } from "@web-client/features/workspace-picker/OpenWorkspaceDialog.js";
+import { Announcer, ResizeHandle, ToastViewport } from "@av-pi-studio/ui-library";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 import styles from "./WorkspacePage.module.css";
 
 export function WorkspacePage() {

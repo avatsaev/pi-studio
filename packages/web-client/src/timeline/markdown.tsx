@@ -18,7 +18,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { randomId } from "@pi-studio-ui/lib/random-id.js";
+import { randomId } from "@web-client/lib/random-id.js";
 import { highlightToHtml } from "./highlight.js";
 import { readMermaidThemeVariables } from "./mermaid-theme.js";
 import styles from "./markdown.module.css";

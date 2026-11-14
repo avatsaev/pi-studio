@@ -14,9 +14,9 @@
 import type { ReactNode } from "react";
 import { classifyFileLinkSrc } from "./file-link-src.js";
 import { resolveFileOpenTarget } from "./file-open-target.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { openFileTab } from "@pi-studio-ui/features/files/open-file-tab.js";
-import { pathDragStartHandler } from "@pi-studio-ui/features/workspace/external-drag.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { openFileTab } from "@web-client/features/files/open-file-tab.js";
+import { pathDragStartHandler } from "@web-client/features/workspace/external-drag.js";
 
 export interface FileLinkProps {
   href?: string;

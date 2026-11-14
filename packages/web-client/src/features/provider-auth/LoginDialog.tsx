@@ -23,16 +23,10 @@ import type { PiStudioClient, ProviderAuthPromptUi } from "@av-pi-studio/client"
 import type { ProviderAuthType } from "@av-pi-studio/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink } from "lucide-react";
-import {
-  Button,
-  Dialog,
-  IconButton,
-  Spinner,
-  TextInput,
-} from "@pi-studio-ui/components/primitives/index.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { copyText } from "@pi-studio-ui/lib/clipboard.js";
+import { Button, Dialog, IconButton, Spinner, TextInput } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { copyText } from "@web-client/lib/clipboard.js";
 import {
   applyLoginFlowEvent,
   initialLoginFlowState,

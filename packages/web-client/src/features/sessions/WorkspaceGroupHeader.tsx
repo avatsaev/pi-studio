@@ -10,10 +10,7 @@
  */
 
 import { ChevronRight, MoreVertical } from "lucide-react";
-import { Avatar } from "@pi-studio-ui/components/primitives/Avatar.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { IconButton } from "@pi-studio-ui/components/primitives/IconButton.js";
-import { StatusDot } from "@pi-studio-ui/components/primitives/StatusDot.js";
+import { Avatar, Icon, IconButton, StatusDot } from "@av-pi-studio/ui-library";
 import type { WorkspaceAttentionInfo } from "./session-presentation.js";
 import styles from "./SessionList.module.css";
 

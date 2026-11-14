@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 // Font faces before the reset/token sheet, so the bundled terminal face is registered as early as
 // the browser parses CSS at all (theme/fonts.css explains what ships and why).
 import "./theme/fonts.css";
+import "@av-pi-studio/ui-library/reset.css";
 import "./global.css";
 import { App } from "./app.js";
 import { attachResumeTriggers } from "./lib/connection/resume-triggers.js";

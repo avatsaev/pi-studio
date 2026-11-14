@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useLayoutStore, type WorkspacePaneLayout } from "./layout-store.js";
-import type { ValidatedWorkspaceLayout } from "@pi-studio-ui/lib/pane-layout-persistence.js";
+import type { ValidatedWorkspaceLayout } from "@web-client/lib/pane-layout-persistence.js";
 import {
   leafIds,
   paneRects,
   type PaneNode,
   type SplitNode,
-} from "@pi-studio-ui/features/workspace/pane-tree.js";
-import { resetLayoutStore } from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/features/workspace/pane-tree.js";
+import { resetLayoutStore } from "@web-client/test/reset-stores.js";
 
 const CWD = "/work";
 

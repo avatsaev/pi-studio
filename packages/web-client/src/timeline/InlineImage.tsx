@@ -10,11 +10,11 @@ import { memo, useMemo } from "react";
 import { classifyImageSrc } from "./image-src.js";
 import { selectInlineImageView } from "./inline-image-view.js";
 import { resolveFileOpenTarget } from "./file-open-target.js";
-import { useInlineImage } from "@pi-studio-ui/hooks/use-inline-image.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { openFileTab } from "@pi-studio-ui/features/files/open-file-tab.js";
-import { pathDragStartHandler } from "@pi-studio-ui/features/workspace/external-drag.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { useInlineImage } from "@web-client/hooks/use-inline-image.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { openFileTab } from "@web-client/features/files/open-file-tab.js";
+import { pathDragStartHandler } from "@web-client/features/workspace/external-drag.js";
+import { Spinner } from "@av-pi-studio/ui-library";
 import styles from "./markdown.module.css";
 
 export interface InlineImageProps {

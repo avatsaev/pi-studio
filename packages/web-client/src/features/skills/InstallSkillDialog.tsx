@@ -26,7 +26,7 @@ import {
   Spinner,
   StatusBadge,
   TextInput,
-} from "@pi-studio-ui/components/primitives/index.js";
+} from "@av-pi-studio/ui-library";
 import {
   buildPickRows,
   canAdvanceFromSource,

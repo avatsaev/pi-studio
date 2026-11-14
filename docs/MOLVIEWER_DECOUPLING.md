@@ -306,27 +306,24 @@ re-exported from one place:
 
 ```ts
 // Data plumbing
-export { useFileDownload } from "@pi-studio-ui/hooks/use-file-download.js";
-export { useFileWatch } from "@pi-studio-ui/hooks/use-file-watch.js";
-export { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
-export { writeFile, WriteFileError } from "@pi-studio-ui/features/files/write-file.js";
-export { createEntry, CreateEntryError } from "@pi-studio-ui/features/files/create-entry.js";
-export { deleteEntry } from "@pi-studio-ui/features/files/delete-entry.js";
-export { dirOf } from "@pi-studio-ui/lib/paths.js";
+export { useFileDownload } from "@web-client/hooks/use-file-download.js";
+export { useFileWatch } from "@web-client/hooks/use-file-watch.js";
+export { useFileTransfer } from "@web-client/hooks/use-file-transfer.js";
+export { writeFile, WriteFileError } from "@web-client/features/files/write-file.js";
+export { createEntry, CreateEntryError } from "@web-client/features/files/create-entry.js";
+export { deleteEntry } from "@web-client/features/files/delete-entry.js";
+export { dirOf } from "@web-client/lib/paths.js";
 
 // Connection
-export { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+export { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 export type { PiStudioClient } from "@av-pi-studio/client";
 
 // Tab/workspace interaction
-export { tabIds, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-export { openViewerTab } from "@pi-studio-ui/viewer-plugins/viewer-plugin-registry.js";
+export { tabIds, useTabStore } from "@web-client/stores/tab-store.js";
+export { openViewerTab } from "@web-client/viewer-plugins/viewer-plugin-registry.js";
 
 // UI primitives a panel may compose
-export { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
-export { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-export { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-export { StatusBadge } from "@pi-studio-ui/components/primitives/StatusBadge.js";
+export { Panel, EmptyState, Spinner, StatusBadge } from "@av-pi-studio/ui-library";
 
 // Types — the plugin-facing contract only; never web-client's PanelProps/Tab (§12.6)
 export type {
@@ -352,7 +349,7 @@ during the move; its behavior is identical.
 Enforcement is by convention + code review in this phase (a lint boundary rule is a nice-to-have
 follow-up, not a gate). The file MUST start with a prominent header comment stating the boundary
 rule — "This is the ONLY core surface viewer plugins may import. Plugins MUST NOT import directly
-from any other `@pi-studio-ui/` path." — so the rule is visible at every import site, not just in
+from any other `@web-client/` path." — so the rule is visible at every import site, not just in
 this document. When a future plugin needs something new, it gets added here — the barrel
 *doubles as the changelog of the plugin API*.
 
@@ -702,7 +699,7 @@ New tests:
   `viewerForPath` priority order; enabled-filter reacts to the settings store;
   `unregisterViewerPlugin` notifies `useRegisteredViewerPlugins` subscribers.
 - `viewer-plugin.test.ts`: source-level guard that `viewer-plugin.ts` imports nothing from
-  `@pi-studio-ui/` (§12.6).
+  `@web-client/` (§12.6).
 - `ViewerPanelHost`: unknown `viewerId` renders the fallback panel; a registered plugin's panel
   receives exactly `{ tabId, workspaceCwd, path, isActive }` derived from the tab.
 - Disabled semantics: `openPathInViewer` returns false when the only matching viewer is
@@ -904,9 +901,9 @@ that stops an old bundle from crashing a newer app. Starts at `1`.
 ### 12.3 Molviewer is built as if it were external (phase 1)
 
 Plugin code imports the host API through the **bare specifier `@pi-studio/viewer-api`**, never a
-relative path or `@pi-studio-ui/viewer-plugins/viewer-api.js`. In-repo, `vite.config.ts`'s
+relative path or `@web-client/viewer-plugins/viewer-api.js`. In-repo, `vite.config.ts`'s
 `resolve.alias` and `tsconfig`'s `paths` map that specifier to `src/viewer-plugins/viewer-api.ts`
-(the `@pi-studio-ui/*` alias is the exact precedent). Consequence: a plugin's *source* is
+(the `@web-client/*` alias is the exact precedent). Consequence: a plugin's *source* is
 identical whether it is compiled into the bundle or (level 2) built separately with
 `react`/`react/jsx-runtime`/`@pi-studio/viewer-api` marked `external` and resolved at load time
 through an import map. "Built in" vs "installed" becomes a build flag, not two code shapes. The
@@ -970,7 +967,7 @@ What it will be:
 For §12.5 to be a `git mv` rather than a redesign, everything a plugin *compiles against* must
 not reference web-client's internal types. Concretely, normative for phase 1:
 
-- `viewer-plugin.ts` imports **only** from `react` (types) and nothing from `@pi-studio-ui/*`.
+- `viewer-plugin.ts` imports **only** from `react` (types) and nothing from `@web-client/*`.
   This is why §4.1 defines `ViewerPanelProps` instead of handing plugins the app's `PanelProps`
   (`{ tab: Tab; owningPaneId }`): `Tab` drags in the whole `TabKind`/`TabData` union from
   `tab-store.ts`, which would either become frozen public API or break every plugin on its
@@ -979,4 +976,4 @@ not reference web-client's internal types. Concretely, normative for phase 1:
   internals. Runtime exports may of course be implemented by internals — that is the point of
   the barrel — but their declared signatures are the plugin API and are reviewed as such.
 - A test enforces the first rule: `viewer-plugin.test.ts` reads the file and asserts no
-  `@pi-studio-ui/` import (the same source-level guard shape `theme/font-scale.test.ts` uses).
+  `@web-client/` import (the same source-level guard shape `font-scale.test.ts` uses).

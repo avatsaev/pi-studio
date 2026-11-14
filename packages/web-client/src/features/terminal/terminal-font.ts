@@ -21,7 +21,7 @@
  * share one advance width by construction.
  */
 
-import { baseFontSize, TERMINAL_FONT_STACK } from "@pi-studio-ui/theme/tokens.js";
+import { baseFontSize, TERMINAL_FONT_STACK } from "@av-pi-studio/ui-library";
 
 /** A cap, not a schedule: a face that has not arrived in 3s is treated as absent and the terminal
  *  mounts against whatever the browser can render, rather than leaving the panel blank forever on

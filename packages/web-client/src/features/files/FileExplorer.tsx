@@ -25,20 +25,20 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, FilePlus, FolderPlus } from "lucide-react";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
-import { useExplorerTree } from "@pi-studio-ui/hooks/use-explorer-tree.js";
-import { useExplorerWatch } from "@pi-studio-ui/hooks/use-explorer-watch.js";
-import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import type { DiffTabData, FileTabData, MoleculeTabData } from "@pi-studio-ui/stores/tab-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { dirOf } from "@pi-studio-ui/lib/paths.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import { EmptyState } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useExplorerStore } from "@web-client/stores/explorer-store.js";
+import { useExplorerTree } from "@web-client/hooks/use-explorer-tree.js";
+import { useExplorerWatch } from "@web-client/hooks/use-explorer-watch.js";
+import { useFileTransfer } from "@web-client/hooks/use-file-transfer.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import type { DiffTabData, FileTabData, MoleculeTabData } from "@web-client/stores/tab-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useGitStore } from "@web-client/stores/git-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { dirOf } from "@web-client/lib/paths.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
 import { resolveMoveTarget, resolveUploadTarget } from "./move-target.js";
 import { moveEntry } from "./move-entry.js";
 import { withClosedDiffs } from "./move-status.js";
@@ -52,7 +52,7 @@ import {
   EXTERNAL_DRAG_MIME,
   PATH_REF_MIME,
   encodePathRef,
-} from "@pi-studio-ui/features/workspace/external-drag.js";
+} from "@web-client/features/workspace/external-drag.js";
 import styles from "./FileExplorer.module.css";
 
 const ROW_HEIGHT_PX = 28;
