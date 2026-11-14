@@ -1,0 +1,48 @@
+# Task 001 — `hello.platform`: say which kind of client this is
+
+- **Sprint:** sprint-096-desktop-protocol-followups
+- **Status:** backlog
+- **Type:** feature
+- **Area:** packages/protocol, packages/server, packages/client
+- **Priority:** P2
+- **Estimated size:** S
+- **Depends on:** none
+
+## Goal
+Add an optional `platform` string to the handshake, carried to the session and to `daemon_status`.
+
+## Context / why
+The desktop app must send `clientType: "browser"` because a daemon rejects an unknown client type, silently on a relay connection. An extra optional field is accepted by every released daemon, so it is the compatible way to tell clients apart.
+
+## Scope references
+- `swe/features/desktop-client-protocol-followups.md` § 1. Client platform in the handshake, § Error handling
+- `packages/protocol/src/messages.ts` (`helloSchema`, `clientTypeSchema` and its comment)
+- `packages/server/src/ws/session.ts`
+- `packages/server/src/daemon/{bootstrap.ts,dev-bootstrap.ts}` (session construction, direct and relay)
+- `packages/server/src/observability/daemon-status-service.ts`
+- `packages/client/src/daemon-client.ts` (`DaemonClientOptions`, `hello` frame)
+- `packages/protocol/fixtures/external-clients/` (`hello.json`, `daemon_status_*`)
+
+## What to build
+- Protocol: `hello.platform` optional string with a length bound; the daemon-status client entry gains optional `platform`. Rewrite the `clientTypeSchema` comment to say the enum is closed and why.
+- Server: `Session` stores `platform`; both bootstraps pass it for direct and relay sessions; `daemon_status` reports it. An over-long or non-string value is dropped and the handshake still succeeds.
+- SDK: `DaemonClientOptions.platform?`, sent in `hello` when set.
+- Fixtures: a `hello` variant with `platform`; update the `daemon_status` fixtures additively.
+- Tests: schema accepts and bounds the field; a session created with it reports it in status; a `hello` without it behaves as before.
+- Keep `docs/desktop-client-handoff.md` current: update whatever this task makes stale there (status table, workbench and host sections, wire facts, milestones, open questions). Say in the summary what changed in it, or that nothing did.
+
+## Out of scope
+- Changing `clientType`.
+- Any behaviour that branches on `platform`.
+
+## Acceptance criteria
+- [ ] A `hello` with `platform: "desktop"` and `clientType: "browser"` is accepted and `daemon_status` shows the platform.
+- [ ] The same frame is accepted by a 0.0.117 daemon (the field is ignored).
+- [ ] Fixture tests pass; `manifest.json`'s `formatVersion` is unchanged.
+- [ ] `packages/protocol/AGENTS.md`, `packages/client/AGENTS.md`, `packages/server/AGENTS.md` and the root `AGENTS.md` protocol section describe the field.
+- [ ] `docs/desktop-client-handoff.md` matches the repository after this task, or the summary states that nothing in it was affected.
+
+## Test / verification plan
+- `npx vitest run packages/protocol packages/server/src/observability packages/server/src/daemon packages/client`
+- `npm run fixtures:update -w @av-pi-studio/protocol` if signatures changed.
+- Old-daemon check: `npx -y @av-pi-studio/cli@0.0.117 daemon start` on a spare port and home directory, connect with the new SDK.

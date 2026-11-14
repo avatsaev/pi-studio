@@ -1,5 +1,12 @@
 # Desktop App (Electron) — Clean Room Scope
 
+> **Status: superseded (2026-11-14).** The Electron shell described here was never built in this
+> repository. The desktop client is now a Tauri app with a Rust backend in a separate repository
+> (`pi-studio-desktop`), reusing the UI through `@av-pi-studio/workbench`. See
+> [../../docs/desktop-client-handoff.md](../../docs/desktop-client-handoff.md) and
+> [../architecture/workbench-package.md](../architecture/workbench-package.md). This file is kept
+> for its list of native capabilities; do not plan from it.
+
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [../architecture/daemon-bootstrap.md](../architecture/daemon-bootstrap.md),
 > [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),

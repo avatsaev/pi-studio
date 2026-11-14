@@ -1,0 +1,52 @@
+# Task 006 — Dev daemon handlers and JSON fixtures for file transfer and terminals
+
+- **Sprint:** sprint-096-desktop-protocol-followups
+- **Status:** backlog
+- **Type:** feature
+- **Area:** packages/server (dev bootstrap, test support), packages/protocol (fixtures)
+- **Priority:** P1
+- **Estimated size:** M
+- **Depends on:** task-001, task-003
+
+## Goal
+Pin the file-transfer and terminal RPC shapes as external-client fixtures, verified against a live daemon.
+
+## Context / why
+The desktop app's Rust transfer engine and terminal view will be written against these messages. Today none has a fixture. The live fixture test runs against the dev daemon, which registers neither family (checked at planning time), so the handlers must be registered there first.
+
+## Scope references
+- `swe/features/desktop-client-protocol-followups.md` § 3. Fixtures (JSON families), § TODO(verify)
+- `swe/architecture/external-client-fixtures.md`
+- `packages/protocol/fixtures/external-clients/{README.md,manifest.json,CHANGELOG.md}`
+- `packages/server/src/daemon/dev-bootstrap.ts`; `packages/server/src/daemon/bootstrap.ts` (how `FileTransferService`, `FileExplorerService` and `registerTerminalHandlers` are wired in production)
+- `packages/server/src/test-support/external-fixtures-scenario.ts`
+- `packages/server/scripts/record-external-fixtures.ts`
+- `packages/protocol/src/external-fixtures.test.ts`, `packages/server/src/daemon/external-fixtures-e2e.test.ts`
+
+## What to build
+- Register the file-transfer handlers (token, download, upload, with the binary handler) and the terminal handlers in the dev bootstrap, wired as in production.
+- Extend the fixture scenario: issue a token, download a small file, upload a small file with `ack`, create a terminal, subscribe, list, rename, capture, kill; all inside a temporary directory.
+- Add fixtures for: `file_download_token_request`/`_response`, `file_download_request`/`_response`, `file_upload_request`/`_response`, `file_upload_complete`; `create_terminal_request`/`_response`, `subscribe_terminal_request`/`_response`, `list_terminals_request`/`_response`, `rename_terminal_request`/`_response`, `capture_terminal_request`/`_response`, `kill_terminal_request`/`_response`, `terminals_update`.
+- List them in `manifest.json` with `requiresFeature` where a flag gates them; regenerate signatures; add a `CHANGELOG.md` entry stating the change is additive.
+- Keep `docs/desktop-client-handoff.md` current: update whatever this task makes stale there (status table, workbench and host sections, wire facts, milestones, open questions). Say in the summary what changed in it, or that nothing did.
+
+## Out of scope
+- Binary frames (task-007).
+- Fixtures for other families.
+
+## Acceptance criteria
+- [ ] Every listed message has a fixture that passes both fixture test layers.
+- [ ] `formatVersion` is unchanged.
+- [ ] The dev daemon answers terminal and file-transfer requests, and its documentation says so (`AGENTS.md` root § Tooling commands and `packages/server/AGENTS.md`).
+- [ ] No fixture contains a real path, host name or token.
+- [ ] `docs/desktop-client-handoff.md` matches the repository after this task, or the summary states that nothing in it was affected.
+
+## Test / verification plan
+- `npx vitest run packages/protocol/src/external-fixtures.test.ts packages/server/src/daemon/external-fixtures-e2e.test.ts`
+- `npm run build:server && node packages/server/scripts/record-external-fixtures.ts` to print candidates.
+- `npm run fixtures:update -w @av-pi-studio/protocol`
+
+## Notes
+- Terminals spawn real PTYs: the scenario must kill what it creates and must not depend on the user's shell configuration.
+- Volatile values (ids, timestamps, paths, stream numbers) go in each fixture's `volatile` list.
+- A message with no Zod schema cannot be a manifest `exception`; check the fixture README's rules before adding one.

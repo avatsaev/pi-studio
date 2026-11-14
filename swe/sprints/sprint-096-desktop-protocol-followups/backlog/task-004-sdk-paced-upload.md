@@ -1,0 +1,50 @@
+# Task 004 — SDK: buffered amount on `Transport`, paced streaming upload
+
+- **Sprint:** sprint-096-desktop-protocol-followups
+- **Status:** backlog
+- **Type:** feature
+- **Area:** packages/client
+- **Priority:** P1
+- **Estimated size:** M
+- **Depends on:** task-003
+
+## Goal
+Make `FileTransferClient.upload` stream from a source, pace itself against the transport, report progress, support cancel, and wait for the daemon's acknowledgement when it is available.
+
+## Context / why
+`upload` takes the whole file as one byte array and queues every chunk in one synchronous loop. Memory use is the file size plus the socket's queue, and the promise resolves before anything is known to be written.
+
+## Scope references
+- `swe/features/desktop-client-protocol-followups.md` § 2 (SDK rows), § Paced upload (SDK), § Compatibility
+- `packages/client/src/{file-transfer-client.ts,transport.ts,relay-transport.ts,daemon-client.ts}`
+- `packages/client/src/file-transfer-client.test.ts`
+
+## What to build
+- `Transport.bufferedAmount`: optional read-only number. Implement it for the WebSocket transport. For the relay transport, implement it if the underlying socket allows; otherwise leave it undefined.
+- `FileTransferClient.upload(path, source, options?)`: `source` is a `Uint8Array`, a `Blob`, or an async iterable of `Uint8Array`; `options` are `onProgress(sent, total?)` and `signal`. The existing byte-array call keeps working.
+- Pacing: before each chunk, wait while the transport's buffered amount is above a high-water mark. A transport without the property is treated as never congested.
+- Completion: when the server advertises `fileTransferAck`, send `ack: true` and resolve on `file_upload_complete`, rejecting when `ok` is false. Otherwise resolve once the last frame has left the buffer.
+- Cancel: on abort, send an `Error` frame for the stream and reject with an abort error.
+- Tests with a fake transport whose buffered amount is scripted: the bound holds; progress is monotonic and ends at the total; ack success and failure; no-flag fallback; abort mid-transfer; a connection drop rejects.
+- Keep `docs/desktop-client-handoff.md` current: update whatever this task makes stale there (status table, workbench and host sections, wire facts, milestones, open questions). Say in the summary what changed in it, or that nothing did.
+
+## Out of scope
+- Download changes.
+- The web client (task-005).
+
+## Acceptance criteria
+- [ ] Uploading a source several times larger than the high-water mark never pushes the buffered amount above the bound, asserted in a test.
+- [ ] Against a daemon with the flag, `upload` resolves only after the acknowledgement; a daemon-side failure rejects with the daemon's error.
+- [ ] Against a daemon without the flag, `upload` completes and the bytes are correct.
+- [ ] An aborted upload leaves nothing pending in the client.
+- [ ] `packages/client/AGENTS.md` documents the new signature and `Transport.bufferedAmount`.
+- [ ] `docs/desktop-client-handoff.md` matches the repository after this task, or the summary states that nothing in it was affected.
+
+## Test / verification plan
+- `npx vitest run packages/client`
+- `npm run build:client`
+- An end-to-end test against an in-process daemon that uploads and compares bytes on disk.
+
+## Notes
+- `Transport` is implemented outside this repository too (the desktop app's Rust bridge). The new property is optional so those implementations keep compiling; update the contract description in `docs/desktop-client-handoff.md`.
+- The SDK's default RPC timeout must not cut off the wait for an acknowledgement on a long upload.

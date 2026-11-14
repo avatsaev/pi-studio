@@ -117,9 +117,14 @@ module and ships prebuilt binaries for common platforms.
   workspace package; see `swe/grills/ui-library.md`. (`packages/ui-library`)
 - **UI Gallery** — Private Vite+React gallery app that renders every primitive family against the
   built ui-library `dist` across all six themes; never published or deployed. (`packages/ui-gallery`)
+- **Workbench** — *Planned (sprints 091–095), not built.* Publishable library holding the application itself
+  (features, stores, reducers) behind a host adapter, so the browser shell and the desktop app
+  share one UI; see `architecture/workbench-package.md`. (`packages/workbench`)
 - **CLI** — Terminal client; can also start/manage a local daemon. (`packages/cli`)
-- **Desktop** — Electron shell that bundles + supervises a daemon and embeds the web app, with
-  native file dialogs, menus, auto-update, in-app browser webviews. (`packages/desktop`)
+- **Desktop** — Native shell around the same UI. *Direction changed 2026-11-14:* built as a Tauri
+  app with a Rust backend in a separate repository (`pi-studio-desktop`), consuming the workbench
+  from npm; see `docs/desktop-client-handoff.md`. The Electron shell described in
+  `features/desktop-app.md` was never built in this repository (`packages/desktop` does not exist).
 - **Relay** — E2EE bridge for remote access. Client and daemon channels with identical API.
   (`packages/relay`)
 - **SSH gateway** — Electron-only SSH local-port tunnel to a remote daemon's localhost WebSocket
@@ -277,7 +282,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/extensions-manager.md](features/extensions-manager.md)         | feature      | Settings-panel Extensions manager: render curated-pack status/sync (existing RPCs); Phase B `pi_packages_*` superseded by architecture/pi-resource-management.md |
 | [features/skills-manager.md](features/skills-manager.md)                 | feature      | Settings → Skills: list/enable/disable/remove/install/update-all Pi skills (npm/git packages skills-only, Agent Skills repos, host paths) |
 | [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
-| [features/desktop-app.md](features/desktop-app.md)                       | feature      | Electron shell: daemon supervision, windows, browser panes, updates           |
+| [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
+| [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **planned (sprint-096)** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -323,6 +329,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [architecture/pi-resource-management.md](architecture/pi-resource-management.md) | architecture | Daemon backend over Pi's resolver/settings + pinned `skills` CLI: single `skills_*` family, toggle mirror, stateless preview, FIFO queue, watcher (supersedes extensions-manager Phase B) |
 | [architecture/external-client-fixtures.md](architecture/external-client-fixtures.md) | architecture | Canonical JSON fixtures of every wire message external clients (Pi Studio Dashboard) consume + in-process daemon contract test; changing a fixture shape is a breaking change — **shipped (sprint-083)** |
+| [architecture/workbench-package.md](architecture/workbench-package.md) | architecture | `@av-pi-studio/workbench`: the application moved out of `web-client` into a prebuilt library (whole app + shell regions), `web-client` reduced to a browser shell, `electron` target removed — **planned (sprints 091, 092, 094, 095)** |
+| [architecture/workbench-host-adapter.md](architecture/workbench-host-adapter.md) | architecture | The one object a shell supplies to the workbench: storage, clipboard, dialogs, links, launch intent, transport factory, reconnect timing, file transfer, pdf.js runtime; `createBrowserHost` reproduces today's behaviour — **planned (sprint-093)** |
 
 ## 9. Cross-Cutting Conventions
 
@@ -390,3 +398,12 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       Pi's questions travel on `agent_ui_*` instead ([features/extension-ui-rpc.md](features/extension-ui-rpc.md));
       the dashboard answers those (brief D36). **Decided 2026-11-13: retire the family** (daemon
       service, contract members, MCP tools, CLI `permit`; wire schemas kept unread). **Resolved: retired in sprint-086.**
+- [ ] Workbench packaging: katex stylesheet inlining in library mode, consumer dev-server
+      pre-bundling, the form of the packed-tarball smoke consumer, and the public region names —
+      see [architecture/workbench-package.md § TODO(verify)](architecture/workbench-package.md).
+- [ ] Workbench host: `window.confirm`/`alert`/`prompt` and `target="_blank"` in a Tauri webview,
+      drag-and-drop upload sources, StrictMode-safe host installation — see
+      [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
+- [ ] Desktop protocol follow-ups: dev-daemon coverage of file transfer and terminal handlers,
+      buffered amount on the relay path, partial file after a failed upload, water marks — see
+      [features/desktop-client-protocol-followups.md § TODO(verify)](features/desktop-client-protocol-followups.md).

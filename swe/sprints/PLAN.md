@@ -116,9 +116,15 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 088 | `sprint-088-ui-library-extract` | web-client + new package (feature branch `feat/ui-library`, D31): **UI library, slice 1 — extract.** Build baseline, scaffold `@av-pi-studio/ui-library`, `git mv` theme/`ui`/brand runtime/breakpoints/kv-store, then primitives + toast/announcer stores + generic reset CSS out of web-client; web-client consumes them through a source alias. Renames web-client's internal `@pi-studio-ui/*` alias to `@web-client/*`. Behaviour-neutral. | 5 |
 | 089 | `sprint-089-ui-library-build-api` | ui-library (+ web-client wiring): **UI library, slice 2 — build + API.** Vite library mode (ESM entries, single prebuilt `styles.css` with `piui-` scoped names, `reset.css`, `.d.ts`, `exports`); optional `ThemeBoundary.store` + `storageKey`; brand trimmed to accent-only with warn-and-fallback validation; dev-only missing-CSS / second-boundary warnings; exported token-guard checker. | 5 |
 | 090 | `sprint-090-ui-library-consumers-release` | ui-gallery (new, private) + release: **UI library, slice 3 — consumers + release.** Gallery app against the built `dist`; `npm pack` smoke in a scratch app + README bootstrap; `publish.sh`/Dockerfile/CHANGELOG wiring; ±2% size budget + acceptance sweep; docs (DESIGN_SYSTEM.md moves). Single merge to `main` after the engineer's placeholder publish and visual check. | 5 |
+| 091 | `sprint-091-workbench-spike-scaffold` | new package (feature branch `feat/workbench`): **Workbench, slice 1 — spike + scaffold.** Pre-move baselines; a throwaway library build that settles the packaging unknowns (katex stylesheet, font inlining, lazy chunks, consumer pre-bundling, smoke form); empty `@av-pi-studio/workbench` wired into the root build, vitest and `web-client`'s source alias. | 3 |
+| 092 | `sprint-092-workbench-move` | web-client → workbench: **Workbench, slice 2 — the move.** `@web-client/*` converted to relative imports (452 imports), application code and tests moved with `git mv`, shell components (`Workbench`, `WorkbenchProvider`, `WorkbenchBoot`, `WorkspaceShell`), fonts and stylesheet rules moved, `electron` target removed, parity gate against the baseline. Browser client unchanged. | 5 |
+| 093 | `sprint-093-workbench-host` | workbench (+ web-client wiring): **Workbench, slice 3 — host adapter.** One host object for everything browser-bound: `app`, `storage`, `clipboard`, `dialogs` (21 call sites), `links`, `launch`, `connection` (transport factory, timers, resume), `files`, `pdf` + the pdf.js Vite plugin as a package export; a source-scan guard and a recording test host. `createBrowserHost` reproduces today's behaviour. | 7 |
+| 094 | `sprint-094-workbench-build-api` | workbench: **Workbench, slice 4 — build + API.** Library build (`piwb-` scoped `styles.css`, copied fonts, `./vite` entry, strict `exports`) with `dist` assertions; public API (whole app, shell regions, three hooks, guards); packed-tarball smoke consumer (whole app + custom shell); package docs with `web-client`'s AGENTS slimmed. | 4 |
+| 095 | `sprint-095-workbench-release` | scripts, docker, docs: **Workbench, slice 5 — release.** `publish.sh` order + Dockerfile, a rehearsed `--dry-run` publish in a throwaway worktree, repository-level docs and the desktop handoff doc, acceptance sweep. Single merge to `main` after the engineer's placeholder publish + Trusted Publisher registration. | 3 |
+| 096 | `sprint-096-desktop-protocol-followups` | protocol + server + client (+ workbench browser host): **Desktop-client protocol follow-ups.** `hello.platform`; daemon transfer hardening (paced download, `Error` without `End`, session-owned upload streams); `fileTransferAck` + `file_upload_complete`; SDK paced streaming upload with progress and cancel; browser upload without reading the file into memory; dev-daemon file/terminal handlers + JSON fixtures; binary frame fixtures; docs + live checks. Own branch, after 095 merges. | 8 |
 
-Total: **84 sprints, 446 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13) and bumped by 088–090 (+3/+15, 2026-11-14). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **90 sprints, 476 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14) and by 091–096 (+6/+30, 2026-11-14). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -2460,6 +2466,97 @@ Recompute from the table rather than trusting a hand-maintained figure.
 | task-004 | Size budget + acceptance sweep | test | task-001…task-003 | D29; AC1, AC2, AC8 |
 | task-005 | Docs: DESIGN_SYSTEM.md move, package AGENTS/README, root docs, close | docs | task-001…task-004 | D23; AC10 |
 
+### sprint-091-workbench-spike-scaffold
+> **What it ships.** The start of `architecture/workbench-package.md` and
+> `architecture/workbench-host-adapter.md` (scoped 2026-11-14). Sprints 091–095 land on **one
+> feature branch** (`feat/workbench`) and merge to `main` once: every push to `main` publishes.
+>
+> **Standing rule for sprints 091–096 (engineer instruction, 2026-11-14):**
+> `docs/desktop-client-handoff.md` is kept current as work proceeds. Every task file carries the
+> rule as a build step and an acceptance criterion: update what the task makes stale there, and
+> say in the summary what changed in it or that nothing did.
+>
+> **Planning-time resolutions:** the workbench joins the root `tsc -b` graph like `ui-library`
+> (web-client stays out); the scoped class prefix is `piwb-`; `web-client` consumes the workbench
+> through a source alias, so the published `dist` is proven by a packed-tarball smoke (s094/t003),
+> not by `web-client`.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Feature branch + pre-move baselines (size, chunks, test count, lazy imports) | chore | none | workbench-package § Acceptance criteria (baseline) |
+| task-002 | Packaging spike: katex stylesheet, fonts, lazy chunks, pre-bundling, lazy export, smoke form | test | task-001 | workbench-package § Build, § TODO(verify) |
+| task-003 | Scaffold `packages/workbench`; root build, tsconfig, vitest and `web-client` source alias | chore | task-002 | workbench-package § Package, § Development workflow |
+
+### sprint-092-workbench-move
+> **What it ships.** The extraction, with no behaviour change. `web-client` keeps compiling the
+> workbench from source, so the Vite-only constructs in the moved code keep working until s093
+> removes them. t005 is a measured checkpoint before behaviour-adjacent code changes.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Replace `@web-client/*` with relative imports; delete the alias | refactor | sprint-091 | workbench-package § Imports inside the package |
+| task-002 | Move application code, tests and dependencies into the workbench (`git mv`) | refactor | task-001 | workbench-package § What moves, § Package |
+| task-003 | Shell components, stylesheet rules and fonts; `web-client` reduced to a shell | refactor | task-002 | workbench-package § Root entry: components, § Boot sequence, § What stays |
+| task-004 | Remove the `electron` build target | chore | task-003 | workbench-package § `electron` target removal |
+| task-005 | Parity gate: gates, baseline comparison, browser check | test | task-001…task-004 | workbench-package § Acceptance criteria (parity) |
+
+### sprint-093-workbench-host
+> **What it ships.** `architecture/workbench-host-adapter.md`. The host type grows one task at a
+> time: each task adds the member, its browser implementation and the call-site migration
+> together. Tests are logic-level (the suite has no DOM-rendering tests): where a hook's decision
+> logic needs testing, it is extracted into a pure function.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Host core: install mechanism, `createBrowserHost`, `app`, `storage` | feature | sprint-092 | host-adapter § Installation, `app`, `storage` |
+| task-002 | `clipboard`, `dialogs` (21 call sites), `links` | feature | task-001 | host-adapter `clipboard`, `dialogs`, `links` |
+| task-003 | `launch`: initial connect intent + agent deep link | feature | task-001 | host-adapter `launch.*` |
+| task-004 | `connection`: transport factory, timers, resume signal | feature | task-001 | host-adapter `connection.*` |
+| task-005 | `files`: upload, save to disk, view URL, picker | feature | task-001 | host-adapter `files.*`, § View URLs |
+| task-006 | `pdf` runtime; pdf.js Vite plugin as the `./vite` export | feature | task-001 | host-adapter `pdf`; workbench-package `./vite` |
+| task-007 | Browser-global guard test, recording test host, host acceptance | test | task-002…task-006 | host-adapter § Acceptance criteria, § TODO(verify) |
+
+### sprint-094-workbench-build-api
+> **What it ships.** The published artefact and its public API. The spike (s091/t002) decides the
+> katex stylesheet handling and the smoke form applied here.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Library build (`piwb-`, fonts, `./vite`, strict `exports`) + `dist` assertions | feature | sprint-093 | workbench-package § Entry points, § Build |
+| task-002 | Public API: regions, `useConnection`/`useShellLayout`/`useSettingsDialog`, guards | feature | task-001 | workbench-package § Root entry, § Stability, § Error handling |
+| task-003 | Packed-tarball smoke consumer: whole app + custom shell | test | task-002 | workbench-package § Acceptance criteria (tarball, custom shell) |
+| task-004 | Workbench README/AGENTS/CHANGELOG; slim `web-client`'s docs | docs | task-002 | workbench-package § Acceptance criteria (docs) |
+
+### sprint-095-workbench-release
+> **What it ships.** Release readiness. **Before merging the branch** (engineer, told in t003):
+> placeholder `npm publish` of `@av-pi-studio/workbench` and Trusted Publisher registration for
+> `release.yml`.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Release wiring (`publish.sh`, Dockerfile, runbook) + rehearsed `--dry-run` publish | chore | sprint-094 | workbench-package § Release wiring |
+| task-002 | Repository-level docs, MAIN-SCOPE statuses, desktop handoff doc rewritten to the real API | docs | task-001 | workbench-package § Acceptance criteria (docs) |
+| task-003 | Acceptance sweep + pre-merge gate (engineer's npm step) | test | task-001, task-002 | both workbench specs § Acceptance criteria |
+
+### sprint-096-desktop-protocol-followups
+> **What it ships.** `features/desktop-client-protocol-followups.md`: additive wire changes the
+> desktop client's Rust side needs. Own branch, cut after sprint 095 merges. Only t005 depends on
+> the workbench (the browser host); the rest touches `protocol`, `server` and `client`.
+>
+> **Found at planning time:** the dev daemon registers neither the file-transfer nor the terminal
+> handlers, so the live fixture test cannot cover those families until t006 registers them there.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `hello.platform` through protocol, session, `daemon_status`, SDK + fixture | feature | none | followups § 1 |
+| task-002 | Daemon transfer hardening: paced download, `Error` without `End`, session-owned upload streams | bugfix | none | followups § 2 (daemon), § Paced download |
+| task-003 | `fileTransferAck`: `file_upload_request.ack` + `file_upload_complete` push | feature | task-002 | followups § 2 (ack) |
+| task-004 | SDK: `Transport.bufferedAmount`, paced streaming `upload`, progress, cancel, ack | feature | task-003 | followups § 2 (SDK), § Paced upload |
+| task-005 | Browser host: upload without reading the file into memory, progress | feature | task-004, sprint-093 | followups § Web client; host-adapter `files.upload` |
+| task-006 | Dev-daemon file-transfer + terminal handlers; JSON fixtures for both families | feature | task-001, task-003 | followups § 3 (JSON) |
+| task-007 | Binary frame fixtures + `binary-manifest.json` | feature | task-006 | followups § 3 (binary) |
+| task-008 | Docs close (handoff doc to the real wire), spec ticks, live checks | docs | task-001…task-007 | followups § Acceptance criteria |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2616,6 +2713,10 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/daemon-status-rpc.md | s084/t001-006 (version source; schemas; `Session` metadata; service; handlers/bootstraps/E2E; docs); flag + fixtures in s085/t005 |
 | features/daemon-log-streaming.md | s085/t001-006 (schemas; tap; service; handlers/bootstraps/E2E incl. redaction; flag + stage 2 fixtures; cost run + docs) |
 | grills/ui-library.md (grilled brief; no scope doc by engineer's choice) | s088/t001-005 (baseline; scaffold; move non-primitive design system; move primitives/stores/reset; alias rename), s089/t001-005 (lib build; store/key; brand trim; dev warnings; token checker), s090/t001-005 (gallery; pack smoke + README; release wiring; budget/acceptance; docs). Deferred by the brief: terminal font, heavy renderers |
+| architecture/workbench-package.md | s091/t001-003 (baseline; packaging spike; scaffold), s092/t001-005 (relative imports; move; shell components + fonts; `electron` removal; parity gate), s094/t001-004 (library build + `dist` assertions; public API; packed-tarball smoke; package docs), s095/t001-003 (release wiring + dry run; repo docs; acceptance + pre-merge gate) |
+| architecture/workbench-host-adapter.md | s093/t001-007 (install + `app` + `storage`; clipboard/dialogs/links; launch; connection; files; pdf + Vite plugin; guard + acceptance); `files.upload` streaming in s096/t005 |
+| features/desktop-client-protocol-followups.md | s096/t001-008 (`hello.platform`; daemon transfer hardening; upload ack; SDK paced upload; browser streaming upload; dev-daemon handlers + JSON fixtures; binary fixtures; docs + live checks). Non-goals by the spec: transfer resume, chunk size, `clientType` change |
+| features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -2758,3 +2859,16 @@ Carried from the scope; resolve against the live source while implementing the o
       `npm publish` of `@av-pi-studio/ui-library` + register `release.yml` as its Trusted Publisher
       (brief D22); manual web-client visual parity check (brief D34).
 - [ ] UI library: Vite lib-mode handling of `process.env.NODE_ENV` in ES output — s089/t001.
+- [ ] Workbench (s091–s095), engineer-owned, **before merging `feat/workbench`**: placeholder
+      `npm publish` of `@av-pi-studio/workbench` + register `release.yml` as its Trusted Publisher.
+      The engineer asked to be told when; s095/t003 does it.
+- [ ] Workbench packaging: katex stylesheet inlining, font inlining, consumer pre-bundling, lazy
+      `SettingsDialog` export, smoke form — s091/t002.
+- [ ] Workbench public names `PaneArea` and `WorkspaceShell`: confirm with the engineer before
+      the first publish — s094/t002.
+- [ ] Workbench host: StrictMode-safe installation, drag-and-drop upload sources — s093/t007.
+      Tauri-side questions (`window.confirm`, `target="_blank"`) belong to the desktop repository.
+- [x] Follow-ups: does the dev daemon register file-transfer and terminal handlers? **No**
+      (checked at planning, 2026-11-14) — s096/t006 registers them.
+- [ ] Follow-ups: buffered amount on the relay path; water marks; partial file after a failed
+      upload; dashboard vendoring vs `binary-manifest.json` — s096/t002, t003, t007.
