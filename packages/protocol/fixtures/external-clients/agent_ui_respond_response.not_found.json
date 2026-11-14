@@ -1,0 +1,20 @@
+{
+  "type": "agent_ui_respond_response",
+  "direction": "server_to_client",
+  "description": "The dialog id is unknown or already resolved.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_respond_response",
+      "payload": {
+        "ok": false,
+        "error": "not_found"
+      },
+      "requestId": "req-1"
+    }
+  }
+}

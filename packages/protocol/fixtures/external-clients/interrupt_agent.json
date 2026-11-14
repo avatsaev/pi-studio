@@ -1,0 +1,17 @@
+{
+  "type": "interrupt_agent",
+  "direction": "client_to_server",
+  "description": "Interrupt the agent's running turn.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "interrupt_agent",
+      "requestId": "req-1",
+      "agentId": "agent-1"
+    }
+  }
+}

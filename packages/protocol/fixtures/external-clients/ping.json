@@ -1,0 +1,14 @@
+{
+  "type": "ping",
+  "direction": "client_to_server",
+  "description": "JSON liveness ping (top-level frame, not session-wrapped).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/requestId", "/clientSentAt"],
+  "frame": {
+    "type": "ping",
+    "requestId": "req-1",
+    "clientSentAt": 1767225600000
+  }
+}

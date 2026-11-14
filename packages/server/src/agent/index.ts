@@ -13,6 +13,5 @@ export * from "./agent-service.js";
 export * from "./timeline-rpc.js";
 export * from "./session-operations.js";
 export * from "./slash-command-operations.js";
-export * from "./permissions.js";
 export * from "./structured-generation.js";
 export * from "./mcp-server.js";

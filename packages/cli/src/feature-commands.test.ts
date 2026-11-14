@@ -129,19 +129,6 @@ describe("feature commands — one round-trip per group", () => {
     expect(requests[0]!.msg.prompt).toBe("daily");
   });
 
-  it("permit allow maps to respond_to_permission with response=allow", async () => {
-    const { ctx, requests } = await harness({ responses: { [FEATURE_RPC.permitRespond]: {} } });
-    await featureRpc(
-      ctx,
-      {},
-      FEATURE_RPC.permitRespond,
-      { permissionRequestId: "p1", response: "allow" },
-      () => "",
-    );
-    expect(requests[0]!.type).toBe("respond_to_permission");
-    expect(requests[0]!.msg.response).toBe("allow");
-  });
-
   it("provider ls maps to list_providers", async () => {
     const { ctx, out, requests } = await harness({
       responses: {

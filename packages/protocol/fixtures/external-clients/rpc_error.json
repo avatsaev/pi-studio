@@ -1,0 +1,18 @@
+{
+  "type": "rpc_error",
+  "direction": "server_to_client",
+  "description": "Error reply to a request. code is unknown_message_type or handler_error.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "rpc_error",
+      "requestId": "req-1",
+      "code": "unknown_message_type",
+      "message": "no handler for scenario_no_such_type"
+    }
+  }
+}

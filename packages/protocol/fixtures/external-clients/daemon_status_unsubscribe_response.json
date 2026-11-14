@@ -1,0 +1,19 @@
+{
+  "type": "daemon_status_unsubscribe_response",
+  "direction": "server_to_client",
+  "description": "Status subscription removed.",
+  "since": "0.0.115",
+  "stage": 2,
+  "requiresFeature": "daemonObservability",
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "daemon_status_unsubscribe_response",
+      "payload": {
+        "ok": true
+      },
+      "requestId": "req-1"
+    }
+  }
+}

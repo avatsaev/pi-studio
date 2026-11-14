@@ -1,0 +1,16 @@
+{
+  "type": "list_agents_request",
+  "direction": "client_to_server",
+  "description": "List every known agent.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "list_agents_request",
+      "requestId": "req-1"
+    }
+  }
+}

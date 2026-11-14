@@ -7,6 +7,8 @@ import { pino, multistream } from "pino";
 import pinoPretty from "pino-pretty";
 import { createStream as createRotatingStream } from "rotating-file-stream";
 
+import type { LogTap } from "./log-tap.js";
+
 /**
  * Daemon logging (operational concern; adopted from the reference daemon's `pino` stack). The rest
  * of the codebase injects a `Pick<Console, "info" | "warn" | "error">`-shaped logger; a pino logger
@@ -53,6 +55,11 @@ export interface CreateLoggerOptions {
   bindings?: Record<string, unknown>;
   /** Override the stdout stream (tests). Defaults to `process.stdout`. */
   stdoutStream?: NodeJS.WritableStream;
+  /**
+   * Mirror every written line into a `LogTap` (live log streaming). Adds ONE extra multistream
+   * entry at the resolved level; stdout/file entries are untouched. Ignored when silent.
+   */
+  tap?: LogTap;
 }
 
 function resolveLevel(level: LogLevel | undefined): LogLevel {
@@ -96,6 +103,11 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
         path: options.logDir,
       }),
     });
+  }
+
+  if (options.tap) {
+    options.tap.attach(level);
+    streams.push({ level, stream: options.tap.stream });
   }
 
   return pino(base, multistream(streams)) as unknown as Logger;

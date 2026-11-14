@@ -20,9 +20,29 @@ Exposes a WebSocket JSON+binary API and an HTTP health/download endpoint.
 ```
 src/
   index.ts                        Public barrel (re-exports for desktop embedding).
+  version.ts                      SERVER_VERSION — single source (packages/server/package.json); used by
+                                   every `server_info.version` handshake and the extensions sync.
+  observability/
+    daemon-status-service.ts      DaemonStatusService (sprint-084) — DaemonStatus snapshots (process facts,
+                                   cpu %, event-loop lag, agentsByStatus, clients[]) + per-session push
+                                   every 5 s via ONE shared unref'd timer/histogram that exist only while
+                                   >=1 session is subscribed; injectable sampler/send; wired into both bootstraps.
+    daemon-status-rpc.ts          registerDaemonStatusHandlers — `daemon_status_request` / `_subscribe_request` /
+                                   `_unsubscribe_request` adapters (domain results in `payload`).
+    daemon-logs-service.ts        DaemonLogsService (sprint-085) — per-session log subscriptions over a `LogTap`:
+                                   `subscribe(session, minLevel, tail?)` -> `{ok:true,minLevel,effectiveLevel,
+                                   lines,dropped:0}` | `{ok:false,error:"invalid_level"|"invalid_tail"}` (replaces
+                                   the session's subscription; invalid input leaves it untouched),
+                                   `unsubscribe`/`disposeSession`/`dispose`. 200 lines/s token bucket (burst 200),
+                                   100 ms per-subscriber flush timer only while data is pending, incremental
+                                   `dropped`, send failure removes the subscriber. Deps: `{tap, send, now?, timers?}`.
+                                   Wired into both bootstraps.
+    daemon-logs-rpc.ts            registerDaemonLogsHandlers — `daemon_logs_subscribe_request` /
+                                   `_unsubscribe_request` adapters (invalid level/tail are domain failures).
   daemon/
-    main.ts                       Production entry: parse env/config, wire bootstrap.ts, listen.
-    dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only).
+    main.ts                       Production entry: `startDaemon({ onFatalError })`; listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767), logs `handle.listen`.
+    dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
+    loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
@@ -109,7 +129,6 @@ src/
                                    truncateBeforeMessage (the dead rewind RPC's only caller) was
                                    removed in sprint-071/task-001.
     timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded).
-    permissions.ts                PendingPermissions — park and resolve tool-call auth requests.
     agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
                                    — see "Extension UI" below.
       agent-ui-service.ts         AgentUiService — wire-id minting, pending dialogs, retained
@@ -173,11 +192,23 @@ src/
         tool-script.ts            Pure `#tool` recipe parser + `toolScriptEvents` builders
                                    (sprint-058, dev daemon): shell / empty / help.
         tool-script.test.ts
+        stream-script.ts          Pure `#stream` recipe parser + `streamScriptEvents` builders
+                                   (sprint-083, dev daemon): reasoning / fail / error / help.
+        stream-script.test.ts
         mock-provider.test.ts
+
+  test-support/
+    daemon-test-client.ts         Shared raw-`ws` test client (sprint-083): `connectTestClient(port,
+                                   {clientType?, appVersion?, capabilities?})` → `{ws, frames, status,
+                                   send, rpc, rpcFrame, waitFor, close}`; `listeningPort(server)`,
+                                   `messageOf(frame)`, `WireFrame`. Compiled into `dist` (so the
+                                   recorder script can import it) but not exported from the barrel.
 
   ws/
     ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions.
-    session.ts                    Session — per-connection state, send(), capability checks.
+    session.ts                    Session — per-connection state, send(), capability checks; read-only
+                                   connection metadata `connectedAt`, `appVersion` (hello), `remoteAddress`
+                                   (direct only), `transport` (`"direct"|"relay"`) — never persisted.
     router.ts                     HandlerRegistry + frame router (dispatch session messages).
     session-subscriptions.ts      SessionSubscriptions — per-session subscription registry,
                                    disposes all subscriptions on socket close.
@@ -525,7 +556,8 @@ src/
     index.ts
 
   logging/
-    logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file).
+    logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file; optional `tap`).
+    log-tap.ts                    `LogTap`: pino destination -> sanitised, 8 KiB-capped 1000-line ring + live listeners.
     index.ts
 
   util/
@@ -562,6 +594,7 @@ src/
 - `session.send(msg)` — sends a JSON-serialised message.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
 - `session.clientId`, `session.clientType`, `session.capabilities`.
+- Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A replaced/reset relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
 
 ### Agent subsystem (`agent/`)
 
@@ -1021,10 +1054,7 @@ creation" above.
 - Cursor-based paging via `fetchAgentTimeline(agentId, cursor, direction, limit)`.
 - Collapsed/merged view for UI display.
 
-**`PendingPermissions`** (`permissions.ts`):
-- Parks tool-call permission requests with a `requestId`.
-- `park(request)` — store and broadcast `agent_permission_request`.
-- `resolve(permissionRequestId, decision)` — fulfill the parked request.
+**Tool-call permissions** are retired (sprint-086): no `PermissionService`, provider-contract members, MCP tools or CLI group remain. The `agent_permission_*` / `agent.permission.respond.request` / `respond_to_permission` schemas stay in the protocol (append-only, unread) and answer `unknown_message_type`. Pi's questions travel on `agent_ui_*`.
 
 ### Provider auth (`agent/provider-auth/`)
 
@@ -1186,9 +1216,7 @@ silently unusable in RPC mode.
     the entry's own captured session (never a freshly attached one), broadcasts, then unsubscribes
     the stored channel — so a post-sweep emission from a dying process cannot resurrect a surface
     for an agent with no live channel. This is the deliberate **inverse of `provider_auth_*`**
-    (client disconnect there cancels the flow; here a dialog outlives every disconnect) and of tool
-    permissions (interrupt there resolves nothing left pending; here interrupt touches nothing at
-    all).
+    (client disconnect there cancels the flow; here a dialog outlives every disconnect).
 - **`AgentManager.onSessionAttached(agentId, session)`** (optional dep, `agent-manager.ts`) is the
   single choke point `attachSession()` invokes after every spawn/resume/import — `AgentUiService`
   is wired here, not threaded through each call site. A throwing hook is logged and never blocks
@@ -1287,6 +1315,14 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
   ends with an empty final output (exercises the terminal-output-authority edge on the client);
   `#tool help` answers the recipe list with no tool events. Mock partials bypass the Pi coalescer
   (by design) and are kept out of the mock's `history`. Separate family from `#ui` and `#todo`.
+- **Mock `#stream` recipe** (sprint-083, `providers/mock/stream-script.ts`, pure parser;
+  `mock-provider.ts` `startStreamScriptTurn`): `#stream reasoning` emits `reasoning` (+ a `final`
+  marker), the echo and `turn_completed`; `#stream fail` ends in `turn_failed`; `#stream error` emits
+  `error` then `turn_failed`; bare `#stream`, `#stream help` or an unknown recipe answers the recipe
+  list. These are the only mock paths that emit those event kinds (external-client fixtures).
+  `MockAgentSession.fork(MOCK_REBIND_ENTRY_ID)` (`"mock-rebind"`) bumps a fork generation so
+  `describePersistence().nativeHandle` changes and `handleFork` runs its real timeline-reset +
+  `agent_timeline_reset` broadcast; any other entry id keeps the inert stub.
 - **Tests:** `agent-todos-service.test.ts`, `todo-limits.test.ts`, `providers/pi/todos.test.ts` (fixtures are
   the frames recorded from a real Pi/rpiv-todo run), `providers/pi/todos-wiring.test.ts`, the
   mock's `todo-script.test.ts`, the fork case in `slash-command-ops.test.ts`, and the real-dev-daemon
@@ -1727,6 +1763,48 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
   `settings_path` handling already assumed. `sanitizeSkillName` (`skills-cli.ts`) mirrors the
   `skills` CLI's own `sanitizeName` (`dist/cli.mjs`) for the canonical on-disk directory name.
 
+### Observability (`observability/`)
+
+`DaemonStatusService` answers `daemon_status_request` (one-shot), `daemon_status_subscribe_request`
+(per-session; pushes flat `daemon_status_update` every 5 s) and `daemon_status_unsubscribe_request`;
+handlers are registered by `registerDaemonStatusHandlers` in **both** `bootstrap.ts` and
+`dev-bootstrap.ts`. Both build the service just before the `AgentManager` (agents are read lazily via
+`manager.list()`, which already excludes archived agents) and call `disposeSession` from
+`onSessionClose`; production also calls it from `resetRelaySession` (a replaced relay peer never
+fires `onSessionClose`) and `dispose()` on `close()`.
+
+- **Snapshot:** `version` (`SERVER_VERSION`, `version.ts`), `pid`, `nodeVersion`, `startedAt` (wall clock
+  at service construction = bootstrap start), monotonic `uptimeMs`, `cpuPercent` (delta of one
+  `process.cpuUsage()` since the previous sample; 0 on the first), `memory`, `eventLoopLagMs`
+  (`monitorEventLoopDelay` mean; NaN -> 0), `agentsByStatus`, `clients[]` (uncapped; sorted by
+  `connectedAt` then `clientId`).
+- **`Session` metadata** (`ws/session.ts`): `appVersion`, `connectedAt`, `remoteAddress`,
+  `transport: "direct" | "relay"`; the defaults keep directly constructed test sessions valid.
+- **Timer lifecycle:** one shared `unref()`ed `setInterval` and one event-loop histogram exist only
+  while >= 1 session is subscribed; one snapshot and one envelope per tick shared by all
+  subscribers; a throwing `send` drops only that subscriber. E2E tests drive the interval with fake
+  `setInterval` only.
+- **Log streaming:** `DaemonLogsService` + `registerDaemonLogsHandlers` are registered in both
+  bootstraps. Each bootstrap creates a `LogTap` (or takes `opts.logTap`), passes it to
+  `createDaemonLogger` only when it builds its own logger, and disposes subscriptions from
+  `onSessionClose` (production also in `resetRelaySession`) and the service on `close()`. An injected
+  logger streams nothing unless the caller passes the same tap to `createLogger({tap})` and
+  `logTap`; a `silentLogger()` daemon answers `ok:true` with `effectiveLevel:"silent"` and no lines.
+  Tests: `daemon-logs-e2e.test.ts` (incl. the sentinel redaction scenario at `trace`);
+  `test-support/auth-gated-rpc.ts` is the shared password-protected harness for "authenticated only" checks.
+- **Tap:** `logging/log-tap.ts` is a pino multistream destination that mirrors each line into a
+  1000-line ring (<= 8 KiB per line after truncation), sanitised at tap time (whole-key redaction of
+  `password`/`secret`/`token`/`authorization`/`cookie`/`apikey`/... and `pi-studio.bearer.*` masking;
+  `tokens` counters spared) and fanned out to listeners. stdout and the rotating file are separate
+  entries and unchanged. The tap is created before the logger in both bootstraps.
+- **Logs service:** `DaemonLogsService` keeps one subscription per session (`minLevel` clamped to the
+  daemon level, optional `tail` backlog <= 1000), a 200 lines/s token bucket per subscriber with an
+  incremental `dropped` counter, and a 100 ms flush timer only while data is pending.
+- **Advertised:** `server_info.features.daemonObservability` (both handshakes, via `SERVER_FEATURES`)
+  covers both families; they are read-only and reachable only by authenticated sessions. Stage 2
+  external fixtures cover them (`test-support/external-fixtures-scenario.ts`,
+  `scenarioDaemonOptions()` boots the tapped dev daemon).
+
 ### Viewer settings (`viewers/`)
 
 Per-viewer enable/disable state (docs/MOLVIEWER_DECOUPLING.md § 4.4), the daemon-backed runtime
@@ -1786,6 +1864,15 @@ interface in `logging/logger.ts`) that:
   (multistream — both destinations, never either/or).
 - Level from `PI_STUDIO_LOG_LEVEL` (`trace`|`debug`|`info`|`warn`|`error`|`fatal`|`silent`),
   default `info`; `opts.level` overrides. `silentLogger()` is the test no-op.
+- **Optional `opts.tap: LogTap`** (sprint-085): one extra multistream entry at the resolved level
+  (none when silent); stdout/file bytes are unchanged. `LogTap` (`logging/log-tap.ts`) exposes
+  `stream`, `attach(level)`/`effectiveLevel` (`"silent"` until attached), `onLine(listener)`
+  (`(rawLine, levelNum)`, returns remover), `backlog(minLevelNum, n)` (newest `n` at/above the
+  level, oldest first, raw strings) and `toLogLine(raw)` (wire `LogLine`). The ring holds 1000
+  lines; at tap time lines are redacted (whole-key match of `password|passwd|secret|token|
+  authorization|cookie|apikey|api_key|bearer|privatekey|secretkey`, so `tokens`/`inputTokens`
+  survive; `pi-studio.bearer.*` masked) and truncated to <= 8 KiB (`truncated: true`). Non-JSON
+  chunks become info lines. The tap never throws into pino.
 
 The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
 `DaemonOptions.logger`/`DevBootstrapOptions.logger`) and threads it through every subsystem:
@@ -1908,3 +1995,15 @@ npx vitest run packages/server
 
 Each subsystem has co-located `*.test.ts` files. Provider tests inject stub transports;
 persistence tests use temporary directories; WS tests use in-memory session stubs.
+
+**External-client fixtures, Layer B** (sprint-083): `daemon/external-fixtures-e2e.test.ts` boots one
+`startDevDaemon({port: 0, mockTurnDelayMs: SCENARIO_MOCK_TURN_DELAY_MS})`, runs the shared
+`test-support/external-fixtures-scenario.ts` and checks every fixture in
+`packages/protocol/fixtures/external-clients/` (`shapeMatches`: extra daemon keys allowed and
+reported, retyped/missing/literal-changed values fail, `volatile` pointers compare type only;
+client-input fixtures are sent with live ids and must get the paired response shape; a fixture with
+no scenario producer fails the coverage guard, and a manifest `exception` fixture must stay
+unproduced). A daemon change that alters a fixtured shape fails here: update the fixture per the
+bump + note rule (protocol AGENTS.md). `scripts/record-external-fixtures.ts` runs the same scenario
+and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, so run
+`npm run build:server` first. Not run in CI.

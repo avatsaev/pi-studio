@@ -8,7 +8,6 @@ import { startDevDaemon } from "./dev-bootstrap.js";
 
 const info = createDaemonRuntimeInfo({
   mode: "development",
-  listen: process.env.PI_STUDIO_LISTEN ?? "0.0.0.0:6767",
 });
 
 const hostnamesEnv = process.env.PI_STUDIO_HOSTNAMES;
@@ -28,7 +27,11 @@ const handle = startDevDaemon({
 
 const log = handle.logger;
 log.info(
-  { listen: `http://${info.listen.host}:${info.listen.port}`, serverId: handle.serverId, provider: "mock" },
+  {
+    listen: `http://${info.listen.host}:${info.listen.port}`,
+    serverId: handle.serverId,
+    provider: "mock",
+  },
   `pi-studio dev daemon listening on http://${info.listen.host}:${info.listen.port}`,
 );
 

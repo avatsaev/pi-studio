@@ -1,0 +1,17 @@
+{
+  "type": "agent_archived",
+  "direction": "server_to_client",
+  "description": "An agent was archived (soft delete).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId", "/message/archivedAt"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_archived",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "archivedAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+}

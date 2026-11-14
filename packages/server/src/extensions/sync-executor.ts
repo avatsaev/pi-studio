@@ -5,7 +5,7 @@ import treeKill from "tree-kill";
 import type { PersistedConfig } from "../config/daemon-config.js";
 import { resolveBundledPiCli } from "../agent/providers/pi/rpc-transport.js";
 import type { Logger } from "../logging/logger.js";
-import { SERVER_VERSION } from "./curated-packs.js";
+import { SERVER_VERSION } from "../version.js";
 import {
   effectivePiHomeKey,
   loadExtensionsState,

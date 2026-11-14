@@ -1,0 +1,321 @@
+{
+  "formatVersion": 1,
+  "messages": [
+    {
+      "file": "agent_archived.json",
+      "type": "agent_archived",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_deleted.json",
+      "type": "agent_deleted",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_session_stats_request.json",
+      "type": "agent_session_stats_request",
+      "direction": "client_to_server",
+      "response": "agent_session_stats_response.json"
+    },
+    {
+      "file": "agent_session_stats_response.json",
+      "type": "agent_session_stats_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_status.json",
+      "type": "agent_status",
+      "direction": "server_to_client",
+      "exception": "no daemon producer (schema only)"
+    },
+    {
+      "file": "agent_stream.assistant_message.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.compaction.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.error.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.reasoning.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.tool_call.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.tool_call.partial.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.turn_canceled.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.turn_completed.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.turn_failed.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.turn_started.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_stream.user_message.json",
+      "type": "agent_stream",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_timeline_reset.json",
+      "type": "agent_timeline_reset",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_list_request.json",
+      "type": "agent_ui_list_request",
+      "direction": "client_to_server",
+      "response": "agent_ui_list_response.json"
+    },
+    {
+      "file": "agent_ui_list_response.json",
+      "type": "agent_ui_list_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.confirm.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.editor.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.input.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.notify.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.select.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.setStatus.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_request.setStatus.removed.json",
+      "type": "agent_ui_request",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_resolved.aborted.json",
+      "type": "agent_ui_resolved",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_resolved.answered.json",
+      "type": "agent_ui_resolved",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_resolved.cancelled.json",
+      "type": "agent_ui_resolved",
+      "direction": "server_to_client",
+      "exception": "no daemon producer (open-string reason, schema only)"
+    },
+    {
+      "file": "agent_ui_resolved.timeout.json",
+      "type": "agent_ui_resolved",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_respond_request.confirm.json",
+      "type": "agent_ui_respond_request",
+      "direction": "client_to_server",
+      "response": "agent_ui_respond_response.ok.json"
+    },
+    {
+      "file": "agent_ui_respond_request.select.json",
+      "type": "agent_ui_respond_request",
+      "direction": "client_to_server",
+      "response": "agent_ui_respond_response.ok.json"
+    },
+    {
+      "file": "agent_ui_respond_response.not_found.json",
+      "type": "agent_ui_respond_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_ui_respond_response.ok.json",
+      "type": "agent_ui_respond_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_update.json",
+      "type": "agent_update",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "agent_update.model.json",
+      "type": "agent_update",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_log_lines.json",
+      "type": "daemon_log_lines",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_logs_subscribe_request.json",
+      "type": "daemon_logs_subscribe_request",
+      "direction": "client_to_server",
+      "response": "daemon_logs_subscribe_response.json"
+    },
+    {
+      "file": "daemon_logs_subscribe_response.json",
+      "type": "daemon_logs_subscribe_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_logs_unsubscribe_request.json",
+      "type": "daemon_logs_unsubscribe_request",
+      "direction": "client_to_server",
+      "response": "daemon_logs_unsubscribe_response.json"
+    },
+    {
+      "file": "daemon_logs_unsubscribe_response.json",
+      "type": "daemon_logs_unsubscribe_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_status_request.json",
+      "type": "daemon_status_request",
+      "direction": "client_to_server",
+      "response": "daemon_status_response.json"
+    },
+    {
+      "file": "daemon_status_response.json",
+      "type": "daemon_status_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_status_subscribe_request.json",
+      "type": "daemon_status_subscribe_request",
+      "direction": "client_to_server",
+      "response": "daemon_status_subscribe_response.json"
+    },
+    {
+      "file": "daemon_status_subscribe_response.json",
+      "type": "daemon_status_subscribe_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_status_unsubscribe_request.json",
+      "type": "daemon_status_unsubscribe_request",
+      "direction": "client_to_server",
+      "response": "daemon_status_unsubscribe_response.json"
+    },
+    {
+      "file": "daemon_status_unsubscribe_response.json",
+      "type": "daemon_status_unsubscribe_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "daemon_status_update.json",
+      "type": "daemon_status_update",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "fetch_agent_timeline_request.json",
+      "type": "fetch_agent_timeline_request",
+      "direction": "client_to_server",
+      "response": "fetch_agent_timeline_response.json"
+    },
+    {
+      "file": "fetch_agent_timeline_response.json",
+      "type": "fetch_agent_timeline_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "health.json",
+      "type": "health",
+      "direction": "http"
+    },
+    {
+      "file": "hello.json",
+      "type": "hello",
+      "direction": "client_to_server",
+      "response": "status.server_info.json"
+    },
+    {
+      "file": "interrupt_agent.json",
+      "type": "interrupt_agent",
+      "direction": "client_to_server",
+      "response": "interrupt_response.json"
+    },
+    {
+      "file": "interrupt_response.json",
+      "type": "interrupt_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "list_agents_request.json",
+      "type": "list_agents_request",
+      "direction": "client_to_server",
+      "response": "list_agents_response.json"
+    },
+    {
+      "file": "list_agents_response.json",
+      "type": "list_agents_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "ping.json",
+      "type": "ping",
+      "direction": "client_to_server",
+      "response": "pong.json"
+    },
+    {
+      "file": "pong.json",
+      "type": "pong",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "rpc_error.json",
+      "type": "rpc_error",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "status.server_info.json",
+      "type": "status",
+      "direction": "server_to_client"
+    }
+  ]
+}

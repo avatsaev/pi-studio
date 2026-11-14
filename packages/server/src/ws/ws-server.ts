@@ -109,7 +109,10 @@ export function createWebSocketServer(
       if (session === null) {
         // First frame must be a valid JSON `hello`.
         if (isBinary) {
-          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: binary first frame (expected hello)");
+          deps.logger?.warn(
+            { remoteAddress: _req.socket.remoteAddress },
+            "ws handshake failed: binary first frame (expected hello)",
+          );
           ws.close(1008, "expected hello");
           return;
         }
@@ -117,13 +120,19 @@ export function createWebSocketServer(
         try {
           parsed = JSON.parse(data.toString("utf8"));
         } catch {
-          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: invalid hello JSON");
+          deps.logger?.warn(
+            { remoteAddress: _req.socket.remoteAddress },
+            "ws handshake failed: invalid hello JSON",
+          );
           ws.close(1008, "invalid hello");
           return;
         }
         const hello = helloSchema.safeParse(parsed);
         if (!hello.success) {
-          deps.logger?.warn({ remoteAddress: _req.socket.remoteAddress }, "ws handshake failed: first frame not a valid hello");
+          deps.logger?.warn(
+            { remoteAddress: _req.socket.remoteAddress },
+            "ws handshake failed: first frame not a valid hello",
+          );
           ws.close(1008, "first frame must be hello");
           return;
         }
@@ -139,6 +148,8 @@ export function createWebSocketServer(
           clientType: hello.data.clientType,
           capabilities,
           socket: ws,
+          appVersion: hello.data.appVersion,
+          remoteAddress: _req.socket.remoteAddress,
         });
         sessions.add(session);
 

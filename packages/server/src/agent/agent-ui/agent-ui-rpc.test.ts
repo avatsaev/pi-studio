@@ -39,7 +39,7 @@ function lastMessage(session: Session & FakeSession): Record<string, unknown> {
 }
 
 // The service always hands `broadcast` a full `{ type: "session", message }` envelope (same
-// convention as `PermissionService`/`bootstrap.ts`'s real `broadcast`) — forward it verbatim,
+// convention as `bootstrap.ts`'s real `broadcast`) — forward it verbatim,
 // never re-wrap it.
 function broadcast(sessions: Iterable<Session>, envelope: unknown): void {
   for (const s of sessions) s.send(envelope);

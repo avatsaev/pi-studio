@@ -40,6 +40,12 @@ src/
   provider-manifest.test.ts
   session-messages.test.ts
   validation.test.ts
+  external-fixtures.test.ts               Layer A of the external-client fixture contract test (sprint-083).
+scripts/                                  Not compiled, not published.
+  external-fixtures-support.ts            Loaders, JSON-pointer access, shape signatures, breaking-change guard, secret scan.
+  update-fixture-signatures.ts            `npm run fixtures:update` — regenerates fixtures/external-clients/.signatures.json.
+fixtures/external-clients/                Published external-client wire fixtures (see below).
+  README.md  CHANGELOG.md  manifest.json  .signatures.json  <type>[.<variant>].json
 ```
 
 ---
@@ -71,7 +77,7 @@ src/
 | `toolCallDetailSchema` / `ToolCallDetail` | discriminated union | Tool detail normalized across providers (shell/read/edit/write/search/fetch/task) |
 | `fetchAgentTimelineRequestSchema` | schema | Paged timeline fetch RPC |
 | `fetchAgentTimelineResponseSchema` / `FetchAgentTimelineResponse` | schema + type | Paged timeline response (items, cursors, seq ranges) |
-| `agentPermissionRequestSchema` | schema | Daemon→Client tool-call permission request |
+| `agentPermissionRequestSchema` | schema | **Retired (sprint-086), unread** — Daemon→Client tool-call permission request |
 | `agentPermissionResolvedSchema` | schema | Broadcast: a permission request was resolved (by any client) |
 | `respondToPermissionRequestSchema` | schema | Client→Daemon permission response (dotted name `agent.permission.respond.request`) |
 | `respondToPermissionResponseSchema` | schema | Response to the above |
@@ -114,6 +120,9 @@ existed) and no client ever consumed it.
 | `viewerSettingsGetRequestSchema` / `ViewerSettingsGetRequest`, `viewerSettingsGetResponseSchema` / `ViewerSettingsGetResponse` | schema + type | `viewer_settings_get_request` — fetches the current document; response `{ payload: { settings } }` |
 | `viewerSettingsPatchEntrySchema` / `ViewerSettingsPatchEntry`, `viewerSettingsSetRequestSchema` / `ViewerSettingsSetRequest`, `viewerSettingsSetResponseSchema` / `ViewerSettingsSetResponse` | schema + type | `viewer_settings_set_request` (`patch: Record<id, { enabled?, config? }>`) — both patch-entry fields optional (a config-only patch need not restate `enabled`); response `payload.settings` is the EFFECTIVE document after the merge, not an echo of the patch |
 | `viewerSettingsUpdateSchema` / `ViewerSettingsUpdate` | schema + type | `viewer_settings_update` — daemon→client broadcast, no `requestId`; a **real `sessionMessageSchema` union member**, not a passthrough push (see note below the table) |
+| `daemonClientInfoSchema` / `DaemonClientInfo`, `daemonStatusSchema` / `DaemonStatus` | schema + type | Daemon status payload (sprint-084): process facts, `agentsByStatus`, connected `clients[]` (`transport: "direct" \| "relay"`, strict enum); both `.passthrough()`, fields only ever added |
+| `daemonStatusRequestSchema`, `daemonStatusResponseSchema`, `daemonStatusSubscribeRequestSchema`, `daemonStatusSubscribeResponseSchema` (`{ok:true,intervalMs,status}` \| `{ok:false,error}`), `daemonStatusUnsubscribeRequestSchema`, `daemonStatusUnsubscribeResponseSchema`, `daemonStatusUpdateSchema` (flat push `{payload}`, no `requestId`) / matching `Daemon*` types | schema + type | `daemon_status_*` family, real union members. Gated by `daemonObservability` (shared with the logs family); `daemonStatusRpc` is untouched and handler-less |
+| `logLineSchema` / `LogLine` (`{time, level, msg, fields?}`, `level` an open string), `daemonLogsSubscribeRequestSchema` (`minLevel`/`tail` deliberately loose: validated daemon-side as `invalid_level`/`invalid_tail`), `daemonLogsSubscribeResponseSchema` (`{ok:true,minLevel,effectiveLevel,lines,dropped}` \| `{ok:false,error}`), `daemonLogsUnsubscribeRequestSchema`, `daemonLogsUnsubscribeResponseSchema`, `daemonLogLinesSchema` (flat push `{lines,dropped}`, no `requestId`) / matching types | schema + type | `daemon_logs_*` / `daemon_log_lines` family (sprint-085), real union members, all `.passthrough()`. Gated by `daemonObservability` |
 | `agentUiPendingRequestSchema` / `AgentUiPendingRequest` | schema + type | One pending extension-UI dialog: `requestId` (daemon-minted), `agentId`, `method`, `expectsResponse`, `payload`, optional `surfaceKey`/`timeoutMs`, `createdAt` |
 | `agentUiSurfaceSchema` / `AgentUiSurface` | schema + type | One retained, last-value-wins extension-UI surface (status/widget/title): `agentId`, `method`, `surfaceKey`, `payload`, `updatedAt` |
 | `agentUiRequestSchema` / `AgentUiRequest` | schema + type | `agent_ui_request` — daemon→client broadcast, one per provider UI event (dialog or fire-and-forget); `payload` is opaque, never interpreted by the daemon |
@@ -203,7 +212,7 @@ the envelope fields (`requestId`, `agentId`, `method`, `expectsResponse`, option
 | Export | Description |
 |--------|-------------|
 | `CLIENT_CAPS` | `custom_mode_icons`, `reasoning_merge_enum`, `terminal_reflowable_snapshot`, `inline_image_markdown`, `file_link_markdown`, `mermaid_diagram_markdown` — flags the client advertises in `hello.capabilities` |
-| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync`, `compactionEvents`, `skills`, `agentTodos` — features the daemon advertises in `server_info.features` (`compactionEvents`: the daemon emits `compaction` stream events for manual and automatic compactions and rejects `agent_compact_request` with `busy` while the agent is running or already compacting; `agentTodos` (sprint-079): gates the `agent_todos_*` family; `skills` (sprint-075/task-001): gates the `skills_*` RPC family — list + toggle Agent Skills, see `swe/architecture/pi-resource-management.md`) |
+| `SERVER_FEATURES` | `providersSnapshot`, `checkoutGithubSetAutoMerge`, `daemonStatusRpc`, `terminal-restore-modes`, `checkoutRefresh`, `extensionPacks`, `providerAuth`, `extensionUi`, `thinkingLevels`, `viewerSettings`, `forkTimelineSync`, `compactionEvents`, `skills`, `agentTodos`, `daemonObservability` — features the daemon advertises in `server_info.features` (`compactionEvents`: the daemon emits `compaction` stream events for manual and automatic compactions and rejects `agent_compact_request` with `busy` while the agent is running or already compacting; `daemonObservability` (sprint-085): gates the read-only `daemon_status_*` and `daemon_logs_*` / `daemon_log_lines` families (`daemonStatusRpc` stays advertised with no handler); `agentTodos` (sprint-079): gates the `agent_todos_*` family; `skills` (sprint-075/task-001): gates the `skills_*` RPC family — list + toggle Agent Skills, see `swe/architecture/pi-resource-management.md`) |
 | `supports(caps, flag)` | Returns `true` iff `flag` is in `caps` (handles Set, array, object, undefined) |
 
 ### `binary-frames/terminal-stream-protocol.ts`
@@ -304,6 +313,26 @@ consumer's own job, not this classifier's.
   `dev-bootstrap.ts`) and client (`use-session-restore.ts`) handle it as an untyped
   `Record<string, unknown>` with a local TS interface cast. Don't assume every wire message is
   covered by this package; grep the actual handler registration before assuming a schema exists.
+
+---
+
+## External-client fixtures (`fixtures/external-clients/`) — a published contract
+
+One canonical JSON frame per wire message an external client (first the Rust dashboard) consumes
+or sends, listed in `manifest.json` (`formatVersion`, per-file `type`/`direction`, `response` for
+requests, `exception` for schema-only fixtures no daemon path emits). The directory path is part of
+the contract. **A fixture's shape is the contract for clients outside this repo**:
+
+- Additive change (new optional field / variant / message): edit or add the fixture, nothing else.
+- Breaking change (field removed/renamed/retyped, variant removed, `requiresFeature` changed): edit
+  the fixture in the same commit, bump `formatVersion`, add a dated `CHANGELOG.md` entry naming the
+  file, and add a `COMPAT(...)` note if an old daemon still emits the old shape. The signature guard
+  in `external-fixtures.test.ts` fails otherwise; `npm run fixtures:update -w @av-pi-studio/protocol`
+  regenerates `.signatures.json` and itself refuses an unacknowledged breaking change.
+- Layer A (`src/external-fixtures.test.ts`, no daemon): manifest ↔ directory equality, fixture
+  format, Zod validation where a schema exists, secret scan, signature guard. Layer B is
+  `packages/server/src/daemon/external-fixtures-e2e.test.ts`. `README.md` in the directory has the
+  full format and the how-to-add steps. The tool-permission family is retired and has no fixtures.
 
 ---
 

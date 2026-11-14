@@ -2,7 +2,12 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
 import type { AgentClient } from "../../provider-contract.js";
-import { MOCK_CAPABILITIES, MockAgentClient, MockAgentSession } from "./mock-provider.js";
+import {
+  MOCK_CAPABILITIES,
+  MOCK_REBIND_ENTRY_ID,
+  MockAgentClient,
+  MockAgentSession,
+} from "./mock-provider.js";
 
 function collect(session: { subscribe: (cb: (e: AgentStreamEvent) => void) => void }): {
   events: AgentStreamEvent[];
@@ -573,5 +578,50 @@ describe("#tool scenario (sprint-058, task-004)", () => {
   it("an unrecognised #tool recipe shows help", async () => {
     const { events } = await toolEvents("#tool banana");
     expect(events.some((e) => e.kind === "tool_call")).toBe(false);
+  });
+});
+
+describe("mock provider — #stream recipes and fork rebind (sprint-083/task-002)", () => {
+  async function streamKinds(prompt: string): Promise<AgentStreamEvent[]> {
+    const session = await makeMockSession();
+    const { events } = collect(session);
+    await session.run(prompt);
+    return events;
+  }
+
+  it("#stream reasoning emits a reasoning event and completes", async () => {
+    const events = await streamKinds("#stream reasoning");
+    expect(events.map((e) => e.kind)).toEqual([
+      "turn_started",
+      "reasoning",
+      "reasoning",
+      "assistant_message",
+      "turn_completed",
+    ]);
+  });
+
+  it("#stream fail ends in turn_failed", async () => {
+    const events = await streamKinds("#stream fail");
+    expect(events.map((e) => e.kind)).toEqual(["turn_started", "turn_failed"]);
+  });
+
+  it("#stream error emits error then turn_failed", async () => {
+    const events = await streamKinds("#stream error");
+    expect(events.map((e) => e.kind)).toEqual(["turn_started", "error", "turn_failed"]);
+  });
+
+  it("#stream help lists the recipes", async () => {
+    const events = await streamKinds("#stream help");
+    const message = events.find((e) => e.kind === "assistant_message");
+    expect(message && "text" in message ? message.text : "").toContain("#stream reasoning");
+  });
+
+  it("fork(MOCK_REBIND_ENTRY_ID) changes the persisted native handle; other entries do not", async () => {
+    const session = await makeMockSession();
+    const before = session.describePersistence()?.nativeHandle;
+    await session.fork("e1");
+    expect(session.describePersistence()?.nativeHandle).toBe(before);
+    await session.fork(MOCK_REBIND_ENTRY_ID);
+    expect(session.describePersistence()?.nativeHandle).not.toBe(before);
   });
 });

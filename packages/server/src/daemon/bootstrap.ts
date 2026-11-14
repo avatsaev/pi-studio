@@ -1,7 +1,7 @@
 /**
  * Production daemon bootstrap — the REAL daemon: loads `PI_STUDIO_HOME/config.json`, resolves the
  * real provider (`pi` spawns `pi --mode rpc`), persists agents to disk, and registers the full RPC
- * surface (agents/sessions/timeline/permissions, projects/workspaces/open-project, git status/diff/
+ * surface (agents/sessions/timeline, projects/workspaces/open-project, git status/diff/
  * ops + GitHub PR + worktrees, file explorer + transfer, service proxy, terminals + binary frames,
  * schedules/chat/loops, providers). Mirrors `dev-bootstrap.ts` but is production-grade.
  *
@@ -16,6 +16,7 @@ import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
 import nacl from "tweetnacl";
 
+import { SERVER_VERSION } from "../version.js";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
@@ -27,6 +28,7 @@ import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.j
 import { expandHome } from "../files/resolve-path.js";
 
 import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
+import { LogTap } from "../logging/log-tap.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
@@ -37,7 +39,6 @@ import { AgentService, getTimeline } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
 import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
-import { PermissionService } from "../agent/permissions.js";
 import { ProviderRegistry, resolveProviderClient } from "../agent/provider-registry.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import { resolvePiAuthPaths } from "../agent/pi-home.js";
@@ -78,6 +79,10 @@ import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
+import { registerDaemonLogsHandlers } from "../observability/daemon-logs-rpc.js";
+import { DaemonLogsService } from "../observability/daemon-logs-service.js";
+import { registerDaemonStatusHandlers } from "../observability/daemon-status-rpc.js";
+import { DaemonStatusService } from "../observability/daemon-status-service.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { ResourceService } from "../resources/resource-service.js";
 import { registerSkillsHandlers } from "../resources/skills-rpc.js";
@@ -88,11 +93,15 @@ import {
   serverInfoPayloadSchema,
   statusSchema,
 } from "@av-pi-studio/protocol";
+import { parseDaemonListen } from "./index.js";
+import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
 export interface DaemonOptions {
-  host: string;
-  port: number;
+  /** Bind host. Defaults to the host of `config.daemon.listen` (`PI_STUDIO_LISTEN` → config → loopback). */
+  host?: string;
+  /** Bind port. Defaults to the port of `config.daemon.listen`. */
+  port?: number;
   /** Overrides `PI_STUDIO_HOME` (defaults to `~/.pi-studio`). */
   home?: string;
   /** Overrides the config path (defaults to `<home>/config.json`). */
@@ -104,6 +113,12 @@ export interface DaemonOptions {
    * `PI_STUDIO_LOG_LEVEL` (default `info`). Tests inject `silentLogger()`.
    */
   logger?: Logger;
+  /**
+   * Live log-stream tap (daemon log streaming). Defaults to a fresh `LogTap` attached to the
+   * logger the bootstrap builds itself; when `logger` is injected the caller must have passed the
+   * same tap to `createLogger({tap})` (an injected logger without it streams nothing).
+   */
+  logTap?: LogTap;
   /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
    *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
   extensionsInstallSpawn?: InstallSpawn;
@@ -123,6 +138,10 @@ export interface DaemonHandle {
   home: string;
   provider: string;
   logger: Logger;
+  /** The address actually bound. */
+  listen: { host: string; port: number };
+  /** True when bound beyond loopback with no password configured (a warning was logged). */
+  exposedWithoutPassword: boolean;
   close(): Promise<void>;
 }
 
@@ -234,9 +253,20 @@ const lastAssistantText = (agentId: string): string | undefined => {
 export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const home = resolveHome(opts);
   mkdirSync(home, { recursive: true });
-  const logger = opts.logger ?? createDaemonLogger(home);
+  const logTap = opts.logTap ?? new LogTap();
+  const logger = opts.logger ?? createDaemonLogger(home, { tap: logTap });
   const configPath = opts.configPath ?? join(home, "config.json");
   const config: PersistedConfig = loadConfig(configPath, process.env);
+  let listen: { host: string; port: number };
+  try {
+    const configured = parseDaemonListen(config.daemon.listen);
+    listen = { host: opts.host ?? configured.host, port: opts.port ?? configured.port };
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, "invalid listen address");
+    process.exitCode = 1;
+    opts.onFatalError?.(err as NodeJS.ErrnoException);
+    throw err;
+  }
   const serverId = resolveServerId(home, opts.serverId);
   const daemonKeypairB64 = resolveDaemonKeypair(home);
   writePidLock(home);
@@ -289,6 +319,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
   });
 
+  // ── Daemon status (features/daemon-status-rpc.md) — reads agents lazily through `manager`.
+  const daemonStatusService = new DaemonStatusService({
+    listAgents: () => manager.list(),
+    getActiveSessions,
+    send: (session, envelope) => session.send(envelope),
+    logger: logger.child({ component: "daemon-status" }),
+  });
+
+  // ── Daemon log streaming (features/daemon-log-streaming.md)
+  const daemonLogsService = new DaemonLogsService({
+    tap: logTap,
+    send: (session, envelope) => session.send(envelope),
+  });
+
   // ── Disk-persisted agent manager (recovers agents on boot) ───────────────────
   const manager = new AgentManager({
     home,
@@ -317,7 +361,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   const registry = new HandlerRegistry(logger);
 
-  // ── Core agent/session/timeline/permission handlers ──────────────────────────
+  // ── Core agent/session/timeline handlers ──────────────────────────
   const agentService = new AgentService({
     manager,
     resolveClient,
@@ -349,11 +393,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   registerTimelineHandler(registry, { manager, resolveClient });
 
-  const permissionService = new PermissionService({ manager, broadcast });
-  permissionService.registerHandlers(registry, getActiveSessions);
-
   registerAgentUiHandlers(registry, { service: agentUiService, logger });
   registerAgentTodosHandlers(registry, { service: agentTodosService });
+  registerDaemonStatusHandlers(registry, { service: daemonStatusService });
+  registerDaemonLogsHandlers(registry, { service: daemonLogsService });
 
   // ── Directory listing (agents) ────────────────────────────────────────────────
   registry.register("list_agents_request", (ctx) => ({
@@ -730,7 +773,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
     hostname: opts.host,
-    version: "1.0.0",
+    version: SERVER_VERSION,
     auth,
     logger,
     hostCheck: (h) => hostChecker(h),
@@ -740,7 +783,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
     },
-    onSessionClose: (session) => subscriptions.disposeSession(session),
+    onSessionClose: (session) => {
+      subscriptions.disposeSession(session);
+      daemonStatusService.disposeSession(session);
+      daemonLogsService.disposeSession(session);
+    },
     onMessage: (session, frame) => {
       if ("text" in frame) {
         void routeTextFrame(session, frame.text, registry);
@@ -775,7 +822,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     let relayReplyBinary: ((bytes: Uint8Array) => void) | null = null;
 
     const resetRelaySession = (): void => {
-      if (relaySession) relaySessions.delete(relaySession);
+      if (relaySession) {
+        relaySessions.delete(relaySession);
+        // Same per-session disposal a direct socket close runs (`onSessionClose` above): without
+        // it a replaced relay peer's subscriptions would leak until a failed send.
+        subscriptions.disposeSession(relaySession);
+        daemonStatusService.disposeSession(relaySession);
+        daemonLogsService.disposeSession(relaySession);
+      }
       relaySession = null;
     };
 
@@ -809,6 +863,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               clientId: hello.data.clientId,
               clientType: hello.data.clientType,
               capabilities,
+              appVersion: hello.data.appVersion,
+              transport: "relay",
               // `Session.send()` calls `socket.send(jsonString)`; `Session.sendBinary()` calls
               // `socket.send(bytes)` — same method, discriminated by argument type here so both
               // funnel to the matching relay reply callback (text `e2ee_app` vs binary `e2ee_bin`).
@@ -834,7 +890,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               status: "server_info",
               serverId,
               hostname: opts.host,
-              version: "1.0.0",
+              version: SERVER_VERSION,
               // Same value the direct-WS handshake reports (`ws/ws-server.ts`): the DAEMON's home
               // dir, which a relay-remote client (different machine, possibly different OS) has no
               // other way to learn.
@@ -909,7 +965,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // process entry point, which passes `onFatalError` (see `daemon/main.ts`).
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      logger.error({ host: opts.host, port: opts.port }, "cannot bind — address already in use");
+      logger.error(
+        { host: listen.host, port: listen.port },
+        "cannot bind — address already in use",
+      );
     } else {
       logger.error({ err: err.message }, "http server error");
     }
@@ -917,8 +976,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     void wsHandle.close().finally(() => opts.onFatalError?.(err));
   });
 
-  httpServer.listen(opts.port, opts.host);
-  logger.info({ host: opts.host, port: opts.port }, "http/ws server accepting connections");
+  httpServer.listen(listen.port, listen.host);
+  logger.info({ host: listen.host, port: listen.port }, "http/ws server accepting connections");
+  const exposedWithoutPassword = !isLoopbackHost(listen.host) && !passwordHash;
+  if (exposedWithoutPassword)
+    logger.warn({ host: listen.host, port: listen.port }, UNPROTECTED_BIND_WARNING);
 
   // Fire-and-forget: never delays daemon readiness, never blocks the return below. Mirrors the
   // agent-recovery block above, but deliberately kicked off AFTER listen() rather than before —
@@ -936,10 +998,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     home,
     provider: "pi",
     logger,
+    listen,
+    exposedWithoutPassword,
     close: async () => {
       logger.info("daemon shutting down");
       terminalManager.killAll();
       fileWatchService.close();
+      daemonStatusService.dispose();
+      daemonLogsService.dispose();
       relayHandle?.close();
       await wsHandle.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

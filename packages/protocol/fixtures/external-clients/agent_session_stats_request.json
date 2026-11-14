@@ -1,0 +1,17 @@
+{
+  "type": "agent_session_stats_request",
+  "direction": "client_to_server",
+  "description": "Poll session statistics for one live agent.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_session_stats_request",
+      "requestId": "req-1",
+      "agentId": "agent-1"
+    }
+  }
+}

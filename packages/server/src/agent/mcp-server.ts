@@ -22,7 +22,6 @@ import { PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
  *     `appendSystemPrompt`, so no agent is ever handed a `--mcp-config`.
  * Sprint-010/task-001 built this registry and deferred the transport as "a bootstrap step"; that
  * step was never taken. Consequence: every tool here is dormant — including
- * `list_pending_permissions`/`respond_to_permission` (sprint-010) and
  * `list_pending_ui_requests`/`respond_to_ui_request` (sprint-066/task-005) — and the
  * agent-to-agent orchestration in `features/subagents.md` has never run.
  *
@@ -61,7 +60,7 @@ interface RegisteredTool {
   handler: McpToolHandler<unknown>;
 }
 
-/** Backend the orchestration tools route to (AgentManager / permission / provider services). */
+/** Backend the orchestration tools route to (AgentManager / provider services). */
 export interface McpBackend {
   /** Create an async child agent. Returns its id. */
   createAgent(input: {
@@ -82,14 +81,9 @@ export interface McpBackend {
   cancelAgent?(agentId: string): Promise<void>;
   killAgent?(agentId: string): Promise<void>;
   archiveAgent(agentId: string): Promise<void>;
-  listPendingPermissions(
-    agentId?: string,
-  ): Array<{ requestId: string; agentId: string; toolName?: string }>;
-  respondToPermission(requestId: string, response: unknown): { resolved: boolean };
   /** Extension UI (features/extension-ui-rpc.md § MCP mirror) — closes the deadlock where an
-   *  orchestrating agent can't answer a child's extension questionnaire. Mirrors the permission
-   *  pair's shape; its own error vocabulary ("unknown_ui_request"/"unsupported") is intentionally
-   *  distinct — see the tool registration below for why. */
+   *  orchestrating agent can't answer a child's extension questionnaire. Its error vocabulary
+   *  ("unknown_ui_request"/"unsupported") is documented at the tool registration below. */
   listPendingUiRequests(agentId?: string): AgentUiPendingRequest[];
   respondToUiRequest(
     requestId: string,
@@ -275,26 +269,9 @@ export class McpServer {
       return { ok: true };
     });
 
-    // Permissions.
-    this.registerTool(
-      "list_pending_permissions",
-      z.object({ agentId: z.string().optional() }),
-      (args) => ({ ok: true, permissions: b.listPendingPermissions(args.agentId) }),
-    );
-
-    this.registerTool(
-      "respond_to_permission",
-      z.object({ requestId: z.string(), response: z.unknown() }),
-      (args) => {
-        const result = b.respondToPermission(args.requestId, args.response);
-        return result.resolved ? { ok: true } : { ok: false, error: "unknown_permission" };
-      },
-    );
-
     // Extension UI (features/extension-ui-rpc.md § MCP mirror). Error vocabulary intentionally
-    // differs from `respond_to_permission`'s `unknown_permission`/the WS side's `not_found`: a
-    // `resolved:false` with no `error` (never happens for this backend) and an `unsupported`
-    // result are distinct outcomes a caller must not conflate with "unknown" — collapsing a live
+    // differs from the WS side's `not_found`: a `resolved:false` with no `error` (never happens for
+    // this backend) and an `unsupported` result are distinct outcomes a caller must not conflate with "unknown" — collapsing a live
     // dialog on a provider without `respondToUi` into `unknown_ui_request` would report it as
     // gone when it is actually still answerable over WS by a human.
     this.registerTool(

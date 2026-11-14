@@ -26,6 +26,7 @@ import {
 } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { startDaemon, type DaemonHandle } from "./bootstrap.js";
 import { startDevDaemon } from "./dev-bootstrap.js";
 import { createLogger, silentLogger } from "../logging/logger.js";
@@ -225,6 +226,34 @@ describe("production daemon bootstrap", () => {
     for (const probe of probes) {
       const res = await client.rpc(probe);
       expect(res.type, `handler for ${probe.type}`).not.toBe("rpc_error");
+    }
+
+    client.close();
+  }, 15000);
+
+  it("answers the retired permission family with unknown_message_type (sprint-086)", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+
+    const retired: Record<string, unknown>[] = [
+      {
+        type: "agent.permission.respond.request",
+        agentId: "a1",
+        permissionRequestId: "p1",
+        response: "allow",
+      },
+      {
+        type: "respond_to_permission",
+        agentId: "a1",
+        permissionRequestId: "p1",
+        response: "allow",
+      },
+    ];
+    for (const probe of retired) {
+      const res = await client.rpc(probe);
+      expect(res.type, `retired ${probe.type}`).toBe("rpc_error");
+      expect(res.code, `retired ${probe.type}`).toBe("unknown_message_type");
     }
 
     client.close();
@@ -1517,6 +1546,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     // not be silently dropped by `routeTextFrame`'s `default:` case for unrecognized top-level types.
     expect(info.status).toBe("server_info");
     expect(info.serverId).toBe(handle.serverId);
+    expect((info.features as Record<string, boolean>).daemonObservability).toBe(true);
 
     // A real RPC round-trips through the daemon's full `HandlerRegistry` surface over the same
     // encrypted channel, proving the synthetic relay `Session` persists across messages (the
@@ -1540,6 +1570,102 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     handle = undefined;
     await relay.close();
   }, 15000);
+
+  it("relay Session carries relay metadata, and a replaced relay peer disposes its subscriptions (sprint-084/task-003)", async () => {
+    const disposed: Array<{
+      transport: string;
+      appVersion: string | undefined;
+      remoteAddress: string | undefined;
+    }> = [];
+    const spy = vi
+      .spyOn(SessionSubscriptions.prototype, "disposeSession")
+      .mockImplementation((session) => {
+        disposed.push({
+          transport: session.transport,
+          appVersion: session.appVersion,
+          remoteAddress: session.remoteAddress,
+        });
+      });
+    try {
+      const relay = await startFakeRelay();
+      const home = mkdtempSync(join(tmpdir(), "pi-studio-relay-meta-e2e-"));
+      writeFileSync(
+        join(home, "config.json"),
+        JSON.stringify({
+          daemon: {
+            relay: { enabled: true, endpoint: `127.0.0.1:${relay.port}`, useTls: false },
+            extensions: { autoSync: false },
+          },
+        }),
+      );
+      handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+      await listeningPort(handle.httpServer);
+      const daemonPublicKeyB64 = JSON.parse(readFileSync(join(home, "daemon-keypair.json"), "utf8"))
+        .publicKeyB64 as string;
+      const sessionId = await waitForSessionId(relay);
+
+      const connectPeer = async (appVersion: string) => {
+        const socket = await relay.connectClient(sessionId);
+        const handlers: Array<(data: string) => void> = [];
+        socket.on("message", (data: Buffer, isBinary: boolean) => {
+          if (!isBinary) for (const h of handlers) h(data.toString("utf8"));
+        });
+        const ready = Promise.withResolvers<void>();
+        const info = Promise.withResolvers<void>();
+        const channel = createClientChannel({
+          transport: {
+            send: (data) => socket.send(data),
+            onMessage: (h) => handlers.push(h),
+            onClose: () => {},
+            close: () => socket.close(),
+          },
+          attachment: { sessionId },
+          daemonPublicKey: decodeBase64(daemonPublicKeyB64),
+          events: {
+            onReady: () => ready.resolve(),
+            onMessage: (plaintext) => {
+              if ((JSON.parse(plaintext) as { type?: string }).type === "status") info.resolve();
+            },
+            onAuthError: (err) => ready.reject(err instanceof Error ? err : new Error(String(err))),
+          },
+        });
+        await ready.promise;
+        channel.send(
+          JSON.stringify({
+            type: "hello",
+            clientId: `relay-meta-${appVersion}`,
+            clientType: "cli",
+            protocolVersion: 1,
+            appVersion,
+          }),
+        );
+        await info.promise;
+        return { channel, socket };
+      };
+
+      const first = await connectPeer("first/1");
+      expect(disposed).toHaveLength(0);
+      // A second peer on the same relay session id replaces the first ("last hello wins"): the
+      // daemon re-handshakes, which must dispose the replaced Session's subscriptions.
+      const second = await connectPeer("second/2");
+      await vi.waitFor(() => expect(disposed.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
+      expect(disposed[0]).toEqual({
+        transport: "relay",
+        appVersion: "first/1",
+        remoteAddress: undefined,
+      });
+
+      first.channel.close();
+      second.channel.close();
+      first.socket.close();
+      second.socket.close();
+      await handle?.close();
+      handle = undefined;
+      await relay.close();
+    } finally {
+      spy.mockRestore();
+    }
+  }, 20000);
 
   it("terminal create/subscribe/input/output round-trips as encrypted BINARY frames over the same relay channel", async () => {
     // Regression for the binary-over-relay gap: `sendBinary()` used to throw unconditionally on

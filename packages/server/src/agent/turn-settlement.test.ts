@@ -91,14 +91,6 @@ class RetryAgentSession implements AgentSession {
     return Promise.resolve();
   }
 
-  getPendingPermissions() {
-    return [];
-  }
-
-  respondToPermission(): Promise<void> {
-    return Promise.resolve();
-  }
-
   describePersistence() {
     return null;
   }

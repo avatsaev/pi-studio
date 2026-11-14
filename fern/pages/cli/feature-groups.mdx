@@ -1,9 +1,9 @@
 ---
 title: Feature Groups
-subtitle: Chat rooms, terminals, loops, schedules, permissions, providers, and worktrees.
+subtitle: Chat rooms, terminals, loops, schedules, providers, and worktrees.
 ---
 
-`chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`, and `worktree` are sibling
+`chat`, `terminal`, `loop`, `schedule`, `provider`, and `worktree` are sibling
 top-level command groups — there is no `feature` wrapper, and no `project` group (opening a
 project is the top-level `pi-studio <path>` command, see [Quickstart](/quickstart#target-a-remote-daemon)).
 
@@ -13,7 +13,6 @@ project is the top-level `pi-studio <path>` command, see [Quickstart](/quickstar
 | `terminal` | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>` |
 | `loop` | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>` |
 | `schedule` | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` |
-| `permit` | `ls`, `allow <permissionRequestId>`, `deny <permissionRequestId>` |
 | `provider` | `ls`, `models <providerId>` |
 | `worktree` | `create <name> [--workspace]`, `ls`, `archive <name>` |
 

@@ -1,0 +1,55 @@
+{
+  "type": "fetch_agent_timeline_response",
+  "direction": "server_to_client",
+  "description": "One page of timeline items (items hold one representative element).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": [
+    "/message/requestId",
+    "/message/agentId",
+    "/message/items/0/sourceSeq",
+    "/message/items/0/timestamp",
+    "/message/items/0/event/messageId",
+    "/message/seqStart",
+    "/message/seqEnd",
+    "/message/sourceSeqRanges/0/start",
+    "/message/sourceSeqRanges/0/end",
+    "/message/startCursor",
+    "/message/endCursor",
+    "/message/collapsed",
+    "/message/hasNewer"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "fetch_agent_timeline_response",
+      "requestId": "req-1",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "items": [
+        {
+          "kind": "other",
+          "sourceSeq": 0,
+          "timestamp": "2026-01-01T00:00:00.000Z",
+          "event": {
+            "kind": "user_message",
+            "messageId": "00000000-0000-4000-8000-000000000002",
+            "text": "hello"
+          }
+        }
+      ],
+      "seqStart": 0,
+      "seqEnd": 27,
+      "sourceSeqRanges": [
+        {
+          "start": 0,
+          "end": 27
+        }
+      ],
+      "collapsed": true,
+      "hasNewer": false,
+      "startCursor": "0",
+      "endCursor": "27"
+    }
+  }
+}

@@ -29,8 +29,6 @@ function makeBackend(overrides: Partial<McpBackend> = {}): {
     archiveAgent: async (id) => {
       archived.push(id);
     },
-    listPendingPermissions: () => [{ requestId: "p1", agentId: "a1", toolName: "bash" }],
-    respondToPermission: (requestId) => ({ resolved: requestId === "p1" }),
     listPendingUiRequests: () => [
       {
         requestId: "u1",
@@ -109,22 +107,6 @@ describe("wait_for_agent", () => {
     const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
     const result = await mcp.callTool("wait_for_agent", { agentId: "a1", timeoutMs: 50 });
     expect(result.timedOut).toBe(true);
-  });
-});
-
-describe("respond_to_permission", () => {
-  it("resolves a pending permission, errors on unknown", async () => {
-    const { backend } = makeBackend();
-    const mcp = new McpServer({ backend, enabled: true, injectIntoAgents: false, home });
-    expect(
-      (await mcp.callTool("respond_to_permission", { requestId: "p1", response: "allow" })).ok,
-    ).toBe(true);
-    const unknown = await mcp.callTool("respond_to_permission", {
-      requestId: "nope",
-      response: "allow",
-    });
-    expect(unknown.ok).toBe(false);
-    expect(unknown.error).toBe("unknown_permission");
   });
 });
 
@@ -325,7 +307,6 @@ describe("MCP disabled", () => {
     for (const expected of [
       "create_agent",
       "wait_for_agent",
-      "respond_to_permission",
       "list_agents",
       "list_providers",
       "list_pending_ui_requests",
@@ -333,5 +314,7 @@ describe("MCP disabled", () => {
     ]) {
       expect(names).toContain(expected);
     }
+    expect(names).not.toContain("list_pending_permissions");
+    expect(names).not.toContain("respond_to_permission");
   });
 });

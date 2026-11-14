@@ -1,0 +1,18 @@
+{
+  "type": "interrupt_response",
+  "direction": "server_to_client",
+  "description": "Result of interrupt_agent (no Zod schema).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/agentId", "/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "interrupt_response",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "ok": true,
+      "requestId": "req-1"
+    }
+  }
+}

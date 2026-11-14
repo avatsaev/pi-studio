@@ -1,0 +1,23 @@
+{
+  "type": "agent_ui_request",
+  "direction": "server_to_client",
+  "description": "Clears a retained surface (removed: true, empty payload).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "extensionUi",
+  "volatile": ["/message/requestId", "/message/agentId", "/message/createdAt"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_ui_request",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "agentId": "00000000-0000-4000-8000-000000000002",
+      "method": "setStatus",
+      "expectsResponse": false,
+      "payload": {},
+      "surfaceKey": "status:build",
+      "removed": true,
+      "createdAt": 1767225600000
+    }
+  }
+}

@@ -90,7 +90,7 @@ All are optional.
 | Variable                   | Default                 | Purpose                                                   |
 | -------------------------- | ----------------------- | --------------------------------------------------------- |
 | `PI_STUDIO_HOME`           | `~/.pi-studio`          | State + config + logs directory                           |
-| `PI_STUDIO_LISTEN`         | `0.0.0.0:6767`          | Daemon listen address (`host:port`)                       |
+| `PI_STUDIO_LISTEN`         | `127.0.0.1:6767`        | Daemon listen address (`host:port`); also `config.json` `daemon.listen`. Use `0.0.0.0:6767` + `PI_STUDIO_PASSWORD` for LAN access |
 | `PI_STUDIO_PASSWORD`       | _(unset)_               | Require this password for connections (bcrypt-checked)    |
 | `PI_STUDIO_HOSTNAMES`      | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
 | `PI_STUDIO_SERVER_ID`      | _(generated UUID)_      | Stable server identity                                    |

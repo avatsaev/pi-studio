@@ -1,0 +1,29 @@
+{
+  "type": "agent_stream",
+  "direction": "server_to_client",
+  "description": "Context compaction lifecycle event (this one is the started phase).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": "compactionEvents",
+  "volatile": [
+    "/message/agentId",
+    "/message/seq",
+    "/message/timestamp",
+    "/message/event/compactionId"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_stream",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "seq": 26,
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "event": {
+        "kind": "compaction",
+        "compactionId": "00000000-0000-4000-8000-000000000002",
+        "phase": "started",
+        "reason": "manual"
+      }
+    }
+  }
+}

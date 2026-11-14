@@ -21,6 +21,8 @@ import {
   daemonHomeDir,
   useConnectionStore,
 } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { applyPendingAgentDeepLink } from "@pi-studio-ui/features/sessions/apply-agent-deep-link.js";
+import { useDeepLinkStore } from "@pi-studio-ui/stores/deep-link-store.js";
 import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
 import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
 import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
@@ -93,7 +95,12 @@ export function useSessionRestore(): void {
     if (restoredRef.current) return; // one restore per connection lifetime
     restoredRef.current = true;
 
-    void runSessionRestore(client);
+    void runSessionRestore(client).then(() => {
+      // Explicit deep-link intent is applied after restore settles so it overrides restore's
+      // default focus instead of racing it.
+      useDeepLinkStore.getState().markRestored();
+      applyPendingAgentDeepLink();
+    });
   }, [status, client]);
 
   // Live model updates from an explicit `/model` set (sprint-042). `agent_update` is broadcast

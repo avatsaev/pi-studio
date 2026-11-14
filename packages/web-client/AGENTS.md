@@ -149,6 +149,8 @@ src/
   lib/protocol/            events.ts (protocol event helpers), timeline-paging.ts
                            (fetchTimelineEvents — drains every `fetch_agent_timeline_request` page
                            into one ordered event list; see Invariants "Restored history") (+ test)
+  lib/agent-deep-link.ts   parseAgentDeepLink / stripAgentParam / applyAgentDeepLink — `#agent=` grammar,
+                           cleanup, one-shot apply with injected effects (sprint-082)
   lib/paths.ts             resolveWorkspacePath — shared relative-path + base joiner (moved out
                            of use-file-live-refresh.ts, task-002 sprint-045; also used by
                            timeline/image-src.ts's relative-path branch); dirOf (parent directory
@@ -845,6 +847,18 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
 
 ## Invariants
 
+- **Agent deep link (`#agent=<urlencoded agentId>`, sprint-082).** `hooks/use-agent-deep-link-boot.ts`
+  (mounted in `Boot` after `useConnectionBoot`) parses the fragment on mount and on `hashchange`
+  into `stores/deep-link-store.ts` (memory only). It NEVER connects: `connect=1`, `?pair=`,
+  `#offer=` or manual Connect decide that (no auto-connect from a bare link; senders append
+  `?host=<ws url>&connect=1`). The apply runs once, after `runSessionRestore` settles
+  (`useSessionRestore`), via `features/sessions/apply-agent-deep-link.ts`: activate + setCwd +
+  `openChatTab` exactly as a sidebar click, or one warning toast `Agent not found: <id>` (archived
+  and unknown are indistinguishable; English literal, no i18n). A consumed target is never
+  re-applied; the `agent` key is then removed via `history.replaceState` (sibling fragment keys such
+  as `offer=` and the query string stay). A `hashchange` applies immediately only when the
+  connection is open and restore has finished. Grammar: first `agent` value, empty or >256 chars
+  decoded ⇒ ignored; `+` in a raw id must be sent as `%2B`. No server/protocol change.
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
 - **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
 - **Build-time brand override (title + favicon only).** `PI_STUDIO_BRAND_TITLE`/

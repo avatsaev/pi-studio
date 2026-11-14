@@ -54,6 +54,20 @@ Every file opens with full syntax highlighting:
 
 <img src="/images/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" />
 
+## Linking to an agent
+
+Open a specific agent's conversation with a URL fragment:
+
+```
+<webUiUrl>/?host=<ws url>&connect=1#agent=<urlencoded agentId>
+```
+
+The link never connects on its own, so include `host` and `connect=1` (never a password). Once the
+connection is open and sessions are restored, that agent's chat is selected. An unknown or archived
+agent shows an "Agent not found" notice. The `agent` key is removed from the address bar after use,
+so a reload does not re-select it. It combines with a pairing link (`#offer=…&agent=…`). URL-encode
+the id; a literal `+` must be sent as `%2B`.
+
 ## Branding the UI
 
 The toolbar title and the browser favicon can be overridden **at build time**, with no source

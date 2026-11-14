@@ -1,0 +1,19 @@
+{
+  "type": "fetch_agent_timeline_request",
+  "direction": "client_to_server",
+  "description": "Page one agent's timeline (cursor omitted = from the start).",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "fetch_agent_timeline_request",
+      "requestId": "req-1",
+      "agentId": "agent-1",
+      "direction": "after",
+      "limit": 100
+    }
+  }
+}

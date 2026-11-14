@@ -1,0 +1,16 @@
+{
+  "type": "health",
+  "direction": "http",
+  "description": "GET /api/health, unauthenticated: HTTP status, content type and body.",
+  "since": "0.0.115",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": [],
+  "frame": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "status": "ok"
+    }
+  }
+}
