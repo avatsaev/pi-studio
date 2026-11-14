@@ -5,11 +5,23 @@ modular, typed, performant app.
 
 > **Status: implemented.** The 3-column workspace shell, connection layer, sessions sidebar,
 > chat/timeline, composer, file explorer + viewers, git changes panel, terminals, and the design
-> system are all built and wired. Two Vite build targets (`build:web` / `build:electron`) exist, but
-> the **Electron-specific runtime code does not exist** — no `getIsElectron()`, no injected
-> daemon URL, no `contextBridge` consumer — and no Electron shell is currently planned. See
+> system are all built and wired. One Vite build target (`build:web` → `dist/web`); the unused
+> `electron` target was removed in sprint-092 (2026-11-14). The desktop client is a Tauri app in a
+> separate repository that consumes `@av-pi-studio/workbench`. See
 > `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
+
+> **Application code moved to `@av-pi-studio/workbench` (sprint-092, branch `feat/workbench`).**
+> `features/`, `stores/`, `hooks/`, `timeline/`, `lib/`, `viewer-plugins/`, `test/` and
+> `design-tokens.test.ts` now live under `packages/workbench/src/` with unchanged relative paths, so
+> every `src/…` path below that names one of them means `packages/workbench/src/…`. `app.tsx`,
+> `providers/AppProviders.tsx` and `routes/WorkspacePage.tsx` became the workbench's
+> `shell/WorkbenchBoot.tsx`, `shell/WorkbenchProvider.tsx` and `shell/WorkspaceShell.tsx` (plus
+> `shell/Workbench.tsx`); `theme/fonts.css` + `assets/fonts/` became the workbench's `src/fonts.css`
+> + `src/fonts/`. This package keeps `index.html`, `public/`, `src/main.tsx` (renders
+> `<Workbench />`), `src/global.css` (the `#root` rule only), `src/brand/` and `vite.config.ts`, and
+> resolves the workbench (and `@av-pi-studio/workbench/fonts.css`) from source through Vite aliases.
+> This document is slimmed to the browser shell in sprint-094.
 
 > **Design system reference:** the design system (tokens, themes, primitives, brand injection,
 > breakpoints) lives in `@av-pi-studio/ui-library` — see `packages/ui-library/DESIGN_SYSTEM.md`
@@ -26,19 +38,20 @@ this package into `packages/ui-library`. Rules for web-client:
 - **Import only from the package root** (`@av-pi-studio/ui-library`) — never a deep path
   (`.../primitives/...`, `.../src/...`); the package's `exports` reject them. The one other
   entry web-client uses is `@av-pi-studio/ui-library/reset.css`.
-- **Library CSS before app CSS.** `main.tsx` imports `./theme/fonts.css`, then the library's
-  `reset.css`, then `./global.css`, so app rules win the cascade.
+- **Library CSS before app CSS.** `main.tsx` imports `@av-pi-studio/workbench/fonts.css`, then the
+  library's `reset.css`, then `./global.css`, so app rules win the cascade.
 - **Resolved from source, not `dist/`.** `vite.config.ts` (and the root `vitest.config.ts`, plus a
   tsconfig project reference) alias `@av-pi-studio/ui-library` and `.../reset.css` to
   `../ui-library/src`, so HMR works across the boundary and no library build is needed to run
   dev/tests. `ui-library` is a web-client **devDependency** — bundled into the SPA like
-  protocol/client. The app's own path alias is `@web-client/*` (formerly `@pi-studio-ui/*`).
-- **Token guard.** `src/design-tokens.test.ts` runs the library's React-free `findTokenProblems`
-  (dangling `--pi-*`/`--syntax-*` refs, illegal emitted keys, literal/unknown font-size rungs)
-  over web-client's own sources; the library and `ui-gallery` each run it over theirs.
-- **What stayed here:** `src/theme/fonts.css` (bundled terminal font), `src/brand/build-brand.ts`
-  (Vite build-time title/favicon), and `src/global.css` (only the `#root` rule and the drag-guard
-  iframe rule; the generic reset is the library's `reset.css`).
+  protocol/client. Sources use relative imports only; the former `@web-client/*` path alias was
+  removed in sprint-092 so the code can move into `@av-pi-studio/workbench` unchanged.
+- **Token guard.** `design-tokens.test.ts` (now in the workbench) runs the library's React-free
+  `findTokenProblems` (dangling `--pi-*`/`--syntax-*` refs, illegal emitted keys, literal/unknown
+  font-size rungs) over the workbench sources; the library and `ui-gallery` each run it over theirs.
+- **What stayed here:** `src/brand/build-brand.ts` (Vite build-time title/favicon) and
+  `src/global.css` (only the `#root` rule; the drag-guard iframe rule ships in the workbench's
+  `src/global.css`, imported by `WorkbenchProvider`; the generic reset is the library's `reset.css`).
 
 ---
 
@@ -66,10 +79,9 @@ web-client  →  @av-pi-studio/workbench  (the application as a library — devD
 ```
 
 Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.
-The Electron shell (`@av-pi-studio/desktop`) is not a package and is not currently planned — see
-`swe/features/desktop-app.md` for the spec. It would consume this package's
-`build:electron` output as its renderer and own daemon supervision; this package stays a pure
-renderer and must not gain Node-only dependencies.
+There is no Electron shell. The desktop client is a Tauri app in a separate repository
+(`docs/desktop-client-handoff.md`) that consumes `@av-pi-studio/workbench`; this package stays the
+browser shell and must not gain Node-only dependencies.
 
 **Packaging: every entry in `package.json` is a `devDependency`, not a runtime `dependency`.**
 This package has no `main`, no `exports`, and no `bin` — it ships only the prebuilt static assets
@@ -102,7 +114,7 @@ clsx. Tests: Vitest.
 
 ```
 index.html                 Vite entry (mounts #root)
-vite.config.ts             web + electron build targets, manualChunks, /daemon-ws dev proxy
+vite.config.ts             the web build (dist/web), manualChunks, /daemon-ws dev proxy
 tsconfig.json              app config (DOM libs, react-jsx, noEmit)
 tsconfig.node.json         config for vite.config.ts
 src/
@@ -823,16 +835,13 @@ its first real consumer (task-002, § Source layout "terminal/" above).
 ```bash
 npm run dev -w @av-pi-studio/web-client            # Vite dev server (WS proxy to daemon)
 npm run typecheck -w @av-pi-studio/web-client      # tsc --noEmit
-npm run build:web -w @av-pi-studio/web-client      # browser build (absolute base)
-npm run build:electron -w @av-pi-studio/web-client # Electron renderer build (relative base) —
-                                                    # produces a bundle; no Electron-only runtime
-                                                    # code consumes it yet (see Status above)
+npm run build:web -w @av-pi-studio/web-client      # browser build (dist/web, absolute base)
 ```
 
 Dev-server WS proxy env: `PI_STUDIO_DAEMON_HOST` / `PI_STUDIO_DAEMON_PORT` (default `127.0.0.1:6767`),
 dev host/port via `WEB_CLIENT_DEV_HOST` / `WEB_CLIENT_DEV_PORT` (default `0.0.0.0:5173`).
 
-Build-time brand override (both build:web/build:electron and `npm run dev`, `src/brand/
+Build-time brand override (both build:web and `npm run dev`, `src/brand/
 build-brand.ts` — title + favicon only, unset ⇒ byte-identical default Pi-Studio output):
 `PI_STUDIO_BRAND_TITLE` (default "Pi-Studio" — `index.html`'s `<title>` and `ConnectionBar.tsx`'s
 brand label) and `PI_STUDIO_BRAND_ICON` (unset ⇒ the default `public/favicon.svg`; a path to a
@@ -844,7 +853,7 @@ image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_
 `docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
 entered at runtime, never baked into the image.
 
-Production builds (`build:web`/`build:electron`) set `sourcemap: false` in `vite.config.ts` and run
+Production builds (`build:web`) set `sourcemap: false` in `vite.config.ts` and run
 `vite build` under `NODE_OPTIONS=--max-old-space-size=6144` — the largest vendor chunks (`vendor`,
 `vendor-molviewer`) generate 8–18 MB sourcemaps each; with sourcemaps on, Rollup's chunk-rendering
 phase blew past the default V8 old-space heap and OOM-killed every `.github/workflows/release.yml`
@@ -870,7 +879,7 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   connection is open and restore has finished. Grammar: first `agent` value, empty or >256 chars
   decoded ⇒ ignored; `+` in a raw id must be sent as `%2B`. No server/protocol change.
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
-- **No Node-only APIs** in renderer code (must run in browser + Electron renderer).
+- **No Node-only APIs** in renderer code (must run in a browser and in the desktop app's webview).
 - **Build-time brand override (title + favicon only).** `PI_STUDIO_BRAND_TITLE`/
   `PI_STUDIO_BRAND_ICON` (`src/brand/build-brand.ts`, wired into `vite.config.ts`'s
   `brandHtmlPlugin`) rewrite `index.html`'s `<title>`/favicon `<link>` and bake
@@ -895,7 +904,6 @@ not a function` (real regression: pane-id minting, chat's optimistic-echo `clien
   indistinguishable from an accent-tinted one there.
 - **`accentForeground`, never a hardcoded white, for content on an accent fill.** The `zinc`
   variant's accent is near-white, so white text/icons on it are invisible.
-- **Relative-base safe** — the Electron build loads from `file://`; never assume absolute asset paths.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
 - **Connection input is toolbar/URL-param, either a direct address or a pairing link** — the same
   `ui-store.ts` host field (seeded from `?host=&password=&cwd=&connect=1`, `?pair=<url>`, or a
@@ -907,10 +915,7 @@ store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
 client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
-  key is itself the credential. Accepting an Electron-injected daemon URL (via `contextBridge`) and
-  adding `getIsElectron()` platform gating are **not implemented** and have no planned sprint; they
-  would be added to `connection-store.ts` and a new `platform/electron.ts` module respectively if an
-  Electron shell is ever built.
+  key is itself the credential.
 - **Connection resume triggers (sprint-050).** `lib/connection/resume-triggers.ts`'s
   `attachResumeTriggers()` is installed once, at module scope in `main.tsx` (never inside a React
   effect — `<StrictMode>` double-invokes dev effects, which would attach two listener sets). It

@@ -22,7 +22,8 @@ declarations with `tsc -b` (`emitDeclarationOnly`). `ui-gallery` consumes that b
 `build:ui-library` must run before `build:ui-gallery`. Root `npm run build` order: protocol → relay →
 client → ui-library → server → web-client → ui-gallery → cli.
 
-`app` and `desktop` are built by Metro/Electron respectively and are outside this `tsc -b` graph.
+`web-client` is built by Vite (`build:web`, one `dist/web` target) on top of `tsc -b`; the desktop
+client is a Tauri app in a separate repository and is outside this build.
 
 ## Scripts (root `package.json`)
 

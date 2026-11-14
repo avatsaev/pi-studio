@@ -38,14 +38,14 @@ capability flags.
 | Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
 | Lint/format         | oxlint / oxfmt                                                    |                                                               |
 | Styling (app)       | **Pi-Studio: CSS custom properties (theme tokens) + CSS Modules** (reference app uses Unistyles) | Same token vocabulary; DOM medium |
-| Build (web/desktop) | **Pi-Studio: Vite** (`VITE_TARGET=web`/`electron`); runtime `getIsElectron()` + guarded dynamic `import()` replace Metro `.web`/`.native`/`.electron` extensions |                                                               |
+| Build (web/desktop) | **Pi-Studio: Vite**, one `web` target (`dist/web`). The build-target switch and its `electron` target were removed 2026-11-14; the desktop client (Tauri, separate repo) consumes `@av-pi-studio/workbench` |                                                               |
 | Website             | TanStack Router + Cloudflare Workers                              | Marketing/docs (`pi-studio.sh`), out of scope here            |
 
 > **Render-stack decision (Pi-Studio).** The reference app is a cross-platform Expo / React-Native-Web
 > codebase. Pi-Studio ships **web + Electron only (no iOS/Android)** and therefore renders its UI on a
 > **React 19 + Vite DOM** stack: `View`/`Text` → `div`/`span`, Unistyles → CSS custom properties + CSS
-> Modules, expo-router → `react-router`, Metro platform extensions → `getIsElectron()` + build-time
-> `VITE_TARGET` + guarded dynamic `import()`. The visual language, theme tokens, six variants, screens,
+> Modules, expo-router → `react-router`, Metro platform extensions → (historically) `getIsElectron()` +
+> a build-time target flag + guarded dynamic `import()`. The visual language, theme tokens, six variants, screens,
 > and interactions are preserved (UI/UX mirrors the reference). The sprint 012–016 UI **logic** is
 > framework-agnostic view models; sprints 017–022 are the DOM **render layer**. See
 > [architecture/design-system.md](architecture/design-system.md) § UI technology stack and

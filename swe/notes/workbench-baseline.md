@@ -698,3 +698,34 @@ pdfjs/wasm/openjpeg.wasm
 pdfjs/wasm/openjpeg_nowasm_fallback.js
 pdfjs/wasm/qcms_bg.wasm
 ```
+
+## After the move (sprint-092 task-005)
+
+Taken on `feat/workbench` after sprint-092 tasks 001–004 (relative imports, move, shell components +
+fonts, `electron` target removed). Commands as above unless stated.
+
+| Measure | Before | After | Verdict |
+|---|---|---|---|
+| Gates `npm run clean && npm run build && npm run typecheck && npm run lint` | — | exit 0 | pass |
+| `npm test` (whole repo) | 260 files / 3535 tests (incl. sprint-091 placeholder test) | 259 / 3534 | pass (the one dropped test was the sprint-091 placeholder, deleted in task-002) |
+| `npx vitest run packages/workbench packages/web-client` | 109 / 1453 | 109 / 1453 | equal |
+| `dist/web` total bytes | 26530220 | 26530220 | equal (0%) |
+| Chunk-name list (hash stripped, 657 entries) | list above | `diff` empty | identical |
+| Dynamic `import()` sites (`rg -n 'import\(\s*["'"'"'@.]' packages/workbench/src packages/web-client/src -g '!*.test.*' -g '!*.d.ts' \| wc -l`) | 16 | 16 | equal |
+
+Browser check (web-client `vite` dev on 127.0.0.1:5394, headless browser, **production daemon**
+`127.0.0.1:6767`, real Pi provider, scratch workspace `/tmp/wb-parity`):
+
+- connect → `connected`;
+- chat turn "Reply with exactly the word: ok" → assistant `ok` (Pi took ~60 s to spawn on this host;
+  daemon-side, unrelated to the client);
+- dragged the `notes.txt` tab onto the right half of the pane → split into two panes;
+- terminal tab in the new pane, typed `echo parity-$((40+2))` → `parity-42`, Nerd Font prompt glyphs render;
+- opened a text file (CodeMirror, 2 lines), a PNG (40×30 natural size) and a PDF (rendered by pdf.js);
+- uploaded `wb-upload.txt` from the explorer's Upload → "Uploaded 1 file", bytes match on disk;
+- reload → both panes and their tabs restored, terminal history replayed;
+- no page errors and no console errors at any step.
+
+Observed but not caused by the move (the bundle is byte-identical in size with an identical chunk
+list): after reload the left pane's tab order differs (daemon-owned chat tab arrives last) and the
+terminal tab shows the daemon's name (`terminal-3`) instead of `Terminal 1`.

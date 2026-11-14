@@ -151,8 +151,7 @@ Enter the daemon URL and optional password in the toolbar and click **Connect**.
 bare `host:port`, a `ws://`/`wss://` URL, or `http://`/`https://` (mapped to `ws`/`wss` — the daemon
 upgrades HTTP to WebSocket on the same port), e.g. `127.0.0.1:6767` or `https://box.local:6767`. The
 password is sent as a `pi-studio.bearer.<pw>` WebSocket subprotocol. To build a
-static bundle: `npm run build:web-client` (or `build:electron -w packages/web-client` for the
-future Electron shell in `packages/desktop`).
+static bundle: `npm run build:web-client` (emits `packages/web-client/dist/web`).
 
 > `npm run dev:daemon` runs `dev-main.js` → `dev-bootstrap.ts`, a **minimal** dev daemon (mock
 > provider, a small handler subset) for iterating on the UI without credentials. It is **not** the
@@ -180,7 +179,8 @@ packages/
   cli/         pi-studio terminal client + local daemon/relay lifecycle control
   relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
   web-client/  production React/Vite browser UI
-  desktop/     Electron wrapper (later sprint — placeholder)
+  ui-library/  publishable React design system
+  workbench/   the client application as a library (web-client and the desktop app consume it)
 swe/   specifications + the sprint implementation plan
 ```
 

@@ -23,7 +23,7 @@ The 0.0.117 release failed after the `ui-library` merge because the bump-then-in
 
 ## What to build
 - `scripts/publish.sh`: `PUBLISH_ORDER=(protocol relay client ui-library workbench web-client server cli)`; add `workbench` to `ALL_PACKAGES`; update the script's comments that count or list packages.
-- `docker/web-client.Dockerfile`: copy the workbench manifest before `npm ci` and its sources before the build.
+- `docker/web-client.Dockerfile`: copy the workbench manifest before `npm ci` and its sources before the build. *(Done early in sprint 092 task-004, whose acceptance needed the image to build; this task only re-verifies it.)*
 - `packages/workbench/RELEASING.md`: first-publish steps (placeholder publish, Trusted Publisher for `release.yml`) and rollback, following the `ui-library` runbook.
 - Rehearse in a throwaway git worktree with a temporary commit, so the branch stays clean: run `npm run publish -- --dry-run`. It must bump every package, sync the lockfile, build, typecheck, test and dry-run-publish all eight packages.
 - Build the web-client Docker image.

@@ -20,13 +20,15 @@
 FROM node:22-bookworm AS build
 WORKDIR /repo
 
-# web-client bundles @av-pi-studio/protocol, @av-pi-studio/client and @av-pi-studio/ui-library
-# from source (vite aliases + tsc -b project references), so install + copy those packages.
+# web-client bundles @av-pi-studio/workbench (the application), @av-pi-studio/protocol,
+# @av-pi-studio/client and @av-pi-studio/ui-library from source (vite aliases + tsc -b project
+# references), so install + copy those packages.
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/protocol/package.json   packages/protocol/package.json
 COPY packages/client/package.json     packages/client/package.json
 COPY packages/relay/package.json      packages/relay/package.json
 COPY packages/ui-library/package.json packages/ui-library/package.json
+COPY packages/workbench/package.json  packages/workbench/package.json
 COPY packages/web-client/package.json packages/web-client/package.json
 RUN --mount=type=cache,target=/root/.npm,id=npm-web-client,sharing=locked \
     npm ci --workspace @av-pi-studio/web-client --include-workspace-root
@@ -35,6 +37,7 @@ COPY packages/protocol   packages/protocol
 COPY packages/relay       packages/relay
 COPY packages/client     packages/client
 COPY packages/ui-library packages/ui-library
+COPY packages/workbench  packages/workbench
 COPY packages/web-client packages/web-client
 
 ARG PI_STUDIO_BRAND_TITLE=""

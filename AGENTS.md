@@ -34,8 +34,8 @@ packages/
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
   workbench/   `@av-pi-studio/workbench` — the client application as a library, for web and desktop shells
-               (swe/architecture/workbench-package.md). Being built on `feat/workbench` (sprints 091–095): today
-               an empty, building scaffold that web-client resolves from source. See packages/workbench/AGENTS.md.
+               (swe/architecture/workbench-package.md). Being built on `feat/workbench` (sprints 091–095): holds
+               the application code moved out of web-client; web-client resolves it from source. See packages/workbench/AGENTS.md.
   ui-gallery/  Private (never published/deployed) Vite+React gallery app that consumes the BUILT ui-library `dist`
                through its package `exports`; theme switcher + a section per primitive family.
 

@@ -24,8 +24,8 @@ With both variables unset, the build is byte-for-byte the default **Pi-Studio** 
 | `PI_STUDIO_BRAND_ICON` | _(unset → `public/favicon.svg`)_ | Path to a `.svg`, `.png`, or `.ico` file that replaces the favicon |
 
 Both are read once, at Vite config-eval time, by `vite.config.ts`'s `brandHtmlPlugin` (backed by
-the pure resolver in `src/brand/build-brand.ts`) — they apply identically to `npm run dev`,
-`npm run build:web`, and `npm run build:electron`.
+the pure resolver in `src/brand/build-brand.ts`) — they apply identically to `npm run dev` and
+`npm run build:web`.
 
 ### Usage
 
@@ -98,8 +98,9 @@ npx vitest run packages/web-client
 ```
 
 The design system (primitives, theme/tokens, appearance, breakpoints) lives in
-`@av-pi-studio/ui-library` (`packages/ui-library`), a devDependency resolved from source through a
-Vite alias in dev/build/tests and bundled into the SPA; `src/theme/fonts.css`,
-`src/brand/build-brand.ts` and `src/global.css` stay here. See `AGENTS.md` (architecture, source
+`@av-pi-studio/ui-library` (`packages/ui-library`) and the application itself in
+`@av-pi-studio/workbench` (`packages/workbench`, including the terminal font); both are
+devDependencies resolved from source through Vite aliases in dev/build/tests and bundled into the
+SPA. `src/main.tsx`, `src/brand/build-brand.ts` and `src/global.css` (the `#root` rule) stay here. See `AGENTS.md` (architecture, source
 layout, invariants) and `packages/ui-library/DESIGN_SYSTEM.md` (theme/token pipeline, primitives)
 for the rest of this package's documentation.

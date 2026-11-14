@@ -5,11 +5,8 @@ import { createReadStream, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
 
-// Two build targets from one source:
-//   - web:      served over HTTP, absolute base, /daemon-ws dev proxy.
-//   - electron: loaded from file:// inside a BrowserWindow, relative base so
-//               assets resolve without a web server.
-// Selected via VITE_TARGET (defaults to "web").
+// One build target: the browser SPA in `dist/web` (served over HTTP, absolute base, /daemon-ws dev
+// proxy). The CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve that directory.
 const { version: APP_VERSION }: { version: string } = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf8"),
 );
@@ -103,27 +100,23 @@ function pdfjsAssetsPlugin(): Plugin {
 }
 
 export default defineConfig(() => {
-  const target = process.env.VITE_TARGET ?? "web";
-  const isElectron = target === "electron";
-
   return {
     plugins: [react(), brandHtmlPlugin(), pdfjsAssetsPlugin()],
     root: resolve(__dirname),
-    base: isElectron ? "./" : "/",
+    base: "/",
     // `?worker` entries (today only pdf.js's, `pdfjs-runtime.ts`) are ES modules upstream; emit
     // them as module workers rather than re-wrapping them as classic IIFE scripts.
     worker: { format: "es" as const },
     define: {
-      "import.meta.env.VITE_TARGET": JSON.stringify(target),
       // Own package.json version, baked in at build time (ConnectionBar.tsx — displayed after
-      // the brand title). Ambient type in `src/vite-env.d.ts`.
+      // the brand title). Ambient type in `packages/workbench/src/vite-env.d.ts`.
       __APP_VERSION__: JSON.stringify(APP_VERSION),
       // Build-time brand title override, resolved above from `PI_STUDIO_BRAND_TITLE`. Ambient
-      // type in `src/vite-env.d.ts`.
+      // type in `packages/workbench/src/vite-env.d.ts`.
       __BRAND_TITLE__: JSON.stringify(BRAND_TITLE),
     },
     build: {
-      outDir: isElectron ? "dist/electron" : "dist/web",
+      outDir: "dist/web",
       emptyOutDir: true,
       // No sourcemap consumer exists (no Sentry/error-tracking upload, nothing reads .map at
       // runtime) — generating them for these large vendor chunks (18MB+ for a single chunk) blew
@@ -246,8 +239,8 @@ export default defineConfig(() => {
         // this specifier into a real package `exports` entry.
         "@av-pi-studio/ui-library/reset.css": resolve(__dirname, "../ui-library/src/reset.css"),
         "@av-pi-studio/ui-library": resolve(__dirname, "../ui-library/src/index.ts"),
+        "@av-pi-studio/workbench/fonts.css": resolve(__dirname, "../workbench/src/fonts.css"),
         "@av-pi-studio/workbench": resolve(__dirname, "../workbench/src/index.ts"),
-        "@web-client": resolve(__dirname, "src"),
       },
     },
     server: {

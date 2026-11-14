@@ -1,19 +1,18 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 // Font faces before the reset/token sheet, so the bundled terminal face is registered as early as
-// the browser parses CSS at all (theme/fonts.css explains what ships and why).
-import "./theme/fonts.css";
+// the browser parses CSS at all (the workbench's fonts.css explains what ships and why).
+import "@av-pi-studio/workbench/fonts.css";
 import "@av-pi-studio/ui-library/reset.css";
 import "./global.css";
-import { App } from "./app.js";
-import { attachResumeTriggers } from "./lib/connection/resume-triggers.js";
+import { attachResumeTriggers, Workbench } from "@av-pi-studio/workbench";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <Workbench />
   </StrictMode>,
 );
 

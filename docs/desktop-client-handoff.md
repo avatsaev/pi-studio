@@ -10,7 +10,8 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 **This document is kept current.** The work it describes as planned is being built in this
 repository now, and every task in that plan must update this file when it changes something
 stated here. "Plan and progress" below shows how far that work has got. Last updated: 2026-11-14
-(sprint 091 done on `feat/workbench`: the package exists as an empty scaffold, not published).
+(sprint 092 done on `feat/workbench`: the application lives in `packages/workbench`, exported as
+`Workbench`/`WorkbenchProvider`/`WorkbenchBoot`/`WorkspaceShell`; not published, no host adapter yet).
 
 ## Status of the pieces
 
@@ -31,7 +32,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | Sprint | Delivers | What it unlocks for the desktop app | State |
 |---|---|---|---|
 | 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | **Done** (on `feat/workbench`; findings in `swe/notes/workbench-packaging-spike.md`) |
-| 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | Not started |
+| 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | Not started |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | Not started |
 | 095 | Release wiring; first npm release of the workbench | **Milestone 1 can start** | Not started |
@@ -119,10 +120,11 @@ versions in the desktop repository and upgrade deliberately.
 
 ### The workbench (planned)
 
-Today `packages/web-client` is an application, not a library: it publishes only a built `dist` and
-has no `exports`. About 31k lines in 227 files; the browser-specific shell (`main.tsx`, `app.tsx`,
-`AppProviders.tsx`, `WorkspacePage.tsx`) is 138 of them. The plan is to move everything else into a
-package that both `web-client` and the desktop app consume:
+At 0.0.117 `packages/web-client` was an application, not a library: it published only a built
+`dist` and had no `exports`. About 31k lines in 227 files; the browser-specific shell (`main.tsx`,
+`app.tsx`, `AppProviders.tsx`, `WorkspacePage.tsx`) was 138 of them. On `feat/workbench` the
+application code now lives in `packages/workbench/src` (sprint 092; same relative paths, so the
+paths in the host table below are relative to that directory). Not published yet. What moved:
 
 - `features/`: chat (composer, timeline, attachments, todos), workspace (split panes, tab strips),
   terminal, files (explorer and viewers), sessions, settings, skills, provider auth, extension UI.

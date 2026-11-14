@@ -8,15 +8,9 @@
     "outDir": "dist",
     "noEmit": true,
     "composite": false,
-    "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "paths": { "@web-client/*": ["./src/*"] }
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src"],
   "exclude": ["dist"],
-  "references": [
-    { "path": "../client" },
-    { "path": "../protocol" },
-    { "path": "../ui-library" },
-    { "path": "../workbench" }
-  ]
+  "references": [{ "path": "../ui-library" }, { "path": "../workbench" }]
 }
