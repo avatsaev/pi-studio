@@ -1,0 +1,22 @@
+{
+  "type": "create_terminal_request",
+  "direction": "client_to_server",
+  "description": "Spawn a PTY terminal. `shell`, `cwd`, `name`, `cols` and `rows` are optional.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/cwd"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "create_terminal_request",
+      "requestId": "req-1",
+      "workspaceId": "workspace-1",
+      "cwd": "/tmp/pi-studio-fixture",
+      "shell": "/bin/sh",
+      "name": "terminal-1",
+      "cols": 80,
+      "rows": 24
+    }
+  }
+}

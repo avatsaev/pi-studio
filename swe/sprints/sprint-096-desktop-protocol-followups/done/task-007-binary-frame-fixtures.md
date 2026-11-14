@@ -1,7 +1,7 @@
 # Task 007 — Binary frame fixtures
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (fixtures, tests)
 - **Priority:** P2

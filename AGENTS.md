@@ -194,7 +194,7 @@ npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (in-memory persistence, mock provider only, minimal handler set, binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
+# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
 npm run dev:daemon
 
 # Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
@@ -548,7 +548,7 @@ All communication uses a **single WebSocket connection** per client.
   on a read error, and ignores upload frames from a session that does not own the stream; an upload
   request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
   `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
-  after a failed upload. (3) Fixture coverage for file transfer and terminals (see below as it lands).
+  after a failed upload. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**
@@ -570,7 +570,13 @@ All communication uses a **single WebSocket connection** per client.
   Layer B (`packages/server/src/daemon/external-fixtures-e2e.test.ts`) proves a live dev daemon still
   matches. Regenerate signatures with `npm run fixtures:update -w @av-pi-studio/protocol`; print
   candidates with `node packages/server/scripts/record-external-fixtures.ts` (after `npm run
-  build:server`). See `packages/protocol/fixtures/external-clients/README.md`.
+  build:server`). See `packages/protocol/fixtures/external-clients/README.md`. Coverage includes the
+  file-transfer RPCs (`file_download_*`, `file_upload_*`, `file_upload_complete`) and the terminal
+  RPCs/broadcast (`*_terminal_request`/`_response`, `terminals_update`), all `since` 0.0.118 (sprint-096).
+  The nine file-transfer/terminal **binary frames** are fixtured in the `binary/` subdirectory (own
+  manifest and `formatVersion`, round-trip-tested against the real codecs by
+  `external-binary-fixtures.test.ts`); a subdirectory because the dashboard's vendored test rejects
+  unlisted top-level `*.json`.
 
 ---
 

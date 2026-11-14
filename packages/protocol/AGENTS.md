@@ -41,6 +41,7 @@ src/
   session-messages.test.ts
   validation.test.ts
   external-fixtures.test.ts               Layer A of the external-client fixture contract test (sprint-083).
+  external-binary-fixtures.test.ts        Round-trips the nine binary-frame fixtures in fixtures/external-clients/binary/ through the real codecs (sprint-096).
 scripts/                                  Not compiled, not published.
   external-fixtures-support.ts            Loaders, JSON-pointer access, shape signatures, breaking-change guard, secret scan.
   update-fixture-signatures.ts            `npm run fixtures:update` — regenerates fixtures/external-clients/.signatures.json.
@@ -334,6 +335,19 @@ the contract. **A fixture's shape is the contract for clients outside this repo*
   format, Zod validation where a schema exists, secret scan, signature guard. Layer B is
   `packages/server/src/daemon/external-fixtures-e2e.test.ts`. `README.md` in the directory has the
   full format and the how-to-add steps. The tool-permission family is retired and has no fixtures.
+- File-transfer and terminal families (sprint-096, `since` 0.0.118): `file_download_token_*`,
+  `file_download_*`, `file_upload_*`, `file_upload_complete` (`requiresFeature: "fileTransferAck"`,
+  as is the `ack` upload request), `{create,subscribe,list,rename,capture,kill}_terminal_*` and the
+  `terminals_update` broadcast. Most have no Zod schema (Layer B is their only guard; `token` values
+  are the literal `"FAKE"`); `file_upload_complete` is validated by `fileUploadCompleteSchema`.
+- Binary frames (sprint-096, `since` 0.0.118): nine fixtures (`file_transfer.{begin,chunk,end,error}`,
+  `terminal.{output,input,resize,snapshot,restore}`) in the **`binary/` subdirectory** with their own
+  `binary/manifest.json` and `formatVersion`. A subdirectory, not top-level files, because the Rust
+  dashboard's vendored-fixture test fails on any top-level `*.json` that `manifest.json` does not
+  list. Each holds a complete frame as `hex` plus its `decoded` form; `src/external-binary-fixtures.test.ts`
+  decodes/encodes every one with the real codec and fails on an unlisted or missing file. No live layer,
+  no signature guard: changing a frame's `hex` or `decoded` shape is breaking (bump the binary
+  `formatVersion` + dated `CHANGELOG.md` entry).
 
 ---
 

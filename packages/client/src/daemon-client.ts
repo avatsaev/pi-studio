@@ -135,6 +135,10 @@ export class DaemonClient {
   get serverCapabilities(): Record<string, unknown> {
     return this._serverCapabilities;
   }
+  /** The transport's unsent byte count, or `undefined` when the transport cannot report one. */
+  get bufferedAmount(): number | undefined {
+    return this.transport.bufferedAmount;
+  }
   /** True iff the daemon advertised the given `server_info.features.*` flag truthy. */
   hasFeature(flag: string): boolean {
     return Boolean(this._features[flag]);

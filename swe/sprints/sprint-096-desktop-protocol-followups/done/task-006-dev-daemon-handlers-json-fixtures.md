@@ -1,7 +1,7 @@
 # Task 006 — Dev daemon handlers and JSON fixtures for file transfer and terminals
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (dev bootstrap, test support), packages/protocol (fixtures)
 - **Priority:** P1

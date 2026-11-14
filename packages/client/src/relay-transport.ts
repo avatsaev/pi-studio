@@ -22,7 +22,11 @@
  * `packages/server/src/daemon/relay-transport.ts`'s choice (`{ type: "relay_register", sessionId
  * }`) — the real protocol is unresolved upstream (architecture/relay-e2ee.md § TODO(verify)).
  */
-import { createClientChannel, deriveRelaySessionId, type EncryptedChannel } from "@av-pi-studio/relay";
+import {
+  createClientChannel,
+  deriveRelaySessionId,
+  type EncryptedChannel,
+} from "@av-pi-studio/relay";
 
 import type { Transport } from "./transport.js";
 import { reasonString, type AnyWebSocket, type WsFactory } from "./transport.js";
@@ -69,6 +73,11 @@ export function createRelayTransport(opts: RelayTransportOptions): Transport {
     get isOpen(): boolean {
       return ws !== null && ws.readyState === 1 && channel !== null && channel.ready;
     },
+    // The channel encrypts and writes synchronously, so the relay socket's queue is exactly the
+    // (base64-inflated) ciphertext still waiting to leave — the right number to pace against.
+    get bufferedAmount(): number | undefined {
+      return ws?.bufferedAmount;
+    },
     connect(url: string): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const create = opts.factory ?? (() => new WebSocket(url) as unknown as AnyWebSocket);
@@ -97,8 +106,7 @@ export function createRelayTransport(opts: RelayTransportOptions): Transport {
             events: {
               onReady: () => resolve(),
               onMessage: (plaintext) => self.onMessage?.(plaintext),
-              onBinaryMessage: (bytes) =>
-                self.onMessage?.(bytes.slice().buffer),
+              onBinaryMessage: (bytes) => self.onMessage?.(bytes.slice().buffer),
               onAuthError: (err) => self.onError?.(err),
             },
           });

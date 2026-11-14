@@ -18,6 +18,13 @@ export interface Transport {
   close(code?: number, reason?: string): void;
   /** Whether the transport is currently open and writeable. */
   readonly isOpen: boolean;
+  /**
+   * Bytes accepted by `sendText`/`sendBinary` but not yet handed to the network (the underlying
+   * socket's send queue). Optional: a transport that cannot report it leaves it `undefined` and
+   * is treated as never congested — `FileTransferClient.upload` then does not pace. Out-of-tree
+   * implementations (the desktop app's Rust bridge) may omit it.
+   */
+  readonly bufferedAmount?: number;
 
   onMessage: TransportMessageHandler | null;
   onClose: TransportCloseHandler | null;
@@ -37,6 +44,8 @@ export type AnyWebSocket = {
   /** Browsers/RN default this to `"blob"`; Node's `ws` ignores it (always delivers `Buffer`).
    * `connect()` forces `"arraybuffer"` where the property exists — see its comment for why. */
   binaryType?: string;
+  /** Bytes queued by `send()` and not yet transmitted (browser/RN/`ws` all report it). */
+  readonly bufferedAmount?: number;
 };
 
 export type WsFactory = (url: string, protocols?: string[]) => AnyWebSocket;
@@ -60,6 +69,9 @@ export function createWebSocketTransport(factory?: WsFactory): Transport {
     onError: null,
     get isOpen(): boolean {
       return ws !== null && ws.readyState === 1; // OPEN
+    },
+    get bufferedAmount(): number | undefined {
+      return ws?.bufferedAmount;
     },
     connect(url: string): Promise<void> {
       return new Promise<void>((resolve, reject) => {

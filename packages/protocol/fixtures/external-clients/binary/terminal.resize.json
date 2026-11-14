@@ -1,0 +1,14 @@
+{
+  "family": "terminal",
+  "opcode": "Resize",
+  "direction": "client_to_server",
+  "description": "Window size for one slot: UTF-8 JSON `{rows, cols}` after the header.",
+  "since": "0.0.118",
+  "hex": "03 01 7b 22 72 6f 77 73 22 3a 32 34 2c 22 63 6f 6c 73 22 3a 38 30 7d",
+  "decoded": {
+    "opcode": "Resize",
+    "slot": 1,
+    "rows": 24,
+    "cols": 80
+  }
+}

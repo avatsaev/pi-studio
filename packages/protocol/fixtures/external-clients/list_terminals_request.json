@@ -1,0 +1,16 @@
+{
+  "type": "list_terminals_request",
+  "direction": "client_to_server",
+  "description": "List every live terminal.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "list_terminals_request",
+      "requestId": "req-1"
+    }
+  }
+}

@@ -71,8 +71,8 @@ app does not replace the daemon and does not run agents itself.
   handshake; a client must gate features on those flags, never on a version number.
 - Two daemons exist for development. `npm start` runs the production daemon (real Pi provider,
   every RPC). `npm run dev:daemon` runs a dev daemon with a mock provider and a minimal handler
-  set: it has **no terminal and no file-transfer handlers** today (sprint 096 adds them). Test
-  those two areas against a production daemon until then.
+  set. Since this branch it also answers **terminal and file-transfer requests** (wired as in
+  production, including the binary handlers), which is how the live fixture test covers them.
 
 Read the root `AGENTS.md` § Protocol overview first. It is the best single summary.
 
@@ -221,6 +221,8 @@ export interface Transport {
   sendBinary(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
   readonly isOpen: boolean;
+  /** Optional (since 0.0.118): bytes handed to sendBinary/sendText and not yet on the wire. */
+  readonly bufferedAmount?: number;
   onMessage: ((data: string | ArrayBuffer | Blob) => void) | null;
   onClose: ((code: number, reason: string) => void) | null;
   onError: ((error: unknown) => void) | null;
@@ -236,6 +238,12 @@ for the first version: it changes no store and no reducer.
 
 Rules the bridge must honour:
 
+- **Report `bufferedAmount` if you can.** `FileTransferClient.upload` pauses while it is above 1 MiB
+  (`UPLOAD_HIGH_WATER_BYTES`, chosen, not measured) and, against a daemon without
+  `fileTransferAck`, waits for it to reach 0 before resolving. A transport that omits the property
+  is treated as never congested, so a Rust bridge that omits it gets today's unpaced behaviour unless
+  the bridge applies its own backpressure (the property is optional so existing implementations keep
+  compiling). The WebSocket and relay transports in the SDK both report it.
 - **Deliver frames in wire order, binary as `ArrayBuffer`, synchronously.** `transport.ts`
   documents a real bug where out-of-order binary delivery truncated downloads.
 - **Authentication.** A password-protected daemon requires the WebSocket subprotocol
@@ -293,7 +301,15 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   after it has closed the file, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
   `write_failed`/`close_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
   message. A partial file is left on disk after a failure. Without the flag (an older daemon) nothing
-  is pushed: verify by listing the directory. The SDK side (paced `upload()`) is not built yet.
+  is pushed: verify by listing the directory.
+- **SDK upload (shipped in this branch).** `FileTransferClient.upload(path, source, {onProgress?, signal?})`
+  takes a `Uint8Array`, a `Blob` or an `AsyncIterable<Uint8Array>`, never reads a `Blob` whole, paces on
+  `Transport.bufferedAmount`, sends `ack: true` when `fileTransferAck` is advertised and resolves on
+  `file_upload_complete` (rejecting with the daemon's `error`; no timeout on that wait), or resolves once
+  the buffer drains when the flag is absent (which proves the bytes left this machine, not that they
+  reached the disk). `signal` aborting sends an `Error` frame and rejects with `AbortError`. A Rust
+  transfer engine that bypasses the SDK implements the same flow: request with `ack`, `Begin`, paced
+  `Chunk`s, `End`, wait for the push.
 - **Upload streams belong to the session that opened them.** A frame from another session is ignored
   (so a client holding two connections must send an upload's frames on the connection that sent its
   `file_upload_request`), and a closed session releases its streams and file handles.
@@ -399,11 +415,18 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
   narrowed. Decode leniently and ignore unknown fields and unknown message types.
 - Gate every feature on `server_info.features`.
 - `packages/protocol/fixtures/external-clients/` holds one canonical JSON frame per message an
-  external client uses (60 entries, `formatVersion` 1). Vendor it and deserialize every fixture in
+  external client uses (81 entries, `formatVersion` 1). Vendor it and deserialize every fixture in
   Rust tests. Its README explains the format and the breaking-change policy.
-- The fixtures do **not** cover file transfer or terminal messages today. The follow-ups spec adds
-  them, including binary frames. Do not let the Rust transfer engine depend on those shapes
-  before the fixtures exist.
+- Since 0.0.118 the fixtures cover **file transfer and terminals**: the `file_download_*`,
+  `file_upload_*`, `file_upload_complete` and `*_terminal_*` RPCs plus `terminals_update`, each
+  checked against a live dev daemon. Most have no Zod schema, so the live test is their only guard.
+  The **binary frames** (file transfer `Begin`/`Chunk`/`End`/`Error`, terminal `Output`/`Input`/`Resize`/
+  `Snapshot`/`Restore`) are nine fixtures in the `binary/` **subdirectory** with their own
+  `binary/manifest.json` and `formatVersion` (complete frame as `hex` plus its `decoded` form); they are in a
+  subdirectory because the dashboard's vendored test rejects any top-level `*.json` that `manifest.json`
+  does not list. They are round-trip-tested against the TypeScript codecs but have no live layer.
+  For the `Begin` and `Resize` frames compare parsed JSON, not bytes. The Rust transfer engine can
+  now be written against these shapes.
 - `~` in a path is expanded by the daemon. Take the home directory from `server_info.homeDir`;
   never derive it locally, since the desktop app may drive a daemon on another OS.
 

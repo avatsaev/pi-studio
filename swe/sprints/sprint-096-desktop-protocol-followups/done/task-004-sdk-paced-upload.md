@@ -1,7 +1,7 @@
 # Task 004 — SDK: buffered amount on `Transport`, paced streaming upload
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

@@ -47,7 +47,10 @@ src/
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
-                                   auth; a small handler subset for local testing.
+                                   auth; a handler subset for local testing that includes file
+                                   transfer (`FileTransferService` + upload binary handler) and
+                                   terminals (`registerTerminalHandlers` + binary handler), wired as
+                                   in bootstrap.ts; `close()` kills every PTY.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
                                    wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay — outbound E2EE relay dial (@av-pi-studio/relay),
@@ -2026,4 +2029,7 @@ no scenario producer fails the coverage guard, and a manifest `exception` fixtur
 unproduced). A daemon change that alters a fixtured shape fails here: update the fixture per the
 bump + note rule (protocol AGENTS.md). `scripts/record-external-fixtures.ts` runs the same scenario
 and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, so run
-`npm run build:server` first. Not run in CI.
+`npm run build:server` first. Not run in CI. The scenario also drives file transfer (token → download,
+`ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
+(create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
+the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.

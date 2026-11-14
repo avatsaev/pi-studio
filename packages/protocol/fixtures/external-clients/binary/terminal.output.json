@@ -1,0 +1,13 @@
+{
+  "family": "terminal",
+  "opcode": "Output",
+  "direction": "server_to_client",
+  "description": "Terminal output bytes for one subscribed slot, passed through verbatim (here: green text, then a CRLF).",
+  "since": "0.0.118",
+  "hex": "01 01 1b 5b 33 32 6d 6f 6b 1b 5b 30 6d 0d 0a",
+  "decoded": {
+    "opcode": "Output",
+    "slot": 1,
+    "dataHex": "1b 5b 33 32 6d 6f 6b 1b 5b 30 6d 0d 0a"
+  }
+}

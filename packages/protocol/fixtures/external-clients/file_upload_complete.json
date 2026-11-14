@@ -1,0 +1,19 @@
+{
+  "type": "file_upload_complete",
+  "direction": "server_to_client",
+  "description": "Push after an upload stream ends, only when the request carried `ack:true`. `error` is present only when `ok` is false.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": "fileTransferAck",
+  "volatile": ["/message/transferId", "/message/stream", "/message/bytesWritten"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_upload_complete",
+      "transferId": "transfer-1",
+      "stream": 1,
+      "ok": true,
+      "bytesWritten": 30
+    }
+  }
+}

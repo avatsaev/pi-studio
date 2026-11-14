@@ -1,0 +1,18 @@
+{
+  "type": "file_download_request",
+  "direction": "client_to_server",
+  "description": "Redeem the token: the daemon streams Begin/Chunk*/End binary file-transfer frames on `stream` (omit `stream` to let the daemon pick), then answers.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/token", "/message/stream"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_request",
+      "requestId": "req-1",
+      "token": "FAKE",
+      "stream": 1
+    }
+  }
+}

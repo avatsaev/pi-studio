@@ -1,0 +1,19 @@
+{
+  "type": "file_download_token_response",
+  "direction": "server_to_client",
+  "description": "Token plus its expiry (epoch ms). Failure is `{ok:false,error:\"not_found\"}` with no token.",
+  "since": "0.0.118",
+  "stage": 3,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/token", "/message/expiresAt"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_token_response",
+      "ok": true,
+      "token": "FAKE",
+      "expiresAt": 1767225600000,
+      "requestId": "req-1"
+    }
+  }
+}

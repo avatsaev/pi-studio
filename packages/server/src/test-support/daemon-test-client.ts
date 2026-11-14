@@ -23,6 +23,8 @@ export interface TestClient {
   ws: WebSocket;
   /** Every top-level frame received so far, in arrival order (the handshake `status` first). */
   frames: WireFrame[];
+  /** Every binary frame received so far (file-transfer / terminal streams), in arrival order. */
+  binaryFrames: Uint8Array[];
   /** The handshake `status` frame. */
   status: WireFrame;
   /** Sends a raw top-level frame as JSON. */
@@ -64,10 +66,15 @@ export async function connectTestClient(
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   const frames: WireFrame[] = [];
   const replies = new Map<string, (frame: WireFrame) => void>();
+  const binaryFrames: Uint8Array[] = [];
   const handshake = Promise.withResolvers<WireFrame>();
 
   ws.once("error", handshake.reject);
-  ws.on("message", (data: Buffer) => {
+  ws.on("message", (data: Buffer, isBinary: boolean) => {
+    if (isBinary) {
+      binaryFrames.push(new Uint8Array(data));
+      return;
+    }
     const frame = JSON.parse(data.toString("utf8")) as WireFrame;
     frames.push(frame);
     const requestId = messageOf(frame).requestId;
@@ -120,6 +127,7 @@ export async function connectTestClient(
   return {
     ws,
     frames,
+    binaryFrames,
     status,
     send: (frame) => ws.send(JSON.stringify(frame)),
     rpcFrame,

@@ -1,0 +1,13 @@
+{
+  "family": "file_transfer",
+  "opcode": "End",
+  "direction": "both",
+  "description": "Completion marker: one payload byte, 1 = ok, 0 = aborted. The daemon sends no End after an Error.",
+  "since": "0.0.118",
+  "hex": "12 03 01",
+  "decoded": {
+    "opcode": "End",
+    "stream": 3,
+    "ok": true
+  }
+}

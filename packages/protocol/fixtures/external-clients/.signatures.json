@@ -323,6 +323,44 @@
       "/message/type": "string",
       "/type": "string"
     },
+    "capture_terminal_request.json": {
+      "/message/requestId": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "capture_terminal_response.json": {
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/screen": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "create_terminal_request.json": {
+      "/message/cols": "number",
+      "/message/cwd": "string",
+      "/message/name": "string",
+      "/message/requestId": "string",
+      "/message/rows": "number",
+      "/message/shell": "string",
+      "/message/type": "string",
+      "/message/workspaceId": "string",
+      "/type": "string"
+    },
+    "create_terminal_response.json": {
+      "/message/requestId": "string",
+      "/message/terminal/closed": "boolean",
+      "/message/terminal/cols": "number",
+      "/message/terminal/cwd": "string",
+      "/message/terminal/name": "string",
+      "/message/terminal/rows": "number",
+      "/message/terminal/shell": "string",
+      "/message/terminal/slot": "number",
+      "/message/terminal/workspaceId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
     "daemon_log_lines.json": {
       "/message/dropped": "number",
       "/message/lines/0/level": "string",
@@ -477,6 +515,58 @@
       "/message/type": "string",
       "/type": "string"
     },
+    "file_download_request.json": {
+      "/message/requestId": "string",
+      "/message/stream": "number",
+      "/message/token": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_download_response.json": {
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/stream": "number",
+      "/message/transferId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_download_token_request.json": {
+      "/message/path": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_download_token_response.json": {
+      "/message/expiresAt": "number",
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/token": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_upload_complete.json": {
+      "/message/bytesWritten": "number",
+      "/message/ok": "boolean",
+      "/message/stream": "number",
+      "/message/transferId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_upload_request.json": {
+      "/message/ack": "boolean",
+      "/message/path": "string",
+      "/message/requestId": "string",
+      "/message/transferId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_upload_response.json": {
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/stream": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
     "health.json": {
       "/body/status": "string",
       "/contentType": "string",
@@ -512,6 +602,19 @@
       "/message/type": "string",
       "/type": "string"
     },
+    "kill_terminal_request.json": {
+      "/message/requestId": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "kill_terminal_response.json": {
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
     "list_agents_request.json": {
       "/message/requestId": "string",
       "/message/type": "string",
@@ -531,6 +634,24 @@
       "/message/type": "string",
       "/type": "string"
     },
+    "list_terminals_request.json": {
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "list_terminals_response.json": {
+      "/message/requestId": "string",
+      "/message/terminals/0/closed": "boolean",
+      "/message/terminals/0/cols": "number",
+      "/message/terminals/0/cwd": "string",
+      "/message/terminals/0/name": "string",
+      "/message/terminals/0/rows": "number",
+      "/message/terminals/0/shell": "string",
+      "/message/terminals/0/slot": "number",
+      "/message/terminals/0/workspaceId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
     "ping.json": {
       "/clientSentAt": "number",
       "/requestId": "string",
@@ -541,6 +662,20 @@
       "/requestId": "string",
       "/serverReceivedAt": "number",
       "/serverSentAt": "number",
+      "/type": "string"
+    },
+    "rename_terminal_request.json": {
+      "/message/name": "string",
+      "/message/requestId": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "rename_terminal_response.json": {
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/slot": "number",
+      "/message/type": "string",
       "/type": "string"
     },
     "rpc_error.json": {
@@ -562,6 +697,36 @@
       "/payload/serverId": "string",
       "/payload/status": "string",
       "/payload/version": "string",
+      "/type": "string"
+    },
+    "subscribe_terminal_request.json": {
+      "/message/cols": "number",
+      "/message/requestId": "string",
+      "/message/rows": "number",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "subscribe_terminal_response.json": {
+      "/message/cols": "number",
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/restoreMode": "string",
+      "/message/rows": "number",
+      "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "terminals_update.json": {
+      "/message/terminals/0/closed": "boolean",
+      "/message/terminals/0/cols": "number",
+      "/message/terminals/0/cwd": "string",
+      "/message/terminals/0/name": "string",
+      "/message/terminals/0/rows": "number",
+      "/message/terminals/0/shell": "string",
+      "/message/terminals/0/slot": "number",
+      "/message/terminals/0/workspaceId": "string",
+      "/message/type": "string",
       "/type": "string"
     }
   }

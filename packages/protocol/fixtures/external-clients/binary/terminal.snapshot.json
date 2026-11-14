@@ -1,0 +1,13 @@
+{
+  "family": "terminal",
+  "opcode": "Snapshot",
+  "direction": "server_to_client",
+  "description": "Raw-tier restore for a subscription that did not negotiate `terminal_reflowable_snapshot`: the screen as bytes to replay. The payload is opaque to the codec.",
+  "since": "0.0.118",
+  "hex": "04 01 24 20",
+  "decoded": {
+    "opcode": "Snapshot",
+    "slot": 1,
+    "dataHex": "24 20"
+  }
+}

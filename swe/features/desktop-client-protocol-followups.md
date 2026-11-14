@@ -105,10 +105,13 @@ New fixtures, each validated like the existing ones:
 | Binary frames | File transfer `Begin`, `Chunk`, `End`, `Error`; terminal `Output`, `Input`, `Resize`, `Snapshot`, `Restore` |
 
 Binary fixtures use a new file shape and their own manifest, so `manifest.json` and its
-`formatVersion` are untouched:
+`formatVersion` are untouched. **As built they live in a `binary/` subdirectory with `binary/manifest.json`**
+(not a top-level `binary-manifest.json`), because the dashboard's vendored-fixture test fails on any
+top-level `*.json` that `manifest.json` does not list; `direction` is `"both"` for the four
+file-transfer frames (valid for downloads and uploads):
 
 ```jsonc
-// binary-manifest.json: { "formatVersion": 1, "frames": [{ "file", "family", "opcode", "direction" }] }
+// binary/manifest.json: { "formatVersion": 1, "frames": [{ "file", "family", "opcode", "direction" }] }
 {
   "family": "file_transfer",          // | "terminal"
   "opcode": "Chunk",
@@ -218,20 +221,28 @@ None. No stored entity changes.
 
 ## TODO(verify)
 
-- **Dev daemon coverage. Resolved at planning (2026-11-14): the dev bootstrap registers neither
-  the file-transfer nor the terminal handlers.** Sprint 096 task-006 registers both there, wired
-  as in production, so the live fixture test can cover them.
+- ~~**Dev daemon coverage.**~~ Resolved (task-006): the dev bootstrap now registers the file-transfer
+  and terminal handlers (and their binary handlers), wired as in production; the live fixture test
+  covers them.
 - ~~**Buffered amount on the relay path.**~~ Daemon side resolved (task-002): the relay session's
   stand-in socket has no queue to read (`Session.bufferedAmount` is `undefined`), so relay
-  downloads are unpaced and the spec's bounds apply to direct connections only. The client's relay
-  transport is still to be checked in task-004.
+  downloads are unpaced and the spec's bounds apply to direct connections only. **The client's relay
+  transport does report it** (task-004): `relay-transport.ts` returns its relay socket's
+  `bufferedAmount`; the channel encrypts and writes synchronously, so the queue is the base64-inflated
+  ciphertext. Verified by reading `relay-transport.ts` and `relay/src/channel.ts`; there is no
+  relay-specific test. Relay **uploads** are therefore paced, relay **downloads** are not.
 - ~~**Direct-connection behaviour on an invalid `hello`.**~~ Resolved: the daemon closes the socket
   with 1008 `first frame must be hello`; only the relay path ignores it silently. Recorded in the
   handoff doc.
 - ~~**Partial file after a failed upload.**~~ Decided (task-003): it is **left** on disk, as before;
   `file_upload_complete { ok: false }` tells the client it is partial.
-- **Binary fixtures and the dashboard.** Confirm the dashboard's vendoring script copies the
-  directory wholesale and ignores files it does not know, so `binary-manifest.json` is harmless.
+- ~~**Binary fixtures and the dashboard.**~~ Checked against `../pi-studio-dashboard` (task-007): the
+  vendoring is a wholesale `rsync -a --delete`, but its `vendored_fixtures.rs` fails on any top-level
+  `*.json` (other than `manifest.json`) that the manifest does not list. So the binary fixtures are in
+  a `binary/` subdirectory, which the dashboard's flat `read_dir` filter ignores. New JSON fixtures are
+  fine: that test only requires them to be listed and to decode as generic frames.
 - **High- and low-water marks.** Daemon download: 1 MiB high, 256 KiB low, polled every 10 ms.
   **Chosen, not measured** (no LAN/relay measurement was run); injectable through
-  `FileTransferDeps`. The SDK upload marks are still to be chosen in task-004.
+  `FileTransferDeps`. SDK upload: `UPLOAD_HIGH_WATER_BYTES` = 1 MiB, 10 ms poll, also chosen, not
+  measured. A daemon without `fileTransferAck` cannot confirm the file reached disk: the SDK
+  resolves once its transport buffer drains after `End`.

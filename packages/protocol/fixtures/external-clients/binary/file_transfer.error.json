@@ -1,0 +1,13 @@
+{
+  "family": "file_transfer",
+  "opcode": "Error",
+  "direction": "both",
+  "description": "Aborts a transfer: UTF-8 message after the header. The daemon sends it on a download read error (message `read_failed`) and a client sends it to cancel an upload; no End follows.",
+  "since": "0.0.118",
+  "hex": "13 03 72 65 61 64 5f 66 61 69 6c 65 64",
+  "decoded": {
+    "opcode": "Error",
+    "stream": 3,
+    "message": "read_failed"
+  }
+}

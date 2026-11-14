@@ -64,6 +64,8 @@ src/
   terminal-router.test.ts
   file-transfer-client.ts     FileTransferClient — binary file-download/-upload frame demux + assembly.
   file-transfer-client.test.ts
+  file-transfer-upload.test.ts  Paced/acknowledged/cancellable upload against a fake transport with a scripted `bufferedAmount`.
+  (the real-daemon upload test is packages/cli/src/file-transfer-sdk-e2e.test.ts: cli depends on both client and server.)
 ```
 
 ---
@@ -80,6 +82,7 @@ interface Transport {
   sendBinary(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
   readonly isOpen: boolean;
+  readonly bufferedAmount?: number; // bytes queued by send*() not yet on the wire; optional
 
   onMessage: ((data: string | ArrayBuffer | Blob) => void) | null;
   onClose: ((code: number, reason: string) => void) | null;
@@ -116,6 +119,14 @@ file-transfer chunks) — carried as the channel's `e2ee_bin` sibling wire frame
 (`@av-pi-studio/relay`'s `channel.ts`); still a JSON text WS frame under the hood (base64-wrapped
 ciphertext), never a raw binary WebSocket frame, so no relay-server change was needed.
 
+`Transport.bufferedAmount` is **optional**: bytes accepted by `sendText`/`sendBinary` but not yet
+handed to the network. `createWebSocketTransport` returns the socket's `bufferedAmount` (`undefined`
+when there is no socket); `createRelayTransport` returns its relay socket's `bufferedAmount` too —
+the channel encrypts and writes synchronously, so that queue is exactly the (base64-inflated)
+ciphertext still waiting to leave. A transport that cannot report it (the desktop app's Rust bridge,
+any out-of-tree implementation) simply omits the property: `FileTransferClient.upload` then treats
+it as never congested and does not pace. `DaemonClient.bufferedAmount` forwards it.
+
 `parsePairingUrl(input)` (`pairing.ts`) parses a pairing URL's fragment
 (`#offer=<base64>&host=...` or, for a relay-routed daemon, `#offer=<base64>&relay=<endpoint>
 &relayTls=<0|1>`) into `{ publicKeyB64, publicKey, host? }` or `{ publicKeyB64, publicKey, relay:
@@ -148,6 +159,7 @@ valid pairing link," never fall back to an unauthenticated connection.
 | `onTerminalFrame(handler)`              | Subscribe to decoded inbound terminal binary frames. Returns unsubscribe fn.                             |
 | `onFileTransferFrame(handler)`          | Subscribe to decoded inbound file-transfer binary frames. Returns unsubscribe fn.                        |
 | `onStateChange(handler)`                | Subscribe to connection state transitions. Returns unsubscribe fn.                                       |
+| `bufferedAmount`                        | The transport's unsent byte count; `undefined` when the transport does not report one.                   |
 | `state`                                 | Current `ConnectionState`                                                                                |
 | `serverId`                              | Server identity from the last `server_info`                                                              |
 | `features`                              | Feature flags map from the last `server_info`                                                            |
@@ -532,11 +544,12 @@ const files = new FileTransferClient(daemonClient);
 files.start(); // begin routing (idempotent)
 const { bytes, fileName, mimeType } = await files.download(path);
 // requests a single-use token, then the chunked transfer, assembling Begin → Chunk* → End
-await files.upload(path, bytes);
-// requests an upload stream (server keys it by a fresh transferId), then pushes
-// Begin → Chunk* → End frames the server writes to `path` (creates parent dirs, overwrites
-// any existing file — no confirmation server-side; callers must confirm before calling).
-files.stop(); // stop routing; pending downloads are rejected
+await files.upload(path, source, { onProgress, signal });
+// source: Uint8Array | Blob | AsyncIterable<Uint8Array>. Requests an upload stream (server keys it
+// by a fresh transferId), then pushes Begin → Chunk* → End frames the server writes to `path`
+// (creates parent dirs, overwrites any existing file — no confirmation server-side; callers must
+// confirm before calling). A bare `Uint8Array` call (no options) behaves as before.
+files.stop(); // stop routing; pending downloads and uploads are rejected
 ```
 
 - **Stream ids come from the protocol's shared pool** (`nextFreeSlot`/`SLOT_SPACE`) and are
@@ -548,6 +561,31 @@ files.stop(); // stop routing; pending downloads are rejected
   socket shared with every in-flight `Chunk` frame — a large transfer ahead of it can deliver a
   token that is already dead (routine over relay). By the time the rejection arrives that backlog
   has drained, so one clean attempt suffices; further looping would only spin on a broken link.
+- **`upload()` streams and paces.** Chunks are at most 32 KiB (`Begin`/`Chunk`/`End` opcodes and the
+  chunk size are unchanged). A `Blob` is read one `slice()` at a time (never `arrayBuffer()` of the
+  whole file); an async iterable is pulled one item at a time and oversized items are re-cut.
+  Before each chunk it polls (10 ms timer) while `daemon.bufferedAmount` is above
+  `UPLOAD_HIGH_WATER_BYTES` (1 MiB, exported; **chosen, not measured**), so the socket queue stays
+  within the mark plus one frame. No `bufferedAmount` → never congested. `onProgress(sent, total?)`
+  fires after every chunk (cumulative `sent`; `total` is the byte length for `Uint8Array`/`Blob`,
+  `undefined` for an iterable; an empty source reports `(0, 0)`). `new FileTransferClient(daemon,
+  { highWaterBytes?, sleep? })` overrides the mark and the timer (tests).
+- **Completion depends on `server_info.features.fileTransferAck`.** With it, the request carries
+  `ack: true` and `upload()` resolves on the matching `file_upload_complete` push (by `transferId`;
+  the listener is registered before `Begin` goes out), rejecting with the daemon's `error` when
+  `ok` is false — a failure push mid-transfer also stops sending. That wait has **no timeout** (it
+  is not an RPC), so a long upload is never cut off by `rpcTimeoutMs`. Without the feature (older
+  daemon) it resolves once the transport's buffered amount reaches 0 (or is unknown) after `End` —
+  the bytes have left this machine, not necessarily reached the disk.
+- **Cancel and failure leave nothing behind.** `signal` aborting sends an `Error` frame for the
+  stream (only before `End`, and only if the daemon has not already reported the transfer done —
+  stream ids get reused) and rejects with a `DOMException` named `AbortError`; an abort while the
+  `file_upload_request` is still in flight returns the stream when it arrives. A source error does
+  the same with a plain `Error`. A dropped connection (any non-`open` state change) or `stop()`
+  rejects without sending. In every case the abort/state/session listeners are removed and
+  `pendingUploads` returns to 0.
+- **No `Promise.withResolvers` in `src/`.** The SDK runs in browsers/React Native older than ES2024
+  and compiles with `lib: ES2023`; use `new Promise` here (tests may use `withResolvers`).
 
 ---
 
@@ -582,11 +620,15 @@ function` on upload) — never call `crypto.randomUUID()` directly in this packa
 ```bash
 npx vitest run packages/client
 npx vitest run packages/cli/src/agent-ui-sdk-e2e.test.ts   # cross-package Extension UI E2E (real daemon)
+npx vitest run packages/cli/src/file-transfer-sdk-e2e.test.ts   # upload() against a real daemon (ack, bytes on disk)
 ```
 
 Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets —
-with one exception: `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) drives a
-real `PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
+with two exceptions, both in `cli` because `client` and `server` have no dependency edge in either
+direction. `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) drives a real
+`PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
 (`@av-pi-studio/server`'s `startDevDaemon`), proving interoperability beyond this package's own
-scripted-transport tests. It lives in `cli`, not here, because `client` and `server` have no
-dependency edge in either direction.
+scripted-transport tests. `packages/cli/src/file-transfer-sdk-e2e.test.ts` (sprint-096/task-004) is
+the second: `FileTransferClient.upload()` against the same dev daemon, checking that it resolves on
+the daemon's `file_upload_complete`, that the bytes on disk match, and that a daemon-side failure
+rejects with the daemon's error.
