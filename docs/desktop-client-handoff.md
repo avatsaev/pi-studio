@@ -21,7 +21,7 @@ runbook and a packed-tarball smoke test; the first npm release happens when the 
 | `@av-pi-studio/protocol`, `client`, `relay` | Published on npm, in use |
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
-| Protocol follow-ups for this client | **Planned, not built** (sprint 096). `swe/features/desktop-client-protocol-followups.md`: a `platform` field in the handshake, paced uploads and downloads with a completion signal, and fixtures for file transfer and terminals |
+| Protocol follow-ups for this client | **In progress on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`). Built so far: `hello.platform`, daemon-side pacing/ownership/error handling, `fileTransferAck` + `file_upload_complete`. Still to come: SDK paced upload, streaming browser upload, file/terminal fixtures, dev-daemon handlers. Spec: `swe/features/desktop-client-protocol-followups.md`: a `platform` field in the handshake, paced uploads and downloads with a completion signal, and fixtures for file transfer and terminals |
 | `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
@@ -37,7 +37,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
 | 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
-| 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | Not started |
+| 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | **In progress** (tasks 001–003 done: handshake field, daemon pacing/ownership/error, `fileTransferAck`) |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
 published SDK. It can be prototyped before the first release, against `web-client`'s behaviour, but it
@@ -245,8 +245,11 @@ Rules the bridge must honour:
   `localhost,*.localhost`). The WebSocket upgrade does not check `Origin`.
 - **Client type.** `hello.clientType` is an enum of `mobile`, `browser`, `cli`, `mcp`. Send
   `browser`: a daemon rejects an unknown value, and on a relay connection it does so silently.
-  The follow-ups spec adds an optional `hello.platform` string (`"desktop"`), which every daemon
-  accepts; send it once it exists.
+  Also send `platform: "desktop"` (an optional free-form string, max 32 characters; a bad value is
+  dropped, not rejected). Every daemon accepts the field, including 0.0.117 (checked: a 0.0.117
+  daemon answered `server_info` to a `hello` carrying it); a daemon from this release on reports it
+  in `daemon_status` client entries. The workbench sends it when the host's `app.platform` is set.
+  Nothing branches on it.
 - **Timers.** `ReconnectionManager` takes injected `setTimer`/`clearTimer`. `web-client` passes
   Web Worker timers to survive hidden-tab throttling. Supply timers from Rust, or have Rust signal
   "socket closed", "network back" and "system woke" so the webview reconnects at once.
@@ -284,12 +287,25 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   sends `Begin` (with `transferId`), `Chunk`…, `End`. The daemon writes to the target path.
 - Chunks are 32 KiB. Stream ids are one byte (256), allocated by the daemon across all sessions.
 - No upload size cap was found in the daemon; the ceiling today is client memory.
-- **An upload has no completion signal today.** The daemon sends nothing after `End`, and a write
-  error on the daemon is not reported to the client. Neither side applies flow control. The
-  follow-ups spec adds an opt-in `file_upload_complete` push and pacing; until it ships, verify an
-  upload by listing the target directory.
-- On a download read error the daemon sends `Error` and then still sends `End`. Treat `Error` as
-  final.
+- **Upload completion (daemon, shipped in this branch).** Send `ack: true` in
+  `file_upload_request` when `server_info.features.fileTransferAck` is set, and the daemon pushes
+  `{type:"session", message:{type:"file_upload_complete", transferId, stream, ok, bytesWritten, error?}}`
+  after it has closed the file, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
+  `write_failed`/`close_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
+  message. A partial file is left on disk after a failure. Without the flag (an older daemon) nothing
+  is pushed: verify by listing the directory. The SDK side (paced `upload()`) is not built yet.
+- **Upload streams belong to the session that opened them.** A frame from another session is ignored
+  (so a client holding two connections must send an upload's frames on the connection that sent its
+  `file_upload_request`), and a closed session releases its streams and file handles.
+- **Download pacing (daemon, shipped).** The daemon pauses reading the file while the socket has more
+  than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for **direct
+  connections only**: the relay's stand-in socket cannot report a queue, so relay downloads are
+  unpaced. A read error sends one `Error` frame and **no** `End`; the `file_download_response` then
+  says `ok:false, error:"read_failed"`. Treat `Error` as final.
+- The daemon's reaction to an invalid `hello` on a direct connection (not only the relay) is the
+  not silent: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
+  fails validation. Only the relay path ignores it without an answer. Either way `clientType` must
+  stay inside the enum.
 
 Recommended design:
 

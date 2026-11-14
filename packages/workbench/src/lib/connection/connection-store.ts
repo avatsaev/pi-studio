@@ -69,7 +69,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     // direct host hint (connect there exactly like a typed `url`, no password support in that
     // form since a pairing link is generated once and doesn't carry one).
     const target = resolveConnectTarget(opts.url);
-    const { connection } = getHost();
+    const { app, connection } = getHost();
 
     let transport: Transport | undefined;
     try {
@@ -83,6 +83,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       url: target.url,
       clientId: opts.clientId ?? generateClientId(),
       clientType: "browser",
+      platform: app.platform,
       capabilities: {
         [CLIENT_CAPS.inline_image_markdown]: true,
         [CLIENT_CAPS.file_link_markdown]: true,

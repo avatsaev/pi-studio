@@ -1,7 +1,7 @@
 # Task 003 — Upload acknowledgement: `fileTransferAck`
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol, packages/server (files)
 - **Priority:** P1

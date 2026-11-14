@@ -1,0 +1,22 @@
+{
+  "type": "hello",
+  "direction": "client_to_server",
+  "description": "Handshake from the desktop app: clientType stays \"browser\" (the enum is closed; a daemon up to 0.0.117 rejects unknown values), and the optional platform string says what kind of client it is. Daemons that predate the field ignore it.",
+  "since": "0.0.118",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": [
+    "/clientId"
+  ],
+  "frame": {
+    "type": "hello",
+    "clientId": "client-1",
+    "clientType": "browser",
+    "platform": "desktop",
+    "protocolVersion": 1,
+    "appVersion": "pistudiodesktop/0.1.0",
+    "capabilities": {
+      "reasoning_merge_enum": true
+    }
+  }
+}

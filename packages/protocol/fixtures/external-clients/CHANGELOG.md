@@ -16,3 +16,10 @@ Stage 2 fixtures, gated by `requiresFeature: "daemonObservability"` (pi-studio 0
 `daemon_status_unsubscribe_request`/`_response`, `daemon_status_update`,
 `daemon_logs_subscribe_request`/`_response`, `daemon_logs_unsubscribe_request`/`_response` and
 `daemon_log_lines`. New files only; no existing fixture changed, no migration.
+
+## Additive — 2026-11-14 (formatVersion stays 1)
+
+`hello.platform.json` (pi-studio 0.0.118): a `hello` variant carrying the new optional
+`platform` string. New file only; no existing fixture changed, no migration. `daemon_status`
+client entries may now also carry `platform` — a field present only when the client sent one, so
+the existing `daemon_status_*` fixtures are unchanged.

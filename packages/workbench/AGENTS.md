@@ -28,8 +28,8 @@ changes: `CHANGELOG.md`.
 
 Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
 
-- `types.ts` — `WorkbenchHost`. Members: `app` (`{title, version}`, shown in the connection
-  bar), `storage` (ui-library's **synchronous** `KeyValueStore`), `clipboard.writeText` (rejects on
+- `types.ts` — `WorkbenchHost`. Members: `app` (`{title, version, platform?}`, shown in the connection
+  bar; `platform` is passed to the SDK as `hello.platform`), `storage` (ui-library's **synchronous** `KeyValueStore`), `clipboard.writeText` (rejects on
   failure), `dialogs.confirm/alert/prompt` (promises; dismissal → `false`/`null`),
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`

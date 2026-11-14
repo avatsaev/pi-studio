@@ -275,6 +275,12 @@
       "response": "status.server_info.json"
     },
     {
+      "file": "hello.platform.json",
+      "type": "hello",
+      "direction": "client_to_server",
+      "response": "status.server_info.json"
+    },
+    {
       "file": "interrupt_agent.json",
       "type": "interrupt_agent",
       "direction": "client_to_server",

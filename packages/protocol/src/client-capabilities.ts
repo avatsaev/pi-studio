@@ -54,6 +54,11 @@ export const SERVER_FEATURES = {
   skills: "skills",
   agentTodos: "agentTodos",
   daemonObservability: "daemonObservability",
+  /**
+   * `file_upload_request.ack` is honoured: the daemon answers an acknowledged upload with a
+   * `file_upload_complete` push once the file is closed (or has failed).
+   */
+  fileTransferAck: "fileTransferAck",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -103,6 +108,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   agentTodos: COMPAT({ name: "agentTodos", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(daemonObservability): added 0.0.0, remove by TBD
   daemonObservability: COMPAT({ name: "daemonObservability", addedIn: "0.0.0", removeBy: "TBD" }),
+  // COMPAT(fileTransferAck): added 0.0.118, remove by TBD
+  fileTransferAck: COMPAT({ name: "fileTransferAck", addedIn: "0.0.118", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

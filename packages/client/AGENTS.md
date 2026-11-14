@@ -166,7 +166,8 @@ valid pairing link," never fall back to an unauthenticated connection.
 {
   url: string;              // WebSocket URL (e.g. "ws://127.0.0.1:6767") — passed to transport.connect()
   clientId: string;         // Stable client identity sent in hello
-  clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp"
+  clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp" (closed enum)
+  platform?: string;        // hello.platform, sent only when set; the desktop app sends "desktop" (with clientType "browser")
   protocolVersion?: number; // Defaults to PROTOCOL_VERSION = 1
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise

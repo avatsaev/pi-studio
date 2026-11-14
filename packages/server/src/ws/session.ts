@@ -1,6 +1,9 @@
 import { supports } from "@av-pi-studio/protocol";
 import type { WebSocket } from "ws";
 
+/** `WebSocket.OPEN` (the `ws` package's readyState for an open socket). */
+const WS_OPEN = 1;
+
 /**
  * A per-connection session (architecture/websocket-protocol.md § Behavior). Holds the client
  * identity, the (rehydrated) capability set, and the socket. The wire boundary asks exactly one
@@ -10,6 +13,8 @@ export class Session {
   readonly id: string;
   readonly clientId: string;
   readonly clientType: string;
+  /** The hello's `platform` (e.g. `"desktop"`), verbatim when the client sent one. Informational. */
+  readonly platform: string | undefined;
   capabilities: Record<string, boolean>;
   /** Epoch ms of the handshake. A wall-clock fact for the connected-clients list. */
   readonly connectedAt: number;
@@ -24,6 +29,7 @@ export class Session {
     id: string;
     clientId: string;
     clientType: string;
+    platform?: string;
     capabilities: Record<string, boolean>;
     socket: WebSocket;
     connectedAt?: number;
@@ -34,6 +40,7 @@ export class Session {
     this.id = opts.id;
     this.clientId = opts.clientId;
     this.clientType = opts.clientType;
+    this.platform = opts.platform;
     this.capabilities = opts.capabilities;
     this.connectedAt = opts.connectedAt ?? Date.now();
     this.appVersion = opts.appVersion;
@@ -55,6 +62,22 @@ export class Session {
   /** Send raw bytes as a binary frame (terminal/file streams). */
   sendBinary(bytes: Uint8Array): void {
     this.socket.send(bytes);
+  }
+
+  /**
+   * Bytes queued on the socket and not yet flushed, or `undefined` when the socket cannot say (the
+   * relay's stand-in socket forwards each frame into an encrypted channel and has no queue to
+   * read). Bulk senders pace themselves on it; `undefined` means "do not pace".
+   */
+  get bufferedAmount(): number | undefined {
+    const queued = (this.socket as { bufferedAmount?: unknown }).bufferedAmount;
+    return typeof queued === "number" ? queued : undefined;
+  }
+
+  /** False once the socket is closing or closed. A socket with no `readyState` (relay) is open. */
+  get isOpen(): boolean {
+    const state = (this.socket as { readyState?: unknown }).readyState;
+    return typeof state !== "number" || state === WS_OPEN;
   }
 
   close(code?: number, reason?: string): void {

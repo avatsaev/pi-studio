@@ -12,7 +12,9 @@ import {
 
 function fakeSession(
   clientId: string,
-  opts: Partial<Pick<Session, "connectedAt" | "appVersion" | "remoteAddress" | "transport">> = {},
+  opts: Partial<
+    Pick<Session, "connectedAt" | "appVersion" | "remoteAddress" | "transport" | "platform">
+  > = {},
 ): Session {
   return {
     clientId,
@@ -113,6 +115,21 @@ describe("DaemonStatusService", () => {
     expect(s.clients[0]).not.toHaveProperty("appVersion");
     expect(s.clients[2]).not.toHaveProperty("remoteAddress");
     expect(s.clients[2]!.transport).toBe("relay");
+  });
+
+  it("reports a session's platform in the clients list, and omits it when absent", () => {
+    const svc = new DaemonStatusService({
+      listAgents: () => [],
+      getActiveSessions: () => [
+        fakeSession("d", { platform: "desktop" }),
+        fakeSession("e", { connectedAt: 2000 }),
+      ],
+      send: () => {},
+      sampler: makeSampler(),
+    });
+    const clients = svc.oneShot().clients;
+    expect(clients[0]).toMatchObject({ clientId: "d", platform: "desktop" });
+    expect(clients[1]).not.toHaveProperty("platform");
   });
 
   it("zero agents yields an empty agentsByStatus", () => {

@@ -538,6 +538,17 @@ All communication uses a **single WebSocket connection** per client.
   `hasAgentTodosCapability`, `AgentTodosError`) and the pure `agent-todos-state.ts` reducer. **Sprint-080 shipped the web
   panel** (`packages/workbench`'s `TodoPanel`, between the timeline and the composer; per-agent collapse in
   localStorage `pi-studio-agent-todos-ui`; see `packages/workbench/AGENTS.md`'s "Agent todo panel").
+- **Desktop-client protocol follow-ups (sprint-096, `swe/features/desktop-client-protocol-followups.md`).**
+  Three additive changes for the Rust desktop client. (1) `hello.platform`: an optional free-form string
+  (max 32 chars; a bad value is dropped, not rejected) carried to `Session.platform` and `daemon_status`
+  client entries; `clientType` stays a closed enum (the desktop app connects as `browser` +
+  `platform: "desktop"`) because a 0.0.117 daemon rejects an unknown value, silently over the relay.
+  (2) File-transfer flow control: the daemon paces a download on the socket's buffered amount (direct
+  connections only; the relay's stand-in socket reports none), sends `Error` without a trailing `End`
+  on a read error, and ignores upload frames from a session that does not own the stream; an upload
+  request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
+  `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
+  after a failed upload. (3) Fixture coverage for file transfer and terminals (see below as it lands).
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**

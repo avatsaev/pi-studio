@@ -1,7 +1,7 @@
 # Task 001 — `hello.platform`: say which kind of client this is
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol, packages/server, packages/client
 - **Priority:** P2

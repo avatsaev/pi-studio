@@ -129,7 +129,7 @@ render; the first host wins (a later different one is ignored, with a developmen
 
 | Member | Contract |
 |---|---|
-| `app` | `{ title, version }`, shown in the top bar |
+| `app` | `{ title, version, platform? }`: shown in the top bar; `platform` is sent as `hello.platform` (the desktop app passes `"desktop"`; a browser omits it) |
 | `storage` | `{ get(key): string \| null, set(key, value) }`. **Synchronous**: stores read it while initialising. If your storage is asynchronous, load it into memory before the first render and write behind. Never throws |
 | `clipboard.writeText(text)` | Promise; rejects on failure |
 | `dialogs.confirm/alert/prompt` | Promises. Dismissal resolves `false` / `null` |

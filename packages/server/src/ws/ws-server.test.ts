@@ -78,6 +78,43 @@ describe("hello handshake", () => {
     ws.close();
   });
 
+  it("stores hello.platform on the session, and drops a bad one without failing the handshake", async () => {
+    const { port, sessions } = await startServer();
+    const withPlatform = await connect(port);
+    withPlatform.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "desk-1",
+        clientType: "browser",
+        platform: "desktop",
+        protocolVersion: 1,
+      }),
+    );
+    expect(((await nextMessage(withPlatform)) as { type: string }).type).toBe("status");
+    expect(sessions[0]?.platform).toBe("desktop");
+
+    const bad = await connect(port);
+    bad.send(
+      JSON.stringify({
+        type: "hello",
+        clientId: "desk-2",
+        clientType: "browser",
+        platform: 42,
+        protocolVersion: 1,
+      }),
+    );
+    expect(((await nextMessage(bad)) as { type: string }).type).toBe("status");
+    expect(sessions[1]?.platform).toBeUndefined();
+
+    const plain = await connect(port);
+    plain.send(hello("plain-1"));
+    await nextMessage(plain);
+    expect(sessions[2]?.platform).toBeUndefined();
+    withPlatform.close();
+    bad.close();
+    plain.close();
+  });
+
   it("closes a connection whose first frame is not hello", async () => {
     const { port } = await startServer();
     const ws = await connect(port);

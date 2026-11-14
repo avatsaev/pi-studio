@@ -787,6 +787,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       subscriptions.disposeSession(session);
       daemonStatusService.disposeSession(session);
       daemonLogsService.disposeSession(session);
+      fileTransfer.disposeSession(session);
     },
     onMessage: (session, frame) => {
       if ("text" in frame) {
@@ -829,6 +830,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         subscriptions.disposeSession(relaySession);
         daemonStatusService.disposeSession(relaySession);
         daemonLogsService.disposeSession(relaySession);
+        fileTransfer.disposeSession(relaySession);
       }
       relaySession = null;
     };
@@ -862,6 +864,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               id: randomUUID(),
               clientId: hello.data.clientId,
               clientType: hello.data.clientType,
+              platform: hello.data.platform,
               capabilities,
               appVersion: hello.data.appVersion,
               transport: "relay",

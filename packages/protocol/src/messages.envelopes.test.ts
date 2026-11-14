@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PLATFORM_MAX_LENGTH,
   clientTypeSchema,
+  daemonClientInfoSchema,
   helloSchema,
   pongSchema,
   serverInfoPayloadSchema,
@@ -21,6 +23,50 @@ describe("hello handshake", () => {
       });
       expect(result.success).toBe(true);
     }
+  });
+
+  it("accepts a desktop platform alongside clientType browser", () => {
+    const result = helloSchema.safeParse({
+      type: "hello",
+      clientId: "c1",
+      clientType: "browser",
+      platform: "desktop",
+      protocolVersion: 1,
+    });
+    expect(result.success && result.data.platform).toBe("desktop");
+  });
+
+  it("drops an over-long or non-string platform instead of failing the handshake", () => {
+    for (const platform of ["x".repeat(PLATFORM_MAX_LENGTH + 1), 7, { a: 1 }, null]) {
+      const result = helloSchema.safeParse({
+        type: "hello",
+        clientId: "c1",
+        clientType: "browser",
+        platform,
+        protocolVersion: 1,
+      });
+      expect(result.success).toBe(true);
+      expect(result.success && result.data.platform).toBeUndefined();
+    }
+    const atBound = helloSchema.safeParse({
+      type: "hello",
+      clientId: "c1",
+      clientType: "cli",
+      platform: "x".repeat(PLATFORM_MAX_LENGTH),
+      protocolVersion: 1,
+    });
+    expect(atBound.success && atBound.data.platform).toHaveLength(PLATFORM_MAX_LENGTH);
+  });
+
+  it("daemon_status client entries accept an optional platform", () => {
+    const base = {
+      clientId: "c1",
+      clientType: "browser",
+      connectedAt: 1,
+      transport: "direct",
+    };
+    expect(daemonClientInfoSchema.safeParse(base).success).toBe(true);
+    expect(daemonClientInfoSchema.safeParse({ ...base, platform: "desktop" }).success).toBe(true);
   });
 
   it("rejects an unknown clientType", () => {

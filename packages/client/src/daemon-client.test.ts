@@ -89,6 +89,28 @@ function makeClient(transport: Transport, rpcTimeoutMs = 50): DaemonClient {
 }
 
 describe("connect / handshake", () => {
+  it("sends hello.platform only when the option is set", async () => {
+    const plain = makeFakeTransport();
+    await makeClient(plain.transport).connect();
+    expect(JSON.parse(plain.sent[0]!)).not.toHaveProperty("platform");
+
+    const fake = makeFakeTransport();
+    const client = new DaemonClient({
+      url: "ws://daemon.test/ws",
+      clientId: "client-1",
+      clientType: "browser",
+      platform: "desktop",
+      transport: fake.transport,
+      rpcTimeoutMs: 50,
+      now: () => 1000,
+    });
+    await client.connect();
+    expect(JSON.parse(fake.sent[0]!)).toMatchObject({
+      clientType: "browser",
+      platform: "desktop",
+    });
+  });
+
   it("sends hello and records serverId + features from server_info", async () => {
     const fake = makeFakeTransport();
     const client = makeClient(fake.transport);

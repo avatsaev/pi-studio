@@ -29,9 +29,17 @@ export type WireTimestamp = z.infer<typeof wireTimestampSchema>;
 // Handshake
 // ===========================================================================
 
-/** Client kinds that may connect. Desktop connects as `browser` (TODO(verify) MAIN-SCOPE). */
+/**
+ * Client kinds that may connect. The enum is CLOSED on purpose: a daemon up to 0.0.117 fails `hello`
+ * validation on an unknown value (silently on a relay connection), so a new kind of client must
+ * connect as one of these and say what it is through `hello.platform`. The desktop app connects as
+ * `browser` with `platform: "desktop"`.
+ */
 export const clientTypeSchema = z.enum(["mobile", "browser", "cli", "mcp"]);
 export type ClientType = z.infer<typeof clientTypeSchema>;
+
+/** Longest `hello.platform` the daemon keeps; anything longer is dropped, not rejected. */
+export const PLATFORM_MAX_LENGTH = 32;
 
 /**
  * Client → Server handshake. Must be the first frame on a connection. `capabilities` advertises
@@ -42,6 +50,12 @@ export const helloSchema = z.object({
   clientId: z.string(),
   clientType: clientTypeSchema,
   protocolVersion: z.number(),
+  /**
+   * Free-form, lowercase platform label (`"desktop"`). Informational: nothing branches on it. An
+   * over-long or non-string value is DROPPED (the handshake still succeeds), and daemons that
+   * predate the field ignore it, so it is safe to send to any daemon.
+   */
+  platform: z.string().max(PLATFORM_MAX_LENGTH).optional().catch(undefined),
   appVersion: z.string().optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
 });
@@ -1318,6 +1332,8 @@ export const daemonClientInfoSchema = z
     clientId: z.string(),
     clientType: z.string(),
     appVersion: z.string().optional(),
+    /** The hello's `platform`, when the client sent one. */
+    platform: z.string().optional(),
     connectedAt: z.number(),
     remoteAddress: z.string().optional(),
     transport: z.enum(["direct", "relay"]),
@@ -2002,6 +2018,29 @@ export const agentTodosUpdateSchema = z
 export type AgentTodosUpdate = z.infer<typeof agentTodosUpdateSchema>;
 
 // ===========================================================================
+// File transfer completion (sprint-096, features/desktop-client-protocol-followups.md § 2)
+// ===========================================================================
+// The `file_*` request/response RPCs and the binary frames carry no schemas of their own; this push
+// does because its two consumers (the SDK's `upload()` and external clients) both branch on `ok`.
+// Sent only to the session whose `file_upload_request` carried `ack: true`.
+
+/**
+ * Sent once to the uploading session after the target file was closed (`ok: true`) or the upload
+ * failed (`ok: false`, `error`). A partial file is left on disk after a failure.
+ */
+export const fileUploadCompleteSchema = z
+  .object({
+    type: z.literal("file_upload_complete"),
+    transferId: z.string(),
+    stream: z.number().int().nonnegative(),
+    ok: z.boolean(),
+    bytesWritten: z.number().int().nonnegative(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+export type FileUploadComplete = z.infer<typeof fileUploadCompleteSchema>;
+
+// ===========================================================================
 // RPC error
 // ===========================================================================
 
@@ -2127,6 +2166,7 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentTodosListRequestSchema,
   agentTodosListResponseSchema,
   agentTodosUpdateSchema,
+  fileUploadCompleteSchema,
   rpcErrorSchema,
 ]);
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;

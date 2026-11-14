@@ -593,7 +593,8 @@ src/
 - Wraps one WebSocket connection.
 - `session.send(msg)` — sends a JSON-serialised message.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
-- `session.clientId`, `session.clientType`, `session.capabilities`.
+- `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.capabilities`.
+- `session.bufferedAmount` (the socket's unflushed bytes, `undefined` for the relay's stand-in socket) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
 - Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A replaced/reset relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
 
 ### Agent subsystem (`agent/`)
@@ -1526,6 +1527,25 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - `startDownload`'s `Begin` frame now carries `meta.mimeType` (via `file-explorer.ts`'s exported
   `mimeHintForFile`), so `FileTransferClient` no longer relies on browser blob-URL sniffing for a
   known extension; an unknown extension still falls back to `application/octet-stream`.
+- **Sprint-096 hardening and acknowledgement** (`swe/features/desktop-client-protocol-followups.md` § 2):
+  - *Paced download.* `startDownload(token, stream, sink, pacing?)` pauses the disk read while
+    `session.bufferedAmount` is above `DOWNLOAD_HIGH_WATER_BYTES` (1 MiB) and resumes at or below
+    `DOWNLOAD_LOW_WATER_BYTES` (256 KiB), polling every 10 ms (`ws` has no drain event). The marks were
+    chosen, not measured, and are injectable (`FileTransferDeps`). A socket that cannot report its queue
+    (**the relay's stand-in socket**) is not paced, so relay downloads still queue the whole file: the
+    spec's bounds hold for direct connections only. A socket that closes mid-transfer ends it with no
+    further frames (`connection_closed`).
+  - *Read error.* One `Error` frame, no `End`; the RPC answers `{ok:false, error:"read_failed"}`.
+  - *Owned streams.* Each pending upload records the opening session's id; binary frames from any
+    other session are ignored, and `disposeSession(session)` (called from both `onSessionClose` and
+    the relay-session reset) frees the stream and closes the handle. Frames carry the `PendingUpload`
+    they were queued for, so a frame still in flight can never land on a recycled stream id.
+  - *`fileTransferAck`.* `file_upload_request.ack === true` makes the daemon push
+    `file_upload_complete` (`{transferId, stream, ok, bytesWritten, error?}`) to the uploading
+    session once the file is closed or the upload failed: mkdir/open/write/close failure
+    (`<stage>_failed (<errno>)`), a client `Error` frame (its message), or an `End` with no `Begin`
+    (`no_begin`). No push without `ack`, and none when the session is gone. **A partial file is left on
+    disk after a failure** (decided; unchanged from before).
 - File downloads happen over the WebSocket via binary frames, not HTTP.
 - Unbounded file size (no inline ceiling like `file_read_request`).
 
@@ -1778,7 +1798,7 @@ fires `onSessionClose`) and `dispose()` on `close()`.
   `process.cpuUsage()` since the previous sample; 0 on the first), `memory`, `eventLoopLagMs`
   (`monitorEventLoopDelay` mean; NaN -> 0), `agentsByStatus`, `clients[]` (uncapped; sorted by
   `connectedAt` then `clientId`).
-- **`Session` metadata** (`ws/session.ts`): `appVersion`, `connectedAt`, `remoteAddress`,
+- **`Session` metadata** (`ws/session.ts`): `appVersion`, `platform`, `connectedAt`, `remoteAddress`,
   `transport: "direct" | "relay"`; the defaults keep directly constructed test sessions valid.
 - **Timer lifecycle:** one shared `unref()`ed `setInterval` and one event-loop histogram exist only
   while >= 1 session is subscribed; one snapshot and one envelope per tick shared by all

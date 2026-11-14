@@ -5,6 +5,11 @@ import { type KeyValueStore } from "@av-pi-studio/ui-library";
 export interface AppIdentity {
   title: string;
   version: string;
+  /**
+   * Sent as `hello.platform` so the daemon can tell what kind of client this is (`"desktop"` for the
+   * Tauri app). Omit in a plain browser. Informational: nothing branches on it.
+   */
+  platform?: string;
 }
 
 /** Blocking questions to the user. Each resolves when the user answers. */

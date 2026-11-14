@@ -1,7 +1,7 @@
 # Task 002 — Daemon transfer hardening: paced download, clean error, owned upload streams
 
 - **Sprint:** sprint-096-desktop-protocol-followups
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (files, ws)
 - **Priority:** P1
