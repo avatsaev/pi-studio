@@ -2534,28 +2534,45 @@ Recompute from the table rather than trusting a hand-maintained figure.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
-| task-001 | Release wiring (`publish.sh`, Dockerfile, runbook) + rehearsed `--dry-run` publish | chore | sprint-094 | workbench-package § Release wiring |
+| task-001 | Release wiring (`publish.sh`, Dockerfile, runbook) + rehearsed `--dry-run` publish | chore | sprint-094/task-003, sprint-094/task-004 | workbench-package § Release wiring |
 | task-002 | Repository-level docs, MAIN-SCOPE statuses, desktop handoff doc rewritten to the real API | docs | task-001 | workbench-package § Acceptance criteria (docs) |
 | task-003 | Acceptance sweep + pre-merge gate (engineer's npm step) | test | task-001, task-002 | both workbench specs § Acceptance criteria |
 
+Waves (av-swe `implement`, parallel by default): t001 → t002 → t003 — a strict chain, no parallelism.
+
 ### sprint-096-desktop-protocol-followups
 > **What it ships.** `features/desktop-client-protocol-followups.md`: additive wire changes the
-> desktop client's Rust side needs. Own branch, cut after sprint 095 merges. Only t005 depends on
-> the workbench (the browser host); the rest touches `protocol`, `server` and `client`.
+> desktop client's Rust side needs. Own branch, cut after sprint 095 merges — encoded as t001/t002
+> depending on `sprint-095/task-003`, so a multi-sprint run cannot start them early. Only t005
+> depends on the workbench (the browser host); the rest touches `protocol`, `server` and `client`.
 >
 > **Found at planning time:** the dev daemon registers neither the file-transfer nor the terminal
 > handlers, so the live fixture test cannot cover those families until t006 registers them there.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
-| task-001 | `hello.platform` through protocol, session, `daemon_status`, SDK + fixture | feature | none | followups § 1 |
-| task-002 | Daemon transfer hardening: paced download, `Error` without `End`, session-owned upload streams | bugfix | none | followups § 2 (daemon), § Paced download |
+| task-001 | `hello.platform` through protocol, session, `daemon_status`, SDK + fixture | feature | sprint-095/task-003 | followups § 1 |
+| task-002 | Daemon transfer hardening: paced download, `Error` without `End`, session-owned upload streams | bugfix | sprint-095/task-003 | followups § 2 (daemon), § Paced download |
 | task-003 | `fileTransferAck`: `file_upload_request.ack` + `file_upload_complete` push | feature | task-002 | followups § 2 (ack) |
 | task-004 | SDK: `Transport.bufferedAmount`, paced streaming `upload`, progress, cancel, ack | feature | task-003 | followups § 2 (SDK), § Paced upload |
-| task-005 | Browser host: upload without reading the file into memory, progress | feature | task-004, sprint-093 | followups § Web client; host-adapter `files.upload` |
+| task-005 | Browser host: upload without reading the file into memory, progress | feature | task-004, sprint-093/task-005 | followups § Web client; host-adapter `files.upload` |
 | task-006 | Dev-daemon file-transfer + terminal handlers; JSON fixtures for both families | feature | task-001, task-003 | followups § 3 (JSON) |
 | task-007 | Binary frame fixtures + `binary-manifest.json` | feature | task-006 | followups § 3 (binary) |
 | task-008 | Docs close (handoff doc to the real wire), spec ticks, live checks | docs | task-001…task-007 | followups § Acceptance criteria |
+
+Waves (av-swe `implement`, parallel by default):
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 | t002 is also ready, but both write `packages/server/src/ws/session.ts`; lower number goes first |
+| 2 | t002 | — |
+| 3 | t003 | depends on t002 |
+| 4 | t004 ∥ t006 | t004 = `packages/client`, t006 = server bootstrap + fixtures: disjoint |
+| 5 | t005 ∥ t007 | t005 = workbench browser host, t007 = binary fixtures: disjoint |
+| 6 | t008 | depends on everything |
+
+`docs/desktop-client-handoff.md` and the follow-ups spec are written by every task; in a parallel
+wave the orchestrator applies those edits from the subagents' summaries (each task file says so).
 
 ## Coverage check
 

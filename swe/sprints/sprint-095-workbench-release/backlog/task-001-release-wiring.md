@@ -6,7 +6,7 @@
 - **Area:** scripts, docker, packages/workbench
 - **Priority:** P1
 - **Estimated size:** S
-- **Depends on:** sprint-094
+- **Depends on:** sprint-094/task-003, sprint-094/task-004
 
 ## Goal
 Put the workbench into the release pipeline and prove the pipeline accepts it before anything reaches `main`.
