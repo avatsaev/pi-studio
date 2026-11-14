@@ -1,6 +1,6 @@
 # Architecture — Workbench Package (`@av-pi-studio/workbench`)
 
-> **Status: planned (2026-11-14) as sprints 091, 092, 094, 095; not built**
+> **Status: built on `feat/workbench` (sprints 091, 092, 094, 095, 2026-11-14); first npm release with the merge of that branch**
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-host-adapter.md](workbench-host-adapter.md) (the platform seam this

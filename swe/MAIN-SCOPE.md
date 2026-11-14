@@ -110,16 +110,19 @@ module and ships prebuilt binaries for common platforms.
   capability flags. Depended on by everyone; depends on no one. (`packages/protocol`)
 - **Client** — Low-level daemon WebSocket driver + higher-level `Pi-StudioClient` SDK facade used by
   the web client and CLI. (`packages/client`)
-- **Web Client** — Production React/Vite browser UI; manages saved host connections, sessions,
-  timeline reducers, composer, file explorer, git changes, terminal. (`packages/web-client`)
+- **Web Client** — The browser shell: a thin Vite SPA that renders the workbench with a browser host
+  (build-time brand title/favicon, pdf.js worker). Ships the static `dist/web` that `pi-studio ui` and the
+  Docker image serve. (`packages/web-client`)
 - **UI Library** — Publishable React design system extracted from the web client: primitives,
   theme/tokens/appearance, accent-only brand injection, one prebuilt stylesheet. Depends on no
   workspace package; see `swe/grills/ui-library.md`. (`packages/ui-library`)
 - **UI Gallery** — Private Vite+React gallery app that renders every primitive family against the
   built ui-library `dist` across all six themes; never published or deployed. (`packages/ui-gallery`)
-- **Workbench** — *Planned (sprints 091–095), not built.* Publishable library holding the application itself
-  (features, stores, reducers) behind a host adapter, so the browser shell and the desktop app
-  share one UI; see `architecture/workbench-package.md`. (`packages/workbench`)
+- **Workbench** — *Built (sprints 091–094, release wiring in 095; first npm release with the merge of `feat/workbench`).*
+  Publishable library holding the application itself (connection, sessions, chat/timeline, composer,
+  files and viewers, git, terminals, settings; features, stores, reducers) behind a host adapter, so
+  the browser shell and the desktop app share one UI; see `architecture/workbench-package.md` and
+  `architecture/workbench-host-adapter.md`. (`packages/workbench`)
 - **CLI** — Terminal client; can also start/manage a local daemon. (`packages/cli`)
 - **Desktop** — Native shell around the same UI. *Direction changed 2026-11-14:* built as a Tauri
   app with a Rust backend in a separate repository (`pi-studio-desktop`), consuming the workbench
@@ -159,9 +162,10 @@ module and ships prebuilt binaries for common platforms.
 | `packages/protocol/src/client-capabilities.ts`                                    | Client capability flag constants                                   |
 | `packages/client/src/daemon-client.ts`                                            | Low-level WS driver                                                |
 | `packages/client/src/index.ts`                                                    | `Pi-StudioClient` SDK facade                                       |
-| `packages/web-client/src/`                                                        | React/Vite browser client (features, stores, timeline, workspace) |
+| `packages/workbench/src/`                                                         | The client application (features, stores, timeline, workspace, host adapter, shell components) |
+| `packages/web-client/src/`                                                        | Browser shell: `main.tsx`, brand override, build config |
 | `packages/cli/src/commands/`                                                      | CLI command tree                                                   |
-| `packages/desktop/src/`                                                           | Electron main/preload, daemon supervision, features                |
+| _(separate repo `pi-studio-desktop`)_                                              | Tauri + Rust desktop app; consumes `@av-pi-studio/workbench` (`docs/desktop-client-handoff.md`) |
 | `packages/relay/src/`                                                             | E2EE channels, crypto, Cloudflare adapter                          |
 
 ## 5. Data Model Overview
@@ -329,8 +333,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/viewer-plugin-system.md](architecture/viewer-plugin-system.md) | architecture | Viewer plugin contract/registry/barrel; molviewer as plugin #1 (phase 1 of `docs/MOLVIEWER_DECOUPLING.md`) |
 | [architecture/pi-resource-management.md](architecture/pi-resource-management.md) | architecture | Daemon backend over Pi's resolver/settings + pinned `skills` CLI: single `skills_*` family, toggle mirror, stateless preview, FIFO queue, watcher (supersedes extensions-manager Phase B) |
 | [architecture/external-client-fixtures.md](architecture/external-client-fixtures.md) | architecture | Canonical JSON fixtures of every wire message external clients (Pi Studio Dashboard) consume + in-process daemon contract test; changing a fixture shape is a breaking change — **shipped (sprint-083)** |
-| [architecture/workbench-package.md](architecture/workbench-package.md) | architecture | `@av-pi-studio/workbench`: the application moved out of `web-client` into a prebuilt library (whole app + shell regions), `web-client` reduced to a browser shell, `electron` target removed — **planned (sprints 091, 092, 094, 095)** |
-| [architecture/workbench-host-adapter.md](architecture/workbench-host-adapter.md) | architecture | The one object a shell supplies to the workbench: storage, clipboard, dialogs, links, launch intent, transport factory, reconnect timing, file transfer, pdf.js runtime; `createBrowserHost` reproduces today's behaviour — **planned (sprint-093)** |
+| [architecture/workbench-package.md](architecture/workbench-package.md) | architecture | `@av-pi-studio/workbench`: the application moved out of `web-client` into a prebuilt library (whole app + shell regions), `web-client` reduced to a browser shell, `electron` target removed — **shipped (sprints 091, 092, 094, 095; released with the merge of `feat/workbench`)** |
+| [architecture/workbench-host-adapter.md](architecture/workbench-host-adapter.md) | architecture | The one object a shell supplies to the workbench: storage, clipboard, dialogs, links, launch intent, transport factory, reconnect timing, file transfer, pdf.js runtime; `createBrowserHost` reproduces today's behaviour — **shipped (sprint-093)** |
 
 ## 9. Cross-Cutting Conventions
 
@@ -398,11 +402,14 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       Pi's questions travel on `agent_ui_*` instead ([features/extension-ui-rpc.md](features/extension-ui-rpc.md));
       the dashboard answers those (brief D36). **Decided 2026-11-13: retire the family** (daemon
       service, contract members, MCP tools, CLI `permit`; wire schemas kept unread). **Resolved: retired in sprint-086.**
-- [ ] Workbench packaging: katex stylesheet inlining in library mode, consumer dev-server
-      pre-bundling, the form of the packed-tarball smoke consumer, and the public region names —
-      see [architecture/workbench-package.md § TODO(verify)](architecture/workbench-package.md).
-- [ ] Workbench host: `window.confirm`/`alert`/`prompt` and `target="_blank"` in a Tauri webview,
-      drag-and-drop upload sources, StrictMode-safe host installation — see
+- [x] Workbench packaging: katex stylesheet inlining in library mode, consumer dev-server
+      pre-bundling, the form of the packed-tarball smoke consumer — **resolved in sprint-091**
+      (`swe/notes/workbench-packaging-spike.md`). The public region names `PaneArea` and
+      `WorkspaceShell` were kept (proposed as-is; the engineer said "proceed" on 2026-11-14 without asking for changes); see
+      [architecture/workbench-package.md § TODO(verify)](architecture/workbench-package.md).
+- [ ] Workbench host: `window.confirm`/`alert`/`prompt` and `target="_blank"` in a Tauri webview —
+      open until the desktop app runs it. Drag-and-drop upload sources and StrictMode-safe host
+      installation were resolved in sprint-093 — see
       [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
 - [ ] Desktop protocol follow-ups: dev-daemon coverage of file transfer and terminal handlers,
       buffered amount on the relay path, partial file after a failed upload, water marks — see

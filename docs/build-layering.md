@@ -13,17 +13,25 @@ protocol   (depends on no workspace package)
   ├── server      → protocol
   └── cli         → protocol, client
 ui-library (depends on no workspace package; built by Vite + `tsc -b`, not plain `tsc -b`)
-  ├── web-client  → protocol, client, ui-library (devDependency; Vite alias to ../ui-library/src)
+  ├── workbench   → protocol, client, ui-library (built by Vite + `tsc -b`; the application as a library)
+  │     └── web-client → workbench, ui-library (devDependencies; Vite aliases to the packages' `src`)
   └── ui-gallery  → ui-library (built `dist` via package `exports`; private)
 ```
 
 `ui-library` emits `dist/` ESM entries + one prebuilt `dist/styles.css` with Vite library mode, and its
 declarations with `tsc -b` (`emitDeclarationOnly`). `ui-gallery` consumes that built `dist`, so
-`build:ui-library` must run before `build:ui-gallery`. Root `npm run build` order: protocol → relay →
-client → ui-library → server → web-client → ui-gallery → cli.
+`build:ui-library` must run before `build:ui-gallery`. The workbench has the same two-step build
+(`vite build && tsc -b tsconfig.json tsconfig.vite.json`, then `scripts/check-dist.mjs`, which fails the
+build if a dependency was bundled, a font inlined or a lazy chunk merged); it needs the built
+declarations of protocol, client and ui-library. Root `npm run build` order: protocol → relay →
+client → ui-library → workbench → server → web-client → ui-gallery → cli.
 
-`web-client` is built by Vite (`build:web`, one `dist/web` target) on top of `tsc -b`; the desktop
-client is a Tauri app in a separate repository and is outside this build.
+`web-client` is built by Vite (`build:web`, one `dist/web` target) on top of `tsc -b`. It does **not**
+consume the workbench's or ui-library's built `dist`: `vite.config.ts` and the root `vitest.config.ts`
+alias them to their sources (fast HMR, no library build needed to run dev or tests), so the published
+`dist` is proven separately by `packages/workbench/scripts/pack-smoke.sh` (a packed-tarball consumer
+outside the workspace). The desktop client is a Tauri app in a separate repository and is outside this
+build; it consumes the published `@av-pi-studio/workbench`.
 
 ## Scripts (root `package.json`)
 
@@ -35,7 +43,8 @@ client is a Tauri app in a separate repository and is outside this build.
 | `build:server`    | `server` (+ protocol)                                |
 | `build:cli`       | `cli` (+ protocol, client)                           |
 | `build:ui-library` | `ui-library` (Vite library build + declarations)    |
-| `build:web-client` | `web-client` (Vite; resolves ui-library from source) |
+| `build:workbench` | `workbench` (Vite library build + declarations + `check-dist`) |
+| `build:web-client` | `web-client` (Vite; resolves workbench + ui-library from source) |
 | `build:ui-gallery` | `ui-gallery` (needs built ui-library `dist`)         |
 | `build`           | all of the above, **in dependency order**, fail-fast |
 | `clean`           | removes all `dist/` and `*.tsbuildinfo`              |

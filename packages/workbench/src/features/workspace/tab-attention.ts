@@ -15,7 +15,7 @@
  * for the active session — a dot directly above any of those would be the same information
  * twice. This is strictly the background-tab affordance.
  *
- * swe/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html § 07
+ * docs/UI design/redesign 0.1.0/Redesign Handoff Spec.dc.html § 07
  */
 
 import type { AgentStatus as ProtocolAgentStatus } from "@av-pi-studio/protocol";

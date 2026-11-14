@@ -1,7 +1,7 @@
 # Task 002 — Repository-level documentation
 
 - **Sprint:** sprint-095-workbench-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** root docs, docs/, swe/, docker/, fern/
 - **Priority:** P1

@@ -836,7 +836,7 @@ creation" above.
   `pi` (maps `RpcSlashCommand.sourceInfo`) and `mock` (fixed 3-entry list, one per source, for
   dependency-free testing); unimplemented on a provider → `rpc_error`, never silent. Consumed by the
   SDK (`client.agent(id).listCommands()`), CLI (`pi-studio agent commands <agentId>`), and the
-  web-client's `/` composer picker (`packages/web-client/AGENTS.md` § Slash-command picker).
+  web-client's `/` composer picker (`packages/workbench/AGENTS.md` § Slash-command picker).
 - **A `/`-prefixed prompt must not hang the turn** (`providers/pi/agent.ts`'s `run`/
   `runSlashPrompt`, web-client slash commands): Pi runs an extension command inline and returns
   from `prompt()` immediately — **no turn lifecycle event is ever emitted for it** — but
@@ -1166,7 +1166,7 @@ list.
 - **Live-verified** (not just unit/integration-tested): two browser tabs on the same dev daemon and
   the same agent, one sends the first prompt, the daemon-generated title lands in the sidebar row
   AND the chat tab label in BOTH tabs with no reload — proving the `agent_update` broadcast reaches
-  every connected client, not just the originating one (`web-client/AGENTS.md`'s "Auto-generated
+  every connected client, not just the originating one (`workbench/AGENTS.md`'s "Auto-generated
   session titles" invariant covers the client-side listener).
 
 ### Extension UI (`agent/agent-ui/`)
@@ -1432,7 +1432,7 @@ Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed
   overview) broadcasts to **every** active session on create, rename, kill, self-exit,
   `start_workspace_script`, and — as of sprint-053/task-007 — a size-changing resize from either
   size path. The web client has two consumers today: `use-terminal-exit-watch.ts`'s
-  `useTerminalExitWatch` (sprint-053/task-003, `packages/web-client/AGENTS.md`), reconciling open
+  `useTerminalExitWatch` (sprint-053/task-003, `packages/workbench/AGENTS.md`), reconciling open
   terminal tabs against the live list to mark an exited PTY's tab `exited`; and
   `TerminalPanel.tsx`'s own per-panel listener (sprint-053/task-007), which re-seeds
   `believedSizeRef` from a matching entry's `cols`/`rows` so a second attached client's stale belief

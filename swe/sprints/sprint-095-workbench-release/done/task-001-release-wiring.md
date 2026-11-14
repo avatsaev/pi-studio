@@ -1,7 +1,7 @@
 # Task 001 — Release wiring and a dry-run publish
 
 - **Sprint:** sprint-095-workbench-release
-- **Status:** in_progress
+- **Status:** done
 - **Type:** chore
 - **Area:** scripts, docker, packages/workbench
 - **Priority:** P1

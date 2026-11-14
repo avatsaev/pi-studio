@@ -311,7 +311,7 @@ Selecting a node (gated on `sessionTreeNavigate`, hidden while a turn is running
 5. `cancelled: true` → toast "An extension declined the navigation" (or "Summary aborted" when
    `aborted`); dialog returns to idle.
 
-### Alignment with the visual spec (`swe/UI design/fork-rewind-ui-specs/`)
+### Alignment with the visual spec (`docs/UI design/fork-rewind-ui-specs/`)
 
 The visual spec is **split by concern** — open only the part you are building, not all 159 KB. The
 index (`Session Tree Visual Spec.dc.html`) carries § 00 scope, § 13 the six closed questions, § 14

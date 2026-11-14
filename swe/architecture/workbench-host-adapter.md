@@ -1,6 +1,6 @@
 # Architecture — Workbench Host Adapter
 
-> **Status: planned (2026-11-14) as sprint 093; not built**
+> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package**
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-package.md](workbench-package.md) (the package this seam belongs to),

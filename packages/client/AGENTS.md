@@ -2,7 +2,7 @@
 
 Low-level WebSocket driver (`DaemonClient`) and high-level SDK facade (`PiStudioClient`), plus
 relay E2EE transport, pairing, and binary-frame demux (terminal + file-transfer). This package is
-consumed by `cli` and `web-client`.
+consumed by `cli` and the `workbench` (rendered by `web-client`).
 
 ---
 
@@ -34,7 +34,7 @@ Provides:
    daemon's `agent_todos_*` wire family (sprint-079): `PiStudioClient.listAgentTodos`/
    `onAgentTodosUpdate`/`hasAgentTodosCapability`, plus a pure per-agent last-value-wins reducer
    with reconnect-safe `seq` reset. No controller layer here — the consumer (sprint-080's
-   web-client store) wires it.
+   workbench store) wires it.
 
 ---
 
@@ -89,7 +89,7 @@ interface Transport {
 
 `createWebSocketTransport(factory?: WsFactory)` — default direct-WebSocket implementation.
 `factory` is an injectable `(url, protocols?) => AnyWebSocket` (tests, or a custom factory carrying
-a bearer-password subprotocol — see `web-client`'s `connection-store.ts` for that pattern). With no
+a bearer-password subprotocol — see `workbench`'s `lib/connection/connection-store.ts` for that pattern). With no
 factory it uses the global `WebSocket` (browser/RN/Node ≥ 22). `connect()` forces
 `ws.binaryType = "arraybuffer"` on the created socket (browsers/RN default to `"blob"`, which would
 otherwise route every binary frame through `DaemonClient.handleIncoming`'s async `Blob.arrayBuffer()`
@@ -344,7 +344,7 @@ regression test in `pistudio-client.test.ts`:
   sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
   `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
   alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
-  way — `web-client`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
+  way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
   agent turns), so a relay-mediated daemon death is _correctly_ reported now, just not _quickly_;
   the relay protocol has no peer-liveness signal for the client to react to sooner
   (`@av-pi-studio/relay`'s `RelaySessionBridge` only logs `onUnregister` server-side, it never
@@ -474,7 +474,7 @@ Drives automatic reconnect after socket drop:
   `maxAttempts` (default `Infinity`).
 - On each attempt: calls `daemonClient.connect()` which re-issues the full `hello` handshake.
 - Fires `onReconnected(handler)` after success; `onReconnectFailed(handler)` on error.
-- All timer/RNG dependencies are injectable for deterministic tests (`web-client`'s
+- All timer/RNG dependencies are injectable for deterministic tests (`workbench`'s
   `connection-store.ts` injects Worker-backed timers — sprint-050 — so backoff scheduling keeps
   accuracy in a hidden/throttled tab).
 - `reconnectNow()` (sprint-050) — cancel any pending backoff timer and attempt a reconnect
