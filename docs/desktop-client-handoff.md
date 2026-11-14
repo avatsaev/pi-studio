@@ -33,14 +33,14 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | Sprint | Delivers | What it unlocks for the desktop app | State |
 |---|---|---|---|
 | 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | **Done** (on `feat/workbench`; findings in `swe/notes/workbench-packaging-spike.md`) |
-| 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
+| 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not released) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
 | 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | Not started |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
-published SDK. It can be prototyped before sprint 095, against `web-client`'s behaviour, but it
+published SDK. It can be prototyped before the first release, against `web-client`'s behaviour, but it
 cannot be wired into the UI until the workbench is published.
 
 ## The decision in one paragraph
