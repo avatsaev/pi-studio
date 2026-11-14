@@ -250,17 +250,20 @@ npm run docker:publish -- --tag 0.0.13
 npm run docker:publish -- --dry-run      # build+smoke-test, skip the push
 
 # 3. Deploy to production — pins the `relay`/`web-client` compose stacks on Dokploy (project
-#    `molagent-platform`, https://infra.molagent.ai) to a CONCRETE version tag (default: the
+#    `molagent`, https://infra.molagent.ai) to a CONCRETE version tag (default: the
 #    repo's current package.json version) and redeploys. Pinning matters: Dokploy's deploy
 #    command never runs `docker compose pull`, so a bare/`:latest` image reference already
 #    cached on the host silently keeps serving the OLD container even after a "successful"
 #    redeploy (real incident: 2026-07-22, app.molagent.ai served a two-day-old build through
 #    multiple redeploys until this was found and fixed). Rewriting the compose file's tag on
 #    every deploy forces Dokploy to detect a real diff and actually pull+recreate.
-#    Requires the tag from step 2 to already exist on Docker Hub, and the `dokploy` CLI
-#    (https://github.com/Dokploy/cli) installed and authenticated (`dokploy auth`). Does NOT
+#    Requires the tag from step 2 to already exist on Docker Hub, and a Dokploy API key in
+#    `DOKPLOY_TOKEN` (CI: the `DOKPLOY_TOKEN` repo secret; locally it falls back to a prior
+#    `dokploy auth`). No `dokploy` CLI is needed — the script calls the REST API with `curl`.
+#    Stacks are resolved BY NAME (project `molagent`, composes `relay` and `app`) on every run, not
+#    by hardcoded id, so rebuilding Dokploy under the same names needs no repo change. Does NOT
 #    build/push images itself — run AFTER step 2. The daemon is intentionally NOT deployed here
-#    — only relay + web UI run on molagent-platform; the daemon is self-hosted per user.
+#    — only relay + web UI run on Dokploy; the daemon is self-hosted per user.
 npm run docker:deploy
 npm run docker:deploy -- relay        # one service only
 npm run docker:deploy -- web-client
@@ -269,10 +272,10 @@ npm run docker:deploy -- --no-wait    # trigger, don't poll for completion
 ```
 
 Production endpoints: `https://relay.molagent.ai` (relay, health at `/health`), `https://app.molagent.ai`
-(web-client SPA). See `docker/README.md` for the full detail on all three scripts, including a
-known `@dokploy/cli` 0.29.4 bug (`dokploy-deploy.sh`'s header comment) that makes several of the
-CLI's own read/list subcommands 400 — the deploy script works around it by talking to the Dokploy
-tRPC API directly via `curl` for status polling, rather than waiting on an upstream fix.
+(web-client SPA). See `docker/README.md` for the full detail on all three scripts. History: the
+script used to hardcode compose ids and drive the `@dokploy/cli`; the 2026-11-11 Dokploy rebuild
+gave the stacks new ids and the 2026-11-14 release failed (404) after npm + Docker had already
+published — hence name-based lookup and no CLI.
 
 ---
 

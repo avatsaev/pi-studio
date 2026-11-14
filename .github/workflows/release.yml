@@ -56,13 +56,6 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install + authenticate dokploy CLI
-        run: |
-          npm install -g @dokploy/cli
-          dokploy auth --url "$DOKPLOY_URL" --token "$DOKPLOY_TOKEN"
-        env:
-          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
-
       - name: Configure git identity (for the version-bump commit)
         run: |
           git config user.name "github-actions[bot]"
@@ -70,6 +63,8 @@ jobs:
 
       - name: Release (npm publish -> docker publish -> dokploy deploy)
         run: npm run release
+        env:
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 
       - name: Commit + push version bump
         run: |

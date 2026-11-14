@@ -17,7 +17,7 @@ import { join } from "node:path";
 
 /**
  * Default pairing-link origin — Pi-Studio's own production web-client (deployed to Dokploy's
- * `molagent-platform` project; `docker/README.md` § Deploying to production). Override via
+ * `molagent` project; `docker/README.md` § Deploying to production). Override via
  * `PI_STUDIO_APP_BASE_URL` (`config.app.baseUrl`) for self-hosted/local deployments, e.g.
  * `http://localhost:8080` — see `daemon-commands.ts`'s `resolvePairingRelayInfo`/`printPairing`.
  */

@@ -20,7 +20,7 @@ Run in parallel (one bash cell, several commands):
 git status --short              # MUST be empty — publish.sh aborts on a dirty tree
 npm whoami                       # MUST print a username — npm publish needs this
 docker info 2>&1 | grep -i username   # MUST show a logged-in docker user
-dokploy organization active      # MUST print org JSON, not an error
+curl -sf -H "x-api-key: $DOKPLOY_TOKEN" "${DOKPLOY_URL:-https://infra.molagent.ai}/api/project.all" >/dev/null && echo dokploy ok   # MUST print "dokploy ok" (needs DOKPLOY_TOKEN)
 ```
 
 If the working tree is dirty: commit or ask the user first — do not stash/discard without asking.
@@ -101,9 +101,9 @@ package.json`).
 - **Never let step 3 deploy a bare `:latest` reference** — this script already avoids that itself
   (it always rewrites the compose file to the concrete version tag before redeploying, per root
   `AGENTS.md`'s documented 2026-07-22 incident), so don't "simplify" this by hand-rolling a
-  `dokploy compose redeploy` call without first pinning the tag.
+  `compose.redeploy` call without first pinning the tag.
 - **The daemon image is built and pushed but never deployed by step 3** — only `relay` and
-  `web-client` run on Dokploy (`molagent-platform`); the daemon is self-hosted per user. Don't treat
+  `web-client` run on Dokploy (project `molagent`); the daemon is self-hosted per user. Don't treat
   a missing "daemon: deployed" line as a failure.
 - **Docker push output repeats the same layer list dozens of times** (progress re-renders) — this
   is normal `docker push` TTY behavior being captured non-interactively, not a hang or a retry loop.

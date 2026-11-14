@@ -116,17 +116,17 @@ Requires `docker login` with push access to those repos first.
 ## Deploying to production (Dokploy)
 
 `scripts/dokploy-deploy.sh` (`npm run docker:deploy`) deploys the `relay` and `web-client`
-compose stacks on the production Dokploy instance (project `molagent-platform`, relay at
+compose stacks on the production Dokploy instance (project `molagent`, relay at
 `relay.molagent.ai`, web UI at `app.molagent.ai`). It does NOT build/push images itself — run
 `npm run docker:deploy` after, or as a separate step from, `docker:publish`. The daemon is
-intentionally NOT part of this script: it isn't deployed to `molagent-platform` today (only the
+intentionally NOT part of this script: it isn't deployed to Dokploy today (only the
 relay + web UI are; the daemon runs locally / self-hosted per user).
 
 **Pins each stack's image to a concrete version tag** (default: the repo's current
 `packages/protocol/package.json` version) rather than deploying against a bare/`:latest`
 reference. This is load-bearing, not cosmetic: Dokploy's deploy command is
 `docker compose up -d --build --remove-orphans` — it never runs `docker compose pull`, and there
-is no exposed API/CLI endpoint to force one. Against a bare `image: avatsaev/pi-studio-web-client`
+is no exposed API endpoint to force one. Against a bare `image: avatsaev/pi-studio-web-client`
 (implicit `:latest`) already cached on the Dokploy host, `up -d` sees nothing changed and leaves
 the stale container running while the deployment record still reports "done" — a real incident
 (2026-07-22: `app.molagent.ai` stayed on a two-day-old build after multiple "successful"
@@ -145,15 +145,19 @@ npm run docker:deploy -- --no-wait       # trigger, don't poll for completion
 Requires the pinned version tag to already exist on Docker Hub — run
 `npm run docker:publish -- --tag <version>` FIRST if it doesn't.
 
-Requires the [`dokploy` CLI](https://github.com/Dokploy/cli) installed and authenticated
-(`dokploy auth`). Uses `dokploy compose update` (rewrite the image tag) and `compose redeploy`
-(trigger) for POSTs, which work fine, but talks to the Dokploy tRPC API directly via `curl` for
-status polling — as of `@dokploy/cli` 0.29.4, its `apiGet` helper omits tRPC's `{ json: ... }`
-superjson wrapper on query params, so every GET-style read endpoint that takes params
-(`compose.one`, `deployment.allByCompose`, `compose.search`, `project.one`, …) 400s through the
-CLI; POST-style ones (`compose.update`, `compose.redeploy`, `project.all`) are unaffected. This is
-a CLI bug (confirmed by hitting the same endpoints directly with the wrapper added), not an
-auth/access problem — the script works around it rather than waiting on an upstream fix.
+Needs a Dokploy API key in `DOKPLOY_TOKEN` (`DOKPLOY_URL` defaults to `https://infra.molagent.ai`).
+CI passes the `DOKPLOY_TOKEN` repo secret; locally, if the variable is unset, the script falls back
+to the token a prior `dokploy auth` stored. No `dokploy` CLI is required: the script calls Dokploy's
+REST API directly with `curl` (`compose.update` to rewrite the image tag, `compose.redeploy` to
+trigger, `deployment.allByCompose` to poll for a deployment newer than the one seen before the
+trigger).
+
+**Stacks are looked up by name, not id.** Each run lists `project.all` and resolves the compose
+stacks named `relay` and `app` inside project `molagent`, so rebuilding the Dokploy instance (new
+ids) needs no change here — only the names matter (override with `DOKPLOY_PROJECT`,
+`DOKPLOY_RELAY_COMPOSE`, `DOKPLOY_WEB_CLIENT_COMPOSE`). Real incident: after the 2026-11-11 rebuild
+the old hardcoded ids 404'd and the 2026-11-14 release failed at this step, after npm and Docker
+had already published.
 
 ## Running individually
 

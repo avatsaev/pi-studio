@@ -26,7 +26,7 @@
 #   scripts/release.sh web-client        # forwarded to dokploy-deploy.sh (deploy web-client only)
 #
 # Requires everything the three underlying scripts each require: npm login, docker login with
-# push access, and the `dokploy` CLI installed + authenticated (`dokploy auth`).
+# push access, and a Dokploy API key in `DOKPLOY_TOKEN` (see scripts/dokploy-deploy.sh).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
