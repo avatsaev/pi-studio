@@ -1,11 +1,6 @@
 {
   "name": "@av-pi-studio/web-client",
-  "version": "0.0.115",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/avatsaev/pi-studio.git",
-    "directory": "packages/web-client"
-  },
+  "version": "0.0.116",
   "files": [
     "dist",
     "!dist/**/*.map",
@@ -21,9 +16,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@av-pi-studio/client": "^0.0.115",
-    "@av-pi-studio/protocol": "^0.0.115",
-    "@av-pi-studio/ui-library": "^0.0.115",
+    "@av-pi-studio/client": "^0.0.116",
+    "@av-pi-studio/protocol": "^0.0.116",
+    "@av-pi-studio/ui-library": "^0.0.116",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.1",
@@ -66,5 +61,10 @@
     "vite": "^6.4.3",
     "zod": "^3.23.0",
     "zustand": "^5.0.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/web-client"
   }
 }

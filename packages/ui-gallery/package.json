@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/ui-gallery",
-  "version": "0.0.115",
+  "version": "0.0.116",
   "private": true,
   "description": "Component gallery that consumes the BUILT @av-pi-studio/ui-library, proving it works standalone",
   "type": "module",
@@ -12,7 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@av-pi-studio/ui-library": "^0.0.115",
+    "@av-pi-studio/ui-library": "^0.0.116",
     "@radix-ui/react-dropdown-menu": "^2.1.19",
     "lucide-react": "^0.475.0",
     "react": "^19.2.7",
