@@ -1,6 +1,6 @@
 /**
- * Clipboard write helper (file-explorer "Copy Path" actions, task quick-wins-1; the login dialog's
- * "Copy link", sprint-065). Tries the async Clipboard API first, falling back to a hidden
+ * The browser host's `clipboard.writeText` (file-explorer "Copy Path" actions, task quick-wins-1;
+ * the login dialog's "Copy link", sprint-065). Tries the async Clipboard API first, falling back to a hidden
  * `execCommand("copy")` textarea when it's unavailable — plain-http access to a self-hosted daemon
  * over a LAN is not a secure context, so `navigator.clipboard` is `undefined` there, a real
  * deployment condition for this app, not a hypothetical.

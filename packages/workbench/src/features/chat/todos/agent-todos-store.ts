@@ -18,8 +18,9 @@ import {
   type PiStudioClient,
 } from "@av-pi-studio/client";
 import type { AgentTodosSnapshot } from "@av-pi-studio/protocol";
+import { getHost, onHostInstalled } from "../../../host/install.js";
 import { useConnectionStore } from "../../../lib/connection/connection-store.js";
-import { localStorageKvStore, type KeyValueStore } from "@av-pi-studio/ui-library";
+import { type KeyValueStore } from "@av-pi-studio/ui-library";
 import {
   parseCollapsed,
   serializeCollapsed,
@@ -112,9 +113,23 @@ export function createAgentTodosStore(
   return store;
 }
 
+/** Resolved at call time: this store is created at module load, before any host is installed. */
+const hostStorage: KeyValueStore = {
+  get: (key) => getHost().storage.get(key),
+  set: (key, value) => getHost().storage.set(key, value),
+};
+
 export const useAgentTodosStore = createAgentTodosStore({
   getClient: () => useConnectionStore.getState().client,
-  kv: localStorageKvStore,
+  kv: hostStorage,
+});
+
+// The initial collapse state was read at module load, from the fallback host. Re-read it from the
+// host the shell installs (before any panel has rendered).
+onHostInstalled((host) => {
+  useAgentTodosStore.setState({
+    collapsed: parseCollapsed(host.storage.get(TODO_COLLAPSE_STORAGE_KEY)),
+  });
 });
 
 export function useAgentTodosSnapshot(agentId: string | null): AgentTodosSnapshot | undefined {

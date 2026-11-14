@@ -14,7 +14,7 @@
  * § Data & Persistence
  */
 
-import { localStorageKvStore } from "@av-pi-studio/ui-library";
+import { getHost } from "../host/install.js";
 import {
   leafIds,
   PANE_LAYOUT_VERSION,
@@ -79,7 +79,7 @@ export interface ValidatedWorkspaceLayout {
 export function loadPaneLayout(): LoadedPaneLayout {
   const workspaces = new Map<string, ValidatedWorkspaceLayout>();
   const empty: LoadedPaneLayout = { workspaces, activeWorkspaceCwd: null };
-  const raw = localStorageKvStore.get(STORAGE_KEY);
+  const raw = getHost().storage.get(STORAGE_KEY);
   if (!raw) return empty;
 
   let parsed: unknown;
@@ -207,7 +207,7 @@ function writePaneLayout(): void {
     workspaces,
     activeWorkspaceCwd: useTabStore.getState().activeWorkspaceCwd ?? undefined,
   };
-  localStorageKvStore.set(STORAGE_KEY, JSON.stringify(record));
+  getHost().storage.set(STORAGE_KEY, JSON.stringify(record));
 }
 
 // ─── Triggers ──────────────────────────────────────────────────────────────────────────────

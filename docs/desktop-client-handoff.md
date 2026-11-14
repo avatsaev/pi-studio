@@ -10,8 +10,8 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 **This document is kept current.** The work it describes as planned is being built in this
 repository now, and every task in that plan must update this file when it changes something
 stated here. "Plan and progress" below shows how far that work has got. Last updated: 2026-11-14
-(sprint 092 done on `feat/workbench`: the application lives in `packages/workbench`, exported as
-`Workbench`/`WorkbenchProvider`/`WorkbenchBoot`/`WorkspaceShell`; not published, no host adapter yet).
+(sprint 093 done on `feat/workbench`: the application lives in `packages/workbench` with its
+complete host adapter, guarded by a source-scan test; not published, public API not final).
 
 ## Status of the pieces
 
@@ -33,7 +33,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 |---|---|---|---|
 | 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | **Done** (on `feat/workbench`; findings in `swe/notes/workbench-packaging-spike.md`) |
 | 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
-| 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | Not started |
+| 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | Not started |
 | 095 | Release wiring; first npm release of the workbench | **Milestone 1 can start** | Not started |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | Not started |
@@ -141,15 +141,44 @@ Intended shape:
 The host adapter has to cover the browser-bound code that exists in `web-client` today. This list
 is the checked inventory; the adapter's real method names will be in the workbench README.
 
-| Concern | Where it lives today |
-|---|---|
-| Socket creation, password subprotocol, relay vs direct | `lib/connection/connection-store.ts` |
-| Persistent key/value storage (`localStorage`) | `lib/pane-layout-persistence.ts`, `stores/layout-store.ts`, `features/chat/todos/`, `viewer-plugins/viewer-settings-store.ts`, `features/files/html-sandbox.ts` |
-| Clipboard | `lib/clipboard.ts` |
-| Location and deep links (`#agent=<id>`) | `hooks/use-connection.ts`, `hooks/use-agent-deep-link-boot.ts`, `features/sessions/apply-agent-deep-link.ts` |
-| Opening an external URL | `features/provider-auth/LoginDialog.tsx` |
-| File upload and download | `hooks/use-file-transfer.ts`, `hooks/use-file-download.ts` |
-| Reconnect timers and resume triggers | `lib/connection/worker-timers.ts`, `lib/connection/resume-triggers.ts` |
+Built in sprint 093 (`packages/workbench/src/host/`, contract in
+`swe/architecture/workbench-host-adapter.md`; the types are in `src/host/types.ts`, and
+`src/test/test-host.ts` is an in-memory recording host worth copying for your own tests). Members: `app` (`{title,
+version}` for the connection bar), `storage` (a **synchronous** key/value store: if your Tauri
+storage is asynchronous, load it into memory before the first render and write behind),
+`clipboard.writeText`, `dialogs.confirm/alert/prompt` (all promise-returning, so native Tauri
+dialogs fit directly), an optional `links.openExternal(url)` (when present, every external link
+in the app calls it instead of navigating), `files` (`upload(dir, source)`, `saveToDisk(path)`,
+`openForView(path)` → `{url, mimeType?, fileName?, release()}`, optional `pickUploads()`; every
+viewer, inline chat image and "Download" button goes through these, so a Rust host can stream to
+disk and serve viewer URLs from a custom protocol; an `UploadSource` is `{name, size?}`, and you must
+also accept a browser `File`, which the molecule viewer uploads for generated structures), `launch` (`initialConnect()` returns a `ConnectIntent`
+— `{url?, password?, cwd?, connect}`, `url` may be a pairing link — or `null` to show the
+connection fields; `agentDeepLink.{current, subscribe, consume}` is where an OS deep link to an
+agent goes) and `connection`: `createTransport(target, {password})` returns the `Transport` the
+SDK's `DaemonClient` uses for one connect (`target` is `{mode: "direct", url}` or `{mode: "relay",
+url, daemonPublicKey}`; return `undefined` for the SDK's own WebSocket; a throw fails that connect
+with your message), `timers` (passed to `ReconnectionManager`; must keep firing while the window
+is hidden) and `onResume(listener)` (fire it on wake, focus or network change; the workbench
+decides whether to probe or reconnect). This is milestone 2's seam. One optional member, `pdf`
+(`createWorker()` returning a pdf.js worker built from **the same `pdfjs-dist` version** as the
+workbench's, and `assetBaseUrl` where pdf.js's `cmaps/`, `standard_fonts/`, `wasm/` and `iccs/`
+are served — the workbench will ship a Vite plugin that serves and emits them); without it PDFs
+show an error state with Download. The host is installed by
+`<Workbench host={…}>` / `<WorkbenchProvider host={…}>` on first render; the first host wins.
+
+Status of each row below: moved behind the host = the browser code now lives in
+`packages/workbench/src/host/browser-*.ts`.
+
+| Concern | Where it lived at 0.0.117 | Status |
+|---|---|---|
+| Socket creation, password subprotocol, relay vs direct | `lib/connection/connection-store.ts` | Moved behind `connection.createTransport` |
+| Persistent key/value storage (`localStorage`) | `lib/pane-layout-persistence.ts`, `stores/layout-store.ts`, `features/chat/todos/`, `viewer-plugins/viewer-settings-store.ts`, `features/files/html-sandbox.ts` | Moved behind `storage` |
+| Clipboard | `lib/clipboard.ts` | Moved behind `clipboard` |
+| Location and deep links (`#agent=<id>`) | `hooks/use-connection.ts`, `hooks/use-agent-deep-link-boot.ts`, `features/sessions/apply-agent-deep-link.ts` | Moved behind `launch` |
+| Opening an external URL | `features/provider-auth/LoginDialog.tsx` | Moved behind `links` |
+| File upload and download | `hooks/use-file-transfer.ts`, `hooks/use-file-download.ts` | Moved behind `files` (viewers, inline chat images, every "Download" action) |
+| Reconnect timers and resume triggers | `lib/connection/worker-timers.ts`, `lib/connection/resume-triggers.ts` | Moved behind `connection.timers` / `connection.onResume` |
 
 Constraints to know before consuming it:
 
@@ -226,8 +255,8 @@ How transfers work today, and why they hit limits:
 
 | Today | Consequence |
 |---|---|
-| Upload reads the whole file with `file.arrayBuffer()`, then queues every chunk at once with no backpressure (`use-file-transfer.ts`, `file-transfer-client.ts`) | Memory use is at least the file size; large files stall or crash the tab |
-| Download collects chunks in an array, concatenates them, then copies into a `Blob` (`file-transfer-client.ts`, `use-file-download.ts`) | Two to three copies of the file in memory |
+| Upload reads the whole file with `file.arrayBuffer()`, then queues every chunk at once with no backpressure (the browser host's `files.upload`, `file-transfer-client.ts`) | Memory use is at least the file size; large files stall or crash the tab |
+| Download collects chunks in an array, concatenates them, then copies into a `Blob` (`file-transfer-client.ts`, the browser host's `files.openForView`/`saveToDisk`) | Two to three copies of the file in memory |
 | Transfers share the one WebSocket with RPC and terminal data | A large transfer delays chat and terminal frames |
 | Text viewers stop at 30 MiB; inline reads stop at 5 MiB (`MAX_INLINE_FILE_READ_BYTES`) | Large files cannot be previewed |
 
@@ -296,7 +325,8 @@ before porting.
 
 These exist only to work around the browser. Replace them through the host adapter:
 
-- `lib/connection/worker-timers.ts` and `resume-triggers.ts` (timer throttling, `visibilitychange`).
+- The browser's worker-backed timers and `visibilitychange`/`online` resume triggers (now the
+  workbench's `host/browser-worker-timers.ts` and `host/browser-connection.ts`).
 - `lib/connection/normalize-url.ts` and the `/daemon-ws` same-origin proxy path.
 - `#agent=<id>` URL deep links.
 - The in-memory download path and `Blob` object URLs for file viewers.

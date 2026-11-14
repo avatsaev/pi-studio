@@ -11,11 +11,12 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Plus, Trash2 } from "lucide-react";
 import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
 import { useSessionStore } from "../../stores/session-store.js";
-import { useTabStore, tabIds, openNewChat } from "../../stores/tab-store.js";
+import { openNewChat } from "../../stores/tab-store.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useUiStore } from "../../stores/ui-store.js";
 import { useHomeDir } from "../../hooks/use-home-dir.js";
-import { normalizeCwd, workspaceLabel } from "./workspace-grouping.js";
+import { deleteWorkspaceConversations } from "./session-actions.js";
+import { normalizeCwd } from "./workspace-grouping.js";
 
 export function WorkspaceContextMenu() {
   const menu = useUiStore((s) => s.workspaceMenu);
@@ -50,27 +51,13 @@ export function WorkspaceContextMenu() {
 
   async function deleteWorkspace() {
     if (!menu) return;
-    const count = groupSessions.length;
-    const confirmed = window.confirm(
-      `Delete all ${count} conversation${count === 1 ? "" : "s"} in "${workspaceLabel(menu.cwd)}"? ` +
-        "This deletes the conversations only — files on disk are untouched. This cannot be undone.",
+    const confirmed = await deleteWorkspaceConversations(
+      menu.cwd,
+      groupSessions,
+      client,
+      closeWorkspaceMenu,
     );
-    if (!confirmed) return closeWorkspaceMenu();
-    closeWorkspaceMenu();
-    for (const session of groupSessions) {
-      if (session.agentId && client) {
-        try {
-          await client.agent(session.agentId).delete();
-        } catch (err) {
-          window.alert(
-            `Failed to delete "${session.title}": ${err instanceof Error ? err.message : String(err)}`,
-          );
-          continue;
-        }
-      }
-      useSessionStore.getState().remove(session.id);
-      useTabStore.getState().close(tabIds.chat(session.id));
-    }
+    if (!confirmed) closeWorkspaceMenu();
   }
 
   return (

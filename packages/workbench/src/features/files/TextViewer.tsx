@@ -13,15 +13,16 @@
  *    the uncapped chunked binary download path (`use-file-text.ts`) and render the same
  *    `CodeView`, with a muted note that the file was streamed rather than read inline.
  * 3. `size > MAX_DISPLAY_BYTES` — a terminal state: no render attempt, just the size, why, and a
- *    download action (`BinaryFallbackViewer`'s existing on-demand download pattern).
+ *    download action (`SaveFileButton`, through the host's `files.saveToDisk`).
  *
  * Which tier applies is the pure, DOM-free `selectTextViewerState` (`text-viewer-state.ts`), run
  * inside `useFileSource` — this component is a thin switch-render over its result.
  */
 
-import { Button, Spinner, Panel, EmptyState } from "@av-pi-studio/ui-library";
+import { Spinner, Panel, EmptyState } from "@av-pi-studio/ui-library";
 import { useFileSource } from "../../hooks/use-file-source.js";
 import { CodeView } from "./CodeView.js";
+import { SaveFileButton } from "./SaveFileButton.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import textStyles from "./TextViewer.module.css";
 
@@ -58,8 +59,7 @@ export function TextViewer({ path }: ViewerProps) {
           </div>
         </Panel>
       );
-    case "too-large": {
-      const name = path.split("/").pop() || path;
+    case "too-large":
       return (
         <EmptyState>
           <div className={textStyles.tooLarge}>
@@ -67,21 +67,10 @@ export function TextViewer({ path }: ViewerProps) {
               {formatMegabytes(state.size)} — too large to display (display ceiling is{" "}
               {formatMegabytes(state.maxDisplayBytes)}).
             </div>
-            {state.downloading ? (
-              <Spinner size="sm" />
-            ) : state.downloadUrl ? (
-              <a href={state.downloadUrl} download={state.downloadName || name}>
-                <Button size="sm">Save file</Button>
-              </a>
-            ) : (
-              <Button size="sm" onClick={() => state.requestDownload()}>
-                Download
-              </Button>
-            )}
+            <SaveFileButton path={path} />
           </div>
         </EmptyState>
       );
-    }
     case "error":
       return <EmptyState>Error: {state.message}</EmptyState>;
   }

@@ -30,7 +30,7 @@ export interface ResolveResumeActionInput {
  * | idle                  | –              | –              | none              |
  *
  * The resume *signal* (`"visible"` / `"online"`) is deliberately not a parameter: no row branches
- * on it, so it stays at the wiring layer (`resume-triggers.ts`) where it is useful for logging.
+ * on it, so it stays at the wiring layer (the host's `connection.onResume`) where it is useful for logging.
  */
 export function resolveResumeAction(input: ResolveResumeActionInput): ResumeAction {
   if (!input.managerActive) return "none"; // explicit user Disconnect — never resurrect

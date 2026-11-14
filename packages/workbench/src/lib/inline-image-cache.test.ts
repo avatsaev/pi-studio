@@ -16,11 +16,13 @@ function stubObjectUrls(): { revoked: string[] } {
   return { revoked };
 }
 
-function fakeDownload(bytes = new Uint8Array([1, 2, 3]), mimeType = "image/png") {
+/** A fake `files.openForView`: each open mints a stubbed object URL whose release revokes it. */
+function fakeDownload(mimeType = "image/png") {
   const calls: string[] = [];
   const download = vi.fn((path: string) => {
     calls.push(path);
-    return Promise.resolve({ bytes, mimeType });
+    const url = URL.createObjectURL(new Blob());
+    return Promise.resolve({ url, mimeType, release: () => URL.revokeObjectURL(url) });
   });
   return { download, calls };
 }

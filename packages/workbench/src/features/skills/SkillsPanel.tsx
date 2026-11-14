@@ -42,6 +42,7 @@ import {
   Switch,
   TextInput,
 } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { InstallSkillDialog } from "./InstallSkillDialog.js";
 import {
   buildSkillGroups,
@@ -108,28 +109,31 @@ export function SkillsPanel() {
 
   const groups = filterSkillGroups(buildSkillGroups(data.skills, data.packages), query);
 
-  function handleRowToggle(skill: SkillInfo, enabled: boolean) {
+  async function handleRowToggle(skill: SkillInfo, enabled: boolean) {
     if (enabled && skill.packageSource && requiresCuratedConfirm(skill, data!.packages)) {
       if (!confirmedCurated.has(skill.packageSource)) {
-        if (!window.confirm("Pi-Studio will stop managing this package's updates.")) return;
+        const ok = await getHost().dialogs.confirm(
+          "Pi-Studio will stop managing this package's updates.",
+        );
+        if (!ok) return;
         setConfirmedCurated((prev) => new Set(prev).add(skill.packageSource!));
       }
     }
     void toggle(skill, enabled);
   }
 
-  function handleRemoveSkill(skill: SkillInfo) {
-    if (!window.confirm(skillRemoveConfirmText(skill))) return;
+  async function handleRemoveSkill(skill: SkillInfo) {
+    if (!(await getHost().dialogs.confirm(skillRemoveConfirmText(skill)))) return;
     void removeSkills.removeSkill(skill);
   }
 
-  function handleRemovePackage(pkg: PiPackageInfo) {
-    if (!window.confirm(removePackageConfirmText(pkg))) return;
+  async function handleRemovePackage(pkg: PiPackageInfo) {
+    if (!(await getHost().dialogs.confirm(removePackageConfirmText(pkg)))) return;
     void removeSkills.removePackage(pkg);
   }
 
-  function handleUpdateAll() {
-    if (!window.confirm(UPDATE_ALL_CONFIRM_TEXT)) return;
+  async function handleUpdateAll() {
+    if (!(await getHost().dialogs.confirm(UPDATE_ALL_CONFIRM_TEXT))) return;
     void updateAll.updateAll();
   }
 

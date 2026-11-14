@@ -26,6 +26,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, FilePlus, FolderPlus } from "lucide-react";
 import { EmptyState } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
+import { type UploadSource } from "../../host/types.js";
+import { uploadSources } from "./upload-sources.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useExplorerStore } from "../../stores/explorer-store.js";
 import { useExplorerTree } from "../../hooks/use-explorer-tree.js";
@@ -286,36 +289,16 @@ export function FileExplorer() {
     }
   }
 
-  async function uploadFiles(dir: string, files: File[]) {
-    if (!files.length || !dir) return;
-    const existingListing = tree.get(dir)?.listing;
-    const existing = new Set(existingListing?.entries.map((e) => e.name) ?? []);
-    const clashes = files.filter((f) => existing.has(f.name));
-    if (clashes.length > 0) {
-      const names = clashes.map((f) => f.name).join(", ");
-      if (
-        !window.confirm(`Overwrite ${clashes.length > 1 ? "these files" : "this file"}? ${names}`)
-      ) {
-        return;
-      }
-    }
-
-    setStatus({
-      text: `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`,
-      error: false,
+  /** Upload sources into `dir`. Sources come from the file input, a drop (`File`s) or the host's
+   *  picker; the feature reads only their `name`. */
+  function uploadFiles(dir: string, files: UploadSource[]) {
+    const listing = tree.get(dir)?.listing;
+    return uploadSources(dir, files, {
+      existing: new Set(listing?.entries.map((e) => e.name) ?? []),
+      confirm: (message) => getHost().dialogs.confirm(message),
+      upload,
+      setStatus,
     });
-    try {
-      for (const file of files) await upload(dir, file);
-      setStatus({
-        text: `Uploaded ${files.length} file${files.length > 1 ? "s" : ""}`,
-        error: false,
-      });
-    } catch (e) {
-      setStatus({
-        text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`,
-        error: true,
-      });
-    }
   }
 
   function handleDrop(e: DragEvent, row?: { kind: string; path: string }) {
@@ -394,7 +377,18 @@ export function FileExplorer() {
         <button
           type="button"
           className={styles.uploadButton}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            const files = getHost().files;
+            if (!files.pickUploads) return fileInputRef.current?.click();
+            void files.pickUploads().then(
+              (sources) => uploadFiles(rootPath, sources),
+              (e: unknown) =>
+                setStatus({
+                  text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`,
+                  error: true,
+                }),
+            );
+          }}
           disabled={!rootPath}
           title="Upload files to the workspace root"
         >

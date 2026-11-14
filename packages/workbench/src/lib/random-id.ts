@@ -5,7 +5,7 @@
  * routinely reach it via a LAN IP or hostname to view it from another device) — does not satisfy;
  * there `crypto.randomUUID` is `undefined` and calling it throws
  * `TypeError: crypto.randomUUID is not a function` (real regression, not hypothetical — mirrors
- * `clipboard.ts`'s `navigator.clipboard` fallback and `@av-pi-studio/client`'s `randomId()`).
+ * `host/browser-clipboard.ts`'s `navigator.clipboard` fallback and `@av-pi-studio/client`'s `randomId()`).
  *
  * `crypto.getRandomValues` has no such restriction (available in every context WebCrypto ships
  * in at all), so it is preferred over `randomUUID` here rather than falling straight to

@@ -132,9 +132,10 @@ src/
                              padding/margin/gap to 0 app-wide; see the ui-library's theme/tokens.ts
                              spacing comment)
   css-modules.d.ts          ambient CSS-module typings
-  vite-env.d.ts             ambient `__APP_VERSION__`/`__BRAND_TITLE__` typing (vite.config.ts
-                             `define`s — own package.json version and the build-time brand-title
-                             override, both shown in ConnectionBar.tsx)
+  vite-env.d.ts             `vite/client` reference (main.tsx's pdf.js `?worker` import and
+                             `import.meta.env`) + ambient `__APP_VERSION__`/`__BRAND_TITLE__`
+                             typing (vite.config.ts `define`s — own package.json version and the
+                             build-time brand-title override, passed to the browser host's `app`)
   providers/               AppProviders (ThemeBoundary from ui-library + QueryClientProvider)
   theme/                   fonts.css only (bundled terminal font); tokens/palette/variants/
                             appearance/css-bridge/ThemeBoundary live in `@av-pi-studio/ui-library`
@@ -155,18 +156,13 @@ src/
                            pairing link, direct vs. relay + tests), normalize-url (accepts
                            ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
                            (TanStack Query), rpc-keys, files-changed (cache-invalidation
-                           signaling), worker-timers (createWorkerTimers — setTimeout/clearTimeout
-                           backed by a lazily-created, module-level shared Worker built from an
-                           inline Blob URL, exempt from hidden-tab timer throttling; falls back to
-                           plain setTimeout, latched, if Worker construction is unavailable or
-                           throws — sprint-050, see Invariants "Connection resume triggers") (+
-                           test, fallback path only — no DOM Worker in this repo's Vitest
-                           environment), resume-action (resolveResumeAction — pure decision core:
+                           signaling), resume-action (resolveResumeAction — pure decision core:
                            status/managerActive/probeInFlight → none/reconnect-now/probe — sprint-050)
-                           (+ test, full decision table), resume-triggers (attachResumeTriggers —
-                           visibilitychange/online DOM wiring installed once at module scope in
-                           main.tsx, outside React/StrictMode — sprint-050, see Invariants
-                           "Connection resume triggers")
+                           (+ test, full decision table), resume-handler (createResumeHandler —
+                           executes the decision; subscribed to the host's `connection.onResume`
+                           by `WorkbenchBoot` — sprint-093, see Invariants "Connection resume
+                           triggers"). The worker-backed reconnect timers moved to the workbench's
+                           `host/browser-worker-timers.ts` (sprint-093).
   lib/protocol/            events.ts (protocol event helpers), timeline-paging.ts
                            (fetchTimelineEvents — drains every `fetch_agent_timeline_request` page
                            into one ordered event list; see Invariants "Restored history") (+ test)
@@ -182,8 +178,8 @@ src/
                            no filesystem access, applied by timeline/href-resolution.ts's shared
                            classifier-resolution step (never by resolveWorkspacePath itself, which
                            stays byte-identical for its existing callers)
-  lib/clipboard.ts         copyText — Clipboard-API write with an execCommand("copy") fallback
-                           for non-secure-context LAN access (file-explorer quick-wins-1)
+  (clipboard)              copyText moved to the workbench's `host/browser-clipboard.ts` (the browser
+                           host's `clipboard.writeText`, sprint-093)
   lib/drag-guard.ts        armDragGuard/disarmDragGuard + DRAG_GUARD_ATTR — sets `data-pi-dragging`
                            on <body> for the duration of ANY drag, which global.css pairs with
                            `body[data-pi-dragging] iframe { pointer-events: none }` so a
@@ -196,7 +192,7 @@ src/
                            `clientMessageId`s, Mermaid DOM ids) using crypto.getRandomValues
                            (works in non-secure contexts, unlike crypto.randomUUID) with a
                            timestamp+Math.random fallback when crypto itself is unavailable;
-                           same non-secure-context LAN-access rationale as lib/clipboard.ts —
+                           same non-secure-context LAN-access rationale as host/browser-clipboard.ts —
                            never call crypto.randomUUID() directly in this package, use this
   lib/inline-image-cache.ts ref-counted, LRU-bounded (32-entry) object-URL cache for inline chat
                            images (task-003 sprint-045); revokes only on LRU eviction or
@@ -362,9 +358,10 @@ src/
                            — exporting `handleAgentTimelineReset` for direct testing, same pattern
                            as `runTerminalRestore` above), use-shortcuts,
                            use-explorer, use-explorer-tree (one query per expanded tree directory,
-                           feeds FileExplorer's flattened row list), use-file-read/-diff/-download,
-                           use-file-transfer (upload + save-to-disk actions, shared
-                           FileTransferClient via file-transfer-instance), use-checkout-status,
+                           feeds FileExplorer's flattened row list), use-file-read/-diff/-download
+                           (download = host `files.openForView`, URL released when superseded and
+                           on unmount), use-file-transfer (upload + save-to-disk through the host's
+                           `files`; uploadAndRefresh refreshes the explorer), use-checkout-status,
                            use-file-watch (ref-counted, resolved-path-aware `file_changed`
                            subscription shared by the molecule viewer's reload gate and
                            use-file-live-refresh below), use-explorer-watch (live file-tree
@@ -377,8 +374,9 @@ src/
                            it follows a live refetch automatically), use-file-source (task-002
                            sprint-063 — the shared three-tier size ladder every text-shaped viewer
                            now goes through: `useFileRead` → `useFileText` when over the inline
-                           cap and under `MAX_DISPLAY_BYTES` → a terminal download-only state
-                           above it; decision core is the pure `text-viewer-state.ts` selector,
+                           cap and under `MAX_DISPLAY_BYTES` → for anything larger, a terminal
+                           too-large state whose only action is `SaveFileButton` (host
+                           `files.saveToDisk`); decision core is the pure `text-viewer-state.ts` selector,
                            unmoved; consumed by TextViewer, MarkdownFileViewer, and HtmlViewer),
                            use-inline-image (loadInlineImage — the framework-free effect core,
                            per the jsdom-less testing convention below — over
@@ -748,8 +746,9 @@ src/
                             PdfViewer (sprint-078 — pdf.js page stack; see AGENTS.md § Invariants
                             "PDF viewer"), pdf-layout.ts (pure zoom ladder / fit-width / canvas
                             pixel-ratio / page-position maths) (+ test), pdfjs-runtime.ts (the
-                            app's ONLY `pdfjs-dist` import site: lazy shared module Worker + the
-                            four data-asset URLs),
+                            workbench's ONLY `pdfjs-dist` import site: shared worker from
+                            `host.pdf.createWorker()`, the four data-asset URLs from
+                            `host.pdf.assetBaseUrl`, `PdfUnavailableError` without `host.pdf`),
                             BinaryFallbackViewer, TextViewer, HtmlViewer (sprint-063 — sandboxed
                             iframe preview for `.html`/`.htm`/`.xhtml`; see AGENTS.md § Invariants
                             "HTML preview sandbox"), html-sandbox.ts (`assembleHtmlPreview` +
@@ -916,10 +915,11 @@ store.ts#connect()` routes between the two via `resolveConnectTarget()`
 client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
   offer — the daemon password field is ignored for a relay connection; the pairing link's public
   key is itself the credential.
-- **Connection resume triggers (sprint-050).** `lib/connection/resume-triggers.ts`'s
-  `attachResumeTriggers()` is installed once, at module scope in `main.tsx` (never inside a React
-  effect — `<StrictMode>` double-invokes dev effects, which would attach two listener sets). It
-  reacts to `visibilitychange` (`hidden → visible` only) and `online`, reading
+- **Connection resume triggers (sprint-050; host-routed since sprint-093).** The resume signal comes
+  from the host's `connection.onResume` (browser host: `visibilitychange` `hidden → visible` only,
+  and `online`; `host/browser-connection.ts`), subscribed once by `WorkbenchBoot`'s effect with
+  `lib/connection/resume-handler.ts`'s `createResumeHandler()` (its own probe-in-flight latch; the
+  effect's cleanup unsubscribes, so StrictMode's double-invoke leaves one listener). It reads
   `useConnectionStore.getState()` fresh at signal time (never captured — the store replaces
   `daemon`/`reconnection` on every `connect()`), and feeds `lib/connection/resume-action.ts`'s
   pure `resolveResumeAction({ status, managerActive, probeInFlight })`: `closed` + an active
@@ -934,11 +934,13 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   same-tick call would always no-op on `reconnectNow()`'s `state === "closed"` guard — that would
   be dead code implying an immediacy that doesn't exist). `managerActive: false` (the user clicked
   Disconnect, or never connected) short-circuits every row to `none` — **no resume signal ever
-  resurrects an explicit disconnect.** `reconnection.ts`'s Worker-backed timers
-  (`lib/connection/worker-timers.ts`'s `createWorkerTimers()`, injected at `connection-store.ts`'s
-  single `new ReconnectionManager(daemon, …)` call site) keep the backoff ladder's scheduled
-  retries accurate in a hidden/throttled tab; `resume-triggers.ts` is the complementary path for
-  the moment the user actually returns. Close code `4000` is in the WebSocket private-use range —
+  resurrects an explicit disconnect.** The host's `connection.timers` (browser host: the
+  workbench's `host/browser-worker-timers.ts` `createWorkerTimers()`, passed at
+  `connection-store.ts`'s single `new ReconnectionManager(daemon, …)` call site) keep the backoff
+  ladder's scheduled retries accurate in a hidden/throttled tab; the resume handler is the
+  complementary path for the moment the user actually returns. The socket itself comes from the
+  host's `connection.createTransport(target, {password})` (browser host: relay transport for a relay
+  pairing link, bearer-subprotocol socket with a password, else the SDK default). Close code `4000` is in the WebSocket private-use range —
   it appears only in logs, no wire meaning.
 - **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
   restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
@@ -1698,11 +1700,11 @@ limits.ts`) — the plain `useFileRead` path, unchanged; (2)
   `useFileText` (wraps `useFileDownload` + decodes blob to text; the decode query is keyed on
   `(path, objectUrl)` so a `fileDownload` invalidation's new object URL is picked up
   automatically) and render with a muted **"N.N MB file streamed"** note; (3)
-  `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why/download action
-  (reusing `BinaryFallbackViewer`'s pattern). The pure state-selection logic `selectTextViewerState`
+  `size > MAX_DISPLAY_BYTES` — terminal state: no render attempt, just size/why and a
+  `SaveFileButton` (host `files.saveToDisk`; sprint-093 replaced the old two-step in-memory
+  download + `<a download>` link). The pure state-selection logic `selectTextViewerState`
   still lives in `text-viewer-state.ts` (framework-free, unit-tested directly, unmoved) — the hook
-  is a thin composition of `useFileRead`/`useFileText`/`useFileDownload` around it, plus a bound
-  `requestDownload()` on the terminal tier. When `useFileRead`
+  is a thin composition of `useFileRead`/`useFileText` around it. When `useFileRead`
   throws `FileTooLargeError` (thrown by `parseFileReadResponse` when the server returns
   `error: "file_too_large"`), it carries `size` and optional `maxBytes` (additive RPC field),
   replacing string-code matching for a caller to decide whether to stream or show the terminal
@@ -1724,14 +1726,18 @@ mimePrefixes?, liveRefresh }`. `liveRefresh` is a **required** field: a new `Vie
   `ViewerKind` inside an ordinary `file` tab (no tab kind of its own, so tab identity stays
   `file:<path>`), on by default through the `pdfviewer` viewer-settings row (absent row = enabled —
   no daemon change); disabled falls back to `binary`'s download card. Rules a change must not break:
-  1. **`pdfjs-runtime.ts` is the only `pdfjs-dist` import site.** It owns the shared module Worker
-     (`?worker` import → emitted as a `.js` asset, so no static server needs a `.mjs` MIME mapping)
-     and the data-asset URLs. `vite.config.ts`'s `pdfjsAssetsPlugin` serves/emits the `cmaps`,
+  1. **`pdfjs-runtime.ts` is the only `pdfjs-dist` import site; the worker and the data base URL
+     come from the host (sprint-093).** `web-client`'s `main.tsx` builds the worker (`?worker`
+     import → emitted as a `.js` asset, so no static server needs a `.mjs` MIME mapping) and passes
+     `assetBaseUrl: <base>pdfjs/`; without `host.pdf` the viewer shows "PDF preview is not available
+     in this application." plus Download. The workbench's `vite/pdfjs-assets.ts`
+     `pdfjsAssetsPlugin` (used by `vite.config.ts`) serves/emits the `cmaps`,
      `standard_fonts`, `wasm` (minus `quickjs-eval.*`, the PDF-JavaScript engine) and `iccs`
      directories under `<base>/pdfjs/`. Missing data files do not error — pdf.js misrenders — and
      behind the SPA fallback a 404 would come back as `index.html` with a 200, so keep the plugin
-     and the URLs in lockstep. `pdfjs-dist` is a devDependency (web-client ships only `dist`) and
-     gets its own `vendor-pdfjs` chunk; never let it reach the eager `vendor` chunk.
+     and the URLs in lockstep. `pdfjs-dist` is a devDependency here (for the worker) and a
+     dependency of the workbench (API + data): `host/pdf.test.ts` fails if the two ranges differ.
+     It gets its own `vendor-pdfjs` chunk; never let it reach the eager `vendor` chunk.
   2. **No annotation/form/XFA/scripting layers, ever** — a PDF is untrusted input and nothing in it
      may run code or open a URL (`enableXfa: false`; pdf.js v6 has no `isEvalSupported` option).
   3. **Load from bytes, not the object URL.** `useFileDownload` revokes a URL the moment a refresh
@@ -1849,7 +1855,7 @@ path.startsWith(root + "/")`, never a bare string prefix, which would wrongly ac
   download; `.webp`/`.svg` both admit per `viewer-registry.ts`'s `VIEWER_REGISTRY` descriptor
   table (`EXT_TO_VIEWER` is a derived, module-internal lookup — not itself exported).
   `lib/inline-image-cache.ts` + `hooks/use-inline-image.ts`'s `useInlineImage`/`loadInlineImage`
-  fetch over the same `transferFor(daemon).download(path)` primitive `use-file-download.ts` uses,
+  open view URLs through the host's `files.openForView` (the same call `use-file-download.ts` uses),
   but with a DIFFERENT retention policy: a module-scoped, ref-counted, ~32-entry LRU cache that
   revokes an object URL only on eviction or `clearInlineImageCache()` (wired into
   `connection-store.ts#disconnect()`) — never on row unmount, since the chat timeline virtualizes

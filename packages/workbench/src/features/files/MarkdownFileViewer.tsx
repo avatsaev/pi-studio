@@ -16,6 +16,7 @@ import { useFileSource } from "../../hooks/use-file-source.js";
 import { dirOf, resolveWorkspacePath } from "../../lib/paths.js";
 import { Markdown } from "../../timeline/markdown.js";
 import { CodeView } from "./CodeView.js";
+import { SaveFileButton } from "./SaveFileButton.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./MarkdownFileViewer.module.css";
 
@@ -53,8 +54,7 @@ export function MarkdownFileViewer({ path, workspaceCwd }: ViewerProps) {
     case "stream-error":
     case "error":
       return <EmptyState>Error: {state.message}</EmptyState>;
-    case "too-large": {
-      const name = path.split("/").pop() || path;
+    case "too-large":
       return (
         <EmptyState>
           <div className={styles.tooLarge}>
@@ -62,21 +62,10 @@ export function MarkdownFileViewer({ path, workspaceCwd }: ViewerProps) {
               {formatMegabytes(state.size)} — too large to display (display ceiling is{" "}
               {formatMegabytes(state.maxDisplayBytes)}).
             </div>
-            {state.downloading ? (
-              <Spinner size="sm" />
-            ) : state.downloadUrl ? (
-              <a href={state.downloadUrl} download={state.downloadName || name}>
-                <Button size="sm">Save file</Button>
-              </a>
-            ) : (
-              <Button size="sm" onClick={() => state.requestDownload()}>
-                Download
-              </Button>
-            )}
+            <SaveFileButton path={path} />
           </div>
         </EmptyState>
       );
-    }
     case "inline":
     case "streamed": {
       const content = state.content;

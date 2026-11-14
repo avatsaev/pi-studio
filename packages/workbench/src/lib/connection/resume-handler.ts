@@ -1,12 +1,10 @@
 /**
- * Thin DOM wiring for the resume triggers (swe/features/connection-resilience.md
- * § Purpose item 2, § Behavior & Algorithms). Subscribes to `visibilitychange` (hidden → visible
- * only) and `online`; feeds the live connection state through {@link resolveResumeAction} and
- * executes the result against the store's *live* handles — read at signal time, never captured,
- * since `connection-store` replaces `daemon`/`reconnection` on every `connect()`.
- *
- * Installed once at module scope in `main.tsx`, outside React: that file renders under
- * `<StrictMode>`, whose dev-mode double-invoked effects would otherwise attach two listener sets.
+ * What to do when the host signals a possible resume (swe/features/connection-resilience.md
+ * § Behavior & Algorithms): the browser host fires on `visibilitychange` (hidden → visible) and
+ * `online`; a native host may also fire on wake from sleep. The handler feeds the live connection
+ * state through {@link resolveResumeAction} and executes the result against the store's *live*
+ * handles — read at signal time, never captured, since `connection-store` replaces
+ * `daemon`/`reconnection` on every `connect()`.
  */
 import { useConnectionStore } from "./connection-store.js";
 import { resolveResumeAction } from "./resume-action.js";
@@ -15,11 +13,11 @@ import { resolveResumeAction } from "./resume-action.js";
  * its socket read loop, so this much silence on a working link is already pathological. */
 export const PROBE_TIMEOUT_MS = 5_000;
 
-/** Subscribes to `visibilitychange` (hidden → visible only) and `online`. Returns a detach fn. */
-export function attachResumeTriggers(): () => void {
+/** A resume listener with its own probe-in-flight latch. Subscribe it to `host.connection.onResume`. */
+export function createResumeHandler(): () => void {
   let probeInFlight = false;
 
-  function onResume(): void {
+  return function onResume(): void {
     const { status, reconnection, daemon } = useConnectionStore.getState();
     const action = resolveResumeAction({
       status,
@@ -53,17 +51,5 @@ export function attachResumeTriggers(): () => void {
           probeInFlight = false;
         });
     }
-  }
-
-  function onVisibilityChange(): void {
-    if (document.visibilityState === "visible") onResume();
-  }
-
-  document.addEventListener("visibilitychange", onVisibilityChange);
-  window.addEventListener("online", onResume);
-
-  return () => {
-    document.removeEventListener("visibilitychange", onVisibilityChange);
-    window.removeEventListener("online", onResume);
   };
 }

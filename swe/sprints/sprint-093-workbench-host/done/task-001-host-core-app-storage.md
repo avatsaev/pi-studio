@@ -1,7 +1,7 @@
 # Task 001 — Host core: install mechanism, browser host, `app` and `storage`
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host), packages/web-client
 - **Priority:** P1

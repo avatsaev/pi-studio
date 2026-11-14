@@ -5,16 +5,12 @@
  * (POC_TO_APP_PLAN_UI.md §4.5 follow-up: modular file preview).
  */
 
-import { useState } from "react";
 import { FileQuestion } from "lucide-react";
-import { Button, Spinner } from "@av-pi-studio/ui-library";
-import { useFileDownload } from "../../hooks/use-file-download.js";
 import type { ViewerProps } from "./viewer-registry.js";
+import { SaveFileButton } from "./SaveFileButton.js";
 import styles from "./BinaryFallbackViewer.module.css";
 
 export function BinaryFallbackViewer({ path, workspaceCwd }: ViewerProps) {
-  const [requested, setRequested] = useState(false);
-  const query = useFileDownload(path, requested);
   const name = path.split("/").pop() || path;
 
   return (
@@ -22,20 +18,7 @@ export function BinaryFallbackViewer({ path, workspaceCwd }: ViewerProps) {
       <FileQuestion size={32} />
       <div className={styles.name}>{name}</div>
       <div>No preview available for this file type.</div>
-      {query.isError && (
-        <div>Error: {query.error instanceof Error ? query.error.message : "download failed"}</div>
-      )}
-      {requested && query.isLoading ? (
-        <Spinner size="sm" />
-      ) : query.data ? (
-        <a href={query.data.objectUrl} download={query.data.fileName || name}>
-          <Button size="sm">Save file</Button>
-        </a>
-      ) : (
-        <Button size="sm" onClick={() => setRequested(true)}>
-          Download
-        </Button>
-      )}
+      <SaveFileButton path={path} />
     </div>
   );
 }

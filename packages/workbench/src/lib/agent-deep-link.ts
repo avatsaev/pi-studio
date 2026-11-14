@@ -34,10 +34,11 @@ export interface AgentDeepLinkDeps<S extends { id: string; cwd?: string }> {
   findByAgentId(agentId: string): S | undefined;
   select(session: S): void;
   notifyNotFound(agentId: string): void;
-  replaceUrl(): void;
+  /** Mark the host's deep-link source consumed (the browser strips `agent=` from the URL). */
+  consumeSource(): void;
 }
 
-/** Consume the pending target and select it, or report it unknown; then clean the URL. */
+/** Consume the pending target and select it, or report it unknown; then consume the source. */
 export function applyAgentDeepLink<S extends { id: string; cwd?: string }>(
   deps: AgentDeepLinkDeps<S>,
 ): void {
@@ -46,5 +47,5 @@ export function applyAgentDeepLink<S extends { id: string; cwd?: string }>(
   const session = deps.findByAgentId(agentId);
   if (session) deps.select(session);
   else deps.notifyNotFound(agentId);
-  deps.replaceUrl();
+  deps.consumeSource();
 }

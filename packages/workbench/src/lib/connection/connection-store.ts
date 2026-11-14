@@ -1,7 +1,8 @@
 /**
  * Connection store — Zustand wrapper around `DaemonClient` + `PiStudioClient`
  * (@av-pi-studio/client). Replaces the POC's raw `WebSocket`/`doConnect()`/`rpc()` globals
- * (POC_TO_APP_PLAN_UI.md §4.1). No raw WebSockets outside this module.
+ * (POC_TO_APP_PLAN_UI.md §4.1). The socket itself comes from the host
+ * (`host.connection.createTransport`); no workbench code outside the browser host builds one.
  */
 
 import { create } from "zustand";
@@ -9,15 +10,13 @@ import {
   DaemonClient,
   PiStudioClient,
   ReconnectionManager,
-  createRelayTransport,
-  createWebSocketTransport,
   type ConnectionState,
   type Transport,
 } from "@av-pi-studio/client";
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
+import { getHost } from "../../host/install.js";
 import { resolveConnectTarget } from "./resolve-connect-target.js";
-import { createWorkerTimers } from "./worker-timers.js";
 import { clearInlineImageCache } from "../inline-image-cache.js";
 
 export interface ConnectOptions {
@@ -65,19 +64,19 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     get().disconnect();
 
     // A pasted pairing link (`pi-studio daemon pair`'s QR/link) takes over connection setup
-    // entirely: it carries the daemon's public key plus either a relay endpoint (branch to the
-    // E2EE relay transport, ignoring `opts.password` — the pairing key IS the credential) or a
+    // entirely: it carries the daemon's public key plus either a relay endpoint (the host builds
+    // the E2EE relay transport, ignoring `opts.password` — the pairing key IS the credential) or a
     // direct host hint (connect there exactly like a typed `url`, no password support in that
     // form since a pairing link is generated once and doesn't carry one).
     const target = resolveConnectTarget(opts.url);
+    const { connection } = getHost();
 
     let transport: Transport | undefined;
-    if (target.mode === "relay") {
-      transport = createRelayTransport({ daemonPublicKey: target.daemonPublicKey });
-    } else if (opts.password) {
-      transport = createWebSocketTransport(
-        (u) => new WebSocket(u, [`pi-studio.bearer.${opts.password}`]) as unknown as never,
-      );
+    try {
+      transport = connection.createTransport(target, { password: opts.password });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
 
     const daemon = new DaemonClient({
@@ -103,11 +102,13 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       rpcTimeoutMs: 30 * 60 * 1000,
     });
     const client = new PiStudioClient(daemon);
-    // Worker-backed timers keep backoff scheduling accurate in a hidden/throttled tab (sprint-050
-    // connection-resilience) — falls back to plain setTimeout when Worker construction is
-    // unavailable, identical to pre-sprint-050 behavior.
-    const { setTimer, clearTimer } = createWorkerTimers();
-    const reconnection = new ReconnectionManager(daemon, { setTimer, clearTimer });
+    // The host's timers (worker-backed in the browser, so backoff stays accurate in a hidden,
+    // throttled tab — sprint-050 connection-resilience).
+    const { timers } = connection;
+    const reconnection = new ReconnectionManager(daemon, {
+      setTimer: (cb, ms) => timers.setTimer(cb, ms),
+      clearTimer: (handle) => timers.clearTimer(handle),
+    });
 
     daemon.onStateChange((state) => set({ status: state }));
     reconnection.onReconnected(() => set({ error: null }));

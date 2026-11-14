@@ -1,7 +1,7 @@
 # Task 006 — Host: `pdf` runtime, and the pdf.js Vite plugin as a package export
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, files, vite), packages/web-client
 - **Priority:** P1

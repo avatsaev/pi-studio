@@ -14,8 +14,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, MoveHorizontal, ZoomIn, ZoomOut } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import { Button, EmptyState, Spinner } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { useFileDownload } from "../../hooks/use-file-download.js";
-import { PDFJS_ASSET_URLS, loadPdfjs } from "./pdfjs-runtime.js";
+import { useFileTransfer } from "../../hooks/use-file-transfer.js";
+import { loadPdfjs, PdfUnavailableError } from "./pdfjs-runtime.js";
 import {
   canvasPixelRatio,
   fitWidthScale,
@@ -47,15 +49,17 @@ interface LoadedDocument {
   sizes: PageSize[];
 }
 
-type LoadFailure = "invalid" | "password" | "failed";
+type LoadFailure = "invalid" | "password" | "unavailable" | "failed";
 
 const FAILURE_MESSAGE: Record<LoadFailure, string> = {
   invalid: "This file could not be opened as a PDF.",
   password: "This PDF is password-protected.",
+  unavailable: "PDF preview is not available in this application.",
   failed: "This PDF could not be loaded.",
 };
 
 function classifyFailure(err: unknown): LoadFailure {
+  if (err instanceof PdfUnavailableError) return "unavailable";
   const name = err instanceof Error ? err.name : "";
   if (name === "PasswordException") return "password";
   if (name === "InvalidPDFException" || name === "FormatError" || name === "MissingPDFException") {
@@ -71,6 +75,7 @@ function isCancellation(err: unknown): boolean {
 
 export function PdfViewer({ path }: ViewerProps) {
   const query = useFileDownload(path);
+  const { saveToDisk } = useFileTransfer();
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -94,7 +99,8 @@ export function PdfViewer({ path }: ViewerProps) {
         // `useFileDownload` revokes the moment a refresh supersedes it.
         const bytes = new Uint8Array(await (await fetch(objectUrl)).arrayBuffer());
         if (cancelled) return;
-        task = loadPdfjs().getDocument({ data: bytes, enableXfa: false, ...PDFJS_ASSET_URLS });
+        const { pdfjs, assetUrls } = loadPdfjs();
+        task = pdfjs.getDocument({ data: bytes, enableXfa: false, ...assetUrls });
         const doc = await task.promise;
         const sizes = await Promise.all(
           Array.from({ length: doc.numPages }, async (_, i) => {
@@ -177,13 +183,14 @@ export function PdfViewer({ path }: ViewerProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed whenever `tops` changes
   useEffect(updateCurrentPage, [tops, scroller]);
 
-  const download = () => {
-    if (!objectUrl) return;
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = query.data?.fileName || path.split("/").pop() || "document.pdf";
-    link.click();
-  };
+  // Through the host, not an anchor on the view URL: a native host may serve a URL that a download
+  // link cannot save, and saves to disk itself. Failures are reported like the explorer's.
+  const download = () =>
+    void saveToDisk(path).catch((err: unknown) =>
+      getHost().dialogs.alert(
+        `Failed to download: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
 
   if (query.isError) {
     return (
@@ -326,7 +333,7 @@ function PdfPage({ doc, pageNumber, size, scale, root }: PdfPageProps) {
     let textLayer: { cancel(): void } | null = null;
     void (async () => {
       try {
-        const pdfjs = loadPdfjs();
+        const { pdfjs } = loadPdfjs();
         const page = await doc.getPage(pageNumber);
         const viewport = page.getViewport({ scale });
         const ratio = canvasPixelRatio(

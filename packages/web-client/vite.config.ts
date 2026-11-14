@@ -1,9 +1,12 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { dirname, resolve } from "node:path";
-import { createReadStream, readdirSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
+// By relative source path: this file is loaded by Node, where the Vite alias that maps the
+// workbench to its sources does not apply, and the package's built `./vite` entry is not part of
+// web-client's source-alias development loop (the published entry is proven by the pack smoke).
+import { pdfjsAssetsPlugin } from "../workbench/vite/pdfjs-assets.js";
 
 // One build target: the browser SPA in `dist/web` (served over HTTP, absolute base, /daemon-ws dev
 // proxy). The CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve that directory.
@@ -48,53 +51,6 @@ function brandHtmlPlugin(): Plugin {
     generateBundle() {
       if (!BRAND_ICON || !BRAND_ICON_BUFFER) return;
       this.emitFile({ type: "asset", fileName: BRAND_ICON.fileName, source: BRAND_ICON_BUFFER });
-    },
-  };
-}
-
-// pdf.js runtime data the PDF viewer loads by URL on demand (`src/features/files/pdfjs-runtime.ts`
-// builds the matching URLs). Missing files do not fail loudly: pdf.js misrenders the affected PDFs,
-// and behind the SPA fallback a 404 would even come back as `index.html` with a 200.
-// `quickjs-eval.*` is pdf.js's PDF-JavaScript engine; the viewer never runs document scripts.
-const PDFJS_ASSET_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"];
-const PDFJS_ROOT = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
-
-/** Serves (dev) / emits (build) pdf.js's data directories under `<base>/pdfjs/<dir>/`. A request
- *  is matched against the real directory listing, never joined onto a filesystem path, so only
- *  those directories' own files are reachable. */
-function pdfjsAssetsPlugin(): Plugin {
-  const files = new Map(
-    PDFJS_ASSET_DIRS.map((dir) => [
-      dir,
-      new Set(
-        readdirSync(resolve(PDFJS_ROOT, dir)).filter((name) => !name.startsWith("quickjs-eval.")),
-      ),
-    ]),
-  );
-  return {
-    name: "pi-studio-pdfjs-assets",
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const match = /^\/pdfjs\/([^/]+)\/([^/?#]+)/.exec(req.url ?? "");
-        if (!match || !files.get(match[1])?.has(match[2])) return next();
-        const [, dir, file] = match;
-        res.setHeader(
-          "Content-Type",
-          file.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
-        );
-        createReadStream(resolve(PDFJS_ROOT, dir, file)).pipe(res);
-      });
-    },
-    generateBundle() {
-      for (const [dir, names] of files) {
-        for (const name of names) {
-          this.emitFile({
-            type: "asset",
-            fileName: `pdfjs/${dir}/${name}`,
-            source: readFileSync(resolve(PDFJS_ROOT, dir, name)),
-          });
-        }
-      }
     },
   };
 }

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadInlineImage, type InlineImageState } from "./use-inline-image.js";
+import { type ViewableFile } from "../host/types.js";
 import { clearInlineImageCache, MAX_INLINE_IMAGE_ENTRIES } from "../lib/inline-image-cache.js";
 
-function stubObjectUrls(): void {
-  let counter = 0;
-  vi.stubGlobal("URL", {
-    createObjectURL: () => `blob:mock-${++counter}`,
-    revokeObjectURL: () => {},
-  });
+let viewCounter = 0;
+
+/** What a host's `files.openForView` resolves to. */
+function view(mimeType?: string): ViewableFile {
+  return { url: `blob:mock-${++viewCounter}`, mimeType, release: () => {} };
 }
 
 function deferred<T>(): {
@@ -25,12 +25,11 @@ function deferred<T>(): {
 }
 
 function fakeDownload() {
-  return Promise.resolve({ bytes: new Uint8Array([1]), mimeType: "image/png" });
+  return Promise.resolve(view("image/png"));
 }
 
 beforeEach(() => {
   clearInlineImageCache();
-  stubObjectUrls();
 });
 
 afterEach(() => {
@@ -49,7 +48,7 @@ describe("loadInlineImage — idle case", () => {
     const states: InlineImageState[] = [];
     const cleanup = loadInlineImage(
       null,
-      () => Promise.resolve({ bytes: new Uint8Array() }),
+      () => Promise.resolve(view()),
       (s) => states.push(s),
     );
     expect(states).toEqual([{ status: "idle" }]);
@@ -60,9 +59,7 @@ describe("loadInlineImage — idle case", () => {
 describe("loadInlineImage — loading/ready/error transitions", () => {
   it("transitions loading -> ready on a successful download", async () => {
     const states: InlineImageState[] = [];
-    const download = vi.fn(() =>
-      Promise.resolve({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }),
-    );
+    const download = vi.fn(() => Promise.resolve(view("image/png")));
     loadInlineImage("/repo/a.png", download, (s) => states.push(s));
     expect(states[0]).toEqual({ status: "loading" });
     await vi.waitFor(() => expect(states.at(-1)?.status).toBe("ready"));
@@ -79,14 +76,14 @@ describe("loadInlineImage — loading/ready/error transitions", () => {
 
   it("ignores a resolution that lands after cleanup", async () => {
     const states: InlineImageState[] = [];
-    const { promise, resolve } = deferred<{ bytes: Uint8Array; mimeType?: string }>();
+    const { promise, resolve } = deferred<ViewableFile>();
     const cleanup = loadInlineImage(
       "/repo/a.png",
       () => promise,
       (s) => states.push(s),
     );
     cleanup?.();
-    resolve({ bytes: new Uint8Array([1]) });
+    resolve(view());
     await Promise.resolve().then().then(); // let the resolved promise's .then chain flush
     expect(states.some((s) => s.status === "ready")).toBe(false);
   });
@@ -119,17 +116,13 @@ describe("loadInlineImage — cleanup releases the path", () => {
 
     // The released path was evicted (a remount now re-downloads); the held path was not (it
     // still has a live ref) and still resolves to the exact same cached download call count.
-    const releasedRetryDownload = vi.fn(() =>
-      Promise.resolve({ bytes: new Uint8Array([1]), mimeType: "image/png" }),
-    );
+    const releasedRetryDownload = vi.fn(() => Promise.resolve(view("image/png")));
     const retryStates: InlineImageState[] = [];
     loadInlineImage("/repo/released.png", releasedRetryDownload, (s) => retryStates.push(s));
     await vi.waitFor(() => expect(retryStates.at(-1)?.status).toBe("ready"));
     expect(releasedRetryDownload).toHaveBeenCalledTimes(1); // re-downloaded: it was evicted
 
-    const heldRetryDownload = vi.fn(() =>
-      Promise.resolve({ bytes: new Uint8Array([1]), mimeType: "image/png" }),
-    );
+    const heldRetryDownload = vi.fn(() => Promise.resolve(view("image/png")));
     const heldRetryStates: InlineImageState[] = [];
     loadInlineImage("/repo/held.png", heldRetryDownload, (s) => heldRetryStates.push(s));
     await vi.waitFor(() => expect(heldRetryStates.at(-1)?.status).toBe("ready"));

@@ -1,23 +1,41 @@
 /**
- * Boot hook: seeds the toolbar (host/password/cwd) from URL params
- * (POC `?host=&password=&cwd=&connect=1`, POC_TO_APP_PLAN_UI.md §4.1) and optionally
- * auto-connects. Runs once on mount.
+ * Boot hook: applies the host's launch intent once on mount — pre-fills the connection bar
+ * (host/password/cwd) and connects when the intent says so. In the browser the intent comes from
+ * the page URL (`host/browser-launch.ts`: `?host=&password=&cwd=&connect=1`, `?pair=`, a fragment
+ * carrying `offer=`); a native shell supplies its own.
  *
- * Also supports opening the web-client directly from a pairing link
- * (`pi-studio daemon pair`'s QR/link, architecture/relay-e2ee.md § Pairing):
- *  - `location.hash` already carrying `#offer=...` (the web-client's own URL was used as the
- *    pairing link's `baseUrl`) — connects immediately, no `connect=1` needed, since a pairing
- *    link's entire purpose is a one-click connect.
- *  - `?pair=<url-encoded pairing link>` — for pasting a link whose `baseUrl` is the hosted
- *    `app.pi-studio.sh` landing page into `?pair=` instead of the fragment directly (mirrors the
- *    existing `?host=&connect=1` convention).
- * Either form is handed to `connect()` verbatim — it detects the pairing link itself via
- * `parsePairingUrl` and branches to the relay transport when the link carries one.
+ * The URL is handed to `connect()` verbatim — it detects a pairing link itself via
+ * `parsePairingUrl` and branches to the relay transport when the link carries one. A pairing link
+ * is its own credential, so no password is sent with it.
  */
 
 import { useEffect, useRef } from "react";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
+import { parsePairingUrl } from "@av-pi-studio/client";
+import { getHost } from "../host/install.js";
+import { type ConnectIntent } from "../host/types.js";
+import { type ConnectOptions, useConnectionStore } from "../lib/connection/connection-store.js";
 import { useUiStore } from "../stores/ui-store.js";
+
+export interface ConnectIntentDeps {
+  setHost(host: string): void;
+  setPassword(password: string): void;
+  setCwd(cwd: string): void;
+  /** The connection bar's fields after pre-filling (a missing `url` keeps its current host). */
+  fields(): { host: string; password: string };
+  connect(options: ConnectOptions): void;
+}
+
+/** Pre-fill from `intent`, then connect to the bar's fields if it asks to. `null` does nothing. */
+export function applyConnectIntent(intent: ConnectIntent | null, deps: ConnectIntentDeps): void {
+  if (!intent) return;
+  if (intent.url) deps.setHost(intent.url);
+  if (intent.password) deps.setPassword(intent.password);
+  if (intent.cwd) deps.setCwd(intent.cwd);
+  if (!intent.connect) return;
+  const { host, password } = deps.fields();
+  const pairing = parsePairingUrl(host) !== null;
+  deps.connect({ url: host, password: pairing ? undefined : password || undefined });
+}
 
 export function useConnectionBoot(): void {
   const ranRef = useRef(false);
@@ -25,35 +43,13 @@ export function useConnectionBoot(): void {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
-
-    // A pairing link landed directly on this origin (hash carries `offer=`) — connect immediately.
-    if (window.location.hash.includes("offer=")) {
-      const pairingUrl = window.location.href;
-      useUiStore.getState().setHost(pairingUrl);
-      void useConnectionStore.getState().connect({ url: pairingUrl });
-      return;
-    }
-
-    const qs = new URLSearchParams(window.location.search);
-    const host = qs.get("host");
-    const pair = qs.get("pair");
-    const password = qs.get("password");
-    const cwd = qs.get("cwd");
-    const shouldConnect = qs.get("connect") === "1";
-
     const ui = useUiStore.getState();
-    if (pair) ui.setHost(pair);
-    else if (host) ui.setHost(host);
-    if (password) ui.setPassword(password);
-    if (cwd) ui.setCwd(cwd);
-
-    if (pair) {
-      // A pairing link carries its own credential (the daemon's public key) — connect
-      // unconditionally, `connect=1` is only required for a plain host/password connection.
-      void useConnectionStore.getState().connect({ url: pair });
-    } else if (shouldConnect) {
-      const { host: h, password: pw } = useUiStore.getState();
-      void useConnectionStore.getState().connect({ url: h, password: pw || undefined });
-    }
+    applyConnectIntent(getHost().launch.initialConnect(), {
+      setHost: ui.setHost,
+      setPassword: ui.setPassword,
+      setCwd: ui.setCwd,
+      fields: () => useUiStore.getState(),
+      connect: (options) => void useConnectionStore.getState().connect(options),
+    });
   }, []);
 }

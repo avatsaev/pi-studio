@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProviderAuthInfo } from "@av-pi-studio/protocol";
 import { Button, EmptyState, Spinner, StatusBadge } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { useProviderAuthList } from "../../hooks/use-provider-auth-list.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { rpcKeys } from "../../lib/connection/rpc-keys.js";
@@ -33,11 +34,10 @@ export function ModelProvidersPanel() {
 
   async function handleLogout(provider: ProviderAuthInfo) {
     if (!client) return;
-    if (
-      !window.confirm(
-        `Log out of ${provider.name}? Running agents keep working until their current credential use fails.`,
-      )
-    ) {
+    const confirmed = await getHost().dialogs.confirm(
+      `Log out of ${provider.name}? Running agents keep working until their current credential use fails.`,
+    );
+    if (!confirmed) {
       return;
     }
     setRowNotes((notes) => ({ ...notes, [provider.id]: "" }));

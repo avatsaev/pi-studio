@@ -7,11 +7,8 @@
  * construction) so the routing decision itself is unit-testable without a live socket.
  */
 import { parsePairingUrl, relayDialUrl } from "@av-pi-studio/client";
+import { type ConnectTarget } from "../../host/types.js";
 import { normalizeDaemonUrl } from "./normalize-url.js";
-
-export type ConnectTarget =
-  | { mode: "direct"; url: string }
-  | { mode: "relay"; url: string; daemonPublicKey: Uint8Array };
 
 /**
  * Resolve what to connect to and how. `input` may be a plain daemon address (`ws://`, `http://`,

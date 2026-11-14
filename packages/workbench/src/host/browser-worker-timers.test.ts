@@ -13,11 +13,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { createWorkerTimers as CreateWorkerTimers } from "./worker-timers.js";
+import type { createWorkerTimers as CreateWorkerTimers } from "./browser-worker-timers.js";
 
 async function freshModule(): Promise<{ createWorkerTimers: typeof CreateWorkerTimers }> {
   vi.resetModules();
-  return import("./worker-timers.js");
+  return import("./browser-worker-timers.js");
 }
 
 describe("createWorkerTimers() — fallback path (no DOM Worker in this environment)", () => {

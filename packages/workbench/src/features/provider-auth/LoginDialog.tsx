@@ -26,7 +26,8 @@ import { Check, Copy, ExternalLink } from "lucide-react";
 import { Button, Dialog, IconButton, Spinner, TextInput } from "@av-pi-studio/ui-library";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { rpcKeys } from "../../lib/connection/rpc-keys.js";
-import { copyText } from "../../lib/clipboard.js";
+import { ExternalAnchor } from "../../host/external-link.js";
+import { getHost } from "../../host/install.js";
 import {
   applyLoginFlowEvent,
   initialLoginFlowState,
@@ -321,9 +322,9 @@ function StatusRegion({ state }: { state: LoginFlowState }) {
           <span className={styles.statusText}>
             <span>{line.message}</span>
             {line.links?.map((link) => (
-              <a key={link.url} href={link.url} target="_blank" rel="noreferrer">
+              <ExternalAnchor key={link.url} href={link.url}>
                 {link.label ?? link.url}
-              </a>
+              </ExternalAnchor>
             ))}
           </span>
         </div>
@@ -417,10 +418,12 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       aria-label={copied ? "Copied" : label}
       title={copied ? "Copied" : label}
       onClick={() => {
-        void copyText(value).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        );
+        void getHost()
+          .clipboard.writeText(value)
+          .then(
+            () => setCopied(true),
+            () => setCopied(false),
+          );
       }}
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -447,11 +450,12 @@ function AuthUrlBlock({
         <div className={styles.oauthActions}>
           {/* A real anchor, not a scripted `window.open` (popup-blocked without a gesture) and not
               `Button` (which renders only a `<button>`), so middle-click and "copy link address"
-              behave. Styled to match `Button`'s default variant. */}
-          <a className={styles.openButton} href={authUrl.url} target="_blank" rel="noreferrer">
+              behave. Styled to match `Button`'s default variant. A host with `links.openExternal`
+              (desktop) receives the click instead. */}
+          <ExternalAnchor className={styles.openButton} href={authUrl.url}>
             <ExternalLink size={14} />
             Open login page
-          </a>
+          </ExternalAnchor>
           <div className={styles.urlRow}>
             <span className={styles.oauthUrl}>{authUrl.url}</span>
             <CopyButton value={authUrl.url} label="Copy link" />
@@ -504,15 +508,10 @@ function DeviceCodeBlock({
             {/* Copyable: the alternative is retyping a hyphenated code by hand. */}
             <CopyButton value={deviceCode.userCode} label="Copy code" />
           </div>
-          <a
-            className={styles.openButton}
-            href={deviceCode.verificationUri}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalAnchor className={styles.openButton} href={deviceCode.verificationUri}>
             <ExternalLink size={14} />
             Open verification page
-          </a>
+          </ExternalAnchor>
           {remaining !== undefined && (
             <span className={styles.countdown}>
               {remaining > 0 ? `Expires in ${formatCountdown(remaining)}` : "Code expired"}

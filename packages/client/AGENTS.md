@@ -484,7 +484,7 @@ Drives automatic reconnect after socket drop:
   reconnect notifies `onReconnected` with `attempt: 0` — the convention that distinguishes it from
   a ladder attempt (always ≥ 1). A forced attempt that fails re-enters the normal failure path,
   which restarts the ladder at rung 1. Exists so an external resume signal (tab became visible, OS
-  reports network back — see `web-client`'s `lib/connection/resume-triggers.ts`) can bypass a
+  reports network back — see the workbench's `host.connection.onResume` and `lib/connection/resume-handler.ts`) can bypass a
   throttled backoff delay. `scheduleReconnect()` is single-armed (at most one pending timer at a
   time) so `reconnectNow()`'s `clearTimer` call is always authoritative.
 

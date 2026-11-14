@@ -14,7 +14,6 @@ function inputs(overrides: Partial<TextViewerInputs> = {}): TextViewerInputs {
       content: null,
     },
     streamed: { isLoading: false, isError: false, errorMessage: null, content: null },
-    download: { requested: false, isLoading: false, objectUrl: null, fileName: null },
     ...overrides,
   };
 }
@@ -87,34 +86,6 @@ describe("selectTextViewerState", () => {
       expect(state.size).toBe(48 * 1024 * 1024);
       expect(state.maxDisplayBytes).toBe(MAX_DISPLAY_BYTES);
     }
-  });
-
-  it("'too-large' surfaces the download's in-flight and resolved states", () => {
-    const requested = selectTextViewerState(
-      inputs({
-        inline: { ...inputs().inline, tooLarge: { size: 48 * 1024 * 1024 } },
-        download: { requested: true, isLoading: true, objectUrl: null, fileName: null },
-      }),
-    );
-    expect(requested).toMatchObject({ kind: "too-large", downloading: true, downloadUrl: null });
-
-    const resolved = selectTextViewerState(
-      inputs({
-        inline: { ...inputs().inline, tooLarge: { size: 48 * 1024 * 1024 } },
-        download: {
-          requested: true,
-          isLoading: false,
-          objectUrl: "blob:xyz",
-          fileName: "big.txt",
-        },
-      }),
-    );
-    expect(resolved).toMatchObject({
-      kind: "too-large",
-      downloading: false,
-      downloadUrl: "blob:xyz",
-      downloadName: "big.txt",
-    });
   });
 
   it("a file exactly at the display ceiling is still treated as displayable, not too-large", () => {

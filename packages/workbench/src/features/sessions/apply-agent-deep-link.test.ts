@@ -38,7 +38,7 @@ function recorder(): Recorder {
         openChatTab(session, null);
       },
       notifyNotFound: (id) => r.notFound.push(id),
-      replaceUrl: () => {
+      consumeSource: () => {
         r.urlReplaced += 1;
       },
     },

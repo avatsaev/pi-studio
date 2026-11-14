@@ -1,7 +1,7 @@
 # Task 004 — Host: `connection` (transport factory, timers, resume signal)
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, connection)
 - **Priority:** P1

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { Button, Icon, Spinner, StatusDot, TextInput } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import {
   buildSettingsCategoryCapabilities,
@@ -137,11 +138,12 @@ export function ConnectionBar() {
     }
   }
 
+  const app = getHost().app;
   return (
     <div className={styles.bar}>
       <span className={styles.title}>
-        <span className={styles.brand}>{__BRAND_TITLE__}</span>
-        <span className={styles.version}>v{__APP_VERSION__}</span>
+        <span className={styles.brand}>{app.title}</span>
+        {app.version && <span className={styles.version}>v{app.version}</span>}
       </span>
 
       <span

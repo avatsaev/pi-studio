@@ -1,6 +1,6 @@
 /**
  * Pure tier-selection logic for `TextViewer` (task-009), kept in its own DOM-free module so the
- * three-state branch (inline / streamed / download-only) is unit-testable without mounting
+ * three-state branch (inline / streamed / too large to display) is unit-testable without mounting
  * CodeMirror or React — mirrors `molecule-reload.ts`'s `shouldApplyRefresh` extraction for the
  * same reason: this repo has no jsdom test environment configured anywhere.
  */
@@ -11,14 +11,7 @@ export type TextViewerState =
   | { kind: "streaming"; size: number }
   | { kind: "streamed"; size: number; content: string }
   | { kind: "stream-error"; size: number; message: string }
-  | {
-      kind: "too-large";
-      size: number;
-      maxDisplayBytes: number;
-      downloading: boolean;
-      downloadUrl: string | null;
-      downloadName: string | null;
-    }
+  | { kind: "too-large"; size: number; maxDisplayBytes: number }
   | { kind: "error"; message: string };
 
 export interface TextViewerInputs {
@@ -38,32 +31,17 @@ export interface TextViewerInputs {
     errorMessage: string | null;
     content: string | null;
   };
-  download: {
-    requested: boolean;
-    isLoading: boolean;
-    objectUrl: string | null;
-    fileName: string | null;
-  };
 }
 
 /** Selects exactly one `TextViewerState` from the current query states. Pure — no hooks, no I/O. */
 export function selectTextViewerState(input: TextViewerInputs): TextViewerState {
-  const { maxDisplayBytes, inline, streamed, download } = input;
+  const { maxDisplayBytes, inline, streamed } = input;
 
   if (inline.isLoading) return { kind: "loading" };
 
   if (inline.tooLarge) {
     const { size } = inline.tooLarge;
-    if (size > maxDisplayBytes) {
-      return {
-        kind: "too-large",
-        size,
-        maxDisplayBytes,
-        downloading: download.requested && download.isLoading,
-        downloadUrl: download.objectUrl,
-        downloadName: download.fileName,
-      };
-    }
+    if (size > maxDisplayBytes) return { kind: "too-large", size, maxDisplayBytes };
     if (streamed.isLoading) return { kind: "streaming", size };
     if (streamed.isError) {
       return { kind: "stream-error", size, message: streamed.errorMessage ?? "stream failed" };

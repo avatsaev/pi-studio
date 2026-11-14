@@ -1,7 +1,7 @@
 # Task 003 — Host: `launch` (initial connect intent and agent deep link)
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, hooks, sessions)
 - **Priority:** P1

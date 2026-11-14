@@ -1,7 +1,7 @@
 # Task 002 — Host: `clipboard`, `dialogs` and `links`
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, features)
 - **Priority:** P1

@@ -211,25 +211,35 @@ Storage keys and value formats do not change. Only the backing store becomes hos
 
 ## Acceptance criteria
 
-- [ ] Outside the browser host implementation, no workbench source file references
+Checked in sprint 093 task-007 (2026-11-14); evidence in that task's summary and in
+`swe/sprints/sprint-093-workbench-host/done/`.
+
+- [x] Outside the browser host implementation, no workbench source file references
       `localStorage`, `navigator.clipboard`, `window.confirm`, `window.alert`, `window.prompt`,
       `window.location`, `window.history`, `import.meta.env` or a `?worker` import. A test
-      enforces this by scanning the sources.
-- [ ] With `createBrowserHost()`, every behaviour in the "Browser host" table matches the
+      enforces this by scanning the sources. (`src/host/host-guard.test.ts`; also forbids
+      `sessionStorage`, `window.open` and `new WebSocket(`.)
+- [x] With `createBrowserHost()`, every behaviour in the "Browser host" table matches the
       pre-change behaviour. The existing tests for connection boot, deep links, pane-layout
       persistence, resume action and worker timers pass against it.
-- [ ] A test host with in-memory storage and recorded calls can drive: boot with an initial
+- [x] A test host with in-memory storage and recorded calls can drive: boot with an initial
       connect intent, a deep link delivered through `subscribe`, a confirm that resolves `false`
       (the action does not run), an upload, a save, and a view URL that is released on unmount.
-- [ ] `ReconnectionManager` receives `host.connection.timers`.
-- [ ] `host.connection.onResume` firing while the socket is stale triggers the existing probe or
+      (`src/test/test-host.ts`. Release on *unmount* lives in a React effect and this package has
+      no DOM test environment: the pure supersede path is unit-tested, and unmount release was
+      checked in the browser — 20 image tabs opened and closed, 20 URLs created and 20 revoked.)
+- [x] `ReconnectionManager` receives `host.connection.timers`.
+- [x] `host.connection.onResume` firing while the socket is stale triggers the existing probe or
       reconnect path.
-- [ ] With `host.pdf` absent, opening a PDF shows the error state; with it present, the PDF
+- [x] With `host.pdf` absent, opening a PDF shows the error state; with it present, the PDF
       renders in `web-client` as before.
-- [ ] `host.files.pickUploads`, when provided, is used by the explorer's upload action instead of
-      a file input.
+- [x] `host.files.pickUploads`, when provided, is used by the explorer's upload action instead of
+      a file input. (Checked in the browser with a temporary picker: no file-input click, file
+      uploaded.)
 - [ ] The host contract is documented in `packages/workbench/README.md`, including the
-      synchronous-storage rule and the transport ordering rule.
+      synchronous-storage rule and the transport ordering rule. — Not yet: the package README is
+      written in sprint 094 task-004 (planned there). The contract is documented in
+      `packages/workbench/AGENTS.md` § Host adapter and in `src/host/types.ts` meanwhile.
 
 ## TODO(verify)
 
@@ -238,10 +248,14 @@ Storage keys and value formats do not change. Only the backing store becomes hos
   repository.
 - **`target="_blank"` in a Tauri webview.** Not verified to open the system browser. This is why
   `links.openExternal` exists.
-- **`UploadSource` for drag-and-drop.** Browser drops deliver `File` objects; a native host
-  receives paths from the shell, outside the DOM event. Verify the explorer's drop handler can take
-  its sources from either route without a second code path in the feature.
+- ~~**`UploadSource` for drag-and-drop.**~~ Resolved in sprint 093 (task-005): the explorer has one
+  upload path, `features/files/upload-sources.ts`'s `uploadSources(dir, sources, deps)`, fed by
+  the file input and a DOM drop (both `File`s) or by `files.pickUploads()`. A native host that
+  receives drop paths outside the DOM needs one more entry point into that same function (a
+  host-to-workbench "dropped" signal, not part of this contract yet); the feature code does not
+  fork.
 - **`openForView` for large media in the browser host.** It still downloads into memory. That is
   today's behaviour and is accepted here; the native host is what removes the limit.
-- **Host installation and React StrictMode.** Verify the synchronous first-render install is
-  idempotent under double rendering.
+- ~~**Host installation and React StrictMode.**~~ Resolved in sprint 093 (task-001): the install
+  runs in a `useState` initializer, `installHost` is idempotent for the same host, and the dev
+  server runs under StrictMode with no second-host warning.

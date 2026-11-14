@@ -1,7 +1,7 @@
 # Task 007 — Host guard test, recording test host, and host acceptance
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/workbench (host, test)
 - **Priority:** P1

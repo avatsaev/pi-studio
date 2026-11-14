@@ -30,7 +30,7 @@ import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useExplorerStore } from "../../stores/explorer-store.js";
 import { useTabStore } from "../../stores/tab-store.js";
 import { useFileTransfer } from "../../hooks/use-file-transfer.js";
-import { copyText } from "../../lib/clipboard.js";
+import { getHost } from "../../host/install.js";
 import { dirOf, relativeToRoot } from "../../lib/paths.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 import { openFileTab, openMoleculeTab, openTextTab } from "./open-file-tab.js";
@@ -85,9 +85,9 @@ export function FileContextMenu() {
     if (!menu) return;
     closeFileMenu();
     try {
-      await copyText(menu.path);
+      await getHost().clipboard.writeText(menu.path);
     } catch {
-      window.alert("Failed to copy to clipboard.");
+      await getHost().dialogs.alert("Failed to copy to clipboard.");
     }
   }
 
@@ -95,9 +95,9 @@ export function FileContextMenu() {
     if (!menu) return;
     closeFileMenu();
     try {
-      await copyText(relativeToRoot(menu.path, rootPath) || "/");
+      await getHost().clipboard.writeText(relativeToRoot(menu.path, rootPath) || "/");
     } catch {
-      window.alert("Failed to copy to clipboard.");
+      await getHost().dialogs.alert("Failed to copy to clipboard.");
     }
   }
 
@@ -107,19 +107,24 @@ export function FileContextMenu() {
     try {
       await saveToDisk(menu.path);
     } catch (err) {
-      window.alert(`Failed to download: ${err instanceof Error ? err.message : String(err)}`);
+      await getHost().dialogs.alert(
+        `Failed to download: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   async function remove() {
     if (!menu) return;
     const kind = menu.isDirectory ? "folder (and everything inside it)" : "file";
-    if (!window.confirm(`Permanently delete this ${kind}? "${name}" — this cannot be undone.`)) {
+    const confirmed = await getHost().dialogs.confirm(
+      `Permanently delete this ${kind}? "${name}" — this cannot be undone.`,
+    );
+    if (!confirmed) {
       return closeFileMenu();
     }
     closeFileMenu();
     if (!client) {
-      window.alert("Not connected — cannot delete remotely.");
+      await getHost().dialogs.alert("Not connected — cannot delete remotely.");
       return;
     }
     try {
@@ -127,7 +132,9 @@ export function FileContextMenu() {
       await queryClient.invalidateQueries({ queryKey: ["explorer"] });
       useTabStore.getState().closeByPathPrefix(menu.path);
     } catch (err) {
-      window.alert(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`);
+      await getHost().dialogs.alert(
+        `Failed to delete: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

@@ -1,7 +1,7 @@
 # Task 005 — Host: `files` (upload, save to disk, view URL, picker)
 
 - **Sprint:** sprint-093-workbench-host
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host, hooks, files)
 - **Priority:** P1

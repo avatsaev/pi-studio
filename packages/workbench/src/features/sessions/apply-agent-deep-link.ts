@@ -1,10 +1,12 @@
 /**
- * Applies the pending `#agent=` deep link against the real stores. Selection is exactly a sidebar
+ * Applies the pending agent deep link against the real stores. Selection is exactly a sidebar
  * click (`SessionList.handleSelect`): activate + setCwd + open the chat tab in the focused pane.
+ * Afterwards the host's deep-link source is consumed (the browser strips `agent=` from the URL).
  */
 
+import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { applyAgentDeepLink, stripAgentParam } from "../../lib/agent-deep-link.js";
+import { applyAgentDeepLink } from "../../lib/agent-deep-link.js";
 import { useDeepLinkStore } from "../../stores/deep-link-store.js";
 import { useSessionStore, type SessionEntry } from "../../stores/session-store.js";
 import { useToastStore } from "@av-pi-studio/ui-library";
@@ -23,8 +25,8 @@ export function applyPendingAgentDeepLink(): void {
     notifyNotFound(agentId) {
       useToastStore.getState().show(`Agent not found: ${agentId}`, { variant: "warning" });
     },
-    replaceUrl() {
-      window.history.replaceState(null, "", stripAgentParam(window.location.href));
+    consumeSource() {
+      getHost().launch.agentDeepLink.consume();
     },
   });
 }

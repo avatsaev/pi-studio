@@ -1,6 +1,6 @@
 /**
  * `use-inline-image` — fetches (via the shared ref-counted `inline-image-cache`) and hands back
- * an object URL for an inline chat image (features/inline-image-rendering.md § Inline image fetch
+ * a view URL (host `files.openForView`) for an inline chat image (features/inline-image-rendering.md § Inline image fetch
  * + cache). Consumed by the markdown `img` node override (task-004) once a `classifyImageSrc`
  * result is `local`.
  *
@@ -15,9 +15,10 @@
  */
 
 import { useEffect, useState } from "react";
+import { getHost } from "../host/install.js";
+import { type ViewableFile } from "../host/types.js";
 import { useConnectionStore } from "../lib/connection/connection-store.js";
 import { acquireInlineImage, releaseInlineImage } from "../lib/inline-image-cache.js";
-import { transferFor } from "./file-transfer-instance.js";
 
 export type InlineImageState =
   | { status: "idle" } // no client yet, or path is null
@@ -26,7 +27,7 @@ export type InlineImageState =
   | { status: "error"; message: string };
 
 /**
- * Runs one effect cycle: `download === null` (no live connection, or no path) is the idle case —
+ * Runs one effect cycle: `open === null` (no live connection, or no path) is the idle case —
  * nothing to acquire, nothing to clean up. Otherwise acquires `path`, reports the loading →
  * ready/error transition via `onStateChange`, and returns a cleanup that releases the path and
  * ignores a resolution that lands after it (the `cancelled` flag pattern used across the existing
@@ -34,10 +35,10 @@ export type InlineImageState =
  */
 export function loadInlineImage(
   path: string | null,
-  download: ((path: string) => Promise<{ bytes: Uint8Array; mimeType?: string }>) | null,
+  open: ((path: string) => Promise<ViewableFile>) | null,
   onStateChange: (state: InlineImageState) => void,
 ): (() => void) | void {
-  if (!path || !download) {
+  if (!path || !open) {
     onStateChange({ status: "idle" });
     return;
   }
@@ -45,7 +46,7 @@ export function loadInlineImage(
   let cancelled = false;
   onStateChange({ status: "loading" });
 
-  acquireInlineImage(path, download)
+  acquireInlineImage(path, open)
     .then((entry) => {
       if (!cancelled) onStateChange({ status: "ready", objectUrl: entry.objectUrl });
     })
@@ -70,8 +71,8 @@ export function useInlineImage(path: string | null): InlineImageState {
   const [state, setState] = useState<InlineImageState>({ status: "idle" });
 
   useEffect(() => {
-    const download = client && daemon ? (p: string) => transferFor(daemon).download(p) : null;
-    return loadInlineImage(path, download, setState);
+    const open = client && daemon ? (p: string) => getHost().files.openForView(p) : null;
+    return loadInlineImage(path, open, setState);
   }, [client, daemon, path]);
 
   return state;

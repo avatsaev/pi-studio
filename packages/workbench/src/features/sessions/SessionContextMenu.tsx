@@ -12,11 +12,13 @@ import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Pencil, Square, Archive as ArchiveIcon, GitFork, Trash2 } from "lucide-react";
 import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useSessionStore } from "../../stores/session-store.js";
 import { useTabStore, tabIds } from "../../stores/tab-store.js";
 import { useUiStore } from "../../stores/ui-store.js";
 import { useForkMenu } from "../chat/use-fork-action.js";
+import { renameSession } from "./session-actions.js";
 
 export function SessionContextMenu() {
   const menu = useUiStore((s) => s.sessionMenu);
@@ -42,19 +44,9 @@ export function SessionContextMenu() {
     if (!next) closeSessionMenu();
   }
 
-  function rename() {
+  async function rename() {
     if (!session) return;
-    const next = window.prompt("Rename:", session.title);
-    if (next?.trim()) {
-      const title = next.trim();
-      useSessionStore.getState().setTitle(session.id, title);
-      useTabStore.getState().updateLabel(tabIds.chat(session.id), title);
-      if (session.agentId)
-        void client
-          ?.agent(session.agentId)
-          .update({ title })
-          .catch(() => {});
-    }
+    await renameSession(session, client);
     closeSessionMenu();
   }
 
@@ -76,27 +68,32 @@ export function SessionContextMenu() {
 
   async function archive() {
     if (!session) return;
-    if (!window.confirm("Archive this agent? It can be resumed later.")) return closeSessionMenu();
+    if (!(await getHost().dialogs.confirm("Archive this agent? It can be resumed later.")))
+      return closeSessionMenu();
     closeSessionMenu();
     if (!session.agentId) {
       removeLocal(session.id);
       return;
     }
     if (!client) {
-      window.alert("Not connected — cannot archive remotely.");
+      await getHost().dialogs.alert("Not connected — cannot archive remotely.");
       return;
     }
     try {
       await client.agent(session.agentId).archive();
       removeLocal(session.id);
     } catch (err) {
-      window.alert(`Failed to archive: ${err instanceof Error ? err.message : String(err)}`);
+      await getHost().dialogs.alert(
+        `Failed to archive: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   async function remove() {
     if (!session) return;
-    if (!window.confirm("Permanently delete this agent? This cannot be undone.")) {
+    if (
+      !(await getHost().dialogs.confirm("Permanently delete this agent? This cannot be undone."))
+    ) {
       return closeSessionMenu();
     }
     closeSessionMenu();
@@ -105,14 +102,16 @@ export function SessionContextMenu() {
       return;
     }
     if (!client) {
-      window.alert("Not connected — cannot delete remotely.");
+      await getHost().dialogs.alert("Not connected — cannot delete remotely.");
       return;
     }
     try {
       await client.agent(session.agentId).delete();
       removeLocal(session.id);
     } catch (err) {
-      window.alert(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`);
+      await getHost().dialogs.alert(
+        `Failed to delete: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
