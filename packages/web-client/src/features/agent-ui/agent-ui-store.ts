@@ -65,12 +65,11 @@ import {
   type PiStudioClient,
 } from "@av-pi-studio/client";
 import type { AgentUiResponse } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { clearWhenIdle, speak } from "@pi-studio-ui/stores/announcer-store.js";
-import { isTabVisible, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { clearWhenIdle, speak, useToastStore } from "@av-pi-studio/ui-library";
+import { isTabVisible, tabIds } from "@web-client/stores/tab-store.js";
 import { computeAnnouncements } from "./announce.js";
 import {
   notifyAnnouncement,

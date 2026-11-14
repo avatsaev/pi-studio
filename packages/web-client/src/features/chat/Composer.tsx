@@ -59,29 +59,26 @@ import {
 } from "react";
 import { clsx } from "clsx";
 import { ArrowUp, Brain, ChevronDown, Cpu, Navigation, Plus, Slash, Square } from "lucide-react";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { TextArea } from "@pi-studio-ui/components/primitives/TextInput.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { randomId } from "@pi-studio-ui/lib/random-id.js";
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { ensureMaterialized } from "@pi-studio-ui/stores/materialize.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useIsTabVisible, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { useAgentCommands } from "@pi-studio-ui/hooks/use-agent-commands.js";
-import { filterOptions } from "@pi-studio-ui/ui/combobox.js";
-import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
-import { useThinkingLevels } from "@pi-studio-ui/hooks/use-thinking-levels.js";
-import { useIsCompacting } from "@pi-studio-ui/hooks/use-is-compacting.js";
-import { useCompactionStore } from "@pi-studio-ui/stores/compaction-store.js";
-import { compactionLabel, pendingCompaction } from "@pi-studio-ui/timeline/compaction.js";
+import { Button, Spinner, TextArea, filterOptions } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { randomId } from "@web-client/lib/random-id.js";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { ensureMaterialized } from "@web-client/stores/materialize.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useIsTabVisible, tabIds } from "@web-client/stores/tab-store.js";
+import { useAgentCommands } from "@web-client/hooks/use-agent-commands.js";
+import { useProviderModels } from "@web-client/hooks/use-provider-models.js";
+import { useThinkingLevels } from "@web-client/hooks/use-thinking-levels.js";
+import { useIsCompacting } from "@web-client/hooks/use-is-compacting.js";
+import { useCompactionStore } from "@web-client/stores/compaction-store.js";
+import { compactionLabel, pendingCompaction } from "@web-client/timeline/compaction.js";
 import {
   composerDropProps,
   hasPathRef,
   readPathRef,
-} from "@pi-studio-ui/features/workspace/external-drag.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+} from "@web-client/features/workspace/external-drag.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
 import { Attachments, readImageFile, type PendingImage } from "./Attachments.js";
 import { isComposerBusy } from "./composer-busy.js";
 import { canCompact, canSubmitDraft, shouldRestoreCompactDraft } from "./composer-gate.js";

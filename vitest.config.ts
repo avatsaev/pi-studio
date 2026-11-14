@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 export default defineConfig({
   resolve: {
     alias: {
-      "@pi-studio-ui": resolve(__dirname, "packages/web-client/src"),
+      "@av-pi-studio/ui-library": resolve(__dirname, "packages/ui-library/src/index.ts"),
+      "@web-client": resolve(__dirname, "packages/web-client/src"),
     },
   },
   test: {

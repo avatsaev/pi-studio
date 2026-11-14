@@ -40,10 +40,10 @@ import {
   isNoOpDrop,
   resolveDropRegion,
   type DropOutcome,
-} from "@pi-studio-ui/features/workspace/pane-dnd.js";
-import { armDragGuard, disarmDragGuard } from "@pi-studio-ui/lib/drag-guard.js";
-import { useLayoutStore, type WorkspacePaneLayout } from "@pi-studio-ui/stores/layout-store.js";
-import { useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
+} from "@web-client/features/workspace/pane-dnd.js";
+import { armDragGuard, disarmDragGuard } from "@web-client/lib/drag-guard.js";
+import { useLayoutStore, type WorkspacePaneLayout } from "@web-client/stores/layout-store.js";
+import { useTabStore, type Tab } from "@web-client/stores/tab-store.js";
 
 type DropTargetKind = "tab" | "strip" | "pane";
 

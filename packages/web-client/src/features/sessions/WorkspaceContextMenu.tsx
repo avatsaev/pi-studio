@@ -9,17 +9,12 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Plus, Trash2 } from "lucide-react";
-import {
-  MenuCursorTrigger,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-} from "@pi-studio-ui/components/primitives/Menu.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds, openNewChat } from "@web-client/stores/tab-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
 import { normalizeCwd, workspaceLabel } from "./workspace-grouping.js";
 
 export function WorkspaceContextMenu() {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { flattenTree, rowKey } from "./file-tree.js";
-import type { ExplorerTreeEntry } from "@pi-studio-ui/hooks/use-explorer-tree.js";
+import type { ExplorerTreeEntry } from "@web-client/hooks/use-explorer-tree.js";
 
 function listing(entries: Array<{ name: string; kind: "file" | "directory" }>): ExplorerTreeEntry {
   return {

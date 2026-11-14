@@ -10,8 +10,8 @@
  * created; omitted, it lands in the focused pane. Same contract as `openNewTerminal`/`openNewChat`.
  */
 
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { isViewerEnabled } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import { isViewerEnabled } from "@web-client/viewer-plugins/viewer-settings-store.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 
 export function openFileTab(path: string, workspaceCwd: string, targetPaneId?: string): void {

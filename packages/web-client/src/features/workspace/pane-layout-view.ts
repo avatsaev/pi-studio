@@ -13,8 +13,8 @@
  */
 
 import type { CSSProperties } from "react";
-import type { WorkspacePaneLayout } from "@pi-studio-ui/stores/layout-store.js";
-import type { Tab } from "@pi-studio-ui/stores/tab-store.js";
+import type { WorkspacePaneLayout } from "@web-client/stores/layout-store.js";
+import type { Tab } from "@web-client/stores/tab-store.js";
 import { dividers, effectiveTree, paneRects, type Divider, type Rect } from "./pane-tree.js";
 import type { DropRegion } from "./pane-dnd.js";
 

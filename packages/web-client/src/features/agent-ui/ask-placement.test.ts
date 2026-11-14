@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentUiPendingEntry, AgentUiResolvedEntry } from "@av-pi-studio/client";
-import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
+import type { TimelineRow } from "@web-client/timeline/row-model.js";
 import type { AskEntry, AskLayoutItem } from "./ask-list.js";
 import { placeAsksInRows } from "./ask-placement.js";
 

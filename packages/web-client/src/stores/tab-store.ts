@@ -22,10 +22,10 @@
  */
 
 import { create } from "zustand";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { ensureMaterialized, discardIfEmpty } from "@pi-studio-ui/stores/materialize.js";
-import { isPaneActiveTab, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { ensureMaterialized, discardIfEmpty } from "@web-client/stores/materialize.js";
+import { isPaneActiveTab, useLayoutStore } from "@web-client/stores/layout-store.js";
 
 export type TabKind = "chat" | "file" | "diff" | "terminal" | "molecule";
 

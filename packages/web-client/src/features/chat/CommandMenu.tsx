@@ -23,9 +23,7 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { clsx } from "clsx";
 import { useEffect, useRef, type ReactNode } from "react";
-import { MenuContent } from "@pi-studio-ui/components/primitives/Menu.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import type { ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
+import { MenuContent, Spinner, type ComboboxOption } from "@av-pi-studio/ui-library";
 import styles from "./ModelMenu.module.css";
 
 /**

@@ -8,8 +8,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { AGENT_TODOS_MAX_TASKS, type AgentTodo } from "@av-pi-studio/protocol";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
+import { Icon, Spinner } from "@av-pi-studio/ui-library";
 import {
   useAgentTodosSnapshot,
   useAgentTodosStore,

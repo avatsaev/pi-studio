@@ -35,7 +35,7 @@ import {
   resolveExternalDropRegion,
   yieldsToComposer,
   type ExternalDragPayload,
-} from "@pi-studio-ui/features/workspace/external-drag.js";
+} from "@web-client/features/workspace/external-drag.js";
 import {
   containsPoint,
   isNoOpDrop,
@@ -43,13 +43,13 @@ import {
   type DropOutcome,
   type DropPoint,
   type DropRegion,
-} from "@pi-studio-ui/features/workspace/pane-dnd.js";
-import { openFileTab } from "@pi-studio-ui/features/files/open-file-tab.js";
-import { openChatTab } from "@pi-studio-ui/features/sessions/open-chat-tab.js";
-import { armDragGuard, disarmDragGuard } from "@pi-studio-ui/lib/drag-guard.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+} from "@web-client/features/workspace/pane-dnd.js";
+import { openFileTab } from "@web-client/features/files/open-file-tab.js";
+import { openChatTab } from "@web-client/features/sessions/open-chat-tab.js";
+import { armDragGuard, disarmDragGuard } from "@web-client/lib/drag-guard.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
 import { useHomeDir } from "./use-home-dir.js";
 /**
  * Marks a pane's body drop zone for the pointer lookup below, and spreads onto it. An attribute

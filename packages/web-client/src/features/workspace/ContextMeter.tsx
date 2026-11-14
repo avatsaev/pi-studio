@@ -6,7 +6,7 @@
  */
 
 import { clsx } from "clsx";
-import type { SessionStats } from "@pi-studio-ui/stores/stats-store.js";
+import type { SessionStats } from "@web-client/stores/stats-store.js";
 import {
   meterFill,
   meterState,

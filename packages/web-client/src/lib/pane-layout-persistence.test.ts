@@ -6,11 +6,11 @@ import {
   PANE_LAYOUT_WRITE_DEBOUNCE_MS,
   type PersistedPaneLayout,
 } from "./pane-layout-persistence.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { tabIdentity, useTabStore, type Tab } from "@pi-studio-ui/stores/tab-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { PANE_LAYOUT_VERSION } from "@pi-studio-ui/features/workspace/pane-tree.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { tabIdentity, useTabStore, type Tab } from "@web-client/stores/tab-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { PANE_LAYOUT_VERSION } from "@web-client/features/workspace/pane-tree.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 
 const KEY = "pi-studio-pane-layout";
 const CWD = "/work";

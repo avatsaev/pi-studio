@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIVE_REFRESH_KINDS } from "@pi-studio-ui/features/files/viewer-registry.js";
+import { LIVE_REFRESH_KINDS } from "@web-client/features/files/viewer-registry.js";
 
 describe("LIVE_REFRESH_KINDS", () => {
   it("includes text, markdown, image, and html", () => {

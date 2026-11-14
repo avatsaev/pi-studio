@@ -12,7 +12,15 @@ protocol   (depends on no workspace package)
   ├── client      → protocol
   ├── server      → protocol
   └── cli         → protocol, client
+ui-library (depends on no workspace package; built by Vite + `tsc -b`, not plain `tsc -b`)
+  ├── web-client  → protocol, client, ui-library (devDependency; Vite alias to ../ui-library/src)
+  └── ui-gallery  → ui-library (built `dist` via package `exports`; private)
 ```
+
+`ui-library` emits `dist/` ESM entries + one prebuilt `dist/styles.css` with Vite library mode, and its
+declarations with `tsc -b` (`emitDeclarationOnly`). `ui-gallery` consumes that built `dist`, so
+`build:ui-library` must run before `build:ui-gallery`. Root `npm run build` order: protocol → relay →
+client → ui-library → server → web-client → ui-gallery → cli.
 
 `app` and `desktop` are built by Metro/Electron respectively and are outside this `tsc -b` graph.
 
@@ -25,6 +33,9 @@ protocol   (depends on no workspace package)
 | `build:client`    | `client` (+ protocol via references)                 |
 | `build:server`    | `server` (+ protocol)                                |
 | `build:cli`       | `cli` (+ protocol, client)                           |
+| `build:ui-library` | `ui-library` (Vite library build + declarations)    |
+| `build:web-client` | `web-client` (Vite; resolves ui-library from source) |
+| `build:ui-gallery` | `ui-gallery` (needs built ui-library `dist`)         |
 | `build`           | all of the above, **in dependency order**, fail-fast |
 | `clean`           | removes all `dist/` and `*.tsbuildinfo`              |
 

@@ -1,0 +1,43 @@
+/* Global reset — zero the browser default body margin, paint the themed page background, and
+   theme the scrollbars. Color/type tokens are injected as `--pi-*` CSS variables at runtime by
+   the theme system (see src/theme/css-bridge.ts, applied via ThemeBoundary).
+   Opt-in: an app embedding the library into a host page can skip this file. App-specific layout
+   (e.g. `#root` sizing) belongs in the app's own stylesheet, not here. */
+/* Root font-size is left at the browser default (100% / 16px) so `rem` tracks the user's own
+   zoom / accessibility text-size setting untouched — no app-level multiplier layered on top.
+   No CSS module hardcodes a font-size: every one is `var(--pi-font-size-<rung>)`, emitted as rem
+   by theme/css-bridge.ts's `pxToRem` from theme/tokens.ts's `baseFontSize`. That table is the one
+   lever for the app's text size; there is no root-percentage override to keep in sync with it,
+   and the font-scale guard test fails the build if a literal or a dangling rung creeps back in. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--pi-color-background);
+  color: var(--pi-color-foreground);
+  font-family: var(--pi-font-ui);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Scrollbar theming */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--pi-color-border);
+  border-radius: var(--pi-radius-base);
+}

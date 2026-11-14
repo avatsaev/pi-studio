@@ -5,7 +5,7 @@
  * what happens to a `/compact` draft once the compaction settles.
  */
 
-import type { CompactResult } from "@pi-studio-ui/stores/compaction-store.js";
+import type { CompactResult } from "@web-client/stores/compaction-store.js";
 import { parseBuiltinInvocation } from "./slash-commands.js";
 
 export interface CompactAvailability {

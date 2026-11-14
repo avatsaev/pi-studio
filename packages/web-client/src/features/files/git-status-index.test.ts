@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGitStatusLookup, buildIgnoredMatcher } from "./git-status-index.js";
-import type { ChangeEntry } from "@pi-studio-ui/stores/git-store.js";
+import type { ChangeEntry } from "@web-client/stores/git-store.js";
 
 function modified(path: string): ChangeEntry {
   return { path, status: "modified", staged: false };

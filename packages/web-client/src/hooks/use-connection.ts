@@ -16,8 +16,8 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 
 export function useConnectionBoot(): void {
   const ranRef = useRef(false);

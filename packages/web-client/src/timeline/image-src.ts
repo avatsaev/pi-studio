@@ -8,7 +8,7 @@
  * Pure: no store/hook/network imports, so this file needs no React or client mocks to test.
  */
 
-import { detectViewerKind } from "@pi-studio-ui/features/files/viewer-registry.js";
+import { detectViewerKind } from "@web-client/features/files/viewer-registry.js";
 import { resolveHrefCandidate } from "./href-resolution.js";
 
 export type ImageSrcClassification =

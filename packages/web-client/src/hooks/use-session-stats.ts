@@ -22,9 +22,9 @@
 
 import { useEffect, useRef } from "react";
 import type { AgentSessionStatsResponse, AgentStatus } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useStatsStore, type SessionStats } from "@pi-studio-ui/stores/stats-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useStatsStore, type SessionStats } from "@web-client/stores/stats-store.js";
 
 const POLL_INTERVAL_MS = 12_000;
 

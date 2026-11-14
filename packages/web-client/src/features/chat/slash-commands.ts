@@ -11,7 +11,7 @@
  * "Pi will recognize this" indicator rather than decoration.
  */
 
-import type { ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
+import type { ComboboxOption } from "@av-pi-studio/ui-library";
 
 /** The fields of an `agent_list_commands_response` entry this module needs. */
 export interface SlashCommand {

@@ -5,7 +5,7 @@
  */
 
 import { lazy, type ComponentType } from "react";
-import type { Tab } from "@pi-studio-ui/stores/tab-store.js";
+import type { Tab } from "@web-client/stores/tab-store.js";
 
 export interface PanelProps {
   tab: Tab;

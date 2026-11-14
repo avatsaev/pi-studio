@@ -13,10 +13,10 @@
  */
 
 import { Bot } from "lucide-react";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { formatMetaTime } from "@pi-studio-ui/timeline/format-meta-time.js";
-import type { AssistantRow as AssistantRowModel } from "@pi-studio-ui/timeline/row-model.js";
-import { Markdown, StreamingMarkdown } from "@pi-studio-ui/timeline/markdown.js";
+import { Icon } from "@av-pi-studio/ui-library";
+import { formatMetaTime } from "@web-client/timeline/format-meta-time.js";
+import type { AssistantRow as AssistantRowModel } from "@web-client/timeline/row-model.js";
+import { Markdown, StreamingMarkdown } from "@web-client/timeline/markdown.js";
 import { RowShell } from "./RowShell.js";
 import shellStyles from "./RowShell.module.css";
 import styles from "./rows.module.css";

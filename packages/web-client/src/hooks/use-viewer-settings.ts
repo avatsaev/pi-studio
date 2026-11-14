@@ -15,8 +15,8 @@
  */
 
 import { useEffect } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useViewerSettingsStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 
 export function useViewerSettingsBoot(): void {
   const status = useConnectionStore((s) => s.status);

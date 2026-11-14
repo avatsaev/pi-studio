@@ -11,9 +11,9 @@
  */
 
 import { clsx } from "clsx";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
+import { EmptyState } from "@av-pi-studio/ui-library";
+import { useGitStore } from "@web-client/stores/git-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
 import styles from "./ChangesPanel.module.css";
 
 const BADGE_LABEL: Record<"added" | "modified" | "deleted", string> = {

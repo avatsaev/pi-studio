@@ -112,6 +112,11 @@ module and ships prebuilt binaries for common platforms.
   the web client and CLI. (`packages/client`)
 - **Web Client** — Production React/Vite browser UI; manages saved host connections, sessions,
   timeline reducers, composer, file explorer, git changes, terminal. (`packages/web-client`)
+- **UI Library** — Publishable React design system extracted from the web client: primitives,
+  theme/tokens/appearance, accent-only brand injection, one prebuilt stylesheet. Depends on no
+  workspace package; see `swe/grills/ui-library.md`. (`packages/ui-library`)
+- **UI Gallery** — Private Vite+React gallery app that renders every primitive family against the
+  built ui-library `dist` across all six themes; never published or deployed. (`packages/ui-gallery`)
 - **CLI** — Terminal client; can also start/manage a local daemon. (`packages/cli`)
 - **Desktop** — Electron shell that bundles + supervises a daemon and embeds the web app, with
   native file dialogs, menus, auto-update, in-app browser webviews. (`packages/desktop`)

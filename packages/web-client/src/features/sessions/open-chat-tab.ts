@@ -10,8 +10,8 @@
  * omitted, the tab lands in the focused pane.
  */
 
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
 import { normalizeCwd } from "./workspace-grouping.js";
 
 export function openChatTab(

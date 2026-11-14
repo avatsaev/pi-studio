@@ -8,9 +8,9 @@
  */
 
 import { useCallback, useMemo } from "react";
-import { useClient, useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { useForkStore } from "@pi-studio-ui/stores/fork-store.js";
+import { useClient, useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
+import { useForkStore } from "@web-client/stores/fork-store.js";
 import {
   buildConfirmedOrdinalByRowId,
   collectConfirmedUserRows,

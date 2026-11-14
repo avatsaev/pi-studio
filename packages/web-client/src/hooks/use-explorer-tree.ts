@@ -12,8 +12,8 @@
 
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 import { fetchExplorerListing, type ExplorerListing } from "./use-explorer.js";
 
 export interface ExplorerTreeEntry {

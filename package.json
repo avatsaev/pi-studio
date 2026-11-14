@@ -9,7 +9,9 @@
     "packages/server",
     "packages/cli",
     "packages/relay",
-    "packages/web-client"
+    "packages/web-client",
+    "packages/ui-library",
+    "packages/ui-gallery"
   ],
   "type": "module",
   "scripts": {
@@ -24,8 +26,9 @@
     "build:client": "tsc -b packages/client",
     "build:server": "tsc -b packages/server && chmod +x packages/server/dist/daemon/main.js",
     "build:web-client": "npm run build:web -w packages/web-client",
+    "build:ui-library": "npm run build -w packages/ui-library",
     "build:cli": "tsc -b packages/cli && chmod +x packages/cli/dist/cli.js",
-    "build": "npm run build:protocol && npm run build:relay && npm run build:client && npm run build:server && npm run build:web-client && npm run build:cli",
+    "build": "npm run build:protocol && npm run build:relay && npm run build:client && npm run build:ui-library && npm run build:server && npm run build:web-client && npm run build:ui-gallery && npm run build:cli",
     "start": "npm run build:server && node packages/server/dist/daemon/main.js",
     "start:server": "node packages/server/dist/daemon/main.js",
     "dev:daemon": "npm run build:server && node packages/server/dist/daemon/dev-main.js",
@@ -33,7 +36,8 @@
     "publish": "bash scripts/publish.sh",
     "docker:publish": "bash scripts/docker-publish.sh",
     "docker:deploy": "bash scripts/dokploy-deploy.sh",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "build:ui-gallery": "npm run build -w packages/ui-gallery"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

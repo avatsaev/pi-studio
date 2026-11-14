@@ -5,11 +5,11 @@ import {
   FORK_DECLINED_TOAST,
   FORK_GENERIC_ERROR_TOAST,
 } from "./fork-result.js";
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { useForkStore } from "@pi-studio-ui/stores/fork-store.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { resetToastStoreForTests, useToastStore } from "@pi-studio-ui/stores/toast-store.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { useForkStore } from "@web-client/stores/fork-store.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { resetToastStoreForTests, useToastStore } from "@av-pi-studio/ui-library";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 
 function session(overrides: Partial<SessionEntry> = {}): SessionEntry {
   return {

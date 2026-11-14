@@ -17,24 +17,21 @@
 
 import { useEffect, useRef } from "react";
 import type { AgentUpdateMessage, PiStudioClient } from "@av-pi-studio/client";
-import {
-  daemonHomeDir,
-  useConnectionStore,
-} from "@pi-studio-ui/lib/connection/connection-store.js";
-import { applyPendingAgentDeepLink } from "@pi-studio-ui/features/sessions/apply-agent-deep-link.js";
-import { useDeepLinkStore } from "@pi-studio-ui/stores/deep-link-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds } from "@pi-studio-ui/stores/tab-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
+import { daemonHomeDir, useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { applyPendingAgentDeepLink } from "@web-client/features/sessions/apply-agent-deep-link.js";
+import { useDeepLinkStore } from "@web-client/stores/deep-link-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds } from "@web-client/stores/tab-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
 import {
   collapseInactiveWorkspaces,
   groupSessionsByWorkspace,
   normalizeCwd,
-} from "@pi-studio-ui/features/sessions/workspace-grouping.js";
-import { openChatTab } from "@pi-studio-ui/features/sessions/open-chat-tab.js";
-import { EMPTY_TIMELINE, replayEvents } from "@pi-studio-ui/timeline/reducer.js";
-import { fetchTimelineEvents } from "@pi-studio-ui/lib/protocol/timeline-paging.js";
+} from "@web-client/features/sessions/workspace-grouping.js";
+import { openChatTab } from "@web-client/features/sessions/open-chat-tab.js";
+import { EMPTY_TIMELINE, replayEvents } from "@web-client/timeline/reducer.js";
+import { fetchTimelineEvents } from "@web-client/lib/protocol/timeline-paging.js";
 import type { AgentStatus } from "@av-pi-studio/protocol";
 
 interface RestoredAgent {

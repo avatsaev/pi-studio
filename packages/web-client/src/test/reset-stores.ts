@@ -11,13 +11,12 @@
  * hide which state a test actually depends on.
  */
 
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { resetAnnouncerStoreForTests } from "@pi-studio-ui/stores/announcer-store.js";
-import { resetToastStoreForTests } from "@pi-studio-ui/stores/toast-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { resetAnnouncerStoreForTests, resetToastStoreForTests } from "@av-pi-studio/ui-library";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 
 /** Every non-action field of the layout store, at its initial value. */
 export function resetLayoutStore(): void {

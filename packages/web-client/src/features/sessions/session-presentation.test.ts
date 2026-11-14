@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
-import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
-import type { SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { statusDotColor } from "@pi-studio-ui/ui/status-dot.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
+import type { TimelineRow } from "@web-client/timeline/row-model.js";
+import type { SessionEntry } from "@web-client/stores/session-store.js";
+import { statusDotColor } from "@av-pi-studio/ui-library";
 import { sidebarSessionView, workspaceAttentionDot } from "./session-presentation.js";
 
 let seq = 0;

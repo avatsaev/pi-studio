@@ -7,9 +7,9 @@
  * open-workspace dialog).
  */
 
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, tabIds, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, tabIds, openNewChat } from "@web-client/stores/tab-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 import { groupSessionsByWorkspace } from "./workspace-grouping.js";
 
 /**

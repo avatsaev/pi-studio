@@ -30,6 +30,11 @@ packages/
                split panes (drag a tab, or a sidebar conversation/file row, onto a pane to split it;
                per-pane tab strips, persisted per workspace along with which one was in view); drag a
                Files-tree file or folder onto the chat composer to insert its relative path.
+  ui-library/  `@av-pi-studio/ui-library` — publishable React design system extracted from web-client: primitives,
+               theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
+               stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
+  ui-gallery/  Private (never published/deployed) Vite+React gallery app that consumes the BUILT ui-library `dist`
+               through its package `exports`; theme switcher + a section per primitive family.
 
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
@@ -50,7 +55,9 @@ relay       ──────────────────────�
 client      ──────► protocol, relay
 server      ──────► protocol, relay
 cli         ──────► protocol, client, relay, server, web-client
-web-client  ──────► protocol, client
+web-client  ──────► protocol, client, ui-library   (ui-library is a devDependency, bundled into the SPA)
+ui-library  ──────► (no workspace deps)
+ui-gallery  ──────► ui-library
 ```
 
 `cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
@@ -64,7 +71,8 @@ planner a connected daemon runs — no daemon lifecycle, no WS server, no `pi` p
 `packages/cli/AGENTS.md`'s Invariants section for the full boundary (also covers the pre-existing
 auth-engine exception).
 
-`protocol` is the single shared contract; nothing below it imports from above.
+`protocol` is the single shared contract; nothing below it imports from above. `ui-library` is the
+shared UI contract (no workspace deps); web-client resolves it from source through a Vite alias.
 
 ---
 
@@ -211,9 +219,10 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 ```bash
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
 #    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies — e.g.
-#    web-client's @av-pi-studio/client/protocol, which are devDependencies since web-client ships
+#    web-client's @av-pi-studio/client/protocol/ui-library, which are devDependencies since web-client ships
 #    no runtime deps, only its prebuilt dist), builds+typechecks+tests, then publishes
-#    protocol/relay/client/web-client/server/cli to npm in that dependency order.
+#    protocol/relay/client/ui-library/web-client/server/cli (7 packages) to npm in that dependency
+#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ui-gallery` is private and never published).
 #    The single version line lives in packages/*/package.json (all 7 kept identical; the script
 #    reads packages/protocol/package.json as the reference). The root package.json intentionally
 #    has NO "version" field — it is a private workspace root that nothing publishes and nothing
@@ -234,7 +243,11 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    was 1.9 MB for the same four images.
 #    Requires: npm login locally. In CI (.github/workflows/release.yml) it uses npm trusted
 #    publishing (GitHub OIDC, `id-token: write`, npm >= 11.5.1) — no NPM_TOKEN secret; each of the
-#    six packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    seven packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    A brand-new package (e.g. ui-library's first release) cannot be registered as a Trusted
+#    Publisher until it exists on npm: do a one-time placeholder `npm publish` and register
+#    `release.yml` as its Trusted Publisher BEFORE merging the change that first publishes it.
+#    See packages/ui-library/RELEASING.md (also covers rollback).
 #    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
@@ -636,3 +649,5 @@ tolerated without a migration framework.
 | cli | `packages/cli/AGENTS.md` |
 | relay | `packages/relay/AGENTS.md` |
 | web-client | `packages/web-client/AGENTS.md` |
+| ui-library | `packages/ui-library/AGENTS.md` |
+| ui-gallery | `packages/ui-gallery/AGENTS.md` |

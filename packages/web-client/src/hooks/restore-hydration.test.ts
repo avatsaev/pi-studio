@@ -8,16 +8,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { PiStudioClient } from "@av-pi-studio/client";
 import { runSessionRestore } from "./use-session-restore.js";
 import { runTerminalRestore } from "./use-terminal-restore.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
 import {
   resetLayoutStore,
   resetSessionStore,
   resetTabStore,
   resetWorkspaceUiState,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 
 /** A client whose every RPC resolves to `response`, or rejects when `response` is an Error. */
 function stubClient(response: unknown): PiStudioClient {

@@ -15,13 +15,9 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { X } from "lucide-react";
-import {
-  MenuCursorTrigger,
-  MenuContent,
-  MenuItem,
-} from "@pi-studio-ui/components/primitives/Menu.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { closeTab } from "@pi-studio-ui/stores/tab-store.js";
+import { MenuCursorTrigger, MenuContent, MenuItem } from "@av-pi-studio/ui-library";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { closeTab } from "@web-client/stores/tab-store.js";
 
 export function TabContextMenu() {
   const menu = useUiStore((s) => s.tabMenu);

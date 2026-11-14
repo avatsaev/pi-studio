@@ -9,9 +9,9 @@
     "noEmit": true,
     "composite": false,
     "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "paths": { "@pi-studio-ui/*": ["./src/*"] }
+    "paths": { "@web-client/*": ["./src/*"] }
   },
   "include": ["src"],
   "exclude": ["dist"],
-  "references": [{ "path": "../client" }, { "path": "../protocol" }]
+  "references": [{ "path": "../client" }, { "path": "../protocol" }, { "path": "../ui-library" }]
 }

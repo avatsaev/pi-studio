@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { PiStudioClient } from "@av-pi-studio/client";
 import { handleAgentTimelineReset, isAgentTimelineReset } from "./use-timeline-reset-watch.js";
-import { useSessionStore, type SessionEntry } from "@pi-studio-ui/stores/session-store.js";
-import { EMPTY_TIMELINE } from "@pi-studio-ui/timeline/reducer.js";
+import { useSessionStore, type SessionEntry } from "@web-client/stores/session-store.js";
+import { EMPTY_TIMELINE } from "@web-client/timeline/reducer.js";
 
 beforeEach(() => {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });

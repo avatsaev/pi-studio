@@ -15,13 +15,13 @@
 
 import type { ReactNode } from "react";
 import { ChevronRight, Coins, DollarSign, Folder, GitBranch, Gauge } from "lucide-react";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useGitStore } from "@pi-studio-ui/stores/git-store.js";
-import { useStatsStore } from "@pi-studio-ui/stores/stats-store.js";
-import { useSessionStats } from "@pi-studio-ui/hooks/use-session-stats.js";
-import { useCheckoutStatus } from "@pi-studio-ui/hooks/use-checkout-status.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { useGitStore } from "@web-client/stores/git-store.js";
+import { useStatsStore } from "@web-client/stores/stats-store.js";
+import { useSessionStats } from "@web-client/hooks/use-session-stats.js";
+import { useCheckoutStatus } from "@web-client/hooks/use-checkout-status.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
 import { formatBranchMeta, formatCost, formatCwd, formatTokens } from "./status-bar-format.js";
 import { ContextMeterPopover } from "./ContextMeterPopover.js";
 import styles from "./StatusBar.module.css";

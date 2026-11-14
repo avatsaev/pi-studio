@@ -26,11 +26,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
-import { MenuContent, MenuGroup } from "@pi-studio-ui/components/primitives/Menu.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { useProviderModels } from "@pi-studio-ui/hooks/use-provider-models.js";
-import { filterOptions, type ComboboxOption } from "@pi-studio-ui/ui/combobox.js";
-import { groupOptions } from "@pi-studio-ui/ui/option-groups.js";
+import {
+  MenuContent,
+  MenuGroup,
+  Spinner,
+  filterOptions,
+  groupOptions,
+  type ComboboxOption,
+} from "@av-pi-studio/ui-library";
+import { useProviderModels } from "@web-client/hooks/use-provider-models.js";
 import { sortCurrentFirst, dedupeByModelKey } from "./model-menu-sort.js";
 import styles from "./ModelMenu.module.css";
 

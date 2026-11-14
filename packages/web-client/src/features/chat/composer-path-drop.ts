@@ -6,7 +6,7 @@
  * swe/features/composer-path-drop.md § Public contract 5, § Behavior & algorithms
  */
 
-import { normalizeCwd } from "@pi-studio-ui/features/sessions/workspace-grouping.js";
+import { normalizeCwd } from "@web-client/features/sessions/workspace-grouping.js";
 
 /**
  * The root a dropped path is made relative to: the composer's own session cwd, normalised exactly as

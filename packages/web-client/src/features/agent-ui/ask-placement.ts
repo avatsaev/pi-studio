@@ -37,7 +37,7 @@
  *   card it already precedes, so it travels with it.
  */
 
-import type { TimelineRow } from "@pi-studio-ui/timeline/row-model.js";
+import type { TimelineRow } from "@web-client/timeline/row-model.js";
 import type { AskLayoutItem } from "./ask-list.js";
 
 /** Epoch ms, or `null` when the value is absent/unparseable — matching `ask-list.ts`'s tolerance

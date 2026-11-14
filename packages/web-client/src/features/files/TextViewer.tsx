@@ -19,11 +19,8 @@
  * inside `useFileSource` — this component is a thin switch-render over its result.
  */
 
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useFileSource } from "@pi-studio-ui/hooks/use-file-source.js";
+import { Button, Spinner, Panel, EmptyState } from "@av-pi-studio/ui-library";
+import { useFileSource } from "@web-client/hooks/use-file-source.js";
 import { CodeView } from "./CodeView.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import textStyles from "./TextViewer.module.css";

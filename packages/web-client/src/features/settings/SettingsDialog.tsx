@@ -17,14 +17,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { clsx } from "clsx";
-import {
-  Dialog,
-  type DialogProps,
-  EmptyState,
-  Icon,
-  Spinner,
-} from "@pi-studio-ui/components/primitives/index.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { Dialog, type DialogProps, EmptyState, Icon, Spinner } from "@av-pi-studio/ui-library";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 import { LoginDialog } from "../provider-auth/LoginDialog.js";
 import { useProviderAuthUiStore } from "../provider-auth/provider-auth-store.js";
 import { buildSettingsCategoryCapabilities, SETTINGS_CATEGORIES } from "./settings-categories.js";

@@ -113,9 +113,12 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 085 | `sprint-085-daemon-log-streaming` | protocol + server: **Daemon log streaming** (dashboard stage 2, part 2). A pino tap with a 1000-line in-memory ring (truncated, sanitised copy; file/stdout byte-identical), `daemon_logs_subscribe/_unsubscribe` + `daemon_log_lines` with a `minLevel` filter and 200 lines/s per-subscriber cap + `dropped`. Then flips `daemonObservability` on for both families and adds the stage 2 fixtures. | 6 |
 | 086 | `sprint-086-retire-permission-channel` | server + cli (+ docs): **Retire the tool-permission channel** (MAIN-SCOPE § 10, decided 2026-11-13). Nothing produces a permission request: Pi gates tools through extensions over `agent_ui_*`, and Pi does not implement `respond_to_permission`. Removes `PermissionService`, the provider-contract members, the MCP permission tools and the CLI `permit` group. Wire schemas are kept unread (append-only; rewind precedent, s071/t001). Independent of 082–085. | 3 |
 | 087 | `sprint-087-daemon-loopback-default` | server (+ docs): **Daemon loopback default** (MAIN-SCOPE § 10, D35; decided 2026-11-13). `main.ts` and `dev-main.ts` hard-code `0.0.0.0:6767` while everything else says `127.0.0.1:6767`, and literal IPs always pass the Host allowlist, so a password-less daemon is drivable from the LAN. Default becomes loopback; `config.json` `daemon.listen` finally takes effect (`PI_STUDIO_LISTEN` → config → default); an unprotected non-loopback bind logs a loud warning (warn, not refuse: Docker binds `0.0.0.0` on purpose). | 3 |
+| 088 | `sprint-088-ui-library-extract` | web-client + new package (feature branch `feat/ui-library`, D31): **UI library, slice 1 — extract.** Build baseline, scaffold `@av-pi-studio/ui-library`, `git mv` theme/`ui`/brand runtime/breakpoints/kv-store, then primitives + toast/announcer stores + generic reset CSS out of web-client; web-client consumes them through a source alias. Renames web-client's internal `@pi-studio-ui/*` alias to `@web-client/*`. Behaviour-neutral. | 5 |
+| 089 | `sprint-089-ui-library-build-api` | ui-library (+ web-client wiring): **UI library, slice 2 — build + API.** Vite library mode (ESM entries, single prebuilt `styles.css` with `piui-` scoped names, `reset.css`, `.d.ts`, `exports`); optional `ThemeBoundary.store` + `storageKey`; brand trimmed to accent-only with warn-and-fallback validation; dev-only missing-CSS / second-boundary warnings; exported token-guard checker. | 5 |
+| 090 | `sprint-090-ui-library-consumers-release` | ui-gallery (new, private) + release: **UI library, slice 3 — consumers + release.** Gallery app against the built `dist`; `npm pack` smoke in a scratch app + README bootstrap; `publish.sh`/Dockerfile/CHANGELOG wiring; ±2% size budget + acceptance sweep; docs (DESIGN_SYSTEM.md moves). Single merge to `main` after the engineer's placeholder publish and visual check. | 5 |
 
-Total: **81 sprints, 431 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **84 sprints, 446 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13) and bumped by 088–090 (+3/+15, 2026-11-14). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -2412,6 +2415,51 @@ Recompute from the table rather than trusting a hand-maintained figure.
 | task-002 | `isLoopbackHost` + one-time unprotected-bind warning; dev daemon default loopback | feature | task-001 | D35 hardening |
 | task-003 | Sprint close: README/AGENTS/fern/docker docs, release note, MAIN-SCOPE § 10 resolved, gates | docs | task-001, task-002 | docs |
 
+### sprint-088-ui-library-extract
+> **What it ships.** The extraction half of `grills/ui-library.md` (grilled, D1–D35). The engineer
+> skipped `scope`: the grilled brief is the spec for sprints 088–090, and task files cite its
+> decision ids directly. All three sprints land on **one feature branch** and merge to `main` once
+> (D31) — every push to `main` publishes.
+>
+> **Planning-time resolutions of the brief's scope-owned open questions:** ui-library joins the
+> root `tsc -b` graph (web-client stays out); gallery is `packages/ui-gallery` (private); scoped
+> class prefix is `piui-`. The two token-guard tests move into web-client unchanged in t003 so
+> coverage never drops; s089/t005 replaces them with the exported checker.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Feature branch + web-client build baseline (size, chunk names) | chore | none | D29, D31; AC8 baseline |
+| task-002 | Scaffold `packages/ui-library` (deps/peers, sideEffects, root wiring, trivial test) | chore | task-001 | D1, D3, D17, D18, D28 |
+| task-003 | Move theme, `ui/`, brand runtime, breakpoints, kv-store; web-client source alias | refactor | task-002 | D3, D6, D13, D19 |
+| task-004 | Move primitives, toast/announcer stores, generic reset CSS | refactor | task-003 | D6, D7, D11, D14 |
+| task-005 | Rename `@pi-studio-ui/*` → `@web-client/*` | refactor | task-004 | D20; AC2 |
+
+### sprint-089-ui-library-build-api
+> **What it ships.** The published artifact and the API refinements from `grills/ui-library.md`.
+> TODO(verify) owned by t001: Vite lib-mode ES output must leave `process.env.NODE_ENV` unreplaced
+> so t004's dev-only warnings are decided by the consumer's bundler.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Vite library build: entries, `styles.css` (`piui-`), `reset.css`, `.d.ts`, `exports` | feature | sprint-088 | D10–D12, D19, D26, D29, D30; AC1 |
+| task-002 | `ThemeBoundary`: optional store + `storageKey` | feature | task-001 | D13, D15; AC5 |
+| task-003 | Brand trim to accent-only; validate, warn once, unbranded fallback | feature | task-001 | D16, D24; AC6 |
+| task-004 | Dev-only warnings: stylesheet sentinel, second `ThemeBoundary` | feature | task-001 | D25, D27; AC6 |
+| task-005 | Exported token-guard checker; per-package guard tests | feature | task-001 | D21; AC7 |
+
+### sprint-090-ui-library-consumers-release
+> **What it ships.** Proof of standalone consumption and release readiness. **Before merging the
+> branch** (engineer, not a task): placeholder `npm publish` + Trusted Publisher registration (D22)
+> and a manual web-client visual check (D34).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `packages/ui-gallery` against built `dist`, all primitives × 6 themes | feature | sprint-089 | D2, D9, D19, D21; AC4 |
+| task-002 | `npm pack` smoke in a scratch app + README bootstrap | test | task-001 | D1, D5, D12, D13, D30; AC3, AC10 |
+| task-003 | Release wiring: `publish.sh`, Dockerfile, CHANGELOG, first-publish/rollback runbook | chore | task-001 | D18, D22, D23, D30, D33; AC9 |
+| task-004 | Size budget + acceptance sweep | test | task-001…task-003 | D29; AC1, AC2, AC8 |
+| task-005 | Docs: DESIGN_SYSTEM.md move, package AGENTS/README, root docs, close | docs | task-001…task-004 | D23; AC10 |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2567,6 +2615,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/external-client-fixtures.md | s083/t001-007 (spike + recorder; test client + producers; stage 1 fixtures; Layer A + signature guard; Layer B; publish + docs); stage 2 fixtures in s085/t005 |
 | features/daemon-status-rpc.md | s084/t001-006 (version source; schemas; `Session` metadata; service; handlers/bootstraps/E2E; docs); flag + fixtures in s085/t005 |
 | features/daemon-log-streaming.md | s085/t001-006 (schemas; tap; service; handlers/bootstraps/E2E incl. redaction; flag + stage 2 fixtures; cost run + docs) |
+| grills/ui-library.md (grilled brief; no scope doc by engineer's choice) | s088/t001-005 (baseline; scaffold; move non-primitive design system; move primitives/stores/reset; alias rename), s089/t001-005 (lib build; store/key; brand trim; dev warnings; token checker), s090/t001-005 (gallery; pack smoke + README; release wiring; budget/acceptance; docs). Deferred by the brief: terminal font, heavy renderers |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
@@ -2705,3 +2754,7 @@ Carried from the scope; resolve against the live source while implementing the o
       a mode mean something (e.g. a pi-studio extension gating `tool_call` via `ctx.ui`, which would
       ride `agent_ui_*`) or stop offering modes that imply a guarantee. Unplanned; found while
       planning s086.
+- [ ] UI library (s088–s090), engineer-owned, **before merging `feat/ui-lib`** (the branch actually used): placeholder
+      `npm publish` of `@av-pi-studio/ui-library` + register `release.yml` as its Trusted Publisher
+      (brief D22); manual web-client visual parity check (brief D34).
+- [ ] UI library: Vite lib-mode handling of `process.env.NODE_ENV` in ES output — s089/t001.

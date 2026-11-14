@@ -24,23 +24,18 @@ import {
   Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  MenuCursorTrigger,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-} from "@pi-studio-ui/components/primitives/Menu.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useExplorerStore } from "@pi-studio-ui/stores/explorer-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useFileTransfer } from "@pi-studio-ui/hooks/use-file-transfer.js";
-import { copyText } from "@pi-studio-ui/lib/clipboard.js";
-import { dirOf, relativeToRoot } from "@pi-studio-ui/lib/paths.js";
+import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useExplorerStore } from "@web-client/stores/explorer-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { useFileTransfer } from "@web-client/hooks/use-file-transfer.js";
+import { copyText } from "@web-client/lib/clipboard.js";
+import { dirOf, relativeToRoot } from "@web-client/lib/paths.js";
 import { isMoleculeFile } from "./viewer-registry.js";
 import { openFileTab, openMoleculeTab, openTextTab } from "./open-file-tab.js";
 import { deleteEntry } from "./delete-entry.js";
-import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { useViewerSettingsStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 
 export function FileContextMenu() {
   const menu = useUiStore((s) => s.fileMenu);

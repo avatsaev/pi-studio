@@ -5,7 +5,7 @@
  * therefore lives here, exhaustively unit-tested, rather than inside a drag event handler.
  */
 
-import { dirOf } from "@pi-studio-ui/lib/paths.js";
+import { dirOf } from "@web-client/lib/paths.js";
 
 export interface MoveTarget {
   /** Directory the drop lands in. */

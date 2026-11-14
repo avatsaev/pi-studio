@@ -1,9 +1,8 @@
 // Pure resolution logic for the build-time-only title/icon white-label override, consumed by
 // `vite.config.ts` (`PI_STUDIO_BRAND_TITLE` / `PI_STUDIO_BRAND_ICON`). This is deliberately
-// separate from — and much narrower than — the `BrandConfig` scaffold in `brand/config.ts`
-// (product name + accent colors + logo triplet + links + legal): that schema is a straight port
-// from the clean-room `white-label-branding.md` spec and has no live loader wired to it yet
-// (`resolveBrandConfig`'s own comment: `getActiveBrand()` always returns `DEFAULT_BRAND`). This
+// separate from — and much narrower than — the accent-only `BrandConfig` that `ThemeBoundary`'s
+// `brandConfig` prop accepts (`@av-pi-studio/ui-library`'s brand module): that one recolours the
+// accent family at runtime and is not wired to anything in this app. This
 // module implements only the two knobs actually requested and wired: the toolbar/document title
 // and the favicon. No theme/color/logo overrides — see that spec's § Out of scope for the
 // deferred rest.

@@ -15,8 +15,8 @@
  * here — `enabled` already reads `true` whenever `capable` is `false`.
  */
 
-import { Switch } from "@pi-studio-ui/components/primitives/Switch.js";
-import { useViewerSettingsStore } from "@pi-studio-ui/viewer-plugins/viewer-settings-store.js";
+import { Switch } from "@av-pi-studio/ui-library";
+import { useViewerSettingsStore } from "@web-client/viewer-plugins/viewer-settings-store.js";
 import styles from "./ViewersPanel.module.css";
 
 const VIEWER_ROWS = [

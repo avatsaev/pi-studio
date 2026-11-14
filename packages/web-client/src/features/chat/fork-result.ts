@@ -12,11 +12,10 @@
  * `replace_composer_text` effect.
  */
 
-import { clearWhenIdle } from "@pi-studio-ui/stores/announcer-store.js";
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { useForkStore } from "@pi-studio-ui/stores/fork-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+import { clearWhenIdle, useToastStore } from "@av-pi-studio/ui-library";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { useForkStore } from "@web-client/stores/fork-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
 
 /** § 12 copy deck — shipped verbatim. */
 export const FORK_DECLINED_TOAST = "An extension declined the fork.";

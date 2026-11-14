@@ -12,8 +12,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { ProviderModel } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 
 export function useProviderModels(
   provider: string,

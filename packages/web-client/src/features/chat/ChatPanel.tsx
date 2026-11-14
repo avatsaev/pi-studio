@@ -4,10 +4,10 @@
  * the virtualized `Timeline` + `Composer` (POC_TO_APP_PLAN_UI.md §4.3/§4.4).
  */
 
-import { useAgentStream } from "@pi-studio-ui/hooks/use-agent-stream.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import type { Tab, ChatTabData } from "@pi-studio-ui/stores/tab-store.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
+import { useAgentStream } from "@web-client/hooks/use-agent-stream.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import type { Tab, ChatTabData } from "@web-client/stores/tab-store.js";
+import { Panel } from "@av-pi-studio/ui-library";
 import { Timeline } from "./Timeline.js";
 import { Composer } from "./Composer.js";
 import { TodoPanel } from "./todos/TodoPanel.js";

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSessionStore, type SessionEntry } from "./session-store.js";
-import { EMPTY_TIMELINE, type TimelineState } from "@pi-studio-ui/timeline/reducer.js";
+import { EMPTY_TIMELINE, type TimelineState } from "@web-client/timeline/reducer.js";
 
 beforeEach(() => {
   useSessionStore.setState({ sessions: {}, order: [], activeSessionId: null });

@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { parseAgentDeepLink } from "@pi-studio-ui/lib/agent-deep-link.js";
-import { applyPendingAgentDeepLink } from "@pi-studio-ui/features/sessions/apply-agent-deep-link.js";
-import { useDeepLinkStore } from "@pi-studio-ui/stores/deep-link-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { parseAgentDeepLink } from "@web-client/lib/agent-deep-link.js";
+import { applyPendingAgentDeepLink } from "@web-client/features/sessions/apply-agent-deep-link.js";
+import { useDeepLinkStore } from "@web-client/stores/deep-link-store.js";
 
 /**
  * Reads `#agent=<id>` on mount and on `hashchange` into the pending-target store. Never connects;

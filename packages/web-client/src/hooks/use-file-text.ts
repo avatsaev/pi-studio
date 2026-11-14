@@ -17,7 +17,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 import { useFileDownload } from "./use-file-download.js";
 import { mergeFileTextState, type FileTextResult } from "./file-text-state.js";
 

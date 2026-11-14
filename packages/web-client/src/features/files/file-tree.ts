@@ -9,8 +9,8 @@
  * browser (§4.7), not a general filesystem browser.
  */
 
-import type { ExplorerEntry } from "@pi-studio-ui/hooks/use-explorer.js";
-import type { ExplorerTreeEntry } from "@pi-studio-ui/hooks/use-explorer-tree.js";
+import type { ExplorerEntry } from "@web-client/hooks/use-explorer.js";
+import type { ExplorerTreeEntry } from "@web-client/hooks/use-explorer-tree.js";
 
 interface DirRow {
   kind: "directory";

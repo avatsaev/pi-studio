@@ -25,7 +25,7 @@
 
 import { useEffect, useState } from "react";
 import type { PiStudioClient } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 
 interface FileChangedMessage {
   type: "file_changed";

@@ -9,11 +9,10 @@
 import { useState } from "react";
 import { clsx } from "clsx";
 import { ChevronRight, CircleAlert } from "lucide-react";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { compactionLabel } from "@pi-studio-ui/timeline/compaction.js";
-import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
-import type { CompactionRow as CompactionRowModel } from "@pi-studio-ui/timeline/row-model.js";
+import { Icon, Spinner } from "@av-pi-studio/ui-library";
+import { compactionLabel } from "@web-client/timeline/compaction.js";
+import { Markdown } from "@web-client/timeline/markdown.js";
+import type { CompactionRow as CompactionRowModel } from "@web-client/timeline/row-model.js";
 import styles from "./rows.module.css";
 
 export interface CompactionRowProps {

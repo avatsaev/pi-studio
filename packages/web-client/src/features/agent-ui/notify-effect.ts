@@ -12,7 +12,7 @@
  * what makes "unrecognised ⇒ info" hold without a special case.
  */
 
-import type { ToastVariant } from "@pi-studio-ui/ui/toast.js";
+import type { ToastVariant } from "@av-pi-studio/ui-library";
 
 export function notifyVariant(level: string): ToastVariant {
   switch (level) {

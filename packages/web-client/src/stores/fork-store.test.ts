@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useForkStore } from "./fork-store.js";
-import type { ForkTarget } from "@pi-studio-ui/features/chat/fork-correlation.js";
+import type { ForkTarget } from "@web-client/features/chat/fork-correlation.js";
 
 function target(id: string, text = `text-${id}`): ForkTarget {
   return { entryId: id, text };

@@ -9,8 +9,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { ProviderAuthInfo } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 
 export function useProviderAuthList(enabled = true) {
   const client = useConnectionStore((s) => s.client);

@@ -41,7 +41,7 @@ import {
   StatusBadge,
   Switch,
   TextInput,
-} from "@pi-studio-ui/components/primitives/index.js";
+} from "@av-pi-studio/ui-library";
 import { InstallSkillDialog } from "./InstallSkillDialog.js";
 import {
   buildSkillGroups,

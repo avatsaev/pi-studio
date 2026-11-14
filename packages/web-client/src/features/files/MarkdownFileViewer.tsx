@@ -11,12 +11,10 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { useFileSource } from "@pi-studio-ui/hooks/use-file-source.js";
-import { dirOf, resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
-import { Markdown } from "@pi-studio-ui/timeline/markdown.js";
+import { Button, Spinner, EmptyState } from "@av-pi-studio/ui-library";
+import { useFileSource } from "@web-client/hooks/use-file-source.js";
+import { dirOf, resolveWorkspacePath } from "@web-client/lib/paths.js";
+import { Markdown } from "@web-client/timeline/markdown.js";
 import { CodeView } from "./CodeView.js";
 import type { ViewerProps } from "./viewer-registry.js";
 import styles from "./MarkdownFileViewer.module.css";

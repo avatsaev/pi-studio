@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useTabStore, openNewChat, openNewMolecule, tabIds, type Tab } from "./tab-store.js";
 import { isPaneActiveTab, useLayoutStore } from "./layout-store.js";
-import { canSplit, leafIds } from "@pi-studio-ui/features/workspace/pane-tree.js";
+import { canSplit, leafIds } from "@web-client/features/workspace/pane-tree.js";
 import { useSessionStore } from "./session-store.js";
 import {
   resetLayoutStore,
   resetSessionStore,
   resetTabStore,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 
 beforeEach(() => {
   resetTabStore();

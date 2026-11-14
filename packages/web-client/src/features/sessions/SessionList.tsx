@@ -8,15 +8,18 @@
 
 import type { DragEvent } from "react";
 import { Plus } from "lucide-react";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { useTabStore, openNewChat } from "@pi-studio-ui/stores/tab-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { Icon } from "@pi-studio-ui/components/primitives/Icon.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { useAgentUiPendingAgentIds } from "@pi-studio-ui/features/agent-ui/agent-ui-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { useTabStore, openNewChat } from "@web-client/stores/tab-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import {
+  Panel,
+  EmptyState,
+  Icon,
+  WORKSPACE_SECONDARY_HEADER_HEIGHT,
+} from "@av-pi-studio/ui-library";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { useAgentUiPendingAgentIds } from "@web-client/features/agent-ui/agent-ui-store.js";
 import { SessionItem } from "./SessionItem.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
@@ -24,8 +27,7 @@ import { WorkspaceContextMenu } from "./WorkspaceContextMenu.js";
 import { groupSessionsByWorkspace, workspaceLabel } from "./workspace-grouping.js";
 import { workspaceAttentionDot } from "./session-presentation.js";
 import { openChatTab } from "./open-chat-tab.js";
-import { EXTERNAL_DRAG_MIME } from "@pi-studio-ui/features/workspace/external-drag.js";
-import { WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@pi-studio-ui/platform/breakpoints.js";
+import { EXTERNAL_DRAG_MIME } from "@web-client/features/workspace/external-drag.js";
 import styles from "./SessionList.module.css";
 
 export function SessionList() {

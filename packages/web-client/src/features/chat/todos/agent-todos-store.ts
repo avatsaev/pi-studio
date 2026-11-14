@@ -18,9 +18,8 @@ import {
   type PiStudioClient,
 } from "@av-pi-studio/client";
 import type { AgentTodosSnapshot } from "@av-pi-studio/protocol";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { localKvStore } from "@pi-studio-ui/providers/kv-store.js";
-import type { KeyValueStore } from "@pi-studio-ui/theme/appearance-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { localStorageKvStore, type KeyValueStore } from "@av-pi-studio/ui-library";
 import {
   parseCollapsed,
   serializeCollapsed,
@@ -115,7 +114,7 @@ export function createAgentTodosStore(
 
 export const useAgentTodosStore = createAgentTodosStore({
   getClient: () => useConnectionStore.getState().client,
-  kv: localKvStore,
+  kv: localStorageKvStore,
 });
 
 export function useAgentTodosSnapshot(agentId: string | null): AgentTodosSnapshot | undefined {

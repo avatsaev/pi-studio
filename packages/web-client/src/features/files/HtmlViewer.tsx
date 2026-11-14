@@ -20,16 +20,13 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { EmptyState } from "@pi-studio-ui/components/primitives/EmptyState.js";
-import { Switch } from "@pi-studio-ui/components/primitives/Switch.js";
-import { useFileSource } from "@pi-studio-ui/hooks/use-file-source.js";
-import { useHomeDir } from "@pi-studio-ui/hooks/use-home-dir.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
-import { dirOf, resolveWorkspacePath } from "@pi-studio-ui/lib/paths.js";
-import { transferFor } from "@pi-studio-ui/hooks/file-transfer-instance.js";
+import { Button, Spinner, EmptyState, Switch } from "@av-pi-studio/ui-library";
+import { useFileSource } from "@web-client/hooks/use-file-source.js";
+import { useHomeDir } from "@web-client/hooks/use-home-dir.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
+import { dirOf, resolveWorkspacePath } from "@web-client/lib/paths.js";
+import { transferFor } from "@web-client/hooks/file-transfer-instance.js";
 import { assembleHtmlPreview, HTML_SANDBOX_TOKENS } from "./html-sandbox.js";
 import { confineAssetRef, confinementRoot, extractLocalAssetRefs } from "./html-assets.js";
 import { loadHtmlAssetBundle, type SkippedRef } from "./html-asset-loader.js";

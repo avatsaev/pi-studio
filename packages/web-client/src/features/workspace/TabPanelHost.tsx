@@ -31,13 +31,12 @@ import { Suspense, useMemo, useRef, type CSSProperties } from "react";
 import { clsx } from "clsx";
 import { FolderOpen } from "lucide-react";
 import { DndContext, DragOverlay, useDroppable } from "@dnd-kit/core";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { usePaneDrag } from "@pi-studio-ui/hooks/use-pane-drag.js";
+import { Spinner, Button } from "@av-pi-studio/ui-library";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { useLayoutStore } from "@web-client/stores/layout-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { usePaneDrag } from "@web-client/hooks/use-pane-drag.js";
 import { PANEL_BY_KIND } from "./panel-registry.js";
 import {
   occupiedPaneRects,
@@ -48,11 +47,11 @@ import {
   resolveOwningPaneId,
 } from "./pane-layout-view.js";
 import { PaneDividers } from "./PaneDividers.js";
-import { useExternalPaneDrop, paneDropProps } from "@pi-studio-ui/hooks/use-external-pane-drop.js";
+import { useExternalPaneDrop, paneDropProps } from "@web-client/hooks/use-external-pane-drop.js";
 import { DragChip, DropPreview } from "./DropPreview.js";
 import { TabStrip } from "./TabStrip.js";
 import { TabContextMenu } from "./TabContextMenu.js";
-import { ForkDialog } from "@pi-studio-ui/features/chat/ForkDialog.js";
+import { ForkDialog } from "@web-client/features/chat/ForkDialog.js";
 import styles from "./TabPanelHost.module.css";
 
 /**

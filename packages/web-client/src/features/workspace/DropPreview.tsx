@@ -10,7 +10,7 @@
  * swe/features/workspace-split-panes.md § UI Behavior, § Drop regions
  */
 
-import type { Tab } from "@pi-studio-ui/stores/tab-store.js";
+import type { Tab } from "@web-client/stores/tab-store.js";
 import { ICON_BY_KIND } from "./TabStrip.js";
 import { dropPreviewStyle } from "./pane-layout-view.js";
 import type { DropRegion } from "./pane-dnd.js";

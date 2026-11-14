@@ -16,8 +16,8 @@
  *    a directory therefore need a prefix match, not an exact one.
  */
 
-import { dirOf } from "@pi-studio-ui/lib/paths.js";
-import type { ChangeEntry } from "@pi-studio-ui/stores/git-store.js";
+import { dirOf } from "@web-client/lib/paths.js";
+import type { ChangeEntry } from "@web-client/stores/git-store.js";
 
 export type GitRowStatus = "added" | "modified" | "deleted";
 

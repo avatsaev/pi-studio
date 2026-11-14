@@ -35,14 +35,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DaemonClient } from "@av-pi-studio/client";
 import { TerminalStreamRouter } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
-import { useIsTabVisible, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import type { Tab, TerminalTabData } from "@pi-studio-ui/stores/tab-store.js";
-import { isPaneActiveTab, useLayoutStore } from "@pi-studio-ui/stores/layout-store.js";
-import { Spinner } from "@pi-studio-ui/components/primitives/Spinner.js";
-import { TERMINAL_FONT_STACK } from "@pi-studio-ui/theme/tokens.js";
-import { useAppearance } from "@pi-studio-ui/theme/ThemeBoundary.js";
-import { isTerminalsUpdate } from "@pi-studio-ui/hooks/use-terminal-exit-watch.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
+import { useIsTabVisible, useTabStore } from "@web-client/stores/tab-store.js";
+import type { Tab, TerminalTabData } from "@web-client/stores/tab-store.js";
+import { isPaneActiveTab, useLayoutStore } from "@web-client/stores/layout-store.js";
+import { Spinner, TERMINAL_FONT_STACK, useAppearance } from "@av-pi-studio/ui-library";
+import { isTerminalsUpdate } from "@web-client/hooks/use-terminal-exit-watch.js";
 import { isTerminalFontReady, terminalFontReady } from "./terminal-font.js";
 import {
   believedSizeFromBroadcast,

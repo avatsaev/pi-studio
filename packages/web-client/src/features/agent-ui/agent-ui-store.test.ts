@@ -12,15 +12,15 @@ import type {
   ConnectionState,
   PiStudioClient,
 } from "@av-pi-studio/client";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 import {
   ANNOUNCE_CLEAR_DELAY_MS,
   useAnnouncerStore,
-} from "@pi-studio-ui/stores/announcer-store.js";
-import { useDraftStore } from "@pi-studio-ui/stores/draft-store.js";
-import { useSessionStore } from "@pi-studio-ui/stores/session-store.js";
-import { tabIds, useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useToastStore } from "@pi-studio-ui/stores/toast-store.js";
+  useToastStore,
+} from "@av-pi-studio/ui-library";
+import { useDraftStore } from "@web-client/stores/draft-store.js";
+import { useSessionStore } from "@web-client/stores/session-store.js";
+import { tabIds, useTabStore } from "@web-client/stores/tab-store.js";
 import {
   resetAnnouncerStore,
   resetDraftStore,
@@ -28,7 +28,7 @@ import {
   resetSessionStore,
   resetTabStore,
   resetToastStore,
-} from "@pi-studio-ui/test/reset-stores.js";
+} from "@web-client/test/reset-stores.js";
 import {
   respondToUi,
   selectAgentUiPending,

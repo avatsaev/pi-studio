@@ -7,7 +7,7 @@
 
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 import { transferFor } from "./file-transfer-instance.js";
 
 /** Trigger a browser "save file" for the bytes assembled from a daemon-side path. */

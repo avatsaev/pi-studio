@@ -11,9 +11,34 @@ modular, typed, performant app.
 > `POC_TO_APP_PLAN_UI.md` at the repo root for the original phased
 > plan this was built against.
 
-> **Design system reference:** `DESIGN_SYSTEM.md` (this directory) documents the full token
-> pipeline, color system, theme variants, brand/white-label injection, breakpoints, and every
-> shared primitive — read it before adding a new component or hardcoding a style value.
+> **Design system reference:** the design system (tokens, themes, primitives, brand injection,
+> breakpoints) lives in `@av-pi-studio/ui-library` — see `packages/ui-library/DESIGN_SYSTEM.md`
+> (token pipeline, color system, theme variants, brand/white-label injection, every shared
+> primitive) and `packages/ui-library/AGENTS.md` (package layout + rules). Read them before adding
+> a new component or hardcoding a style value.
+
+## Design system lives in `@av-pi-studio/ui-library`
+
+The primitives, framework-free `ui/` logic, theme/token/appearance system, accent-only brand
+injection, breakpoints, `localStorageKvStore`, and the toast/announcer stores were extracted from
+this package into `packages/ui-library`. Rules for web-client:
+
+- **Import only from the package root** (`@av-pi-studio/ui-library`) — never a deep path
+  (`.../primitives/...`, `.../src/...`); the package's `exports` reject them. The one other
+  entry web-client uses is `@av-pi-studio/ui-library/reset.css`.
+- **Library CSS before app CSS.** `main.tsx` imports `./theme/fonts.css`, then the library's
+  `reset.css`, then `./global.css`, so app rules win the cascade.
+- **Resolved from source, not `dist/`.** `vite.config.ts` (and the root `vitest.config.ts`, plus a
+  tsconfig project reference) alias `@av-pi-studio/ui-library` and `.../reset.css` to
+  `../ui-library/src`, so HMR works across the boundary and no library build is needed to run
+  dev/tests. `ui-library` is a web-client **devDependency** — bundled into the SPA like
+  protocol/client. The app's own path alias is `@web-client/*` (formerly `@pi-studio-ui/*`).
+- **Token guard.** `src/design-tokens.test.ts` runs the library's React-free `findTokenProblems`
+  (dangling `--pi-*`/`--syntax-*` refs, illegal emitted keys, literal/unknown font-size rungs)
+  over web-client's own sources; the library and `ui-gallery` each run it over theirs.
+- **What stayed here:** `src/theme/fonts.css` (bundled terminal font), `src/brand/build-brand.ts`
+  (Vite build-time title/favicon), and `src/global.css` (only the `#root` rule and the drag-guard
+  iframe rule; the generic reset is the library's `reset.css`).
 
 ---
 
@@ -34,6 +59,7 @@ context, not a live status document; this file describes what's actually built.
 ```
 web-client  →  @av-pi-studio/client   (DaemonClient + PiStudioClient — all networking)
 web-client  →  @av-pi-studio/protocol (wire types + binary codecs)
+web-client  →  @av-pi-studio/ui-library (design system — devDependency, resolved from source via Vite alias)
 ```
 
 Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.
@@ -61,7 +87,7 @@ Radix UI (dialog/dropdown-menu/popover/tooltip) + floating-ui (overlays) · dnd-
 Framer Motion · lucide-react · react-markdown + remark-gfm · Shiki (syntax highlighting) ·
 CodeMirror 6 (`@codemirror/*`, `@uiw/react-codemirror` + GitHub theme — code file viewer) ·
 `pdfjs-dist` (PDF file viewer, lazy `vendor-pdfjs` chunk + bundled module Worker) ·
-`@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod (brand-config validation) · CSS Modules ·
+`@xterm/xterm` + `@xterm/addon-fit` (terminals) · zod · CSS Modules ·
 clsx. Tests: Vitest.
 
 `react-router` is **not** currently used — the app has a single hardcoded root page
@@ -79,54 +105,34 @@ tsconfig.node.json         config for vite.config.ts
 src/
   main.tsx                 createRoot → <StrictMode><App/></StrictMode>
   app.tsx                  root component: AppProviders → Boot (connection/session/shortcuts) → WorkspacePage
-  global.css               resets + scrollbar; colors and font sizes come from theme --pi-*
-                             vars (font-size scale lives in theme/tokens.ts, see Invariants)
-  theme/font-scale.test.ts guards the one-lever font invariant: no hardcoded font-size literal
-                             in any CSS module, no dangling --pi-font-size-* rung
-  theme/token-integrity.test.ts generalizes the same guard to every --pi-*/--syntax-* custom
-                             property across every source file (not just font-size): every
-                             var(--pi-*) reference must resolve to a key theme/css-bridge.ts
-                             actually emits, AND every emitted key must be a syntactically legal
-                             CSS custom-property identifier (no literal `.` — a fractional
-                             spacing key like "1.5" silently emits an invalid `--pi-spacing-1.5`
-                             that no browser resolves, collapsing that padding/margin/gap to 0
-                             app-wide with no error; this shipped once, see theme/tokens.ts's
+  global.css               `#root` sizing + the drag-guard iframe rule only (the generic reset is
+                             the library's `reset.css`, imported just before it in main.tsx)
+  design-tokens.test.ts    guards the one-lever font invariant AND token integrity over web-client's
+                             own sources via the ui-library's `findTokenProblems`: no hardcoded
+                             font-size literal, no dangling --pi-font-size-* rung, every
+                             var(--pi-*)/var(--syntax-*) reference resolves to a key the library's
+                             css-bridge emits, and every emitted key is a legal CSS custom-property
+                             identifier (no literal `.` — a fractional spacing key like "1.5" once
+                             silently emitted an invalid `--pi-spacing-1.5`, collapsing that
+                             padding/margin/gap to 0 app-wide; see the ui-library's theme/tokens.ts
                              spacing comment)
   css-modules.d.ts          ambient CSS-module typings
   vite-env.d.ts             ambient `__APP_VERSION__`/`__BRAND_TITLE__` typing (vite.config.ts
                              `define`s — own package.json version and the build-time brand-title
                              override, both shown in ConnectionBar.tsx)
-  providers/               AppProviders (ThemeBoundary + QueryClientProvider), kv-store (localStorage-backed KeyValueStore)
-  theme/                   tokens, palette, color-utils, variants, appearance-store, css-bridge, theme.ts, ThemeBoundary
+  providers/               AppProviders (ThemeBoundary from ui-library + QueryClientProvider)
+  theme/                   fonts.css only (bundled terminal font); tokens/palette/variants/
+                            appearance/css-bridge/ThemeBoundary live in `@av-pi-studio/ui-library`
   brand/                   build-brand.ts (+ test) — the LIVE build-time title/favicon override
                             (`PI_STUDIO_BRAND_TITLE`/`PI_STUDIO_BRAND_ICON`, wired in
                             vite.config.ts's `brandHtmlPlugin`, see § Invariants "Build-time brand
-                            override"); config.ts (zod BrandConfig: colors/logo triplet/links/
-                            legal) + theme-injection.ts (accent-only injection seam) are a
-                            separate, broader scaffold ported from `white-label-branding.md`'s
-                            clean-room spec that is NOT wired to any loader — `getActiveBrand()`
-                            always returns `DEFAULT_BRAND`; no caller passes `ThemeBoundary` a
-                            `brandConfig` today
-  ui/                      framework-free design-system logic (button/select/status/toast/shortcut/avatar
-                            tokens; option-groups — groupOptions, the pure half of the grouped-picker
-                            mechanic MenuGroup renders, see § Invariants "Grouped pickers") (+ tests)
-  platform/                breakpoints (window-chrome metrics)
-  components/primitives/   React design-system components (Button, IconButton — compact
-                            chromeless icon affordance for row actions/menu triggers, distinct
-                            from Button's ≥28px iconOnly mode —, Select, Dialog, Surface,
-                            Panel — full-height flex-column shell —, EmptyState — centered
-                            muted placeholder text —, Popover — shared Radix Popover chrome
-                            (`Popover.Root/Trigger` passthroughs + portaled `PopoverContent`;
-                            for panels hosting a text input, where a DropdownMenu's typeahead
-                            fights the field; sprint-074/task-007) —, Menu — shared Radix DropdownMenu chrome
-                            (MenuCursorTrigger/MenuContent/MenuGroup — labelled, sticky section
-                            header for grouped pickers —/MenuItem/MenuSeparator), used by
-                            every right-click context menu plus TabStrip's "+" menu and
-                            ModelMenu/CommandMenu's outer chrome —, TextInput, Switch,
-                            Checkbox, Avatar, ScrollArea, ResizeHandle, StatusBadge/Dot,
-                            Shortcut, Spinner, ScreenTitle, Divider, Icon, ToastViewport,
-                            Announcer — the app's one § 08/§ 11 `aria-live` region, sprint-069/
-                            task-008, see AGENTS.md § Invariants "Announcements" —, …)
+                            override"). The runtime accent-only `brandConfig` schema +
+                            theme-injection live in `@av-pi-studio/ui-library`'s `brand/`; no
+                            caller passes `ThemeBoundary` a `brandConfig` today
+  (moved to ui-library: `ui/` framework-free logic, `platform/breakpoints`, and
+   `components/primitives/` — the design-system React components, incl. ToastViewport and
+   Announcer, the app's one § 08/§ 11 `aria-live` region, see § Invariants "Announcements";
+   the primitive list is in `packages/ui-library/AGENTS.md`)
   lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
                            relay-transport pairing-link connections; constructs
                            ReconnectionManager with createWorkerTimers()'s injected timers —
@@ -183,7 +189,7 @@ src/
                            use-file-download's single-consumer/revoke-on-unmount policy
   lib/pane-layout-persistence.ts
                            versioned, client-local pane-layout record (localStorage key
-                           `pi-studio-pane-layout` via providers/kv-store) keyed by stable
+                           `pi-studio-pane-layout` via ui-library's `localStorageKvStore`) keyed by stable
                            **tab identity**, not tab id (`tabIdentity`, in tab-store — a terminal's
                            tab id changes across a reconnect, `term-new-<n>` → `term-<slot>`, and a
                            chat's session id is re-minted on every load, so a chat is keyed on its
@@ -239,7 +245,8 @@ src/
                            sprint-046) (+ test), layout-store (pane structure per workspace:
                            pane tree, tab→pane `placement`, per-pane active tabs, focused pane,
                            plus the restore claim/settle-point machinery — sprint-048) (+ test),
-                           announcer-store (the app's one § 08/§ 11 `aria-live` region's current
+                           announcer-store (MOVED to `@av-pi-studio/ui-library`'s `stores/` — the
+                           app's one § 08/§ 11 `aria-live` region's current
                            text — `speak`/`clearWhenIdle`, sprint-069/task-008 — see AGENTS.md §
                            Invariants "Announcements"), fork-store (sprint-072/task-002 — the fork
                            dialog's target state: a verified `{entryId, text}` match opening the
@@ -797,9 +804,9 @@ src/
   test/                    (reserved for shared test utilities; currently empty)
 ```
 
-The theme system + `components/primitives/` design system were ported from the prior web app and are
+The theme system + primitives design system (now `@av-pi-studio/ui-library`) were ported from the prior web app and are
 the canonical UI foundation. Color/type tokens are injected at runtime as `--pi-*` CSS variables by
-`theme/css-bridge.ts`, applied before first paint by `ThemeBoundary` (wired in `AppProviders`).
+the library's `theme/css-bridge.ts`, applied before first paint by `ThemeBoundary` (wired in `AppProviders`).
 `ThemeBoundary` also publishes the resolved theme through React context (sprint-053/task-001):
 `useAppearance()` returns `{ settings, resolvedTheme }`, and `useResolvedTheme()` is the
 `resolvedTheme`-only shortcut — the seam a component that cannot consume CSS variables (xterm,
@@ -866,10 +873,9 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   `brandHtmlPlugin`) rewrite `index.html`'s `<title>`/favicon `<link>` and bake
   `ConnectionBar.tsx`'s brand label via the `__BRAND_TITLE__` define, in both `npm run dev` and
   every build target. Both are optional and independent — unset ⇒ byte-identical default
-  Pi-Studio output. This is intentionally narrower than `src/brand/config.ts`'s `BrandConfig`
-  scaffold (accent colors + logo triplet + links/legal, ported from `swe/features/
-white-label-branding.md`'s clean-room spec): that scaffold has no build-time loader wired to it
-  (`getActiveBrand()` always returns `DEFAULT_BRAND`) and is out of scope until a colors/logo
+  Pi-Studio output. This is intentionally narrower than the ui-library's accent-only
+  `brandConfig` prop on `ThemeBoundary` (a runtime accent override; web-client wires none today):
+  that seam has no build-time loader wired to it and is out of scope until a colors/logo
   override is actually requested — do not conflate the two or wire one through the other.
 - **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
   LAN access to a self-hosted daemon (`pi-studio ui`'s documented deployment mode) does not
@@ -881,7 +887,7 @@ not a function` (real regression: pane-id minting, chat's optimistic-echo `clien
   `@av-pi-studio/client`'s own `randomId()` (a separate copy — this package intentionally does
   not import client's, to keep this pure-`lib/` module free of a cross-package runtime/build
   dependency for a one-line vitest-collected pure helper).
-- **`statusSuccess`, never `success`, for green signals.** `theme/colors.ts`'s `buildDarkColors`
+- **`statusSuccess`, never `success`, for green signals.** The ui-library's `theme/colors.ts`'s `buildDarkColors`
   aliases `success` to the accent color on dark variants, so a `success`-tinted element is
   indistinguishable from an accent-tinted one there.
 - **`accentForeground`, never a hardcoded white, for content on an accent fill.** The `zinc`
@@ -1115,7 +1121,7 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   needs no new wiring. Note this is a DIFFERENT mechanism from the divider/sidebar-handle fix below,
   because neither dnd-kit nor native DnD exposes pointer capture to us.
 - **A pointer-driven resize drag must capture its pointer.** `PaneDividers.tsx` and
-  `primitives/ResizeHandle.tsx` own their gesture directly, so they take the sharper fix: an explicit
+  the ui-library's `ResizeHandle` primitive own their gesture directly, so they take the sharper fix: an explicit
   `setPointerCapture(ev.pointerId)` on the handle at `pointerdown`. Without it the same iframe
   swallowed the `pointermove`s _and_ the terminating `pointerup`, so a divider dragged across an HTML
   preview stuck mid-resize and never released — leaving the move/up listeners, `col-resize` cursor and
@@ -1211,7 +1217,7 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   pinned; (3) **`"canceled"`** is a client-local `ToolCallStatus` member (`row-model.ts`) — never on
   the wire. Partials do not trigger `invalidateAfterToolCompletion` (it fires only on
   `status === "completed"`).
-- **`theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
+- **The ui-library's `theme/tokens.ts`'s `baseFontSize` is the ONE lever for the app's text size — no CSS module
   ever hardcodes a `font-size` literal, and there is no root-level percentage multiplier.** Every
   `font-size` in the app is `var(--pi-font-size-<rung>)` with no fallback value; `theme/
 css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px root, so text
@@ -1223,7 +1229,7 @@ css-bridge.ts`'s `pxToRem()` emits each rung as `rem` against the untouched 16px
   a raw number — `theme.fontSize.code` from `useAppearance()`'s resolved `Theme` (sprint-053/
   task-002; previously the unscaled `baseFontSize.sm` literal, which ignored the appearance
   font-size setting) — because xterm rasterises to canvas and cannot take a CSS var.
-  `theme/font-scale.test.ts` enforces both halves — every referenced rung exists, and no CSS
+  `src/design-tokens.test.ts` (via the library's `findTokenProblems`) enforces both halves — every
   module reintroduces a px/rem literal (relative `em`/`%` is fine).
   The rungs are a dense, mostly 1px-step ladder (`4xs`→`4xl` plus `code`) matching what the UI
   actually renders; `base` is the document base, and `theme/theme.ts`'s `FONT_SIZE_BASE` is
@@ -1474,8 +1480,8 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
     not an interactive group, so neither gets the attribute. The ASK badge span is `aria-hidden`
     on the pending card for the same reason: the group's own name already conveys it, so
     exposing both would announce "ASK" twice.
-- **Toast host (sprint-069/task-005).** `stores/toast-store.ts` + `components/primitives/
-  ToastViewport.tsx` — the first consumer of `ui/toast.ts`'s previously-unimported pure logic, and
+- **Toast host (sprint-069/task-005).** `toast-store.ts` + the `ToastViewport` primitive (both in
+  `@av-pi-studio/ui-library`) — the first consumer of `ui/toast.ts`'s previously-unimported pure logic, and
   the app's one toast queue: a top-anchored, `Portal`-rendered viewport (`Dialog.tsx`'s existing
   portal precedent), at most `MAX_VISIBLE_TOASTS` (3) ever visible at once out of a FIFO queue the
   store never trims — `ToastViewport.tsx` itself slices `toasts.slice(0, MAX_VISIBLE_TOASTS)`.
@@ -1500,10 +1506,10 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   mounted forever over the top-centre toolbar, swallowing clicks. `.toast.exiting` is also
   `pointer-events: none`, so a fading toast never intercepts input.
 - **Announcements (sprint-069/task-008, § 08/§ 11).** One shared off-screen live region for the
-  whole app (`components/primitives/Announcer.tsx`, mounted once in `WorkspacePage.tsx` next to
+  whole app (the ui-library's `Announcer` primitive, mounted once in `WorkspacePage.tsx` next to
   `ToastViewport`) — never one per row/tab/header. Two always-mounted spans, `role="status"`
   (`aria-live="polite"`) and `role="alert"` (implicit `aria-live="assertive"`); `stores/
-  announcer-store.ts`'s `politeness` field picks which one ever receives text, since toggling a
+  the library's `announcer-store.ts`'s `politeness` field picks which one ever receives text, since toggling a
   single element's `aria-live` value at runtime is not reliably picked up by assistive tech.
   - **`features/agent-ui/announce.ts` is the pure decision module** — `computeAnnouncements(prev,
     next, ctx)` diffs one `AgentUiState` commit against the one before it for all seven § 08
@@ -1741,7 +1747,7 @@ referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object 
   future change must not quietly break:
   1. **Never `allow-same-origin`.** Paired with `allow-scripts` it re-grants the previewed document
      the app's own origin — its DOM, its `localStorage` (which holds the daemon password and
-     connection state, `providers/kv-store.ts`), and its live authenticated WebSocket. Measured:
+     connection state, ui-library's `localStorageKvStore`), and its live authenticated WebSocket. Measured:
      with `allow-scripts` alone, the child's `location.origin` is `"null"` and both
      `parent.document` and `localStorage` throw `SecurityError`. `HTML_SANDBOX_TOKENS`
      (`html-sandbox.ts`) is a single frozen constant with a guard test
@@ -2107,8 +2113,8 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
     `min-height`, and `TabPanelHost.module.css`'s empty-state offsets all read that one variable —
     `pane-layout-view.test.ts` asserts the `calc()` strings symbolically, so changing the number
     means editing one CSS declaration, never those tests. It is a `--pane-*` name on purpose:
-    `--pi-*` is theme-emitted and `theme/token-integrity.test.ts` fails any `var(--pi-…)` the theme
-    does not define. It matches `platform/breakpoints.ts`'s `WORKSPACE_SECONDARY_HEADER_HEIGHT`.
+    `--pi-*` is theme-emitted and `src/design-tokens.test.ts` fails any `var(--pi-…)` the theme
+    does not define. It matches the ui-library's `breakpoints.ts`'s `WORKSPACE_SECONDARY_HEADER_HEIGHT`.
   - **Tabs shrink, trailing chrome does not.** `.tab` is `flex: 0 1 auto; min-width:
 var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tabs` is
     `flex: 0 1 auto` — never `1 1`, which would eat the free space and shove "+" against the split
@@ -2118,7 +2124,7 @@ var(--pi-spacing-128); max-width: 200px`, and only `.tabLabel` ellipsises. `.tab
   - The close (×) box is reserved and toggled with `opacity`, never `display`/`visibility`, so
     hovering an inactive tab never re-truncates its label. Visible on the active tab, on
     hover/keyboard-focus of an inactive one, and unconditionally under `@media (max-width: 575px),
-(hover: none)` — the CSS mirror of `components/primitives/helpers.ts`'s `hoverVisible`, because
+(hover: none)` — the CSS mirror of the ui-library's `primitives/helpers.ts`'s `hoverVisible`, because
     nothing in this package feeds a live pane width into that JS helper.
   - "+" stays a sibling of `SortableContext`, never wrapped into it or into `.stripActions` (GitHub
     issue #8: a sortable "+" poisons `closestCenter` collision detection).

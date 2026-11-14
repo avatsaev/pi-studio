@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { PiStudioClient } from "@av-pi-studio/client";
 import { createExplorerWatcher } from "./use-explorer-watch.js";
-import { rpcKeys } from "@pi-studio-ui/lib/connection/rpc-keys.js";
+import { rpcKeys } from "@web-client/lib/connection/rpc-keys.js";
 
 /** Mirrors the `fakeClient({...})` factory convention (`stores/materialize.test.ts`), scoped to
  *  the surface `createExplorerWatcher` touches: `client.connection.request` +

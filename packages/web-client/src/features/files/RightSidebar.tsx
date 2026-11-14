@@ -9,13 +9,12 @@
 import { RotateCw, Folder, GitCompare } from "lucide-react";
 import { clsx } from "clsx";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@pi-studio-ui/components/primitives/Button.js";
-import { Panel } from "@pi-studio-ui/components/primitives/Panel.js";
-import { useUiStore } from "@pi-studio-ui/stores/ui-store.js";
-import { useTabStore } from "@pi-studio-ui/stores/tab-store.js";
-import { useConnectionStore } from "@pi-studio-ui/lib/connection/connection-store.js";
+import { Button, Panel } from "@av-pi-studio/ui-library";
+import { useUiStore } from "@web-client/stores/ui-store.js";
+import { useTabStore } from "@web-client/stores/tab-store.js";
+import { useConnectionStore } from "@web-client/lib/connection/connection-store.js";
 import { FileExplorer } from "./FileExplorer.js";
-import { ChangesPanel } from "@pi-studio-ui/features/git/ChangesPanel.js";
+import { ChangesPanel } from "@web-client/features/git/ChangesPanel.js";
 import styles from "./RightSidebar.module.css";
 
 export function RightSidebar() {
