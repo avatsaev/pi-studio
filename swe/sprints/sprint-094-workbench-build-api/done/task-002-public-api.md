@@ -1,7 +1,7 @@
 # Task 002 — Public API: regions, hooks, guards
 
 - **Sprint:** sprint-094-workbench-build-api
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (entry, shell)
 - **Priority:** P1

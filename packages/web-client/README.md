@@ -1,9 +1,9 @@
 # `@av-pi-studio/web-client`
 
-The production React/Vite browser UI for Pi-Studio — connects to a daemon over WebSocket
-(`@av-pi-studio/client`) and renders chat sessions, agent-stream timelines, tool calls, terminals,
-a file/diff viewer, and git status. Ships as a prebuilt static SPA (`dist/web`), served by
-`pi-studio ui`, `docker/web-client.Dockerfile`, or any static file host.
+The Pi-Studio browser app: a thin Vite shell that renders `@av-pi-studio/workbench` (the
+application — chat, timelines, terminals, files, git; see `packages/workbench/README.md`) with a
+browser host. Ships as a prebuilt static SPA (`dist/web`), served by `pi-studio ui`,
+`docker/web-client.Dockerfile`, or any static file host.
 
 ---
 
@@ -97,10 +97,9 @@ npm run build:web -w @av-pi-studio/web-client  # browser build (dist/web)
 npx vitest run packages/web-client
 ```
 
-The design system (primitives, theme/tokens, appearance, breakpoints) lives in
-`@av-pi-studio/ui-library` (`packages/ui-library`) and the application itself in
-`@av-pi-studio/workbench` (`packages/workbench`, including the terminal font); both are
-devDependencies resolved from source through Vite aliases in dev/build/tests and bundled into the
-SPA. `src/main.tsx`, `src/brand/build-brand.ts` and `src/global.css` (the `#root` rule) stay here. See `AGENTS.md` (architecture, source
-layout, invariants) and `packages/ui-library/DESIGN_SYSTEM.md` (theme/token pipeline, primitives)
-for the rest of this package's documentation.
+This package is the shell only: `src/main.tsx` (stylesheets, `createBrowserHost` with the build-time
+brand title/version and the pdf.js worker, `<Workbench>`), `src/global.css` (the `#root` rule),
+`src/brand/build-brand.ts` and `vite.config.ts`. The application is `@av-pi-studio/workbench`
+(`packages/workbench`) and the design system `@av-pi-studio/ui-library` (`packages/ui-library`);
+both are devDependencies resolved from source through Vite aliases and bundled into the SPA. See
+`AGENTS.md` for this package and `packages/workbench/AGENTS.md` for the application.

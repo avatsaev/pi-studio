@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
 // By relative source path: this file is loaded by Node, where the Vite alias that maps the
-// workbench to its sources does not apply, and the package's built `./vite` entry is not part of
-// web-client's source-alias development loop (the published entry is proven by the pack smoke).
-import { pdfjsAssetsPlugin } from "../workbench/vite/pdfjs-assets.js";
+// workbench to its sources does not apply. The same module is published as
+// `@av-pi-studio/workbench/vite` (the pack smoke proves that entry).
+import { pdfjsAssetsPlugin } from "../workbench/vite/index.js";
 
 // One build target: the browser SPA in `dist/web` (served over HTTP, absolute base, /daemon-ws dev
 // proxy). The CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve that directory.

@@ -10,8 +10,8 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 **This document is kept current.** The work it describes as planned is being built in this
 repository now, and every task in that plan must update this file when it changes something
 stated here. "Plan and progress" below shows how far that work has got. Last updated: 2026-11-14
-(sprint 093 done on `feat/workbench`: the application lives in `packages/workbench` with its
-complete host adapter, guarded by a source-scan test; not published, public API not final).
+(sprint 094 done on `feat/workbench`: `packages/workbench` builds a publishable library with its
+final public API and README, proven by a packed-tarball consumer; not published yet — sprint 095).
 
 ## Status of the pieces
 
@@ -34,7 +34,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | **Done** (on `feat/workbench`; findings in `swe/notes/workbench-packaging-spike.md`) |
 | 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | **Done** (parity: identical bundle, tests, browser check — `swe/notes/workbench-baseline.md`) |
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | **Done** (contract in `packages/workbench/src/host/types.ts`; a test fails if browser APIs reappear outside the browser host) |
-| 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | Not started |
+| 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
 | 095 | Release wiring; first npm release of the workbench | **Milestone 1 can start** | Not started |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | Not started |
 
@@ -163,7 +163,8 @@ is hidden) and `onResume(listener)` (fire it on wake, focus or network change; t
 decides whether to probe or reconnect). This is milestone 2's seam. One optional member, `pdf`
 (`createWorker()` returning a pdf.js worker built from **the same `pdfjs-dist` version** as the
 workbench's, and `assetBaseUrl` where pdf.js's `cmaps/`, `standard_fonts/`, `wasm/` and `iccs/`
-are served — the workbench will ship a Vite plugin that serves and emits them); without it PDFs
+are served — the workbench's `@av-pi-studio/workbench/vite` export, `pdfjsAssetsPlugin()`, serves
+and emits them for a Vite build); without it PDFs
 show an error state with Download. The host is installed by
 `<Workbench host={…}>` / `<WorkbenchProvider host={…}>` on first render; the first host wins.
 

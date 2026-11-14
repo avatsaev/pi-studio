@@ -1,7 +1,7 @@
 # Task 003 — Packed-tarball smoke: a consumer outside the workspace
 
 - **Sprint:** sprint-094-workbench-build-api
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/workbench (scripts)
 - **Priority:** P1

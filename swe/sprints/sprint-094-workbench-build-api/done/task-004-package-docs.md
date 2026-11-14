@@ -1,7 +1,7 @@
 # Task 004 — Workbench package documentation; slim `web-client`'s
 
 - **Sprint:** sprint-094-workbench-build-api
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** packages/workbench, packages/web-client (docs)
 - **Priority:** P1

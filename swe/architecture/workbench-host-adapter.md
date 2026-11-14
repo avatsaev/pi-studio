@@ -236,10 +236,8 @@ Checked in sprint 093 task-007 (2026-11-14); evidence in that task's summary and
 - [x] `host.files.pickUploads`, when provided, is used by the explorer's upload action instead of
       a file input. (Checked in the browser with a temporary picker: no file-input click, file
       uploaded.)
-- [ ] The host contract is documented in `packages/workbench/README.md`, including the
-      synchronous-storage rule and the transport ordering rule. — Not yet: the package README is
-      written in sprint 094 task-004 (planned there). The contract is documented in
-      `packages/workbench/AGENTS.md` § Host adapter and in `src/host/types.ts` meanwhile.
+- [x] The host contract is documented in `packages/workbench/README.md`, including the
+      synchronous-storage rule and the transport ordering rule. (Sprint 094 task-004.)
 
 ## TODO(verify)
 

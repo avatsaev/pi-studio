@@ -1,7 +1,7 @@
 # Task 001 — Library build and `dist` assertions
 
 - **Sprint:** sprint-094-workbench-build-api
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (build)
 - **Priority:** P1
