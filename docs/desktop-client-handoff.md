@@ -10,7 +10,7 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 **This document is kept current.** The work it describes as planned is being built in this
 repository now, and every task in that plan must update this file when it changes something
 stated here. "Plan and progress" below shows how far that work has got. Last updated: 2026-11-14
-(plan written, nothing built).
+(sprint 091 done on `feat/workbench`: the package exists as an empty scaffold, not published).
 
 ## Status of the pieces
 
@@ -30,7 +30,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 
 | Sprint | Delivers | What it unlocks for the desktop app | State |
 |---|---|---|---|
-| 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | Not started |
+| 091 | Packaging spike, empty `@av-pi-studio/workbench` | Nothing yet | **Done** (on `feat/workbench`; findings in `swe/notes/workbench-packaging-spike.md`) |
 | 092 | Application code moved into the workbench; `electron` target removed | Nothing yet (not published) | Not started |
 | 093 | Host adapter: storage, clipboard, dialogs, links, launch, transport factory, timers, files, pdf.js | The seam a Tauri host implements | Not started |
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | Not started |
@@ -156,7 +156,10 @@ Constraints to know before consuming it:
   state changes to every session.
 - **It needs a bundler that understands it.** There are lazy chunks (viewers, settings panels,
   markdown), a pdf.js module worker, and pdf.js data files that `web-client`'s Vite config serves
-  from `node_modules`. Expect to consume it with Vite.
+  from `node_modules`. Expect to consume it with Vite 6 and `@vitejs/plugin-react` 4. The packaging
+  spike (`swe/notes/workbench-packaging-spike.md`) showed a plain Vite consumer of a package built
+  this way needs no `optimizeDeps` setting; third-party stylesheets (katex) and the terminal font
+  arrive as bare imports and plain files, which your bundler emits.
 - **React 19.** `ui-library` declares `react` and `react-dom` `^19.0.0` as peer dependencies.
 
 ## What to build in Rust

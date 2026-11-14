@@ -1,7 +1,7 @@
 # Task 003 — Scaffold `packages/workbench` and wire it into the workspace
 
 - **Sprint:** sprint-091-workbench-spike-scaffold
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** packages/workbench, repo root, packages/web-client
 - **Priority:** P1

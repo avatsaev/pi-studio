@@ -246,6 +246,7 @@ export default defineConfig(() => {
         // this specifier into a real package `exports` entry.
         "@av-pi-studio/ui-library/reset.css": resolve(__dirname, "../ui-library/src/reset.css"),
         "@av-pi-studio/ui-library": resolve(__dirname, "../ui-library/src/index.ts"),
+        "@av-pi-studio/workbench": resolve(__dirname, "../workbench/src/index.ts"),
         "@web-client": resolve(__dirname, "src"),
       },
     },

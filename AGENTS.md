@@ -33,6 +33,9 @@ packages/
   ui-library/  `@av-pi-studio/ui-library` — publishable React design system extracted from web-client: primitives,
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
+  workbench/   `@av-pi-studio/workbench` — the client application as a library, for web and desktop shells
+               (swe/architecture/workbench-package.md). Being built on `feat/workbench` (sprints 091–095): today
+               an empty, building scaffold that web-client resolves from source. See packages/workbench/AGENTS.md.
   ui-gallery/  Private (never published/deployed) Vite+React gallery app that consumes the BUILT ui-library `dist`
                through its package `exports`; theme switcher + a section per primitive family.
 
@@ -55,8 +58,9 @@ relay       ──────────────────────�
 client      ──────► protocol, relay
 server      ──────► protocol, relay
 cli         ──────► protocol, client, relay, server, web-client
-web-client  ──────► protocol, client, ui-library   (ui-library is a devDependency, bundled into the SPA)
+web-client  ──────► protocol, client, ui-library, workbench   (devDependencies, bundled into the SPA)
 ui-library  ──────► (no workspace deps)
+workbench   ──────► protocol, client, ui-library
 ui-gallery  ──────► ui-library
 ```
 
@@ -72,7 +76,8 @@ planner a connected daemon runs — no daemon lifecycle, no WS server, no `pi` p
 auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above. `ui-library` is the
-shared UI contract (no workspace deps); web-client resolves it from source through a Vite alias.
+shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
+Vite aliases.
 
 ---
 
@@ -650,4 +655,5 @@ tolerated without a migration framework.
 | relay | `packages/relay/AGENTS.md` |
 | web-client | `packages/web-client/AGENTS.md` |
 | ui-library | `packages/ui-library/AGENTS.md` |
+| workbench | `packages/workbench/AGENTS.md` |
 | ui-gallery | `packages/ui-gallery/AGENTS.md` |

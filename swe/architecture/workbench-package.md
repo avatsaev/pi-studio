@@ -296,15 +296,23 @@ layout across the upgrade. Where the keys are stored becomes a host decision.
 
 ## TODO(verify)
 
-- **katex stylesheet.** `timeline/markdown.tsx` imports `katex/dist/katex.min.css`. In library mode
-  this may be inlined into `styles.css` together with katex's fonts as base64. Verify the build
-  output; if so, keep the import external or make the consumer import it.
-- **Workbench pre-bundling in a consumer's dev server.** Verify a plain Vite consumer needs no
-  `optimizeDeps` configuration to use the package.
-- **Smoke consumer form.** Whether the packed-tarball check is a script in the style of
-  `packages/ui-library/scripts/pack-smoke.sh` plus a headless browser run, or a private workspace
-  app. Decide during planning; a spike should settle this and the two items above before the move.
-- **`SettingsDialog` as a public export.** It is lazy-loaded from `ConnectionBar` today. Verify it
-  can be exported without pulling the settings chunk into the entry.
+Resolved by the packaging spike (2026-11-14, `swe/notes/workbench-packaging-spike.md`):
+
+- ~~katex stylesheet~~ — stays a bare `import "katex/dist/katex.min.css"` in `dist` because `katex`
+  is an external `dependency`; nothing is inlined. The consumer's bundler emits katex's fonts.
+- ~~Consumer pre-bundling~~ — a plain Vite consumer needs no `optimizeDeps` setting.
+- ~~Smoke consumer form~~ — a `pack-smoke.sh` script in the `ui-library` style with file-level
+  assertions; the run-time check is a recorded manual or agent-driven browser load (no
+  browser-automation dependency is added).
+- ~~`SettingsDialog` as a public export~~ — a lazily loaded component exported from the entry keeps
+  its own chunk.
+
+Also established by the spike: assets referenced from bundled CSS are inlined as base64 (hence the
+verbatim font copy), `process.env.NODE_ENV` stays unreplaced in `dist` and the consumer replaces it,
+the workbench `tsconfig.json` must use `"jsx": "react-jsx"`, and the build must use the
+package-local Vite 6 (the root `node_modules/vite` is 5.x).
+
+Still open:
+
 - **Region names.** `PaneArea` and `WorkspaceShell` are new public names for `TabPanelHost` and
   `WorkspacePage`. Confirm before the first publish, since names are hard to change afterwards.

@@ -60,6 +60,9 @@ context, not a live status document; this file describes what's actually built.
 web-client  →  @av-pi-studio/client   (DaemonClient + PiStudioClient — all networking)
 web-client  →  @av-pi-studio/protocol (wire types + binary codecs)
 web-client  →  @av-pi-studio/ui-library (design system — devDependency, resolved from source via Vite alias)
+web-client  →  @av-pi-studio/workbench  (the application as a library — devDependency, resolved from
+                                         source via Vite alias; an empty scaffold until sprint 092 moves
+                                         the application into it)
 ```
 
 Must **not** import `@av-pi-studio/server` or `@av-pi-studio/cli`.

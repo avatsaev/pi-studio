@@ -1,7 +1,7 @@
 # Task 002 — Packaging spike: settle the library-build unknowns
 
 - **Sprint:** sprint-091-workbench-spike-scaffold
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/workbench (throwaway)
 - **Priority:** P1

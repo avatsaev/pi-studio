@@ -1,7 +1,7 @@
 # Task 001 — Feature branch + pre-move baselines
 
 - **Sprint:** sprint-091-workbench-spike-scaffold
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** repo / packages/web-client
 - **Priority:** P1

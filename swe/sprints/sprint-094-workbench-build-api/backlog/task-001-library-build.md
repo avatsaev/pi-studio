@@ -48,5 +48,6 @@ Produce the publishable `dist` and a check that proves it has the properties the
 - `npm run build:web-client`
 
 ## Notes
-- Vite's library mode inlines assets regardless of `assetsInlineLimit`, which is why fonts are copied and not imported from a bundled stylesheet.
-- Apply the spike's decision for the katex stylesheet here.
+- Vite's library mode inlines assets regardless of `assetsInlineLimit` (spike: a 210 KB woff2 became base64 in `styles.css`), which is why fonts are copied and not imported from a bundled stylesheet.
+- katex (spike decision): keep `import "katex/dist/katex.min.css"`; with `katex` a `dependency` it stays a bare import. Assert `styles.css` has no `data:font` URL.
+- Build through the package's own Vite 6 devDependency (root `node_modules/vite` is 5.x), and set `"jsx": "react-jsx"` in `tsconfig.json`; assert `dist/index.js` imports `react/jsx-runtime`.

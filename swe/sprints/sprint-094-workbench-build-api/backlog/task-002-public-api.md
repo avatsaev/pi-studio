@@ -50,4 +50,4 @@ Decided 2026-11-14: the first version exposes the whole app plus the shell regio
 
 ## Notes
 - Spec TODO(verify): confirm `PaneArea` and `WorkspaceShell` as public names with the engineer before the first publish; names are hard to change afterwards.
-- Spec TODO(verify): confirm `SettingsDialog` can be exported lazily without pulling its chunk into the entry; the spike should already have answered this.
+- `SettingsDialog`: the spike showed a lazily loaded component exported from the entry keeps its own chunk (`swe/notes/workbench-packaging-spike.md` #5). Export it with `lazy(...)`.

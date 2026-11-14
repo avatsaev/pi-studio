@@ -13,5 +13,10 @@
   },
   "include": ["src"],
   "exclude": ["dist"],
-  "references": [{ "path": "../client" }, { "path": "../protocol" }, { "path": "../ui-library" }]
+  "references": [
+    { "path": "../client" },
+    { "path": "../protocol" },
+    { "path": "../ui-library" },
+    { "path": "../workbench" }
+  ]
 }
