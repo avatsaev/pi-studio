@@ -1,7 +1,15 @@
 # AGENTS.md
 
-Pi Studio is a native desktop app: a headless Rust engine, and a Tauri window whose webview
-(React + TypeScript) draws what the engine publishes. Read `docs/architecture.md` next.
+Pi Studio Desktop is the native client for a Pi-Studio daemon: a Tauri window whose webview runs
+the workbench (`@av-pi-studio/workbench`, the same UI as the browser client), and a Rust side for
+what a browser does badly: sockets, files on disk, secrets and OS integration. Read
+`docs/architecture.md` next.
+
+**Where it stands.** The window draws the workbench through the workbench's browser host, so the
+webview itself opens the WebSocket to the daemon and keeps its settings in its own storage. The
+Rust crates still hold the template's sample (a checklist engine with undo and a file format): the
+window no longer draws it, and only the CLI and the control socket reach it. It is to be replaced;
+until then rules 3, 4 and 7 describe that engine.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -19,7 +27,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     crates/engine           L5  Session + command registry (every action is a command)
     crates/shell            L6  UI state, generated menus, control protocol (no UI toolkit)
     crates/testkit              test helpers
-    apps/pistudiodesktop                  the web frontend: React + TypeScript, thin
+    apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
     apps/pistudiodesktop-cli              headless CLI
     xtask/                      cargo xtask layers | web | wasm | test | ci
@@ -28,26 +36,30 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
 
 ## Golden rules
 
-1. The core is Rust. Web technology lives only in the frontend (`apps/pistudiodesktop/src`), and the
-   frontend is thin: it draws the view it is sent and sends command ids. No business logic, no
-   document state and no file or network access in TypeScript.
+1. The UI is the workbench. `apps/pistudiodesktop/src` only mounts `@av-pi-studio/workbench` and
+   gives it a host (`WorkbenchHost`). View state (sessions, timelines, panes, settings) lives in the
+   workbench, in TypeScript, shared with the browser client: change the UI in `packages/workbench`,
+   not here. This package makes no network call and stores nothing of its own (oxlint enforces
+   it); what the platform must do is a member of the host.
 2. Never crash. Non-test Rust code has no unwrap, expect or panic, and no unsafe. Return errors.
    Input is hostile: check bounds, cap sizes, bound recursion. A crash fix ships with a test that
    panicked before it.
-3. Everything is a command. User-visible behaviour is a command in
-   `crates/engine/src/*_cmds.rs` with id, label, menu, shortcut, params doc, `enabled`, `run` and
-   tests. The frontend, the CLI and the control channel dispatch ids.
+3. Everything the Rust side does for a user is a command, in `crates/engine/src/*_cmds.rs`, with
+   id, label, menu, shortcut, params doc, `enabled`, `run` and tests. The CLI and the control
+   channel dispatch ids.
 4. A crate depends only on lower layers. Nothing below the app binary uses tauri, wry or tao.
-5. UI state is data. What automation should see lives in `crates/shell/src/state.rs`; the frontend
-   keeps only what a widget needs while it is on screen. Colours come from the tokens in
-   `apps/pistudiodesktop/src/tokens.css`. Look at a rendered image (`npm run snapshot`) before calling a UI
-   change done.
-6. The webview gets the least it needs. It may call the app's two commands and listen for one
-   event; no plug-in permissions, a strict CSP, no remote content in the main window.
+5. The workbench owns what the window shows. Colours, sizes and themes come from the design system
+   (`@av-pi-studio/ui-library`); this package adds no tokens. Look at a rendered image
+   (`npm run snapshot`) before calling a UI change done.
+6. The webview gets the least it needs: no plug-in permissions, no remote content in the main
+   window, and a Content-Security-Policy that lists exactly the sources the workbench uses
+   (`app.security.csp` in `tauri.conf.json`). Add a source only with the feature that needs it;
+   `npm run snapshot` fails when the page breaks the policy.
 7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` or behind `Services`.
 8. Tests are the gate. Every change comes with tests.
 9. Permissive licences only, for crates and npm packages alike. Check a dependency's licence
-   before adding it; record every bundled asset in `ATTRIBUTION.md`.
+   before adding it; record every bundled asset in `ATTRIBUTION.md`. Known exception, not yet
+   decided: the workbench and `@av-pi-studio/ui-library` are AGPL-3.0 and are bundled into the app.
 
 ## Conventions
 

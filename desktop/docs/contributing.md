@@ -1,6 +1,7 @@
 # Contributing
 
 Read `AGENTS.md` first: it states the rules. This page is the checklist for the most common change.
+The command sections describe the Rust engine, which still holds the template's sample.
 
 ## Add a command
 
@@ -25,10 +26,8 @@ A feature is not done until it is a command.
    - Write the `params` string for a reader who has nothing else: types, defaults, units.
 5. **Test it in the same module**: the behaviour, undo and redo, the disabled state, and bad
    params returning `Err` without recording a history step.
-6. **If it needs a value from the user**: a value typed or chosen in the window travels as params
-   of `engine.execute` from the component that collected it. A value only the platform can ask for
-   (a file) is collected in `menus::invoke` in the shell, through a `Services` hook. A command
-   never opens UI.
+6. **If it needs a value only the platform can ask for** (a file): it is collected in
+   `menus::invoke` in the shell, through a `Services` hook. A command never opens UI.
 7. **Run `cargo xtask ci`.** `panic_hunt` covers the new command with no extra work.
 
 ## Other changes
@@ -37,11 +36,9 @@ A feature is not done until it is a command.
   `Cargo.toml` breaks every build), start `src/lib.rs` with the `forbid(unsafe_code)` and clippy
   `deny` lines the other crates carry, add it to `[workspace.dependencies]` and to `TABLE` in
   `xtask/src/layers.rs`.
-- **UI**: a component reads the view it is given and calls `backend.control("engine.execute", …)`.
-  State automation should see is a field on `UiState` in `crates/shell`; a colour or a radius is a
-  variable in `apps/pistudiodesktop/src/tokens.css`; a platform capability is an optional hook on
-  `Services`. Test the component with a fake backend, render with `npm run snapshot`, and look at
-  the image before calling it done.
+- **UI**: change it in `packages/workbench` (see its `AGENTS.md`), where the browser client gets it
+  too. Something the platform must do for the UI is a member of the workbench host; this package
+  supplies the host. Render with `npm run snapshot` and look at the image before calling it done.
 - **A shortcut or a menu item**: set `shortcut` or `menu` on the `CommandSpec`. Nothing else.
 - **The file format**: a new optional field gets `#[serde(default)]`; a change an older build must
   not misread bumps `VERSION` in `crates/format` and adds a migration arm in `decode`. Extend the
@@ -54,11 +51,9 @@ A feature is not done until it is a command.
 - Rust: rustfmt at 160 columns (`cargo fmt --all`); clippy with `-D warnings`. One error enum per
   crate (`thiserror`); no `anyhow` in libraries. No `unwrap`, `expect`, `panic!`, `unreachable!`,
   `todo!` or `unimplemented!` outside tests, and no `unsafe`.
-- TypeScript and React: strict TypeScript, checked by `tsc --noEmit` and linted by oxlint
-  (`npm run lint`, rules in `apps/pistudiodesktop/.oxlintrc.json`). Function components take the
-  backend and the data they draw as props; a component's styles are a CSS Module beside it; an
-  effect that subscribes cleans up; no colour literals outside `tokens.css`; no `fetch`, no storage
-  and no Tauri API outside `src/lib/backend.ts`.
+- TypeScript and React: strict TypeScript, checked by `tsc -b` and linted by oxlint
+  (`npm run lint`, rules in `apps/pistudiodesktop/.oxlintrc.json`): no `fetch`, no socket, no
+  storage and no Tauri API in this package's own code.
 
 ## Pull requests
 

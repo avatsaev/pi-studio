@@ -23,7 +23,7 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
-| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`): the `av-rust-desktop` scaffold, moved in as it was. It still holds the template's sample checklist app. Its frontend is a private npm workspace, so it can depend on the workbench directly; its gate is `cargo xtask ci`, run inside `desktop/` |
+| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **The window renders the workbench** (first half of milestone 1): `desktop/apps/pistudiodesktop` mounts `<Workbench>` with `createBrowserHost()` (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases, so the webview opens the WebSocket itself. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`) against a dev daemon: connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in `desktop/docs/architecture.md` § The webview boundary. Not done: a desktop host (dialogs, external links, save to disk, storage), and the Rust crates, which still hold the template's sample checklist engine. Known gap: scripts in the HTML file preview do not run under the policy. Its gate is `cargo xtask ci`, run inside `desktop/` |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
 ## Plan and progress
@@ -480,21 +480,24 @@ These exist only to work around the browser. Replace them through the host adapt
 ## Rules in the desktop scaffold that must change
 
 The `av-rust-desktop` template assumes the application's state lives in Rust. This design keeps
-view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before work starts:
+view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State on 2026-11-15:
 
 - **Golden rule 1** ("the frontend is thin… no business logic, no document state and no file or
-  network access in TypeScript") no longer holds for view state. Suggested replacement: the
-  frontend owns view state and talks to the daemon through the SDK; Rust owns sockets, files on
-  disk, secrets and OS integration.
-- **Golden rule 6** ("the webview may call the app's two commands and listen for one event") is
-  too narrow for a transport bridge and a host adapter.
-- **CSP.** `tauri.conf.json` allows `connect-src ipc: http://ipc.localhost` only. That is correct
-  if every socket goes through Rust. It must also allow whatever the workbench needs for workers
-  and the native file URL scheme.
+  network access in TypeScript"): **rewritten**. The UI is the workbench; the desktop frontend only
+  mounts it and gives it a host, and makes no network call or storage access of its own.
+- **Golden rule 6** ("the webview may call the app's two commands and listen for one event"):
+  **rewritten** around the policy and plug-in permissions. It will change again when the transport
+  bridge and the host adapter add commands.
+- **CSP**: **done** for the browser host. `tauri.conf.json` now allows `ws:`/`wss:` to any address
+  (the user types it), `blob:` for workers, images, video and reading files back, `data:` for
+  fonts and images, and `'wasm-unsafe-eval'` for syntax highlighting; the table with the reason
+  for each is in `desktop/docs/architecture.md`. `connect-src` can drop `ws:`/`wss:` once every
+  socket goes through Rust.
 - The template's `doc`, `ops` and `format` crates (document model, undo history, file format) are
-  the sample app. This client has no document to save; remove or repurpose them.
-- Rules worth keeping as they are: never crash, layering enforced by `cargo xtask layers`, tests
-  as the gate, permissive licences only.
+  the sample app. This client has no document to save; remove or repurpose them. **Not done.**
+- Rules kept as they are: never crash, layering enforced by `cargo xtask layers`, tests as the
+  gate, permissive licences only (with a recorded exception: the workbench and the ui-library are
+  AGPL-3.0, and pdf.js ships Liberation Sans under GPL-2.0 with a font exception).
 
 ## Performance expectations
 
@@ -547,6 +550,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
 
 1. **Shell renders the workbench.** Tauri window, workbench whole-app entry, a host adapter backed
    by Tauri storage and clipboard, direct WebSocket from the webview. Proves packaging and CSP.
+   *State: the window renders the workbench with the browser host and the policy is settled; the
+   Tauri-backed host members are not written.*
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte

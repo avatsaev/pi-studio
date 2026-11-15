@@ -1,19 +1,30 @@
 name: Desktop CI
 
 # The gate of the desktop client (`desktop/`, a Cargo workspace plus one npm workspace of this
-# repository). It runs when that directory changes, or when the root npm manifest or lock file
-# does: the frontend's dependencies are installed from there.
+# repository). It runs when that directory changes, when the root npm manifest or lock file does
+# (the frontend's dependencies are installed from there), or when one of the packages the frontend
+# builds from source does (the workbench and what it imports).
 on:
   push:
     branches: [main]
     paths:
       - "desktop/**"
+      - "packages/workbench/**"
+      - "packages/ui-library/**"
+      - "packages/client/**"
+      - "packages/relay/**"
+      - "packages/protocol/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-ci.yml"
   pull_request:
     paths:
       - "desktop/**"
+      - "packages/workbench/**"
+      - "packages/ui-library/**"
+      - "packages/client/**"
+      - "packages/relay/**"
+      - "packages/protocol/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-ci.yml"

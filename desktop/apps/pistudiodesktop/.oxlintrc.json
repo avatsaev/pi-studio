@@ -8,25 +8,18 @@
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",
     "typescript/no-explicit-any": "error",
-    // The frontend is thin: only src/lib/backend.ts talks to Tauri (see the override below).
-    // Components get a Backend as a prop.
+    // The UI is the workbench. This package is its shell: it reaches the daemon and the browser's
+    // storage only through the workbench host, never with a call of its own.
     "no-restricted-imports": ["error", { "patterns": [{ "group": ["@tauri-apps/**"] }] }],
-    // No network access and no storage in TypeScript: that is a command in the engine, or UiState.
     "no-restricted-globals": [
       "error",
-      { "name": "fetch", "message": "The frontend has no network access. Add a command in the engine." },
-      { "name": "XMLHttpRequest", "message": "The frontend has no network access. Add a command in the engine." },
-      { "name": "WebSocket", "message": "The frontend has no network access. Add a command in the engine." },
-      { "name": "localStorage", "message": "The frontend stores nothing. State lives in the engine or in UiState." },
-      { "name": "sessionStorage", "message": "The frontend stores nothing. State lives in the engine or in UiState." },
-      { "name": "indexedDB", "message": "The frontend stores nothing. State lives in the engine or in UiState." }
+      { "name": "fetch", "message": "The shell makes no network calls of its own: the workbench talks to the daemon through its host." },
+      { "name": "XMLHttpRequest", "message": "The shell makes no network calls of its own: the workbench talks to the daemon through its host." },
+      { "name": "WebSocket", "message": "The shell opens no sockets of its own: a connection is the host's `connection.createTransport`." },
+      { "name": "localStorage", "message": "The shell stores nothing of its own: storage is the host's `storage` member." },
+      { "name": "sessionStorage", "message": "The shell stores nothing of its own: storage is the host's `storage` member." },
+      { "name": "indexedDB", "message": "The shell stores nothing of its own: storage is the host's `storage` member." }
     ]
   },
-  "overrides": [
-    {
-      "files": ["src/lib/backend.ts"],
-      "rules": { "no-restricted-imports": "off" }
-    }
-  ],
   "ignorePatterns": ["dist", "src-tauri"]
 }

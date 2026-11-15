@@ -29,7 +29,7 @@ there is one lock file and one install, both up there.
 | `cargo run -p pistudiodesktop` | Run the desktop app with the built frontend. Add `--release` for anything performance-sensitive |
 | `npm run app` (in `apps/pistudiodesktop`) | Run the desktop app on Vite's dev server: frontend changes reload at once |
 | `cargo xtask web` | The frontend: type check, lint, tests and build (`npm ci` at the repository root first when needed) |
-| `npm run check` / `npm run lint` / `npm test` (in `apps/pistudiodesktop`) | `tsc --noEmit` / oxlint (type-aware; warnings are errors) / the component tests (vitest) |
+| `npm run check` / `npm run lint` / `npm test` (in `apps/pistudiodesktop`) | `tsc -b` (also builds the type declarations of the monorepo packages it imports) / oxlint (type-aware; warnings are errors) / the tests (vitest) |
 | `cargo test -p <crate> --lib --tests` | One crate's tests, skipping examples and doctests |
 | `cargo test -p <crate> --test <file>` | One integration-test file |
 | `cargo nextest run --workspace` | Every Rust test, in parallel across test binaries |
@@ -82,22 +82,30 @@ cargo run -q -p pistudiodesktop-cli -- commands --filter undo
 Results are JSON lines on standard output; diagnostics go to standard error. Exit status 1 is a
 failed command, 2 a usage error.
 
-The UI without the app. `npm run snapshot` draws the real frontend in a headless browser and saves
-a PNG. The view it draws comes from the real shell, after the control-protocol calls in `--script`.
+The UI without the app. `npm run snapshot` serves the built frontend from a loopback port with the
+app's Content-Security-Policy, draws it in a headless browser and saves a PNG. It exits 1 when the
+page broke the policy or threw, so it is also the check for a change to the policy.
 
 ```sh
 cd apps/pistudiodesktop
 npm run snapshot:install        # once: downloads the headless browser
 npm run build
-npm run snapshot -- --out ui.png --size 720x420 \
-  --script '[["engine.execute", {"command": "item.add", "params": {"text": "milk"}}], ["ui.set", {"theme": "light"}]]'
+npm run snapshot -- --out ui.png                       # the window before it connects
+npm run snapshot -- --out ui.png --wait-for 'text=/^connected/i' \
+  --query 'host=127.0.0.1:6767&connect=1'              # connected to a daemon on this machine
 ```
 
-This is how to check a UI change without opening a window. The browser is Playwright's Chromium
-(or `--browser webkit`), not the platform webview the app runs in: trust it for layout and themes,
-and check platform behaviour in the running app.
+`--query` is the workbench's launch grammar (`host`, `password`, `cwd`, `connect=1`). `--steps FILE`
+runs an ES module's default export, `async (page) => {}`, with the Playwright page before the
+screenshot: open a workspace, send a message, open a file. A daemon to point it at:
+`PI_STUDIO_LISTEN=127.0.0.1:6790 npm run dev:daemon` at the repository root (a mock agent, no
+credentials).
 
-The same view as JSON, without any browser:
+This is how to check a UI change without opening a window. The browser is Playwright's Chromium
+(or `--browser webkit`), not the platform webview the app runs in: trust it for layout, themes and
+the policy, and check platform behaviour in the running app.
+
+The sample engine's view as JSON, without any browser:
 
 ```sh
 cargo run -q -p pistudiodesktop-shell --example view -- --script '[["ui.set", {"theme": "light"}]]'
@@ -118,6 +126,12 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 
 Running the window needs a display: `Xvfb :99 -screen 0 1280x800x24 &` and then
 `DISPLAY=:99 cargo run -p pistudiodesktop`. The snapshot tool and every test need none.
+
+To drive the real webview on Linux without a display, run the binary under WebKit's WebDriver
+(`WebKitWebDriver`, Ubuntu package `webkitgtk-webdriver`) with `TAURI_WEBVIEW_AUTOMATION=true` in
+its environment, and open a session with the capabilities `{"browserName": "wry",
+"webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>"}}`. Scripts, clicks and
+screenshots then go through the WebDriver protocol.
 
 ## Debugging the frontend
 

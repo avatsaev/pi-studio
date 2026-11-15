@@ -47,8 +47,10 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     the root package-lock.json; never published; not in scripts/publish.sh). The root lint, fmt,
                     test, typecheck and build commands skip desktop/; a push that touches only desktop/ does not
                     release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
-                    built by desktop-release.yml (see § Release & production deployment). It still holds the
-                    `av-rust-desktop` template's sample app.
+                    built by desktop-release.yml (see § Release & production deployment). Its window renders
+                    `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
+                    the browser host, so desktop-ci.yml also runs when workbench, ui-library, client, relay or
+                    protocol change; its Rust crates still hold the `av-rust-desktop` template's sample engine.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent

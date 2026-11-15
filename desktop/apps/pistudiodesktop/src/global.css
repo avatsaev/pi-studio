@@ -1,0 +1,14 @@
+/* Rules for this page's own mount element. The reset is `@av-pi-studio/ui-library/reset.css` and
+   the application's rules ship with `@av-pi-studio/workbench`. */
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* A desktop window, not a page: no rubber-band scrolling past the edges. */
+html,
+body {
+  overscroll-behavior: none;
+}

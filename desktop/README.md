@@ -1,13 +1,13 @@
 # Pi Studio
 
-Pi Studio is a native desktop app: a Rust engine in which every user action is a command, and a
-[Tauri](https://tauri.app) window whose webview (React + TypeScript) draws the state the engine
-publishes and sends command ids back. One engine serves every frontend: the desktop window, the
-headless CLI, tests and automation.
+Pi Studio Desktop is the native client for a Pi-Studio daemon: a [Tauri](https://tauri.app) window
+whose webview runs the workbench (`@av-pi-studio/workbench`, the same UI as the browser client),
+and a Rust side for what a browser does badly: sockets, files on disk, secrets and OS integration.
 
-This directory (`desktop/` in the pi-studio monorepo) currently holds the starter sample, a checklist with undo, a file format, menus,
-shortcuts and a control channel. It shows every structural part of the app with no domain logic in
-the way.
+Today the window draws the workbench and connects to a daemon with the webview's own WebSocket.
+The Rust crates still hold the starter sample (a checklist engine with undo, a file format, menus
+and a control channel), which the window no longer draws; the CLI and the control socket still
+reach it. Replacing it, and moving the sockets into Rust, comes next.
 
 ## Build and run
 
@@ -16,8 +16,7 @@ Prerequisites are listed in [docs/development.md](docs/development.md).
 ```sh
 (cd .. && npm ci)                       # once, at the repository root: the frontend is an npm workspace of it
 cargo xtask ci                          # the gate: fmt, frontend, clippy, layering, tests, command fuzz, doctests, wasm check
-cargo run -p pistudiodesktop                      # the window
-cargo run -p pistudiodesktop -- list.pistudiodesktop        # open a file
+cargo run -p pistudiodesktop                      # the window: type a daemon address (127.0.0.1:6767) and connect
 cargo run -q -p pistudiodesktop-cli -- commands   # every command the app has, as JSON lines
 ```
 
@@ -34,7 +33,7 @@ with hot reload. `npm run bundle` builds installers.
 | `crates/engine` | L5: `Session` and the command registry |
 | `crates/shell` | L6: UI state, the generated menu bar and the control protocol, with no UI toolkit in it |
 | `crates/testkit` | Test helpers |
-| `apps/pistudiodesktop` | The desktop app's web frontend (React + TypeScript): thin, it draws what the shell sends |
+| `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
 | `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, file dialogs, the control server |
 | `apps/pistudiodesktop-cli` | The headless CLI |
 | `xtask` | `cargo xtask layers \| web \| wasm \| test \| ci` |
