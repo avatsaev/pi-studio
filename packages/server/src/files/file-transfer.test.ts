@@ -569,6 +569,31 @@ describe("FileTransferService download lifecycle", () => {
       ]);
     });
 
+    it("accepts a cancel while the file is still being opened: Error alone, or the refusal alone", async () => {
+      const file = join(dir, "opening.bin");
+      await writeFile(file, "opening");
+      const svc = new FileTransferService();
+
+      // The stream id is reserved before the file is opened, so the cancel finds it.
+      const accepted = svc.beginDownload("s1", { path: file, stream: 5 });
+      expect(svc.cancelDownload("s1", 5)).toBe(true);
+      const { response, run } = await accepted;
+      expect(response).toMatchObject({ ok: true, stream: 5 });
+      const raw: Uint8Array[] = [];
+      await run!((f) => raw.push(f), openSocket);
+      expect(raw.map((b) => decodeFileTransferFrame(b))).toEqual([
+        { opcode: "Error", stream: 5, message: "cancelled" },
+      ]);
+
+      // When the open then fails, the refusal is the only answer: no frame follows it.
+      const refused = svc.beginDownload("s1", { path: join(dir, "missing.bin"), stream: 6 });
+      expect(svc.cancelDownload("s1", 6)).toBe(true);
+      const second = await refused;
+      expect(second.response).toMatchObject({ ok: false, error: "not_found", stream: 6 });
+      expect(second.run).toBeUndefined();
+      expect(svc.cancelDownload("s1", 6)).toBe(false); // released
+    });
+
     it("answers not_found after End, for an unknown stream and for another session's stream", async () => {
       const file = join(dir, "done.bin");
       await writeFile(file, "done");

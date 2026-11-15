@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 
 import { decodeFileTransferFrame, encodeFileTransferFrame } from "@av-pi-studio/protocol";
 
@@ -64,13 +64,13 @@ function makeFakeTransport(features: Record<string, boolean> = {}): FakeTranspor
   };
 }
 
-function makeClient(transport: Transport): DaemonClient {
+function makeClient(transport: Transport, rpcTimeoutMs = 0): DaemonClient {
   return new DaemonClient({
     url: "ws://t/ws",
     clientId: "c1",
     clientType: "cli",
     transport,
-    rpcTimeoutMs: 0,
+    rpcTimeoutMs,
   });
 }
 
@@ -116,9 +116,10 @@ interface Rig {
 
 async function makeRig(
   features: Record<string, boolean> = { fileDownloadRanges: true },
+  rpcTimeoutMs = 0,
 ): Promise<Rig> {
   const fake = makeFakeTransport(features);
-  const client = makeClient(fake.transport);
+  const client = makeClient(fake.transport, rpcTimeoutMs);
   await client.connect();
   const transfer = new FileTransferClient(client);
   transfer.start();
@@ -487,6 +488,72 @@ describe("FileTransferClient — download", () => {
       reply(fake, cancel, "file_download_cancel_response", { ok: true });
       await drain();
       expect(transfer.pendingDownloads).toBe(0);
+    });
+
+    describe("a request the daemon does not answer in time", () => {
+      const TIMEOUT_MS = 50;
+
+      /** A download whose request has just timed out, and the cancel the client sent for it. */
+      async function timedOut(): Promise<{
+        rig: Rig;
+        request: SentMessage;
+        cancel: SentMessage;
+        sink: Mock;
+      }> {
+        const rig = await makeRig({ fileDownloadRanges: true }, TIMEOUT_MS);
+        const sink = vi.fn();
+        const downloadPromise = rig.transfer.downloadTo("/slow/a.bin", sink);
+        const request = lastSent(rig.fake);
+        const rejection = downloadPromise.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+        expect(await rejection).toMatchObject({ name: "RpcTimeoutError" });
+        return { rig, request, cancel: lastSent(rig.fake), sink };
+      }
+
+      it("cancels the stream and keeps the id until the daemon's last frame", async () => {
+        vi.useFakeTimers();
+        try {
+          const { rig, request, cancel, sink } = await timedOut();
+          expect(cancel).toMatchObject({
+            type: "file_download_cancel_request",
+            stream: request.stream,
+          });
+          reply(rig.fake, cancel, "file_download_cancel_response", { ok: true });
+          await drain();
+          // The id is still claimed: the daemon accepts late and its frames must reach nobody.
+          expect(rig.transfer.pendingDownloads).toBe(1);
+          accept(rig.fake, request, served(0, 10));
+          chunk(rig.fake, request.stream!, new Uint8Array(4));
+          expect(sink).not.toHaveBeenCalled();
+          expect(rig.transfer.pendingDownloads).toBe(1);
+
+          rig.fake.pushBinary(
+            encodeFileTransferFrame({
+              opcode: "Error",
+              stream: request.stream!,
+              message: "cancelled",
+            }),
+          );
+          expect(rig.transfer.pendingDownloads).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("frees the id when the daemon then refuses the request, which no frame follows", async () => {
+        vi.useFakeTimers();
+        try {
+          const { rig, request, cancel } = await timedOut();
+          reply(rig.fake, cancel, "file_download_cancel_response", { ok: true });
+          await drain();
+          expect(rig.transfer.pendingDownloads).toBe(1);
+
+          reply(rig.fake, request, "file_download_response", { ok: false, error: "not_found" });
+          expect(rig.transfer.pendingDownloads).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it("a throwing sink aborts the download: it cancels the stream and rejects with the sink's error", async () => {

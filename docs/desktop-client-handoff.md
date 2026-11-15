@@ -322,7 +322,9 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   `no_free_stream`; `changed` also carries the current `totalBytes`/`mtimeMs`). Then the binary
   frames `Begin` (0x10; its meta repeats `totalBytes`, `mtimeMs`, `offset`, `length`), `Chunk`
   (0x11)…, and `End` (0x12, only when exactly `length` bytes were sent) or `Error` (0x13:
-  `read_failed`, `changed`, `cancelled`). Nothing follows `End`/`Error`. The token request is gone
+  `read_failed`, `changed`, `cancelled`). Nothing follows `End`/`Error`. **One exception:** a
+  download cancelled before its stream started sends `Error` `cancelled` alone, with no `Begin`, so
+  accept `Error` as the first and only frame of a stream. The token request is gone
   (sprint 097, advertised as `server_info.features.fileDownloadRanges`, fixtures `formatVersion` 2).
 - **What a Rust engine implements for downloads.** Request by path (no token); read the response
   first and treat `ok:false` as final; write chunks to disk as they arrive. To resume after a drop,
@@ -330,7 +332,13 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   on disk and `ifUnchanged: { size: totalBytes, mtimeMs }`; `changed` means the file was modified
   and the partial copy is stale. To stop one download without closing the connection, send
   `file_download_cancel_request { stream }` (`{ok:true}` then an `Error` `cancelled` frame, or
-  `{ok:false, error:"not_found"}`); closing the session releases its downloads silently. Use one
+  `{ok:false, error:"not_found"}`); closing the session releases its downloads silently. The daemon
+  reserves the stream id when the request arrives, before it opens the file, so a cancel sent right
+  after the request is answered `{ok:true}` **before** the download request is. Then exactly one of
+  two things follows: `file_download_response {ok:true}` and `Error` `cancelled` with no `Begin`, or
+  (the open failed) `file_download_response {ok:false}` and no frame. Free the stream id on either.
+  If your request timeout fires before the response, cancel the stream and keep its id reserved
+  until one of those arrives; do not reuse it earlier. Use one
   stream id per download per session (`stream_in_use` otherwise). `length` is the request's
   clamped to the end of the file, so `offset == totalBytes` yields an empty, successful transfer.
 - **Upload:** `file_upload_request {path, transferId}` answers `{ok, stream}`; the client then

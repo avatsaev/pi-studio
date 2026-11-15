@@ -45,12 +45,15 @@ Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client
   `no_free_stream`. `length` is the request's clamped to the end of the file.
 - **Frames:** `Begin` (meta: `fileName`, `mimeType`, `totalBytes`, `mtimeMs`, `offset`, `length`),
   `Chunk`..., then `End` (only when exactly `length` bytes were sent) or `Error` (`read_failed`,
-  `changed`, `cancelled`). Nothing follows `End`/`Error`.
+  `changed`, `cancelled`). Nothing follows `End`/`Error`. A download cancelled before its stream
+  started sends `Error` `cancelled` alone, with no `Begin`.
 - **Resume:** the client keeps `{ totalBytes, mtimeMs }` from the first response and re-requests
   with `offset` and `ifUnchanged`; a modified file answers `changed`. (Uploads have no resume.)
 - **Cancel:** `file_download_cancel_request { stream }` → `{ ok: true }` (the stream ends with
-  `Error` `cancelled`) or `{ ok: false, error: "not_found" }`. Closing the session releases its
-  downloads silently.
+  `Error` `cancelled`) or `{ ok: false, error: "not_found" }`. The stream id is reserved before the
+  file is opened, so a cancel can be answered `ok: true` before the download request is; the
+  stream then ends with `Error` `cancelled` (no `Begin`), or, when the open fails, with the
+  request's refusal and no frame. Closing the session releases its downloads silently.
 - **SDK:** `FileTransferClient.downloadTo(path, sink, options)` / `download(path, options)`
   (`offset`, `length`, `ifUnchanged`, `signal`, `onProgress`); both reject when the daemon lacks
   `fileDownloadRanges`. The browser host builds Blobs from the `downloadTo` chunks.
