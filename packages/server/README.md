@@ -41,7 +41,7 @@ A single daemon process owns all runtime state and mediates every operation:
   manages worktrees, and integrates with the GitHub API for PRs/issues.
 - **Orchestration** — chat rooms with `@mentions`, cron/interval **schedules** that fire agent
   prompts, and iterative worker+verifier **loops**.
-- **Files** — directory listing, text/binary file preview, and token-based chunked file download.
+- **Files** — directory listing, text/binary file preview, and chunked file download by path (byte ranges, resume with `ifUnchanged`, cancel).
 - **Service proxy** — an HTTP reverse proxy that routes to localhost services started by agents.
 
 The daemon is **provider-agnostic**: the rest of the code only ever touches the `AgentClient` /
@@ -274,9 +274,10 @@ are accepted via aliases but never generated.
 
 Layout: `[1-byte opcode][1-byte slot][payload]`. The `slot` (0–255) demultiplexes multiple
 terminals over the one connection. Codecs use `Uint8Array` (not Node `Buffer`) so they run
-unchanged in browsers and React Native. **File downloads** also ride binary frames: a client
-requests a token via the `file_download_token_request` RPC, then streams `Begin → Chunk* → End`
-frames via `file_download_request`; uploads consume the same frame format.
+unchanged in browsers and React Native. **File downloads** also ride binary frames: a client sends
+`file_download_request { path, offset?, length?, ifUnchanged? }`, gets a `file_download_response` (with the file's
+size) first, then `Begin → Chunk* → End`; `file_download_cancel_request { stream }` stops one
+(`Error` `cancelled`). Advertised as `fileDownloadRanges`. Uploads consume the same frame format.
 
 ### HTTP surface
 
@@ -388,7 +389,7 @@ src/
   terminal/             TerminalManager (PTY lifecycle, slot mux, snapshot, binary broadcast).
   projects/             Workspaces, projects, git ops, worktrees, GitHub, reconciliation.
   orchestration/        ChatService, ScheduleService, LoopService, cron.
-  files/                File explorer + chunked download token store.
+  files/                File explorer + chunked download/upload transfer.
   proxy/                ServiceProxy + port registry for agent-started services.
   logging/              Pino logger factory.
   util/                 Concurrency helpers.

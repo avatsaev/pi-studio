@@ -91,14 +91,15 @@ describe("binary fixtures manifest", () => {
     expect(manifest.formatVersion).toBe(1);
   });
 
-  it("lists exactly the fixture files on disk, one per frame, nine in all", () => {
+  it("lists exactly the fixture files on disk: ten frames, two for the file-transfer Begin", () => {
     const onDisk = readdirSync(DIR)
       .filter((name) => name.endsWith(".json") && name !== "manifest.json")
       .toSorted();
     expect(manifest.frames.map((entry) => entry.file).toSorted()).toEqual(onDisk);
-    expect(manifest.frames).toHaveLength(9);
+    expect(manifest.frames).toHaveLength(10);
     const keys = manifest.frames.map((entry) => `${entry.family}.${entry.opcode}`);
-    expect(keys.toSorted()).toEqual(Object.keys(OPCODE_BYTE).toSorted());
+    expect(new Set(keys)).toEqual(new Set(Object.keys(OPCODE_BYTE)));
+    expect(keys.filter((key) => key === "file_transfer.Begin")).toHaveLength(2);
   });
 });
 

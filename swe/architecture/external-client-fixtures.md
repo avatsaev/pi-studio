@@ -64,7 +64,7 @@ Rust types honest across pi-studio releases (D22, D34).
 ```
 packages/protocol/fixtures/external-clients/
   README.md                       # the rule (§ Compatibility rule), file format, how to add one
-  manifest.json                   # {"formatVersion":1,"messages":[{"file","type","direction"}...]}
+  manifest.json                   # {"formatVersion":2,"messages":[{"file","type","direction"}...]}
   <message-type>[.<variant>].json # one file per message type (+ variants), e.g.
                                   #   hello.json, status.server_info.json, agent_stream.tool_call.json
 ```
@@ -153,6 +153,13 @@ Fixtures are the published contract for clients outside this repo. Therefore:
   `fixtures/external-clients/CHANGELOG.md` naming the file(s) and the migration, (3) a `COMPAT(...)`
   note per MAIN-SCOPE § 9 if an old daemon still emits the old shape. MAIN-SCOPE § 9 already forbids
   breaking wire changes; this makes the consequence mechanical for external readers.
+- *Shipped:* the first breaking bump is `formatVersion` 2 (sprint 097, pi-studio 0.0.119): the
+  download token fixtures (`file_download_token_request.json`/`_response.json`) were deleted and
+  `file_download_request`/`_response` reshaped (`path` instead of `token`; response before the
+  stream, with `totalBytes`/`mtimeMs`/`offset`/`length`). New fixtures:
+  `file_download_request.range`, `file_download_response.rejected`, `file_download_cancel_request`,
+  `file_download_cancel_response`, and the binary `file_transfer.begin.download` (the binary
+  manifest keeps its own `formatVersion` 1). All carry `requiresFeature: "fileDownloadRanges"`.
 - The contract test enforces (1) by failing on drift and (2) by a guard that fails when any fixture
   file's *shape signature* (see below) changed relative to `fixtures/external-clients/.signatures.json`
   without `formatVersion` having changed (signatures regenerate with

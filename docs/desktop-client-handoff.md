@@ -9,11 +9,11 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 
 **This document is kept current.** The workbench is built in this repository, and every task in
 that plan updates this file when it changes something stated here. "Plan and progress" below shows
-how far that work has got. Last updated: 2026-11-14 (sprints 091–096 done: 091–095 on `feat/workbench`
+how far that work has got. Last updated: 2026-11-15 (sprints 091–097 done: 091–095 on `feat/workbench`
 (`packages/workbench` is a publishable library with a final public API, a README, a release runbook
 and a packed-tarball smoke test; the first npm release happens when the branch merges to `main`),
-096 on `feat/desktop-protocol-followups`, stacked on it. Changes from 096 are marked "0.0.118": that
-is the first version that carries them).
+096 on `feat/desktop-protocol-followups`, stacked on it, 097 on `feat/desktop-protocol-followups-2`.
+Changes from 096 are marked "0.0.118" and from 097 "0.0.119": the first versions that carry them).
 
 ## Status of the pieces
 
@@ -22,7 +22,7 @@ is the first version that carries them).
 | `@av-pi-studio/protocol`, `client`, `relay` | Published on npm, in use |
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
-| Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md` |
+| Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
 | `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
@@ -39,6 +39,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 094 | Published build, public API, packed-tarball smoke, package README | An importable package and its real API | **Done** (API and host contract: `packages/workbench/README.md`; `scripts/pack-smoke.sh` installs the tarballs into a scratch Vite app) |
 | 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | **Done** on `feat/desktop-protocol-followups` (merge after `feat/workbench`; the next release, 0.0.118, carries it). Live-checked against an isolated production daemon: 600 MiB upload from the browser UI, 600 MiB download to a paused client, a `desktop`-platform session in `daemon_status` |
+| 097 | Download by path (token removed), byte ranges with `ifUnchanged` resume, size and mtime in the response and `Begin`, response before the stream, `file_download_cancel_request`, per-session download stream ids, SDK `downloadTo`, browser-host Blobs from chunks, fixtures `formatVersion` 2 | Everything the Rust transfer engine needs for downloads: resume, seek, cancel, progress against a known size | **Done** on `feat/desktop-protocol-followups-2` (first carried by 0.0.119). Live measurements: see "Measured (sprint 097)" in § 2 |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
 published SDK. It can be prototyped before the first release, against `web-client`'s behaviour, but it
@@ -276,12 +277,12 @@ step. It needs SDK changes and should wait for a measured reason.
 
 ### 2. File transfer engine
 
-How transfers worked at 0.0.117, and why they hit limits (the upload rows are fixed on this branch: the browser host now passes the `File` to the SDK, which slices, paces and waits for the daemon's confirmation; downloads are unchanged):
+How transfers worked at 0.0.117, and why they hit limits (the upload rows are fixed on this branch: the browser host now passes the `File` to the SDK, which slices, paces and waits for the daemon's confirmation; the download rows are fixed by sprint 097):
 
 | Today | Consequence |
 |---|---|
 | *(fixed)* Upload read the whole file with `file.arrayBuffer()`, then queued every chunk at once with no backpressure (the browser host's `files.upload`, `file-transfer-client.ts`) | Memory use was at least the file size; large files stalled or crashed the tab. Now: a 600 MB upload through the Files explorer kept the tab's JS heap at 14–19 MB, finished with matching SHA-256, and after a forced GC the renderer was back at its baseline (without GC its RSS climbs by the transient 32 KiB slices until V8 collects) |
-| Download collects chunks in an array, concatenates them, then copies into a `Blob` (`file-transfer-client.ts`, the browser host's `files.openForView`/`saveToDisk`) | Two to three copies of the file in memory |
+| *(fixed, 0.0.119)* Download collected chunks in an array, concatenated them, then copied into a `Blob`; the response arrived only after the last chunk, so a transfer longer than the RPC timeout failed | The browser host now builds the `Blob` from the chunks `FileTransferClient.downloadTo` delivers (no concatenation), the response precedes the stream, and a download can be ranged, resumed and cancelled |
 | Transfers share the one WebSocket with RPC and terminal data | A large transfer delays chat and terminal frames |
 | Text viewers stop at 30 MiB; inline reads stop at 5 MiB (`MAX_INLINE_FILE_READ_BYTES`) | Large files cannot be previewed |
 
@@ -289,18 +290,49 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 `packages/protocol/src/binary-frames/file-transfer-protocol.ts`,
 `packages/server/src/files/file-transfer.ts`):
 
-- **Download:** `file_download_token_request`, then `file_download_request`, then binary frames
-  `Begin` (0x10), `Chunk` (0x11)…, `End` (0x12) or `Error` (0x13). Tokens are single-use with a
-  10-minute cleanup TTL.
+- **Download:** `file_download_request { path, stream?, offset?, length?, ifUnchanged?: {size, mtimeMs} }`
+  is answered by `file_download_response` **before** any binary frame:
+  `{ ok: true, stream, transferId, totalBytes, mtimeMs (integer), offset, length }` or
+  `{ ok: false, error, stream? }` (errors: `missing_path`, `not_found`, `not_a_file`, `unreadable`,
+  `invalid_stream`, `stream_in_use`, `invalid_range`, `range_not_satisfiable`, `changed`,
+  `no_free_stream`; `changed` also carries the current `totalBytes`/`mtimeMs`). Then the binary
+  frames `Begin` (0x10; its meta repeats `totalBytes`, `mtimeMs`, `offset`, `length`), `Chunk`
+  (0x11)…, and `End` (0x12, only when exactly `length` bytes were sent) or `Error` (0x13:
+  `read_failed`, `changed`, `cancelled`). Nothing follows `End`/`Error`. The token request is gone
+  (sprint 097, advertised as `server_info.features.fileDownloadRanges`, fixtures `formatVersion` 2).
+- **What a Rust engine implements for downloads.** Request by path (no token); read the response
+  first and treat `ok:false` as final; write chunks to disk as they arrive. To resume after a drop,
+  keep `{ totalBytes, mtimeMs }` from the first response, re-request with `offset` = bytes already
+  on disk and `ifUnchanged: { size: totalBytes, mtimeMs }`; `changed` means the file was modified
+  and the partial copy is stale. To stop one download without closing the connection, send
+  `file_download_cancel_request { stream }` (`{ok:true}` then an `Error` `cancelled` frame, or
+  `{ok:false, error:"not_found"}`); closing the session releases its downloads silently. Use one
+  stream id per download per session (`stream_in_use` otherwise). `length` is the request's
+  clamped to the end of the file, so `offset == totalBytes` yields an empty, successful transfer.
 - **Upload:** `file_upload_request {path, transferId}` answers `{ok, stream}`; the client then
   sends `Begin` (with `transferId`), `Chunk`…, `End`. The daemon writes to the target path.
-- Chunks are 32 KiB. Stream ids are one byte (256), allocated by the daemon across all sessions.
+- Chunks are 32 KiB. Stream ids are one byte (256). Upload ids are allocated by the daemon across all
+  sessions; **download ids are scoped to the session** (the client may choose one, or omit it and let
+  the daemon pick a free one), so a client holding two connections can reuse the same id on both.
 - No upload size cap was found in the daemon. The ceiling used to be client memory; the browser host no longer holds an upload in memory (0.0.118).
 - **Measured (sprint 096, loopback, isolated production daemon):** a 600 MiB file downloaded to a client
   whose TCP socket was paused for 6 s grew the daemon's RSS by ~58 MB (against a 600 MiB file; no
   unpaced control run was made), and the download then completed with a matching SHA-256 in ~7 s. A 600 MiB upload from
   the browser UI took ~5 s. These are loopback figures; LAN and relay were not measured, and the water
   marks are still the chosen 1 MiB / 256 KiB.
+- **Measured (sprint 097, loopback, isolated production daemon, 600 MiB random file in the page cache,
+  SDK client in Node):** a whole download took 0.7 s (~890 MiB/s) and ten consecutive 64 MiB ranges
+  both reproduce the SHA-256; a download aborted at ~200 MiB and resumed with `offset` and
+  `ifUnchanged` matches the SHA-256, and the same resume after touching the file answers `changed`;
+  cancelling one running download left a second, 150 MiB, download on the same connection intact
+  and both stream ids were released by the daemon's final frame; with the client's TCP socket paused
+  for 6 s the daemon's RSS went 205 → 242 MiB (+37 MiB against a 600 MiB file) and the download then
+  completed with a matching SHA-256 (6.6 s in all); the first `Chunk` arrived 2 ms after the request,
+  i.e. the response no longer waits for the stream. Not comparable with the sprint 096 figure
+  (different file cache state and method). In headless Chromium against that daemon, an image and a
+  PDF viewed through `files.openForView` rendered, and "Download" from both the explorer menu and
+  the PDF toolbar saved byte-identical files with no page errors. LAN, relay and an unpaced control
+  run were not measured.
 - **Upload completion (daemon, shipped in this branch).** Send `ack: true` in
   `file_upload_request` when `server_info.features.fileTransferAck` is set, and the daemon pushes
   `{type:"session", message:{type:"file_upload_complete", transferId, stream, ok, bytesWritten, error?}}`
@@ -322,8 +354,8 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Download pacing (daemon, shipped).** The daemon pauses reading the file while the socket has more
   than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for **direct
   connections only**: the relay's stand-in socket cannot report a queue, so relay downloads are
-  unpaced. A read error sends one `Error` frame and **no** `End`; the `file_download_response` then
-  says `ok:false, error:"read_failed"`. Treat `Error` as final.
+  unpaced. A read error after the response has gone sends one `Error` frame (`read_failed`) and **no**
+  `End`; the file ending early sends `Error` `changed`. Treat `Error` as final.
 - The daemon's reaction to an invalid `hello` on a direct connection (not only the relay) is **not**
   silent: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
   fails validation. Only the relay path ignores it without an answer. Either way `clientType` must
@@ -341,9 +373,9 @@ Recommended design:
 - Give viewers a native URL (a custom protocol served by Rust) instead of a `Blob` object URL, so
   images, video and PDFs stream and support range requests.
 
-Limits a client cannot remove alone, because they are in the protocol: there is **no resume** after
-a dropped connection, and the chunk size is fixed at 32 KiB. If those matter, raise them in this
-repository; a daemon-side fix helps every client.
+Limits a client cannot remove alone, because they are in the protocol: **uploads cannot resume** after
+a dropped connection (downloads can, with `offset` and `ifUnchanged`), and the chunk size is fixed at
+32 KiB. If those matter, raise them in this repository; a daemon-side fix helps every client.
 
 ### 3. Relay E2EE
 
@@ -418,17 +450,25 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
 ## Compatibility rules
 
 - The wire protocol is append-only. New optional fields appear; fields are never removed or
-  narrowed. Decode leniently and ignore unknown fields and unknown message types.
+  narrowed. Decode leniently and ignore unknown fields and unknown message types. The one
+  exception is sprint 097 (0.0.119): the download token flow was removed outright
+  (`swe/architecture/websocket-protocol.md`).
 - Gate every feature on `server_info.features`.
 - `packages/protocol/fixtures/external-clients/` holds one canonical JSON frame per message an
-  external client uses (81 entries, `formatVersion` 1). Vendor it and deserialize every fixture in
-  Rust tests. Its README explains the format and the breaking-change policy.
+  external client uses (83 entries, `formatVersion` 2 since 0.0.119). Vendor it and deserialize
+  every fixture in Rust tests. Its README explains the format and the breaking-change policy.
 - Since 0.0.118 the fixtures cover **file transfer and terminals**: the `file_download_*`,
   `file_upload_*`, `file_upload_complete` and `*_terminal_*` RPCs plus `terminals_update`, each
   checked against a live dev daemon. Most have no Zod schema, so the live test is their only guard.
+  Sprint 097 (0.0.119, `fileDownloadRanges`) reshaped the download fixtures (**breaking**: by `path`,
+  answered before the stream, the token fixtures deleted, hence `formatVersion` 2) and added
+  `file_download_request.range`, `file_download_response.rejected` and the `file_download_cancel_*`
+  pair; the cancel response fixtures the `not_found` outcome, because `ok: true` needs a download
+  still running when the cancel arrives, which a test client cannot hold deterministically.
   The **binary frames** (file transfer `Begin`/`Chunk`/`End`/`Error`, terminal `Output`/`Input`/`Resize`/
-  `Snapshot`/`Restore`) are nine fixtures in the `binary/` **subdirectory** with their own
-  `binary/manifest.json` and `formatVersion` (complete frame as `hex` plus its `decoded` form); they are in a
+  `Snapshot`/`Restore`) are ten fixtures in the `binary/` **subdirectory** (`file_transfer.begin.download`
+  is a second `Begin` carrying `totalBytes`, `mtimeMs`, `offset` and `length`) with their own
+  `binary/manifest.json` and `formatVersion` (still 1; complete frame as `hex` plus its `decoded` form); they are in a
   subdirectory because the dashboard's vendored test rejects any top-level `*.json` that `manifest.json`
   does not list. They are round-trip-tested against the TypeScript codecs but have no live layer.
   For the `Begin` and `Resize` frames compare parsed JSON, not bytes. The Rust transfer engine can
@@ -452,8 +492,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
 - Does the desktop app bundle a daemon, or only connect to existing ones?
 - Do the dashboard's Rust crates move to a shared repository or a published crate?
 - Does the relay accept a second channel from the same client for the bulk connection?
-- Should the protocol gain transfer resume and a larger chunk size? Both are out of scope for the
-  follow-ups spec.
+- Should the protocol gain upload resume and a larger chunk size? Download resume shipped in sprint
+  097; upload resume and the chunk size are out of scope for the follow-ups spec.
 - Is ordered, low-overhead binary delivery over Tauri IPC fast enough for terminal traffic?
 
 ## Where to read next

@@ -42,7 +42,8 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   the application bundle can build the worker.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
-  download + anchor click for save, `Blob` object URL + idempotent revoke for view), reaching the
+  the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
+  both save (anchor click) and view (`Blob` object URL + idempotent revoke)), reaching the
   live connection only through `lib/connection/live-file-transfer.ts`'s `currentFileTransfer()`.
   Every viewer, `lib/inline-image-cache.ts` and every "Download" action (`features/files/
   SaveFileButton.tsx`, the explorer menu, the PDF toolbar) go through it; the explorer's upload

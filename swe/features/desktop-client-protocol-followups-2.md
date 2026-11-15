@@ -1,7 +1,7 @@
 # Feature — Desktop-Client Protocol Follow-ups II
 
-> **Status: planned (2026-11-15), not built.** Sprints 097 (download) and 098 (agent stream mode,
-> CLI JSON) in `swe/sprints/PLAN.md`, on `feat/desktop-protocol-followups-2`. Follows
+> **Status: sprint 097 (download) built and live-checked (2026-11-15); sprint 098 (agent stream mode,
+> CLI JSON) planned.** Both in `swe/sprints/PLAN.md`, on `feat/desktop-protocol-followups-2`. Follows
 > [desktop-client-protocol-followups.md](desktop-client-protocol-followups.md) (sprint 096, shipped in
 > 0.0.118).
 
@@ -128,7 +128,8 @@ it back exactly.
 | `stream_in_use` | This session already has a download on `stream` |
 | `invalid_range` | `offset` or `length` is not an integer in its allowed range |
 | `range_not_satisfiable` | `offset` is greater than the file's size |
-| `changed` | `ifUnchanged` does not match the file |
+| `changed` | `ifUnchanged` does not match the file (a value that is not `{ size, mtimeMs }` never matches) |
+| `no_free_stream` | `stream` was omitted and this session has all 256 ids in use (same code as uploads) |
 
 #### 1.3 Binary frames
 
@@ -312,8 +313,13 @@ downloadTo(path, sink, { offset, length, ifUnchanged, signal, onProgress }):
     on Chunk: sink(chunk); received += size; onProgress(received, response.length)
     on End:   release; resolve { ...Begin metadata }
     on Error: release; reject message
-    on signal abort: request file_download_cancel_request { stream }; release; reject AbortError
+    on signal abort: reject AbortError at once; request file_download_cancel_request { stream };
+                     keep the id registered until a terminal frame arrives, the request is refused,
+                     or the cancel answers not_found (a late `Error cancelled` must not reach a
+                     download that reused the id)
     on connection closed: release; reject
+    result metadata comes from Begin; an End short of the announced length rejects;
+    a sink or onProgress that throws aborts the download the same way
 
 download(path, options) = downloadTo collecting chunks, then one buffer
 ```
@@ -383,34 +389,36 @@ is not written to the capability store.
 
 Download:
 
-- [ ] A request with `path` and no range sends the whole file; the response and `Begin` carry the
+- [x] A request with `path` and no range sends the whole file; the response and `Begin` carry the
       file's size as `totalBytes` and `length`, and its modification time as an integer `mtimeMs`.
-- [ ] A request with `offset` and `length` sends exactly those bytes; concatenating consecutive
+- [x] A request with `offset` and `length` sends exactly those bytes; concatenating consecutive
       ranges of a file reproduces it byte for byte.
-- [ ] `file_download_response` reaches the client before `Begin`, and no message follows `End`.
-- [ ] A download that runs longer than the client's RPC timeout completes (a test uses a short
-      timeout and a paced transfer).
-- [ ] Each rejection in § 1.2 is returned for its condition, with no binary frame.
-- [ ] `ifUnchanged` with stale values is rejected with `changed` and the current values; with
+- [x] `file_download_response` reaches the client before `Begin`, and no message follows `End`.
+- [x] A download that runs longer than the client's RPC timeout completes (proved by a router test in
+      which the response is on the wire while a stalled client still has most of the file to receive,
+      and live: first `Chunk` 2 ms after the request, a 6 s client pause completes).
+- [x] Each rejection in § 1.2 is returned for its condition, with no binary frame.
+- [x] `ifUnchanged` with stale values is rejected with `changed` and the current values; with
       current values the range is served.
-- [ ] Interrupting a download and resuming it with `offset` and `ifUnchanged` yields a file with a
+- [x] Interrupting a download and resuming it with `offset` and `ifUnchanged` yields a file with a
       matching SHA-256; resuming after the file was modified yields `changed`.
-- [ ] `file_download_cancel_request` stops the transfer: the client sees `Error` `cancelled`, and
+- [x] `file_download_cancel_request` stops the transfer: the client sees `Error` `cancelled`, and
       the daemon reads no further from the file.
-- [ ] A second download on a stream id in use is rejected with `stream_in_use`; after `End` the id
+- [x] A second download on a stream id in use is rejected with `stream_in_use`; after `End` the id
       can be reused.
-- [ ] A closed session leaves no active download and no open file handle.
-- [ ] `file_download_token_request` gets `rpc_error` `unknown_message_type`; no token store, token
+- [x] A closed session leaves no active download and no open file handle.
+- [x] `file_download_token_request` gets `rpc_error` `unknown_message_type`; no token store, token
       type or `transferToken` field remains in the repository.
-- [ ] SDK: `downloadTo` delivers chunks in order and retains none (a test downloads more than the
+- [x] SDK: `downloadTo` delivers chunks in order and retains none (a test downloads more than the
       high-water mark with a sink that discards, and the client's held bytes stay bounded);
-      `onProgress` is monotonic and ends at `length`; aborting rejects with `AbortError` and frees
-      the stream id.
-- [ ] SDK against a daemon without `fileDownloadRanges`: `download` rejects with the
+      `onProgress` is monotonic and ends at `length`; aborting rejects with `AbortError` and releases
+      the stream id once the daemon's final frame has arrived (the SDK holds it until then, so a late
+      `Error` cannot reach a reused id).
+- [x] SDK against a daemon without `fileDownloadRanges`: `download` rejects with the
       update-the-daemon message and sends nothing.
-- [ ] Browser host: saving and viewing a file work as before in a live browser check; the code no
+- [x] Browser host: saving and viewing a file work as before in a live browser check; the code no
       longer concatenates the file into one array before making the `Blob`.
-- [ ] Pacing still bounds the daemon's socket buffer during a ranged download (the sprint 096 test
+- [x] Pacing still bounds the daemon's socket buffer during a ranged download (the sprint 096 test
       still passes).
 
 Agent stream mode:
@@ -435,7 +443,7 @@ CLI:
 
 Fixtures and documents:
 
-- [ ] The fixture set matches § 4; `manifest.json` has `formatVersion` 2; `CHANGELOG.md` has the
+- [x] The fixture set matches § 4; `manifest.json` has `formatVersion` 2; `CHANGELOG.md` has the
       dated breaking entry; signatures are regenerated; both fixture test layers pass, including the
       live dev-daemon layer for the new download shapes.
 - [ ] `docs/desktop-client-handoff.md`, the root `AGENTS.md` protocol section,
@@ -445,9 +453,8 @@ Fixtures and documents:
 
 ## TODO(verify)
 
-- **Two fixtures for one binary opcode.** The binary round-trip test
-  (`packages/protocol/src/external-binary-fixtures.test.ts`) is assumed to accept a second `Begin`
-  file. If it does not, the test is extended rather than the existing fixture edited.
+- **Two fixtures for one binary opcode.** Resolved: the binary round-trip test now expects ten
+  fixtures, two of them for `Begin`; the existing `Begin` fixture is unedited.
 - **Other readers of `transferToken`.** None in this repository (`packages/client`,
   `packages/workbench`, `packages/cli` were searched). An out-of-tree client was not checked.
 - **`HtmlViewer` asset downloads.** `packages/workbench/src/features/files/HtmlViewer.tsx` calls the

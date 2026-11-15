@@ -27,6 +27,7 @@ describe("capability flag sets", () => {
         "daemonStatusRpc",
         "extensionPacks",
         "extensionUi",
+        "fileDownloadRanges",
         "fileTransferAck",
         "compactionEvents",
         "forkTimelineSync",

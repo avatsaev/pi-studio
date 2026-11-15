@@ -64,8 +64,13 @@ contract the Zod-only protocol cannot give: many list/stat/orchestration respons
 - File-transfer and terminal fixtures (since 0.0.118) cover the JSON control frames only: the
   `file_download_*`/`file_upload_*` RPCs, `file_upload_complete` (gated by `fileTransferAck`, as is
   the `ack` upload request) and the `*_terminal_*` RPCs plus the `terminals_update` broadcast.
-  Most of these have no Zod schema, so Layer B is their guard. Download tokens appear as the literal
-  `"FAKE"` (volatile). The binary frames are fixtured separately, see "Binary frames" below.
+  Most of these have no Zod schema, so Layer B is their guard. The download fixtures (`since`
+  0.0.119, `fileDownloadRanges`) replaced the token flow at `formatVersion` 2 and were extended
+  additively with `file_download_request.range` (offset/length/`ifUnchanged`),
+  `file_download_response.rejected`, and the `file_download_cancel_request`/`_response` pair (the
+  response fixtures the deterministic `{ok:false, error:"not_found"}` outcome; `ok:true` needs a
+  download still running and is described, not fixtured). The binary frames are fixtured
+  separately, see "Binary frames" below.
 
 ## Binary frames
 
@@ -78,8 +83,8 @@ files. A plain `rsync -a --delete` of this directory carries `binary/` along har
 
 | File | Purpose |
 |---|---|
-| `binary/manifest.json` | `{"formatVersion": 1, "frames": [{"file","family","opcode","direction"}]}` — lists the nine frame fixtures; the test fails on an unlisted or missing file |
-| `binary/<family>.<opcode>.json` | One fixture per frame: `file_transfer.{begin,chunk,end,error}`, `terminal.{output,input,resize,snapshot,restore}` |
+| `binary/manifest.json` | `{"formatVersion": 1, "frames": [{"file","family","opcode","direction"}]}` — lists the ten frame fixtures; the test fails on an unlisted or missing file |
+| `binary/<family>.<opcode>[.<variant>].json` | One fixture per frame shape: `file_transfer.{begin,begin.download,chunk,end,error}`, `terminal.{output,input,resize,snapshot,restore}`; `begin.download` (0.0.119) is a download `Begin` carrying `totalBytes`, `mtimeMs`, `offset` and `length`, so the `Begin` opcode has two fixtures |
 
 ```jsonc
 {

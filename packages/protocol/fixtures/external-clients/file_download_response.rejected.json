@@ -1,0 +1,19 @@
+{
+  "type": "file_download_response",
+  "direction": "server_to_client",
+  "description": "A rejected download: `ok:false` with `error`, and no binary frames follow. The example is `not_found` (the path does not exist). `stream` is present when the request carried a valid one or the daemon had already picked one. The other errors: missing_path, not_a_file, unreadable, invalid_stream, stream_in_use, invalid_range, range_not_satisfiable, no_free_stream, and `changed` (the `ifUnchanged` check failed), which also carries the file's current `totalBytes` and `mtimeMs`.",
+  "since": "0.0.119",
+  "stage": 3,
+  "requiresFeature": "fileDownloadRanges",
+  "volatile": ["/message/requestId", "/message/stream"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_response",
+      "ok": false,
+      "error": "not_found",
+      "stream": 1,
+      "requestId": "req-1"
+    }
+  }
+}

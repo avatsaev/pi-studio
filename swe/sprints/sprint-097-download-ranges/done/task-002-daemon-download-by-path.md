@@ -1,7 +1,7 @@
 # Task 002 — Daemon: download by path, ranged and sized, answered before the stream; token removed
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (files, daemon), packages/protocol (feature flag, fixtures)
 - **Priority:** P1

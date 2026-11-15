@@ -1,7 +1,7 @@
 # Task 004 — SDK: download by path with range, streaming sink, progress and abort
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client (file transfer), packages/cli (end-to-end test)
 - **Priority:** P1

@@ -158,6 +158,17 @@ on reconnect:
 - New *features* (not fields) advertise a flag in `server_info.features.*`; clients run the feature
   or show "update the host." No degraded fallback path.
 
+**The one exception (sprint 097, decision D4).** The user base is small, so sprint 097 deliberately
+broke these rules once, with no compatibility release (nothing is accepted-and-ignored). Removed:
+`file_download_token_request` and `file_download_token_response`, the `token` field of
+`file_download_request` (it takes a `path`), the `invalid_or_expired_token` error, `transferToken`
+in the file explorer's binary preview result, and the after-the-stream `file_download_response`
+(it is now sent before the binary frames). An old client's token request gets `rpc_error`
+`unknown_message_type`. The external fixtures carry the matching `formatVersion` 2 bump (see
+[external-client-fixtures.md](external-client-fixtures.md)). The rule above applies again to every
+other message; this is not a precedent. Detail:
+[../features/desktop-client-protocol-followups-2.md](../features/desktop-client-protocol-followups-2.md) § 1.5.
+
 ### Capability flags
 - `server_info.features.*` (daemon→client): e.g. `providersSnapshot`, `checkoutGithubSetAutoMerge`,
   `daemonStatusRpc`, `terminal-restore-modes`, `rewind`, `checkoutRefresh`. Each is tagged with a

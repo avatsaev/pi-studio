@@ -1,7 +1,7 @@
 # Task 005 — Fixtures for the new download shapes, JSON and binary
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (fixtures), packages/server (live fixture scenario)
 - **Priority:** P2

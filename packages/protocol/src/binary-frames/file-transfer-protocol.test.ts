@@ -52,6 +52,38 @@ describe("file-transfer codec", () => {
     expect(decoded).toEqual({ opcode: "Error", stream: 0, message: "expired token" });
   });
 
+  it("round-trips the download range metadata on Begin", () => {
+    const meta = {
+      transferId: "t2",
+      fileName: "b.bin",
+      totalBytes: 1000,
+      mtimeMs: 1_700_000_000_123,
+      offset: 100,
+      length: 200,
+    };
+    const decoded = decodeFileTransferFrame(
+      encodeFileTransferFrame({ opcode: "Begin", stream: 1, meta }),
+    );
+    expect(decoded).toEqual({ opcode: "Begin", stream: 1, meta });
+  });
+
+  it("still decodes a Begin without the range metadata", () => {
+    const decoded = decodeFileTransferFrame(
+      encodeFileTransferFrame({ opcode: "Begin", stream: 1, meta: { transferId: "t3" } }),
+    );
+    expect(decoded).toEqual({ opcode: "Begin", stream: 1, meta: { transferId: "t3" } });
+  });
+
+  it("rejects a fractional mtimeMs on Begin", () => {
+    expect(() =>
+      encodeFileTransferFrame({
+        opcode: "Begin",
+        stream: 1,
+        meta: { transferId: "t4", mtimeMs: 1.5 },
+      }),
+    ).toThrow();
+  });
+
   it("rejects unknown opcodes / short frames safely", () => {
     expect(() => decodeFileTransferFrame(new Uint8Array([0xee, 0x00]))).toThrow(
       FileTransferFrameError,

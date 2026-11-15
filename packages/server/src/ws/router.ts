@@ -18,6 +18,13 @@ export interface RpcHandlerContext {
   session: Session;
   message: Record<string, unknown>;
   requestId?: string;
+  /**
+   * Run `fn` once the router has sent this handler's reply. A handler that must put frames on the
+   * wire strictly after its answer (a download's binary stream) schedules them here instead of
+   * sending them from inside the awaited handler. Not run when the handler throws; a throwing `fn`
+   * is logged and never reaches the client as an `rpc_error`.
+   */
+  afterReply(fn: () => void): void;
 }
 
 /** A handler returns a response message (wrapped + correlated by the router) or `undefined`. */
@@ -78,20 +85,40 @@ async function dispatchSessionMessage(
 
   const startedAt = Date.now();
   try {
-    const result = await handler({ session, message, requestId });
+    const afterReply: Array<() => void> = [];
+    const result = await handler({
+      session,
+      message,
+      requestId,
+      afterReply: (fn) => afterReply.push(fn),
+    });
     registry.logger?.debug(
       { type, requestId, clientId: session.clientId, durationMs: Date.now() - startedAt },
       "rpc ok",
     );
-    if (result !== undefined) {
-      const response =
-        requestId &&
-        typeof result === "object" &&
-        result !== null &&
-        (result as Record<string, unknown>).requestId === undefined
-          ? { ...(result as Record<string, unknown>), requestId }
-          : result;
-      session.send({ type: "session", message: response });
+    try {
+      if (result !== undefined) {
+        const response =
+          requestId &&
+          typeof result === "object" &&
+          result !== null &&
+          (result as Record<string, unknown>).requestId === undefined
+            ? { ...(result as Record<string, unknown>), requestId }
+            : result;
+        session.send({ type: "session", message: response });
+      }
+    } finally {
+      // Hooks run even when the send threw (a closed socket) so they can release what they hold.
+      for (const fn of afterReply) {
+        try {
+          fn();
+        } catch (error) {
+          registry.logger?.warn(
+            { type, requestId, clientId: session.clientId, err: (error as Error)?.message },
+            "rpc after-reply hook failed",
+          );
+        }
+      }
     }
   } catch (error) {
     // A handler failure (including a timeout) is an operation error, never a dead socket.

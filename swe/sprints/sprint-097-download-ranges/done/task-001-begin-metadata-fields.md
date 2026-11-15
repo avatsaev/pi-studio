@@ -1,7 +1,7 @@
 # Task 001 — `Begin` metadata: `mtimeMs`, `offset`, `length`
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (binary-frames)
 - **Priority:** P1

@@ -549,6 +549,19 @@ All communication uses a **single WebSocket connection** per client.
   request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
   `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
   after a failed upload. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
+- **Download by path, ranged and cancellable (sprint-097, `swe/features/desktop-client-protocol-followups-2.md` § 1).**
+  The one deliberate break of the append-only rule (decision D4; `swe/architecture/websocket-protocol.md`).
+  `file_download_request { path, stream?, offset?, length?, ifUnchanged? }` replaces the token flow:
+  `file_download_token_request`/`_response`, `DownloadTokenStore`, `transferToken` and
+  `invalid_or_expired_token` are deleted with no compatibility path. `file_download_response` is sent
+  **before** the binary frames (`{ ok:true, stream, transferId, totalBytes, mtimeMs, offset, length }`
+  or `{ ok:false, error }`; router hook `ctx.afterReply`), `Begin` carries the same size/mtime/range
+  fields, and `End` is sent only when exactly `length` bytes went out (`Error` `read_failed` |
+  `changed` | `cancelled`). `file_download_cancel_request { stream }` stops one download; download
+  stream ids are per session (uploads keep the daemon-wide pool). Advertised as
+  `server_info.features.fileDownloadRanges`. SDK: `FileTransferClient.downloadTo`/`download`
+  (offset, length, `ifUnchanged`, `signal`, `onProgress`); the browser host builds Blobs from the
+  chunks. The external fixtures took their first breaking bump, `formatVersion` 2.
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**
@@ -572,8 +585,10 @@ All communication uses a **single WebSocket connection** per client.
   candidates with `node packages/server/scripts/record-external-fixtures.ts` (after `npm run
   build:server`). See `packages/protocol/fixtures/external-clients/README.md`. Coverage includes the
   file-transfer RPCs (`file_download_*`, `file_upload_*`, `file_upload_complete`) and the terminal
-  RPCs/broadcast (`*_terminal_request`/`_response`, `terminals_update`), all `since` 0.0.118 (sprint-096).
-  The nine file-transfer/terminal **binary frames** are fixtured in the `binary/` subdirectory (own
+  RPCs/broadcast (`*_terminal_request`/`_response`, `terminals_update`), `since` 0.0.118 (sprint-096);
+  sprint-097 reshaped the download fixtures (`formatVersion` 2, `since` 0.0.119; see the sprint-097
+  bullet above) and added the range, rejected and cancel fixtures.
+  The ten file-transfer/terminal **binary frames** (including `file_transfer.begin.download`) are fixtured in the `binary/` subdirectory (own
   manifest and `formatVersion`, round-trip-tested against the real codecs by
   `external-binary-fixtures.test.ts`); a subdirectory because the dashboard's vendored test rejects
   unlisted top-level `*.json`.

@@ -36,6 +36,9 @@ export const fileTransferBeginSchema = z.object({
   fileName: z.string().optional(),
   mimeType: z.string().optional(),
   totalBytes: z.number().int().nonnegative().optional(),
+  mtimeMs: z.number().int().nonnegative().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  length: z.number().int().nonnegative().optional(),
 });
 export type FileTransferBegin = z.infer<typeof fileTransferBeginSchema>;
 

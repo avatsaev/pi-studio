@@ -59,6 +59,11 @@ export const SERVER_FEATURES = {
    * `file_upload_complete` push once the file is closed (or has failed).
    */
   fileTransferAck: "fileTransferAck",
+  /**
+   * `file_download_request` takes a `path` and an optional byte range, is answered before the
+   * stream starts and carries the file's size; the download token is gone.
+   */
+  fileDownloadRanges: "fileDownloadRanges",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -110,6 +115,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   daemonObservability: COMPAT({ name: "daemonObservability", addedIn: "0.0.0", removeBy: "TBD" }),
   // COMPAT(fileTransferAck): added 0.0.118, remove by TBD
   fileTransferAck: COMPAT({ name: "fileTransferAck", addedIn: "0.0.118", removeBy: "TBD" }),
+  // COMPAT(fileDownloadRanges): added 0.0.119, remove by TBD
+  fileDownloadRanges: COMPAT({ name: "fileDownloadRanges", addedIn: "0.0.119", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

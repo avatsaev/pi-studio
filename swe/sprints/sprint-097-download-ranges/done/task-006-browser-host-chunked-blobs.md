@@ -1,7 +1,7 @@
 # Task 006 — Browser host: build download Blobs from chunks
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/workbench (host)
 - **Priority:** P2

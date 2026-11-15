@@ -1,7 +1,7 @@
 # Task 007 — Download: documents to the real wire, live checks
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs, swe specs, package documents; live verification
 - **Priority:** P1

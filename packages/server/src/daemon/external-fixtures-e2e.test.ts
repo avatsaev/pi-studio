@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -246,10 +246,10 @@ async function raiseDialog(
   return String(messageOf(frame).requestId);
 }
 
-/** Input fixtures whose live request needs a temp file, a download token or a real terminal. */
+/** Input fixtures whose live request needs a temp file or a real terminal. */
 const LIVE_RESOURCE_TYPES: Record<string, true> = {
-  file_download_token_request: true,
   file_download_request: true,
+  file_download_cancel_request: true,
   file_upload_request: true,
   create_terminal_request: true,
   subscribe_terminal_request: true,
@@ -273,13 +273,12 @@ async function prepareLiveResources(
   live: Record<string, unknown>,
   terminals: number[],
 ): Promise<void> {
-  if (type === "file_download_token_request" || type === "file_download_request") {
+  if (type === "file_download_request") {
     const path = join(scratch, "download.txt");
     await writeFile(path, "synthetic fixture download body\n");
     live.path = path;
-    if (type === "file_download_request") {
-      live.token = String((await client.rpc("file_download_token_request", { path })).token);
-    }
+    const info = await stat(path);
+    live.ifUnchanged = { size: info.size, mtimeMs: Math.trunc(info.mtimeMs) };
   } else if (type === "file_upload_request") {
     live.path = join(scratch, "upload.txt");
   } else if (type === "create_terminal_request") {
@@ -349,6 +348,10 @@ describe("client-input fixtures are accepted and answered with the paired respon
           await raiseDialog(agentId, "setStatus", { statusText: "building" }, "status:build");
         }
         const { type: _type, requestId: _requestId, ...body } = withLiveIds(fixture, live);
+        // `ifUnchanged` is the file's real size and mtime (nested volatile values).
+        if ("ifUnchanged" in body && live.ifUnchanged !== undefined) {
+          body.ifUnchanged = live.ifUnchanged;
+        }
         const reply = await client.rpcFrame(entry.type, body);
         expect(messageOf(reply).type, "must not be an rpc_error").not.toBe("rpc_error");
         expectMatch(`${entry.file} → ${entry.response}`, paired, reply);

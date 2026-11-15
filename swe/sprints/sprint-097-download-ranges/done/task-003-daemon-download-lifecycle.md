@@ -1,7 +1,7 @@
 # Task 003 — Daemon: download validator, per-session tracking, cancel
 
 - **Sprint:** sprint-097-download-ranges
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (files)
 - **Priority:** P1

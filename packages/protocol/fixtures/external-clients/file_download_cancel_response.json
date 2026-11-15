@@ -1,0 +1,18 @@
+{
+  "type": "file_download_cancel_response",
+  "direction": "server_to_client",
+  "description": "The outcome of a cancel. The fixture shows `ok:false` with `error: \"not_found\"`: this session has no download on that stream (never started, or already finished). When a download was running the answer is `{\"ok\":true}` (no `error`) and an `Error` binary frame `cancelled` follows on the stream; that outcome depends on timing, so it is described here but not fixtured.",
+  "since": "0.0.119",
+  "stage": 3,
+  "requiresFeature": "fileDownloadRanges",
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_cancel_response",
+      "ok": false,
+      "error": "not_found",
+      "requestId": "req-1"
+    }
+  }
+}

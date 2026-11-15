@@ -1,7 +1,7 @@
 /**
  * `use-file-text` — tier-2 fallback for `TextViewer` (task-009): decodes a file's bytes to UTF-8
  * text via the already-uncapped chunked binary download path (`useFileDownload` →
- * `file_download_token_request`/`file_download_request`), for files over `file_read_request`'s
+ * `file_download_request`), for files over `file_read_request`'s
  * inline cap (`MAX_INLINE_FILE_READ_BYTES`, `packages/server/src/files/limits.ts`). Same
  * transport the molecule viewer uses for its own (binary-safe) source — no new RPC, no new
  * transport, just a text decode over the resulting blob.

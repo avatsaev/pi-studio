@@ -75,7 +75,8 @@ async function connect(port: number, capabilities?: Record<string, boolean>): Pr
         }),
       );
     });
-    ws.on("message", (data: Buffer) => {
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) return; // file-transfer and terminal frames are not RPC traffic
       const env = JSON.parse(data.toString("utf8"));
       if (env.type === "status") resolve();
       if (env.type === "session" && env.message?.requestId) {
@@ -1174,7 +1175,7 @@ describe("file_read RPC", () => {
     }
   }, 15000);
 
-  it("issues a download token for a ~-prefixed path", async () => {
+  it("downloads a ~-prefixed path", async () => {
     const booted = await boot();
     handle = booted.handle;
     const client = await connect(booted.port);
@@ -1183,11 +1184,11 @@ describe("file_read RPC", () => {
     writeFileSync(absolute, "tilde-resolved-bytes");
     try {
       const response = await client.rpc({
-        type: "file_download_token_request",
+        type: "file_download_request",
         path: `~/${marker}`,
       });
       expect(response.ok).toBe(true);
-      expect(typeof response.token).toBe("string");
+      expect(response.totalBytes).toBe("tilde-resolved-bytes".length);
     } finally {
       rmSync(absolute, { force: true });
     }
@@ -1198,7 +1199,7 @@ describe("file_read RPC", () => {
     handle = booted.handle;
     const client = await connect(booted.port);
     const response = await client.rpc({
-      type: "file_download_token_request",
+      type: "file_download_request",
       path: "~otheruser/x",
     });
     expect(response.ok).toBe(false);
@@ -1803,7 +1804,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
     // frame from the client (only `onBinaryMessage` populated it). Terminal I/O always sends a
     // binary `Input` frame from the client before expecting `Output` back, so it masked this gap;
     // a file download is entirely unprompted the other way — the client only ever sends TEXT
-    // (`file_download_token_request`/`file_download_request`) and expects BINARY `Begin`/`Chunk`/
+    // (`file_download_request`) and expects BINARY `Begin`/`Chunk`/
     // `End` frames back — so `sendBinary()` silently no-op'd on every relay-routed download.
     const relay = await startFakeRelay();
     const home = mkdtempSync(join(tmpdir(), "pi-studio-relay-download-e2e-"));
@@ -1885,20 +1886,6 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
       }),
     );
 
-    const tokenResponsePromise = waitForResponse("relay-dl-token");
-    channel.send(
-      JSON.stringify({
-        type: "session",
-        message: {
-          type: "file_download_token_request",
-          requestId: "relay-dl-token",
-          path: downloadPath,
-        },
-      }),
-    );
-    const tokenResponse = await tokenResponsePromise;
-    expect(tokenResponse.ok).toBe(true);
-
     const downloadResponsePromise = waitForResponse("relay-dl-download");
     channel.send(
       JSON.stringify({
@@ -1906,13 +1893,16 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
         message: {
           type: "file_download_request",
           requestId: "relay-dl-download",
-          token: tokenResponse.token,
+          path: downloadPath,
           stream: 1,
         },
       }),
     );
     const downloadResponse = await downloadResponsePromise;
-    expect(downloadResponse.ok).toBe(true);
+    expect(downloadResponse).toMatchObject({
+      ok: true,
+      totalBytes: "relay download regression fixture".length,
+    });
 
     // Proves the daemon's unprompted BINARY `Begin`/`Chunk`/`End` reply actually reached the
     // client over the relay — the exact frames `relayReplyBinary` used to drop on the floor.
