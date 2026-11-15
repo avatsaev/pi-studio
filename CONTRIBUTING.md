@@ -179,7 +179,7 @@ packages/
   client/      low-level daemon WS driver + PiStudioClient SDK facade
   server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
   cli/         pi-studio terminal client + local daemon/relay lifecycle control
-  relay/       E2EE relay (channels, self-hosted server, Cloudflare Workers adapter)
+  relay/       relay protocol 2 (standalone relay server, E2EE channel primitives shared by daemon and client)
   web-client/  browser shell: renders the workbench, ships the static SPA
   ui-library/  publishable React design system
   workbench/   the client application as a library (web-client and the desktop app consume it)

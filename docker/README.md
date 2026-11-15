@@ -173,6 +173,11 @@ Stateless, no volumes. Env: `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`),
 connection/session lifecycle to stdout as NDJSON, so `docker logs -f pi-studio-relay` shows
 registrations, detaches, and per-connection traffic stats out of the box.
 
+Speaks relay protocol 2: one control socket per daemon, one daemon data socket per client (up to 32
+clients per daemon), kept in memory only. The daemon image and the relay image must both be
+updated; a daemon from 0.0.120 or earlier is parked by the relay and clients see `daemon_outdated`
+(see the README's relay section).
+
 ### Daemon
 
 ```bash

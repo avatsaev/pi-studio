@@ -26,9 +26,11 @@ graph LR
 ## Scaled setup — client → relay → daemon (daemon behind NAT)
 
 The daemon dials **outbound** to the relay (so no inbound port is needed on the daemon's
-network). The client dials the relay too. Both register the same `sessionId`; the relay pairs
-the two sockets and blindly forwards frames. The E2EE channel is established **end-to-end
-between client and daemon**, so the relay never holds decryptable traffic.
+network): it keeps one control socket open and, for each client connection, opens a separate data
+socket. The client dials the relay with the same `sessionId`; the relay pairs that one client
+socket with one daemon data socket and blindly forwards frames, so up to **32 clients** can use one
+daemon at once. The E2EE channel is established **end-to-end between client and daemon**, so the
+relay never holds decryptable traffic.
 
 ```mermaid
 graph LR
@@ -43,17 +45,34 @@ graph LR
     A["Pi agent"]
   end
 
-  D -- "① outbound dial<br/>relay_register{sessionId}" --> R
-  C -- "② dial + relay_register{sessionId}" --> R
-  R -. "③ pairs sockets by sessionId,<br/>forwards ciphertext verbatim" .- R
-  C == "④ E2EE tunnel (Curve25519 + NaCl box)<br/>opaque to the relay" ==> D
+  D -- "① control socket<br/>relay_daemon_register{sessionId}" --> R
+  C -- "② relay_client_connect{sessionId}" --> R
+  R -. "③ relay_dial → daemon opens a data socket<br/>(relay_daemon_attach) → relay_paired,<br/>then forwards ciphertext verbatim" .- R
+  C == "④ E2EE channel (Curve25519 + NaCl box),<br/>one per client, opaque to the relay" ==> D
   D --> A
 ```
 
-Handshake order over the relay: both sides send `relay_register{sessionId}` → client sends
-`e2ee_hello{ephemeralPublicKey}` → daemon replies `e2ee_ready` → all further traffic is
-`e2ee_app{frame}` ciphertext. Only **after** the E2EE tunnel is up does the normal
-`hello → status → RPC` protocol run inside it.
+Handshake order over the relay (protocol 2): the daemon registers a control socket with
+`relay_daemon_register{sessionId}` → a client sends `relay_client_connect{sessionId}` → the relay
+sends `relay_dial{connectionId}` on the control socket → the daemon attaches a data socket with
+`relay_daemon_attach{sessionId, connectionId}` → the relay sends `relay_paired` to both. Those first
+frames are JSON; **after `relay_paired` every frame is binary**: the client sends the channel
+`hello` (its fresh public key), the daemon answers `ready` (a daemon salt plus an encrypted
+confirmation), and all further traffic is NaCl-box ciphertext with counter nonces. Only **after**
+the channel is up does the normal `hello → status → RPC` protocol run inside it. The relay refuses
+a connection with a close code (4100–4109; `daemon_offline`, `daemon_unresponsive`,
+`too_many_clients`, `daemon_outdated`, …) that the client SDK reports as a `RelayConnectError` with
+a reason; the whole client connect is limited to 15 s. The relay applies flow control (pause above
+1 MiB queued, resume at 256 KiB) and pings every socket every 30 s, so one slow client cannot make
+the relay or another client's connection wait.
+
+<Note>
+  **Upgrading from relay protocol 1 (0.0.120 and earlier).** The daemon must be updated: an old
+  daemon still registers with `relay_register`, the relay parks that socket, and a new client sees
+  `daemon_outdated` instead of a connection. Browser tabs opened before the update stay on
+  "connecting" until they are reloaded. Existing pairing links stay valid — the daemon key and the
+  session id derived from it do not change. A self-hosted relay must be updated too.
+</Note>
 
 ## Running a relay and pointing a daemon at it
 

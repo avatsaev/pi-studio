@@ -1,6 +1,6 @@
 # Feature — Relay Multi-Client
 
-> **Status: scoped (2026-11-15), not planned.** No sprint exists yet.
+> **Status: built (2026-11-15) in sprints 099–101** (`swe/sprints/PLAN.md`), on branch `feat/relay-multi-pair`; ships with the next release after 0.0.120 (merge to `main` is the release, D21).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/relay-protocol.md](../architecture/relay-protocol.md) (the wire
@@ -266,43 +266,43 @@ Deferred, offered in the grill and not chosen:
 The list the owner confirmed in the grill (D22), with the three rewordings that followed D23. Wire
 conformance is in [relay-protocol.md](../architecture/relay-protocol.md) § Acceptance criteria.
 
-- [ ] Two clients use one daemon through the relay at the same time; neither disconnects the
-      other, and `daemon_status` lists two relay sessions.
-- [ ] With 32 clients connected the next is refused with `too_many_clients`; after one leaves, a
-      new one connects.
-- [ ] A 600 MiB download and upload through a local relay finish with matching SHA-256. With the
+- [x] Two clients use one daemon through the relay at the same time; neither disconnects the
+      other, and `daemon_status` lists two relay sessions. (`packages/cli/src/relay-e2e.test.ts`; live: two browser tabs + an SDK client, three `transport: "relay"` sessions)
+- [x] With 32 clients connected the next is refused with `too_many_clients`; after one leaves, a
+      new one connects. (relay-e2e.test.ts, 30 raw sockets + 2 SDK clients)
+- [x] A 600 MiB download and upload through a local relay finish with matching SHA-256. With the
       receiver paused, relay and daemon memory stay far below the file size. A second client keeps
-      getting answers during the transfer.
-- [ ] Binary data crosses the relay as binary frames; nothing is base64 inside JSON.
-- [ ] The TypeScript channel reproduces the fixed-key fixtures byte for byte, in both directions.
-- [ ] A modified, replayed, reordered or reflected message closes the connection and delivers
-      nothing. A client with the wrong daemon key cannot connect.
-- [ ] A 5 MiB JSON message arrives intact as one frame; a frame above the size limit closes the
-      connection.
-- [ ] Daemon offline: the client is told so at once. Daemon unresponsive: told after 10 s. No
-      connect attempt lasts longer than 15 s.
-- [ ] An old-protocol daemon stays connected and idle without a redial storm, and a client asking
-      for it is told the daemon must be updated.
-- [ ] With the relay down, the daemon's redials are spaced by backoff. A silent control socket is
-      replaced within 90 s. Connected clients survive a control-socket drop.
-- [ ] A pairing link issued before the update works once both sides are updated.
-- [ ] Fixed-key fixtures exist and the TypeScript code is tested against them. The Cloudflare
-      adapter is gone, and the relay documents are rewritten.
-- [ ] Live check on the compose stack (`docker/docker-compose.yml`): two browser tabs through the
-      relay at once, with a terminal and a file transfer.
+      getting answers during the transfer. (sprint-101/task-001: 4.2 s / 4.4 s; paused 30 s: daemon +51.6 MiB, relay ~123 MiB flat; second client p50 0.84 ms, max 9.75 ms)
+- [x] Binary data crosses the relay as binary frames; nothing is base64 inside JSON. (relay-e2e.test.ts "every frame is binary")
+- [x] The TypeScript channel reproduces the fixed-key fixtures byte for byte, in both directions. (`relay-fixtures.test.ts`)
+- [x] A modified, replayed, reordered or reflected message closes the connection and delivers
+      nothing. A client with the wrong daemon key cannot connect. (`channel.test.ts`, client `wrong_key` test)
+- [x] A 5 MiB JSON message arrives intact as one frame; a frame above the size limit closes the
+      connection. (`channel.test.ts` 5 MiB; `relay-server.test.ts` 1009 with an injected limit)
+- [x] Daemon offline: the client is told so at once. Daemon unresponsive: told after 10 s. No
+      connect attempt lasts longer than 15 s. (client `relay-transport.test.ts` with injected timers; the 10 s and 15 s values are `RELAY_DEFAULTS`; live: the connection bar shows "The daemon is not connected to the relay…" with Retry)
+- [x] An old-protocol daemon stays connected and idle without a redial storm, and a client asking
+      for it is told the daemon must be updated. (live: 0.0.120 daemon connected 8+ min, one connect, no redial, never closed with 4108; new client got `daemon_outdated`)
+- [x] With the relay down, the daemon's redials are spaced by backoff. A silent control socket is
+      replaced within 90 s. Connected clients survive a control-socket drop. (`relay-transport.test.ts`; live: relay stopped 12 s, redials after 1.2 / 1.9 / 4.4 / 7.4 s)
+- [x] A pairing link issued before the update works once both sides are updated. (same key and session id; relay-e2e.test.ts D14 case; live: one link used across daemon stop/start and relay restart)
+- [x] Fixed-key fixtures exist and the TypeScript code is tested against them. The Cloudflare
+      adapter is gone, and the relay documents are rewritten. (`fern check` could not be run: the fern CLI is not installed here)
+- [x] Live check on the compose stack (`docker/docker-compose.yml`): two browser tabs through the
+      relay at once, with a terminal and a file transfer. (scratch homes, ports 6967/7100/8180: a terminal printed 4000 lines in tab A while tab B uploaded a 48 MB file, SHA-256 matched in the container; both tabs stayed connected)
 
 Documents, updated in the same change:
 
-- [ ] `swe/architecture/relay-e2ee.md` keeps pairing and identity and points to
+- [x] `swe/architecture/relay-e2ee.md` keeps pairing and identity and points to
       `relay-protocol.md` for the wire; its "planned change" banner is removed.
-- [ ] `swe/MAIN-SCOPE.md` (technology table, the relay rows, the open question on replay
+- [x] `swe/MAIN-SCOPE.md` (technology table, the relay rows, the open question on replay
       protection), `swe/architecture/external-client-fixtures.md`,
       `swe/features/connection-resilience.md`,
       `swe/features/desktop-client-protocol-followups.md`.
-- [ ] `AGENTS.md` (root), `README.md`, `CONTRIBUTING.md`, `packages/relay/AGENTS.md` and
+- [x] `AGENTS.md` (root), `README.md`, `CONTRIBUTING.md`, `packages/relay/AGENTS.md` and
       `README.md`, `packages/client/AGENTS.md`, `packages/server/AGENTS.md` and `README.md`,
       `packages/cli/AGENTS.md`, `docker/README.md`, the fixtures `README.md` and `CHANGELOG.md`.
-- [ ] `docs/desktop-client-handoff.md`: the relay section, the answered open question on a second
+- [x] `docs/desktop-client-handoff.md`: the relay section, the answered open question on a second
       channel, the Rust library and the fixtures a Rust client tests against.
 
 ## TODO(verify)
@@ -313,12 +313,11 @@ Documents, updated in the same change:
   Cloudflare adapter gone, without `tweetnacl`) were put to the owner after D23. The owner asked
   for this scope without objecting; that is taken as acceptance, not as an explicit confirmation.
 - **S9** (telling an old daemon from a stale tab by silence) goes slightly beyond D16 and awaits
-  the owner's confirmation. Dropping it means every parked socket counts as an outdated daemon.
+  the owner's confirmation. Dropping it means every parked socket counts as an outdated daemon. Built as specified; checked live on 2026-11-15 with the 0.0.120 SDK as the stale tab (`pi-studio ui` of 0.0.120 was not run): with the updated daemon stopped, a new client got `daemon_offline`, not `daemon_outdated`.
 - **Eviction loop.** Reproduced only up to the eviction itself (see Current state).
 - **Hosted relay addresses.** Whether the hosted relay sees real client addresses or only its
   reverse proxy's was not checked. It matters only if a per-address limit is added later. Owner:
   engineer.
-- **Relay throughput.** Not measured. The live check records it next to the direct-connection
-  figures of sprints 096 and 097 (D18).
-- **Old daemons and pings.** That a parked 0.0.120 daemon answers the relay's pings, and so is not
-  closed and does not redial, is read from its socket library's behaviour, not run.
+- **Relay throughput.** Measured on loopback only (sprint-101/task-001): ~143 MiB/s down, ~138 MiB/s up, against ~890 MiB/s direct (sprint-097, page cache). Not gated (D18); LAN/WAN not measured.
+- **Old daemons and pings.** Run on 2026-11-15: a 0.0.120 daemon stayed connected for 8+ minutes with a single `relay connected` log line and the relay never closed it with 4108, so it answers pings.
+- **Reconnect through a refused connect (found live, fixed).** The first live check showed tabs stuck on "Connecting…" after the daemon stopped: the rewritten client transport rejected a second `connect()` and did not call `onClose` after a refusal, so `DaemonClient` never left `connecting`. Both are fixed in `relay-transport.ts` with regression tests (`relay-transport.test.ts`, `relay-e2e.test.ts`).

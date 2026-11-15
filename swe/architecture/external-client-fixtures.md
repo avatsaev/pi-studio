@@ -75,6 +75,16 @@ packages/protocol/fixtures/external-clients/
 - `packages/protocol` ships the directory in its npm `files` (so external consumers can pin a
   published version) — *Shipped:* `fixtures` is in `files`.
 - The path is a published contract: the dashboard's vendoring script and docs reference it verbatim.
+- *Shipped (0.0.121):* the `relay/` subdirectory fixtures **relay protocol 2** (control frames, close
+  codes, the encrypted channel, fixed test keys; spec: [relay-protocol.md](relay-protocol.md)). It has
+  its own `relay/manifest.json` (`{"formatVersion":1,"files":[{"file","group"}]}`, `group` one of
+  `keys`, `control`, `close_codes`, `channel`), listing 15 files: `keys.json`, one
+  `control.<type>.json` per control frame plus `control.relay_register.legacy.json`,
+  `close-codes.json`, `channel.hello.json`, `channel.ready.json` and four
+  `channel.<direction>.<kind>.json`. Every key in `keys.json` is public test material. It is
+  independent of the top-level manifest and its `formatVersion`; a Rust client tests against these
+  bytes without a live relay. Layer A is `packages/relay/src/relay-fixtures.test.ts` (rebuilds every
+  file from the keys; fails on an unlisted or missing file).
 
 ### File format
 
@@ -331,7 +341,9 @@ also changes it, so additive edits also regenerate signatures — the guard ther
 - JSON Schema export / generated Rust types (brief "Deferred": D22).
 - Fixtures for messages the dashboard does not use (terminals, projects, git, schedules, loops, chat).
 - Binary frames.
-- Relay-encrypted framing (fixtures are plaintext application frames; D3).
+- Relay framing in the daemon-protocol fixtures at the top level: those stay plaintext application
+  frames. The relay's own wire is fixtured separately in the `relay/` subdirectory (see Location and
+  layout).
 
 ## Resolved TODO(verify)
 

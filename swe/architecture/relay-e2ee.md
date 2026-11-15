@@ -4,11 +4,9 @@
 > Related scopes: [auth-security.md](auth-security.md), [websocket-protocol.md](websocket-protocol.md),
 > [daemon-bootstrap.md](daemon-bootstrap.md)
 
-> **Planned change (scoped 2026-11-15, not built):** the wire format described below (registration,
-> handshake frames, app traffic frames, one client per daemon) is replaced by
-> [relay-protocol.md](relay-protocol.md), delivered by
-> [../features/relay-multi-client.md](../features/relay-multi-client.md). § Pairing and § Data &
-> Persistence do not change. Until that ships, this file describes the relay as it is.
+> The wire format is specified in [relay-protocol.md](relay-protocol.md) (relay protocol 2, delivered
+> by [../features/relay-multi-client.md](../features/relay-multi-client.md)). This file keeps
+> § Pairing and § Data & Persistence.
 
 ## Purpose
 
@@ -25,11 +23,12 @@ keys in the handshake) — never message contents, and it cannot forge or inject
 |------|------|---------|
 | `createClientChannel(...)` | client | Client side of an encrypted relay channel |
 | `createDaemonChannel(...)` | daemon | Daemon side of an encrypted relay channel |
-| `Transport`, `EncryptedChannelEvents` | both | Transport abstraction + event types |
-| `ConnectionRole`, `RelaySessionAttachment` | both | Role + attachment types |
-| Cloudflare adapter | server | Relay server implementation hook for Cloudflare Workers |
+| `Transport`, `ChannelEvents`, `Channel` | both | Transport abstraction, event types, channel handle |
+| `parseRelayFrame`, `RELAY_CLOSE`, `RELAY_DEFAULTS` | both | Control-frame parsing, close codes, limits (`control.ts`) |
+| `deriveRelaySessionId` | both | Session id from the daemon public key |
 
-Both channels expose an identical API so the daemon and client use symmetric code paths.
+Both channels expose an identical API so the daemon and client use symmetric code paths. The relay
+server (`relay-server.ts`, Node-only) is not re-exported from the package index.
 
 ### Pairing
 - The daemon's persistent Curve25519 public key is transferred to the client via a **pairing URL**
@@ -48,58 +47,43 @@ Both channels expose an identical API so the daemon and client use symmetric cod
   longer registered on the relay — so all clients must re-pair. `config.json` (password hash, relay
   config) is untouched.
 
-### Handshake frames (plaintext, observed by relay)
-| Frame | Direction | Contents |
-|-------|-----------|----------|
-| `e2ee_hello` | client → daemon | client's fresh ephemeral public key |
-| `e2ee_ready` | daemon → client | handshake acknowledgement |
-
-### App traffic frames (ciphertext, observed by relay)
-| Frame | Payload | Purpose |
-|-------|---------|---------|
-| `e2ee_app` | `base64([24-byte nonce][ciphertext of UTF-8 text])` | RPC/control messages (same shape as the direct-WS `hello`/`session`/`ping` envelopes) |
-| `e2ee_bin` | `base64([24-byte nonce][ciphertext of raw bytes])` | Binary application data — terminal I/O, file-transfer chunks. Identical crypto/gating to `e2ee_app`; still a JSON text WS frame, never a raw binary WebSocket frame, so the relay's zero-knowledge bridging (which only ever inspects the very first `relay_register` frame) needed no changes to carry it. |
+### Wire format
+See [relay-protocol.md](relay-protocol.md): control frames (`relay_daemon_register`,
+`relay_client_connect`, `relay_dial`, `relay_daemon_attach`, `relay_paired`) are JSON text frames used
+only until pairing; after `relay_paired` every frame is a binary NaCl-box frame. There are no
+`e2ee_*` frames.
 
 ## Behavior & Algorithms
 
+The wire (control frames, close codes, the channel `hello`/`ready` frames, record kinds, counter
+nonces, the daemon's salt, limits and timers) is specified in [relay-protocol.md](relay-protocol.md).
+This file keeps only identity and the security properties.
+
 ```
 # Daemon identity (once per $PI_STUDIO_HOME)
-keypair = libsodium box keypair                  # Curve25519
+keypair = NaCl box keypair (tweetnacl)           # Curve25519
 persist { v: 2, publicKeyB64, secretKeyB64 } at $PI_STUDIO_HOME/daemon-keypair.json (mode 0600)
 
-# Connection setup
-daemon: dial outbound WebSocket to relay endpoint; register session id =
-        deriveRelaySessionId(daemon's persistent public key)          # deterministic, NOT random —
-                                                                        # same id every (re)connect,
-                                                                        # so a pairing link printed
-                                                                        # once keeps working across
-                                                                        # relay drops/restarts
-client: connect to relay with the SAME session id (derived from the pairing offer's public key, or
-        an explicit sessionId if one was separately transmitted); generate FRESH ephemeral
-        Curve25519 keypair
-client → daemon: e2ee_hello { ephemeralPublicKey }
-daemon: refuses to process ANY application message until handshake completes; a NEW e2ee_hello
-        received at ANY point (even after handshake already completed once) re-runs the handshake
-        from scratch — the relay lets multiple client sockets attach to one session id over the
-        daemon's process lifetime (browser reload, second tab, reconnect), and the daemon must not
-        permanently lock onto the first one
-both: sharedKey = ECDH(local secret, remote public)     # Curve25519
-daemon → client: e2ee_ready
-
-# Per-message wire format after handshake
-plaintext → box(plaintext, nonce=random24, sharedKey)   # XSalsa20-Poly1305
-frame = base64( [24-byte nonce] ++ ciphertext )         # sent as WS text frame
-receive → split nonce/ciphertext → box_open → reject if authentication fails
+# Rendezvous
+sessionId = deriveRelaySessionId(daemon's persistent public key)   # deterministic, NOT random:
+                                                                     # a pairing link printed once
+                                                                     # keeps working across relay
+                                                                     # drops and restarts
+daemon: control socket registers sessionId; opens one data socket per client connection
+client: connects with the SAME sessionId (derived from the pairing offer's public key) and a FRESH
+        ephemeral Curve25519 keypair, per connection
+sharedKey = box.before(remote public, local secret)     # Curve25519 ECDH
 ```
 
 - **Daemon secret never leaves the daemon.** The client keypair is ephemeral per connection, so
   there is no persistent client-side secret to steal.
-- **Session key freshness:** each CONNECTION derives fresh keys from a fresh client ephemeral
-  keypair, so ciphertext cannot be replayed across connections — this holds even though the
-  rendezvous session id is now deterministic (see Connection setup above): the session id is a
-  non-secret routing label the relay uses to pair sockets, never a key input, so it repeating
-  across reconnects does not weaken key freshness. **Within** a live connection, replay protection
-  is *not* implemented (random nonces, no counter / no nonce-reuse tracking).
+- **Key freshness and replay:** each CONNECTION uses a fresh client ephemeral keypair. The session id
+  is a non-secret routing label, never a key input. The shared key depends only on the daemon's
+  long-lived key and the client's key, so a recorded `hello` presented again would derive the same
+  key; the daemon's random per-connection salt in the nonce prevents nonce reuse. **Within** a live
+  connection, each direction uses a counter nonce and a receiver accepts only the next counter, so
+  replay, reordering and reflection close the connection. A client proves the other end holds the
+  daemon's secret by opening the `ready` box.
 - **TLS:** self-hosted relays use `ws://` unless TLS is opted in via `daemon.relay.useTls` /
   `PI_STUDIO_RELAY_USE_TLS`. The public (client-facing) TLS setting can be set independently via
   `daemon.relay.publicUseTls` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS`. Config fields: `endpoint`,
@@ -112,37 +96,33 @@ receive → split nonce/ciphertext → box_open → reject if authentication fai
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |
 |-----------|-------------------|
-| App message before handshake completes | Daemon refuses to process |
-| Tampered ciphertext | Authenticated decryption fails → message rejected |
-| Relay compromised/malicious | Cannot read, forge, or inject (no shared key without daemon secret) |
-| Relay restarts / drops | Client/daemon reconnect under the SAME deterministic session id (`deriveRelaySessionId`); fresh ephemeral keypair on both sides → new shared key, even though the session id is unchanged |
-| A different client attaches to the same session id while the daemon's channel is already `ready` (browser reload, second tab, plain reconnect) | Daemon channel re-arms: re-derives the shared key from the NEW `e2ee_hello`, replies `e2ee_ready` again, and the daemon drops any app-level session state tied to the previous peer — it does NOT latch onto the first client forever |
+| Application message before the channel is ready | Not possible: the client sends nothing before opening `ready`; the daemon opens no session before a valid channel `hello` |
+| Tampered, reordered or replayed ciphertext | Authenticated decryption with the expected counter fails → close `4200 channel_error`, nothing delivered |
+| Relay compromised/malicious | Cannot read, forge, inject, replay or reorder (no shared key without the daemon secret); can drop or delay frames, which closes or stalls the connection |
+| Relay restarts / drops | Daemon redials its control socket under the SAME deterministic session id; each client reconnects with a fresh ephemeral keypair → new shared key and a fresh daemon-chosen salt |
+| A second client connects while others are paired | Gets its own data socket and daemon session; existing connections are untouched |
+| Replayed client `hello` on a new connection | Same shared key, but the daemon's fresh salt keeps every nonce distinct |
 | Unreadable keypair file | Regenerate (invalidates existing pairings) |
 
 ## Dependencies
-- Internal: relay-transport (daemon side), daemon-client relay transport (client side).
-- External: libsodium / NaCl box, Cloudflare Workers (hosted relay), WebSocket.
+- Internal: `packages/relay` (`channel.ts`, `control.ts`, `session-id.ts`), the daemon's
+  `relay-transport.ts` / `relay-connection.ts`, the client's `relay-transport.ts`.
+- External: `tweetnacl` (NaCl box), WebSocket. The relay server is
+  self-hosted (`packages/relay/src/relay-server.ts`); there is no hosted-platform adapter.
 
 ## Acceptance Criteria
-- [ ] Daemon generates and persists a Curve25519 keypair at mode `0600` on first run.
-- [ ] A client cannot exchange application messages until `e2ee_hello`/`e2ee_ready` completes.
-- [ ] Messages are `base64([24-byte nonce][ciphertext])` and authenticate under the ECDH shared key.
-- [ ] Tampering with ciphertext causes rejection.
-- [ ] Two separate sessions derive independent keys (cross-session replay fails).
-- [ ] The pairing key is carried in the URL fragment and never reaches the web origin.
-- [x] A SECOND (and Nth) client connecting under the same session id after an earlier one
-  disconnected completes its own handshake — the daemon does not permanently lock onto the first
-  client it ever paired with. Verified: `packages/relay/src/session-bridge.test.ts` (in-process
-  regression) and a real docker-compose smoke test (two sequential browser connections through a
-  live self-hosted relay).
+- [x] Daemon generates and persists a Curve25519 keypair at mode `0600` on first run.
+- [x] A client cannot exchange application messages until it has opened the daemon's `ready` box.
+- [x] Messages are boxes under the ECDH shared key with a counter nonce; tampering, reordering or
+  replay closes the connection with `channel_error` (see [relay-protocol.md](relay-protocol.md) § 4).
+- [x] Two connections derive independent nonce streams even under a repeated client key (the daemon's
+  per-connection salt).
+- [x] The pairing key is carried in the URL fragment and never reaches the web origin.
+- [x] A second (and Nth) client under the same session id gets its own daemon socket and daemon
+  session; the daemon never locks onto the first client (up to 32 per daemon).
 - [x] Terminal I/O and file-transfer chunks (binary application data) work over a relay
-  connection, not just text RPC — carried as the `e2ee_bin` frame, same handshake gating and
-  ECDH shared key as `e2ee_app`. Verified: `packages/relay/src/channel.test.ts` (unit),
-  `packages/client/src/relay-transport.test.ts` and `packages/server/src/daemon/
-  bootstrap.test.ts` (real relay bridge + real E2EE handshake + real RPC round-trip), and a
-  live docker-compose smoke test (real browser typing into a real terminal through a real
-  self-hosted relay, receiving real shell output back).
+  connection as binary channel records.
 
 ## TODO(verify)
 - [ ] Exact bytes/encoding of the pairing `offer` fragment.
-- [ ] Whether in-session replay protection has since been added.
+- [x] In-session replay protection: added by relay protocol 2 (counter nonces, strict order).

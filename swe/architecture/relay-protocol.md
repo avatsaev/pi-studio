@@ -1,7 +1,7 @@
 # Architecture — Relay Protocol 2
 
-> **Status: scoped (2026-11-15), not built.** The protocol the code speaks today (0.0.120) is
-> described in [relay-e2ee.md](relay-e2ee.md). This file replaces that wire format when
+> **Status: built (2026-11-15) in sprints 099–101, not yet released.** This file replaces the wire
+> format described in [relay-e2ee.md](relay-e2ee.md) (which keeps pairing and identity) when
 > [../features/relay-multi-client.md](../features/relay-multi-client.md) ships.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
@@ -375,30 +375,30 @@ on frame:
 Conformance of the wire. The feature's own criteria are in
 [../features/relay-multi-client.md](../features/relay-multi-client.md).
 
-- [ ] Each control frame has the fields of § 1, and the relay answers each first frame as the
-      table says.
-- [ ] Each close code of § 3 is sent for its condition, with its name as the reason.
-- [ ] A close with a forwardable code on one half reaches the other half with the same code and
-      reason; an unforwardable one arrives as `peer_closed`.
-- [ ] The `hello`, `ready` and message frames have the byte layout of § 4, and the nonce is
-      salt ‖ direction ‖ big-endian counter.
-- [ ] Two connections from clients that send the same channel `hello` get different salts.
-- [ ] A box replayed, reordered, dropped or returned to its sender closes the connection with
-      `channel_error` and delivers nothing.
-- [ ] No message is accepted by a client before the `ready` box opened, or by a daemon before a
-      valid channel `hello`.
-- [ ] The relay forwards binary and text frames unchanged and in order, and never parses a frame
-      after `relay_paired`.
-- [ ] With a receiver that stops reading, the relay stops reading the sender once 1 MiB is queued,
-      and reads again at 256 KiB.
-- [ ] Every timer of § 2 fires at its value (tests inject shorter values).
-- [ ] The daemon ignores `relay_dial` while it has 32 data sockets, and closes a data socket with
-      no valid channel `hello` after 10 s.
-- [ ] A first frame `relay_register` parks the socket: no answer, nothing forwarded, pings sent.
-- [ ] With only a silent parked socket under a session id, a client gets `daemon_outdated`; once
-      that socket has sent a frame, a client gets `daemon_offline`.
-- [ ] No close code of this protocol is 4000, and a client's `4000` close reaches the daemon's
-      data socket unchanged.
+- [x] Each control frame has the fields of § 1, and the relay answers each first frame as the
+      table says. (`control.test.ts`, `relay-server.test.ts`, fixtures)
+- [x] Each close code of § 3 is sent for its condition, with its name as the reason. (`relay-server.test.ts`)
+- [x] A close with a forwardable code on one half reaches the other half with the same code and
+      reason; an unforwardable one arrives as `peer_closed`. (`relay-server.test.ts`)
+- [x] The `hello`, `ready` and message frames have the byte layout of § 4, and the nonce is
+      salt ‖ direction ‖ big-endian counter. (`channel.test.ts`, `relay-fixtures.test.ts`)
+- [x] Two connections from clients that send the same channel `hello` get different salts. (`channel.test.ts`)
+- [x] A box replayed, reordered, dropped or returned to its sender closes the connection with
+      `channel_error` and delivers nothing. (`channel.test.ts`)
+- [x] No message is accepted by a client before the `ready` box opened, or by a daemon before a
+      valid channel `hello`. (`channel.test.ts`)
+- [x] The relay forwards binary and text frames unchanged and in order, and never parses a frame
+      after `relay_paired`. (`relay-server.test.ts`)
+- [x] With a receiver that stops reading, the relay stops reading the sender once 1 MiB is queued,
+      and reads again at 256 KiB. (`relay-server.test.ts` with injected marks; 600 MiB run in sprint-101/task-001)
+- [x] Every timer of § 2 fires at its value (tests inject shorter values). (relay, daemon and client tests; the default values are `RELAY_DEFAULTS`, pinned in `control.test.ts`)
+- [x] The daemon ignores `relay_dial` while it has 32 data sockets, and closes a data socket with
+      no valid channel `hello` after 10 s. (`relay-transport.test.ts`, `relay-connection.test.ts`)
+- [x] A first frame `relay_register` parks the socket: no answer, nothing forwarded, pings sent. (`relay-server.test.ts`; live with a real 0.0.120 daemon)
+- [x] With only a silent parked socket under a session id, a client gets `daemon_outdated`; once
+      that socket has sent a frame, a client gets `daemon_offline`. (`relay-server.test.ts`; live with real 0.0.120 daemon and SDK)
+- [x] No close code of this protocol is 4000, and a client's `4000` close reaches the daemon's
+      data socket unchanged. (`control.test.ts`, `relay-server.test.ts`)
 
 ## TODO(verify)
 
@@ -408,14 +408,18 @@ Conformance of the wire. The feature's own criteria are in
   prompt and timeline pages (200 items, item text unbounded) have no size bound. No measurement was
   possible: the daemon home on the scoping machine holds almost no sessions. Lower it only with a
   measurement of real message sizes.
-- **Telling an old daemon from an old tab (S9)** rests on one behaviour read in the 0.0.120 code,
-  not run against a live relay: the old client sends `e2ee_hello` as soon as it has registered
-  (`createClientChannel`), and the old daemon sends nothing until a client's hello arrives
-  (`createDaemonChannel`).
+- **Telling an old daemon from an old tab (S9)** rests on one behaviour read in the 0.0.120 code:
+  the old client sends `e2ee_hello` as soon as it has registered (`createClientChannel`), and the
+  old daemon sends nothing until a client's hello arrives (`createDaemonChannel`). Run on
+  2026-11-15 against a real 0.0.120 daemon and the 0.0.120 SDK as the stale tab: the daemon's
+  socket stayed silent, a new client got `daemon_outdated`; with the SDK's socket parked under an
+  updated daemon's id and that daemon stopped, a new client got `daemon_offline`. A 0.0.120
+  browser tab (`pi-studio ui` of 0.0.120) was not run.
 - **Channel format version.** A future change to the leading version byte must consider that the
   relay can alter it in `hello`: nothing authenticates the choice of version.
-- **Pong behaviour of old clients.** Browsers answer WebSocket pings on their own; that the
-  0.0.120 daemon's socket library does too was read from its documentation, not run.
+- **Pong behaviour of old clients.** Run on 2026-11-15: a real 0.0.120 daemon parked at the relay
+  for 8+ minutes was never closed with `4108` and never redialed, so its socket library answers
+  pings. A 0.0.120 browser tab was not run (browsers answer pings on their own).
 - **Rust.** `crypto_box` 0.9.1 (Apache-2.0 OR MIT) was run against `tweetnacl` 1.0.3 on 2026-11-15
   with this nonce and record layout: three boxes opened, three sealed byte-identical, a wrong
   counter rejected. That was a throwaway test; the desktop repository needs its own against the
