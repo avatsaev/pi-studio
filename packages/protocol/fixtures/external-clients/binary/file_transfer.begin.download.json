@@ -1,0 +1,21 @@
+{
+  "family": "file_transfer",
+  "opcode": "Begin",
+  "direction": "both",
+  "description": "A download Begin as the daemon sends it after an accepted `file_download_response`: the metadata also carries `mtimeMs` (integer milliseconds), the file's `totalBytes`, and the `offset` and `length` of the range that follows. A client receiving a ranged download reads exactly `length` bytes of Chunk frames after this. Compare the parsed metadata, not the bytes.",
+  "since": "0.0.119",
+  "hex": "10 01 7b 22 74 72 61 6e 73 66 65 72 49 64 22 3a 22 64 6c 2d 31 22 2c 22 66 69 6c 65 4e 61 6d 65 22 3a 22 68 65 6c 6c 6f 2e 74 78 74 22 2c 22 6d 69 6d 65 54 79 70 65 22 3a 22 74 65 78 74 2f 70 6c 61 69 6e 22 2c 22 74 6f 74 61 6c 42 79 74 65 73 22 3a 33 32 2c 22 6d 74 69 6d 65 4d 73 22 3a 31 37 36 37 32 32 35 36 30 30 30 30 30 2c 22 6f 66 66 73 65 74 22 3a 38 2c 22 6c 65 6e 67 74 68 22 3a 31 36 7d",
+  "decoded": {
+    "opcode": "Begin",
+    "stream": 1,
+    "meta": {
+      "transferId": "dl-1",
+      "fileName": "hello.txt",
+      "mimeType": "text/plain",
+      "totalBytes": 32,
+      "mtimeMs": 1767225600000,
+      "offset": 8,
+      "length": 16
+    }
+  }
+}

@@ -48,8 +48,8 @@ A lazily-loaded, single-column indented **tree**. Selecting a file opens a separ
   the background; on init, list root then re-request persisted expanded paths so the tree restores. Tree
   flattening is a DFS from root, recursing into expanded directories.
 - **Refresh:** re-list root + all expanded paths in parallel (spinner while fetching).
-- **Download:** files only — request a download token from the daemon, then start a download via the
-  download store (see [file-explorer-transfer.md](file-explorer-transfer.md)).
+- **Download:** files only — the browser host requests the file by path (`file_download_request`, no
+  token) and builds a `Blob` from the streamed chunks (see [file-explorer-transfer.md](file-explorer-transfer.md)).
 - **States:** no workspace scope → "Workspace is unavailable"; initial load → spinner + "Loading files…";
   error → red text + Retry (+ Back if a file was selected); empty → "No files".
 

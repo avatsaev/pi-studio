@@ -12,6 +12,15 @@ import {
   topLevelEnvelopeSchema,
 } from "./messages.js";
 
+const helloWithStreams = (agentStreams: unknown) =>
+  helloSchema.safeParse({
+    type: "hello",
+    clientId: "c1",
+    clientType: "browser",
+    protocolVersion: 1,
+    agentStreams,
+  });
+
 describe("hello handshake", () => {
   it("accepts all four clientType values", () => {
     for (const clientType of ["mobile", "browser", "cli", "mcp"] as const) {
@@ -67,6 +76,23 @@ describe("hello handshake", () => {
     };
     expect(daemonClientInfoSchema.safeParse(base).success).toBe(true);
     expect(daemonClientInfoSchema.safeParse({ ...base, platform: "desktop" }).success).toBe(true);
+  });
+
+  it("accepts agentStreams all|none and reads any other value as absent (treated as all)", () => {
+    for (const mode of ["none", "all"]) {
+      const result = helloWithStreams(mode);
+      expect(result.success && result.data.agentStreams).toBe(mode);
+    }
+    for (const bad of ["some", "", 1, { a: 1 }, null]) {
+      const result = helloWithStreams(bad);
+      expect(result.success).toBe(true);
+      expect(result.success && result.data.agentStreams).toBeUndefined();
+    }
+  });
+
+  it("daemon_status client entries accept an optional agentStreams", () => {
+    const base = { clientId: "c1", clientType: "browser", connectedAt: 1, transport: "direct" };
+    expect(daemonClientInfoSchema.safeParse({ ...base, agentStreams: "none" }).success).toBe(true);
   });
 
   it("rejects an unknown clientType", () => {

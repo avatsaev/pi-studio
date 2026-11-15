@@ -1,7 +1,8 @@
 /**
  * The browser host's `files`: uploads hand the `File` itself to the SDK (sliced and paced there, so a
- * large upload never sits in memory), save-to-disk downloads into memory and clicks a download
- * anchor, and viewers get a `Blob` object URL.
+ * large upload never sits in memory), downloads collect the SDK's chunks straight into a `Blob`
+ * (never one concatenated array), save-to-disk clicks a download anchor, and viewers get a `Blob`
+ * object URL.
  */
 
 import { type FileTransferClient } from "@av-pi-studio/client";
@@ -12,10 +13,22 @@ import {
   type ViewableFile,
 } from "./types.js";
 
-/** `Blob`'s DOM typings require an `ArrayBuffer`-backed view; the assembled `Uint8Array`'s
- *  `ArrayBufferLike` backing doesn't satisfy that on its own, so copy first. */
-function toBlob(bytes: Uint8Array, mimeType?: string): Blob {
-  return new Blob([Uint8Array.from(bytes)], { type: mimeType || "application/octet-stream" });
+/**
+ * Download `path` into a `Blob` built from the chunks as they arrive. The SDK keeps no reference to
+ * a chunk once the sink returns, so holding them until the `Blob` exists is the intended use.
+ */
+async function downloadAsBlob(
+  client: FileTransferClient,
+  path: string,
+): Promise<{ blob: Blob; fileName?: string; mimeType?: string }> {
+  const chunks: Uint8Array[] = [];
+  const info = await client.downloadTo(path, (chunk) => void chunks.push(chunk));
+  // The chunks are views on received WebSocket messages, which are always `ArrayBuffer`-backed;
+  // `Blob`'s DOM typings cannot see that through `ArrayBufferLike`.
+  const blob = new Blob(chunks as BlobPart[], {
+    type: info.mimeType || "application/octet-stream",
+  });
+  return { blob, fileName: info.fileName, mimeType: info.mimeType };
 }
 
 export function createBrowserFiles(transfer: () => FileTransferClient): HostFiles {
@@ -30,8 +43,8 @@ export function createBrowserFiles(transfer: () => FileTransferClient): HostFile
     },
 
     async saveToDisk(path: string): Promise<void> {
-      const file = await transfer().download(path);
-      const url = URL.createObjectURL(toBlob(file.bytes, file.mimeType));
+      const file = await downloadAsBlob(transfer(), path);
+      const url = URL.createObjectURL(file.blob);
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = file.fileName || path.split("/").pop() || "download";
@@ -44,8 +57,8 @@ export function createBrowserFiles(transfer: () => FileTransferClient): HostFile
     },
 
     async openForView(path: string): Promise<ViewableFile> {
-      const file = await transfer().download(path);
-      const url = URL.createObjectURL(toBlob(file.bytes, file.mimeType));
+      const file = await downloadAsBlob(transfer(), path);
+      const url = URL.createObjectURL(file.blob);
       let released = false;
       return {
         url,

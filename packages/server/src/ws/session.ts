@@ -4,6 +4,21 @@ import type { WebSocket } from "ws";
 /** `WebSocket.OPEN` (the `ws` package's readyState for an open socket). */
 const WS_OPEN = 1;
 
+/** What a connection receives of `agent_stream` frames (`hello.agentStreams`). */
+export type AgentStreamMode = "all" | "none";
+
+/**
+ * The sessions that may receive an `agent_stream` frame: everyone except `"none"` sessions. Every
+ * place that sends one MUST pass its audience through here (an absent mode counts as `"all"`).
+ */
+export function agentStreamRecipients(sessions: Iterable<Session>): Session[] {
+  const out: Session[] = [];
+  for (const session of sessions) {
+    if (session.agentStreams !== "none") out.push(session);
+  }
+  return out;
+}
+
 /**
  * A per-connection session (architecture/websocket-protocol.md § Behavior). Holds the client
  * identity, the (rehydrated) capability set, and the socket. The wire boundary asks exactly one
@@ -15,6 +30,8 @@ export class Session {
   readonly clientType: string;
   /** The hello's `platform` (e.g. `"desktop"`), verbatim when the client sent one. Informational. */
   readonly platform: string | undefined;
+  /** The hello's `agentStreams` mode; fixed for the life of the connection. */
+  readonly agentStreams: AgentStreamMode;
   capabilities: Record<string, boolean>;
   /** Epoch ms of the handshake. A wall-clock fact for the connected-clients list. */
   readonly connectedAt: number;
@@ -30,6 +47,7 @@ export class Session {
     clientId: string;
     clientType: string;
     platform?: string;
+    agentStreams?: AgentStreamMode;
     capabilities: Record<string, boolean>;
     socket: WebSocket;
     connectedAt?: number;
@@ -41,6 +59,7 @@ export class Session {
     this.clientId = opts.clientId;
     this.clientType = opts.clientType;
     this.platform = opts.platform;
+    this.agentStreams = opts.agentStreams ?? "all";
     this.capabilities = opts.capabilities;
     this.connectedAt = opts.connectedAt ?? Date.now();
     this.appVersion = opts.appVersion;

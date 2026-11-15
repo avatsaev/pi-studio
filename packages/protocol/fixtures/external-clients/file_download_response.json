@@ -1,18 +1,29 @@
 {
   "type": "file_download_response",
   "direction": "server_to_client",
-  "description": "Sent after the End frame. On failure `ok:false` with `error` (invalid_or_expired_token, invalid_stream, read_failed, connection_closed).",
-  "since": "0.0.118",
+  "description": "Sent BEFORE the binary frames. Accepted: `totalBytes` is the whole file's size, `offset`/`length` the range that will follow (the whole file unless the request carried a range), `mtimeMs` the file's modification time as an integer number of milliseconds. Rejected: `ok:false` with `error` and no binary frame (shown in `file_download_response.rejected.json`): missing_path, not_found, not_a_file, unreadable, invalid_stream, stream_in_use, invalid_range, range_not_satisfiable, changed, no_free_stream. `stream` is present when the request carried a valid one; `changed` also carries the file's current `totalBytes` and `mtimeMs`.",
+  "since": "0.0.119",
   "stage": 3,
-  "requiresFeature": null,
-  "volatile": ["/message/requestId", "/message/stream", "/message/transferId"],
+  "requiresFeature": "fileDownloadRanges",
+  "volatile": [
+    "/message/requestId",
+    "/message/stream",
+    "/message/transferId",
+    "/message/mtimeMs",
+    "/message/offset",
+    "/message/length"
+  ],
   "frame": {
     "type": "session",
     "message": {
       "type": "file_download_response",
-      "stream": 1,
       "ok": true,
+      "stream": 1,
       "transferId": "dl-1-1767225600000",
+      "totalBytes": 32,
+      "mtimeMs": 1767225600000,
+      "offset": 0,
+      "length": 32,
       "requestId": "req-1"
     }
   }

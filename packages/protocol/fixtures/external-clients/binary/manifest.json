@@ -8,6 +8,12 @@
       "direction": "both"
     },
     {
+      "file": "file_transfer.begin.download.json",
+      "family": "file_transfer",
+      "opcode": "Begin",
+      "direction": "both"
+    },
+    {
       "file": "file_transfer.chunk.json",
       "family": "file_transfer",
       "opcode": "Chunk",

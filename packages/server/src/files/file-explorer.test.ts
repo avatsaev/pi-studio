@@ -56,22 +56,21 @@ describe("FileExplorerService.listOrPreview", () => {
     }
   });
 
-  it("returns metadata + a transfer token for a binary file (no inline content)", async () => {
+  it("returns metadata and no inline content for a binary file", async () => {
     // A file with a NUL byte is treated as binary.
     await writeFile(join(dir, "blob.bin"), Buffer.from([0x00, 0x01, 0x02, 0x99]));
-    let issuedFor = "";
-    const svc = new FileExplorerService({
-      issueDownloadToken: (p) => {
-        issuedFor = p;
-        return "tok-123";
-      },
-    });
+    const svc = new FileExplorerService();
     const result = await svc.listOrPreview(join(dir, "blob.bin"));
     expect(result.ok).toBe(true);
     if (result.ok && result.kind === "binary") {
-      expect(result.transferToken).toBe("tok-123");
       expect(result.metadata.size).toBe(4);
-      expect(issuedFor).toBe(result.resolvedPath);
+      expect(Object.keys(result).toSorted()).toEqual([
+        "kind",
+        "metadata",
+        "ok",
+        "path",
+        "resolvedPath",
+      ]);
     } else {
       throw new Error("expected binary metadata");
     }

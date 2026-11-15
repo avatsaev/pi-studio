@@ -19,14 +19,41 @@ previews, attachments, and project/path pickers.
 |-----------|---------|
 | List/preview a path | `FileExplorerRequest` |
 | Directory suggestions (path picker) | `DirectorySuggestionsRequest` |
-| Request a download token | `FileDownloadTokenRequest` |
+| Download a file (by path, optional range) | `FileDownloadRequest` |
+| Cancel a running download | `FileDownloadCancelRequest` |
 | Upload a file | `FileUploadRequest` |
 | Project icon | `ProjectIconRequest` |
 | Move/rename a path | `FileMoveRequest` (see [file-explorer-move.md](file-explorer-move.md)) |
 
 ### Binary transfer frames
 - A file-transfer binary frame format (separate from terminal frames) streams download/upload bytes
-  in chunks. Downloads are authorized via a one-time download token from `FileDownloadTokenRequest`.
+  in chunks. A download is requested by path (no token); the daemon answers before streaming, may
+  start at a byte `offset`, and can be cancelled with `file_download_cancel_request`.
+
+### Download (`file_download_request`)
+
+Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client-protocol-followups-2.md](desktop-client-protocol-followups-2.md) § 1.
+
+- **Request:** `{ path, stream?, offset?, length?, ifUnchanged?: { size, mtimeMs } }`. `~` is expanded
+  and the path resolved through symlinks. `stream` is a 0–255 id chosen by the client (omitted: the
+  daemon picks a free one on this session). Download stream ids are scoped per session; uploads keep
+  the daemon-wide pool.
+- **Response, sent before the binary frames:** `{ ok: true, stream, transferId, totalBytes, mtimeMs
+  (integer), offset, length }` or `{ ok: false, error, stream? }` (`changed` also carries the current
+  `totalBytes`/`mtimeMs`). Errors: `missing_path`, `not_found`, `not_a_file`, `unreadable`,
+  `invalid_stream`, `stream_in_use`, `invalid_range`, `range_not_satisfiable`, `changed`,
+  `no_free_stream`. `length` is the request's clamped to the end of the file.
+- **Frames:** `Begin` (meta: `fileName`, `mimeType`, `totalBytes`, `mtimeMs`, `offset`, `length`),
+  `Chunk`..., then `End` (only when exactly `length` bytes were sent) or `Error` (`read_failed`,
+  `changed`, `cancelled`). Nothing follows `End`/`Error`.
+- **Resume:** the client keeps `{ totalBytes, mtimeMs }` from the first response and re-requests
+  with `offset` and `ifUnchanged`; a modified file answers `changed`. (Uploads have no resume.)
+- **Cancel:** `file_download_cancel_request { stream }` → `{ ok: true }` (the stream ends with
+  `Error` `cancelled`) or `{ ok: false, error: "not_found" }`. Closing the session releases its
+  downloads silently.
+- **SDK:** `FileTransferClient.downloadTo(path, sink, options)` / `download(path, options)`
+  (`offset`, `length`, `ifUnchanged`, `signal`, `onProgress`); both reject when the daemon lacks
+  `fileDownloadRanges`. The browser host builds Blobs from the `downloadTo` chunks.
 
 ## Behavior & Algorithms
 
@@ -34,11 +61,13 @@ previews, attachments, and project/path pickers.
 function listOrPreview(path):
     normalize + resolve path (symlink checks in the daemon file service)
     if directory: return entries (name, kind, size, mtime, icon hints)
-    if file: return preview (text, or metadata + token for binary)
+    if file: return preview (text, or metadata for binary)
 
-function download(path):
-    token = issueDownloadToken(path)         # short-lived, single use
-    client opens transfer stream with token → daemon streams file bytes in chunks
+function download(path, offset?, length?, ifUnchanged?):
+    client sends file_download_request { path, stream?, offset?, length?, ifUnchanged? }
+    daemon opens the file, validates (stream, range, validator) and replies FIRST:
+        { ok: true, stream, transferId, totalBytes, mtimeMs, offset, length } | { ok: false, error }
+    on ok, the daemon streams Begin, Chunk..., then End (exactly `length` bytes) or Error
 
 function upload(meta):
     client streams bytes in chunks → daemon writes to target path (within allowed authority)
@@ -118,7 +147,7 @@ actually opened or an empty molecule tab is created. Users who never open a mole
 file incur no additional load time or bundle weight.
 
 ## Data & Persistence
-- No dedicated store; reads/writes the real filesystem. Download tokens are transient in-memory.
+- No dedicated store; reads/writes the real filesystem. Active downloads are tracked in memory per session.
   Client-side web attachments cache in IndexedDB (see
   [../architecture/persistence.md](../architecture/persistence.md)).
 
@@ -144,9 +173,11 @@ corresponds to the practical interactive limit of the code renderer, not any wir
 |-----------|-------------------|
 | Path the daemon can't read | Error result |
 | Symlink escaping intent | Normalized/checked server-side |
-| Expired/invalid download token | Reject the transfer |
+| Download of a path that is missing / a directory / unreadable | `file_download_response { ok: false, error }` (`not_found`, `not_a_file`, `unreadable`), no binary frame |
+| Bad range / stale resume | `invalid_range`, `range_not_satisfiable`, `changed` (with the current `totalBytes`/`mtimeMs`) |
+| Stream id already used by a running download on the session | `stream_in_use` |
 | Large file | Chunked streaming (bounded frames) |
-| Binary file preview | Return metadata + transfer token instead of inline text |
+| Binary file preview | Return metadata (`size`, `mtimeMs`, `mimeHint`) instead of inline text; the client downloads by path |
 
 ## Dependencies
 - Internal: file-explorer service, file-download, file-upload, private-files/path-utils.
@@ -154,20 +185,17 @@ corresponds to the practical interactive limit of the code renderer, not any wir
 
 ## Acceptance Criteria
 - [ ] `FileExplorerRequest` lists a directory and previews a text file.
-- [ ] Downloading requires a valid token and streams bytes in chunks.
+- [ ] Downloading by `path` answers with `file_download_response` before any binary frame and streams the requested range in chunks.
 - [ ] Uploading writes the streamed file to the target path.
 - [ ] Symlink/path normalization is enforced on the daemon, not the client.
-- [ ] Binary files return metadata + a transfer token rather than inline content.
+- [ ] Binary files return metadata rather than inline content.
 
 ## TODO(verify)
 - [ ] File-transfer frame layout (opcodes, chunk size, completion marker).
-- [x] Download-token TTL and single-use semantics — **resolved**: single-use, consumed on first
-      redemption, LRU-capped at 10 000 outstanding tokens, 10-minute TTL. The TTL is a cleanup
-      device rather than an authorization control (the token never leaves the authenticated
-      session), and it must stay generous: the clock starts when the daemon issues the token,
-      while the client cannot redeem it until the response has crossed a socket shared with every
-      in-flight `Chunk` frame. A 60 s TTL made opening a second file behind a large transfer on a
-      slow link fail with `invalid_or_expired_token`. The client additionally re-issues and
-      retries once on that error, covering LRU eviction.
+- [x] Download authorization — **resolved (sprint 097)**: there is no token. `file_download_request`
+      takes a `path`; connected clients are trusted operators (see the trust boundary above). The
+      single-use, LRU-capped, 10-minute-TTL token and its `invalid_or_expired_token` error were
+      removed outright.
 - [x] Stream/slot id allocation — **resolved**: ids are a 0–255 pool (one frame-header byte),
-      recycled as transfers finish, never a monotonic counter.
+      recycled as transfers finish, never a monotonic counter. Upload ids come from a daemon-wide
+      pool; download ids are scoped per session (sprint 097).

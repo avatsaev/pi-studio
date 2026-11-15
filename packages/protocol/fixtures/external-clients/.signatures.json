@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "files": {
     "agent_archived.json": {
       "/message/agentId": "string",
@@ -515,32 +515,53 @@
       "/message/type": "string",
       "/type": "string"
     },
-    "file_download_request.json": {
+    "file_download_cancel_request.json": {
       "/message/requestId": "string",
       "/message/stream": "number",
-      "/message/token": "string",
       "/message/type": "string",
       "/type": "string"
     },
-    "file_download_response.json": {
+    "file_download_cancel_response.json": {
+      "/message/error": "string",
       "/message/ok": "boolean",
       "/message/requestId": "string",
-      "/message/stream": "number",
-      "/message/transferId": "string",
       "/message/type": "string",
       "/type": "string"
     },
-    "file_download_token_request.json": {
+    "file_download_request.json": {
+      "/message/path": "string",
+      "/message/requestId": "string",
+      "/message/stream": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_download_request.range.json": {
+      "/message/ifUnchanged/mtimeMs": "number",
+      "/message/ifUnchanged/size": "number",
+      "/message/length": "number",
+      "/message/offset": "number",
       "/message/path": "string",
       "/message/requestId": "string",
       "/message/type": "string",
       "/type": "string"
     },
-    "file_download_token_response.json": {
-      "/message/expiresAt": "number",
+    "file_download_response.json": {
+      "/message/length": "number",
+      "/message/mtimeMs": "number",
+      "/message/offset": "number",
       "/message/ok": "boolean",
       "/message/requestId": "string",
-      "/message/token": "string",
+      "/message/stream": "number",
+      "/message/totalBytes": "number",
+      "/message/transferId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "file_download_response.rejected.json": {
+      "/message/error": "string",
+      "/message/ok": "boolean",
+      "/message/requestId": "string",
+      "/message/stream": "number",
       "/message/type": "string",
       "/type": "string"
     },
@@ -571,6 +592,16 @@
       "/body/status": "string",
       "/contentType": "string",
       "/status": "number"
+    },
+    "hello.agentStreams.json": {
+      "/agentStreams": "string",
+      "/appVersion": "string",
+      "/capabilities/reasoning_merge_enum": "boolean",
+      "/clientId": "string",
+      "/clientType": "string",
+      "/platform": "string",
+      "/protocolVersion": "number",
+      "/type": "string"
     },
     "hello.json": {
       "/appVersion": "string",

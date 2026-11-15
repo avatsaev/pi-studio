@@ -182,6 +182,14 @@ explicit provider for non-interactive setups. Secrets are never echoed, and the 
 `pi-studio onboard` (top-level) is an alias for `daemon start`'s behavior, and bare `pi-studio`
 does the same thing.
 
+With the global `--json` flag, `daemon start`, `restart`, `pair` and `stop` each print exactly one
+line of JSON and nothing else (no QR): `start`/`restart` →
+`{"up":true,"started":true|false,"host","port","pairingUrl","relay"}` (failure:
+`{"up":false,"host","port","error":"not_healthy"}`, or `"error":"no_keypair"` with `up:true` when
+the daemon is healthy but has no key file yet), `pair` → `{"pairingUrl","relay"}` (failure
+`{"error":"no_keypair"}`), `stop` → `{"stopped":true|false}`. Failures exit non-zero. `relay` is the
+relay endpoint the link routes through, or `null`. `pairingUrl` is a credential on relay links.
+
 ### `relay`
 
 | Command                               | Description                                                          |

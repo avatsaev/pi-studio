@@ -21,12 +21,14 @@ describe("capability flag sets", () => {
     expect(Object.keys(SERVER_FEATURES).toSorted()).toEqual(
       [
         "agentTodos",
+        "agentStreamsMode",
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
         "daemonObservability",
         "daemonStatusRpc",
         "extensionPacks",
         "extensionUi",
+        "fileDownloadRanges",
         "fileTransferAck",
         "compactionEvents",
         "forkTimelineSync",

@@ -1,6 +1,19 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 
 import {
   decodeFileTransferFrame,
@@ -8,11 +21,10 @@ import {
   type FileTransferFrame,
   fileUploadCompleteSchema,
 } from "@av-pi-studio/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { HandlerRegistry } from "../ws/router.js";
+import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
 import { Session } from "../ws/session.js";
-import { DownloadTokenStore } from "./download-token-store.js";
 import { FileTransferService, type DownloadPacing } from "./file-transfer.js";
 
 let dir: string;
@@ -41,132 +53,633 @@ function fakeSession(id = "s1"): { session: Session; binary: Uint8Array[]; text:
   return { session, binary, text };
 }
 
-describe("DownloadTokenStore", () => {
-  it("issues single-use tokens and rejects reuse / expiry / unknown", () => {
-    let clock = 1000;
-    const store = new DownloadTokenStore(5000, () => clock);
-    const { token } = store.issue("/path/a");
-    expect(store.consume(token)).toBe("/path/a");
-    expect(store.consume(token)).toBeNull(); // single-use
-    expect(store.consume("nope")).toBeNull(); // unknown
+interface Downloaded {
+  response: Record<string, unknown>;
+  /** False when the request was rejected (no stream was started). */
+  accepted: boolean;
+  frames: FileTransferFrame[];
+  body: Buffer;
+}
 
-    const { token: t2 } = store.issue("/path/b");
-    clock += 6000; // past TTL
-    expect(store.consume(t2)).toBeNull(); // expired
-  });
+const openSocket: DownloadPacing = { bufferedAmount: () => undefined, isOpen: () => true };
 
-  it("defaults to a TTL that survives a slow link's head-of-line blocking", () => {
-    // The clock starts when the daemon ISSUES the token, but the client cannot redeem it until
-    // the response has crossed a socket that may have megabytes of in-flight `Chunk` frames ahead
-    // of it. A 20 MB transfer at 250 KB/s is ~100s of backlog, which the original 60s TTL turned
-    // into a spurious `invalid_or_expired_token` on the next file the user opened.
-    let clock = 0;
-    const store = new DownloadTokenStore(undefined, () => clock);
-    const { token, expiresAt } = store.issue("/path/slow");
-    expect(expiresAt - clock).toBeGreaterThanOrEqual(10 * 60_000);
-    clock += 120_000; // two minutes of downlink backlog
-    expect(store.consume(token)).toBe("/path/slow");
+/** Answer a download request, then run its stream to the end into a frame list. */
+async function download(
+  svc: FileTransferService,
+  request: Record<string, unknown>,
+  pacing: DownloadPacing = openSocket,
+  sessionId = "s1",
+): Promise<Downloaded> {
+  const { response, run } = await svc.beginDownload(sessionId, {
+    type: "file_download_request",
+    ...request,
   });
-});
+  const raw: Uint8Array[] = [];
+  if (run) await run((f) => raw.push(f), pacing);
+  const frames = raw.map((b) => decodeFileTransferFrame(b));
+  const body = Buffer.concat(
+    frames.flatMap((f) => (f.opcode === "Chunk" ? [Buffer.from(f.data)] : [])),
+  );
+  return { response, accepted: run !== undefined, frames, body };
+}
 
 describe("FileTransferService download", () => {
-  it("requires a valid token and streams bytes in chunks with a completion marker", async () => {
+  it("sends the whole file in bounded chunks and announces its size", async () => {
     const file = join(dir, "data.txt");
     const content = "X".repeat(100_000); // > chunk size → multiple Chunk frames
     await writeFile(file, content);
-
     const svc = new FileTransferService({ chunkBytes: 32 * 1024 });
-    const token = svc.issueDownloadToken(file);
 
-    const { binary } = fakeSession();
-    const result = await svc.startDownload(token, 7, (f) => binary.push(f));
-    expect(result.ok).toBe(true);
+    const { response, frames, body } = await download(svc, { path: file, stream: 7 });
 
-    const frames = binary.map((b) => decodeFileTransferFrame(b));
-    expect(frames[0]!.opcode).toBe("Begin");
-    if (frames[0]!.opcode === "Begin") {
-      expect(frames[0]!.meta.mimeType).toBe("application/octet-stream"); // unknown extension
+    expect(response).toMatchObject({
+      type: "file_download_response",
+      ok: true,
+      stream: 7,
+      totalBytes: 100_000,
+      offset: 0,
+      length: 100_000,
+      mtimeMs: Math.trunc((await stat(file)).mtimeMs),
+    });
+    expect(Number.isInteger(response.mtimeMs)).toBe(true);
+    const begin = frames[0]!;
+    expect(begin.opcode).toBe("Begin");
+    if (begin.opcode === "Begin") {
+      expect(begin.meta).toMatchObject({
+        transferId: response.transferId,
+        fileName: "data.txt",
+        mimeType: "application/octet-stream", // unknown extension
+        totalBytes: 100_000,
+        mtimeMs: response.mtimeMs,
+        offset: 0,
+        length: 100_000,
+      });
     }
-    expect(frames.at(-1)!.opcode).toBe("End");
-    const chunks = frames.filter((f) => f.opcode === "Chunk");
-    expect(chunks.length).toBeGreaterThan(1); // bounded chunks
-    const assembled = Buffer.concat(
-      chunks.map((f) => (f.opcode === "Chunk" ? Buffer.from(f.data) : Buffer.alloc(0))),
-    ).toString();
-    expect(assembled).toBe(content);
-    if (frames.at(-1)!.opcode === "End") {
-      expect((frames.at(-1) as { ok: boolean }).ok).toBe(true);
-    }
+    expect(frames.filter((f) => f.opcode === "Chunk").length).toBeGreaterThan(1);
+    expect(body.toString()).toBe(content);
+    expect(frames.at(-1)).toEqual({ opcode: "End", stream: 7, ok: true });
   });
 
   it("stamps the Begin frame with a known extension's MIME type", async () => {
     const file = join(dir, "shot.png");
     await writeFile(file, "not-really-png-bytes");
+    const { frames } = await download(new FileTransferService(), { path: file, stream: 1 });
+    const begin = frames[0]!;
+    expect(begin.opcode === "Begin" && begin.meta.mimeType).toBe("image/png");
+  });
 
-    const svc = new FileTransferService();
-    const token = svc.issueDownloadToken(file);
+  it("follows a symlink to the real file", async () => {
+    const file = join(dir, "real.txt");
+    await writeFile(file, "real bytes");
+    await symlink(file, join(dir, "link.txt"));
+    const { response, body } = await download(new FileTransferService(), {
+      path: join(dir, "link.txt"),
+    });
+    expect(response).toMatchObject({ ok: true, totalBytes: 10 });
+    expect(body.toString()).toBe("real bytes");
+  });
 
-    const { binary } = fakeSession();
-    await svc.startDownload(token, 1, (f) => binary.push(f));
+  it("sends exactly the requested range, and consecutive ranges rebuild the file", async () => {
+    const file = join(dir, "ranged.bin");
+    const content = Buffer.from(Array.from({ length: 5000 }, (_, i) => i % 251));
+    await writeFile(file, content);
+    const svc = new FileTransferService({ chunkBytes: 1024 });
 
-    const begin = decodeFileTransferFrame(binary[0]!);
-    expect(begin.opcode).toBe("Begin");
-    if (begin.opcode === "Begin") {
-      expect(begin.meta.mimeType).toBe("image/png");
+    const middle = await download(svc, { path: file, offset: 1500, length: 2000 });
+    expect(middle.response).toMatchObject({
+      ok: true,
+      totalBytes: 5000,
+      offset: 1500,
+      length: 2000,
+    });
+    expect(middle.body.equals(content.subarray(1500, 3500))).toBe(true);
+    expect(middle.frames.at(-1)!.opcode).toBe("End");
+
+    const parts: Buffer[] = [];
+    for (let offset = 0; offset < content.length; offset += 1800) {
+      parts.push((await download(svc, { path: file, offset, length: 1800 })).body);
     }
+    expect(Buffer.concat(parts).equals(content)).toBe(true);
   });
 
-  it("rejects an invalid/expired token", async () => {
-    const svc = new FileTransferService();
-    const result = await svc.startDownload("bogus", 1, () => {});
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe("invalid_or_expired_token");
+  it("clamps a length past the end and reports the real count", async () => {
+    const file = join(dir, "short.bin");
+    await writeFile(file, "0123456789");
+    const { response, body } = await download(new FileTransferService(), {
+      path: file,
+      offset: 6,
+      length: 1000,
+    });
+    expect(response).toMatchObject({ ok: true, totalBytes: 10, offset: 6, length: 4 });
+    expect(body.toString()).toBe("6789");
   });
 
-  it("rejects an out-of-range stream WITHOUT spending the token", async () => {
-    // The stream id is one frame-header byte. This used to consume the token and only then throw
-    // out of `encodeFileTransferFrame`, so the caller's retry had nothing left to redeem.
-    const file = join(dir, "data.txt");
-    await writeFile(file, "payload");
-    const svc = new FileTransferService();
-    const token = svc.issueDownloadToken(file);
-    const registry = new HandlerRegistry();
-    svc.registerHandlers(registry);
-    const { session, binary } = fakeSession();
+  it("treats an offset at the end, and an empty file, as a legal empty download", async () => {
+    const file = join(dir, "tail.bin");
+    await writeFile(file, "abc");
+    const atEnd = await download(new FileTransferService(), { path: file, offset: 3, stream: 2 });
+    expect(atEnd.response).toMatchObject({ ok: true, totalBytes: 3, offset: 3, length: 0 });
+    expect(atEnd.frames.map((f) => f.opcode)).toEqual(["Begin", "End"]);
 
-    const rejected = (await registry.get("file_download_request")!({
-      session,
-      message: { type: "file_download_request", token, stream: 256 },
-      requestId: "r1",
-    })) as { ok: boolean; error?: string };
-    expect(rejected).toMatchObject({ ok: false, error: "invalid_stream" });
+    const empty = join(dir, "empty.bin");
+    await writeFile(empty, "");
+    const none = await download(new FileTransferService(), { path: empty, stream: 2 });
+    expect(none.response).toMatchObject({ ok: true, totalBytes: 0, length: 0 });
+    expect(none.frames.map((f) => f.opcode)).toEqual(["Begin", "End"]);
+  });
 
-    const retried = (await registry.get("file_download_request")!({
-      session,
-      message: { type: "file_download_request", token, stream: 3 },
-      requestId: "r2",
-    })) as { ok: boolean };
-    expect(retried.ok).toBe(true);
-    expect(binary.length).toBeGreaterThan(0);
+  describe("rejections (answered, and no binary frame follows)", () => {
+    let file: string;
+    beforeEach(async () => {
+      file = join(dir, "ten.bin");
+      await writeFile(file, "0123456789");
+    });
+
+    const rejects = async (request: Record<string, unknown>, error: string) => {
+      const result = await download(new FileTransferService(), request);
+      expect(result.response).toMatchObject({ type: "file_download_response", ok: false, error });
+      expect(result.accepted).toBe(false);
+      expect(result.frames).toEqual([]);
+    };
+
+    it("missing_path", async () => {
+      await rejects({}, "missing_path");
+      await rejects({ path: "" }, "missing_path");
+      await rejects({ path: 5 }, "missing_path");
+    });
+    it("not_found", async () => rejects({ path: join(dir, "gone.bin") }, "not_found"));
+    it("not_a_file", async () => rejects({ path: dir }, "not_a_file"));
+    it("invalid_stream", async () => {
+      for (const stream of [256, -1, 1.5, "3"])
+        await rejects({ path: file, stream }, "invalid_stream");
+    });
+    it("invalid_range", async () => {
+      await rejects({ path: file, offset: -1 }, "invalid_range");
+      await rejects({ path: file, offset: 1.5 }, "invalid_range");
+      await rejects({ path: file, offset: "2" }, "invalid_range");
+      await rejects({ path: file, length: 0 }, "invalid_range");
+      await rejects({ path: file, length: -5 }, "invalid_range");
+    });
+    it("range_not_satisfiable", async () =>
+      rejects({ path: file, offset: 11 }, "range_not_satisfiable"));
+    it.skipIf(process.getuid?.() === 0)("unreadable", async () => {
+      await chmod(file, 0o000);
+      await rejects({ path: file }, "unreadable");
+    });
+
+    it("keeps the stream id on a rejection that has one, and omits it for a bad stream", async () => {
+      const svc = new FileTransferService();
+      const range = await svc.beginDownload("s1", { path: file, stream: 9, offset: 99 });
+      expect(range.response).toMatchObject({ error: "range_not_satisfiable", stream: 9 });
+      const bad = await svc.beginDownload("s1", { path: file, stream: 256 });
+      expect(bad.response).not.toHaveProperty("stream");
+    });
   });
 
   it("keeps a client-omitted stream inside the one-byte space across many transfers", async () => {
     const file = join(dir, "data.txt");
     await writeFile(file, "payload");
     const svc = new FileTransferService();
-    const registry = new HandlerRegistry();
-    svc.registerHandlers(registry);
-    const { session } = fakeSession();
-
     for (let i = 0; i < 300; i++) {
-      const res = (await registry.get("file_download_request")!({
-        session,
-        message: { type: "file_download_request", token: svc.issueDownloadToken(file) },
-        requestId: `r${i}`,
-      })) as { ok: boolean; stream: number };
-      expect(res.ok).toBe(true);
-      expect(res.stream).toBeLessThan(256);
+      const { response } = await download(svc, { path: file });
+      expect(response.ok).toBe(true);
+      expect(response.stream as number).toBeLessThan(256);
     }
+  });
+
+  it("sends one Error and no End when the file ends before the announced length", async () => {
+    const file = join(dir, "shrinks.bin");
+    await writeFile(file, Buffer.alloc(10_000, "s"));
+    const svc = new FileTransferService({ chunkBytes: 1024 });
+    const { response, run } = await svc.beginDownload("s1", { path: file, stream: 4 });
+    expect(response).toMatchObject({ ok: true, totalBytes: 10_000, length: 10_000 });
+    await truncate(file, 3000); // truncated between the answer and the stream
+    const raw: Uint8Array[] = [];
+    await run!((f) => raw.push(f), openSocket);
+    const frames = raw.map((b) => decodeFileTransferFrame(b));
+    expect(frames.map((f) => f.opcode).filter((o) => o !== "Chunk")).toEqual(["Begin", "Error"]);
+    expect(frames.at(-1)).toEqual({ opcode: "Error", stream: 4, message: "changed" });
+  });
+});
+
+/** A socket that records text and binary frames in one ordered list. */
+function wireSocket() {
+  const wire: Array<{ text?: Record<string, unknown>; frame?: FileTransferFrame }> = [];
+  const socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send: (d: unknown) =>
+      wire.push(
+        typeof d === "string"
+          ? { text: JSON.parse(d) }
+          : { frame: decodeFileTransferFrame(d as Uint8Array) },
+      ),
+    close: () => {},
+  };
+  const session = new Session({
+    id: "s1",
+    clientId: "c1",
+    clientType: "cli",
+    capabilities: {},
+    socket: socket as never,
+  });
+  return { wire, socket, session };
+}
+
+const request = (path: string) =>
+  JSON.stringify({
+    type: "session",
+    message: { type: "file_download_request", requestId: "r1", path },
+  });
+
+describe("download over the router", () => {
+  it("sends the response before Begin, and nothing after End", async () => {
+    const file = join(dir, "ordered.bin");
+    await writeFile(file, Buffer.alloc(70_000, "o"));
+    const registry = new HandlerRegistry();
+    new FileTransferService({ chunkBytes: 32 * 1024 }).registerHandlers(registry);
+    const { wire, session } = wireSocket();
+
+    await routeTextFrame(session, request(file), registry);
+    await waitUntil(() => wire.at(-1)?.frame?.opcode === "End");
+
+    expect(wire[0]!.text).toMatchObject({
+      type: "session",
+      message: { type: "file_download_response", requestId: "r1", ok: true, totalBytes: 70_000 },
+    });
+    expect(wire[1]!.frame?.opcode).toBe("Begin");
+    expect(wire.filter((w) => w.text)).toHaveLength(1);
+    expect(wire.at(-1)!.frame?.opcode).toBe("End");
+  });
+
+  it("answers at once while a stalled client still has most of the file to receive", async () => {
+    // A transfer that outlasts the client's request timeout must not keep the request pending.
+    const file = join(dir, "stalled.bin");
+    await writeFile(file, Buffer.alloc(500_000, "t"));
+    const registry = new HandlerRegistry();
+    new FileTransferService({
+      chunkBytes: 1024,
+      highWaterBytes: 4 * 1024,
+      lowWaterBytes: 1024,
+      drainPollMs: 1,
+    }).registerHandlers(registry);
+    const { wire, socket, session } = wireSocket();
+    socket.bufferedAmount = 1_000_000; // never drains
+
+    await routeTextFrame(session, request(file), registry);
+    expect(wire[0]!.text?.message).toMatchObject({ type: "file_download_response", ok: true });
+    await waitUntil(() => wire.some((w) => w.frame?.opcode === "Chunk"));
+    // The read paused at the high-water mark: most of the file is still unsent, and the request
+    // was answered long before the stream could finish.
+    expect(wire.filter((w) => w.frame?.opcode === "Chunk").length).toBeLessThan(10);
+    expect(wire.some((w) => w.frame?.opcode === "End")).toBe(false);
+    socket.readyState = 3; // the stalled client goes away; the paused read ends silently
+  });
+
+  it("answers a rejected request with one message and no binary frame", async () => {
+    const registry = new HandlerRegistry();
+    new FileTransferService().registerHandlers(registry);
+    const { wire, session } = wireSocket();
+    await routeTextFrame(session, request(join(dir, "nope.bin")), registry);
+    expect(wire).toHaveLength(1);
+    expect(wire[0]!.text?.message).toMatchObject({
+      ok: false,
+      error: "not_found",
+      requestId: "r1",
+    });
+  });
+
+  it("no longer knows the download token request", async () => {
+    const registry = new HandlerRegistry();
+    new FileTransferService().registerHandlers(registry);
+    const { wire, session } = wireSocket();
+    await routeTextFrame(
+      session,
+      JSON.stringify({
+        type: "session",
+        message: { type: "file_download_token_request", requestId: "r1", path: "/x" },
+      }),
+      registry,
+    );
+    expect(wire).toHaveLength(1);
+    expect(wire[0]!.text?.message).toMatchObject({
+      type: "rpc_error",
+      code: "unknown_message_type",
+      requestId: "r1",
+    });
+  });
+});
+
+/** Open file descriptors of this process (Linux only; the tests that use it skip elsewhere). */
+const openFdCount = (): number => readdirSync("/proc/self/fd").length;
+
+const opcodes = (frames: FileTransferFrame[]) => frames.map((f) => f.opcode);
+
+describe("FileTransferService download lifecycle", () => {
+  describe("ifUnchanged", () => {
+    let file: string;
+    let current: { size: number; mtimeMs: number };
+    beforeEach(async () => {
+      file = join(dir, "valid.bin");
+      await writeFile(file, "0123456789");
+      current = { size: 10, mtimeMs: Math.trunc((await stat(file)).mtimeMs) };
+    });
+
+    it("serves a range whose validator still matches", async () => {
+      const { response, body } = await download(new FileTransferService(), {
+        path: file,
+        offset: 4,
+        ifUnchanged: current,
+      });
+      expect(response).toMatchObject({ ok: true, offset: 4, length: 6 });
+      expect(body.toString()).toBe("456789");
+    });
+
+    it("rejects a stale validator with the current values and no binary frame", async () => {
+      const svc = new FileTransferService();
+      for (const ifUnchanged of [
+        { size: 10, mtimeMs: current.mtimeMs - 1 },
+        { size: 11, mtimeMs: current.mtimeMs },
+        "not-an-object",
+        { size: "10", mtimeMs: current.mtimeMs },
+      ]) {
+        const result = await download(svc, { path: file, stream: 6, ifUnchanged });
+        expect(result.response).toMatchObject({
+          ok: false,
+          error: "changed",
+          stream: 6,
+          totalBytes: 10,
+          mtimeMs: current.mtimeMs,
+        });
+        expect(result.accepted).toBe(false);
+        expect(result.frames).toEqual([]);
+      }
+      // A rejection must not leave its stream id reserved.
+      expect((await download(svc, { path: file, stream: 6 })).response.ok).toBe(true);
+    });
+  });
+
+  it("sends only the announced length when the file grows while it is being sent", async () => {
+    const file = join(dir, "grows.bin");
+    await writeFile(file, Buffer.alloc(4000, "g"));
+    const svc = new FileTransferService({ chunkBytes: 1024 });
+    const { response, run } = await svc.beginDownload("s1", { path: file });
+    expect(response).toMatchObject({ totalBytes: 4000, length: 4000 });
+    await appendFile(file, Buffer.alloc(4000, "h"));
+    const raw: Uint8Array[] = [];
+    await run!((f) => raw.push(f), openSocket);
+    const frames = raw.map((b) => decodeFileTransferFrame(b));
+    const body = Buffer.concat(
+      frames.flatMap((f) => (f.opcode === "Chunk" ? [Buffer.from(f.data)] : [])),
+    );
+    expect(body.equals(Buffer.alloc(4000, "g"))).toBe(true);
+    expect(frames.at(-1)!.opcode).toBe("End");
+  });
+
+  describe("stream ids", () => {
+    let file: string;
+    beforeEach(async () => {
+      file = join(dir, "ids.bin");
+      await writeFile(file, "payload");
+    });
+
+    it("rejects a second download on a stream the session is using, and frees it after End", async () => {
+      const svc = new FileTransferService();
+      const first = await svc.beginDownload("s1", { path: file, stream: 5 });
+      expect(first.response.ok).toBe(true);
+
+      const second = await svc.beginDownload("s1", { path: file, stream: 5 });
+      expect(second.response).toMatchObject({ ok: false, error: "stream_in_use", stream: 5 });
+      expect(second.run).toBeUndefined();
+
+      // The same id on another session is a different download.
+      const other = await download(svc, { path: file, stream: 5 }, openSocket, "s2");
+      expect(other.response.ok).toBe(true);
+
+      // The first is unaffected by the rejection and still completes.
+      const raw: Uint8Array[] = [];
+      await first.run!((f) => raw.push(f), openSocket);
+      expect(decodeFileTransferFrame(raw.at(-1)!).opcode).toBe("End");
+
+      expect((await download(svc, { path: file, stream: 5 })).response.ok).toBe(true);
+    });
+
+    it("gives a request without a stream an id that is free on its session", async () => {
+      const svc = new FileTransferService();
+      const held = await Promise.all(
+        [1, 2, 3].map((stream) => svc.beginDownload("s1", { path: file, stream })),
+      );
+      const ids = new Set<number>();
+      for (let i = 0; i < 6; i++) {
+        const next = await svc.beginDownload("s1", { path: file });
+        expect(next.response.ok).toBe(true);
+        ids.add(next.response.stream as number);
+        held.push(next);
+      }
+      expect(ids.size).toBe(6);
+      for (const stream of [1, 2, 3]) expect(ids.has(stream)).toBe(false);
+      for (const h of held) await h.run!(() => {}, openSocket);
+    });
+
+    it("answers no_free_stream when the session has all 256 in use", async () => {
+      const svc = new FileTransferService();
+      const held = await Promise.all(
+        Array.from({ length: 256 }, (_, stream) => svc.beginDownload("s1", { path: file, stream })),
+      );
+      expect(held.every((h) => h.response.ok === true)).toBe(true);
+      const none = await svc.beginDownload("s1", { path: file });
+      expect(none.response).toMatchObject({ ok: false, error: "no_free_stream" });
+      // Another session is unaffected.
+      expect((await download(svc, { path: file }, openSocket, "s2")).response.ok).toBe(true);
+      for (const h of held) await h.run!(() => {}, openSocket);
+    });
+  });
+
+  describe("cancel", () => {
+    it("stops reading, sends Error cancelled and no End, and frees the stream", async () => {
+      const file = join(dir, "cancel.bin");
+      await writeFile(file, Buffer.alloc(1_000_000, "c")); // ~1000 chunks of 1 KiB
+      const svc = new FileTransferService({ chunkBytes: 1024 });
+      const probe = await open(file, "r");
+      const handleProto = Object.getPrototypeOf(probe) as { read: (...a: unknown[]) => unknown };
+      await probe.close();
+      const readSpy = vi.spyOn(handleProto, "read");
+      try {
+        const { run } = await svc.beginDownload("s1", { path: file, stream: 2 });
+        const frames: FileTransferFrame[] = [];
+        let chunks = 0;
+        let readsAtCancel = -1;
+        await run!((f) => {
+          const decoded = decodeFileTransferFrame(f);
+          frames.push(decoded);
+          if (decoded.opcode === "Chunk" && ++chunks === 3) {
+            readsAtCancel = readSpy.mock.calls.length;
+            expect(svc.cancelDownload("s1", 2)).toBe(true);
+          }
+        }, openSocket);
+
+        expect(readsAtCancel).toBeGreaterThan(0);
+        expect(frames.at(-1)).toEqual({ opcode: "Error", stream: 2, message: "cancelled" });
+        expect(opcodes(frames)).not.toContain("End");
+        expect(chunks).toBe(3);
+        // No further read of the file after the cancel (one already in flight may land).
+        expect(readSpy.mock.calls.length).toBeLessThanOrEqual(readsAtCancel + 2);
+        expect((await download(svc, { path: file, stream: 2, length: 1 })).response.ok).toBe(true);
+      } finally {
+        readSpy.mockRestore();
+      }
+    });
+
+    it("cancels a download that is paused on a client that is not reading", async () => {
+      const file = join(dir, "paused.bin");
+      await writeFile(file, Buffer.alloc(300_000, "p"));
+      const svc = new FileTransferService({
+        chunkBytes: 1024,
+        highWaterBytes: 4 * 1024,
+        lowWaterBytes: 1024,
+        drainPollMs: 1,
+      });
+      const { state, pacing, sink } = slowSocket(4 * 1024);
+      const frames: Uint8Array[] = [];
+      const { run } = await svc.beginDownload("s1", { path: file, stream: 8 });
+      const running = run!((f) => {
+        frames.push(f);
+        sink(f);
+      }, pacing);
+      await waitUntil(() => state.queued > 4 * 1024); // paused at the high-water mark
+      expect(svc.cancelDownload("s1", 8)).toBe(true);
+      await running;
+      expect(decodeFileTransferFrame(frames.at(-1)!)).toEqual({
+        opcode: "Error",
+        stream: 8,
+        message: "cancelled",
+      });
+    });
+
+    it("sends only Error cancelled when it arrives before the stream has started", async () => {
+      const file = join(dir, "early.bin");
+      await writeFile(file, "early");
+      const svc = new FileTransferService();
+      const { run } = await svc.beginDownload("s1", { path: file, stream: 3 });
+      expect(svc.cancelDownload("s1", 3)).toBe(true);
+      const raw: Uint8Array[] = [];
+      await run!((f) => raw.push(f), openSocket);
+      expect(raw.map((b) => decodeFileTransferFrame(b))).toEqual([
+        { opcode: "Error", stream: 3, message: "cancelled" },
+      ]);
+    });
+
+    it("answers not_found after End, for an unknown stream and for another session's stream", async () => {
+      const file = join(dir, "done.bin");
+      await writeFile(file, "done");
+      const svc = new FileTransferService();
+      await download(svc, { path: file, stream: 4 });
+      expect(svc.cancelDownload("s1", 4)).toBe(false); // finished
+      expect(svc.cancelDownload("s1", 200)).toBe(false); // unknown
+      const held = await svc.beginDownload("s1", { path: file, stream: 9 });
+      expect(svc.cancelDownload("s2", 9)).toBe(false); // someone else's
+      await held.run!(() => {}, openSocket);
+    });
+
+    it("is served over the router as file_download_cancel_request", async () => {
+      const file = join(dir, "rpc.bin");
+      await writeFile(file, Buffer.alloc(300_000, "r"));
+      const registry = new HandlerRegistry();
+      new FileTransferService({
+        chunkBytes: 1024,
+        highWaterBytes: 4 * 1024,
+        lowWaterBytes: 1024,
+        drainPollMs: 1,
+      }).registerHandlers(registry);
+      const { wire, socket, session } = wireSocket();
+      socket.bufferedAmount = 1_000_000; // the client stops reading
+      const cancel = (stream: unknown) =>
+        routeTextFrame(
+          session,
+          JSON.stringify({
+            type: "session",
+            message: { type: "file_download_cancel_request", requestId: "c1", stream },
+          }),
+          registry,
+        );
+
+      await routeTextFrame(
+        session,
+        JSON.stringify({
+          type: "session",
+          message: { type: "file_download_request", requestId: "d1", path: file, stream: 6 },
+        }),
+        registry,
+      );
+      await waitUntil(() => wire.some((w) => w.frame?.opcode === "Chunk"));
+
+      await cancel(6);
+      await waitUntil(() => wire.some((w) => w.frame?.opcode === "Error"));
+      expect(wire.filter((w) => w.frame?.opcode === "Error")).toHaveLength(1);
+
+      await cancel(6);
+      await cancel("six");
+      const replies = wire.filter((w) => w.text?.message?.type === "file_download_cancel_response");
+      expect(replies.map((w) => w.text!.message)).toMatchObject([
+        { ok: true, requestId: "c1" },
+        { ok: false, error: "not_found" },
+        { ok: false, error: "not_found" },
+      ]);
+    });
+  });
+
+  describe.skipIf(process.platform !== "linux")("session close", () => {
+    it("stops a running download and releases its stream id and file handle", async () => {
+      const file = join(dir, "closing-mid.bin");
+      await writeFile(file, Buffer.alloc(300_000, "k"));
+      const registry = new HandlerRegistry();
+      const svc = new FileTransferService({
+        chunkBytes: 1024,
+        highWaterBytes: 4 * 1024,
+        lowWaterBytes: 1024,
+        drainPollMs: 1,
+      });
+      svc.registerHandlers(registry);
+      const { wire, socket, session } = wireSocket();
+      socket.bufferedAmount = 1_000_000;
+      const fdsBefore = openFdCount();
+
+      await routeTextFrame(
+        session,
+        JSON.stringify({
+          type: "session",
+          message: { type: "file_download_request", requestId: "d1", path: file, stream: 7 },
+        }),
+        registry,
+      );
+      await waitUntil(() => wire.some((w) => w.frame?.opcode === "Chunk"));
+      expect(openFdCount()).toBeGreaterThan(fdsBefore);
+      const sent = wire.length;
+
+      svc.disposeSession(session);
+      await waitUntil(() => openFdCount() <= fdsBefore);
+      expect(wire).toHaveLength(sent); // nothing sent, not even Error
+      expect((await download(svc, { path: file, stream: 7, length: 1 })).response.ok).toBe(true);
+    });
+
+    it("releases a download that was accepted but never started", async () => {
+      const file = join(dir, "never-started.bin");
+      await writeFile(file, "x");
+      const svc = new FileTransferService();
+      const { session } = wireSocket();
+      const fdsBefore = openFdCount();
+      const { run } = await svc.beginDownload(session.id, { path: file, stream: 1 });
+      expect(openFdCount()).toBeGreaterThan(fdsBefore);
+
+      svc.disposeSession(session);
+      await waitUntil(() => openFdCount() <= fdsBefore);
+      const raw: Uint8Array[] = [];
+      await run!((f) => raw.push(f), openSocket);
+      expect(raw).toEqual([]);
+      const again = await svc.beginDownload(session.id, { path: file, stream: 1 });
+      expect(again.response.ok).toBe(true);
+      await again.run!(() => {}, openSocket);
+    });
   });
 });
 
@@ -308,18 +821,19 @@ describe("FileTransferService paced download", () => {
     const frames: Uint8Array[] = [];
     // The client drains 4 KiB every 2 ms, far slower than the disk reads.
     const drain = setInterval(() => (state.queued = Math.max(0, state.queued - 4096)), 2);
-    const result = await svc.startDownload(
-      svc.issueDownloadToken(file),
-      3,
-      (f) => {
-        frames.push(f);
-        sink(f);
-      },
-      pacing,
-    );
+    // A ranged download: pacing does not depend on starting at byte 0.
+    const { response, run } = await svc.beginDownload("s1", {
+      path: file,
+      stream: 3,
+      offset: 1000,
+    });
+    await run!((f) => {
+      frames.push(f);
+      sink(f);
+    }, pacing);
     clearInterval(drain);
 
-    expect(result.ok).toBe(true);
+    expect(response).toMatchObject({ ok: true, offset: 1000, length: 299_000 });
     // One chunk may overshoot the mark before the pause takes effect (chunk + frame header).
     expect(state.peak).toBeLessThanOrEqual(8 * 1024 + 1024 + 64);
     const decoded = frames.map((f) => decodeFileTransferFrame(f));
@@ -327,30 +841,42 @@ describe("FileTransferService paced download", () => {
     const body = Buffer.concat(
       decoded.map((f) => (f.opcode === "Chunk" ? Buffer.from(f.data) : Buffer.alloc(0))),
     );
-    expect(body.equals(content)).toBe(true);
+    expect(body.equals(content.subarray(1000))).toBe(true);
   });
 
   it("does not pace a socket that cannot report its queue", async () => {
     const file = join(dir, "plain.bin");
     await writeFile(file, Buffer.alloc(50_000, "z"));
     const svc = new FileTransferService({ chunkBytes: 1024, highWaterBytes: 1, lowWaterBytes: 0 });
-    const frames: Uint8Array[] = [];
-    const result = await svc.startDownload(svc.issueDownloadToken(file), 1, (f) => frames.push(f), {
-      bufferedAmount: () => undefined,
-      isOpen: () => true,
-    });
-    expect(result.ok).toBe(true);
-    expect(decodeFileTransferFrame(frames.at(-1)!).opcode).toBe("End");
+    const { frames } = await download(svc, { path: file, stream: 1 });
+    expect(frames.at(-1)!.opcode).toBe("End");
   });
 
-  it("sends one Error frame and no End when the read fails", async () => {
-    const svc = new FileTransferService();
-    const { binary } = fakeSession();
-    const result = await svc.startDownload(svc.issueDownloadToken(join(dir, "gone.bin")), 5, (f) =>
-      binary.push(f),
+  it("sends one Error frame and no End when a read fails", async () => {
+    const file = join(dir, "bad.bin");
+    await writeFile(file, Buffer.alloc(5000, "r"));
+    const probe = await open(file, "r");
+    const handleProto = Object.getPrototypeOf(probe) as { createReadStream: () => unknown };
+    await probe.close();
+    const spy = vi.spyOn(handleProto, "createReadStream").mockImplementation(
+      () =>
+        new Readable({
+          read() {
+            this.destroy(new Error("EIO"));
+          },
+        }),
     );
-    expect(result).toMatchObject({ ok: false, error: "read_failed" });
-    expect(binary.map((b) => decodeFileTransferFrame(b).opcode)).toEqual(["Begin", "Error"]);
+    try {
+      const { response, frames } = await download(new FileTransferService(), {
+        path: file,
+        stream: 5,
+      });
+      expect(response).toMatchObject({ ok: true });
+      expect(frames.map((f) => f.opcode)).toEqual(["Begin", "Error"]);
+      expect(frames.at(-1)).toEqual({ opcode: "Error", stream: 5, message: "read_failed" });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("stops reading, and sends no End, when the socket closes mid-download", async () => {
@@ -364,23 +890,33 @@ describe("FileTransferService paced download", () => {
     });
     const { state, pacing, sink } = slowSocket(4 * 1024);
     const frames: Uint8Array[] = [];
-    const running = svc.startDownload(
-      svc.issueDownloadToken(file),
-      2,
-      (f) => {
-        frames.push(f);
-        sink(f);
-      },
-      pacing,
-    );
+    const { run } = await svc.beginDownload("s1", { path: file, stream: 2 });
+    const running = run!((f) => {
+      frames.push(f);
+      sink(f);
+    }, pacing);
     // Nothing ever drains: the read pauses at the mark. Then the socket dies.
     await waitUntil(() => state.queued > 4 * 1024);
     const sentWhenPaused = frames.length;
     state.open = false;
 
-    expect(await running).toMatchObject({ ok: false, error: "connection_closed" });
+    await running;
     expect(frames).toHaveLength(sentWhenPaused);
     expect(decodeFileTransferFrame(frames.at(-1)!).opcode).toBe("Chunk");
+  });
+
+  it("does not let a sink that throws (a socket closed under it) escape as a rejection", async () => {
+    const file = join(dir, "throws.bin");
+    await writeFile(file, Buffer.alloc(5000, "x"));
+    const { run } = await new FileTransferService().beginDownload("s1", {
+      path: file,
+      stream: 1,
+    });
+    await expect(
+      run!(() => {
+        throw new Error("WebSocket is not open");
+      }, openSocket),
+    ).resolves.toBeUndefined();
   });
 });
 

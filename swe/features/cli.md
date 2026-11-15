@@ -57,6 +57,8 @@ function main(argv):
 
 - `pi-studio` with no command (or `daemon start`) can start the local daemon and render a **QR code** /
   pairing link so other clients can connect.
+- With the global `--json` flag, `daemon start|restart|pair|stop` print exactly one JSON line to
+  stdout (no QR/prose); see `packages/cli/AGENTS.md` § `daemon` group for the shapes.
 - `attach` subscribes to the agent timeline and streams events to the terminal; `logs` fetches
   history.
 - `--provider pi/<model>` form combines provider id and model.

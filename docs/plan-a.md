@@ -73,9 +73,9 @@ a WebGL-backed molviewer panel will need the same.
   string in a single response, capped at 512 KB server-side**
   (`packages/server/src/daemon/bootstrap.ts:464-483`: `if (stat.size &gt; 512 * 1024) return {
   ok:false, error:"file_too_large" }`). Used by `TextViewer`/`MarkdownFileViewer`.
-- `use-file-download.ts:22-64` — chunked binary transfer (`file_download_token_request` →
-  `file_download_request` → `Begin`/`Chunk`/`End` binary frames via
-  `packages/server/src/files/file-transfer.ts`, streamed with `createReadStream`, **no size cap**)
+- `use-file-download.ts:22-64` — chunked binary transfer (`file_download_request` by path, then
+  `Begin`/`Chunk`/`End` binary frames via `packages/server/src/files/file-transfer.ts`, streamed with
+  `createReadStream`, **no size cap**; before sprint 097 a `file_download_token_request` came first)
   → assembled into a `Blob` → `URL.createObjectURL`. Used by `ImageViewer`/`VideoViewer`.
 
 **TabStrip "+" menu** (`TabStrip.tsx:33-38,90-118`) has exactly two items today, both calling a

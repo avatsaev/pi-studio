@@ -1,0 +1,28 @@
+{
+  "type": "file_download_request",
+  "direction": "client_to_server",
+  "description": "A ranged, guarded download: `offset` and `length` select bytes `[offset, offset + length)`, and `ifUnchanged` makes the daemon refuse (`changed`) when the file's `size` or `mtimeMs` no longer equals the values the client saw earlier, so a resume never splices two versions of a file. `length` may be omitted to read to the end of the file; `stream` may be omitted to let the daemon pick. The answer is `file_download_response`.",
+  "since": "0.0.119",
+  "stage": 3,
+  "requiresFeature": "fileDownloadRanges",
+  "volatile": [
+    "/message/requestId",
+    "/message/path",
+    "/message/ifUnchanged/size",
+    "/message/ifUnchanged/mtimeMs"
+  ],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_request",
+      "requestId": "req-1",
+      "path": "/FAKE/path/to/file.txt",
+      "offset": 8,
+      "length": 16,
+      "ifUnchanged": {
+        "size": 32,
+        "mtimeMs": 1767225600000
+      }
+    }
+  }
+}

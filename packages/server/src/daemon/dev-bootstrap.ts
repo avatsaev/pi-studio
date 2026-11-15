@@ -330,13 +330,10 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // (features/file-explorer-transfer.md). Lets the workspace Explorer + file
   // preview panes show actual files.
   //
-  // Same wiring as production `bootstrap.ts`: the explorer issues download tokens through the
-  // transfer service, which also owns the token / download / upload RPCs and the upload binary
-  // handler.
+  // Same wiring as production `bootstrap.ts`: the transfer service owns the download / upload RPCs
+  // and the upload binary handler.
   const fileTransfer = new FileTransferService();
-  new FileExplorerService({ issueDownloadToken: fileTransfer.issueDownloadToken }).registerHandlers(
-    registry,
-  );
+  new FileExplorerService().registerHandlers(registry);
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();
 

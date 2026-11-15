@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -16,6 +16,8 @@ import {
   waitForDaemon,
 } from "./daemon-control.js";
 import { ensureLocalDaemonAndPair, printPairing } from "./daemon-commands.js";
+import { buildProgram } from "./program.js";
+import { renderQrToTerminal } from "./qr.js";
 import { buildPairingUrl, readDaemonPublicKey } from "./pairing.js";
 import { bcryptHasher } from "./daemon-control.js";
 import bcrypt from "bcryptjs";
@@ -449,5 +451,245 @@ describe("rotateDaemonKeypair", () => {
 
     rotateDaemonKeypair(home);
     expect(readFileSync(join(home, "config.json"), "utf8")).toBe(before);
+  });
+});
+
+// ─── --json (command level) ───────────────────────────────────────────────────────
+
+const HOST = "127.0.0.1:6767";
+
+function writeKeypair(home: string, key = "KEY123"): void {
+  writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: key }));
+}
+
+/** Drive the real root program (global options + exit handling) with a recording sink. */
+async function runCli(
+  home: string,
+  daemon: DaemonRuntime,
+  args: string[],
+): Promise<{ out: string[]; err: string[]; code: number | undefined }> {
+  const { ctx, out, err } = ctxWith(home, daemon);
+  let code: number | undefined;
+  const program = buildProgram(ctx, (c) => {
+    code = c;
+  });
+  await program.parseAsync(["node", "pi-studio", "-H", HOST, ...args]);
+  return { out, err, code };
+}
+
+describe("daemon --json", () => {
+  it("start --json prints one line with started:true and no QR when it spawns a daemon", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    let probes = 0;
+    const { out, err, code } = await runCli(
+      home,
+      fakeRuntime({ probe: async () => probes++ > 0 }),
+      ["--json", "daemon", "start"],
+    );
+    expect(code).toBe(0);
+    expect(err).toEqual([]);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toEqual({
+      up: true,
+      started: true,
+      host: "127.0.0.1",
+      port: 6767,
+      pairingUrl: buildPairingUrl("KEY123", { host: HOST }),
+      relay: null,
+    });
+  });
+
+  it("start --json reports started:false (exit 0) when a daemon is already running", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    let spawned = false;
+    const { out, code } = await runCli(
+      home,
+      fakeRuntime({ probe: async () => true, start: async () => ((spawned = true), 1) }),
+      ["--json", "daemon", "start"],
+    );
+    expect(code).toBe(0);
+    expect(spawned).toBe(false);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toMatchObject({ up: true, started: false });
+  });
+
+  it("start --json reports the relay endpoint the link routes through", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({
+        version: 1,
+        daemon: { relay: { enabled: true, endpoint: "relay.molagent.ai", useTls: true } },
+      }),
+    );
+    const { out } = await runCli(home, fakeRuntime({ probe: async () => true }), [
+      "--json",
+      "daemon",
+      "start",
+    ]);
+    const parsed = JSON.parse(out[0] as string);
+    expect(parsed.relay).toBe("relay.molagent.ai");
+    expect(parsed.pairingUrl).toContain("relay=relay.molagent.ai");
+  });
+
+  it("start --json prints the not_healthy shape on stdout and exits non-zero", async () => {
+    vi.useFakeTimers();
+    try {
+      const home = tmpHome();
+      writeKeypair(home);
+      const pending = runCli(home, fakeRuntime({ probe: async () => false }), [
+        "--json",
+        "daemon",
+        "start",
+      ]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const { out, err, code } = await pending;
+      expect(code).toBe(1);
+      expect(err).toEqual([]);
+      expect(out).toHaveLength(1);
+      expect(JSON.parse(out[0] as string)).toEqual({
+        up: false,
+        host: "127.0.0.1",
+        port: 6767,
+        error: "not_healthy",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("start --json with a healthy daemon but no key file prints no_keypair and exits non-zero", async () => {
+    const { out, err, code } = await runCli(tmpHome(), fakeRuntime({ probe: async () => true }), [
+      "--json",
+      "daemon",
+      "start",
+    ]);
+    expect(code).toBe(1);
+    expect(err).toEqual([]);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toEqual({
+      up: true,
+      started: false,
+      host: "127.0.0.1",
+      port: 6767,
+      error: "no_keypair",
+    });
+  });
+
+  it("restart --json prints exactly one line (the start result)", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    let probes = 0;
+    const { out, code } = await runCli(home, fakeRuntime({ probe: async () => probes++ > 0 }), [
+      "--json",
+      "daemon",
+      "restart",
+    ]);
+    expect(code).toBe(0);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toMatchObject({ up: true, started: true });
+  });
+
+  it("pair --json prints pairingUrl and relay, no QR", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    const { out, code } = await runCli(home, fakeRuntime(), ["--json", "daemon", "pair"]);
+    expect(code).toBe(0);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toEqual({
+      pairingUrl: buildPairingUrl("KEY123", { host: HOST }),
+      relay: null,
+    });
+  });
+
+  it("pair --json before any daemon has run prints no_keypair on stdout and exits non-zero", async () => {
+    const { out, err, code } = await runCli(tmpHome(), fakeRuntime(), ["--json", "daemon", "pair"]);
+    expect(code).toBe(1);
+    expect(err).toEqual([]);
+    expect(out).toEqual([JSON.stringify({ error: "no_keypair" })]);
+  });
+
+  it("stop --json prints stopped:true / stopped:false with today's exit codes", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const stopped = await runCli(home, fakeRuntime(), ["--json", "daemon", "stop"]);
+    expect(stopped.code).toBe(0);
+    expect(stopped.out).toEqual([JSON.stringify({ stopped: true })]);
+
+    const none = await runCli(tmpHome(), fakeRuntime(), ["--json", "daemon", "stop"]);
+    expect(none.code).toBe(1);
+    expect(none.out).toEqual([JSON.stringify({ stopped: false })]);
+  });
+
+  it("without --json, start and pair output is unchanged byte for byte", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    const url = buildPairingUrl("KEY123", { host: HOST });
+    const qr = await renderQrToTerminal(url);
+
+    let probes = 0;
+    const start = await runCli(home, fakeRuntime({ probe: async () => probes++ > 0 }), [
+      "daemon",
+      "start",
+    ]);
+    expect(start.out).toEqual([
+      "starting local daemon at 127.0.0.1:6767 …",
+      "daemon listening at 127.0.0.1:6767",
+      qr,
+      `Pairing link: ${url}`,
+    ]);
+
+    const running = await runCli(home, fakeRuntime({ probe: async () => true }), [
+      "daemon",
+      "start",
+    ]);
+    expect(running.out).toEqual([
+      "daemon already running at 127.0.0.1:6767",
+      qr,
+      `Pairing link: ${url}`,
+    ]);
+
+    const pair = await runCli(home, fakeRuntime(), ["daemon", "pair"]);
+    expect(pair.out).toEqual([qr, `Pairing link: ${url}`]);
+
+    const noKey = await runCli(tmpHome(), fakeRuntime(), ["daemon", "pair"]);
+    expect(noKey.out).toEqual([]);
+    expect(noKey.err).toEqual([
+      "no daemon keypair found — start the daemon first (`pi-studio daemon start`).",
+    ]);
+
+    const stop = await runCli(tmpHome(), fakeRuntime(), ["daemon", "stop"]);
+    expect(stop.out).toEqual(["no running daemon found"]);
+  });
+
+  it("rotate-key and onboard ignore --json", async () => {
+    const url = buildPairingUrl("KEY123", { host: HOST });
+    const qr = await renderQrToTerminal(url);
+
+    const onboardHome = tmpHome();
+    writeKeypair(onboardHome);
+    const onboard = await runCli(onboardHome, fakeRuntime({ probe: async () => true }), [
+      "--json",
+      "onboard",
+    ]);
+    expect(onboard.out).toEqual([
+      "daemon already running at 127.0.0.1:6767",
+      qr,
+      `Pairing link: ${url}`,
+    ]);
+
+    const rotateHome = tmpHome();
+    writeKeypair(rotateHome);
+    const rotate = await runCli(rotateHome, fakeRuntime({ probe: async () => true }), [
+      "--json",
+      "daemon",
+      "rotate-key",
+    ]);
+    expect(rotate.out[0]).toContain("keypair rotated");
+    expect(rotate.out.every((l) => !l.startsWith("{"))).toBe(true);
   });
 });

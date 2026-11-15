@@ -59,13 +59,10 @@ export type FileExplorerResult =
       path: string;
       resolvedPath: string;
       metadata: { size: number; mtimeMs: number; mimeHint: string };
-      transferToken: string;
     }
   | { ok: false; error: string };
 
 export interface FileExplorerDeps {
-  /** Issue a download token for a binary file (task-005 supplies the real store). */
-  issueDownloadToken?: (resolvedPath: string) => string;
   previewBytes?: number;
 }
 
@@ -419,14 +416,12 @@ export class FileExplorerService {
       if (sniffLen > 0) await handle.read(sniff, 0, sniffLen, 0);
 
       if (isBinary(sniff)) {
-        const transferToken = this.deps.issueDownloadToken?.(resolvedPath) ?? randomUUID();
         return {
           ok: true,
           kind: "binary",
           path: inputPath,
           resolvedPath,
           metadata: { size, mtimeMs, mimeHint: mimeHintForFile(resolvedPath) },
-          transferToken,
         };
       }
 

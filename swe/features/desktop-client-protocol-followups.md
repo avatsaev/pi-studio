@@ -93,7 +93,9 @@ Compatibility:
 | New | Old (no flag) | Paced upload, resolves when the last frame has left the buffer |
 | Old | New | Unchanged: no `ack`, no push |
 
-The chunk size (32 KiB), the frame opcodes and the token flow do not change.
+The chunk size (32 KiB) and the frame opcodes do not change. ~~The token flow does not change.~~
+**Superseded by sprint 097**: the download token flow was removed and `file_download_request` now
+takes a `path` (see [desktop-client-protocol-followups-2.md](desktop-client-protocol-followups-2.md) § 1).
 
 ### 3. Fixtures
 
@@ -101,7 +103,7 @@ New fixtures, each validated like the existing ones:
 
 | Family | Messages |
 |---|---|
-| File transfer RPCs | `file_download_token_request`/`_response`, `file_download_request`/`_response`, `file_upload_request`/`_response`, `file_upload_complete` |
+| File transfer RPCs | `file_download_token_request`/`_response` (**removed in sprint 097**), `file_download_request`/`_response`, `file_upload_request`/`_response`, `file_upload_complete` |
 | Terminal RPCs | `create_terminal_request`/`_response`, `subscribe_terminal_request`/`_response`, `list_terminals_request`/`_response`, `kill_terminal_request`/`_response`, `rename_terminal_request`/`_response`, `capture_terminal_request`/`_response`, `terminals_update` |
 | Handshake | `hello` variant carrying `platform` |
 | Binary frames | File transfer `Begin`, `Chunk`, `End`, `Error`; terminal `Output`, `Input`, `Resize`, `Snapshot`, `Restore` |

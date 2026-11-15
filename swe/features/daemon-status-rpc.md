@@ -97,6 +97,7 @@ interface DaemonClientInfo {
   connectedAt: number;             // epoch ms of the handshake
   remoteAddress?: string;          // direct sessions only (socket peer); absent for relay
   transport: "direct" | "relay";
+  agentStreams?: "none";          // hello.agentStreams; present only when the mode is not "all" (0.0.119)
 }
 ```
 

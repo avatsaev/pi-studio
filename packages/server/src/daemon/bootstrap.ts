@@ -558,11 +558,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     getActiveSessions,
   }).registerHandlers(registry, getActiveSessions);
 
-  // ── Files: explorer (with download tokens) + transfer + filesystem watch ──────
+  // ── Files: explorer + transfer + filesystem watch ──────
   const fileTransfer = new FileTransferService();
-  new FileExplorerService({ issueDownloadToken: fileTransfer.issueDownloadToken }).registerHandlers(
-    registry,
-  );
+  new FileExplorerService().registerHandlers(registry);
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();
   const fileWatchService = new FileWatchService({ logger });
@@ -865,6 +863,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               clientId: hello.data.clientId,
               clientType: hello.data.clientType,
               platform: hello.data.platform,
+              agentStreams: hello.data.agentStreams,
               capabilities,
               appVersion: hello.data.appVersion,
               transport: "relay",

@@ -19,8 +19,9 @@ Provides:
    handshake after a socket drop and rehydrates `serverId`/`features`.
 4. **`TerminalStreamRouter`** — demuxes incoming binary terminal frames by slot to per-slot
    subscribers, and encodes outbound input/resize frames.
-5. **`FileTransferClient`** — demuxes incoming binary file-download frames, assembling
-   `Begin → Chunk* → End` into one buffer per request, and drives chunked uploads the other way
+5. **`FileTransferClient`** — downloads a file (or a byte range of it) by path, handing the
+   `Begin → Chunk* → End` frames to a sink or collecting them into one buffer, with progress and
+   abort, and drives chunked uploads the other way
    (request an upload stream, then push `Begin → Chunk* → End` frames the server writes to disk).
 6. **`createRelayTransport`** + **`parsePairingUrl`** — the client side of the E2EE relay: connects
    through a relay server instead of directly to the daemon, using the same `Transport` interface
@@ -62,10 +63,10 @@ src/
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
   terminal-stream-router.ts   TerminalStreamRouter — binary terminal frame demux/encode by slot.
   terminal-router.test.ts
-  file-transfer-client.ts     FileTransferClient — binary file-download/-upload frame demux + assembly.
+  file-transfer-client.ts     FileTransferClient — ranged download (downloadTo/download, abort, progress) + upload, binary frame demux.
   file-transfer-client.test.ts
   file-transfer-upload.test.ts  Paced/acknowledged/cancellable upload against a fake transport with a scripted `bufferedAmount`.
-  (the real-daemon upload test is packages/cli/src/file-transfer-sdk-e2e.test.ts: cli depends on both client and server.)
+  (the real-daemon upload/download test is packages/cli/src/file-transfer-sdk-e2e.test.ts: cli depends on both client and server.)
 ```
 
 ---
@@ -180,6 +181,7 @@ valid pairing link," never fall back to an unauthenticated connection.
   clientId: string;         // Stable client identity sent in hello
   clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp" (closed enum)
   platform?: string;        // hello.platform, sent only when set; the desktop app sends "desktop" (with clientType "browser")
+  agentStreams?: "all" | "none"; // hello.agentStreams, sent only when set (daemon feature `agentStreamsMode`). "none" = a quiet connection: no agent_stream frame ever arrives, so no `timeline.subscribe` handler fires; agent_update, agent_ui_* etc. still do. A daemon without the feature ignores it and sends every stream, so a consumer tolerates them. Fixed per connection
   protocolVersion?: number; // Defaults to PROTOCOL_VERSION = 1
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise
@@ -542,8 +544,12 @@ request/response rather than a persistent per-slot subscription:
 ```ts
 const files = new FileTransferClient(daemonClient);
 files.start(); // begin routing (idempotent)
-const { bytes, fileName, mimeType } = await files.download(path);
-// requests a single-use token, then the chunked transfer, assembling Begin → Chunk* → End
+const { bytes, fileName, mimeType, totalBytes, mtimeMs, offset } = await files.download(path, {
+  offset, length, ifUnchanged, signal, onProgress, // all optional
+}); // the range (default: the whole file) collected into one buffer
+await files.downloadTo(path, (chunk) => write(chunk), { offset, length, ifUnchanged, signal, onProgress });
+// streams each Chunk to a synchronous sink in wire order, keeping none; resolves with
+// { fileName?, mimeType?, totalBytes, mtimeMs, offset, length } after End
 await files.upload(path, source, { onProgress, signal });
 // source: Uint8Array | Blob | AsyncIterable<Uint8Array>. Requests an upload stream (server keys it
 // by a fresh transferId), then pushes Begin → Chunk* → End frames the server writes to `path`
@@ -556,11 +562,35 @@ files.stop(); // stop routing; pending downloads and uploads are rejected
   recycled when a transfer ends — including when its request rejects, which streams no `End`.
   The frame header spends one byte on the id, so the old `nextStream++` emitted 256 on the 256th
   download of a connection and every download after that died in the codec.
-- **`download()` retries exactly once on `invalid_or_expired_token`.** The daemon's TTL runs from
-  the moment it issues a token, but the token is only usable once its response has crossed a
-  socket shared with every in-flight `Chunk` frame — a large transfer ahead of it can deliver a
-  token that is already dead (routine over relay). By the time the rejection arrives that backlog
-  has drained, so one clean attempt suffices; further looping would only spin on a broken link.
+- **`downloadTo` is a byte-range download by path, answered before it streams.** It requires
+  `server_info.features.fileDownloadRanges` and otherwise rejects *before sending anything* with a
+  message naming the feature and saying the daemon must be updated (it never falls back to the old
+  token flow, which the daemon no longer serves). The request is
+  `file_download_request { path, stream, offset?, length?, ifUnchanged? }`; the daemon replies
+  `file_download_response` FIRST (`ok:false` + `error` code → reject with that code, id released) and
+  `Begin → Chunk* → End` (or one `Error`) follow on the stream. The stream id is registered
+  **before** the request is sent, so a fast daemon's frames find it. The result
+  `{ fileName?, mimeType?, totalBytes, mtimeMs, offset, length }` comes from the `Begin` frame (in-band
+  and ordered), not from the response — `Begin` can be dispatched before the response's promise
+  continuation runs. `download(path, options?)` is `downloadTo` collecting the range into
+  `bytes` (result also carries `totalBytes`, `mtimeMs`, `offset`).
+- **`sink` is synchronous and chunks are not retained.** Dispatch stays synchronous and in wire
+  order (see § `Transport`: out-of-order handling truncated downloads), so the sink cannot make the
+  daemon wait; a consumer that must (writing to disk) buffers, or paces itself by requesting ranges
+  one after the other. A sink or `onProgress` that throws aborts the download (cancel request,
+  rejects with that error). `onProgress(received, length)` is monotonic, ends at the range length
+  (an empty range reports `(0, 0)`), and an `End` short of the announced length rejects.
+- **Abort holds the id until the daemon is done with it.** `signal` aborting rejects with an
+  `AbortError` at once and sends `file_download_cancel_request { stream }`; frames still arriving
+  for the stream are ignored. The id is released on a terminal frame (the daemon sends `Error`
+  `cancelled`), on a refused request, or on a `not_found` cancel — not earlier, or a reused id
+  would receive the dead transfer's `cancelled`. `pendingDownloads` counts ids still held. A
+  closed/closing connection (watched only while a download is pending, so an idle client holds no
+  listener) and `stop()` reject every download and free every id.
+- **Resume** = `{ offset: bytesReceived, ifUnchanged: { size: totalBytes, mtimeMs } }` from the
+  first response; `changed` means start over. Covered end to end in `cli`'s
+  `file-transfer-sdk-e2e.test.ts` (whole file, two consecutive ranges, abort + resume to a matching
+  SHA-256, resume after modification).
 - **`upload()` streams and paces.** Chunks are at most 32 KiB (`Begin`/`Chunk`/`End` opcodes and the
   chunk size are unchanged). A `Blob` is read one `slice()` at a time (never `arrayBuffer()` of the
   whole file); an async iterable is pulled one item at a time and oversized items are re-cut.
@@ -620,7 +650,7 @@ function` on upload) — never call `crypto.randomUUID()` directly in this packa
 ```bash
 npx vitest run packages/client
 npx vitest run packages/cli/src/agent-ui-sdk-e2e.test.ts   # cross-package Extension UI E2E (real daemon)
-npx vitest run packages/cli/src/file-transfer-sdk-e2e.test.ts   # upload() against a real daemon (ack, bytes on disk)
+npx vitest run packages/cli/src/file-transfer-sdk-e2e.test.ts   # upload() + ranged download() against a real daemon (ack, bytes on disk, SHA-256, resume)
 ```
 
 Tests inject stub `Transport` implementations and mock clocks; they do not open real sockets —
@@ -629,6 +659,7 @@ direction. `packages/cli/src/agent-ui-sdk-e2e.test.ts` (sprint-067/task-004) dri
 `PiStudioClient`/`AgentUiController` over a real WebSocket against a real dev daemon
 (`@av-pi-studio/server`'s `startDevDaemon`), proving interoperability beyond this package's own
 scripted-transport tests. `packages/cli/src/file-transfer-sdk-e2e.test.ts` (sprint-096/task-004) is
-the second: `FileTransferClient.upload()` against the same dev daemon, checking that it resolves on
-the daemon's `file_upload_complete`, that the bytes on disk match, and that a daemon-side failure
-rejects with the daemon's error.
+the second: `FileTransferClient` against the same dev daemon — `upload()` resolving on the daemon's
+`file_upload_complete` with the bytes on disk matching, a daemon-side failure rejecting with the
+daemon's error, and ranged `download()`/`downloadTo()` (whole file, two consecutive ranges, abort +
+resume to a matching SHA-256, `changed` on resume after modification).

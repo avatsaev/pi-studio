@@ -1,0 +1,17 @@
+{
+  "type": "file_download_cancel_request",
+  "direction": "client_to_server",
+  "description": "Stop this session's download on `stream`. When one is running, the daemon sends an `Error` binary frame with message `cancelled` on that stream and reads no further; nothing follows it. The fixture names a stream with no download running (200), which is the deterministic case the live test can produce; the answer is `file_download_cancel_response`.",
+  "since": "0.0.119",
+  "stage": 3,
+  "requiresFeature": "fileDownloadRanges",
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "file_download_cancel_request",
+      "requestId": "req-1",
+      "stream": 200
+    }
+  }
+}

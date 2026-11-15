@@ -92,7 +92,7 @@ today — just from the git panel rather than from a toggle inside the molecule 
   `if (stat.size > 512 * 1024) return { ok: false, error: "file_too_large", size: stat.size }`),
   UTF-8 text only (`readFileSync(resolved, "utf8")`, line 474). Query key `rpcKeys.fileRead(path)`.
 - `useFileDownload(path)` (`hooks/use-file-download.ts`) → chunked binary transfer
-  (`file_download_token_request` → `file_download_request` → `Begin`/`Chunk`/`End` binary frames,
+  (`file_download_request` by path → `Begin`/`Chunk`/`End` binary frames; before sprint 097 a `file_download_token_request` came first,
   `packages/server/src/files/file-transfer.ts`). **No size cap** — streams via
   `createReadStream`/`open` (`file-transfer.ts:1–2`), 32 KiB chunks (`DEFAULT_CHUNK_BYTES`, line
   21). Resolves to an object URL; the hook also hands back the raw path through `transferFor(...)

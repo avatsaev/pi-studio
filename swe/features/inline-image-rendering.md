@@ -184,7 +184,7 @@ finalized assistant markdown block
        unresolvable -> text fallback
        local(path)  -> inline-image cache lookup
                          hit          -> object URL, render immediately
-                         miss         -> download token -> chunked transfer -> blob -> object URL
+                         miss         -> download by path -> chunked transfer -> blob -> object URL
                                          (skeleton while in flight, text fallback on failure)
 ```
 
@@ -234,7 +234,7 @@ metadata removes the reliance on sniffing and is a strictly additive, optional i
 
 | Condition | Expected behavior |
 |---|---|
-| Path does not exist / not readable by the daemon | Download token request fails; row shows the text fallback |
+| Path does not exist / not readable by the daemon | `file_download_response` is `ok: false` (`not_found`, `unreadable`); row shows the text fallback |
 | `src` is a remote URL | Rendered as an ordinary `<img>`; no daemon round trip |
 | `src` is a non-image file (`.pdf`, `.txt`) | Text fallback; no download attempted |
 | Relative path with no asset base | Text fallback; no download attempted |
@@ -296,7 +296,7 @@ transferred.
 > create/resume `appendSystemPrompt` agreement in `pi-adapter.test.ts`) — see each task's
 > `done/task-NNN-*-summary.md` for exact test names. What remains genuinely unexercised is the
 > full cross-package wire chain in a live browser (agent emits markdown → block finalizes →
-> classification → download token → binary frames → object URL → `<img>`), which is precisely
+> classification → download by path → binary frames → object URL → `<img>`), which is precisely
 > what steps 7 and 11 of task-007's plan call out as "the two no unit test can cover." Re-run
 > task-007's 12-step plan against a live daemon + browser before relying on this feature in a
 > context where that gap matters.
@@ -347,4 +347,4 @@ transferred.
   implementation; it replaced six previously-duplicated inline `~`/`~/` checks across
   `bootstrap.ts`, `dev-bootstrap.ts`, `file-watch-rpc.ts`, `file-watch-service.ts`, and
   `agent/providers/pi/rpc-transport.ts`, and closed the specific asymmetry this doc calls out:
-  `file_download_token_request` now expands `~` before `realpath()`, which it did not before.
+  `file_download_request` (then `file_download_token_request`; the token request is gone since sprint 097) now expands `~` before `realpath()`, which it did not before.

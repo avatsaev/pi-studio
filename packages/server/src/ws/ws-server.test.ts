@@ -115,6 +115,27 @@ describe("hello handshake", () => {
     plain.close();
   });
 
+  it("stores hello.agentStreams on the session; an absent or invalid value means all", async () => {
+    const { port, sessions } = await startServer();
+    const sockets = [];
+    for (const [i, agentStreams] of ["none", "all", "sometimes", 7, undefined].entries()) {
+      const ws = await connect(port);
+      ws.send(
+        JSON.stringify({
+          type: "hello",
+          clientId: `streams-${i}`,
+          clientType: "browser",
+          protocolVersion: 1,
+          ...(agentStreams === undefined ? {} : { agentStreams }),
+        }),
+      );
+      expect(((await nextMessage(ws)) as { type: string }).type).toBe("status");
+      sockets.push(ws);
+    }
+    expect(sessions.map((s) => s.agentStreams)).toEqual(["none", "all", "all", "all", "all"]);
+    for (const ws of sockets) ws.close();
+  });
+
   it("closes a connection whose first frame is not hello", async () => {
     const { port } = await startServer();
     const ws = await connect(port);

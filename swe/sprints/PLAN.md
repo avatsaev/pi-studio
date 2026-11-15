@@ -122,9 +122,11 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 094 | `sprint-094-workbench-build-api` | workbench: **Workbench, slice 4 — build + API.** Library build (`piwb-` scoped `styles.css`, copied fonts, `./vite` entry, strict `exports`) with `dist` assertions; public API (whole app, shell regions, three hooks, guards); packed-tarball smoke consumer (whole app + custom shell); package docs with `web-client`'s AGENTS slimmed. | 4 |
 | 095 | `sprint-095-workbench-release` | scripts, docker, docs: **Workbench, slice 5 — release.** `publish.sh` order + Dockerfile, a rehearsed `--dry-run` publish in a throwaway worktree, repository-level docs and the desktop handoff doc, acceptance sweep. Single merge to `main` after the engineer's placeholder publish + Trusted Publisher registration. | 3 |
 | 096 | `sprint-096-desktop-protocol-followups` | protocol + server + client (+ workbench browser host): **Desktop-client protocol follow-ups.** `hello.platform`; daemon transfer hardening (paced download, `Error` without `End`, session-owned upload streams); `fileTransferAck` + `file_upload_complete`; SDK paced streaming upload with progress and cancel; browser upload without reading the file into memory; dev-daemon file/terminal handlers + JSON fixtures; binary frame fixtures; docs + live checks. **Done (2026-11-14)** on `feat/desktop-protocol-followups`, cut from `feat/workbench` (stacked, so its browser-host task is not blocked on the 095 merge); merge after it. | 8 |
+| 097 | `sprint-097-download-ranges` | protocol + server + client + workbench browser host: **Desktop-client protocol follow-ups II, download half.** `Begin` gains `mtimeMs`/`offset`/`length`; `file_download_request` by path with a byte range, answered before the stream, with the file's size; the download token removed (fixtures `formatVersion` 2); `ifUnchanged`, per-session download tracking, `file_download_cancel_request`; SDK `downloadTo` with range, progress and abort; additive JSON and binary fixtures; browser host builds Blobs from chunks; docs + live checks. **Done (2026-11-15)** on `feat/desktop-protocol-followups-2`; live-checked against an isolated production daemon (600 MiB download, ranges, abort + resume, cancel, paused client +37 MiB RSS) and in headless Chromium (image, PDF, Download). | 7 |
+| 098 | `sprint-098-agent-stream-mode-cli-json` | protocol + server + client + cli: **Desktop-client protocol follow-ups II, the rest.** `hello.agentStreams` (`all`/`none`) honoured at every `agent_stream` site and reported in `daemon_status`; SDK option + `hello.agentStreams.json`; `--json` on `daemon start/restart/pair/stop`; docs, spec close + live checks. **Done (2026-11-15)** on `feat/desktop-protocol-followups-2`; live-checked against an isolated production daemon (quiet vs normal connection during a mock turn, `daemon_status`, CLI JSON on a scratch home). Closes the follow-ups II scope. | 4 |
 
-Total: **90 sprints, 476 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14) and by 091–096 (+6/+30, 2026-11-14). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **92 sprints, 487 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14) and by 097–098 (+2/+11, 2026-11-15; the table sums to 92/487). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -2574,6 +2576,79 @@ Waves (av-swe `implement`, parallel by default):
 `docs/desktop-client-handoff.md` and the follow-ups spec are written by every task; in a parallel
 wave the orchestrator applies those edits from the subagents' summaries (each task file says so).
 
+### sprint-097-download-ranges
+> **What it ships.** `features/desktop-client-protocol-followups-2.md` § 1 and the download part of
+> § 4: a download is requested by path, may be a byte range, is answered before it streams, says
+> how large the file is, can be validated against a changed file and can be cancelled. The download
+> token is removed. Branch `feat/desktop-protocol-followups-2`, cut from `main` at 0.0.118.
+>
+> **Found at planning time.**
+> - The live fixture test pins the daemon to the fixtures, and the signature guard accepts a
+>   breaking fixture change only with a `formatVersion` bump. So the handler cut, the token removal
+>   and every breaking fixture change sit in one task (t002, size M) and the version is bumped once.
+> - The router sends a handler's return value after the handler settles
+>   (`ws/router.ts` `dispatchSessionMessage`), so "response before the stream" means the stream
+>   must start after that send. t002 asserts the order on the wire.
+> - No automated test runs the SDK's `download` against a real daemon. Between t002 and t004 the
+>   web client's downloads are broken on this branch and no gate shows it. t004 adds the missing
+>   end-to-end cases to `packages/cli/src/file-transfer-sdk-e2e.test.ts`.
+> - Download stream ids come from the daemon-wide allocator uploads use; t003 makes them
+>   session-scoped.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `Begin` metadata: `mtimeMs`, `offset`, `length` | feature | none | followups-2 § 1.3 |
+| task-002 | Daemon: download by path, ranged and sized, answered before the stream; token removed; fixtures `formatVersion` 2 | feature | task-001 | followups-2 § 1.1, § 1.2, § 1.3, § 1.5, § 4 (removed, changed) |
+| task-003 | Daemon: `ifUnchanged`, per-session download tracking (`stream_in_use`), cancel, release on session close | feature | task-002 | followups-2 § 1.1, § 1.2, § 1.4 |
+| task-004 | SDK: `download` by path with range, `downloadTo`, progress, abort, feature gate; SDK-against-daemon download tests | feature | task-003 | followups-2 § 1.6, § 1.8 |
+| task-005 | Fixtures: range, rejection, cancel (JSON) and a download `Begin` (binary) | feature | task-003 | followups-2 § 4 (new) |
+| task-006 | Browser host: build download Blobs from chunks | refactor | task-004 | followups-2 § 1.7 |
+| task-007 | Download documents to the real wire, live checks | docs | task-001…task-006 | followups-2 § Acceptance criteria (Download) |
+
+Waves (av-swe `implement`, parallel by default):
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 | everything else depends on it |
+| 2 | t002 | depends on t001 |
+| 3 | t003 | depends on t002; same file (`files/file-transfer.ts`) |
+| 4 | t004 ∥ t005 | t004 = `packages/client` + one `packages/cli` test, t005 = fixtures + server test support: disjoint |
+| 5 | t006 | depends on t004 |
+| 6 | t007 | depends on everything |
+
+`docs/desktop-client-handoff.md` and the follow-ups II spec are written by most tasks; in a parallel
+wave the orchestrator applies those edits from the subagents' summaries (each task file says so).
+
+### sprint-098-agent-stream-mode-cli-json
+> **What it ships.** `features/desktop-client-protocol-followups-2.md` § 2, § 3 and the rest of
+> § 4: a session can opt out of agent streams, and the CLI's daemon commands have machine-readable
+> output. Same branch as sprint 097. Its last task closes the whole scope.
+>
+> **Found at planning time.** `agent_stream` is sent from five places in two files
+> (`agent/agent-service.ts`: both branches of `appendStreamEvent` and two sites in the turn loop;
+> `agent/session-operations.ts`: one). t001 covers all five and re-checks for new ones.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `hello.agentStreams`: protocol, session, both `hello` paths, every `agent_stream` site, `daemon_status`, `agentStreamsMode` | feature | sprint-097/task-002 | followups-2 § 2 |
+| task-002 | SDK `agentStreams` option + `hello.agentStreams.json` fixture | feature | task-001, sprint-097/task-004, sprint-097/task-005 | followups-2 § 2 (SDK), § 4 |
+| task-003 | `--json` for `daemon start`, `restart`, `pair`, `stop` | feature | none | followups-2 § 3 |
+| task-004 | Stream mode + CLI documents, spec close, live checks | docs | task-001, task-002, task-003, sprint-097/task-007 | followups-2 § Acceptance criteria (all) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t003 | t001 = `packages/protocol` + `packages/server`, t003 = `packages/cli`: disjoint |
+| 2 | t002 | depends on t001 |
+| 3 | t004 | depends on everything |
+
+The cross-sprint dependencies exist because of shared files, not behaviour: t001 and
+`sprint-097/task-002` both edit `client-capabilities.ts` and `daemon/bootstrap.ts`; t002 shares the
+client documents with `sprint-097/task-004` and the fixture manifest, changelog, signatures and live
+scenario with `sprint-097/task-005`. t003 depends on nothing and may run in any earlier wave of a
+multi-sprint run.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2733,6 +2808,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/workbench-package.md | s091/t001-003 (baseline; packaging spike; scaffold), s092/t001-005 (relative imports; move; shell components + fonts; `electron` removal; parity gate), s094/t001-004 (library build + `dist` assertions; public API; packed-tarball smoke; package docs), s095/t001-003 (release wiring + dry run; repo docs; acceptance + pre-merge gate) |
 | architecture/workbench-host-adapter.md | s093/t001-007 (install + `app` + `storage`; clipboard/dialogs/links; launch; connection; files; pdf + Vite plugin; guard + acceptance); `files.upload` streaming in s096/t005 |
 | features/desktop-client-protocol-followups.md | s096/t001-008 (`hello.platform`; daemon transfer hardening; upload ack; SDK paced upload; browser streaming upload; dev-daemon handlers + JSON fixtures; binary fixtures; docs + live checks). Non-goals by the spec: transfer resume, chunk size, `clientType` change |
+| features/desktop-client-protocol-followups-2.md | s097/t001-007 (`Begin` fields; daemon download by path + token removal + fixtures v2; validator, tracking, cancel; SDK ranged download; additive fixtures; browser host; docs + live checks), s098/t001-004 (`hello.agentStreams` daemon side; SDK option + fixture; CLI `--json`; docs, spec close + live checks). Non-goals by the spec: upload resume, per-agent stream subscriptions, chunk size, relay multi-client, `WorkbenchHost` changes |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
@@ -2890,3 +2966,15 @@ Carried from the scope; resolve against the live source while implementing the o
 - [x] Follow-ups: buffered amount on the relay path; water marks; partial file after a failed
       upload; dashboard vendoring vs binary manifest — resolved in s096 (water marks chosen, not
       measured; relay downloads unpaced; see the spec's § TODO(verify)).
+- [ ] Follow-ups II: what `daemon start --json` prints when the daemon is healthy but no key file
+      exists (the spec's failure shape says `up: false`, which would be untrue). Engineer to
+      decide — s098/t003.
+- [ ] Follow-ups II: the error for "this session has no free download stream" (`stream` omitted,
+      256 downloads running) is not in the spec. Planned default: reuse the upload's
+      `no_free_stream` — s097/t003.
+- [ ] Follow-ups II: whether `file_download_cancel_response` can be fixtured as `ok: true`
+      deterministically, or only as `not_found` — s097/t005.
+- [ ] Follow-ups II: the binary round-trip test asserts one fixture per frame; a second `Begin`
+      fixture needs the test extended — s097/t005.
+- [ ] Follow-ups II: the release that carries this work (`since`, `addedIn`) is assumed to be
+      0.0.119 — s097/t002.

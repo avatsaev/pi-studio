@@ -146,20 +146,50 @@ describe("view URLs", () => {
   it("browser host: a view URL is an object URL revoked once, on release", async () => {
     let n = 0;
     const revoked: string[] = [];
+    const blobs: Blob[] = [];
     vi.stubGlobal("URL", {
-      createObjectURL: () => `blob:v${++n}`,
+      createObjectURL: (blob: Blob) => {
+        blobs.push(blob);
+        return `blob:v${++n}`;
+      },
       revokeObjectURL: (url: string) => revoked.push(url),
     });
-    const transfer = {
-      download: vi.fn(async () => ({ bytes: new Uint8Array([1]), mimeType: "image/png" })),
-    } as unknown as FileTransferClient;
+    const downloadTo = vi.fn(async (_path: string, sink: (chunk: Uint8Array) => void) => {
+      sink(new Uint8Array([1, 2]));
+      sink(new Uint8Array([3]));
+      return { mimeType: "image/png", fileName: "a.png", totalBytes: 3, mtimeMs: 0, offset: 0 };
+    });
+    // `download` (the concatenating call) is deliberately absent: the host must not use it.
+    const transfer = { downloadTo } as unknown as FileTransferClient;
     const files = createBrowserFiles(() => transfer);
 
     const view = await files.openForView("/work/a.png");
-    expect(view).toMatchObject({ url: "blob:v1", mimeType: "image/png" });
+    expect(view).toMatchObject({ url: "blob:v1", mimeType: "image/png", fileName: "a.png" });
+    expect(blobs[0]!.type).toBe("image/png");
+    expect(new Uint8Array(await blobs[0]!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 
     view.release();
     view.release();
     expect(revoked).toEqual(["blob:v1"]);
+  });
+
+  it("browser host: saving clicks a download anchor named by the daemon's file name", async () => {
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:s1", revokeObjectURL: () => {} });
+    const anchor = { click: vi.fn(), remove: vi.fn(), href: "", download: "", rel: "" };
+    vi.stubGlobal("document", {
+      createElement: () => anchor,
+      body: { appendChild: vi.fn() },
+    });
+    const downloadTo = vi.fn(async (_path: string, sink: (chunk: Uint8Array) => void) => {
+      sink(new Uint8Array([9]));
+      return { fileName: "report.pdf", totalBytes: 1, mtimeMs: 0, offset: 0 };
+    });
+    const files = createBrowserFiles(() => ({ downloadTo }) as unknown as FileTransferClient);
+
+    await files.saveToDisk("/work/some/other-name.pdf");
+
+    expect(anchor.href).toBe("blob:s1");
+    expect(anchor.download).toBe("report.pdf");
+    expect(anchor.click).toHaveBeenCalledTimes(1);
   });
 });

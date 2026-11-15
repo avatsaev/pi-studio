@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "messages": [
     {
       "file": "agent_archived.json",
@@ -286,7 +286,24 @@
       "direction": "server_to_client"
     },
     {
+      "file": "file_download_cancel_request.json",
+      "type": "file_download_cancel_request",
+      "direction": "client_to_server",
+      "response": "file_download_cancel_response.json"
+    },
+    {
+      "file": "file_download_cancel_response.json",
+      "type": "file_download_cancel_response",
+      "direction": "server_to_client"
+    },
+    {
       "file": "file_download_request.json",
+      "type": "file_download_request",
+      "direction": "client_to_server",
+      "response": "file_download_response.json"
+    },
+    {
+      "file": "file_download_request.range.json",
       "type": "file_download_request",
       "direction": "client_to_server",
       "response": "file_download_response.json"
@@ -297,14 +314,8 @@
       "direction": "server_to_client"
     },
     {
-      "file": "file_download_token_request.json",
-      "type": "file_download_token_request",
-      "direction": "client_to_server",
-      "response": "file_download_token_response.json"
-    },
-    {
-      "file": "file_download_token_response.json",
-      "type": "file_download_token_response",
+      "file": "file_download_response.rejected.json",
+      "type": "file_download_response",
       "direction": "server_to_client"
     },
     {
@@ -327,6 +338,12 @@
       "file": "health.json",
       "type": "health",
       "direction": "http"
+    },
+    {
+      "file": "hello.agentStreams.json",
+      "type": "hello",
+      "direction": "client_to_server",
+      "response": "status.server_info.json"
     },
     {
       "file": "hello.json",

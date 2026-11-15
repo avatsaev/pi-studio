@@ -68,6 +68,8 @@ export function variantKey(frame: WireFrame): string | undefined {
       const payload = m.payload as { ok: boolean; error?: string };
       return payload.ok ? "agent_ui_respond_response.ok" : "agent_ui_respond_response.not_found";
     }
+    case "file_download_response":
+      return m.ok === true ? type : "file_download_response.rejected";
     case "pong":
     case "daemon_status_response":
     case "daemon_status_subscribe_response":
@@ -85,8 +87,7 @@ export function variantKey(frame: WireFrame): string | undefined {
     case "interrupt_response":
     case "agent_ui_list_response":
     case "rpc_error":
-    case "file_download_token_response":
-    case "file_download_response":
+    case "file_download_cancel_response":
     case "file_upload_response":
     case "file_upload_complete":
     case "create_terminal_response":
@@ -135,16 +136,29 @@ function uploadFrames(stream: number, transferId: string): Uint8Array[] {
 }
 
 /**
- * File transfer, all inside a temp dir: token → download of a small file; upload with `ack: true`
- * driven as a client (Begin/Chunk/End), then the `file_upload_complete` push.
+ * File transfer, all inside a temp dir: a whole-file download, a guarded ranged one, a rejected
+ * one and a cancel for an idle stream; upload with `ack: true` driven as a client
+ * (Begin/Chunk/End), then the `file_upload_complete` push.
  */
 async function runFileTransferSteps(client: TestClient): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "pi-studio-fixture-"));
   try {
     const downloadPath = join(dir, "download.txt");
     await writeFile(downloadPath, SCENARIO_DOWNLOAD_TEXT);
-    const tokenResponse = await client.rpc("file_download_token_request", { path: downloadPath });
-    await client.rpc("file_download_request", { token: String(tokenResponse.token) });
+    const first = await client.rpc("file_download_request", { path: downloadPath });
+    // A guarded range over the file's real size and mtime, as a resuming client sends it.
+    const ranged = await client.rpc("file_download_request", {
+      path: downloadPath,
+      offset: 8,
+      length: 16,
+      ifUnchanged: { size: first.totalBytes, mtimeMs: first.mtimeMs },
+    });
+    if (ranged.ok !== true)
+      throw new Error(`ranged download was rejected: ${String(ranged.error)}`);
+    // A rejection (no such file) and a cancel for a stream nothing runs on (the cancel outcome
+    // that is the same every run; `ok: true` needs a download still in flight).
+    await client.rpc("file_download_request", { path: join(dir, "missing.txt") });
+    await client.rpc("file_download_cancel_request", { stream: 200 });
 
     const transferId = "scenario-upload";
     const uploadPath = join(dir, "upload.txt");

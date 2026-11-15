@@ -16,7 +16,8 @@ protocol is the compatibility contract between independently-versioned clients a
 ```
 Client → Server (text JSON):  { type: "hello",
     clientId, clientType: "mobile" | "browser" | "cli" | "mcp",
-    protocolVersion, appVersion?, capabilities?: { ... } }
+    protocolVersion, appVersion?, platform?, agentStreams?: "all" | "none",
+    capabilities?: { ... } }
 
 Server → Client (text JSON):  { type: "status", payload: {
     status: "server_info", serverId, hostname?, version?, capabilities, features } }
@@ -24,6 +25,11 @@ Server → Client (text JSON):  { type: "status", payload: {
 There is no dedicated welcome message; the server emits the `status`/`server_info` message after
 accepting the hello, then begins streaming. The server stores client capabilities from the hello
 and rehydrates them on reconnect, so the wire boundary asks one question: `session.supports(...)`.
+`agentStreams` (0.0.119, optional, default `"all"`; any other value is treated as `"all"`) is fixed
+for the connection: a `"none"` session receives no `agent_stream` frame, while RPC replies,
+`agent_update`, `agent_ui_*`, `agent_timeline_reset`, `agent_todos_update`, `terminals_update` and
+other pushes still reach it. A client without the stream reads turn end from `agent_update.status`
+and needs-input from `agent_ui_request`/`agent_ui_resolved`; the detailed outcome is in history.
 
 ### Top-level envelopes
 | Envelope `type` | Direction | Purpose |
@@ -157,6 +163,17 @@ on reconnect:
 - Removed fields stay *accepted* (stop sending, keep reading).
 - New *features* (not fields) advertise a flag in `server_info.features.*`; clients run the feature
   or show "update the host." No degraded fallback path.
+
+**The one exception (sprint 097, decision D4).** The user base is small, so sprint 097 deliberately
+broke these rules once, with no compatibility release (nothing is accepted-and-ignored). Removed:
+`file_download_token_request` and `file_download_token_response`, the `token` field of
+`file_download_request` (it takes a `path`), the `invalid_or_expired_token` error, `transferToken`
+in the file explorer's binary preview result, and the after-the-stream `file_download_response`
+(it is now sent before the binary frames). An old client's token request gets `rpc_error`
+`unknown_message_type`. The external fixtures carry the matching `formatVersion` 2 bump (see
+[external-client-fixtures.md](external-client-fixtures.md)). The rule above applies again to every
+other message; this is not a precedent. Detail:
+[../features/desktop-client-protocol-followups-2.md](../features/desktop-client-protocol-followups-2.md) § 1.5.
 
 ### Capability flags
 - `server_info.features.*` (daemon→client): e.g. `providersSnapshot`, `checkoutGithubSetAutoMerge`,

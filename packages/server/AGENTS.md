@@ -332,13 +332,12 @@ src/
                                    delete/move (`moveEntry`, sprint-046 — `fs.rename`-shaped,
                                    parent-only path resolution so a symlink move relocates the
                                    link itself, not its target).
-    file-transfer.ts              Download token issuance + chunked binary transfer.
+    file-transfer.ts              Download by path (ranges, `ifUnchanged`, cancel, per-session stream ids) + upload; chunked binary transfer.
     file-watch-service.ts         FileWatchService — ref-counted fs.watch filesystem watcher,
                                    watches files or directories, debounced per-subscription.
     file-watch-rpc.ts             registerFileWatchHandlers — file_watch_subscribe/_unsubscribe
                                    RPCs, file_changed push.
     limits.ts                     MAX_INLINE_FILE_READ_BYTES (5 MiB) — file_read_request ceiling.
-    download-token-store.ts       Short-lived download token registry (in-memory, LRU).
     resolve-path.ts               expandHome — the package's single `~`/`~/` expansion helper
                                    (task-001, sprint-045); every file-path RPC + `file-watch-
                                    service.ts`/`agent/providers/pi/rpc-transport.ts` (re-export)
@@ -590,13 +589,16 @@ src/
 - `register(type, handler)` — register a handler for a canonical dotted message type.
 - `registerAlias(alias, canonical)` — map legacy flat names to canonical names.
 - A handler that throws yields a correlated `rpc_error` back to the sender.
+- `ctx.afterReply(fn)` (handler context, sprint-097): `fn` runs after the router has sent the
+  handler's reply (also when that send threw; never when the handler threw; a throwing `fn` is only
+  logged). Used by `file_download_request` so its binary stream starts after its answer.
 - Unknown types with a `requestId` get an `rpc_error`; without one they are silently ignored.
 
 `Session` (`session.ts`):
 - Wraps one WebSocket connection.
 - `session.send(msg)` — sends a JSON-serialised message.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
-- `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.capabilities`.
+- `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.agentStreams` (`"all"` | `"none"`, from `hello.agentStreams`, fixed for the connection, set on both the direct and the relay `hello` path; `"none"` receives no `agent_stream` frame — **every** send site of one passes its audience through `agentStreamRecipients(sessions)` in `session.ts` (both branches of `appendStreamEvent` and the two `user_message` sites in `agent-service.ts`, one in `session-operations.ts`'s steer/follow-up); a new `agent_stream` send site must do the same; the event is appended to the timeline regardless; advertised as `agentStreamsMode`; reported on `daemon_status` client entries only when not `"all"`), `session.capabilities`.
 - `session.bufferedAmount` (the socket's unflushed bytes, `undefined` for the relay's stand-in socket) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
 - Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A replaced/reset relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
 
@@ -1508,37 +1510,51 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   rpc.ts`, and `file-watch-service.ts`; now one implementation).
 
 **`file_transfer.ts`** (task-001, sprint-045 — closed the tilde/MIME gaps below):
-- Issued download tokens (`file-transfer.ts`, `FileTransferService`) are stored in a registrar
-  (`download-token-store.ts`): single-use, LRU-capped at 10 000, **10-minute TTL**.
-- The TTL is a cleanup device, not an authorization control — a token never leaves the
-  authenticated session, and the LRU cap is what bounds memory. It was raised from 60 s because
-  the clock starts when the daemon ISSUES a token while the client cannot redeem it until the
-  response has crossed a socket shared with every in-flight download's `Chunk` frames: opening a
-  second file behind a large transfer on a slow link (routine over relay — base64-inflated frames
-  plus an extra hop) delivered a token that was already expired, and the download failed with
-  `invalid_or_expired_token`. Do not tighten this back. `FileTransferClient` also retries once on
-  that error, which covers LRU eviction that no TTL can fix.
-- `file_download_request` **range-checks `stream` before consuming the token** (rejects with
-  `invalid_stream`); it previously spent the single-use token and only then threw out of
-  `encodeFileTransferFrame`, leaving a retry nothing to redeem.
+- **Download by path (sprint-097, `swe/features/desktop-client-protocol-followups-2.md` § 1).**
+  `file_download_request { path, stream?, offset?, length?, ifUnchanged? }`; the token and
+  `file_download_token_request`/`DownloadTokenStore` are deleted with no compatibility path.
+  `FileTransferService.beginDownload(message)` validates the request, opens the file and returns
+  `{ response, run? }`; `run(sink, pacing)` streams it. The handler returns `response` and schedules
+  `run` through `ctx.afterReply` (`ws/router.ts`: hooks run after the router has sent the reply,
+  even if the send threw), so **the reply always precedes `Begin`** and a long transfer never holds
+  the request open. The reply carries `totalBytes` (whole file), `mtimeMs` (`Math.trunc`, integer),
+  `offset`, `length` (clamped); `Begin` repeats them. Errors (no binary frame): `missing_path`,
+  `not_found`, `not_a_file` (checked by `stat` **before** `open`, which can block on a FIFO),
+  `unreadable`, `invalid_stream`, `invalid_range`, `range_not_satisfiable` (`offset` > size;
+  `offset` == size is a legal empty download). A file that ends before `length` bytes were read
+  sends one `Error` frame `changed`. `run` never rejects (it is detached; a throwing sink means the
+  socket closed) and closes the file handle. Advertised as `fileDownloadRanges`.
+  **Lifecycle (sprint-097/task-003).** Every accepted download is tracked per session and stream id
+  (`downloads: Map<sessionId, Map<stream, ActiveDownload>>`), reserved synchronously with the
+  in-use check (no await in between) from the moment it is accepted until `End`/`Error`/close, so
+  `stream_in_use` holds even while the reply is in flight; ids are scoped to the session (two
+  sessions may share one) while uploads keep the daemon-wide pool. A request without `stream` gets
+  the next free id on its session (`downloadCursor`), `no_free_stream` when all 256 are in use.
+  `ifUnchanged { size, mtimeMs }` not equal to the opened file's size and truncated `mtimeMs` (a
+  malformed value never equals) answers `changed` with the current `totalBytes`/`mtimeMs`.
+  `file_download_cancel_request { stream }` → `file_download_cancel_response { ok }` /
+  `{ ok:false, error:"not_found" }` (also for another session's id or one that already ended);
+  `cancelDownload` sets `ActiveDownload.stop` and wakes the read loop, which sends one `Error`
+  `cancelled` (before `Begin` if cancelled before the stream started: only the `Error`).
+  `disposeSession` sets `stop = "closed"`, wakes the loop and closes the handle: nothing is sent.
 - Stream ids are allocated from the protocol's shared pool (`nextFreeSlot`/`SLOT_SPACE`) and
   recycled as uploads finish — the one-byte frame header cannot carry an ever-incrementing
   counter. An exhausted pool yields `no_free_stream` rather than a codec throw.
-- `file_download_token_request` now expands `~`/`~/` via `expandHome` before `realpath()` —
-  previously the one file-path RPC with no tilde expansion at all, which is what blocked a
-  `~`-prefixed inline-image download (features/inline-image-rendering.md).
-- `startDownload`'s `Begin` frame now carries `meta.mimeType` (via `file-explorer.ts`'s exported
+- `file_download_request` expands `~`/`~/` via `expandHome` before `realpath()` — the one file-path
+  RPC that once had no tilde expansion, which blocked a `~`-prefixed inline-image download
+  (features/inline-image-rendering.md).
+- The download `Begin` frame carries `meta.mimeType` (via `file-explorer.ts`'s exported
   `mimeHintForFile`), so `FileTransferClient` no longer relies on browser blob-URL sniffing for a
   known extension; an unknown extension still falls back to `application/octet-stream`.
 - **Sprint-096 hardening and acknowledgement** (`swe/features/desktop-client-protocol-followups.md` § 2):
-  - *Paced download.* `startDownload(token, stream, sink, pacing?)` pauses the disk read while
+  - *Paced download.* `run(sink, pacing)` pauses the disk read while
     `session.bufferedAmount` is above `DOWNLOAD_HIGH_WATER_BYTES` (1 MiB) and resumes at or below
     `DOWNLOAD_LOW_WATER_BYTES` (256 KiB), polling every 10 ms (`ws` has no drain event). The marks were
     chosen, not measured, and are injectable (`FileTransferDeps`). A socket that cannot report its queue
     (**the relay's stand-in socket**) is not paced, so relay downloads still queue the whole file: the
     spec's bounds hold for direct connections only. A socket that closes mid-transfer ends it with no
-    further frames (`connection_closed`).
-  - *Read error.* One `Error` frame, no `End`; the RPC answers `{ok:false, error:"read_failed"}`.
+    further frames (no `End`, no `Error`).
+  - *Read error.* One `Error` frame (`read_failed`), no `End`; the response was already sent.
   - *Owned streams.* Each pending upload records the opening session's id; binary frames from any
     other session are ignored, and `disposeSession(session)` (called from both `onSessionClose` and
     the relay-session reset) frees the stream and closes the handle. Frames carry the `PendingUpload`
@@ -1553,8 +1569,9 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - Unbounded file size (no inline ceiling like `file_read_request`).
 
 **`file-explorer.ts`** (directory listing + preview):
-- Scans directories, reports stat metadata + MIME types + inline text/binary previews (inlined,
-  unlike download tokens, so no temp storage needed for small files).
+- Scans directories, reports stat metadata + MIME types + inline text previews (inlined, so no temp
+  storage needed for small files); a binary preview returns metadata only (`size`, `mtimeMs`,
+  `mimeHint`) and the client downloads by path.
 - **Every client-supplied path is `expandHome`d first** (`resolve-path.ts`), in `listOrPreview`,
   `createEntry`, `moveEntry`, `writeFile`, `deleteFile`, and `directorySuggestions` alike — this
   service was the last file surface still calling bare `resolve()`, so `~` landed on
@@ -1990,7 +2007,7 @@ messages are fair game.
   always the text `hello`), but `relayReplyBinary` stayed `null` until the daemon received a
   BINARY frame from the client. Terminal I/O sends one immediately (`Input`), masking the bug;
   file downloads never do — the client only ever sends TEXT
-  (`file_download_token_request`/`file_download_request`) and expects unprompted BINARY
+  (`file_download_request`) and expects unprompted BINARY
   `Begin`/`Chunk`/`End` back — so every relay-routed file download silently hung forever with no
   error on either side. Regression test: `bootstrap.test.ts`'s "file download round-trips
   Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client
@@ -2029,7 +2046,7 @@ no scenario producer fails the coverage guard, and a manifest `exception` fixtur
 unproduced). A daemon change that alters a fixtured shape fails here: update the fixture per the
 bump + note rule (protocol AGENTS.md). `scripts/record-external-fixtures.ts` runs the same scenario
 and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, so run
-`npm run build:server` first. Not run in CI. The scenario also drives file transfer (token → download,
+`npm run build:server` first. Not run in CI. The scenario also drives file transfer (whole-file and ranged download by path with live `ifUnchanged`, a rejected download, a cancel on an idle stream,
 `ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
 (create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
 the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.
