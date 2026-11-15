@@ -1,6 +1,7 @@
 # Feature — Desktop-Client Protocol Follow-ups II
 
-> **Status: scoped (2026-11-15), not planned.** No sprint exists yet. Follows
+> **Status: planned (2026-11-15), not built.** Sprints 097 (download) and 098 (agent stream mode,
+> CLI JSON) in `swe/sprints/PLAN.md`, on `feat/desktop-protocol-followups-2`. Follows
 > [desktop-client-protocol-followups.md](desktop-client-protocol-followups.md) (sprint 096, shipped in
 > 0.0.118).
 
