@@ -1,0 +1,7 @@
+{
+  "type": "relay_client_connect",
+  "direction": "client_to_relay",
+  "description": "First frame of a client socket. The client sends nothing else until `relay_paired`.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_client_connect\",\"v\":2,\"sessionId\":\"bdece9e2be20db8c37b51a6c0dadfee7\"}"
+}

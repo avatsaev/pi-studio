@@ -1,0 +1,7 @@
+{
+  "type": "relay_paired",
+  "direction": "relay_to_client_and_daemon",
+  "description": "Sent to the client socket and to the daemon's data socket once they are paired; everything after it is the encrypted channel. `connectionId` is the example value.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_paired\",\"connectionId\":\"0123456789abcdef0123456789abcdef\"}"
+}

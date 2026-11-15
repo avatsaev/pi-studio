@@ -1,0 +1,66 @@
+{
+  "formatVersion": 1,
+  "description": "Fixed-key fixtures for relay protocol 2 (relay-protocol.md §§ 1, 3, 4). Every key in keys.json is TEST MATERIAL and must never be used for a real daemon.",
+  "files": [
+    {
+      "file": "keys.json",
+      "group": "keys"
+    },
+    {
+      "file": "control.relay_daemon_register.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_registered.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_client_connect.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_dial.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_daemon_attach.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_paired.json",
+      "group": "control"
+    },
+    {
+      "file": "control.relay_register.legacy.json",
+      "group": "control"
+    },
+    {
+      "file": "close-codes.json",
+      "group": "close_codes"
+    },
+    {
+      "file": "channel.hello.json",
+      "group": "channel"
+    },
+    {
+      "file": "channel.ready.json",
+      "group": "channel"
+    },
+    {
+      "file": "channel.client_to_daemon.text.json",
+      "group": "channel"
+    },
+    {
+      "file": "channel.client_to_daemon.binary.json",
+      "group": "channel"
+    },
+    {
+      "file": "channel.daemon_to_client.text.json",
+      "group": "channel"
+    },
+    {
+      "file": "channel.daemon_to_client.binary.json",
+      "group": "channel"
+    }
+  ]
+}

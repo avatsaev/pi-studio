@@ -1,0 +1,13 @@
+{
+  "description": "A text message from the daemon at counter 1. `hex` is the whole binary WebSocket frame (the box of a record, nothing else); `decoded` is what opening it with the `box.before` key from keys.json and the `nonce` yields: record kind byte then payload. The counter and nonce never travel on the wire.",
+  "since": "0.0.121",
+  "direction": "daemon_to_client",
+  "hex": "23 53 66 90 28 9e 45 f1 aa 17 92 ea 2d 6f 62 c8 dd 35 b9 35 cd 3c fb 68 3d 7f ce 63 c2 f0 52 63 e2 a1 eb d7 8f b9 93 f2 1c 11 4c 42 cb f4 0f 31 7f 98 76 76 58 8c 1a 59 3b 73 53 51 be dc 4c 5c 71 24 06 d8 42 ef d8 5c 8b 44 15 0d 3d 53 3c 08 75 15 87 6f b9 28 39 b4 ee c1 c1 d2 44 36 d5 0f b3 46 d9 19 f5 91 a3 a2 12 e6 ea 76",
+  "decoded": {
+    "kind": "text",
+    "kindByte": 1,
+    "counter": 1,
+    "nonce": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae 02 00 00 00 00 00 00 00 01",
+    "payload": "{\"type\":\"pong\",\"requestId\":\"req-1\",\"clientSentAt\":1767225600000,\"serverTime\":1767225600005}"
+  }
+}

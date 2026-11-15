@@ -19,7 +19,12 @@ import nacl from "tweetnacl";
 import { SERVER_VERSION } from "../version.js";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
-import { HandlerRegistry, routeTextFrame, routeBinaryFrame } from "../ws/router.js";
+import {
+  HandlerRegistry,
+  routeTextFrame,
+  routeBinaryFrame,
+  type BinaryHandler,
+} from "../ws/router.js";
 import { Session } from "../ws/session.js";
 import { createInMemoryCapabilityStore } from "../ws/capability-store.js";
 import { SessionSubscriptions } from "../ws/session-subscriptions.js";
@@ -87,14 +92,10 @@ import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.j
 import { ResourceService } from "../resources/resource-service.js";
 import { registerSkillsHandlers } from "../resources/skills-rpc.js";
 
-import {
-  SERVER_FEATURES,
-  helloSchema,
-  serverInfoPayloadSchema,
-  statusSchema,
-} from "@av-pi-studio/protocol";
+import { SERVER_FEATURES } from "@av-pi-studio/protocol";
 import { parseDaemonListen } from "./index.js";
 import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
+import { attachRelaySession } from "./relay-sessions.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
 export interface DaemonOptions {
@@ -760,6 +761,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
   const auth = createPasswordAuth(passwordHash);
 
+  // Per-session cleanup shared by direct and relay sessions: without it a closed client's
+  // subscriptions and transfers would leak until a failed send.
+  const disposeSession = (session: Session): void => {
+    subscriptions.disposeSession(session);
+    daemonStatusService.disposeSession(session);
+    daemonLogsService.disposeSession(session);
+    fileTransfer.disposeSession(session);
+  };
+  // Post-handshake binary frames: terminal (Input/Resize) first, then file-transfer (upload).
+  const binaryHandler: BinaryHandler = (session, bytes) => {
+    terminalBinaryHandler(session, bytes);
+    fileTransferBinary(session, bytes);
+  };
+
   // ── HTTP + WS wiring ─────────────────────────────────────────────────────────
   const httpServer = createHttpServer({
     hostnames,
@@ -781,58 +796,29 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
     },
-    onSessionClose: (session) => {
-      subscriptions.disposeSession(session);
-      daemonStatusService.disposeSession(session);
-      daemonLogsService.disposeSession(session);
-      fileTransfer.disposeSession(session);
-    },
+    onSessionClose: disposeSession,
     onMessage: (session, frame) => {
       if ("text" in frame) {
         void routeTextFrame(session, frame.text, registry);
       } else {
-        // Binary frames: try terminal (Input/Resize) then file-transfer (upload) decoders.
-        routeBinaryFrame(session, frame.binary, (s, bytes) => {
-          terminalBinaryHandler(s, bytes);
-          fileTransferBinary(s, bytes);
-        });
+        // Binary frames: terminal (Input/Resize) first, then file-transfer (upload).
+        routeBinaryFrame(session, frame.binary, binaryHandler);
       }
     },
   });
 
   sessionsHolder.sessions = wsHandle.sessions;
 
-  // ── Optional outbound relay (architecture/relay-e2ee.md, architecture/daemon-bootstrap.md
-  // § Behavior — `connectRelay`). Fully opt-in: `config.daemon.relay.enabled` defaults to false,
-  // so a daemon with no relay config behaves identically to before — only the direct WS listener
-  // above ever starts. When enabled, each decrypted relay app message is dispatched through the
-  // exact same `registry`/`routeTextFrame` RPC surface direct clients use, via a persistent
-  // synthetic `Session` whose `send()` re-encrypts the response back onto the same E2EE channel.
-  //
-  // A relay session id pairs at most one client with this daemon at a time (`RelaySessionBridge`),
-  // so exactly one `Session` is live per relay connection — created lazily on the client's `hello`
-  // (mirroring `ws-server.ts`'s direct-WS handshake exactly: validate `hello`, rehydrate/persist
-  // capabilities by `clientId`, reply with `status`/`server_info`), then reused for every
-  // subsequent frame until the relay reconnects with a new session id.
+  // ── Optional outbound relay (architecture/relay-protocol.md § Behavior — Daemon;
+  // architecture/daemon-bootstrap.md § Behavior — `connectRelay`). Fully opt-in:
+  // `config.daemon.relay.enabled` defaults to false, so a daemon with no relay config behaves
+  // identically to before — only the direct WS listener above ever starts. When enabled,
+  // `connectRelay` keeps one control socket registered and opens a data connection per client
+  // (`relay_dial`); each connection gets its own `Session` through `attachRelaySession` — the relay
+  // twin of the direct `hello` path, routed through the same `registry`/`routeTextFrame` surface and
+  // disposed by the same per-session cleanup (`disposeSession`) when its socket closes.
   let relayHandle: RelayTransportHandle | undefined;
   if (config.daemon.relay.enabled) {
-    let relaySession: Session | null = null;
-    let relayReply: ((data: string) => void) | null = null;
-    let relayReplyBinary: ((bytes: Uint8Array) => void) | null = null;
-
-    const resetRelaySession = (): void => {
-      if (relaySession) {
-        relaySessions.delete(relaySession);
-        // Same per-session disposal a direct socket close runs (`onSessionClose` above): without
-        // it a replaced relay peer's subscriptions would leak until a failed send.
-        subscriptions.disposeSession(relaySession);
-        daemonStatusService.disposeSession(relaySession);
-        daemonLogsService.disposeSession(relaySession);
-        fileTransfer.disposeSession(relaySession);
-      }
-      relaySession = null;
-    };
-
     relayHandle = connectRelay(
       {
         publicKey: Buffer.from(daemonKeypairB64.publicKeyB64, "base64"),
@@ -840,55 +826,15 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       },
       config.daemon.relay,
       {
-        onMessage: (plaintext, reply) => {
-          relayReply = reply; // kept in sync per message too; the real fix is capturing this in onHandshake below
-
-          if (relaySession === null) {
-            // First frame on this relay connection must be `hello`, exactly like direct WS.
-            let parsed: unknown;
-            try {
-              parsed = JSON.parse(plaintext);
-            } catch {
-              return; // not JSON — ignore, matching routeTextFrame's tolerance
-            }
-            const hello = helloSchema.safeParse(parsed);
-            if (!hello.success) return; // non-hello first frame: ignore (no socket to close)
-
-            const stored = relayCapabilityStore.get(hello.data.clientId);
-            const capabilities = hello.data.capabilities ?? stored ?? {};
-            relayCapabilityStore.set(hello.data.clientId, capabilities);
-
-            relaySession = new Session({
-              id: randomUUID(),
-              clientId: hello.data.clientId,
-              clientType: hello.data.clientType,
-              platform: hello.data.platform,
-              agentStreams: hello.data.agentStreams,
-              capabilities,
-              appVersion: hello.data.appVersion,
-              transport: "relay",
-              // `Session.send()` calls `socket.send(jsonString)`; `Session.sendBinary()` calls
-              // `socket.send(bytes)` — same method, discriminated by argument type here so both
-              // funnel to the matching relay reply callback (text `e2ee_app` vs binary `e2ee_bin`).
-              socket: {
-                send: (data: string | Uint8Array) => {
-                  if (typeof data === "string") relayReply?.(data);
-                  else relayReplyBinary?.(data);
-                },
-                close: () => {},
-              } as unknown as ConstructorParameters<typeof Session>[0]["socket"],
-            });
-            relaySessions.add(relaySession);
-            logger.info(
-              {
-                clientId: relaySession.clientId,
-                clientType: relaySession.clientType,
-                via: "relay",
-              },
-              "ws client connected",
-            );
-
-            const payload = serverInfoPayloadSchema.parse({
+        logger,
+        onConnection: (conn) =>
+          attachRelaySession(conn, {
+            registry,
+            routeTextFrame,
+            routeBinaryFrame,
+            binaryHandler,
+            capabilityStore: relayCapabilityStore,
+            buildServerInfo: () => ({
               status: "server_info",
               serverId,
               hostname: opts.host,
@@ -899,50 +845,16 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               homeDir: homedir(),
               capabilities: {},
               features: Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true])),
-            });
-            relaySession.send(statusSchema.parse({ type: "status", payload }));
-            return;
-          }
-
-          void routeTextFrame(relaySession, plaintext, registry);
-        },
-        onBinaryMessage: (bytes, replyBinary) => {
-          relayReplyBinary = replyBinary; // kept in sync per message too; the real fix is capturing this in onHandshake below
-          if (relaySession === null) return; // binary frames before `hello` have no session to target
-          routeBinaryFrame(relaySession, bytes, (s, b) => {
-            terminalBinaryHandler(s, b);
-            fileTransferBinary(s, b);
-          });
-        },
-        onError: (err) => {
-          logger.error({ err: (err as Error)?.message ?? String(err) }, "relay channel error");
-        },
-        onSessionStart: (sessionId) => {
-          logger.info({ sessionId }, "relay connected");
-        },
-        onHandshake: (reply, replyBinary) => {
-          // A NEW peer just completed the E2EE handshake on this (possibly already-`ready`)
-          // channel — browser reload, second tab, or a genuine reconnect all look identical here.
-          // Drop any app-level Session tied to whichever peer held the channel before; the next
-          // app frame is that new peer's own `hello`, not a continuation of the old one's.
-          //
-          // Capture `reply`/`replyBinary` right here rather than waiting for the first
-          // `onMessage`/`onBinaryMessage` call: a file download's `Begin`/`Chunk`/`End` frames are
-          // sent daemon → client entirely unprompted (the client never sends binary first, unlike
-          // terminal input), so `relayReplyBinary` used to stay `null` until a binary frame
-          // happened to arrive from the client — which never happened for downloads, silently
-          // dropping every relay-routed file download with no error on either side.
-          relayReply = reply;
-          relayReplyBinary = replyBinary;
-          if (relaySession) logger.info({ sessionId: relaySession.id }, "relay peer replaced");
-          resetRelaySession();
-        },
-        onReconnect: (sessionId) => {
-          logger.info({ sessionId }, "relay reconnecting with new session");
-          resetRelaySession();
-          relayReply = null;
-          relayReplyBinary = null;
-        },
+            }),
+            onSessionOpen: (session) => {
+              relaySessions.add(session);
+            },
+            onSessionClose: (session) => {
+              relaySessions.delete(session);
+              disposeSession(session);
+            },
+            logger,
+          }),
       },
     );
   }

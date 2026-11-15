@@ -330,11 +330,12 @@ flagged `TODO(verify)` in source for wire names not yet confirmed against the re
 | `relay status [--listen <host:port>]` | Print up/down for the relay at that address                          |
 
 A self-hosted deployment of `@av-pi-studio/relay`'s standalone `startRelayServer()`
-(`packages/relay/src/relay-server.ts` — a `ws` `WebSocketServer` wired to `RelaySessionBridge`, plus
-a bare `GET /health`). Runs as its OWN managed process, entirely separate from the daemon's
+(`packages/relay/src/relay-server.ts` — a `ws` `WebSocketServer` that routes control, data and client
+sockets by their first JSON frame (`control.ts`), pipes each client socket to one daemon data socket,
+plus a bare `GET /health`). Runs as its OWN managed process, entirely separate from the daemon's
 lifecycle — the relay has no identity keypair, no `$PI_STUDIO_HOME` state beyond its own PID file
-(`pi-studio-relay.pid`), and no per-project data; it only bridges a daemon's outbound connection
-with a client's, keyed by session id (architecture/relay-e2ee.md § Purpose). Typically run on a
+(`pi-studio-relay.pid`), and no per-project data; it only pairs a client's connection with a data
+socket the daemon opened outbound, keyed by session id (architecture/relay-protocol.md). Typically run on a
 separate publicly-reachable host from the daemon it relays for.
 
 `RelayRuntime` (`relay-control.ts`, mirrors `DaemonRuntime` exactly):

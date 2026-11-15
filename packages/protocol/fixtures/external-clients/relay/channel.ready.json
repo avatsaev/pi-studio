@@ -1,0 +1,14 @@
+{
+  "description": "Daemon to client, first frame back: `0x01`, the 15-byte salt the daemon chose, then the box of a `ready` record (kind byte 0x00, empty payload) at daemon-to-client counter 0. A client that opens the box has proved the daemon holds its secret key.",
+  "since": "0.0.121",
+  "direction": "daemon_to_client",
+  "hex": "01 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae f7 a4 7b f2 16 1f d1 fc 12 0a d5 17 da ee 3e d2 3b",
+  "decoded": {
+    "version": 1,
+    "salt": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae",
+    "kind": "ready",
+    "kindByte": 0,
+    "counter": 0,
+    "nonce": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae 02 00 00 00 00 00 00 00 00"
+  }
+}

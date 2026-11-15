@@ -1,0 +1,13 @@
+{
+  "description": "A binary message from the daemon at counter 2. `hex` is the whole binary WebSocket frame (the box of a record, nothing else); `decoded` is what opening it with the `box.before` key from keys.json and the `nonce` yields: record kind byte then payload. The counter and nonce never travel on the wire.",
+  "since": "0.0.121",
+  "direction": "daemon_to_client",
+  "hex": "57 59 21 ae 23 81 01 8f 88 0f 75 bc f8 c7 9f 26 3c 19 46 e6 b1 a7 08 21 a1 77",
+  "decoded": {
+    "kind": "binary",
+    "kindByte": 2,
+    "counter": 2,
+    "nonce": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae 02 00 00 00 00 00 00 00 02",
+    "payloadHex": "10 01 ca fe ba be ff 00 7f"
+  }
+}

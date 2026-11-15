@@ -1,0 +1,7 @@
+{
+  "type": "relay_dial",
+  "direction": "relay_to_daemon",
+  "description": "Sent on the control socket when a client wants the daemon. `connectionId` is 128 random bits as 32 lowercase hex characters, chosen by the relay; the value here is an example.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_dial\",\"connectionId\":\"0123456789abcdef0123456789abcdef\"}"
+}

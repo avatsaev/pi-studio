@@ -1,35 +1,37 @@
 /**
- * Daemon-side outbound relay transport (architecture/relay-e2ee.md § Behavior — Connection setup,
- * § TLS, § Pairing; architecture/daemon-bootstrap.md § Behavior — `connectRelay`).
+ * Daemon-side outbound relay transport (architecture/relay-protocol.md § Behavior — Daemon (control
+ * loop), § 2, § 3, § Error handling; features/relay-multi-client.md § Public contract 2).
  *
- * The daemon dials OUTBOUND to a relay server (so no inbound port needs to be opened) and registers
- * a session id so the relay can pair an incoming client connection with this daemon. Once
- * connected, all application traffic on the socket is E2EE via `createDaemonChannel`
- * (`@av-pi-studio/relay`) — the daemon refuses to process ANY app message until the client's
- * `e2ee_hello`/`e2ee_ready` handshake completes.
+ * The daemon dials OUTBOUND to a relay (no inbound port to open) and keeps ONE control socket
+ * registered under its session id with protocol 2. Each `relay_dial { connectionId }` the relay
+ * sends on it makes the daemon open a data socket (`openRelayConnection`, at most 32 at a time) and
+ * hand the resulting {@link RelayConnection} to `onConnection`. Sessions, `hello` handling and
+ * disposal live above this module (`relay-sessions.ts`, wired in `bootstrap.ts`).
  *
- * The session id is `deriveRelaySessionId(keypair.publicKey)` — deterministic, not random — so a
- * pairing URL printed once keeps working across relay reconnects. Earlier this used a fresh
- * `randomUUID()` per connect AND per reconnect, which meant any pairing link went stale the moment
- * the relay connection dropped and reconnected (the daemon would register under a session id no
- * printed link referenced). Deriving from the public key — which the pairing link already carries
- * and which the spec already treats as the trust anchor (relay-e2ee.md § Pairing) — costs nothing
- * in secrecy and keeps the same session id for the life of the daemon's keypair.
+ * The session id is `deriveRelaySessionId(keypair.publicKey)` — deterministic — so a pairing link
+ * printed once keeps working across control-socket drops and relay restarts.
  *
- * TODO(verify): the exact registration frame format is unresolved upstream
- * (architecture/relay-e2ee.md § TODO(verify) — "Relay server routing/session-id assignment
- * protocol details"). This implementation registers with `{ type: "relay_register", sessionId }`
- * immediately after the socket opens; the client transport (task-003) and Cloudflare adapter
- * (task-004) built in this sprint agree on this same frame.
+ * The control socket is redialed with backoff (1, 2, 4 … 30 s, ±20 % jitter) when it closes, when
+ * the relay does not answer the registration within 10 s (an outdated relay) and when it stays
+ * silent for 90 s (no frame and no ping). A control drop never touches the data connections: they
+ * are independent sockets and end only when their own socket closes.
  */
 import { WebSocket } from "ws";
 
 import {
-  createDaemonChannel,
   deriveRelaySessionId,
-  type EncryptedChannel,
-  type Transport,
+  encodeControlFrame,
+  parseRelayFrame,
+  RELAY_CLOSE,
+  RELAY_DEFAULTS,
 } from "@av-pi-studio/relay";
+
+import type { Logger } from "../logging/logger.js";
+import {
+  openRelayConnection,
+  type RelayConnection,
+  type RelayConnectionLimits,
+} from "./relay-connection.js";
 
 /** Mirrors `daemon.relay` in `daemon-config.ts` / architecture/config.md. */
 export interface RelayConfig {
@@ -45,48 +47,46 @@ export interface DaemonKeypair {
   secretKey: Uint8Array;
 }
 
-export interface RelayTransportEvents {
-  /** Fired with a decrypted TEXT app message once a client's E2EE handshake completes; `reply` sends an encrypted text response back on the same channel. */
-  onMessage?: (plaintext: string, reply: (message: string) => void) => void;
-  /**
-   * Fired with a decrypted BINARY app message (terminal I/O, file-transfer chunks) once a
-   * client's E2EE handshake completes; `replyBinary` sends an encrypted binary response back on
-   * the same channel. Mirrors `onMessage`/`reply` exactly, just for the binary sibling wire frame
-   * (`e2ee_bin` vs `e2ee_app` — see `@av-pi-studio/relay`'s `channel.ts`).
-   */
-  onBinaryMessage?: (bytes: Uint8Array, replyBinary: (bytes: Uint8Array) => void) => void;
-  /** Fired once per successful (re)connection, with the session id just registered. */
-  onSessionStart?: (sessionId: string) => void;
-  /** Fired when a relay drop triggers a reconnect, with the NEW session id about to be registered. */
-  onReconnect?: (sessionId: string) => void;
-  /**
-   * Fired every time the E2EE handshake (re)completes on the current relay socket — not just
-   * once per socket connection. The relay multiplexes one deterministic session id across
-   * however many client sockets attach over the daemon's lifetime (browser reload, second tab,
-   * plain reconnect); `createDaemonChannel` now re-arms on each fresh `e2ee_hello` instead of
-   * ignoring it, so a NEW peer taking over an already-`ready` channel fires this again. Consumers
-   * should treat it as "forget any app-level session state tied to the previous peer" — the next
-   * app frame is a new peer's `hello`, not a continuation of the old peer's session.
-   *
-   * Hands over `reply`/`replyBinary` directly (the same stable `channel.send`/`channel.sendBinary`
-   * `onMessage`/`onBinaryMessage` pass on every call) so a consumer can send unprompted — a file
-   * download's `Begin`/`Chunk`/`End` binary frames flow daemon → client with no inbound binary
-   * frame ever arriving first, unlike terminal I/O. Capturing the reply functions only inside
-   * `onMessage`/`onBinaryMessage` (as this used to do) left `replyBinary` `null` until the client
-   * happened to send binary first, silently dropping every relay-routed file download.
-   */
-  onHandshake?: (
-    reply: (message: string) => void,
-    replyBinary: (bytes: Uint8Array) => void,
-  ) => void;
-  onError?: (error: unknown) => void;
+/** Timers and sizes tests may shorten; `RELAY_DEFAULTS` supplies every value not given. */
+export interface RelayTransportLimits extends RelayConnectionLimits {
+  /** Data sockets open at once; further `relay_dial`s are ignored. */
+  maxConnections?: number;
+  /** Wait for `relay_registered` before deciding the relay is outdated. */
+  registrationAnswerTimeoutMs?: number;
+  backoffInitialMs?: number;
+  backoffMaxMs?: number;
+  /** Fraction of the delay added or removed at random (0.2 = ±20 %). */
+  backoffJitter?: number;
+  /** Wait after the relay closed the control socket with `replaced`. */
+  replacedWaitMs?: number;
+}
+
+/** The slice of the timer API the control loop uses; tests inject a recording fake. */
+export interface RelayTimers {
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+export interface RelayTransportOptions {
+  /** Called once per `relay_dial`, with the connection that is being opened. */
+  onConnection: (conn: RelayConnection) => void;
+  logger: Logger;
+  limits?: RelayTransportLimits;
+  /** Jitter source in `[0, 1)`; defaults to `Math.random`. */
+  random?: () => number;
+  timers?: RelayTimers;
 }
 
 export interface RelayTransportHandle {
   readonly sessionId: string;
-  /** Tear down the relay transport: stops reconnecting and closes the current socket/channel. */
+  /** Stop redialing, close the control socket and every open data socket. */
   close(): void;
 }
+
+const systemTimers: RelayTimers = {
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+};
 
 function relayUrl(config: RelayConfig): string {
   if (!config.endpoint) {
@@ -99,102 +99,184 @@ function relayUrl(config: RelayConfig): string {
   return `${scheme}://${host}`;
 }
 
-/** Wrap a `ws` `WebSocket` as the relay package's transport-agnostic `Transport`. */
-function wrapSocket(socket: WebSocket): Transport {
-  const messageHandlers: Array<(data: string) => void> = [];
-  const closeHandlers: Array<(reason?: string) => void> = [];
-  socket.on("message", (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
-    if (isBinary) return; // the relay channel protocol is text-frame only
-    const text = Array.isArray(data)
-      ? Buffer.concat(data).toString("utf8")
-      : Buffer.isBuffer(data)
-        ? data.toString("utf8")
-        : Buffer.from(data as ArrayBuffer).toString("utf8");
-    for (const h of messageHandlers) h(text);
-  });
-  socket.on("close", (code: number, reasonBuf: Buffer) => {
-    const reason = reasonBuf?.length ? reasonBuf.toString("utf8") : `code ${code}`;
-    for (const h of closeHandlers) h(reason);
-  });
-  return {
-    send: (data) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(data);
-    },
-    onMessage: (h) => messageHandlers.push(h),
-    onClose: (h) => closeHandlers.push(h),
-    close: () => socket.close(),
-  };
-}
-
 /**
- * Dial outbound to the relay, registering the deterministic session id derived from the daemon's
- * own public key (`deriveRelaySessionId`) — the SAME id on every (re)connect, so a pairing URL
- * printed once keeps working across relay drops/restarts. This does not weaken
- * architecture/relay-e2ee.md § Error Handling's "new session → new keys" guarantee: the rendezvous
- * session id is just a routing label the relay uses to pair sockets, never a key input — the
- * client's `createClientChannel` still generates a FRESH ephemeral Curve25519 keypair on every
- * connection, so every reconnect still derives an independent ECDH shared key even though the
- * session id it registers under is unchanged.
+ * Open the control socket and keep it registered; see the module comment. Returns at once: dial
+ * progress and failures are logged, never thrown (an unreachable relay is retried with backoff).
  */
 export function connectRelay(
   keypair: DaemonKeypair,
   config: RelayConfig,
-  events: RelayTransportEvents = {},
+  options: RelayTransportOptions,
 ): RelayTransportHandle {
-  let closed = false;
-  let currentSocket: WebSocket | null = null;
-  let currentChannel: EncryptedChannel | null = null;
+  const url = relayUrl(config);
   const sessionId = deriveRelaySessionId(keypair.publicKey);
+  const logger = options.logger.child({ component: "relay", sessionId });
+  const random = options.random ?? Math.random;
+  const timers = options.timers ?? systemTimers;
+  const limits = {
+    maxConnections: options.limits?.maxConnections ?? RELAY_DEFAULTS.maxClientsPerDaemon,
+    maxFrameBytes: options.limits?.maxFrameBytes ?? RELAY_DEFAULTS.maxFrameBytes,
+    silenceTimeoutMs: options.limits?.silenceTimeoutMs ?? RELAY_DEFAULTS.silenceTimeoutMs,
+    registrationAnswerTimeoutMs:
+      options.limits?.registrationAnswerTimeoutMs ?? RELAY_DEFAULTS.registrationAnswerTimeoutMs,
+    backoffInitialMs: options.limits?.backoffInitialMs ?? RELAY_DEFAULTS.backoffInitialMs,
+    backoffMaxMs: options.limits?.backoffMaxMs ?? RELAY_DEFAULTS.backoffMaxMs,
+    backoffJitter: options.limits?.backoffJitter ?? RELAY_DEFAULTS.backoffJitter,
+    replacedWaitMs: options.limits?.replacedWaitMs ?? RELAY_DEFAULTS.replacedWaitMs,
+  };
+
+  const connections = new Set<RelayConnection>();
+  let closed = false;
+  let controlSocket: WebSocket | null = null;
+  let redialTimer: unknown;
+  /** Consecutive control-socket failures since the last `relay_registered`. */
+  let failures = 0;
+
+  /** The next backoff delay: initial · 2^failures, capped, with ± jitter. Advances `failures`. */
+  const nextBackoffMs = (): number => {
+    const base = Math.min(limits.backoffInitialMs * 2 ** failures, limits.backoffMaxMs);
+    failures += 1;
+    const spread = (random() * 2 - 1) * limits.backoffJitter;
+    return Math.round(base * (1 + spread));
+  };
+
+  const handleDial = (connectionId: string): void => {
+    if (connections.size >= limits.maxConnections) {
+      logger.warn(
+        { connectionId, open: connections.size, max: limits.maxConnections },
+        "relay_dial ignored: too many open connections",
+      );
+      return;
+    }
+    const conn = openRelayConnection({
+      url,
+      sessionId,
+      connectionId,
+      keypair,
+      limits: options.limits,
+      logger: options.logger,
+    });
+    connections.add(conn);
+    conn.onClose(() => connections.delete(conn));
+    try {
+      options.onConnection(conn);
+    } catch (err) {
+      logger.error(
+        { connectionId, err: (err as Error)?.message ?? String(err) },
+        "relay onConnection threw; closing the connection",
+      );
+      conn.close(1011, "internal error");
+    }
+  };
 
   const dial = (): void => {
     if (closed) return;
-    const socket = new WebSocket(relayUrl(config));
-    currentSocket = socket;
+    const socket = new WebSocket(url, {
+      maxPayload: limits.maxFrameBytes,
+      handshakeTimeout: RELAY_DEFAULTS.connectTimeoutMs,
+    });
+    controlSocket = socket;
+    let ended = false;
+    let registered = false;
+    let registrationTimer: unknown;
+    let silenceTimer: unknown;
+
+    /** The one place a control socket ends: idempotent; clears timers; schedules the redial. */
+    const end = (code: number, reason: string): void => {
+      if (ended) return;
+      ended = true;
+      timers.clearTimeout(registrationTimer);
+      timers.clearTimeout(silenceTimer);
+      if (controlSocket === socket) controlSocket = null;
+      if (closed) return;
+      let delayMs: number;
+      if (code === RELAY_CLOSE.REPLACED.code) {
+        delayMs = limits.replacedWaitMs;
+        logger.warn(
+          "relay control socket replaced: another daemon is registered with this key; " +
+            "waiting before registering again",
+        );
+      } else {
+        delayMs = nextBackoffMs();
+      }
+      logger.info({ code, reason, nextRedialMs: delayMs }, "relay control socket closed");
+      redialTimer = timers.setTimeout(dial, delayMs);
+    };
+
+    /** Abandon a socket the relay will not close for us (no answer, silence). */
+    const drop = (code: number, reason: string): void => {
+      socket.terminate();
+      end(code, reason);
+    };
+
+    const armSilence = (): void => {
+      timers.clearTimeout(silenceTimer);
+      silenceTimer = timers.setTimeout(() => {
+        logger.warn(
+          { silenceTimeoutMs: limits.silenceTimeoutMs },
+          "relay control socket silent; redialing",
+        );
+        drop(RELAY_CLOSE.PING_TIMEOUT.code, "silence");
+      }, limits.silenceTimeoutMs);
+    };
 
     socket.on("open", () => {
-      if (closed) return;
-      socket.send(JSON.stringify({ type: "relay_register", sessionId }));
-
-      const channel = createDaemonChannel({
-        transport: wrapSocket(socket),
-        attachment: { sessionId },
-        daemonKeypair: keypair,
-        events: {
-          onMessage: (plaintext) =>
-            events.onMessage?.(plaintext, (message) => channel.send(message)),
-          onBinaryMessage: (bytes) =>
-            events.onBinaryMessage?.(bytes, (reply) => channel.sendBinary(reply)),
-          onReady: () => events.onHandshake?.(channel.send, channel.sendBinary),
-          onAuthError: (err) => events.onError?.(err),
-        },
-      });
-      currentChannel = channel;
-      events.onSessionStart?.(sessionId);
+      logger.info("relay connected");
+      socket.send(encodeControlFrame({ type: "relay_daemon_register", v: 2, sessionId }));
+      registrationTimer = timers.setTimeout(() => {
+        logger.warn(
+          { registrationAnswerTimeoutMs: limits.registrationAnswerTimeoutMs },
+          "relay did not answer the registration: it speaks an older protocol and must be updated",
+        );
+        drop(1000, "registration timeout");
+      }, limits.registrationAnswerTimeoutMs);
+      armSilence();
     });
 
-    socket.on("close", () => {
-      currentSocket = null;
-      currentChannel = null;
-      if (closed) return;
-      events.onReconnect?.(sessionId);
-      dial();
+    socket.on("ping", armSilence);
+
+    socket.on("message", (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+      if (ended) return;
+      armSilence();
+      if (isBinary) return; // the control socket carries text frames only
+      const text = Array.isArray(data)
+        ? Buffer.concat(data).toString("utf8")
+        : Buffer.isBuffer(data)
+          ? data.toString("utf8")
+          : Buffer.from(data).toString("utf8");
+      const frame = parseRelayFrame(text);
+      if (frame?.type === "relay_registered") {
+        timers.clearTimeout(registrationTimer);
+        registered = true;
+        failures = 0;
+        logger.info("relay registered");
+      } else if (frame?.type === "relay_dial" && registered) {
+        handleDial(frame.connectionId);
+      }
+      // Anything else (unknown or malformed control frame) is ignored.
     });
 
-    socket.on("error", (err) => {
-      events.onError?.(err);
+    socket.on("error", (err: Error) => {
+      logger.warn({ err: err.message }, "relay control socket error");
+    });
+
+    socket.on("close", (code: number, reasonBuf: Buffer) => {
+      end(code, reasonBuf?.length ? reasonBuf.toString("utf8") : "");
     });
   };
 
   dial();
 
   return {
-    get sessionId() {
-      return sessionId;
-    },
+    sessionId,
     close() {
+      if (closed) return;
       closed = true;
-      currentChannel?.close();
-      currentSocket?.close();
+      timers.clearTimeout(redialTimer);
+      controlSocket?.terminate();
+      controlSocket = null;
+      for (const conn of connections) conn.close(1001, "daemon shutting down");
+      connections.clear();
     },
   };
 }

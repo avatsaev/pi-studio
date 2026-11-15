@@ -45,7 +45,7 @@ Provides:
 src/
   index.ts                    Public barrel (re-exports everything below).
   transport.ts                Transport interface + AnyWebSocket/WsFactory + createWebSocketTransport().
-  relay-transport.ts          createRelayTransport() + relayDialUrl() — E2EE relay Transport (same interface as direct WS).
+  relay-transport.ts          createRelayTransport() + relayDialUrl() + RelayConnectError — protocol-2 E2EE relay Transport (same interface as direct WS).
   relay-transport.test.ts
   pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls).
   daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
@@ -106,25 +106,37 @@ truncated downloaded/inline images with the bottom rows missing). Node `ws` alwa
 is dead in normal operation now; kept only as a defensive fallback for a `WebSocket`-like object
 that ignores `binaryType`.
 
-`createRelayTransport({ sessionId?, daemonPublicKey, factory? })` (`relay-transport.ts`) —
-implements the identical `Transport` interface over an E2EE relay: dials the relay's own WebSocket
+`createRelayTransport({ sessionId?, daemonPublicKey, factory?, connectTimeoutMs? })`
+(`relay-transport.ts`) — implements the identical `Transport` interface over an E2EE relay,
+protocol 2 (`swe/architecture/relay-protocol.md`). `connect(url)` dials the relay's own WebSocket
 address (NOT the daemon's — build it from a pairing offer's `relay` info via `relayDialUrl()`),
-registers under `sessionId` (or, when omitted, `deriveRelaySessionId(daemonPublicKey)` — the SAME
-deterministic id the daemon's own outbound dial always registers under,
-`packages/server/src/daemon/relay-transport.ts` — so a pairing offer's public key alone is enough
-to find the daemon on the relay without a separately-transmitted session id), completes the
-`e2ee_hello`/`e2ee_ready` handshake via `createClientChannel` (`@av-pi-studio/relay`) with a
-**fresh ephemeral** keypair, and only reports `isOpen` once that handshake finishes — no app RPC
-(including `hello`) can cross the wire before then. `sendBinary()` works too (terminal I/O,
-file-transfer chunks) — carried as the channel's `e2ee_bin` sibling wire frame to text `e2ee_app`
-(`@av-pi-studio/relay`'s `channel.ts`); still a JSON text WS frame under the hood (base64-wrapped
-ciphertext), never a raw binary WebSocket frame, so no relay-server change was needed.
+sets `binaryType = "arraybuffer"`, sends `relay_client_connect { v: 2, sessionId }` (`sessionId`
+defaults to `deriveRelaySessionId(daemonPublicKey)`, the id the daemon registers under), waits for
+`relay_paired`, then runs `createClientChannel` (`@av-pi-studio/relay`) over the same socket with a
+**fresh ephemeral** keypair. It resolves only once the channel's `ready` box has opened (`isOpen`
+turns true then) — no app RPC (including `hello`) can cross the wire before. Text and binary are
+channel records, each one binary WebSocket frame (no base64, no JSON wrapper); `onMessage`
+delivers strings and `ArrayBuffer`s synchronously in wire order.
+
+`connect()` never hangs: it settles within `connectTimeoutMs` (default 15 000, `RELAY_DEFAULTS`)
+and the same transport can `connect` again after a close or a refusal (that is how `DaemonClient`
+reconnects; each attempt opens a fresh socket and a fresh channel, and a late event from an
+earlier attempt is ignored). A second `connect` while one is connecting or open rejects. A failed connect also calls `onClose` (once, code 1006) after rejecting, exactly like a failed direct WebSocket: `DaemonClient.connect()` only leaves `connecting` through `onClose`, so without it a refused client stays "connecting" and never retries. Every failure is a
+`RelayConnectError` (`Error` subclass, `reason: RelayConnectReason`, user-facing `message`):
+close 4102 → `daemon_offline`, 4103 → `daemon_unresponsive`, 4104 → `too_many_clients`, 4105 →
+`daemon_outdated`, 4200 after pairing (the `ready` box failed) → `wrong_key`, connect limit →
+`timeout` (socket closed), socket error/close with no close frame before `relay_paired` →
+`relay_unreachable`, anything else (4100, other codes, unexpected frames) → `protocol_error`. A
+refusal is an ordinary failed connect (no reconnect policy here). After connect, a channel failure
+closes the socket with 4200 `channel_error`: `onError` gets the cause, then `onClose`; a close
+forwarded from the daemon reaches `onClose` with its code and reason. `close()` fires `onClose`
+once with the given code.
 
 `Transport.bufferedAmount` is **optional**: bytes accepted by `sendText`/`sendBinary` but not yet
 handed to the network. `createWebSocketTransport` returns the socket's `bufferedAmount` (`undefined`
 when there is no socket); `createRelayTransport` returns its relay socket's `bufferedAmount` too —
-the channel encrypts and writes synchronously, so that queue is exactly the (base64-inflated)
-ciphertext still waiting to leave. A transport that cannot report it (the desktop app's Rust bridge,
+the channel encrypts and writes synchronously, so that queue is exactly the ciphertext (no base64
+inflation) still waiting to leave. A transport that cannot report it (the desktop app's Rust bridge,
 any out-of-tree implementation) simply omits the property: `FileTransferClient.upload` then treats
 it as never congested and does not pace. `DaemonClient.bufferedAmount` forwards it.
 
@@ -360,11 +372,10 @@ regression test in `pistudio-client.test.ts`:
   `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
   alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
   way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
-  agent turns), so a relay-mediated daemon death is _correctly_ reported now, just not _quickly_;
-  the relay protocol has no peer-liveness signal for the client to react to sooner
-  (`@av-pi-studio/relay`'s `RelaySessionBridge` only logs `onUnregister` server-side, it never
-  forwards a "peer left" frame to the remaining peer) — a real gap, but a relay-protocol design
-  question outside a login-dialog bug fix's scope.
+  agent turns), so a daemon death was reported correctly but not quickly. That was written against
+  relay protocol 1, which had no peer-liveness signal. Under protocol 2 a dead daemon data socket
+  closes the client's paired socket (relay forwards the close, or `4108 ping_timeout`/`4109
+  peer_closed`), so a relay-mediated daemon death now reaches `onClose` promptly.
 
 ### `importAgentSession(daemon, args)` (named export)
 
@@ -631,8 +642,8 @@ files.stop(); // stop routing; pending downloads and uploads are rejected
 - **`hello` is re-sent on every `connect()` call**, including reconnects — `DaemonClient` always
   sends the same capabilities map so reconnect rehydrates them transparently.
 - **`createRelayTransport` supports `sendBinary()`.** Terminal I/O and file-transfer chunks work
-  over relay via the channel's `e2ee_bin` frame (a base64-wrapped JSON text frame, not raw binary
-  WebSocket — see `@av-pi-studio/relay`'s README § Wire protocol); `DaemonClient.onTerminalFrame`/
+  over relay as channel binary records (one raw binary WebSocket frame each, no base64 — see
+  `@av-pi-studio/relay`'s README § Wire protocol); `DaemonClient.onTerminalFrame`/
   `onFileTransferFrame` receive them identically regardless of transport.
 - **`createRelayTransport` always generates a FRESH ephemeral keypair per channel** — never reuse
   one across connections; only the daemon's public key (from the pairing offer) is persistent. The

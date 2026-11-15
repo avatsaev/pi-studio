@@ -1,11 +1,12 @@
 # `@av-pi-studio/relay`
 
-End-to-end encrypted relay for Pi-Studio. Lets a client reach a daemon that's behind a
-firewall/NAT — the daemon dials **outbound** to a relay server, the client connects to the same
-relay, and all application traffic between them is E2EE (Curve25519 ECDH + XSalsa20-Poly1305 NaCl
-`box`) so the relay itself is **untrusted and zero-knowledge**: it can see connection metadata (IPs,
-timing, sizes, session ids, and the plaintext public keys exchanged during the handshake) but never
-message contents, and it cannot forge or inject commands.
+Multi-client end-to-end encrypted relay (protocol 2) for Pi-Studio. Lets clients reach a daemon
+that's behind a firewall/NAT — the daemon dials **outbound** to a relay server, each client connects
+to the same relay and is paired with its own daemon socket, and all application traffic between
+them is E2EE (Curve25519 NaCl `box`, XSalsa20-Poly1305) so the relay itself is **untrusted and
+zero-knowledge**: it can see connection metadata (IPs, timing, sizes, session ids, and the public
+keys exchanged during the handshake) but never message contents, and it cannot forge, replay or
+inject commands without the connection closing.
 
 ---
 
@@ -36,11 +37,11 @@ Defaults to `0.0.0.0:7000` if neither `--listen` nor `PI_STUDIO_RELAY_LISTEN` is
 
 ### Logging
 
-The relay logs its full operational lifecycle with pino: every connection open (id + remote
-address), session registration (session id, peer count), peer detach, and connection close (close
-code, duration, bytes in/out) — plus warns on pre-registration garbage and errors on socket
-failures. Frame forwarding is logged at `trace` with **sizes only**: the relay is zero-knowledge
-by construction and never sees (so never logs) message contents.
+The relay logs its operational lifecycle with pino: control sockets registered, replaced and
+closed; every refusal with its close reason; every parked old-protocol socket; and one summary
+line per finished pair (connection id, session id, time to pair, bytes each way, duration, close
+code and reason). Connection open/close and pairing are `debug`. Logs carry **metadata only**:
+the relay is zero-knowledge by construction and never sees (so never logs) message contents.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -99,10 +100,9 @@ opening that link connects via `createRelayTransport`, deriving the SAME rendezv
 transmitted separately, and the link keeps working across relay reconnects (the daemon always
 re-registers under this deterministic id, never a fresh random one per connection).
 
-The same pairing link can be opened by more than one client over the daemon's lifetime (a browser
-reload, a second tab, or handing the link to a different machine) — each one gets its own fresh
-E2EE handshake against the daemon's single long-lived relay channel; the daemon does not require
-re-pairing or lock onto whichever client connected first.
+The same pairing link can be opened by up to 32 clients at once (browser tabs, other machines) —
+each gets its own data socket, its own encrypted channel and its own daemon session, so one client
+never sees another's traffic and one closing does not disturb the rest. No re-pairing is needed.
 
 ## Library API
 
@@ -116,8 +116,6 @@ crypto + logic, no platform-specific runtime imports); `startRelayServer` is Nod
 import {
   createDaemonChannel,
   createClientChannel,
-  RelaySessionBridge,
-  createCloudflareRelayHandler,
 } from "@av-pi-studio/relay";
 
 // Node-only — pulls in `node:http` + `ws`. Never import this from browser/RN code.
@@ -126,27 +124,24 @@ import { startRelayServer } from "@av-pi-studio/relay/server";
 
 | Export | Subpath | Role | Purpose |
 |---|---|---|---|
-| `createDaemonChannel(opts)` | `.` | daemon | E2EE channel over an abstract `Transport`; waits for the client's `e2ee_hello`, replies `e2ee_ready`; `send()`/`sendBinary()` for text/binary app traffic |
-| `createClientChannel(opts)` | `.` | client | E2EE channel; generates a fresh ephemeral keypair, sends `e2ee_hello`; `send()`/`sendBinary()` for text/binary app traffic |
-| `RelaySessionBridge` | `.` | relay server | Platform-agnostic verbatim frame bridge, keyed by session id — the zero-knowledge core |
-| `createCloudflareRelayHandler(opts)` | `.` | relay server | Thin Cloudflare Workers `WebSocketPair` wrapper around `RelaySessionBridge` |
+| `createDaemonChannel(opts)` | `.` | daemon | Protocol-2 encrypted channel over a byte `Transport`: waits for the client's `hello`, answers an encrypted `ready` carrying a random salt; `send()`/`sendBinary()`; any failure closes with 4200 `channel_error` |
+| `createClientChannel(opts)` | `.` | client | Protocol-2 channel; generates a fresh ephemeral keypair, sends `hello`, opens the daemon's `ready`; `send()`/`sendBinary()`; nonces are salt ‖ direction ‖ counter, binary frames only |
 | `deriveRelaySessionId(publicKey)` | `.` | both | Deterministic rendezvous session id from a daemon's public key — lets a pairing link survive relay reconnects (see § Pairing note below) |
+| `encodeControlFrame`, `parseFirstFrame`, `parseRelayFrame`, `RELAY_CLOSE`, `isForwardableCloseCode`, `RELAY_DEFAULTS`, `newConnectionId` | `.` | all | Protocol-2 control frames, close codes, limits and timers (pure, browser-safe) |
 | `encodeBase64` / `decodeBase64` | `.` | both | Pure-JS base64 codec (no Node `Buffer`) — runs identically in Node and browser/RN |
-| `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run); accepts an optional `logger` |
+| `startRelayServer(opts)` | `./server` | relay server | Self-hosted `ws`-based relay (what `pi-studio-relay`/`pi-studio relay start` run); accepts an optional `logger` and `limits`; returns `{ host, port, counts(), flow(), close() }` |
 | `createRelayLogger(opts)` | `./server` | relay server | pino operational logger: stdout always (pretty TTY / NDJSON otherwise), optional rotating file via `logDir` |
 
-`RelaySessionBridge`'s constructor takes an optional `RelayBridgeEvents` (`onRegister`,
-`onRegisterRejected`, `onForward`, `onUnregister`) — metadata-only lifecycle hooks (session ids,
-peer counts, frame **sizes**, never contents) that `startRelayServer` wires to its logger; use
-them for your own metrics/logging when embedding the bridge.
+`startRelayServer` also takes an optional `limits` (a partial override of `RELAY_DEFAULTS`: client
+cap, frame size, identify/attach timers, ping interval, flow-control marks) — meant for tests.
 
-Both channel constructors expose an **identical** API — the daemon and client use symmetric code
-paths. Neither channel accepts app messages before its handshake completes; a daemon's channel
-must be given its **persistent** identity keypair (not a fresh one), since the client derives its
-shared key from that same known public key before the handshake even starts.
+Both channel constructors take a byte `Transport` and a `ChannelEvents` handler — the daemon and
+client use symmetric code paths. Neither channel sends app messages before its handshake completes;
+a daemon's channel must be given its **persistent** identity keypair (not a fresh one), since the
+client derives its shared key from that same known public key before the handshake even starts.
 
 ```ts
-// Minimal self-hosted relay, embedded rather than run as a separate process:
+// Minimal relay, embedded rather than run as a separate process:
 import { startRelayServer, createRelayLogger } from "@av-pi-studio/relay/server";
 
 const handle = await startRelayServer({
@@ -154,55 +149,58 @@ const handle = await startRelayServer({
   port: 7000,
   logger: createRelayLogger({ level: "info" }), // optional; omit for silent
 });
-// handle.bridge is the underlying RelaySessionBridge, if you need to inspect peerCount(sessionId)
+// handle.counts() → { controls, waiting, pairs, parked } (read-only, for tests/metrics)
 await handle.close();
 ```
 
 ## Wire protocol
 
-- Registration (relay-server specific, plaintext, visible to the relay):
-  `{"type":"relay_register","sessionId":"<uuid>"}` — sent as the first frame by both the daemon
-  and the client; pairs sockets sharing the same session id.
-- Handshake (plaintext, visible to the relay): `{"type":"e2ee_hello","ephemeralPublicKey":"<base64>"}`
-  (client→daemon), `{"type":"e2ee_ready"}` (daemon→client). A daemon channel accepts a fresh
-  `e2ee_hello` at any point — including after it's already completed one — re-deriving the shared
-  key and replying `e2ee_ready` again; the relay imposes no cap on how many client sockets attach
-  to one session id over the daemon's (long-lived, single-dial) connection.
-- App traffic (text — RPC/control messages): `{"type":"e2ee_app","frame":"<base64(24-byte nonce ++ ciphertext)>"}`
-  (XSalsa20-Poly1305, `nacl.box`/`nacl.box.open`). Auth failure → frame silently dropped, never
-  thrown into the transport's message loop.
-- App traffic (binary — terminal I/O, file-transfer chunks): `{"type":"e2ee_bin","frame":"<base64(24-byte nonce ++ ciphertext)>"}`.
-  Identical crypto/framing to `e2ee_app`, just fed raw bytes instead of UTF-8 text and dispatched
-  to a separate `onBinaryMessage` handler on receipt. Still travels as a JSON text WS frame — no
-  raw binary WebSocket frames cross the relay, so `RelaySessionBridge`/the self-hosted relay/the
-  Cloudflare adapter needed zero changes to support this.
+- Relay control protocol 2 (plaintext, visible to the relay; architecture/relay-protocol.md):
+  every socket's first frame is `relay_daemon_register { v: 2, sessionId }` (daemon control
+  socket, answered `relay_registered`), `relay_client_connect { v: 2, sessionId }` (client) or
+  `relay_daemon_attach { v: 2, sessionId, connectionId }` (daemon data socket). The relay sends
+  `relay_dial { connectionId }` on the control socket for each client, pairs the client with the
+  data socket that attaches, sends `relay_paired { connectionId }` to both, then forwards every
+  frame between them unread. Refusals are WebSocket closes with codes 4100–4109 (reason = name);
+  a close on one half is forwarded to the other (`4109 peer_closed` when the code cannot be).
+- Legacy registration (protocol 1, 0.0.120 and earlier):
+  `{"type":"relay_register","sessionId":"<uuid>"}`. The relay parks such a socket — open, silent,
+  never forwarded — and a client asking for a daemon that only has a silent parked socket is
+  closed `4105 daemon_outdated`.
+- Encrypted channel (after `relay_paired`, **binary frames only**): the client sends `hello`
+  (`0x01` ‖ its fresh public key); the daemon answers `ready` (`0x01` ‖ 15-byte salt ‖ NaCl box of
+  a `ready` record). Every later frame is a bare box of one record (kind byte `0x01` text /
+  `0x02` binary, then payload), nonce = salt ‖ direction ‖ 8-byte counter. A text frame, or a frame
+  that fails to open, closes the connection with `4200 channel_error`. Each client connection has
+  its own data socket, channel and daemon session (up to 32 per daemon).
 
 ## Security notes
 
 - The daemon's persistent secret key never leaves the daemon process.
 - The client's keypair is fresh per connection — no persistent client-side secret to steal.
-- A new relay session derives fresh ECDH keys, so ciphertext from one session can never be
-  replayed against another.
-- Replay protection **within** a single live session is **not** implemented (random nonces, no
-  sequence counter) — don't rely on it.
-- The relay itself (`RelaySessionBridge`) never parses a frame past the initial registration
-  check — this is enforced structurally, not by convention: nothing in its forwarding path ever
-  calls `JSON.parse` on post-registration traffic.
+- Nonces are daemon salt (random per connection, sent in clear in `ready`) ‖ direction ‖ a counter
+  that is never on the wire. The salt keeps nonces distinct even if a relay replays a recorded
+  client `hello`; counters make a replayed, dropped, reordered or reflected frame fail to open,
+  which closes the connection with `4200 channel_error`. Nothing from the failing frame is
+  delivered.
+- The relay itself never parses a frame once a pair is formed (`relay_paired`) — this is enforced
+  structurally, not by convention: nothing in its forwarding path ever calls `JSON.parse` on
+  paired traffic.
 
-## Performance notes (binary-over-relay)
+## Performance notes
 
-- The relay process itself pays **zero** extra cost for binary traffic — `RelaySessionBridge`
-  forwards `e2ee_bin` frames exactly like `e2ee_app`: verbatim, unparsed, byte-for-byte. All the
-  cost below is paid by the two ENDPOINTS (daemon + client), never the relay.
-- Wrapping binary as base64-in-JSON (rather than a raw binary WS frame) costs ~33% more wire bytes
-  plus a small JSON envelope per frame. Deliberate tradeoff (see "Wire protocol" above) to avoid
-  touching the relay's zero-knowledge bridging core for this.
-- Terminal I/O: negligible in practice. Output is already coalesced into ~4ms batches server-side
-  (`packages/server`'s `TerminalManager`) before it ever reaches the wire, and input is small,
-  human-paced keystrokes — a few KB encrypted with pure-JS `nacl.box` is sub-millisecond.
-- Large file transfers over relay pay proportionally more: every base64+encrypt/decrypt pass adds
-  up across many large chunks. Still bounded (pure-JS `nacl.box` throughput is tens of MB/s), but
-  a direct (non-relay) connection remains the faster path for bulk transfer.
+- The relay process pays no per-frame cost for any traffic kind: it forwards every paired frame
+  verbatim, unparsed, byte-for-byte, and does not know text from binary (both are boxes). The
+  channel cost (one `nacl.box` pass per frame, 17 bytes of overhead: kind byte + Poly1305 tag) is
+  paid by the two endpoints.
+- Backpressure: the relay stops reading from a sender whose peer has more than 1 MiB queued and
+  resumes at or below 256 KiB (per direction of each pair), so the daemon's download pacing (real
+  `bufferedAmount`) works through the relay and a slow client cannot grow the relay's memory
+  without bound.
+- Measured on loopback only (600 MiB file, 2026-11-15): download 4.2 s (~143 MiB/s), upload 4.4 s
+  (~138 MiB/s). With one client socket paused for 30 s, the daemon's RSS grew by 51.6 MiB and the
+  relay stayed at ~123 MiB, while a second client kept getting answers (p50 0.84 ms, max 9.75 ms).
+  Real networks will be slower; these figures say nothing about them.
 
 ## Development
 

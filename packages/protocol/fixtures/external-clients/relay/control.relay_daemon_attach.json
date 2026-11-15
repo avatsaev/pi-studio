@@ -1,0 +1,7 @@
+{
+  "type": "relay_daemon_attach",
+  "direction": "daemon_to_relay",
+  "description": "First frame of a daemon's data socket, answering a `relay_dial`.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_daemon_attach\",\"v\":2,\"sessionId\":\"bdece9e2be20db8c37b51a6c0dadfee7\",\"connectionId\":\"0123456789abcdef0123456789abcdef\"}"
+}
