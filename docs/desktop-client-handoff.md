@@ -552,17 +552,31 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    by Tauri storage and clipboard, direct WebSocket from the webview. Proves packaging and CSP.
    *State: the window renders the workbench with the browser host and the policy is settled; the
    Tauri-backed host members are not written.*
+   **Plus local daemon supervision (decided 2026-11-15, option A):** the app does not bundle a
+   daemon. It finds an installed `pi-studio` CLI on `PATH` and drives it with
+   `pi-studio --json daemon start|stop|restart` (sprint 098), shows the daemon's state, and connects
+   to it; with no CLI it explains how to install it (`npm i -g @av-pi-studio/cli`, which needs
+   Node). Lifecycle questions to settle in its spec: whether quitting the app stops the daemon
+   (default: no, agents keep running), a daemon already started by the CLI (same `PI_STUDIO_HOME`,
+   same PID lock: adopt it), and an app newer or older than the installed CLI. Windows has no local
+   daemon (the daemon is POSIX-only): it connects to a remote daemon, or, untested, to one running
+   in WSL2 on `127.0.0.1`.
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
 4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the
    relay fixtures. Check: a paired remote daemon works with the same behaviour as direct.
-5. **Native shell features.** Daemon supervision, menus, notifications, updates.
+5. **Native shell features.** Menus, notifications, updates, signing. Bundling the daemon (Node
+   runtime as a sidecar, macOS and Linux only, roughly 1–2 sprints) is deferred until the app ships
+   to people without Node; a native Windows daemon (about 50 POSIX assumptions in the server, no
+   Windows CI) only if Windows users need a local one.
 
 ## Open questions
 
-- Does the desktop app bundle a daemon, or only connect to existing ones?
+- ~~Does the desktop app bundle a daemon, or only connect to existing ones?~~ Answered
+  (2026-11-15): neither alone. It supervises an installed `pi-studio` CLI's daemon (milestone 1);
+  bundling is deferred (milestone 5).
 - Do the dashboard's Rust crates move to a shared repository or a published crate?
 - ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
   (relay protocol 2, 0.0.121): yes. A relay pairs one client socket with one daemon data socket per
