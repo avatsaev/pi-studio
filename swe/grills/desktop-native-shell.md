@@ -1,7 +1,9 @@
 # Grill — Desktop native shell (milestone 1)
 
-> Status: grilling
+> Status: grilled
 > Started: 2026-11-15   Last updated: 2026-11-15   Rounds: 4
+> Confirmed: the engineer answered the readout with "write the specs" (2026-11-15), without
+> changing the four proposals, which became D24–D27.
 > Engineer: avatsaev   Agent: Claude (omp)
 
 ## Raw idea
@@ -26,8 +28,8 @@ and, from "ok fold in A":
 | Desktop frontend | `desktop/apps/pistudiodesktop/src/main.tsx` | Mounts `<Workbench>` with `createBrowserHost()` and `platform: "desktop"`; no desktop host exists yet |
 | Host contract | `packages/workbench/src/host/types.ts` | Members: `app`, `storage` (synchronous `get`/`set`), `clipboard`, `dialogs` (`confirm`/`alert`/`prompt`), `links.openExternal?`, `launch`, `connection` (`createTransport`, `timers`, `onResume`), `files` (`upload`, `saveToDisk`, `openForView`, `pickUploads?`), `pdf?` |
 | Browser host | `packages/workbench/src/host/browser-*.ts` | `saveToDisk` downloads into a `Blob` and clicks a download anchor; `onResume` listens to `visibilitychange` and `online`; dialogs are `window.confirm/alert/prompt`; no `openExternal`, so links use `target="_blank"` |
-| Dialog use | `packages/workbench/src` | 27 `dialogs.*` call sites; one `dialogs.prompt` (session rename, `features/sessions/session-actions.ts`). Tauri's dialog plug-in has no text prompt |
-| Stored state | `lib/pane-layout-persistence.ts`, `features/chat/todos/agent-todos-store.ts`, the UI store behind `ConnectionBar` | Pane layout, panel state, the daemon address and the password all go through `host.storage` (the webview's `localStorage` today) |
+| Dialog use | `packages/workbench/src` | 22 `dialogs.*` call sites: 10 confirm, 11 alert, one `dialogs.prompt` (session rename, `features/sessions/session-actions.ts`). Tauri's dialog plug-in has no text prompt |
+| Stored state | `lib/pane-layout-persistence.ts`, `features/chat/todos/agent-todos-store.ts`, `ui-library`'s appearance store | Three keys go through `host.storage`: `pi-studio-pane-layout` (keyed by workspace cwd, so two daemons with the same path would share it), `pi-studio-agent-todos-ui` (keyed by agent id) and `pi-studio-appearance` (theme). **Correction made at scope:** this row first said the daemon address and password were stored too. They are not: they live in the in-memory UI store and are typed again after every reload. D1 and D13 stand, but nothing "moves": the registry is the first place they are saved |
 | OS file drops | `features/files/FileExplorer.tsx`, `features/chat/Composer.tsx`, `features/workspace/external-drag.ts` | Upload-by-drop and the Files-tree-to-composer drag use HTML5 drag and drop (`dataTransfer`). Tauri's `dragDropEnabled` defaults to true, which per its documentation blocks HTML5 drops on Windows (not tested here) |
 | HTML preview | `features/files/html-sandbox.ts` | A sandboxed `srcdoc` frame; it inherits the window's Content-Security-Policy, so its scripts do not run in the desktop app (measured in Chromium and WebKitGTK) |
 | CLI daemon control | `packages/cli/src/daemon-commands.ts` | `pi-studio --json daemon status` prints `{up, host, port}`; `start`/`restart` print `{up, started, host, port, pairingUrl, relay}` or `error: "not_healthy" \| "no_keypair"`; `stop` prints `{stopped}`. `start` on a running daemon reports `started: false` |
@@ -106,6 +108,10 @@ and, from "ok fold in A":
 | D21 | state | The app is launched a second time | Focus the window already open: one instance | Two instances would overwrite each other's files | 4 |
 | D22 | data lifecycle | Removing a daemon | Ask to confirm. If it is the connected one, disconnect and open the Daemons screen. Its stored layout and secret are deleted. The local entry cannot be removed | "Remove" should leave nothing behind | 4 |
 | D23 | failure | A pairing link stops working (the daemon's key was rotated) | The entry shows "pairing link no longer valid" with a field for a new link; its name and layout are kept | Re-pairing should not cost the user their layout | 4 |
+| D24 | inputs | Two entries with the same name or address | Names are unique (compared trimmed, without case); addresses may repeat | The menu shows names; two entries for one address are harmless | readout |
+| D25 | timing | Switching or quitting while a file transfer runs | Ask first, through a native confirm | A silent cancel loses work | readout |
+| D26 | security | Which external links may open | `http`, `https` and `mailto` only; anything else is ignored | A link in an agent's message is untrusted input | readout |
+| D27 | security | Windows has no mode 0600 | The registry file lives in the user's profile, which other users cannot read by default. Accepted until the keychain (milestone 2) | The same exposure as the daemon's own key file on a single-user machine | readout |
 
 ## Data & state
 
@@ -179,19 +185,30 @@ and, from "ok fold in A":
 - Bundling a daemon; a native Windows daemon (`docs/desktop-client-handoff.md` milestone 5).
 
 ## Open questions — TODO(verify)
-- [ ] Mode 0600 has no direct Windows equivalent: the file lives in the user's profile, which
-  other users cannot read by default. Enough until the keychain? — owner: engineer, at scope
-- [ ] Which stored keys are per daemon (layout) and which are global (theme, font size)? — owner:
-  agent, at scope (list the keys; engineer confirms)
-- [ ] Two entries with the same name or address: allow, or refuse? — owner: engineer (proposed:
-  names unique, addresses free)
-- [ ] Switching or quitting while a transfer runs: ask first, or cancel silently? — owner:
-  engineer (proposed: ask)
-- [ ] Does the local entry need an optional password (a local daemon can have
-  `PI_STUDIO_PASSWORD` set)? — owner: agent, at scope
+Resolved at scope (2026-11-15):
+
+- [x] Windows file mode: D27.
+- [x] Per-daemon and global keys: `pi-studio-appearance` is global; every other key, today
+  `pi-studio-pane-layout` and `pi-studio-agent-todos-ui`, is per daemon entry
+  (`features/desktop-native-host.md` § Storage).
+- [x] Duplicate names and addresses: D24.
+- [x] Transfers during a switch or quit: D25.
+- [x] The local entry has an optional password: the CLI does not report one, and a local daemon
+  may require it (`features/desktop-daemon-registry.md` § Registry file).
+
+Carried into the specs:
+
 - [ ] Does a sandboxed frame on a custom scheme run scripts on WebKitGTK, WKWebView and WebView2?
-  This is the D7 spike. — owner: agent
+  This is the D7 spike. — owner: agent (`desktop-native-host.md` § TODO(verify))
 - [ ] macOS and Windows builds have never run (PR #57). — owner: agent
+
+Changed at scope, for the engineer to confirm:
+
+- The Goals line "a native file picker for uploads" is not built in this milestone. The upload
+  button's file input already opens the operating system's picker in a webview; a picker that
+  returns file paths only helps once Rust does the upload (milestone 3), the same reasoning as D6.
+- D3 is read as: the local daemon is started automatically only when the entry being opened is
+  the local one. Opening the app on a remote daemon (D17) does not start the local daemon.
 
 ## Acceptance criteria (draft)
 - [ ] Given the CLI is installed and no daemon runs, when the app launches for the first time,

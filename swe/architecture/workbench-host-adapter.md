@@ -133,6 +133,23 @@ Supporting types:
 | `pdf` | Not provided by default; `web-client` passes it in `overrides` because only an application can import a `?worker` |
 | `app` | Required override (`title`, `version`) |
 
+### Amendment — desktop native shell (specified 2026-11-15, not built)
+
+[../features/desktop-native-host.md](../features/desktop-native-host.md) and
+[../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) change this
+contract. Until they are built, the shape above is what the code has.
+
+| Change | Kind | Contract |
+|---|---|---|
+| `dialogs.prompt` | **Removed** | Session rename, its only caller, becomes an in-app dialog in both clients. Every host loses the member; the host guard test forbids `window.prompt` and `dialogs.prompt` |
+| `app.minDaemonVersion?: string` | Added, optional | When set and the connected daemon's `server_info.version` is lower or absent, the workbench shows one non-blocking notice per connection. The browser host does not set it |
+| `daemons?: HostDaemons` | Added, optional | A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. Shape and rules: desktop-daemon-registry.md § Public contract 3 |
+| `preview?: HostPreview` | Added, optional | Where the HTML preview's document is loaded from: `{ kind: "origin", mount(html) }` gives a URL on an origin of its own, `{ kind: "inert" }` says scripts cannot run. Absent: the `srcdoc` frame, as today. desktop-native-host.md § HTML preview origin |
+| External links | Behaviour | Every link the workbench classifies as external goes through `links.openExternal` when the host has it, and opens in a new tab otherwise. Today only the login dialog's link does; links in messages replace the page |
+
+The desktop host is assembled from `createBrowserHost()` plus its own members; the table of which
+member comes from where is desktop-native-host.md § Public contract 2.
+
 ## Behavior & algorithms
 
 ### Installation

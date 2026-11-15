@@ -290,6 +290,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
 | [features/desktop-client-protocol-followups-2.md](features/desktop-client-protocol-followups-2.md) | feature      | Second round for the desktop client: download by path with ranges, size, resume validator and cancel (the download token is **removed**), `hello.agentStreams` (`all`/`none`), `--json` on `daemon start/restart/pair/stop`, fixtures `formatVersion` 2 — **shipped (sprints 097 and 098, 2026-11-15; first carried by 0.0.119)** |
 | [features/relay-multi-client.md](features/relay-multi-client.md) | feature      | Several clients per daemon through the relay, with transfer parity: one daemon socket per client piped by the relay, binary frames, backpressure, message counters on the NaCl box, refusal reasons, fixed-key fixtures; hard cut, pairing unchanged — **built (sprints 099–101, 2026-11-15); ships with the next release after 0.0.120** |
+| [features/desktop-native-host.md](features/desktop-native-host.md) | feature      | Desktop milestone 1, part 1: a desktop `WorkbenchHost` (settings and per-daemon state in Rust-owned files, native confirm/alert, external links, save to disk through a native dialog, HTML preview on its own origin), in-app session rename for both clients, and removal of the template's sample from the Rust side — **specified 2026-11-15, not planned** |
+| [features/desktop-daemon-registry.md](features/desktop-daemon-registry.md) | feature      | Desktop milestone 1, part 2: a daemon registry owned by Rust (local, direct, relay entries), switching from the native menu and the connection bar, a Daemons screen, and supervision of this machine's daemon through an installed `pi-studio` CLI — **specified 2026-11-15, not planned** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -412,9 +414,18 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       `WorkspaceShell` were kept (proposed as-is; the engineer said "proceed" on 2026-11-14 without asking for changes); see
       [architecture/workbench-package.md § TODO(verify)](architecture/workbench-package.md).
 - [ ] Workbench host: `window.confirm`/`alert`/`prompt` and `target="_blank"` in a Tauri webview —
-      open until the desktop app runs it. Drag-and-drop upload sources and StrictMode-safe host
+      superseded by the desktop host (native confirm/alert, in-app rename, `links.openExternal`);
+      see the two entries below. Drag-and-drop upload sources and StrictMode-safe host
       installation were resolved in sprint-093 — see
       [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
+- [ ] Desktop native host: the HTML preview spike on the three webviews (decides `"origin"` or
+      `"inert"` per platform), clipboard and the file input in each webview, HTML5 drops with
+      Tauri's handling off, `pagehide` on reload and close, chunked save throughput; nothing run
+      on macOS or Windows — see
+      [features/desktop-native-host.md § TODO(verify)](features/desktop-native-host.md).
+- [ ] Desktop daemon registry: `minDaemonVersion` value, reading the shell environment (fish,
+      slow start-up files), the 90 s start limit, daemons with another `PI_STUDIO_HOME`, WSL2 —
+      see [features/desktop-daemon-registry.md § TODO(verify)](features/desktop-daemon-registry.md).
 - [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
       file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The
       water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads were unpaced

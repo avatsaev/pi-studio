@@ -552,15 +552,21 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    by Tauri storage and clipboard, direct WebSocket from the webview. Proves packaging and CSP.
    *State: the window renders the workbench with the browser host and the policy is settled; the
    Tauri-backed host members are not written.*
-   **Plus local daemon supervision (decided 2026-11-15, option A):** the app does not bundle a
-   daemon. It finds an installed `pi-studio` CLI on `PATH` and drives it with
-   `pi-studio --json daemon start|stop|restart` (sprint 098), shows the daemon's state, and connects
-   to it; with no CLI it explains how to install it (`npm i -g @av-pi-studio/cli`, which needs
-   Node). Lifecycle questions to settle in its spec: whether quitting the app stops the daemon
-   (default: no, agents keep running), a daemon already started by the CLI (same `PI_STUDIO_HOME`,
-   same PID lock: adopt it), and an app newer or older than the installed CLI. Windows has no local
-   daemon (the daemon is POSIX-only): it connects to a remote daemon, or, untested, to one running
-   in WSL2 on `127.0.0.1`.
+   **Scope widened on 2026-11-15** (grill `swe/grills/desktop-native-shell.md`, 27 decisions) and
+   specified in two documents, neither planned nor built yet:
+   - `swe/features/desktop-native-host.md`: the desktop host (settings and per-daemon state in
+     Rust-owned files, native confirm and alert, external links, save to disk, HTML preview on
+     its own origin after a spike), in-app session rename, and removal of the sample engine's
+     checklist while keeping its command registry and control socket.
+   - `swe/features/desktop-daemon-registry.md`: a daemon registry owned by Rust (this machine, a
+     direct address, a relay pairing link), switching from the native menu, a Daemons screen in
+     the workbench, and supervision of this machine's daemon through an installed `pi-studio` CLI
+     (`pi-studio --json daemon start|stop|restart`; no bundled daemon). The app opens on the
+     daemon used last, never stops a daemon on quit, and keeps secrets in a user-only file until
+     the keychain in milestone 2. Windows has no local daemon (POSIX-only): remote, or untested,
+     WSL2 on `127.0.0.1`.
+   Not in milestone 1 after all: a native upload picker and native drops with file paths (both
+   wait for the transfer engine).
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
