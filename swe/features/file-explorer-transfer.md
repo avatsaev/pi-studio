@@ -5,6 +5,11 @@
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
 > [projects-workspaces.md](projects-workspaces.md), [file-explorer-move.md](file-explorer-move.md)
 
+> **Planned change (scoped 2026-11-15, not built):** the download flow described below (token
+> request, single-use token, whole-file stream, reply after the stream) is replaced by
+> [desktop-client-protocol-followups-2.md](desktop-client-protocol-followups-2.md) § 1. Until that
+> ships, this file describes the daemon as it is.
+
 ## Purpose
 
 Browse the daemon machine's filesystem (directory listings + file previews) and transfer files
