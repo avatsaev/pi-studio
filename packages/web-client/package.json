@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/web-client",
-  "version": "0.0.119",
+  "version": "0.0.120",
   "files": [
     "dist",
     "!dist/**/*.map",
@@ -15,8 +15,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@av-pi-studio/ui-library": "^0.0.119",
-    "@av-pi-studio/workbench": "^0.0.119",
+    "@av-pi-studio/ui-library": "^0.0.120",
+    "@av-pi-studio/workbench": "^0.0.120",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
