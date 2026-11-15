@@ -4,6 +4,12 @@
 > Related scopes: [auth-security.md](auth-security.md), [websocket-protocol.md](websocket-protocol.md),
 > [daemon-bootstrap.md](daemon-bootstrap.md)
 
+> **Planned change (scoped 2026-11-15, not built):** the wire format described below (registration,
+> handshake frames, app traffic frames, one client per daemon) is replaced by
+> [relay-protocol.md](relay-protocol.md), delivered by
+> [../features/relay-multi-client.md](../features/relay-multi-client.md). § Pairing and § Data &
+> Persistence do not change. Until that ships, this file describes the relay as it is.
+
 ## Purpose
 
 The relay lets clients reach a daemon that is behind a firewall/NAT without opening inbound ports.

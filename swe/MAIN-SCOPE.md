@@ -289,6 +289,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
 | [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
 | [features/desktop-client-protocol-followups-2.md](features/desktop-client-protocol-followups-2.md) | feature      | Second round for the desktop client: download by path with ranges, size, resume validator and cancel (the download token is **removed**), `hello.agentStreams` (`all`/`none`), `--json` on `daemon start/restart/pair/stop`, fixtures `formatVersion` 2 — **shipped (sprints 097 and 098, 2026-11-15; first carried by 0.0.119)** |
+| [features/relay-multi-client.md](features/relay-multi-client.md) | feature      | Several clients per daemon through the relay, with transfer parity: one daemon socket per client piped by the relay, binary frames, backpressure, message counters on the NaCl box, refusal reasons, fixed-key fixtures; hard cut, pairing unchanged — **scoped (2026-11-15), not planned** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -324,6 +325,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/daemon-bootstrap.md](architecture/daemon-bootstrap.md)           | architecture | Daemon startup, PID lock, server id, shutdown                                 |
 | [architecture/websocket-protocol.md](architecture/websocket-protocol.md)       | architecture | Wire envelopes, handshake, RPC namespacing, capability gating, compat rules   |
 | [architecture/relay-e2ee.md](architecture/relay-e2ee.md)                       | architecture | Relay transport, ECDH/NaCl box encryption, pairing                            |
+| [architecture/relay-protocol.md](architecture/relay-protocol.md)               | architecture | Relay protocol 2: control frames, pairing, close codes, limits, the encrypted channel (key exchange, salt and counter nonce, records) — **scoped (2026-11-15), not built**; replaces the wire sections of `relay-e2ee.md` when built |
 | [architecture/persistence.md](architecture/persistence.md)                     | architecture | File-based JSON stores, Zod schemas, atomic writes, all entity shapes         |
 | [architecture/auth-security.md](architecture/auth-security.md)                 | architecture | Password auth, host allowlist, CORS, DNS rebinding, trust boundaries          |
 | [architecture/agent-lifecycle.md](architecture/agent-lifecycle.md)             | architecture | Lifecycle state machine, archive (soft delete), cascade                       |
@@ -368,8 +370,9 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       verify against the current `ServerInfoStatusPayloadSchema` and `CLIENT_CAPS`.
 - [ ] The Pi session file format / session dir is version-sensitive; verify the current layout
       against the live Pi CLI.
-- [ ] Replay protection within a live relay session is not implemented (random nonces, no counter);
-      confirm this is still the case before relying on it.
+- [ ] Replay protection within a live relay session is not implemented (random nonces, no counter).
+      Reproduced on 2026-11-15, together with a second client evicting the first; both are closed
+      by [features/relay-multi-client.md](features/relay-multi-client.md) once it is built.
 - [ ] Window-state persistence and per-window browser panes in desktop are v1-limited; confirm
       current scope before reimplementing multi-window.
 - [x] Skills manager backend: whether `pi install` preserves an existing same-identity entry's
@@ -421,3 +424,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       round-trip test; out-of-tree readers of `transferToken` were not checked; the agent-stream mode
       was live-checked with the mock provider only (no real Pi turn, no live relay) — see
       [features/desktop-client-protocol-followups-2.md § TODO(verify)](features/desktop-client-protocol-followups-2.md).
+- [ ] Relay multi-client: the 100 MiB frame-size limit is confirmed but rests on no measurement;
+      telling an outdated daemon from a stale browser tab by silence (S9) awaits the owner; relay
+      throughput is not measured; an old daemon answering the relay's pings was not run — see
+      [features/relay-multi-client.md § TODO(verify)](features/relay-multi-client.md) and
+      [architecture/relay-protocol.md § TODO(verify)](architecture/relay-protocol.md).
