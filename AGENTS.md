@@ -562,6 +562,18 @@ All communication uses a **single WebSocket connection** per client.
   `server_info.features.fileDownloadRanges`. SDK: `FileTransferClient.downloadTo`/`download`
   (offset, length, `ifUnchanged`, `signal`, `onProgress`); the browser host builds Blobs from the
   chunks. The external fixtures took their first breaking bump, `formatVersion` 2.
+- **Agent stream mode and CLI `--json` (sprint-098, `swe/features/desktop-client-protocol-followups-2.md`).**
+  `hello.agentStreams?: "all" | "none"` (server feature flag `agentStreamsMode`, 0.0.119; other values
+  mean `"all"`) is fixed per connection on both the direct and relay `hello` paths
+  (`Session.agentStreams`). A `"none"` session gets no `agent_stream` frame (all five send sites go
+  through `agentStreamRecipients()` in `ws/session.ts`) but still gets RPC replies, `agent_update`,
+  `agent_ui_*`, `agent_timeline_reset`, `agent_todos_update`, `terminals_update` and history; the
+  timeline is appended to regardless. `daemon_status` client entries carry `agentStreams` only when
+  not `"all"`. SDK option `DaemonClientOptions.agentStreams`; the workbench does not send it.
+  Fixture `hello.agentStreams.json`. CLI: `pi-studio --json daemon start|restart|pair|stop` prints
+  exactly one JSON line (`{up, started, host, port, pairingUrl, relay}`; failures `error:
+  "not_healthy" | "no_keypair"` with a non-zero exit; `pair` `{pairingUrl, relay}`; `stop`
+  `{stopped}`). `pairingUrl` is a credential on relay links.
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**

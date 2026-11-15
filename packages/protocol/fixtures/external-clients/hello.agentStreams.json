@@ -1,0 +1,21 @@
+{
+  "type": "hello",
+  "direction": "client_to_server",
+  "description": "Handshake from a connection that only moves files and watches turn status (the desktop client's second connection): the optional agentStreams string is \"none\", so the daemon sends this session no agent_stream frame at all. Everything else still reaches it (agent_update, agent_ui_*, agent_timeline_reset, agent_todos_update, terminals_update, RPC replies). \"all\" is the default; any other value reads as \"all\". A daemon without the agentStreamsMode feature ignores the field and sends every stream, so a client must tolerate stream frames. daemon_status client entries show agentStreams for such a session.",
+  "since": "0.0.119",
+  "stage": 1,
+  "requiresFeature": "agentStreamsMode",
+  "volatile": ["/clientId"],
+  "frame": {
+    "type": "hello",
+    "clientId": "client-1",
+    "clientType": "browser",
+    "platform": "desktop",
+    "agentStreams": "none",
+    "protocolVersion": 1,
+    "appVersion": "pistudiodesktop/0.1.0",
+    "capabilities": {
+      "reasoning_merge_enum": true
+    }
+  }
+}

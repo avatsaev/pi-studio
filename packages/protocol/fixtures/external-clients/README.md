@@ -71,6 +71,10 @@ contract the Zod-only protocol cannot give: many list/stat/orchestration respons
   response fixtures the deterministic `{ok:false, error:"not_found"}` outcome; `ok:true` needs a
   download still running and is described, not fixtured). The binary frames are fixtured
   separately, see "Binary frames" below.
+- Handshake variants: `hello.json`, `hello.platform.json` (since 0.0.118, the optional `platform`
+  label) and `hello.agentStreams.json` (since 0.0.119, `requiresFeature: "agentStreamsMode"`: the
+  optional `agentStreams` string, `"none"` shown, which opts the connection out of every
+  `agent_stream` frame; all three are answered by `status.server_info.json`).
 
 ## Binary frames
 

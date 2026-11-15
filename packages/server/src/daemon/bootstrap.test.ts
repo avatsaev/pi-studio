@@ -1577,6 +1577,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
       transport: string;
       appVersion: string | undefined;
       remoteAddress: string | undefined;
+      agentStreams: string;
     }> = [];
     const spy = vi
       .spyOn(SessionSubscriptions.prototype, "disposeSession")
@@ -1585,6 +1586,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
           transport: session.transport,
           appVersion: session.appVersion,
           remoteAddress: session.remoteAddress,
+          agentStreams: session.agentStreams,
         });
       });
     try {
@@ -1605,7 +1607,7 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
         .publicKeyB64 as string;
       const sessionId = await waitForSessionId(relay);
 
-      const connectPeer = async (appVersion: string) => {
+      const connectPeer = async (appVersion: string, agentStreams?: string) => {
         const socket = await relay.connectClient(sessionId);
         const handlers: Array<(data: string) => void> = [];
         socket.on("message", (data: Buffer, isBinary: boolean) => {
@@ -1638,22 +1640,25 @@ describe("relay transport end-to-end (real E2EE handshake + RPC)", () => {
             clientType: "cli",
             protocolVersion: 1,
             appVersion,
+            ...(agentStreams === undefined ? {} : { agentStreams }),
           }),
         );
         await info.promise;
         return { channel, socket };
       };
 
-      const first = await connectPeer("first/1");
+      const first = await connectPeer("first/1", "none");
       expect(disposed).toHaveLength(0);
       // A second peer on the same relay session id replaces the first ("last hello wins"): the
       // daemon re-handshakes, which must dispose the replaced Session's subscriptions.
-      const second = await connectPeer("second/2");
+      const second = await connectPeer("second/2", "bogus");
       await vi.waitFor(() => expect(disposed.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
       expect(disposed[0]).toEqual({
         transport: "relay",
         appVersion: "first/1",
         remoteAddress: undefined,
+        // The relay `hello` path carries the mode too (a bad value reads as "all").
+        agentStreams: "none",
       });
 
       first.channel.close();

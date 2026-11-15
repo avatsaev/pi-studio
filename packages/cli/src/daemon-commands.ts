@@ -57,17 +57,15 @@ function resolvePairingRelayInfo(config: PersistedConfig): PairingRelayInfo | nu
   return { endpoint, useTls };
 }
 
-/** Render the pairing QR + link for the daemon at `home`. Returns an exit code. */
-export async function printPairing(
-  ctx: CliContext,
-  home: string,
-  hostArg: string | undefined,
-): Promise<number> {
+interface ResolvedPairing {
+  url: string;
+  relay: PairingRelayInfo | null;
+}
+
+/** Build the pairing link for the daemon at `home`; `null` when no keypair exists yet. */
+function resolvePairing(home: string, hostArg: string | undefined): ResolvedPairing | null {
   const publicKey = readDaemonPublicKey(home);
-  if (!publicKey) {
-    ctx.sink.error("no daemon keypair found — start the daemon first (`pi-studio daemon start`).");
-    return EXIT_ERROR;
-  }
+  if (!publicKey) return null;
   const config = loadConfig(daemonPaths(home).config);
   const relay = resolvePairingRelayInfo(config);
   const { host, port } = parseHost(hostArg);
@@ -76,6 +74,33 @@ export async function printPairing(
     relay: relay ?? undefined,
     baseUrl: config.app.baseUrl,
   });
+  return { url, relay };
+}
+
+/**
+ * Render the pairing QR + link for the daemon at `home`. Returns an exit code. With `json` it
+ * writes one `{ pairingUrl, relay }` / `{ error: "no_keypair" }` line instead (no QR, no prose).
+ */
+export async function printPairing(
+  ctx: CliContext,
+  home: string,
+  hostArg: string | undefined,
+  json = false,
+): Promise<number> {
+  const pairing = resolvePairing(home, hostArg);
+  if (!pairing) {
+    if (json) ctx.sink.write(JSON.stringify({ error: "no_keypair" }));
+    else
+      ctx.sink.error(
+        "no daemon keypair found — start the daemon first (`pi-studio daemon start`).",
+      );
+    return EXIT_ERROR;
+  }
+  const { url, relay } = pairing;
+  if (json) {
+    ctx.sink.write(JSON.stringify({ pairingUrl: url, relay: relay?.endpoint ?? null }));
+    return EXIT_OK;
+  }
   const qr = await renderQrToTerminal(url);
   ctx.sink.write(qr);
   ctx.sink.write(`Pairing link: ${url}`);
@@ -87,31 +112,56 @@ export async function printPairing(
   return EXIT_OK;
 }
 
-/** Ensure a local daemon is running (start it if not), then print the pairing QR. */
+/**
+ * Ensure a local daemon is running (start it if not), then print the pairing QR. With
+ * `startOpts.json` (only `daemon start|restart` pass it) it writes exactly one JSON line instead:
+ * `{ up, started, host, port, pairingUrl, relay }`, `{ up: false, host, port, error: "not_healthy" }`
+ * or, when healthy but no keypair file exists, `{ up: true, started, host, port, error: "no_keypair" }`.
+ */
 export async function ensureLocalDaemonAndPair(
   ctx: CliContext,
   opts: GlobalOptions,
-  startOpts: { sleep?: (ms: number) => Promise<void> } = {},
+  startOpts: { sleep?: (ms: number) => Promise<void>; json?: boolean } = {},
 ): Promise<number> {
+  const json = startOpts.json === true;
   const runtime = runtimeOf(ctx);
   const home = resolveCtxHome(ctx, opts);
   persistRelayEnvOverrides(home);
   const { host, port } = parseHost(opts.host);
 
+  let started = false;
   if (await runtime.probe(host, port)) {
-    ctx.sink.write(`daemon already running at ${host}:${port}`);
-    return printPairing(ctx, home, opts.host);
+    if (!json) ctx.sink.write(`daemon already running at ${host}:${port}`);
+  } else {
+    if (!json) ctx.sink.write(`starting local daemon at ${host}:${port} …`);
+    await runtime.start({ home, listen: `${host}:${port}`, piHome: opts.piHome });
+    const up = await waitForDaemon(runtime, host, port, { sleep: startOpts.sleep });
+    if (!up) {
+      if (json) ctx.sink.write(JSON.stringify({ up: false, host, port, error: "not_healthy" }));
+      else ctx.sink.error("daemon did not become healthy in time.");
+      return EXIT_ERROR;
+    }
+    started = true;
+    if (!json) ctx.sink.write(`daemon listening at ${host}:${port}`);
   }
 
-  ctx.sink.write(`starting local daemon at ${host}:${port} …`);
-  await runtime.start({ home, listen: `${host}:${port}`, piHome: opts.piHome });
-  const up = await waitForDaemon(runtime, host, port, { sleep: startOpts.sleep });
-  if (!up) {
-    ctx.sink.error("daemon did not become healthy in time.");
+  if (!json) return printPairing(ctx, home, opts.host);
+  const pairing = resolvePairing(home, opts.host);
+  if (!pairing) {
+    ctx.sink.write(JSON.stringify({ up: true, started, host, port, error: "no_keypair" }));
     return EXIT_ERROR;
   }
-  ctx.sink.write(`daemon listening at ${host}:${port}`);
-  return printPairing(ctx, home, opts.host);
+  ctx.sink.write(
+    JSON.stringify({
+      up: true,
+      started,
+      host,
+      port,
+      pairingUrl: pairing.url,
+      relay: pairing.relay?.endpoint ?? null,
+    }),
+  );
+  return EXIT_OK;
 }
 
 export function registerDaemonCommands(
@@ -136,7 +186,7 @@ export function registerDaemonCommands(
     .command("start")
     .description("start a local daemon and show a pairing QR code")
     .action(async () => {
-      setExit(await ensureLocalDaemonAndPair(ctx, g()));
+      setExit(await ensureLocalDaemonAndPair(ctx, g(), { json: g().json }));
     });
 
   daemon
@@ -144,7 +194,8 @@ export function registerDaemonCommands(
     .description("stop the local daemon")
     .action(() => {
       const stopped = stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
-      ctx.sink.write(stopped ? "daemon stopped" : "no running daemon found");
+      if (g().json) ctx.sink.write(JSON.stringify({ stopped }));
+      else ctx.sink.write(stopped ? "daemon stopped" : "no running daemon found");
       setExit(stopped ? EXIT_OK : EXIT_ERROR);
     });
 
@@ -153,14 +204,14 @@ export function registerDaemonCommands(
     .description("restart the local daemon")
     .action(async () => {
       stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
-      setExit(await ensureLocalDaemonAndPair(ctx, g()));
+      setExit(await ensureLocalDaemonAndPair(ctx, g(), { json: g().json }));
     });
 
   daemon
     .command("pair")
     .description("render the pairing QR code / link")
     .action(async () => {
-      setExit(await printPairing(ctx, resolveCtxHome(ctx, g()), g().host));
+      setExit(await printPairing(ctx, resolveCtxHome(ctx, g()), g().host, g().json));
     });
 
   daemon

@@ -143,7 +143,12 @@ export interface PiStudioAgentTimelineHandle {
     direction?: TimelineDirection;
     limit?: number;
   }): Promise<FetchAgentTimelineResponse>;
-  /** Subscribe to live `agent_stream` events for this agent. Returns an unsubscribe fn. */
+  /**
+   * Subscribe to live `agent_stream` events for this agent. Returns an unsubscribe fn. On a
+   * connection opened with `agentStreams: "none"` the handler never fires (against a daemon that
+   * honours it); against one without `agentStreamsMode` the option is ignored and streams arrive,
+   * so a handler must tolerate them.
+   */
   subscribe(handler: PiStudioAgentStreamHandler): () => void;
 }
 

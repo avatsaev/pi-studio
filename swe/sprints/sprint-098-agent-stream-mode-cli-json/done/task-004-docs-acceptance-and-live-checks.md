@@ -1,7 +1,7 @@
 # Task 004 — Stream mode and CLI: documents, spec close, live checks
 
 - **Sprint:** sprint-098-agent-stream-mode-cli-json
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs, swe specs, package documents; live verification
 - **Priority:** P1

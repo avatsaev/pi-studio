@@ -340,6 +340,12 @@
       "direction": "http"
     },
     {
+      "file": "hello.agentStreams.json",
+      "type": "hello",
+      "direction": "client_to_server",
+      "response": "status.server_info.json"
+    },
+    {
       "file": "hello.json",
       "type": "hello",
       "direction": "client_to_server",

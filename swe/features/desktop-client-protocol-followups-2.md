@@ -1,9 +1,9 @@
 # Feature — Desktop-Client Protocol Follow-ups II
 
-> **Status: sprint 097 (download) built and live-checked (2026-11-15); sprint 098 (agent stream mode,
-> CLI JSON) planned.** Both in `swe/sprints/PLAN.md`, on `feat/desktop-protocol-followups-2`. Follows
-> [desktop-client-protocol-followups.md](desktop-client-protocol-followups.md) (sprint 096, shipped in
-> 0.0.118).
+> **Status: shipped on `feat/desktop-protocol-followups-2` (2026-11-15): sprint 097 (download) and
+> sprint 098 (agent stream mode, CLI JSON), both built and live-checked.** See `swe/sprints/PLAN.md`.
+> Follows [desktop-client-protocol-followups.md](desktop-client-protocol-followups.md) (sprint 096,
+> shipped in 0.0.118); the code is first carried by 0.0.119.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md)
@@ -217,14 +217,16 @@ output and nothing else: no QR code, no prose. Without the flag, output is uncha
 
 | Command | Success | Failure (non-zero exit) |
 |---|---|---|
-| `daemon start`, `daemon restart` | `{ "up": true, "started": <bool>, "host", "port", "pairingUrl", "relay" }` | `{ "up": false, "host", "port", "error" }` |
-| `daemon pair` | `{ "pairingUrl", "relay" }` | `{ "error" }` |
+| `daemon start`, `daemon restart` | `{ "up": true, "started": <bool>, "host", "port", "pairingUrl", "relay" }` | `{ "up": false, "host", "port", "error": "not_healthy" }`; or, daemon healthy but no key file, `{ "up": true, "started": <bool>, "host", "port", "error": "no_keypair" }` |
+| `daemon pair` | `{ "pairingUrl", "relay" }` | `{ "error": "no_keypair" }` |
 | `daemon stop` | `{ "stopped": true }` | `{ "stopped": false }` |
 
 `started` is `false` when a daemon was already running at that address. `relay` is the relay
-endpoint the pairing link routes through, or `null`. `error` is `not_healthy` (the daemon did not
-answer its health check in time) or `no_keypair` (no daemon keypair exists yet). `daemon status
---json` is unchanged.
+endpoint string the pairing link routes through, or `null`. `error` is `not_healthy` (`up: false`:
+the daemon did not answer its health check in time) or `no_keypair` (no daemon keypair exists in the
+CLI's home; for `start`/`restart` it is reported with `up: true`, because the daemon is healthy).
+`daemon status --json` is unchanged; `rotate-key`, `onboard` and the bare `pi-studio` command ignore
+`--json`. The flag is global, so it precedes the subcommand: `pi-studio --json daemon start`.
 
 `pairingUrl` is a credential on a relay-routed link, exactly as the printed link is today; `--json`
 does not widen who can read it.
@@ -358,6 +360,7 @@ is not written to the capability store.
 | `"none"` sent to a daemon without `agentStreamsMode` | The field is ignored and streams arrive; the client must tolerate them |
 | `daemon start --json` when the daemon is already up | `started: false`, exit 0 |
 | `daemon pair --json` before any daemon has run | `{ "error": "no_keypair" }`, non-zero exit |
+| `daemon start --json` when the daemon is healthy but the CLI's home has no key file | `{ "up": true, "started": <bool>, "host", "port", "error": "no_keypair" }`, non-zero exit |
 
 ## Dependencies on other specs
 
@@ -423,30 +426,38 @@ Download:
 
 Agent stream mode:
 
-- [ ] A session that sent `agentStreams: "none"` receives no `agent_stream` frame during a turn on
+- [x] A session that sent `agentStreams: "none"` receives no `agent_stream` frame during a turn on
       a mock agent, including a turn it started itself, and does receive the `agent_update`
-      `running` and `idle` broadcasts for that turn.
-- [ ] A second session with no `agentStreams` field receives the full stream during the same turn.
-- [ ] The same holds for a relay session (unit level).
-- [ ] An invalid `agentStreams` value yields a successful handshake and mode `all`.
-- [ ] `daemon_status` lists `agentStreams: "none"` for the quiet session and omits the field for
-      the other.
-- [ ] `server_info.features` contains `fileDownloadRanges` and `agentStreamsMode`.
+      `running` and `idle` broadcasts for that turn (unit: `agent-stream-mode.test.ts`; live: a
+      quiet connection that started a `#tool shell` turn saw 0 stream frames and both statuses).
+- [x] A second session with no `agentStreams` field receives the full stream during the same turn
+      (live: 9 frames against 0).
+- [x] The same holds for a relay session (unit level): the relay `hello` path carries the mode
+      (`bootstrap.test.ts`, real E2EE handshake), and the recipient filter is per `Session`,
+      independent of transport.
+- [x] An invalid `agentStreams` value yields a successful handshake and mode `all` (schema, direct
+      WebSocket and live checks).
+- [x] `daemon_status` lists `agentStreams: "none"` for the quiet session and omits the field for
+      the other (unit and live).
+- [x] `server_info.features` contains `fileDownloadRanges` and `agentStreamsMode` (live, production
+      daemon; the dev daemon advertises every `SERVER_FEATURES` key).
 
 CLI:
 
-- [ ] `daemon start --json` prints one parseable line with the fields in § 3 both when it starts a
-      daemon and when one is already running, and prints no QR code.
-- [ ] `daemon pair --json`, `daemon stop --json` and `daemon restart --json` print one parseable
-      line each, with the documented failure shapes and exit codes.
-- [ ] Without `--json` the output of all four commands is unchanged.
+- [x] `daemon start --json` prints one parseable line with the fields in § 3 both when it starts a
+      daemon and when one is already running, and prints no QR code (live and unit).
+- [x] `daemon pair --json`, `daemon stop --json` and `daemon restart --json` print one parseable
+      line each, with the documented failure shapes and exit codes (live: `pair` before any daemon
+      `{"error":"no_keypair"}` exit 1; `stop` with nothing running `{"stopped":false}` exit 1).
+- [x] Without `--json` the output of all four commands is unchanged (byte-for-byte unit tests for
+      `start`, `pair` and `stop`; `restart` shares `start`'s path).
 
 Fixtures and documents:
 
 - [x] The fixture set matches § 4; `manifest.json` has `formatVersion` 2; `CHANGELOG.md` has the
       dated breaking entry; signatures are regenerated; both fixture test layers pass, including the
       live dev-daemon layer for the new download shapes.
-- [ ] `docs/desktop-client-handoff.md`, the root `AGENTS.md` protocol section,
+- [x] `docs/desktop-client-handoff.md`, the root `AGENTS.md` protocol section,
       `packages/{protocol,client,server,workbench,cli}/AGENTS.md`, the fixtures `README.md`,
       `file-explorer-transfer.md`, `cli.md`, `timeline-streaming.md` and `websocket-protocol.md` are
       updated in the same change.
@@ -461,3 +472,7 @@ Fixtures and documents:
   SDK's `download` directly instead of going through `host.files`. It keeps working here; whether it
   should move behind the host belongs to the workbench seams scope.
 - **Water marks.** Still the chosen 1 MiB and 256 KiB; no LAN or relay measurement exists.
+- **Real Pi turn and relay, live.** The agent-stream mode was live-checked with the mock provider
+  over a direct connection; a turn on a real Pi agent and a live relay session were not run.
+- **`daemon start --json` with a healthy daemon and no key file.** Decided with the engineer:
+  `{ "up": true, "started", "host", "port", "error": "no_keypair" }`, non-zero exit (§ 3).

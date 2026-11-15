@@ -1,7 +1,7 @@
 # Task 001 — `hello.agentStreams`: a session can opt out of agent streams
 
 - **Sprint:** sprint-098-agent-stream-mode-cli-json
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (handshake, features, daemon status), packages/server (ws, agent, daemon, observability)
 - **Priority:** P1

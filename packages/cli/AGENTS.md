@@ -224,6 +224,20 @@ start`, and `onboard`:
 4. Wait up to N seconds for `GET /api/health` to return 200.
 5. Print pairing QR via `buildPairingUrl()` + `renderQrToTerminal()`.
 
+**`--json` (`start`, `restart`, `pair`, `stop` only).** The global `--json` flag makes each write
+exactly one JSON line to stdout (no QR, no prose; errors are JSON on stdout, not stderr). `start`
+and `restart` pass `{ json: true }` to `ensureLocalDaemonAndPair` (an explicit parameter — the
+function never reads the global flag, so `rotate-key`, `onboard` and the default action stay
+byte-for-byte unchanged under `--json`); `restart` prints only the start result. `pair` passes it to
+`printPairing(ctx, home, host, json)`. `relay` is the relay endpoint string the link routes through
+(`resolvePairingRelayInfo(...).endpoint`) or `null`; `pairingUrl` is a credential on relay links.
+
+| Command | Success (exit 0) | Failure (exit 1) |
+| --- | --- | --- |
+| `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}`; healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
+| `pair` | `{"pairingUrl","relay"}` | `{"error":"no_keypair"}` |
+| `stop` | `{"stopped":true}` | `{"stopped":false}` |
+
 `DaemonRuntime` (`daemon-control.ts`):
 
 - `probe(host, port)` — HTTP GET `/api/health`, returns true if 200.

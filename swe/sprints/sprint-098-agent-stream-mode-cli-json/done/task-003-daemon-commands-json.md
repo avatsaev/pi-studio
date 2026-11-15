@@ -1,7 +1,7 @@
 # Task 003 — `--json` for `daemon start`, `restart`, `pair` and `stop`
 
 - **Sprint:** sprint-098-agent-stream-mode-cli-json
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/cli (daemon commands)
 - **Priority:** P2

@@ -147,6 +147,7 @@ export function createWebSocketServer(
           clientId: hello.data.clientId,
           clientType: hello.data.clientType,
           platform: hello.data.platform,
+          agentStreams: hello.data.agentStreams,
           capabilities,
           socket: ws,
           appVersion: hello.data.appVersion,

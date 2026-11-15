@@ -182,7 +182,7 @@ describe("agent_compact_request — recording", () => {
       .filter((f) => f.inner?.type === "agent_stream");
     expect(streamFrames).toHaveLength(2);
     for (const f of streamFrames) {
-      expect(f.sessions).toBe(active);
+      expect([...f.sessions]).toEqual(active);
       expect(f.inner.agentId).toBe(agentId);
       expect(typeof f.inner.seq).toBe("number");
       expect(typeof f.inner.timestamp).toBe("string");

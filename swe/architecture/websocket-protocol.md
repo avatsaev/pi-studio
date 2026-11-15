@@ -16,7 +16,8 @@ protocol is the compatibility contract between independently-versioned clients a
 ```
 Client → Server (text JSON):  { type: "hello",
     clientId, clientType: "mobile" | "browser" | "cli" | "mcp",
-    protocolVersion, appVersion?, capabilities?: { ... } }
+    protocolVersion, appVersion?, platform?, agentStreams?: "all" | "none",
+    capabilities?: { ... } }
 
 Server → Client (text JSON):  { type: "status", payload: {
     status: "server_info", serverId, hostname?, version?, capabilities, features } }
@@ -24,6 +25,11 @@ Server → Client (text JSON):  { type: "status", payload: {
 There is no dedicated welcome message; the server emits the `status`/`server_info` message after
 accepting the hello, then begins streaming. The server stores client capabilities from the hello
 and rehydrates them on reconnect, so the wire boundary asks one question: `session.supports(...)`.
+`agentStreams` (0.0.119, optional, default `"all"`; any other value is treated as `"all"`) is fixed
+for the connection: a `"none"` session receives no `agent_stream` frame, while RPC replies,
+`agent_update`, `agent_ui_*`, `agent_timeline_reset`, `agent_todos_update`, `terminals_update` and
+other pushes still reach it. A client without the stream reads turn end from `agent_update.status`
+and needs-input from `agent_ui_request`/`agent_ui_resolved`; the detailed outcome is in history.
 
 ### Top-level envelopes
 | Envelope `type` | Direction | Purpose |

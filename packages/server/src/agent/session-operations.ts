@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
-import type { Session } from "../ws/session.js";
+import { agentStreamRecipients, type Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentClient } from "./provider-contract.js";
@@ -121,7 +121,7 @@ export class SessionOperationsService {
     if (timeline) {
       const messageId = (msg.clientMessageId as string | undefined) ?? randomUUID();
       const row = timeline.append({ kind: "user_message", messageId, text: message, images });
-      this.broadcastAll(getSessions(), {
+      this.broadcastAll(agentStreamRecipients(getSessions()), {
         type: "session",
         message: {
           type: "agent_stream",

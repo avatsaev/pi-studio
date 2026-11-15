@@ -9,11 +9,11 @@ the code at that version. Anything marked **planned** or **unverified** was not.
 
 **This document is kept current.** The workbench is built in this repository, and every task in
 that plan updates this file when it changes something stated here. "Plan and progress" below shows
-how far that work has got. Last updated: 2026-11-15 (sprints 091–097 done: 091–095 on `feat/workbench`
+how far that work has got. Last updated: 2026-11-15 (sprints 091–098 done: 091–095 on `feat/workbench`
 (`packages/workbench` is a publishable library with a final public API, a README, a release runbook
 and a packed-tarball smoke test; the first npm release happens when the branch merges to `main`),
-096 on `feat/desktop-protocol-followups`, stacked on it, 097 on `feat/desktop-protocol-followups-2`.
-Changes from 096 are marked "0.0.118" and from 097 "0.0.119": the first versions that carry them).
+096 on `feat/desktop-protocol-followups`, stacked on it, 097 and 098 on `feat/desktop-protocol-followups-2`.
+Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first versions that carry them).
 
 ## Status of the pieces
 
@@ -22,7 +22,7 @@ Changes from 096 are marked "0.0.118" and from 097 "0.0.119": the first versions
 | `@av-pi-studio/protocol`, `client`, `relay` | Published on npm, in use |
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
-| Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
+| Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
 | `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
@@ -40,6 +40,7 @@ way to see what you can rely on today. Plan of record: `swe/sprints/PLAN.md`.
 | 095 | Release wiring (`scripts/publish.sh` order, `packages/workbench/RELEASING.md`, dry-run rehearsal in a throwaway worktree), repo docs | **Milestone 1 can start** once the branch is merged and released | **Done** on `feat/workbench` (merge and release pending the npm Trusted Publisher registration) |
 | 096 | `hello.platform`, paced transfers, upload acknowledgement, file and terminal fixtures (JSON and binary) | A pinned wire contract for the Rust transfer engine (milestone 3) | **Done** on `feat/desktop-protocol-followups` (merge after `feat/workbench`; the next release, 0.0.118, carries it). Live-checked against an isolated production daemon: 600 MiB upload from the browser UI, 600 MiB download to a paused client, a `desktop`-platform session in `daemon_status` |
 | 097 | Download by path (token removed), byte ranges with `ifUnchanged` resume, size and mtime in the response and `Begin`, response before the stream, `file_download_cancel_request`, per-session download stream ids, SDK `downloadTo`, browser-host Blobs from chunks, fixtures `formatVersion` 2 | Everything the Rust transfer engine needs for downloads: resume, seek, cancel, progress against a known size | **Done** on `feat/desktop-protocol-followups-2` (first carried by 0.0.119). Live measurements: see "Measured (sprint 097)" in § 2 |
+| 098 | `hello.agentStreams`, CLI `--json` for daemon start/restart/pair/stop | A quiet bulk connection that is not flooded with `agent_stream` frames, and a machine-readable daemon supervisor for the native shell | **Done** on `feat/desktop-protocol-followups-2` (first carried by 0.0.119) |
 
 Milestone 2 (the Rust transport bridge) depends only on the existing `Transport` interface and the
 published SDK. It can be prototyped before the first release, against `web-client`'s behaviour, but it
@@ -260,6 +261,29 @@ Rules the bridge must honour:
   daemon answered `server_info` to a `hello` carrying it); a daemon from this release on reports it
   in `daemon_status` client entries. The workbench sends it when the host's `app.platform` is set.
   Nothing branches on it.
+- **Agent streams.** `hello.agentStreams` is optional, `"all"` (default) or `"none"`; any other
+  value is treated as `"all"`, and the handshake still succeeds. It is fixed for the life of the
+  connection. A `"none"` session gets no `agent_stream` frame (sequenced events, partial
+  `tool_call`/`queue_update` and `user_message`, whoever started the turn). Everything else still
+  arrives: RPC replies, `agent_update`, `agent_ui_*`, `agent_timeline_reset`, `agent_todos_update`,
+  `terminals_update`, workspace and skills pushes, per-session subscriptions and
+  `fetch_agent_timeline_request`. The timeline is appended to regardless. The Rust-owned bulk
+  connection should send `"none"`; the SDK option is `DaemonClientOptions.agentStreams` (sent only
+  when set; a daemon older than 0.0.119 ignores the field and the streams arrive). It learns
+  "turn ended" from `agent_update.status` (`running` to `idle`/`error`) and "agent waiting for the
+  user" from `agent_ui_request`/`agent_ui_resolved`. The detailed outcome (`turn_completed`,
+  `turn_failed`, `turn_canceled`) exists only in the stream and in fetched history, so a quiet
+  connection that needs it fetches the timeline. `daemon_status` client entries report
+  `agentStreams` only when it is not `"all"`. The workbench does not send the option: its connection
+  needs the streams. **Live-checked (sprint 098, isolated production daemon, mock provider, SDK
+  connections in Node):** a quiet connection (`agentStreams: "none"`) that itself started a
+  `#tool shell` turn received `agent_update` `running` and `idle` and 0 `agent_stream` frames, while
+  a normal connection received 9 (`user_message`, `turn_started`, `tool_call` including partials,
+  `assistant_message`, `turn_completed`); `fetch_agent_timeline_request` from the quiet connection
+  returned the 5 stored rows; `daemon_status` showed `agentStreams: "none"` for it and no such field
+  for the other; a `hello` with `agentStreams: "some"` completed the handshake. Not run: a real Pi
+  provider turn (no credentials were used) and the relay transport (covered by a unit test that the
+  relay `hello` carries the mode).
 - **Timers.** `ReconnectionManager` takes injected `setTimer`/`clearTimer`. `web-client` passes
   Web Worker timers to survive hidden-tab throttling. Supply timers from Rust, or have Rust signal
   "socket closed", "network back" and "system woke" so the webview reconnects at once.
@@ -401,6 +425,15 @@ before porting.
 - **Local daemon.** `pi-studio daemon start` (npm `@av-pi-studio/cli`, Node ≥ 22.20) starts a
   daemon or finds the running one through a PID lock. Whether the desktop app bundles Node or
   expects an installed CLI is an open product decision. See `packages/cli/AGENTS.md`.
+- **Daemon supervision output.** `pi-studio --json daemon start|restart|pair|stop` (the global flag
+  precedes the subcommand) prints exactly one JSON line on stdout, no QR or prose. `start` and
+  `restart`: `{up: true, started, host, port, pairingUrl, relay}` (`relay` is the endpoint string or
+  null; `started: false` means a daemon was already running at that address). Not healthy:
+  `{up: false, host, port, error: "not_healthy"}`, non-zero exit. Healthy without a key file:
+  `{up: true, started, host, port, error: "no_keypair"}`, non-zero exit. `pair`: `{pairingUrl, relay}`
+  or `{error: "no_keypair"}` (non-zero). `stop`: `{stopped: true | false}`. `pairingUrl` is a
+  credential on relay-routed links, so do not log it. `rotate-key`, `onboard` and the bare default
+  action ignore `--json`; `daemon status --json` is unchanged.
 - Connection profiles, with secrets in the OS keychain.
 - Native menus, notifications, auto-update, file dialogs, OS-level deep links.
 
@@ -455,7 +488,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
   (`swe/architecture/websocket-protocol.md`).
 - Gate every feature on `server_info.features`.
 - `packages/protocol/fixtures/external-clients/` holds one canonical JSON frame per message an
-  external client uses (83 entries, `formatVersion` 2 since 0.0.119). Vendor it and deserialize
+  external client uses (84 JSON entries, `formatVersion` 2 since 0.0.119). Vendor it and deserialize
   every fixture in Rust tests. Its README explains the format and the breaking-change policy.
 - Since 0.0.118 the fixtures cover **file transfer and terminals**: the `file_download_*`,
   `file_upload_*`, `file_upload_complete` and `*_terminal_*` RPCs plus `terminals_update`, each

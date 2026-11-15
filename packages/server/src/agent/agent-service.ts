@@ -4,7 +4,7 @@ import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
-import type { Session } from "../ws/session.js";
+import { agentStreamRecipients, type Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { AgentManager } from "./agent-manager.js";
 import type {
@@ -100,14 +100,14 @@ export function appendStreamEvent(
   sessions: Iterable<Session>,
 ): void {
   if ((event.kind === "tool_call" && event.partial) || event.kind === "queue_update") {
-    broadcast(sessions, {
+    broadcast(agentStreamRecipients(sessions), {
       type: "session",
       message: { type: "agent_stream", agentId, timestamp: new Date().toISOString(), event },
     });
     return;
   }
   const row = getOrCreateTimeline(agentId).append(event);
-  broadcast(sessions, {
+  broadcast(agentStreamRecipients(sessions), {
     type: "session",
     message: {
       type: "agent_stream",
@@ -393,7 +393,7 @@ export class AgentService {
             text: prompt,
             images: opts.images,
           });
-          this.broadcastAll(getSessions(), {
+          this.broadcastAll(agentStreamRecipients(getSessions()), {
             type: "session",
             message: {
               type: "agent_stream",
@@ -421,7 +421,7 @@ export class AgentService {
         text: prompt,
         images: opts.images,
       });
-      this.broadcastAll(getSessions(), {
+      this.broadcastAll(agentStreamRecipients(getSessions()), {
         type: "session",
         message: {
           type: "agent_stream",

@@ -181,6 +181,7 @@ valid pairing link," never fall back to an unauthenticated connection.
   clientId: string;         // Stable client identity sent in hello
   clientType: ClientType;   // "mobile" | "browser" | "cli" | "mcp" (closed enum)
   platform?: string;        // hello.platform, sent only when set; the desktop app sends "desktop" (with clientType "browser")
+  agentStreams?: "all" | "none"; // hello.agentStreams, sent only when set (daemon feature `agentStreamsMode`). "none" = a quiet connection: no agent_stream frame ever arrives, so no `timeline.subscribe` handler fires; agent_update, agent_ui_* etc. still do. A daemon without the feature ignores it and sends every stream, so a consumer tolerates them. Fixed per connection
   protocolVersion?: number; // Defaults to PROTOCOL_VERSION = 1
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise

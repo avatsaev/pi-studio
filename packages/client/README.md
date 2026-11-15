@@ -92,6 +92,7 @@ interface DaemonClientOptions {
   protocolVersion?: number;              // defaults to the current protocol version
   appVersion?: string;
   capabilities?: Record<string, boolean>; // CLIENT_CAPS flags to advertise in `hello`
+  agentStreams?: "all" | "none";          // "none": the daemon sends no `agent_stream` frames (0.0.119+)
   transport?: Transport;                  // inject a stub for tests; defaults to native WebSocket
   rpcTimeoutMs?: number;                  // per-request timeout; never tears down the socket
   now?: () => number;                     // inject a clock for deterministic tests

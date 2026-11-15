@@ -47,6 +47,14 @@ export interface DaemonClientOptions {
    * with `clientType: "browser"`). Informational; daemons that predate the field ignore it.
    */
   platform?: string;
+  /**
+   * `"none"` opens a quiet connection: the daemon (feature `agentStreamsMode`) sends it no
+   * `agent_stream` frame, so no `timeline.subscribe` listener ever fires; `agent_update`,
+   * `agent_ui_*` and everything else still arrive. Sent as `hello.agentStreams` only when set.
+   * Against a daemon without `agentStreamsMode` the field is ignored and every stream arrives, so
+   * a consumer must tolerate them. Fixed for the connection; reconnect to change it.
+   */
+  agentStreams?: "all" | "none";
   protocolVersion?: number;
   appVersion?: string;
   capabilities?: Record<string, boolean>;
@@ -165,6 +173,7 @@ export class DaemonClient {
         clientId: this.options.clientId,
         clientType: this.options.clientType,
         platform: this.options.platform,
+        agentStreams: this.options.agentStreams,
         protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
         appVersion: this.options.appVersion,
         capabilities: this.options.capabilities,

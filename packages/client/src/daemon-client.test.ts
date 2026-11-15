@@ -111,6 +111,25 @@ describe("connect / handshake", () => {
     });
   });
 
+  it("sends hello.agentStreams only when the option is set", async () => {
+    const plain = makeFakeTransport();
+    await makeClient(plain.transport).connect();
+    expect(JSON.parse(plain.sent[0]!)).not.toHaveProperty("agentStreams");
+
+    const fake = makeFakeTransport();
+    const quiet = new DaemonClient({
+      url: "ws://daemon.test/ws",
+      clientId: "client-1",
+      clientType: "cli",
+      agentStreams: "none",
+      transport: fake.transport,
+      rpcTimeoutMs: 50,
+      now: () => 1000,
+    });
+    await quiet.connect();
+    expect(JSON.parse(fake.sent[0]!)).toMatchObject({ clientType: "cli", agentStreams: "none" });
+  });
+
   it("sends hello and records serverId + features from server_info", async () => {
     const fake = makeFakeTransport();
     const client = makeClient(fake.transport);

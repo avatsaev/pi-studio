@@ -64,6 +64,11 @@ export const SERVER_FEATURES = {
    * stream starts and carries the file's size; the download token is gone.
    */
   fileDownloadRanges: "fileDownloadRanges",
+  /**
+   * `hello.agentStreams: "none"` is honoured: the session receives no `agent_stream` frame. Every
+   * other broadcast (`agent_update`, `agent_ui_*`, …) still reaches it.
+   */
+  agentStreamsMode: "agentStreamsMode",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -117,6 +122,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   fileTransferAck: COMPAT({ name: "fileTransferAck", addedIn: "0.0.118", removeBy: "TBD" }),
   // COMPAT(fileDownloadRanges): added 0.0.119, remove by TBD
   fileDownloadRanges: COMPAT({ name: "fileDownloadRanges", addedIn: "0.0.119", removeBy: "TBD" }),
+  // COMPAT(agentStreamsMode): added 0.0.119, remove by TBD
+  agentStreamsMode: COMPAT({ name: "agentStreamsMode", addedIn: "0.0.119", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

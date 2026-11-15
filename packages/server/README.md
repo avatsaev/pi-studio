@@ -259,7 +259,8 @@ All communication rides a **single WebSocket connection** per client.
 ### Text frames — JSON envelopes discriminated by `type`
 
 - `hello` (Client→Server, first frame) — handshake with `clientId`, `clientType`
-  (`mobile`/`browser`/`cli`/`mcp`), `protocolVersion`, optional `capabilities`.
+  (`mobile`/`browser`/`cli`/`mcp`), `protocolVersion`, optional `capabilities`, `platform` and `agentStreams`
+  (`"all"` default, or `"none"` to receive no `agent_stream` frames).
 - `status` (Server→Client) — `server_info` payload sent right after a successful hello.
 - `ping` / `pong` — **JSON** liveness (not RFC 6455 ping, which browsers/RN can't send).
 - `session` — the envelope wrapping every RPC request/response/broadcast (`{ type: "session",

@@ -56,6 +56,13 @@ export const helloSchema = z.object({
    * predate the field ignore it, so it is safe to send to any daemon.
    */
   platform: z.string().max(PLATFORM_MAX_LENGTH).optional().catch(undefined),
+  /**
+   * Which `agent_stream` frames this connection receives: `"all"` (the default) or `"none"`. Fixed
+   * for the life of the connection. Any other value is treated as `"all"` (the handshake still
+   * succeeds, and a client built for a later mode never gets less than it asked for); daemons
+   * without the `agentStreamsMode` feature ignore the field and send every stream.
+   */
+  agentStreams: z.enum(["all", "none"]).optional().catch(undefined),
   appVersion: z.string().optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
 });
@@ -1334,6 +1341,8 @@ export const daemonClientInfoSchema = z
     appVersion: z.string().optional(),
     /** The hello's `platform`, when the client sent one. */
     platform: z.string().optional(),
+    /** The connection's `hello.agentStreams` mode; present only when it is not `"all"`. */
+    agentStreams: z.string().optional(),
     connectedAt: z.number(),
     remoteAddress: z.string().optional(),
     transport: z.enum(["direct", "relay"]),

@@ -89,3 +89,12 @@ only; no existing leaf path changed type or disappeared, no migration:
 `no_free_stream`; `changed` also carries `totalBytes` and `mtimeMs`) and `/message/offset` and
 `/message/length` added to its `volatile` list, because the ranged request is answered by it too.
 Its leaf paths and types are unchanged.
+
+## Additive — 2026-11-15 (formatVersion stays 2)
+
+`hello.agentStreams.json` (pi-studio 0.0.119, `requiresFeature: "agentStreamsMode"`): a `hello`
+variant carrying the new optional `agentStreams` string (`"none"` shown; `"all"` is the default and
+any other value reads as `"all"`). New file only; no existing fixture changed, no migration.
+`daemon_status` client entries may now also carry `agentStreams`, present only when the mode is not
+`"all"`, so the existing `daemon_status_*` fixtures are unchanged. A daemon without the feature
+flag ignores the field and sends every `agent_stream` frame.

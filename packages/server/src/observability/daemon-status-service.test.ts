@@ -13,7 +13,10 @@ import {
 function fakeSession(
   clientId: string,
   opts: Partial<
-    Pick<Session, "connectedAt" | "appVersion" | "remoteAddress" | "transport" | "platform">
+    Pick<
+      Session,
+      "connectedAt" | "appVersion" | "remoteAddress" | "transport" | "platform" | "agentStreams"
+    >
   > = {},
 ): Session {
   return {
@@ -130,6 +133,23 @@ describe("DaemonStatusService", () => {
     const clients = svc.oneShot().clients;
     expect(clients[0]).toMatchObject({ clientId: "d", platform: "desktop" });
     expect(clients[1]).not.toHaveProperty("platform");
+  });
+
+  it("reports agentStreams: none in the clients list, and omits it for a normal session", () => {
+    const svc = new DaemonStatusService({
+      listAgents: () => [],
+      getActiveSessions: () => [
+        fakeSession("quiet", { agentStreams: "none" }),
+        fakeSession("loud", { connectedAt: 2000, agentStreams: "all" }),
+        fakeSession("bare", { connectedAt: 3000 }),
+      ],
+      send: () => {},
+      sampler: makeSampler(),
+    });
+    const clients = svc.oneShot().clients;
+    expect(clients[0]).toMatchObject({ clientId: "quiet", agentStreams: "none" });
+    expect(clients[1]).not.toHaveProperty("agentStreams");
+    expect(clients[2]).not.toHaveProperty("agentStreams");
   });
 
   it("zero agents yields an empty agentsByStatus", () => {

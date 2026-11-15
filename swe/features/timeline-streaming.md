@@ -18,7 +18,7 @@ through the daemon's current tail.
 ### Delivery paths
 | Path | Message | Guarantee |
 |------|---------|-----------|
-| Live stream | `agent_stream` | Immediacy; may be delta-shaped lifecycle updates |
+| Live stream | `agent_stream` | Immediacy; may be delta-shaped lifecycle updates. Sent only to sessions whose `hello.agentStreams` is `"all"` (default); a `"none"` session gets none and reads history |
 | Authoritative history | `fetch_agent_timeline_request` → response | Full projected items, never deltas |
 
 ### Fetch request/response (shape)
@@ -46,7 +46,8 @@ through the daemon's current tail.
 on agent event:
     append projected row(s) to the timeline store (epoch, seq)
     persist alongside the agent record
-    broadcast agent_stream to subscribed clients (delta or full per event)
+    send agent_stream to subscribed sessions with agentStreams "all" (delta or full per event);
+    sessions with "none" get none (the timeline is appended to regardless; history stays fetchable)
 
 on fetch_agent_timeline_request:
     return a bounded page of FULL projected items in the requested direction

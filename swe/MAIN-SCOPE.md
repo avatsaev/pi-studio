@@ -288,7 +288,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/self-update.md](features/self-update.md)                       | feature      | In-UI daemon self-update: toolbar indicator, Settings → Update panel, npm install + `pi update --extensions` + unattended daemon restart |
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
 | [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
-| [features/desktop-client-protocol-followups-2.md](features/desktop-client-protocol-followups-2.md) | feature      | Second round for the desktop client: download by path with ranges, size, resume validator and cancel (the download token is **removed**), `hello.agentStreams` (`all`/`none`), `--json` on `daemon start/restart/pair/stop`, fixtures `formatVersion` 2 — **2026-11-15: sprint 097 (download half) built; sprint 098 (agent stream mode, CLI `--json`) planned, not built** |
+| [features/desktop-client-protocol-followups-2.md](features/desktop-client-protocol-followups-2.md) | feature      | Second round for the desktop client: download by path with ranges, size, resume validator and cancel (the download token is **removed**), `hello.agentStreams` (`all`/`none`), `--json` on `daemon start/restart/pair/stop`, fixtures `formatVersion` 2 — **shipped (sprints 097 and 098, 2026-11-15; first carried by 0.0.119)** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -417,6 +417,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads are unpaced
       and the relay path was not exercised live — see
       [features/desktop-client-protocol-followups.md § TODO(verify)](features/desktop-client-protocol-followups.md).
-- [ ] Desktop protocol follow-ups II: a second binary `Begin` fixture under one opcode is assumed
-      to pass the round-trip test; out-of-tree readers of `transferToken` were not checked — see
+- [x] Desktop protocol follow-ups II: a second binary `Begin` fixture under one opcode passes the
+      round-trip test; out-of-tree readers of `transferToken` were not checked; the agent-stream mode
+      was live-checked with the mock provider only (no real Pi turn, no live relay) — see
       [features/desktop-client-protocol-followups-2.md § TODO(verify)](features/desktop-client-protocol-followups-2.md).

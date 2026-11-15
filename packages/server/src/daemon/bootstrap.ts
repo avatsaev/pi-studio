@@ -863,6 +863,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               clientId: hello.data.clientId,
               clientType: hello.data.clientType,
               platform: hello.data.platform,
+              agentStreams: hello.data.agentStreams,
               capabilities,
               appVersion: hello.data.appVersion,
               transport: "relay",

@@ -1,7 +1,7 @@
 # Task 002 — SDK `agentStreams` option and the `hello.agentStreams` fixture
 
 - **Sprint:** sprint-098-agent-stream-mode-cli-json
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client (handshake), packages/protocol (fixtures), packages/server (live fixture scenario)
 - **Priority:** P2
