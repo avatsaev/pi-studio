@@ -584,7 +584,12 @@ files.stop(); // stop routing; pending downloads and uploads are rejected
   `AbortError` at once and sends `file_download_cancel_request { stream }`; frames still arriving
   for the stream are ignored. The id is released on a terminal frame (the daemon sends `Error`
   `cancelled`), on a refused request, or on a `not_found` cancel — not earlier, or a reused id
-  would receive the dead transfer's `cancelled`. `pendingDownloads` counts ids still held. A
+  would receive the dead transfer's `cancelled`. **A request that times out is cancelled the same
+  way** (it rejects with the `RpcTimeoutError`): the daemon may still accept it and stream, so the
+  id is not freed under it. Because `DaemonClient` drops the answer of a timed-out request, the
+  client watches session messages for that request's late refusal, which no frame follows, and
+  frees the id on it. A request answered with an `rpc_error` frees the id at once.
+  `pendingDownloads` counts ids still held. A
   closed/closing connection (watched only while a download is pending, so an idle client holds no
   listener) and `stop()` reject every download and free every id.
 - **Resume** = `{ offset: bytesReceived, ifUnchanged: { size: totalBytes, mtimeMs } }` from the

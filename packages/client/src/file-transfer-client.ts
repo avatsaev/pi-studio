@@ -5,7 +5,7 @@ import {
   SLOT_SPACE,
 } from "@av-pi-studio/protocol";
 
-import { randomId, type DaemonClient } from "./daemon-client.js";
+import { randomId, RpcTimeoutError, type DaemonClient } from "./daemon-client.js";
 
 /**
  * Client-side demux for binary file downloads plus chunked uploads
@@ -96,6 +96,8 @@ interface PendingDownload {
   /** The caller has its answer; the id is still held until the daemon is done with it. */
   settled: boolean;
   detachAbort: (() => void) | null;
+  /** Set after the request timed out: stops watching for the daemon's late answer to it. */
+  detachLate: (() => void) | null;
   resolve: (result: DownloadResult) => void;
   reject: (error: Error) => void;
 }
@@ -287,8 +289,10 @@ export class FileTransferClient {
    * - **Rejects** with the daemon's error code when the request is refused (`not_found`,
    *   `changed`, `stream_in_use`, …), with the `Error` frame's message (`read_failed`, `changed`,
    *   `cancelled`) when the transfer fails midway, and when the connection closes or {@link stop}
-   *   is called. It rejects before sending anything when the daemon did not advertise
-   *   `fileDownloadRanges`.
+   *   is called. A request the daemon does not answer within the RPC timeout rejects with that
+   *   timeout and is cancelled the same way as an abort, so a daemon that accepts it late cannot
+   *   stream into an id that was handed to another download. It rejects before sending anything
+   *   when the daemon did not advertise `fileDownloadRanges`.
    * - **Abort.** `signal` aborting rejects with an `AbortError` and sends
    *   `file_download_cancel_request { stream }`. The stream id is held until the daemon has said
    *   nothing more will arrive on it (a terminal frame, or a refusal), so a late frame can never
@@ -322,6 +326,7 @@ export class FileTransferClient {
         progressed: false,
         settled: false,
         detachAbort: null,
+        detachLate: null,
         resolve,
         reject,
       };
@@ -335,8 +340,10 @@ export class FileTransferClient {
 
       // The response only says yes or no: the range metadata arrives in-band on `Begin`, which
       // may be dispatched before this continuation runs.
+      const requestId = randomId();
       this.daemon
         .request<DownloadRequestResponse>("file_download_request", {
+          requestId,
           path,
           stream,
           offset,
@@ -351,7 +358,15 @@ export class FileTransferClient {
             this.release(stream, entry);
           },
           (error: unknown) => {
-            // Timed out or socket killed: no frame will ever release the id.
+            if (error instanceof RpcTimeoutError) {
+              // No answer in time. The daemon may still accept the request and stream on this id,
+              // so it is cancelled like an abort instead of being freed under a transfer that
+              // could yet start.
+              this.abortDownload(stream, entry, error);
+              this.watchLateRefusal(stream, entry, requestId);
+              return;
+            }
+            // The daemon answered with an error, or the socket went: no frame will free the id.
             this.finish(entry, { error: asError(error) });
             this.release(stream, entry);
           },
@@ -392,7 +407,23 @@ export class FileTransferClient {
   private release(stream: number, entry: PendingDownload): void {
     if (this.pending.get(stream) !== entry) return;
     this.pending.delete(stream);
+    entry.detachLate?.();
+    entry.detachLate = null;
     if (this.pending.size === 0) this.unwatchConnection();
+  }
+
+  /**
+   * After its request timed out, a download's answer no longer reaches `request`, yet a late
+   * refusal is followed by no frame: watch for it, or the id would stay claimed until the
+   * connection ends. A late acceptance needs nothing here; its terminal frame frees the id.
+   */
+  private watchLateRefusal(stream: number, entry: PendingDownload, requestId: string): void {
+    if (this.pending.get(stream) !== entry) return;
+    entry.detachLate = this.daemon.onSessionMessage((message) => {
+      const late = message as unknown as { type?: string; requestId?: string; ok?: boolean };
+      if (late.type !== "file_download_response" || late.requestId !== requestId) return;
+      if (late.ok === false) this.release(stream, entry);
+    });
   }
 
   /**
@@ -422,7 +453,11 @@ export class FileTransferClient {
     const entries = [...this.pending.values()];
     this.pending.clear();
     this.unwatchConnection();
-    for (const entry of entries) this.finish(entry, { error });
+    for (const entry of entries) {
+      entry.detachLate?.();
+      entry.detachLate = null;
+      this.finish(entry, { error });
+    }
   }
 
   /** Watch the connection only while a download is pending, so an idle client holds no listener. */

@@ -136,6 +136,11 @@ it back exactly.
 After an accepted response: `Begin`, zero or more `Chunk`, then exactly one of `End` or `Error`.
 Opcodes, the two-byte header and the 32 KiB chunk size are unchanged.
 
+**One exception: an early cancel.** A download cancelled before its stream has started sends
+`Error` `cancelled` alone, with **no `Begin`**. This happens when the cancel request reaches the
+daemon while it is still opening the file (§ 1.4). A client must accept `Error` as the first and
+only frame of a stream.
+
 | Frame | Change |
 |---|---|
 | `Begin` metadata | Gains `mtimeMs`, `offset`, `length`; `totalBytes` is now always set on a download. Same values as the response |
@@ -152,6 +157,18 @@ No message follows `End` or `Error`.
 | Response | `{ ok: true }`, or `{ ok: false, error: "not_found" }` when this session has no download on `stream` |
 
 On `ok: true` the daemon stops reading and sends `Error` with `cancelled` on the stream.
+
+The stream id is reserved as soon as the download request arrives, before the file is opened, so a
+cancel sent right after the request finds it and answers `ok: true` **before** the download request
+itself has been answered. What follows then is exactly one of:
+
+| The open… | The client receives |
+|---|---|
+| succeeds | `file_download_response { ok: true, … }`, then `Error` `cancelled` with no `Begin` |
+| fails | `file_download_response { ok: false, error }` and no frame |
+
+So after a cancel answered `ok: true`, a stream ends with an `Error` frame or with the refusal of
+its request, never with silence.
 
 #### 1.5 Removed
 
@@ -266,8 +283,9 @@ on file_download_request { path, stream?, offset = 0, length?, ifUnchanged? }:
                                -> changed { totalBytes: size, mtimeMs }
     effective = min(length ?? infinity, size - offset)
 
-    register (session, stream) as an active download
+    register (session, stream) as an active download      # done first, before the file is opened
     reply { ok, stream, transferId, totalBytes: size, mtimeMs, offset, length: effective }
+    if cancelled already:  send Error "cancelled"; release; stop      # no Begin (§ 1.3)
     send Begin { transferId, fileName, mimeType, totalBytes: size, mtimeMs, offset, length: effective }
 
     sent = 0
@@ -312,9 +330,11 @@ downloadTo(path, sink, { offset, length, ifUnchanged, signal, onProgress }):
     stream = next free id; register it BEFORE sending the request
     response = request file_download_request { path, stream, offset, length, ifUnchanged }
     if not response.ok: release stream; reject response.error
+    if the request times out: reject with the timeout; cancel and keep the id as for an abort;
+                     a late refusal of the request (no frame follows one) releases the id
     on Chunk: sink(chunk); received += size; onProgress(received, response.length)
     on End:   release; resolve { ...Begin metadata }
-    on Error: release; reject message
+    on Error: release; reject message              # also when no Begin came first (early cancel)
     on signal abort: reject AbortError at once; request file_download_cancel_request { stream };
                      keep the id registered until a terminal frame arrives, the request is refused,
                      or the cancel answers not_found (a late `Error cancelled` must not reach a
