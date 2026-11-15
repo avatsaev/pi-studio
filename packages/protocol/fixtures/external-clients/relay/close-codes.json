@@ -1,0 +1,84 @@
+{
+  "description": "Close codes of relay protocol 2 (relay-protocol.md § 3). The close reason string is `name`. Entries with a null name are standard codes with no relay-specific reason.",
+  "since": "0.0.121",
+  "codes": [
+    {
+      "code": 4100,
+      "name": "protocol_error",
+      "sender": "relay",
+      "condition": "Invalid first frame, wrong `v`, malformed `sessionId`, a client frame before `relay_paired`"
+    },
+    {
+      "code": 4101,
+      "name": "identify_timeout",
+      "sender": "relay",
+      "condition": "No first frame within 10 s"
+    },
+    {
+      "code": 4102,
+      "name": "daemon_offline",
+      "sender": "relay_to_client",
+      "condition": "No control socket for the session id"
+    },
+    {
+      "code": 4103,
+      "name": "daemon_unresponsive",
+      "sender": "relay_to_client",
+      "condition": "The daemon did not attach within 10 s"
+    },
+    {
+      "code": 4104,
+      "name": "too_many_clients",
+      "sender": "relay_to_client",
+      "condition": "The session id already has 32 connections"
+    },
+    {
+      "code": 4105,
+      "name": "daemon_outdated",
+      "sender": "relay_to_client",
+      "condition": "No control socket, but a silent old-protocol socket is parked under the session id"
+    },
+    {
+      "code": 4106,
+      "name": "unknown_connection",
+      "sender": "relay_to_daemon_data_socket",
+      "condition": "The `connectionId` is not waiting: the client left, or the id is wrong"
+    },
+    {
+      "code": 4107,
+      "name": "replaced",
+      "sender": "relay_to_daemon_control_socket",
+      "condition": "A newer control socket registered the same session id"
+    },
+    {
+      "code": 4108,
+      "name": "ping_timeout",
+      "sender": "relay",
+      "condition": "Two unanswered pings"
+    },
+    {
+      "code": 4109,
+      "name": "peer_closed",
+      "sender": "relay",
+      "condition": "The other half closed with a code that cannot be forwarded"
+    },
+    {
+      "code": 4200,
+      "name": "channel_error",
+      "sender": "client_or_daemon",
+      "condition": "A channel frame failed: authentication, order, format"
+    },
+    {
+      "code": 1009,
+      "name": null,
+      "sender": "relay_or_daemon",
+      "condition": "A frame above the 100 MiB frame-size limit (message too big)"
+    },
+    {
+      "code": 1001,
+      "name": null,
+      "sender": "relay",
+      "condition": "The relay is shutting down (going away)"
+    }
+  ]
+}

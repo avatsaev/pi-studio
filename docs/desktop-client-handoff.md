@@ -115,7 +115,7 @@ The seam between the two halves is narrow on purpose: one interface for socket f
 |---|---|---|
 | `@av-pi-studio/protocol` | Zod schemas, binary frame codecs, capability flags | Also ships `fixtures/external-clients/`, the wire contract for non-TypeScript clients |
 | `@av-pi-studio/client` | `DaemonClient` (handshake, RPC correlation, liveness), `PiStudioClient` facade, `ReconnectionManager`, file transfer and terminal routers | The webview keeps using this |
-| `@av-pi-studio/relay` | Relay E2EE channel primitives (TypeScript) | Reference implementation for the Rust port |
+| `@av-pi-studio/relay` | Relay protocol 2: encrypted channel and control frames (TypeScript), and the relay server | Reference implementation for the Rust port |
 | `@av-pi-studio/ui-library` | Design tokens, six themes, primitives, `styles.css`, `reset.css` | See `packages/ui-library/README.md` and `DESIGN_SYSTEM.md` |
 | `@av-pi-studio/workbench` | The application: every feature, its stores and its reducers, behind one host object | See below |
 
@@ -255,7 +255,7 @@ Rules the bridge must honour:
 - **Host header.** The daemon validates `Host` against `PI_STUDIO_HOSTNAMES` (default
   `localhost,*.localhost`). The WebSocket upgrade does not check `Origin`.
 - **Client type.** `hello.clientType` is an enum of `mobile`, `browser`, `cli`, `mcp`. Send
-  `browser`: a daemon rejects an unknown value, and on a relay connection it does so silently.
+  `browser`: a daemon rejects an unknown value (close 1008, on a relay connection too).
   Also send `platform: "desktop"` (an optional free-form string, max 32 characters; a bad value is
   dropped, not rejected). Every daemon accepts the field, including 0.0.117 (checked: a 0.0.117
   daemon answered `server_info` to a `hello` carrying it); a daemon from this release on reports it
@@ -384,21 +384,21 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
   (so a client holding two connections must send an upload's frames on the connection that sent its
   `file_upload_request`), and a closed session releases its streams and file handles.
 - **Download pacing (daemon, shipped).** The daemon pauses reading the file while the socket has more
-  than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for **direct
-  connections only**: the relay's stand-in socket cannot report a queue, so relay downloads are
-  unpaced. A read error after the response has gone sends one `Error` frame (`read_failed`) and **no**
-  `End`; the file ending early sends `Error` `changed`. Treat `Error` as final.
-- The daemon's reaction to an invalid `hello` on a direct connection (not only the relay) is **not**
-  silent: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
-  fails validation. Only the relay path ignores it without an answer. Either way `clientType` must
-  stay inside the enum.
+  than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for direct
+  connections and, since relay protocol 2, for relay connections too: a relay session reports its
+  data socket's real queue, and the relay itself applies the same marks per pair. A read error after
+  the response has gone sends one `Error` frame (`read_failed`) and **no** `End`; the file ending
+  early sends `Error` `changed`. Treat `Error` as final.
+- The daemon's reaction to an invalid `hello` is **not** silent, on a direct connection or over a
+  relay: it closes the socket with code 1008 (`first frame must be hello`) when the first frame
+  fails validation. `clientType` must stay inside the enum.
 
 Recommended design:
 
 - Open a **second daemon connection owned entirely by Rust** for bulk transfers. It needs its own
   handshake, so it removes the head-of-line blocking and avoids multiplexing two writers onto the
-  interactive socket. Over the relay this means a second encrypted channel; **unverified** that the
-  relay accepts two channels for one daemon from the same client.
+  interactive socket. Over the relay this is a second paired socket and channel; protocol 2 allows
+  it (up to 32 connections per daemon, each its own daemon session).
 - Upload by local path and download to a local path, streaming with backpressure. The bytes never
   enter the webview. Native drag-and-drop yields real paths, which fits directly.
 - Expose progress and cancel to the webview through the host adapter.
@@ -411,22 +411,42 @@ a dropped connection (downloads can, with `offset` and `ifUnchanged`), and the c
 
 ### 3. Relay E2EE
 
-`packages/relay/src/channel.ts` and `packages/client/src/relay-transport.ts` are the reference.
-Specification: `swe/architecture/relay-e2ee.md`.
+`packages/relay/src/channel.ts`, `packages/relay/src/control.ts` and
+`packages/client/src/relay-transport.ts` are the reference. Specification:
+`swe/architecture/relay-protocol.md` (wire) and `swe/architecture/relay-e2ee.md` (pairing and
+identity). Fixtures to test against: `packages/protocol/fixtures/external-clients/relay/`.
 
-- The client generates a fresh ephemeral Curve25519 keypair per connection and sends
-  `e2ee_hello {ephemeralPublicKey}`; the daemon answers `e2ee_ready`.
-- Shared key: Curve25519 ECDH (NaCl `box.before`).
-- Each message: `base64(24-byte random nonce ++ box(plaintext))`, XSalsa20-Poly1305.
-- Binary application frames travel as `e2ee_bin`, a JSON text frame carrying base64 ciphertext.
-  The relay never sees a raw binary WebSocket frame.
-- The relay session id derives from the daemon's public key (`deriveRelaySessionId`), which comes
-  from the pairing link (`pi-studio daemon pair`).
+- **Sockets.** One WebSocket to the relay per client connection. Its first frame is JSON text:
+  `relay_client_connect {v: 2, sessionId}`. Wait for `relay_paired {connectionId}` and send nothing
+  before it. After that, **every frame is binary**; a text frame is a protocol error. The session id
+  derives from the daemon's public key (`deriveRelaySessionId`: SHA-512, first 16 bytes, hex), which
+  comes from the pairing link (`pi-studio daemon pair`).
+- **Handshake.** Generate a fresh Curve25519 keypair per connection. Send `hello` = `0x01` ‖ your
+  public key (32). The daemon answers `ready` = `0x01` ‖ salt (15) ‖ box of a `ready` record. Opening
+  that box proves the daemon holds its secret key; send nothing before it opens.
+- **Messages.** Shared key = NaCl `box.before(daemonPublicKey, yourSecretKey)`. Each frame is a bare
+  XSalsa20-Poly1305 box of one record: kind byte (`0x01` text = UTF-8 daemon-protocol JSON,
+  `0x02` binary = one daemon-protocol binary frame) ‖ payload. Nonce (24 bytes) = salt (15) ‖
+  direction (`0x01` client to daemon, `0x02` daemon to client) ‖ counter (8 bytes, big-endian);
+  counters start at 0 per direction (the daemon's `ready` uses its counter 0, so its next message
+  uses 1) and never travel on the wire. A box that fails to open, a text frame or an unknown kind
+  closes the socket with `4200 channel_error`.
+- **Refusals and limits.** The relay closes with codes 4100–4109 (reason = name; `4102`
+  `daemon_offline`, `4103` `daemon_unresponsive`, `4104` `too_many_clients`, `4105`
+  `daemon_outdated`); 32 clients per daemon; the whole connect should fail after 15 s. A close
+  code the relay cannot forward arrives as `4109 peer_closed`. The relay pings every 30 s: answer
+  pings (any WebSocket library does) or the socket is closed `4108`.
+- **Backpressure.** The relay stops reading from a sender whose peer has more than 1 MiB queued
+  (resumes at 256 KiB), and the daemon paces downloads by its data socket's real queue.
 
 In Rust this is a second implementation of the same `Transport` contract, invisible to the webview.
-It moves the per-frame encryption and base64 off the JavaScript main thread. Both source files
-carry `TODO(verify)` notes on the registration frame and on in-session replay protection; read them
-before porting.
+The library is the `crypto_box` crate (XSalsa20-Poly1305 `SalsaBox`); check it against `keys.json`
+first. It moves the per-frame encryption off the JavaScript main thread. Measured on loopback only
+(600 MiB through a real relay, 2026-11-15): download 4.2 s (~143 MiB/s), upload 4.4 s (~138 MiB/s);
+with the client socket paused for 30 s the daemon's RSS grew by 51.6 MiB and the relay stayed at
+~123 MiB; a second client kept getting answers (p50 0.84 ms, max 9.75 ms). Real networks were not
+measured. Older daemons (0.0.120 and earlier) speak protocol 1: the relay parks them and a
+protocol-2 client sees `daemon_outdated`.
 
 ### 4. Native shell
 
@@ -498,6 +518,10 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
 - `packages/protocol/fixtures/external-clients/` holds one canonical JSON frame per message an
   external client uses (84 JSON entries, `formatVersion` 2 since 0.0.119). Vendor it and deserialize
   every fixture in Rust tests. Its README explains the format and the breaking-change policy.
+  Its `relay/` subdirectory (own `formatVersion` 1) fixes relay protocol 2: test keys (public test
+  material), the control frames, the close codes and every channel frame as exact bytes. A Rust
+  relay client rebuilds each channel frame from `keys.json` with `crypto_box` and compares bytes,
+  without a live relay.
 - Since 0.0.118 the fixtures cover **file transfer and terminals**: the `file_download_*`,
   `file_upload_*`, `file_upload_complete` and `*_terminal_*` RPCs plus `terminals_update`, each
   checked against a live dev daemon. Most have no Zod schema, so the live test is their only guard.
@@ -525,14 +549,19 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
-4. **Relay in Rust.** Check: a paired remote daemon works with the same behaviour as direct.
+4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the
+   relay fixtures. Check: a paired remote daemon works with the same behaviour as direct.
 5. **Native shell features.** Daemon supervision, menus, notifications, updates.
 
 ## Open questions
 
 - Does the desktop app bundle a daemon, or only connect to existing ones?
 - Do the dashboard's Rust crates move to a shared repository or a published crate?
-- Does the relay accept a second channel from the same client for the bulk connection?
+- ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
+  (relay protocol 2, 0.0.121): yes. A relay pairs one client socket with one daemon data socket per
+  connection, up to 32 per daemon, each with its own channel and daemon session, so a second
+  connection from the same client is an ordinary second client. Verified on loopback only: with
+  one client socket paused, a second client kept getting answers (p50 0.84 ms, max 9.75 ms).
 - Should the protocol gain upload resume and a larger chunk size? Download resume shipped in sprint
   097; upload resume and the chunk size are out of scope for the follow-ups spec.
 - Is ordered, low-overhead binary delivery over Tauri IPC fast enough for terminal traffic?
@@ -544,7 +573,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` needs editing before
 | Whole-system orientation | `AGENTS.md` (root) |
 | WebSocket protocol | `swe/architecture/websocket-protocol.md` |
 | Client runtime layers | `swe/architecture/client-app-runtime.md` |
-| Relay E2EE | `swe/architecture/relay-e2ee.md` |
+| Relay protocol 2 (wire) | `swe/architecture/relay-protocol.md` |
+| Relay identity and pairing | `swe/architecture/relay-e2ee.md` |
 | External-client fixtures | `swe/architecture/external-client-fixtures.md`, `packages/protocol/fixtures/external-clients/README.md` |
 | File transfer | `swe/features/file-explorer-transfer.md` |
 | Terminals | `swe/features/terminals.md` |

@@ -1,8 +1,9 @@
 # `@av-pi-studio/relay` — AGENTS.md
 
-E2EE relay channel primitives, plus a standalone runnable relay server. Lets a client reach a
-daemon behind a firewall/NAT without opening inbound ports, while the relay itself stays
-zero-knowledge (see `swe/architecture/relay-e2ee.md`). Published to npm as
+Relay protocol 2: the encrypted channel primitives, plus a standalone runnable relay server. Lets
+several clients reach a daemon behind a firewall/NAT without opening inbound ports, while the relay
+itself stays zero-knowledge (see `swe/architecture/relay-protocol.md`; pairing and identity in
+`swe/architecture/relay-e2ee.md`). Published to npm as
 `@av-pi-studio/relay`; ships both as a library and as a `pi-studio-relay` CLI binary.
 
 ---
@@ -14,14 +15,13 @@ Provides the encrypted **channel** abstraction shared by the daemon (outbound re
 `relay-transport.ts`). Both sides construct a channel over an abstract `Transport` (any send/receive
 text-frame link) and get an identical API: `createDaemonChannel` / `createClientChannel`.
 
-Also ships two ways to actually run a relay:
-- **Hosted**: `cf-adapter.ts`/`session-bridge.ts` — a Cloudflare Workers WebSocketPair adapter.
-- **Self-hosted**: `relay-server.ts`/`relay-main.ts` — a plain Node process, runnable directly
-  (`npx @av-pi-studio/relay`), managed by `packages/cli`'s `pi-studio relay start|stop|status`, or
-  containerized via `docker/relay.Dockerfile` (tiny stateless image; see `docker/README.md`).
+Also ships a runnable relay: `relay-server.ts`/`relay-main.ts` — a plain Node process speaking
+relay protocol 2 (pairs one client socket with one daemon data socket per connection), runnable
+directly (`npx @av-pi-studio/relay`), managed by `packages/cli`'s `pi-studio relay start|stop|status`,
+or containerized via `docker/relay.Dockerfile` (tiny stateless image; see `docker/README.md`).
 
-Either way, the relay only ever forwards frames produced by this package's channel layer — it
-never has the keys to read or forge them.
+The relay only ever forwards frames produced by the endpoints — it never has the keys to read or
+forge them.
 
 ---
 
@@ -29,13 +29,15 @@ never has the keys to read or forge them.
 
 ```
 src/
-  index.ts             Re-exports channel.ts, base64.ts, session-id.ts, session-bridge.ts,
-                        cf-adapter.ts. Deliberately does NOT re-export relay-server.ts /
+  index.ts             Re-exports channel.ts, base64.ts, session-id.ts, control.ts.
+                        Deliberately does NOT re-export relay-server.ts /
                         relay-logger.ts (Node-only: node:http, ws, node:fs) — see "./server"
                         subpath export below.
-  channel.ts           createClientChannel(), createDaemonChannel(), Transport,
-                        EncryptedChannelEvents, ConnectionRole, RelaySessionAttachment,
-                        EncryptedChannel.
+  channel.ts           Protocol-2 channel (relay-protocol.md § 4): createClientChannel(),
+                        createDaemonChannel(), Transport (byte frames), ChannelEvents, Channel.
+                        Binary frames only; NaCl box with salt ‖ direction ‖ counter nonce;
+                        hello / encrypted ready exchange; any failure → close 4200 channel_error.
+                        Seams: randomBytes (daemon salt), keyPair (client), counterStart/counterLimit.
   channel.test.ts
   base64.ts             Pure-JS base64 codec (no Node Buffer — runs in browser/RN too).
   base64.test.ts
@@ -50,23 +52,21 @@ src/
                         previously-printed pairing link couldn't reference. Adds no new secret —
                         the public key is already the pairing link's trust anchor.
   session-id.test.ts
-  session-bridge.ts     RelaySessionBridge — platform-agnostic verbatim frame-forwarding core any
-                        relay server implementation bridges through (register by session id,
-                        forward everything else untouched).
-  session-bridge.test.ts
-  cf-adapter.ts          createCloudflareRelayHandler() — thin Cloudflare Workers WebSocketPair
-                        wrapper around RelaySessionBridge. Hosted deployment/ops (wrangler config,
-                        the `fetch` export) are OUT of scope — this is the reusable bridging hook a
-                        `fetch` handler wires an upgrade through.
-  cf-adapter.test.ts
-  relay-server.ts       startRelayServer() — standalone, runnable self-hosted relay: a plain Node
-                        `http`+`ws` WebSocket server wired to the same RelaySessionBridge, plus a
-                        bare `GET /health` (200 `ok`) liveness endpoint. Node-only (imports
+  control.ts            Protocol-2 control vocabulary, pure/browser-safe: frame types,
+                        encodeControlFrame, parseFirstFrame (never throws), parseRelayFrame,
+                        isValidSessionId/isValidConnectionId, RELAY_CLOSE (4100–4109, 4200),
+                        isForwardableCloseCode, RELAY_DEFAULTS (limits/timers), newConnectionId.
+  control.test.ts
+  relay-server.ts       startRelayServer() — standalone, runnable relay for protocol 2: a plain Node
+                        `http`+`ws` WebSocket server (control sockets, pairing, refusals, parking of
+                        old-protocol sockets, frame/close forwarding), plus a bare `GET /health`
+                        (200 `ok`) liveness endpoint. Node-only (imports
                         `node:http`, `ws`) — exposed via the `"./server"` package export subpath,
                         NOT the main barrel, so it never drags `node:http` into a browser bundle
                         that transitively imports this package (e.g. web-client, via
                         `@av-pi-studio/client`'s relay transport).
-  relay-server.test.ts
+  relay-server.test.ts  Real `ws` sockets against the real server, short injected timers and small
+                        flow-control marks (a stopped reader proves pause/resume and the queue bound).
   relay-logger.ts       createRelayLogger() — pino operational logger for the self-hosted relay.
                         stdout ALWAYS (pretty on a TTY, NDJSON otherwise, so `docker logs` works),
                         plus an optional rotating NDJSON file via `logDir` /
@@ -92,60 +92,60 @@ src/
 
 ## Public API (`src/channel.ts`)
 
-### `createDaemonChannel(opts): EncryptedChannel`
+### `createDaemonChannel(opts): Channel`
 ```ts
-interface CreateDaemonChannelOptions {
+interface DaemonChannelOptions {
   transport: Transport;
-  attachment: RelaySessionAttachment;
   /** The daemon's PERSISTENT keypair (`daemon-keypair.json`) — not per-connection ephemeral. */
   daemonKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
-  events?: EncryptedChannelEvents;
+  events: ChannelEvents;
+  randomBytes?: (length: number) => Uint8Array;  // salt source (test seam)
+  counterStart?: bigint; counterLimit?: bigint;  // test seams (default 0n / 2^64)
 }
 ```
-Waits for the peer's `e2ee_hello { ephemeralPublicKey }`, derives `sharedKey = ECDH(daemonSecret,
-clientEphemeralPublic)`, replies `e2ee_ready`, then becomes `ready`. Refuses (silently drops) any
-`e2ee_app` frame received before that. **Re-arms on every subsequent `e2ee_hello` too** — it does
-NOT latch onto the first client forever. The relay places no cap on how many sockets attach to one
-session id (a browser reload, a second tab, or a plain reconnect are all indistinguishable from a
-brand-new peer at the bridge layer), so the SAME long-lived daemon channel object can legitimately
-see a hello from a different client days after the first one. Re-deriving the shared key on each
-hello is idempotent for an actual replay (same ephemeral key → same shared key) and correct for a
-genuinely new peer ("last hello wins"); the alternative — ignoring every hello after the first —
-was a real bug: every peer but the first got stuck forever below `ready`
-(`cannot send before the E2EE handshake completes`), since the daemon never replied `e2ee_ready`.
+One channel per data socket. The first frame must be a binary `hello` (`0x01` ‖ client public
+key); the channel derives `sharedKey = box.before(clientPublic, daemonSecret)`, draws a fresh
+15-byte salt, sends `ready` and fires `onReady`. There is no re-hello: a new client is a new
+socket and so a new channel (the relay pairs one client socket with one data socket).
 
-### `createClientChannel(opts): EncryptedChannel`
+### `createClientChannel(opts): Channel`
 ```ts
-interface CreateClientChannelOptions {
+interface ClientChannelOptions {
   transport: Transport;
-  attachment: RelaySessionAttachment;
   /** The daemon's persistent public key, obtained via the pairing offer (URL fragment). */
   daemonPublicKey: Uint8Array;
-  events?: EncryptedChannelEvents;
+  events: ChannelEvents;
+  keyPair?: { publicKey: Uint8Array; secretKey: Uint8Array };  // default: fresh nacl.box.keyPair()
+  counterStart?: bigint; counterLimit?: bigint;
 }
 ```
-Generates a FRESH ephemeral Curve25519 keypair, derives the shared key immediately (it already
-knows the daemon's persistent public key), sends `e2ee_hello`, and becomes `ready` only once
-`e2ee_ready` arrives.
+Uses a FRESH ephemeral keypair, derives the shared key at once (it knows the daemon's public key),
+sends `hello` from its constructor, and opens only once the `ready` box has opened (proof the other
+end holds the daemon secret). It sends nothing before that.
 
-### `EncryptedChannel`
+### `Channel`, `ChannelEvents`, `Transport`
 ```ts
-interface EncryptedChannel {
-  readonly role: "client" | "daemon";
-  readonly attachment: RelaySessionAttachment;   // { sessionId }
-  readonly ready: boolean;
-  send(plaintext: string): void;        // text app traffic — throws if not ready, or after close()
-  sendBinary(bytes: Uint8Array): void;  // binary app traffic (terminal I/O, file-transfer chunks) —
-                                         // same crypto/gating as send(), tagged e2ee_bin not e2ee_app
-  close(): void;
+interface Channel {
+  send(text: string): void;             // text record — throws before open or after close
+  sendBinary(bytes: Uint8Array): void;  // binary record (terminal I/O, file-transfer chunks)
+  close(code?: number, reason?: string): void;  // default 1000
+}
+interface ChannelEvents {
+  onText(text: string): void;
+  onBinary(bytes: Uint8Array): void;
+  onReady?(): void;   // daemon: hello accepted + ready sent; client: ready box opened
+  onClose?(code?: number, reason?: string): void;
+  onError?(cause: Error): void;  // any channel failure; the channel then closes 4200 itself
+}
+interface Transport {  // caller-supplied binary-frame socket
+  send(bytes: Uint8Array): void;
+  onFrame(handler: (frame: Uint8Array | string) => void): void;  // a string = text frame = protocol error
+  onClose(handler: (code?: number, reason?: string) => void): void;
+  close(code?: number, reason?: string): void;
 }
 ```
-`sendBinary`/`onBinaryMessage` are the binary siblings of `send`/`onMessage` — identical
-handshake gating, identical ECDH shared key, identical auth-failure-drops-silently behavior, just
-fed raw bytes and tagged `e2ee_bin` on the wire instead of `e2ee_app`. Still a JSON text WS frame
-under the hood (base64-wrapped ciphertext) — no raw binary WebSocket frames are involved, so
-nothing downstream of the channel layer (the bridge, the self-hosted relay, the Cloudflare
-adapter) needed to change to support this.
+Also exported: `CHANNEL_VERSION`, `CHANNEL_SALT_LENGTH`, `RECORD_KIND`, `CHANNEL_DIRECTION`,
+`channelNonce(salt, direction, counter)`.
 
 ### `deriveRelaySessionId(publicKey: Uint8Array): string` (`session-id.ts`)
 SHA-512 of the public key, truncated to the first 16 bytes (32 lowercase hex chars). Pure function,
@@ -154,64 +154,23 @@ deterministic — same key always yields the same id, distinct keys always yield
 relay-routed pairing: the daemon's outbound dial and the client's relay transport when no
 `sessionId` is passed explicitly.
 
-### `Transport` (caller-supplied; the concrete relay WS transport is wired in by task-002/003)
-```ts
-interface Transport {
-  send(data: string): void;
-  onMessage(handler: (data: string) => void): void;
-  onClose(handler: (reason?: string) => void): void;
-  close(): void;
-}
-```
+### Control protocol 2 (`control.ts`)
+Shared by relay server, daemon and SDK (architecture/relay-protocol.md §§ 1–3). `encodeControlFrame(frame)`;
+`parseFirstFrame(data)` → `daemon_register | client_connect | daemon_attach | legacy | invalid` (never
+throws); `parseRelayFrame(data)` → `relay_registered | relay_dial | relay_paired | null`;
+`isValidSessionId` / `isValidConnectionId` (32 lowercase hex); `RELAY_CLOSE` (`{code, reason}` per
+name); `isForwardableCloseCode(code)`; `RELAY_DEFAULTS` (limits and timers); `newConnectionId(randomBytes?)`
+(tweetnacl default).
 
 ---
 
-## Public API (`src/session-bridge.ts`, `src/cf-adapter.ts`)
+## Removed modules
 
-```ts
-class RelaySessionBridge {
-  constructor(events?: RelayBridgeEvents); // optional metadata-only lifecycle hooks (logging)
-  attach(socket: RelaySocket): void;     // pairs sockets by session id; forwards non-registration frames verbatim
-  peerCount(sessionId: string): number;  // observability/test helper
-}
-
-interface RelayBridgeEvents {
-  onRegisterRejected?(socket): void;                    // first frame wasn't relay_register (still ignored)
-  onRegister?(socket, sessionId, peers): void;          // peers = post-add session socket count
-  onForward?(sessionId, bytes): void;                   // per peer delivery, frame SIZE only
-  onUnregister?(socket, sessionId, peers): void;        // peers = post-removal count
-}
-
-function createCloudflareRelayHandler(opts: {
-  bridge: RelaySessionBridge;
-  createWebSocketPair?: () => CfWebSocketPair;  // inject in tests; defaults to the real Workers global
-}): (upgradeHeader: string | null) => { status: number; webSocket?: CfWebSocket };
-```
-`RelayBridgeEvents` is how the relay server logs without ever inspecting traffic: every hook
-receives only metadata the relay already legitimately sees (session ids, peer counts, frame
-sizes) — never frame contents. A hook that parses or logs payload data would break the
-zero-knowledge property just as surely as parsing in `attach()` would.
-
-`RelaySessionBridge` is the platform-agnostic bridging core — it inspects ONLY the first frame a
-socket sends (to detect `{"type":"relay_register","sessionId":"..."}`, matching the daemon/client
-registration convention from task-002/003); every subsequent frame is forwarded byte-for-byte to
-every OTHER socket sharing that session id, with **no** `JSON.parse` or inspection beyond that. This
-is the literal implementation of "a compromised relay can see only metadata... never message
-contents" — the bridge structurally cannot read `e2ee_app` ciphertext because it never looks at it.
-**No cap on peers per session id** — the backing `Set<RelaySocket>` grows unbounded as sockets
-register; the bridge doesn't know or care that the E2EE protocol above it expects "one daemon,
-one client" at a time. A daemon channel that dials once and lives for its whole process (the real
-deployment shape — see `relay-transport.ts`) can see MANY client sockets attach/detach under the
-same session id over its lifetime; `createDaemonChannel` is responsible for handling each one's
-`e2ee_hello` correctly, not the bridge.
-
-`createCloudflareRelayHandler` is a thin adapter: on a WebSocket upgrade it creates a
-`WebSocketPair`, `.accept()`s the SERVER side, attaches it to the bridge, and returns the CLIENT
-side for the caller's `fetch` handler to return in a `101` response
-(`new Response(null, { webSocket, status: 101 })`). It deliberately declares its own minimal
-structural `CfWebSocket`/`CfWebSocketPair` types instead of depending on
-`@cloudflare/workers-types`, so the browser-safe main barrel stays free of platform-specific type
-dependencies; the real Workers globals satisfy the structural shape naturally.
+The old session-bridge and Cloudflare-adapter modules are deleted:
+the bridge forwarded every frame to every other
+socket under a session id (a second client saw the first one's traffic, and the daemon could not
+tell clients apart), and the Cloudflare adapter had no deployment. `relay-server.ts` is the only
+relay implementation.
 
 ## Public API (`src/relay-server.ts`, `src/relay-main.ts`)
 
@@ -220,20 +179,69 @@ function startRelayServer(opts: {
   host?: string;  // default "0.0.0.0" — unlike the daemon, the relay must accept remote dials
   port: number;
   logger?: RelayLogger;  // default: silent (tests/embedded); relay-main.ts passes a real stdout logger
+  limits?: Partial<RelayLimits>;  // overrides of RELAY_DEFAULTS (tests: short timers, small frame size)
 }): Promise<{
-  host: string; port: number; bridge: RelaySessionBridge;
+  host: string; port: number;
+  counts(): { controls: number; waiting: number; pairs: number; parked: number }; // read-only, tests
+  flow(): { pausedDirections: number; peakQueuedBytes: number }; // read-only, tests
   close(): Promise<void>;
 }>;
 ```
-A plain Node `http` server exposing `GET /health` (200 `ok`) plus a `ws.WebSocketServer` that
-`attach()`es every incoming socket to a fresh `RelaySessionBridge` — daemon and client connections
-are treated identically; the bridge only distinguishes them by session id, never by role.
+A plain Node `http` server exposing `GET /health` (200 `ok`) plus a `ws.WebSocketServer`
+(`maxPayload` = `limits.maxFrameBytes`, 100 MiB by default; an oversize frame closes 1009) that
+implements relay protocol 2 (architecture/relay-protocol.md § Behavior — Relay). State: `controls`
+(session id → control socket), `waiting` (connection id → client socket), `pairs`, `parked`
+(session id → old-protocol sockets with a silent flag), and a per-session count of waiting + paired
+connections (the 32-client cap, D10). The first frame of every socket goes through
+`parseFirstFrame`:
 
-With a logger injected, the server logs the full connection lifecycle: `connection open` (short
-conn id + remote address), `session registered` (session id + peer count; "both peers attached"
-when the second peer joins), `peer detached`, `connection closed` (close code, durationMs,
-bytesIn/bytesOut per connection), warns on pre-registration non-register frames, and errors on
-socket failures. Frame forwarding is logged at `trace` level with byte counts only.
+- invalid (bad JSON, binary, `v` ≠ 2, bad ids, unknown type) → `4100 protocol_error`; no first
+  frame within `identifyTimeoutMs` (10 s) → `4101`;
+- `relay_register` (protocol 1) → the socket is **parked**: kept open, never answered, never
+  forwarded, its later frames ignored except that the first one clears its silent flag. The
+  silent-flag rule lives in one function (`looksLikeOutdatedDaemon`), so dropping S9 reduces to
+  "any parked socket ⇒ `daemon_outdated`";
+- `relay_daemon_register` → the control socket, answered `relay_registered`; an older control
+  socket for the same id is closed `4107 replaced` while its pairs keep running;
+- `relay_client_connect` → `4102 daemon_offline` without a control socket (`4105
+  daemon_outdated` instead when a silent parked socket is under that id), `4104
+  too_many_clients` at 32 waiting + paired, otherwise a 32-hex `connectionId` is minted,
+  `relay_dial` goes to the control socket and the attach timer (`attachTimeoutMs`, 10 s; on
+  expiry `4103 daemon_unresponsive`) starts. A client frame before `relay_paired` → `4100`;
+- `relay_daemon_attach` → `4106 unknown_connection` unless a waiting entry has that id **and** that
+  session id; otherwise the pair forms and both sockets get `relay_paired { connectionId }`.
+
+After pairing, every frame is forwarded unchanged and in order (`ws.send(data, { binary })`),
+never parsed. When one half closes, the other is closed with the same code and reason if
+`isForwardableCloseCode` (incl. 1008 and the workbench's `4000 stale-connection-probe`), else `4109
+peer_closed`; a socket that ends abnormally (1006) or without a status (1005) is therefore seen as
+`4109` by its peer. A control socket's close deletes `controls[S]` only if it is still the current
+one; waiting entries and pairs stay (D15).
+
+With a logger injected, the server logs (metadata only): `control socket registered` / `replaced`
+/ `closed`, every refusal (`refused: <detail>`, with code and reason), every `parked old-protocol
+socket`, and one `pair closed` line per finished pair (connection id, session id, `timeToPairMs`,
+`bytesToDaemon`/`bytesToClient`, `durationMs`, `closedBy`, `code`, `reason`). Connection open/close
+and pairing are `debug`; socket errors are `error`.
+
+**Flow control** (per direction of each pair, D17): after each forward, if the receiver's
+`bufferedAmount` is above `flowHighWaterBytes` (1 MiB) the relay `ws.pause()`s the *sender* (TCP
+backpressure then reaches the daemon, whose download pacing works through the relay); a 10 ms poll
+resumes it once the receiver is at or below `flowLowWaterBytes` (256 KiB) or no longer open. The two
+directions of a pair, and different pairs, are independent. The queue can overshoot the high mark by
+the frames already read in the chunk that crossed it. `endPair` and `close()` resume paused senders
+first (a paused socket cannot read its peer's close reply).
+
+**Pings** (D17): every `pingIntervalMs` (30 s) the relay pings every socket — control, waiting,
+paired and parked ones alike (D3: an old daemon answers pings and is never closed). A `pong`
+resets the socket's unanswered count; a socket with two unanswered pings at the next tick is closed
+`4108 ping_timeout`, its tables are cleaned up at once (a dead peer never completes the close
+handshake), and its pair partner is closed with the same code. A socket whose reads flow control
+has paused cannot answer and is not counted. A receiver draining slower than 1 MiB per two ping
+intervals can therefore be timed out.
+
+**Shutdown**: `close()` stops the ping timer, sends `1001 going away` to every open socket, waits
+up to 2 s for them to close, terminates the rest, then closes the HTTP server.
 
 `relay-main.ts` is the CLI-facing process entry (`bin: pi-studio-relay`): parses `--listen host:port`
 / `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the operational logger
@@ -250,13 +258,19 @@ detached child's stdio is ignored.
 
 ## Wire format
 
-- Handshake frames (JSON, **plaintext**, visible to the relay): `{"type":"e2ee_hello","ephemeralPublicKey":"<base64>"}`,
-  `{"type":"e2ee_ready"}`.
-- App frames: `{"type":"e2ee_app","frame":"<base64(nonce ++ ciphertext)>"}` where `nonce` is 24
-  random bytes and `ciphertext = nacl.box.after(utf8(plaintext), nonce, sharedKey)`
-  (XSalsa20-Poly1305). Receive: split nonce/ciphertext, `nacl.box.open.after`; auth failure → the
-  frame is silently dropped and `onAuthError` fires — it never throws into the transport's message
-  loop.
+Authoritative spec: `swe/architecture/relay-protocol.md`. In short:
+
+- **Control frames** (JSON text, plaintext, only as the first frames of a socket): `relay_daemon_register`,
+  `relay_registered`, `relay_client_connect`, `relay_dial`, `relay_daemon_attach`, `relay_paired`
+  (`control.ts`). After `relay_paired` every frame is binary.
+- **`hello`** (client → daemon): `0x01` ‖ client public key (32). **`ready`** (daemon → client):
+  `0x01` ‖ salt (15) ‖ box of a `ready` record (daemon-to-client counter 0). Every later frame is a
+  bare box of a record: one kind byte (`0x01` text = UTF-8, `0x02` binary) plus payload.
+- Nonce = salt (15) ‖ direction (`0x01` client→daemon, `0x02` daemon→client) ‖ counter (8, big-endian),
+  starting at 0 per direction. `box = nacl.box.after(record, nonce, sharedKey)` (XSalsa20-Poly1305).
+- A text frame after pairing, a short or unopenable box, an unknown record kind, or a `ready`
+  record anywhere but first → `onError` and close 4200 `channel_error`; nothing from the frame is
+  delivered.
 
 ---
 
@@ -267,31 +281,28 @@ detached child's stdio is ignored.
   derives its shared key from the daemon's known public key before the handshake even starts) will
   never be able to compute a matching key.
 - **The client's keypair is always fresh per channel** (no persistent client-side secret to steal).
-- **Session-key freshness**: a new channel = a new ECDH derivation, so ciphertext cannot replay
-  across sessions. Replay protection **within** a live session is NOT implemented (random nonces,
-  no counter) — TODO(verify) per architecture/relay-e2ee.md.
+- **Nonce uniqueness**: the nonce is daemon salt (15 random bytes, drawn per connection, sent in
+  clear in `ready`) ‖ direction ‖ 64-bit counter that is never on the wire. A relay replaying a
+  recorded client `hello` makes the daemon derive the same key but a new salt, so no key+nonce pair
+  is ever reused. A box that does not open at the expected counter (replay, reorder, reflection,
+  tamper) closes the channel with 4200 `channel_error`. A side closes before a counter would wrap.
 - **No Node-only APIs** in the main-barrel modules (`base64.ts`; `channel.ts` uses
   `TextEncoder`/`TextDecoder`, also available in browsers/RN) — everything `index.ts` re-exports
   must run identically in the daemon and in a browser/RN client transport. Node-only code
   (`relay-server.ts`, `relay-logger.ts`) lives behind the `"./server"` subpath.
-- **Relay logs are metadata-only.** Any logging wired to `RelayBridgeEvents` (or added to
-  `relay-server.ts`) may record connection ids, remote addresses, session ids, peer counts,
-  durations, and byte sizes — NEVER frame contents. The relay can't read ciphertext anyway;
-  logging must not weaken that guarantee for plaintext-visible frames either.
-- **Never throw from a message handler** on malformed/tampered input — drop and report via
-  `onAuthError`/return early instead, since a hostile or buggy relay must not be able to crash
-  either side.
-- **A daemon channel must accept a fresh `e2ee_hello` at any point in its life, not just once.**
-  The relay imposes no cap on peers per session id (`RelaySessionBridge.attach` — see
-  `peerCount`), and the daemon dials the relay once for its whole process lifetime under one
-  deterministic session id (`relay-transport.ts`). A browser reload, a second tab, or a plain
-  reconnect are all just "another socket sends `relay_register` under the same session id" from
-  the bridge's point of view — `createDaemonChannel` MUST re-derive and re-arm rather than
-  latching `ready` to the first peer forever. Regression test:
-  `session-bridge.test.ts`'s "a SECOND client, connecting after the first one dropped, …" — it
-  hangs/times out without the re-arm fix and passes with it.
-- **`RelaySessionBridge.attach()` never inspects post-registration frames.** Adding any parsing
-  there (even for debugging) breaks the zero-knowledge property the whole package exists for.
+- **Relay logs are metadata-only.** Logging in `relay-server.ts` may record connection ids,
+  remote addresses, session ids, durations, close codes and byte sizes — NEVER frame contents.
+  The relay can't read ciphertext anyway; logging must not weaken that guarantee for
+  plaintext-visible frames either.
+- **Never throw from a frame handler** on malformed/tampered input — report via `onError`, close
+  4200 and return early instead, since a hostile or buggy relay must not be able to crash either
+  side.
+- **Protocol 1 is gone.** The old `e2ee_*` JSON channel, the shared-session bridge and the Cloudflare
+  adapter are deleted. A protocol-1 peer's `relay_register` socket is only ever parked by the
+  relay (never answered or forwarded); there is no compatibility path.
+- **The relay never parses a frame after `relay_paired`.** `relay-server.ts` forwards paired
+  sockets' frames as received, text or binary. Adding any parsing there (even for debugging)
+  breaks the zero-knowledge property the whole package exists for.
 - **`relay-server.ts` and `relay-logger.ts` are never re-exported from the main barrel
   (`index.ts`).** They import `node:http`/`ws`/`node:fs`; re-exporting them there would drag
   those Node-only imports into any bundler that resolves this package's main entry — including
@@ -307,8 +318,7 @@ detached child's stdio is ignored.
 ```bash
 npx vitest run packages/relay/src/channel.test.ts
 npx vitest run packages/relay/src/base64.test.ts
-npx vitest run packages/relay/src/session-bridge.test.ts
-npx vitest run packages/relay/src/cf-adapter.test.ts
+npx vitest run packages/relay/src/control.test.ts
 npx vitest run packages/relay/src/relay-server.test.ts
 npx vitest run packages/relay/src/relay-logger.test.ts
 ```

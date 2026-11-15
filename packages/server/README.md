@@ -231,24 +231,26 @@ To use a **different `pi` binary** than the bundled one, set
 extend the `pi` provider via `"extends": "pi"` (a custom provider must also set a `label`).
 
 **Relay (opt-in, off by default):** with `daemon.relay.enabled: true`, the daemon dials outbound
-to the `endpoint` (a self-hosted `@av-pi-studio/relay` server or Cloudflare Workers deployment)
-after the WS server is up, so remote clients can reach it without an inbound port. It registers
-under a **deterministic** rendezvous session id derived from its own persistent public key
-(`deriveRelaySessionId`, `@av-pi-studio/relay`) — the same id on every (re)connect, so a pairing
-link printed once (`pi-studio daemon pair`) keeps working across relay drops/restarts. See
+to the `endpoint` (a self-hosted `@av-pi-studio/relay` server) after the WS server is up, so remote
+clients can reach it without an inbound port. It keeps one **control socket** registered under a
+**deterministic** rendezvous session id derived from its own persistent public key
+(`deriveRelaySessionId`, `@av-pi-studio/relay`), so a pairing link printed once
+(`pi-studio daemon pair`) keeps working across relay drops and restarts. A dropped control socket
+is redialed with backoff (1 s doubling to 30 s, ±20 %); a relay that never answers the registration
+within 10 s speaks an older protocol, and the daemon logs that the relay must be updated. See
 `@av-pi-studio/relay`'s README for running a relay (`pi-studio-relay` bin / `pi-studio relay
 start`). Direct WebSocket connections are completely unaffected either way — the relay only adds
 an additional connection path.
 
-The same pairing link can be opened by any number of clients over the daemon's lifetime — each
-one gets its own fresh E2EE handshake and its own daemon-side `Session` (see `relay-transport.ts`'s
-`onHandshake` → `bootstrap.ts`'s `resetRelaySession()`); connecting a second client after a first
-one disconnected is a normal, supported reconnection, not a re-pairing.
-
-Terminal I/O and file-transfer chunks work over a relay connection too — the daemon and client
-encrypt binary application data as the relay channel's `e2ee_bin` frame (a base64-wrapped JSON
-text frame, not a raw binary WebSocket frame; see `@av-pi-studio/relay`'s README § Wire protocol),
-so no daemon or web-client feature is direct-connection-only.
+Each client that opens the pairing link gets its **own** daemon connection: the relay asks the
+daemon over the control socket to open a data socket for it, and the two run their own E2EE
+handshake, `hello` and daemon-side `Session`. Several clients (up to 32) can be connected at once
+and none replaces another; closing one disposes only its session. Terminal I/O and file-transfer
+chunks work over a relay connection like over a direct one (the channel carries text and binary
+application messages as encrypted binary frames; see `@av-pi-studio/relay`'s README § Wire
+protocol), and file downloads are paced on the connection's queue, so no daemon or web-client
+feature is direct-connection-only. A daemon on this version needs a protocol-2 relay (and clients
+on protocol 2): older relays and clients cannot connect.
 
 ---
 
@@ -435,7 +437,7 @@ The daemon logs its full operational lifecycle through one `pino` logger created
 (`src/logging/logger.ts`): startup (home, config, serverId), agent recovery, WS client
 connect/disconnect (with close code + duration), upgrade/auth rejections, every RPC (at `debug`,
 with duration; failures at `warn`), agent create/turn lifecycle (prompt *sizes*, never contents),
-terminal open/kill/exit, `pi` provider process spawn/exit, and relay dial events.
+terminal open/kill/exit, `pi` provider process spawn/exit, and relay events (control socket connected/registered/closed with the next redial delay, replaced, outdated relay, ignored dials, data-socket close).
 
 Output goes to **stdout always** — pretty on a TTY, NDJSON otherwise (so `docker logs` /
 journald / PM2 work out of the box) — **plus** a rotating NDJSON file under

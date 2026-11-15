@@ -123,6 +123,39 @@ files. A plain `rsync -a --delete` of this directory carries `binary/` along har
   is additive. This rule is enforced by review and by the round-trip test (a codec edit that moves
   the bytes fails it); there is no signature guard for binary fixtures.
 
+## Relay fixtures
+
+The relay protocol 2 contract (control frames, close codes, encrypted channel) is fixtured in the
+**`relay/` subdirectory** (since 0.0.121), with its own `manifest.json` and its own `formatVersion`
+(starting at 1), for the same reason as `binary/`: top-level `manifest.json` and its `formatVersion`
+are untouched. A Rust (or other) relay client tests against these bytes without a live relay.
+
+**Every key in `relay/keys.json` is test material (`"testMaterial": true`) and is public. Never use
+it for a real daemon.**
+
+| File | Purpose |
+|---|---|
+| `relay/manifest.json` | `{"formatVersion": 1, "files": [{"file","group"}]}`; `group` is `keys`, `control`, `close_codes` or `channel`; the test fails on an unlisted or missing file |
+| `relay/keys.json` | Daemon and client key pairs (hex), the 15-byte `salt`, the derived `sessionId` (`deriveRelaySessionId`), the `box.before` `sharedKey`, and the example `connectionId` used by the control fixtures |
+| `relay/control.<type>.json` | One per relay control frame: `relay_daemon_register`, `relay_registered`, `relay_client_connect`, `relay_dial`, `relay_daemon_attach`, `relay_paired`. `text` is the exact JSON text of the WebSocket frame |
+| `relay/control.relay_register.legacy.json` | The protocol 1 `relay_register` frame (`"parked": true`): a protocol 2 relay keeps such a socket open and idle |
+| `relay/close-codes.json` | `codes`: `code`, `name` (the close reason string, null for 1001 and 1009), `sender`, `condition` |
+| `relay/channel.hello.json`, `relay/channel.ready.json` | The two handshake frames as `hex` plus a `decoded` form (version, client public key; salt, ready record, counter 0, nonce) |
+| `relay/channel.<direction>.<kind>.json` | A text and a binary message each way: client to daemon at counters 0 and 1, daemon to client at counters 1 and 2. `hex` is the whole binary frame; `decoded` has `kind`, `kindByte`, `counter`, `nonce` and `payload` (text) or `payloadHex` (binary) |
+
+- **How to use them.** Compare your control-frame text and close codes with the files. Rebuild each
+  channel frame from the keys and salt with your own implementation (box of `kind byte ‖ payload`,
+  nonce = salt ‖ direction byte ‖ 8-byte big-endian counter) and compare the bytes; open each `hex`
+  and compare with `decoded`. The nonce and counter are never on the wire.
+- Layer A is `packages/relay/src/relay-fixtures.test.ts`: it rebuilds every file from the keys
+  through the real `channel.ts` (injected key pair and salt) and `encodeControlFrame`, checks
+  `RELAY_CLOSE`, and fails on an unlisted or missing file or any changed byte.
+  `relay-server.test.ts` proves the frames the real server sends equal the control-frame text.
+  To regenerate after an intended change: `UPDATE_RELAY_FIXTURES=1 npx vitest run
+  packages/relay/src/relay-fixtures.test.ts`.
+- **Breaking-change rule.** As for `binary/`: a change to an existing file's bytes, text or
+  `decoded` shape bumps `formatVersion` in `relay/manifest.json` with a dated `CHANGELOG.md` entry.
+
 ## Compatibility rule ("bump + note")
 
 These files are the published contract for clients outside this repo. Therefore:

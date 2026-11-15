@@ -1,0 +1,8 @@
+{
+  "type": "relay_register",
+  "direction": "daemon_to_relay",
+  "description": "The registration frame of relay protocol 1 (0.0.120 and earlier). A protocol 2 relay PARKS the socket: it keeps it open and idle, answers nothing, forwards nothing and ignores later frames. A socket that has stayed silent counts as an outdated daemon (close 4105 `daemon_outdated` to a client). Not a frame a protocol 2 client or daemon sends.",
+  "since": "0.0.115",
+  "parked": true,
+  "text": "{\"type\":\"relay_register\",\"sessionId\":\"bdece9e2be20db8c37b51a6c0dadfee7\"}"
+}

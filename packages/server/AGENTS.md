@@ -53,8 +53,24 @@ src/
                                    in bootstrap.ts; `close()` kills every PTY.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
                                    wired onto the real disk-backed services (bootstrap.ts only).
-    relay-transport.ts            connectRelay — outbound E2EE relay dial (@av-pi-studio/relay),
-                                   opt-in via config.daemon.relay.enabled (bootstrap.ts only).
+    relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
+                                   random?, timers? }) — keeps ONE control socket registered with
+                                   protocol 2 (`relay_daemon_register`; 10 s registration answer,
+                                   90 s silence) and redials it with backoff (1→30 s ±20 %, a fixed
+                                   30 s after close 4107 `replaced`); opens a RelayConnection per
+                                   `relay_dial` (cap 32, extra dials ignored and logged). close()
+                                   also closes every data socket. Opt-in via
+                                   config.daemon.relay.enabled (bootstrap.ts only).
+    relay-connection.ts           openRelayConnection — one relay data socket per client connection
+                                   (protocol 2): dials, sends relay_daemon_attach, waits for
+                                   relay_paired, runs createDaemonChannel; RelayConnection (text,
+                                   binary, bufferedAmount, isOpen, close(code), onClose once).
+    relay-sessions.ts             attachRelaySession — one Session per RelayConnection: first text
+                                   record must be a valid hello (else close 1008, same reasons as
+                                   ws-server.ts), capability store by clientId, status/server_info
+                                   reply, socket facade (bufferedAmount/isOpen/close), later records
+                                   to the injected router; conn close → deps.onSessionClose (the
+                                   same disposal a direct close runs). Wired by bootstrap.ts.
 
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
@@ -580,8 +596,8 @@ src/
 3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket.
 4. Emits `status`/`server_info` after accepting the hello — including `homeDir: os.homedir()`, the
    daemon host's home directory, which every remote client (browser, relay peer, possibly on another
-   OS) needs to expand a `~` path against the right machine. The relay handshake path in
-   `daemon/bootstrap.ts` reports the same value; keep the two in sync.
+   OS) needs to expand a `~` path against the right machine. The relay handshake path
+   (`buildServerInfo` in `daemon/bootstrap.ts`, sent by `relay-sessions.ts`) reports the same value; keep the two in sync.
 5. Calls `deps.onSession(session)` once handshake completes.
 6. Routes subsequent frames to `deps.onMessage(session, frame)`.
 
@@ -599,8 +615,8 @@ src/
 - `session.send(msg)` — sends a JSON-serialised message.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
 - `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.agentStreams` (`"all"` | `"none"`, from `hello.agentStreams`, fixed for the connection, set on both the direct and the relay `hello` path; `"none"` receives no `agent_stream` frame — **every** send site of one passes its audience through `agentStreamRecipients(sessions)` in `session.ts` (both branches of `appendStreamEvent` and the two `user_message` sites in `agent-service.ts`, one in `session-operations.ts`'s steer/follow-up); a new `agent_stream` send site must do the same; the event is appended to the timeline regardless; advertised as `agentStreamsMode`; reported on `daemon_status` client entries only when not `"all"`), `session.capabilities`.
-- `session.bufferedAmount` (the socket's unflushed bytes, `undefined` for the relay's stand-in socket) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
-- Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A replaced/reset relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
+- `session.bufferedAmount` (the socket's unflushed bytes — a direct socket's, or a relay connection's data socket's; `undefined` only for a stand-in socket that cannot say) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
+- Connection metadata (optional ctor opts; defaults `connectedAt = Date.now()`, `transport = "direct"`): `connectedAt`, `appVersion` (hello's, verbatim), `remoteAddress` (direct sessions only), `transport`. Connection facts, not capabilities: never written to the capability store. A closed relay session runs the same `SessionSubscriptions.disposeSession` a direct close does.
 
 ### Agent subsystem (`agent/`)
 
@@ -1550,14 +1566,15 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   - *Paced download.* `run(sink, pacing)` pauses the disk read while
     `session.bufferedAmount` is above `DOWNLOAD_HIGH_WATER_BYTES` (1 MiB) and resumes at or below
     `DOWNLOAD_LOW_WATER_BYTES` (256 KiB), polling every 10 ms (`ws` has no drain event). The marks were
-    chosen, not measured, and are injectable (`FileTransferDeps`). A socket that cannot report its queue
-    (**the relay's stand-in socket**) is not paced, so relay downloads still queue the whole file: the
-    spec's bounds hold for direct connections only. A socket that closes mid-transfer ends it with no
+    chosen, not measured, and are injectable (`FileTransferDeps`). A socket that cannot report its
+    queue (`bufferedAmount` `undefined`) is not paced; direct sockets and relay connections both
+    report it (a relay session reports its data socket's queue), so relay downloads are paced like
+    direct ones. A socket that closes mid-transfer ends it with no
     further frames (no `End`, no `Error`).
   - *Read error.* One `Error` frame (`read_failed`), no `End`; the response was already sent.
   - *Owned streams.* Each pending upload records the opening session's id; binary frames from any
-    other session are ignored, and `disposeSession(session)` (called from both `onSessionClose` and
-    the relay-session reset) frees the stream and closes the handle. Frames carry the `PendingUpload`
+    other session are ignored, and `disposeSession(session)` (the one closure in `bootstrap.ts`
+    that both direct and relay session closes run) frees the stream and closes the handle. Frames carry the `PendingUpload`
     they were queued for, so a frame still in flight can never land on a recycled stream id.
   - *`fileTransferAck`.* `file_upload_request.ack === true` makes the daemon push
     `file_upload_complete` (`{transferId, stream, ok, bytesWritten, error?}`) to the uploading
@@ -1810,8 +1827,8 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
 handlers are registered by `registerDaemonStatusHandlers` in **both** `bootstrap.ts` and
 `dev-bootstrap.ts`. Both build the service just before the `AgentManager` (agents are read lazily via
 `manager.list()`, which already excludes archived agents) and call `disposeSession` from
-`onSessionClose`; production also calls it from `resetRelaySession` (a replaced relay peer never
-fires `onSessionClose`) and `dispose()` on `close()`.
+`onSessionClose` (production: the shared `disposeSession` closure, which a relay connection's close
+also runs) and `dispose()` on `close()`.
 
 - **Snapshot:** `version` (`SERVER_VERSION`, `version.ts`), `pid`, `nodeVersion`, `startedAt` (wall clock
   at service construction = bootstrap start), monotonic `uptimeMs`, `cpuPercent` (delta of one
@@ -1827,7 +1844,7 @@ fires `onSessionClose`) and `dispose()` on `close()`.
 - **Log streaming:** `DaemonLogsService` + `registerDaemonLogsHandlers` are registered in both
   bootstraps. Each bootstrap creates a `LogTap` (or takes `opts.logTap`), passes it to
   `createDaemonLogger` only when it builds its own logger, and disposes subscriptions from
-  `onSessionClose` (production also in `resetRelaySession`) and the service on `close()`. An injected
+  `onSessionClose` (production: the shared `disposeSession` closure) and the service on `close()`. An injected
   logger streams nothing unless the caller passes the same tap to `createLogger({tap})` and
   `logTap`; a `silentLogger()` daemon answers `ok:true` with `effectiveLevel:"silent"` and no lines.
   Tests: `daemon-logs-e2e.test.ts` (incl. the sentinel redaction scenario at `trace`);
@@ -1977,44 +1994,24 @@ messages are fair game.
   *processes*, but those processes still share the machine's single port space, so two
   concurrently-booting daemons could collide — a real, reproduced ~1-in-6 suite flake. `port: 0`
   makes the collision impossible by construction; do not reintroduce a guessed port.
-- **Relay connections need their own persistent `Session`, not a synthetic one built per message,
-  AND that `Session` must be dropped whenever a NEW peer completes the E2EE handshake — not only
-  on a relay-socket-level reconnect.** Every relay frame must reuse the same `Session` for the life
-  of one relay connection so the `hello`→`status`/`server_info` handshake (which `routeTextFrame`
-  does not itself understand) can complete and capabilities persist across frames — see
-  `relay-transport.ts`'s dispatch in `bootstrap.ts` and its regression test in `bootstrap.test.ts`
-  (a real cross-VM smoke test caught this as a genuine bug: a bare relay dispatch that piped every
-  message into `routeTextFrame` directly hung every relay client indefinitely past the E2EE
-  handshake). Separately: the relay places no cap on how many client sockets attach to the
-  daemon's one long-lived session id over its process lifetime (browser reload, second tab, plain
-  reconnect), and `createDaemonChannel` now re-arms its handshake for each new one
-  (`@av-pi-studio/relay`) rather than latching onto the first client forever. `connectRelay`'s
-  `onHandshake` event fires on every one of those re-handshakes, and `bootstrap.ts` wires it to
-  `resetRelaySession()` — otherwise a second peer's app traffic would get silently attributed to
-  the FIRST peer's now-defunct `Session` (wrong `clientId`/capabilities) instead of starting its
-  own `hello` handshake. This was a real bug caught via a live docker-compose smoke test, not
-  theoretical: a second browser connecting to an already-paired daemon hung forever on
-  "cannot send before the E2EE handshake completes" because the daemon channel silently dropped
-  its `e2ee_hello`.
-- **The relay's synthetic `Session.sendBinary()` and `Session.send()` share one socket-shaped
-  object whose `send(data)` discriminates by argument type** (`string` → `relayReply`/`e2ee_app`,
-  `Uint8Array` → `relayReplyBinary`/`e2ee_bin`) — see `bootstrap.ts`'s relay wiring. Both
-  `relayReply` and `relayReplyBinary` are captured from `connectRelay`'s `onHandshake` callback
-  (which now hands over the channel's `send`/`sendBinary` directly, the moment the handshake
-  completes), and reset (`= null`) alongside `resetRelaySession()` on `onReconnect`, or a stale
-  reply closure from a dead relay socket could be invoked. They used to be captured lazily from
-  `onMessage`/`onBinaryMessage` instead — fine for `relayReply` (the client's first frame is
-  always the text `hello`), but `relayReplyBinary` stayed `null` until the daemon received a
-  BINARY frame from the client. Terminal I/O sends one immediately (`Input`), masking the bug;
-  file downloads never do — the client only ever sends TEXT
-  (`file_download_request`) and expects unprompted BINARY
-  `Begin`/`Chunk`/`End` back — so every relay-routed file download silently hung forever with no
-  error on either side. Regression test: `bootstrap.test.ts`'s "file download round-trips
-  Begin/Chunk/End BINARY frames over relay with no inbound binary frame ever sent by the client
-  first". Terminal I/O and file-transfer chunks ride this binary path — they are real binary
-  application data, but they cross the relay wire as base64-wrapped JSON text frames
-  (`@av-pi-studio/relay`'s `e2ee_bin`), never raw binary WebSocket frames; see that package's
-  AGENTS.md § Wire format for why.
+- **Each relay connection has its own `Session`, and the daemon speaks relay protocol 2 only.**
+  `connectRelay` keeps one control socket and, for every `relay_dial`, opens a `RelayConnection`
+  (own data socket, own E2EE channel, own `hello`); `bootstrap.ts` serves each with
+  `attachRelaySession`. A second client (reload, second tab, another device) never replaces the
+  first; up to 32 connections run at once and more dials are ignored and logged. The session's
+  close is the shared `disposeSession` closure direct sessions use, and the session sits in
+  `relaySessions` (so `getActiveSessions` — broadcasts, `daemon_status` — sees it) only while
+  open. A control-socket drop (backoff redial, or the 30 s wait after `replaced`) never touches
+  open connections. The first text record of a connection must be a valid `hello`
+  (`relay-sessions.ts`): a bare dispatch that piped every record into `routeTextFrame` hung every
+  relay client past the handshake once, so keep that rule and its `bootstrap.test.ts` coverage.
+- **A relay `Session`'s socket is a facade over its `RelayConnection`**: `send(string)` →
+  `sendText`, `send(Uint8Array)` → `sendBinary`, plus real `bufferedAmount`, `isOpen` and
+  `close(code)`. Daemon → client binary needs no inbound binary first (a file download sends
+  unprompted `Begin`/`Chunk`/`End`; the client only ever sends text). Regression test:
+  `bootstrap.test.ts` "file download round-trips Begin/Chunk/End BINARY frames over relay". Text
+  and binary both cross the relay as encrypted binary WebSocket frames, told apart by record kind
+  (see `@av-pi-studio/relay`'s AGENTS.md).
 
 ---
 

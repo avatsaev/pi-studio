@@ -33,7 +33,7 @@ capability flags.
 | Desktop wrapper     | Electron                                                          | Bundles + manages its own daemon subprocess; wraps the Vite web build |
 | CLI                 | Commander.js                                                      | Docker-style commands; same WS protocol                       |
 | Transport           | WebSocket (JSON text frames + small binary framing)               | Direct, via relay, or tunneled through SSH in Electron        |
-| Relay crypto        | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), libsodium       | Zero-knowledge relay                                          |
+| Relay crypto        | Curve25519 ECDH + XSalsa20-Poly1305 (NaCl `box`), tweetnacl       | Zero-knowledge relay                                          |
 | Persistence         | File-based JSON under `$PI_STUDIO_HOME`                           | Zod-validated, atomic temp-file rename; no DB, no migrations  |
 | Package manager     | npm workspaces (monorepo)                                         | Cross-package generated `.d.ts` declarations                  |
 | Lint/format         | oxlint / oxfmt                                                    |                                                               |
@@ -147,7 +147,7 @@ module and ships prebuilt binaries for common platforms.
 | `packages/server/src/server/agent/providers/`                                     | Pi provider adapter (+ in-process mock for tests)                  |
 | `packages/server/src/server/agent/provider-manifest.ts`                           | Provider/mode UI metadata + definitions                            |
 | `packages/server/src/server/agent/provider-registry.ts`                           | Provider client factories                                          |
-| `packages/server/src/server/relay-transport.ts`                                   | Outbound relay connection with E2EE                                |
+| `packages/server/src/daemon/relay-transport.ts`                                   | Outbound relay connection (control + per-client data sockets)      |
 | `packages/server/src/server/schedule/`                                            | Cron-based scheduled agents                                        |
 | `packages/server/src/server/loop-service.ts`                                      | Looping agent runs with verifiers                                  |
 | `packages/server/src/server/chat/`                                                | Chat rooms for agent↔agent / human↔agent messaging                 |
@@ -166,7 +166,7 @@ module and ships prebuilt binaries for common platforms.
 | `packages/web-client/src/`                                                        | Browser shell: `main.tsx`, brand override, build config |
 | `packages/cli/src/commands/`                                                      | CLI command tree                                                   |
 | _(separate repo `pi-studio-desktop`)_                                              | Tauri + Rust desktop app; consumes `@av-pi-studio/workbench` (`docs/desktop-client-handoff.md`) |
-| `packages/relay/src/`                                                             | E2EE channels, crypto, Cloudflare adapter                          |
+| `packages/relay/src/`                                                             | Relay server, E2EE channel, control frames, session id             |
 
 ## 5. Data Model Overview
 
@@ -215,7 +215,7 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | ----------- | ------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
 | Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
 | GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
-| Relay       | Remote access                               | WebSocket + NaCl box   | Hosted or self-hosted (Go impl available)                                                    |
+| Relay       | Remote access                               | WebSocket + NaCl box   | Self-hosted (`packages/relay`, Node)                                                         |
 | SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | Electron-only; daemon remains bound to remote `127.0.0.1:6767`; see `architecture/ssh-gateway-connections.md` |
 | MCP clients | Agent-to-agent control                      | Model Context Protocol | **Not implemented.** `agent/mcp-server.ts` holds a tool registry (17 tools) but nothing serves `/mcp/agents`, no `McpBackend` is implemented, no `daemon.mcp` config exists, and no spawned agent receives `--mcp-config` — so agents cannot reach it and `features/subagents.md` orchestration has never run |
 
@@ -289,6 +289,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/desktop-app.md](features/desktop-app.md)                       | feature      | **Superseded (2026-11-14)** — Electron shell: daemon supervision, windows, browser panes, updates. Desktop is now a Tauri app in a separate repository; see `docs/desktop-client-handoff.md` |
 | [features/desktop-client-protocol-followups.md](features/desktop-client-protocol-followups.md) | feature      | Additive protocol work the desktop client needs: `hello.platform`, paced file transfer with an upload completion push, fixtures for file transfer and terminals (incl. binary frames) — **shipped (sprint-096; first carried by 0.0.118)** |
 | [features/desktop-client-protocol-followups-2.md](features/desktop-client-protocol-followups-2.md) | feature      | Second round for the desktop client: download by path with ranges, size, resume validator and cancel (the download token is **removed**), `hello.agentStreams` (`all`/`none`), `--json` on `daemon start/restart/pair/stop`, fixtures `formatVersion` 2 — **shipped (sprints 097 and 098, 2026-11-15; first carried by 0.0.119)** |
+| [features/relay-multi-client.md](features/relay-multi-client.md) | feature      | Several clients per daemon through the relay, with transfer parity: one daemon socket per client piped by the relay, binary frames, backpressure, message counters on the NaCl box, refusal reasons, fixed-key fixtures; hard cut, pairing unchanged — **built (sprints 099–101, 2026-11-15); ships with the next release after 0.0.120** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -324,6 +325,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/daemon-bootstrap.md](architecture/daemon-bootstrap.md)           | architecture | Daemon startup, PID lock, server id, shutdown                                 |
 | [architecture/websocket-protocol.md](architecture/websocket-protocol.md)       | architecture | Wire envelopes, handshake, RPC namespacing, capability gating, compat rules   |
 | [architecture/relay-e2ee.md](architecture/relay-e2ee.md)                       | architecture | Relay transport, ECDH/NaCl box encryption, pairing                            |
+| [architecture/relay-protocol.md](architecture/relay-protocol.md)               | architecture | Relay protocol 2: control frames, pairing, close codes, limits, the encrypted channel (key exchange, salt and counter nonce, records) — **built (sprints 099–101, 2026-11-15)**; replaces the wire sections of `relay-e2ee.md` |
 | [architecture/persistence.md](architecture/persistence.md)                     | architecture | File-based JSON stores, Zod schemas, atomic writes, all entity shapes         |
 | [architecture/auth-security.md](architecture/auth-security.md)                 | architecture | Password auth, host allowlist, CORS, DNS rebinding, trust boundaries          |
 | [architecture/agent-lifecycle.md](architecture/agent-lifecycle.md)             | architecture | Lifecycle state machine, archive (soft delete), cascade                       |
@@ -368,8 +370,9 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       verify against the current `ServerInfoStatusPayloadSchema` and `CLIENT_CAPS`.
 - [ ] The Pi session file format / session dir is version-sensitive; verify the current layout
       against the live Pi CLI.
-- [ ] Replay protection within a live relay session is not implemented (random nonces, no counter);
-      confirm this is still the case before relying on it.
+- [x] Replay protection within a live relay session: closed by relay protocol 2 (counter nonces,
+      strict order, daemon-chosen salt; a second client no longer evicts the first) — see
+      [architecture/relay-protocol.md](architecture/relay-protocol.md).
 - [ ] Window-state persistence and per-window browser panes in desktop are v1-limited; confirm
       current scope before reimplementing multi-window.
 - [x] Skills manager backend: whether `pi install` preserves an existing same-identity entry's
@@ -414,10 +417,17 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       [architecture/workbench-host-adapter.md § TODO(verify)](architecture/workbench-host-adapter.md).
 - [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
       file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The
-      water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads are unpaced
-      and the relay path was not exercised live — see
+      water marks (1 MiB / 256 KiB / 10 ms) were chosen, not measured; relay downloads were unpaced
+      until relay protocol 2, which paces them via the data socket's real `bufferedAmount` — see
       [features/desktop-client-protocol-followups.md § TODO(verify)](features/desktop-client-protocol-followups.md).
 - [x] Desktop protocol follow-ups II: a second binary `Begin` fixture under one opcode passes the
       round-trip test; out-of-tree readers of `transferToken` were not checked; the agent-stream mode
       was live-checked with the mock provider only (no real Pi turn, no live relay) — see
       [features/desktop-client-protocol-followups-2.md § TODO(verify)](features/desktop-client-protocol-followups-2.md).
+- [ ] Relay multi-client, still open: the 100 MiB frame-size limit is confirmed but rests on no
+      measurement; S9 (outdated daemon vs stale browser tab by silence) still awaits the owner's
+      confirmation (it was built as specified and checked live with the 0.0.120 SDK, not a 0.0.120
+      browser tab); relay throughput was measured on loopback only; `fern check` was not run. An
+      old daemon answering the relay's pings was run (8+ minutes, no redial) — see
+      [features/relay-multi-client.md § TODO(verify)](features/relay-multi-client.md) and
+      [architecture/relay-protocol.md § TODO(verify)](architecture/relay-protocol.md).

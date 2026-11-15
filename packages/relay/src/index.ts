@@ -2,8 +2,7 @@
 export * from "./channel.js";
 export * from "./base64.js";
 export * from "./session-id.js";
-export * from "./session-bridge.js";
-export * from "./cf-adapter.js";
+export * from "./control.js";
 
 // `./relay-server.js` (Node-only: `node:http`, `ws`) is deliberately NOT re-exported here — it
 // would drag `node:http` into every bundler that resolves this package's main entry, including

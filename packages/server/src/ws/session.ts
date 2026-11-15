@@ -84,16 +84,16 @@ export class Session {
   }
 
   /**
-   * Bytes queued on the socket and not yet flushed, or `undefined` when the socket cannot say (the
-   * relay's stand-in socket forwards each frame into an encrypted channel and has no queue to
-   * read). Bulk senders pace themselves on it; `undefined` means "do not pace".
+   * Bytes queued on the socket and not yet flushed, or `undefined` when the socket cannot say (a
+   * stand-in socket with no queue). Direct sockets and relay connections both report it, so bulk
+   * senders pace themselves on it; `undefined` means "do not pace".
    */
   get bufferedAmount(): number | undefined {
     const queued = (this.socket as { bufferedAmount?: unknown }).bufferedAmount;
     return typeof queued === "number" ? queued : undefined;
   }
 
-  /** False once the socket is closing or closed. A socket with no `readyState` (relay) is open. */
+  /** False once the socket is closing or closed. A socket with no `readyState` is open. */
   get isOpen(): boolean {
     const state = (this.socket as { readyState?: unknown }).readyState;
     return typeof state !== "number" || state === WS_OPEN;

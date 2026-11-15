@@ -1,0 +1,7 @@
+{
+  "type": "relay_registered",
+  "direction": "relay_to_daemon",
+  "description": "The relay's answer to `relay_daemon_register`, on the control socket.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_registered\"}"
+}

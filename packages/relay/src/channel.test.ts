@@ -1,342 +1,336 @@
-import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
+import { describe, expect, it } from "vitest";
+import {
+  type ChannelEvents,
+  type Transport,
+  channelNonce,
+  createClientChannel,
+  createDaemonChannel,
+} from "./channel.js";
 
-import { createClientChannel, createDaemonChannel, type Transport } from "./channel.js";
+type Frame = Uint8Array | string;
 
-/** Wires two in-memory `Transport`s together, simulating an untrusted relay passing frames verbatim. */
-function createLinkedTransports(): { client: Transport; daemon: Transport } {
-  const clientHandlers: Array<(data: string) => void> = [];
-  const daemonHandlers: Array<(data: string) => void> = [];
-  const clientCloseHandlers: Array<(reason?: string) => void> = [];
-  const daemonCloseHandlers: Array<(reason?: string) => void> = [];
-
-  const client: Transport = {
-    send: (data) => {
-      for (const h of daemonHandlers) h(data);
-    },
-    onMessage: (h) => clientHandlers.push(h),
-    onClose: (h) => clientCloseHandlers.push(h),
-    close: () => {
-      for (const h of clientCloseHandlers) h("closed");
-      for (const h of daemonCloseHandlers) h("closed");
-    },
-  };
-  const daemon: Transport = {
-    send: (data) => {
-      for (const h of clientHandlers) h(data);
-    },
-    onMessage: (h) => daemonHandlers.push(h),
-    onClose: (h) => daemonCloseHandlers.push(h),
-    close: () => {
-      for (const h of clientCloseHandlers) h("closed");
-      for (const h of daemonCloseHandlers) h("closed");
-    },
-  };
-  return { client, daemon };
+class MemTransport implements Transport {
+  peer!: MemTransport;
+  sent: Uint8Array[] = [];
+  closes: Array<[number | undefined, string | undefined]> = [];
+  frameHandler: (f: Frame) => void = () => {};
+  closeHandler: (c?: number, r?: string) => void = () => {};
+  /** When set, sends are captured and not delivered (a test relays by hand). */
+  hold = false;
+  held: Uint8Array[] = [];
+  send(bytes: Uint8Array): void {
+    this.sent.push(bytes);
+    if (this.hold) this.held.push(bytes);
+    else this.peer.frameHandler(bytes.slice());
+  }
+  onFrame(h: (f: Frame) => void): void {
+    this.frameHandler = h;
+  }
+  onClose(h: (c?: number, r?: string) => void): void {
+    this.closeHandler = h;
+  }
+  close(code?: number, reason?: string): void {
+    this.closes.push([code, reason]);
+  }
+  deliver(f: Frame): void {
+    this.frameHandler(f);
+  }
 }
 
-/** A transport wrapper that records every frame sent by the wrapped side. */
-function spy(transport: Transport): Transport & { sent: string[] } {
-  const sent: string[] = [];
-  return {
-    ...transport,
-    sent,
-    send: (data) => {
-      sent.push(data);
-      transport.send(data);
-    },
-  };
+function pair(): [MemTransport, MemTransport] {
+  const a = new MemTransport();
+  const b = new MemTransport();
+  a.peer = b;
+  b.peer = a;
+  return [a, b];
 }
 
-/** Sets up a fully paired client/daemon channel (handshake already run synchronously). */
-function pairChannels(sessionId = "sess-1") {
-  const daemonKeypair = nacl.box.keyPair();
-  const { client: clientTransport, daemon: daemonTransport } = createLinkedTransports();
+interface Log {
+  texts: string[];
+  bins: Uint8Array[];
+  errors: Error[];
+  ready: number;
+  closed: Array<[number | undefined, string | undefined]>;
+}
+function recorder(): [Log, ChannelEvents] {
+  const log: Log = { texts: [], bins: [], errors: [], ready: 0, closed: [] };
+  return [
+    log,
+    {
+      onText: (t) => log.texts.push(t),
+      onBinary: (b) => log.bins.push(b),
+      onReady: () => void log.ready++,
+      onError: (e) => log.errors.push(e),
+      onClose: (c, r) => log.closed.push([c, r]),
+    },
+  ];
+}
 
-  const daemonMessages: string[] = [];
-  const clientMessages: string[] = [];
-  const daemonBinaryMessages: Uint8Array[] = [];
-  const clientBinaryMessages: Uint8Array[] = [];
-  const daemonAuthErrors: unknown[] = [];
-  const clientAuthErrors: unknown[] = [];
+const daemonKeypair = nacl.box.keyPair();
 
-  // The daemon channel must be created first so it is listening for `e2ee_hello` before the
-  // client sends it (both transports are synchronous, but wiring order still matters for clarity).
+function setup(opts: { hold?: boolean; counterLimit?: bigint; wrongKey?: boolean } = {}) {
+  const [ct, dt] = pair();
+  const [cl, ce] = recorder();
+  const [dl, de] = recorder();
+  const salt = new Uint8Array(15).fill(7);
+  const clientKp = nacl.box.keyPair();
+  // Daemon first (it only reacts to frames), then the client sends hello.
   const daemon = createDaemonChannel({
-    transport: daemonTransport,
-    attachment: { sessionId },
+    transport: dt,
     daemonKeypair,
-    events: {
-      onMessage: (m) => daemonMessages.push(m),
-      onBinaryMessage: (b) => daemonBinaryMessages.push(b),
-      onAuthError: (e) => daemonAuthErrors.push(e),
-    },
+    events: de,
+    randomBytes: () => salt,
+    counterLimit: opts.counterLimit,
   });
   const client = createClientChannel({
-    transport: clientTransport,
-    attachment: { sessionId },
-    daemonPublicKey: daemonKeypair.publicKey,
-    events: {
-      onMessage: (m) => clientMessages.push(m),
-      onBinaryMessage: (b) => clientBinaryMessages.push(b),
-      onAuthError: (e) => clientAuthErrors.push(e),
-    },
+    transport: ct,
+    daemonPublicKey: opts.wrongKey ? nacl.box.keyPair().publicKey : daemonKeypair.publicKey,
+    events: ce,
+    keyPair: clientKp,
+    counterLimit: opts.counterLimit,
   });
-
-  return {
-    client,
-    daemon,
-    daemonKeypair,
-    daemonMessages,
-    clientMessages,
-    daemonBinaryMessages,
-    clientBinaryMessages,
-    daemonAuthErrors,
-    clientAuthErrors,
-  };
+  return { ct, dt, cl, dl, daemon, client, salt, clientKp };
 }
 
-describe("relay encrypted channel", () => {
-  it("gates app messages until the e2ee_hello/e2ee_ready handshake completes", () => {
-    const { client, daemon } = pairChannels();
-    // Over the synchronous in-memory transport, both sides have already completed the handshake.
-    expect(daemon.ready).toBe(true);
-    expect(client.ready).toBe(true);
-    expect(() => daemon.send("x")).not.toThrow();
-    expect(() => client.send("y")).not.toThrow();
+const CHANNEL_ERROR: [number, string] = [4200, "channel_error"];
+
+describe("channel v2", () => {
+  it("exchanges text and binary both ways, in order", () => {
+    const { client, daemon, cl, dl } = setup();
+    expect(cl.ready).toBe(1);
+    expect(dl.ready).toBe(1);
+    client.send("a");
+    client.sendBinary(new Uint8Array([1, 2]));
+    client.send("c");
+    daemon.send("x");
+    daemon.sendBinary(new Uint8Array([9]));
+    expect(dl.texts).toEqual(["a", "c"]);
+    expect(dl.bins).toEqual([new Uint8Array([1, 2])]);
+    expect(cl.texts).toEqual(["x"]);
+    expect(cl.bins).toEqual([new Uint8Array([9])]);
+    expect(cl.errors).toEqual([]);
+    expect(dl.errors).toEqual([]);
   });
 
-  it("refuses to send before the daemon has received e2ee_hello", () => {
-    const daemonKeypair = nacl.box.keyPair();
-    const daemonTransport: Transport = {
-      send: () => {},
-      onMessage: () => {},
-      onClose: () => {},
-      close: () => {},
+  it("uses the byte layout of § 4", () => {
+    const { ct, dt, salt, clientKp, client, daemon } = setup();
+    const hello = ct.sent[0]!;
+    expect(hello.length).toBe(33);
+    expect(hello[0]).toBe(1);
+    expect(hello.subarray(1)).toEqual(clientKp.publicKey);
+
+    const ready = dt.sent[0]!;
+    expect(ready[0]).toBe(1);
+    expect(ready.subarray(1, 16)).toEqual(salt);
+    const key = nacl.box.before(clientKp.publicKey, daemonKeypair.secretKey);
+    const nonceFor = (dir: number, n: number) => {
+      const nonce = new Uint8Array(24);
+      nonce.set(salt, 0);
+      nonce[15] = dir;
+      nonce[23] = n;
+      return nonce;
     };
-    const daemon = createDaemonChannel({
-      transport: daemonTransport,
-      attachment: { sessionId: "sess-lonely" },
-      daemonKeypair,
+    expect(nacl.box.open.after(ready.subarray(16), nonceFor(2, 0), key)).toEqual(
+      new Uint8Array([0]),
+    );
+
+    client.send("hi");
+    client.sendBinary(new Uint8Array([5]));
+    daemon.send("yo");
+    expect(nacl.box.open.after(ct.sent[1]!, nonceFor(1, 0), key)).toEqual(
+      new Uint8Array([1, ...new TextEncoder().encode("hi")]),
+    );
+    expect(nacl.box.open.after(ct.sent[2]!, nonceFor(1, 1), key)).toEqual(new Uint8Array([2, 5]));
+    expect(nacl.box.open.after(dt.sent[1]!, nonceFor(2, 1), key)).toEqual(
+      new Uint8Array([1, ...new TextEncoder().encode("yo")]),
+    );
+    expect(channelNonce(salt, 1, 258n).slice(15)).toEqual(
+      new Uint8Array([1, 0, 0, 0, 0, 0, 0, 1, 2]),
+    );
+  });
+
+  it("draws a different salt per connection for the same hello", () => {
+    const hello = new Uint8Array(33);
+    hello[0] = 1;
+    hello.set(nacl.box.keyPair().publicKey, 1);
+    const salts = [0, 1].map(() => {
+      const [, dt] = pair();
+      const [, de] = recorder();
+      createDaemonChannel({ transport: dt, daemonKeypair, events: de });
+      dt.deliver(hello.slice());
+      return dt.sent[0]!.slice(1, 16);
     });
-    expect(daemon.ready).toBe(false);
-    expect(() => daemon.send("too early")).toThrow(/handshake/);
+    expect(salts[0]).not.toEqual(salts[1]);
   });
 
-  it("round-trips an encrypted app message both ways", () => {
-    const { client, daemon, clientMessages, daemonMessages } = pairChannels();
-    client.send("hello daemon");
-    daemon.send("hello client");
-    expect(daemonMessages).toEqual(["hello daemon"]);
-    expect(clientMessages).toEqual(["hello client"]);
-  });
-
-  it("round-trips an encrypted BINARY app message both ways (terminal I/O / file-transfer chunks)", () => {
-    const { client, daemon, clientBinaryMessages, daemonBinaryMessages } = pairChannels();
-    const inputBytes = new Uint8Array([1, 2, 3, 4, 250, 251, 252, 253, 254, 255]);
-    const outputBytes = new Uint8Array([0, 10, 20, 30, 40]);
-    client.sendBinary(inputBytes);
-    daemon.sendBinary(outputBytes);
-    expect(daemonBinaryMessages).toEqual([inputBytes]);
-    expect(clientBinaryMessages).toEqual([outputBytes]);
-  });
-
-  it("refuses sendBinary before the handshake completes", () => {
-    const daemonKeypair = nacl.box.keyPair();
-    const daemonTransport: Transport = {
-      send: () => {},
-      onMessage: () => {},
-      onClose: () => {},
-      close: () => {},
-    };
-    const daemon = createDaemonChannel({
-      transport: daemonTransport,
-      attachment: { sessionId: "sess-lonely-binary" },
-      daemonKeypair,
-    });
-    expect(() => daemon.sendBinary(new Uint8Array([1]))).toThrow(/handshake/);
-  });
-
-  it("rejects tampered BINARY ciphertext without crashing and without delivering it", () => {
-    const daemonKeypair = nacl.box.keyPair();
-    const daemonHandlers: Array<(data: string) => void> = [];
-    const clientHandlers: Array<(data: string) => void> = [];
-
-    const clientTransport: Transport = {
-      send: (data) => {
-        for (const h of daemonHandlers) h(data);
-      },
-      onMessage: (h) => clientHandlers.push(h),
-      onClose: () => {},
-      close: () => {},
-    };
-    const daemonTransport: Transport = {
-      send: (data) => {
-        for (const h of clientHandlers) h(data);
-      },
-      onMessage: (h) => daemonHandlers.push(h),
-      onClose: () => {},
-      close: () => {},
-    };
-
-    const daemonBinaryMessages: Uint8Array[] = [];
-    const daemonAuthErrors: unknown[] = [];
-    const daemon = createDaemonChannel({
-      transport: daemonTransport,
-      attachment: { sessionId: "sess-tamper-bin" },
-      daemonKeypair,
-      events: {
-        onBinaryMessage: (b) => daemonBinaryMessages.push(b),
-        onAuthError: (e) => daemonAuthErrors.push(e),
-      },
-    });
-    createClientChannel({
-      transport: clientTransport,
-      attachment: { sessionId: "sess-tamper-bin" },
-      daemonPublicKey: daemonKeypair.publicKey,
-    });
-
-    // Build a syntactically valid but cryptographically bogus BINARY app frame and inject it.
-    const bogusBinaryFrame = JSON.stringify({ type: "e2ee_bin", frame: "AAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
-    for (const h of daemonHandlers) h(bogusBinaryFrame);
-
-    expect(daemonAuthErrors.length).toBe(1);
-    expect(String((daemonAuthErrors[0] as Error).message)).toMatch(/binary message failed authentication/);
-    expect(daemonBinaryMessages).toEqual([]);
-    expect(daemon.ready).toBe(true); // a bad frame never tears down the channel
-  });
-
-  it("rejects tampered ciphertext without crashing and without delivering it", () => {
-    const daemonKeypair = nacl.box.keyPair();
-    const daemonHandlers: Array<(data: string) => void> = [];
-    const clientHandlers: Array<(data: string) => void> = [];
-    let lastClientToDaemonFrame = "";
-
-    const clientTransport: Transport = {
-      send: (data) => {
-        lastClientToDaemonFrame = data;
-        for (const h of daemonHandlers) h(data);
-      },
-      onMessage: (h) => clientHandlers.push(h),
-      onClose: () => {},
-      close: () => {},
-    };
-    const daemonTransport: Transport = {
-      send: (data) => {
-        for (const h of clientHandlers) h(data);
-      },
-      onMessage: (h) => daemonHandlers.push(h),
-      onClose: () => {},
-      close: () => {},
+  describe("failures close with channel_error and deliver nothing", () => {
+    function held() {
+      const s = setup();
+      s.ct.hold = true;
+      s.dt.hold = true;
+      return s;
+    }
+    const failed = (log: Log, t: MemTransport) => {
+      expect(t.closes).toEqual([CHANNEL_ERROR]);
+      expect(log.closed).toEqual([CHANNEL_ERROR]);
+      expect(log.errors.length).toBe(1);
+      expect(log.texts).toEqual([]);
+      expect(log.bins).toEqual([]);
     };
 
-    const daemonMessages: string[] = [];
-    const daemonAuthErrors: unknown[] = [];
-    const daemon = createDaemonChannel({
-      transport: daemonTransport,
-      attachment: { sessionId: "sess-tamper" },
-      daemonKeypair,
-      events: {
-        onMessage: (m) => daemonMessages.push(m),
-        onAuthError: (e) => daemonAuthErrors.push(e),
-      },
-    });
-    createClientChannel({
-      transport: clientTransport,
-      attachment: { sessionId: "sess-tamper" },
-      daemonPublicKey: daemonKeypair.publicKey,
+    it("a modified box", () => {
+      const s = held();
+      s.client.send("a");
+      const f = s.ct.held[0]!.slice();
+      f[f.length - 1] ^= 1;
+      s.dt.deliver(f);
+      failed(s.dl, s.dt);
     });
 
-    // `lastClientToDaemonFrame` is now the `e2ee_hello` handshake frame (the only send so far).
-    // Corrupt an app frame instead: derive one, tamper it, and feed it directly to the daemon.
-    const parsedHello = JSON.parse(lastClientToDaemonFrame) as { type: string };
-    expect(parsedHello.type).toBe("e2ee_hello");
+    it("a replayed box", () => {
+      const s = held();
+      s.client.send("a");
+      s.dt.deliver(s.ct.held[0]!.slice());
+      expect(s.dl.texts).toEqual(["a"]);
+      s.dt.deliver(s.ct.held[0]!.slice());
+      expect(s.dt.closes).toEqual([CHANNEL_ERROR]);
+      expect(s.dl.texts).toEqual(["a"]);
+    });
 
-    // Build a syntactically valid but cryptographically bogus app frame and inject it.
-    const bogusAppFrame = JSON.stringify({ type: "e2ee_app", frame: "AAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
-    for (const h of daemonHandlers) h(bogusAppFrame);
+    it("two boxes swapped", () => {
+      const s = held();
+      s.client.send("a");
+      s.client.send("b");
+      s.dt.deliver(s.ct.held[1]!.slice());
+      failed(s.dl, s.dt);
+    });
 
-    expect(daemonAuthErrors.length).toBe(1);
-    expect(daemonMessages).toEqual([]);
-    expect(daemon.ready).toBe(true); // a bad frame never tears down the channel
+    it("a dropped box", () => {
+      const s = held();
+      s.client.send("a");
+      s.client.send("b");
+      s.dt.deliver(s.ct.held[1]!.slice());
+      failed(s.dl, s.dt);
+    });
+
+    it("a box sent back to its sender", () => {
+      const s = held();
+      s.client.send("a");
+      s.ct.deliver(s.ct.held[0]!.slice());
+      failed(s.cl, s.ct);
+    });
+
+    it("a daemon box reflected to the daemon", () => {
+      const s = held();
+      s.daemon.send("a");
+      s.dt.deliver(s.dt.held[0]!.slice());
+      failed(s.dl, s.dt);
+    });
+
+    it("a text frame after the exchange", () => {
+      const s = setup();
+      s.dt.deliver("hello");
+      failed(s.dl, s.dt);
+      const c = setup();
+      c.ct.deliver("hello");
+      failed(c.cl, c.ct);
+    });
+
+    it("a second hello", () => {
+      const s = setup();
+      const hello = s.ct.sent[0]!.slice();
+      s.dt.deliver(hello);
+      failed(s.dl, s.dt);
+    });
+
+    it("a ready record after the first box, and an unknown kind", () => {
+      for (const kind of [0x00, 0x09]) {
+        const s = held();
+        // Seal a hand-built record with the next client counter (0).
+        const key = nacl.box.before(daemonKeypair.publicKey, s.clientKp.secretKey);
+        const box = nacl.box.after(new Uint8Array([kind, 1]), channelNonce(s.salt, 1, 0n), key);
+        s.dt.deliver(box);
+        failed(s.dl, s.dt);
+      }
+    });
+
+    it("a malformed hello", () => {
+      const [, dt] = pair();
+      const [log, de] = recorder();
+      createDaemonChannel({ transport: dt, daemonKeypair, events: de });
+      dt.deliver(new Uint8Array([1, 2, 3]));
+      failed(log, dt);
+      expect(dt.sent).toEqual([]);
+    });
   });
 
-  it("derives independent keys per session — replaying session one's ciphertext at session two's daemon fails auth", () => {
-    const daemonOneKeypair = nacl.box.keyPair();
-    const daemonTwoKeypair = nacl.box.keyPair();
-    const linkOne = createLinkedTransports();
-    const linkTwo = createLinkedTransports();
-    const clientOneTransportSpy = spy(linkOne.client);
-
-    const daemonOneMessages: string[] = [];
-    const daemonTwoMessages: string[] = [];
-    const daemonTwoAuthErrors: unknown[] = [];
-
-    createDaemonChannel({
-      transport: linkOne.daemon,
-      attachment: { sessionId: "sess-a" },
-      daemonKeypair: daemonOneKeypair,
-      events: { onMessage: (m) => daemonOneMessages.push(m) },
-    });
-    const clientOne = createClientChannel({
-      transport: clientOneTransportSpy,
-      attachment: { sessionId: "sess-a" },
-      daemonPublicKey: daemonOneKeypair.publicKey,
-    });
-    const daemonTwo = createDaemonChannel({
-      transport: linkTwo.daemon,
-      attachment: { sessionId: "sess-b" },
-      daemonKeypair: daemonTwoKeypair,
-      events: {
-        onMessage: (m) => daemonTwoMessages.push(m),
-        onAuthError: (e) => daemonTwoAuthErrors.push(e),
-      },
-    });
-    createClientChannel({
-      transport: linkTwo.client,
-      attachment: { sessionId: "sess-b" },
-      daemonPublicKey: daemonTwoKeypair.publicKey,
-    });
-
-    clientOne.send("secret-for-session-one");
-    expect(daemonOneMessages).toEqual(["secret-for-session-one"]);
-    // Session one's client sent two frames: `e2ee_hello`, then the app frame. Replay the app
-    // frame verbatim at session two's daemon (as a compromised/malicious relay would, since it
-    // only ever sees ciphertext) — it must fail authentication under session two's independently
-    // derived shared key, never decrypt. `linkTwo.client.send` is the injection point the daemon
-    // channel actually listens on, simulating the relay forwarding a foreign frame to it.
-    const appFrame = clientOneTransportSpy.sent.find((f) => (JSON.parse(f) as { type: string }).type === "e2ee_app");
-    expect(appFrame).toBeDefined();
-    linkTwo.client.send(appFrame!);
-
-    expect(daemonTwoMessages).toEqual([]);
-    expect(daemonTwoAuthErrors.length).toBe(1);
-    expect(daemonTwo.ready).toBe(true);
+  it("delivers nothing on the daemon before a valid hello", () => {
+    const [, dt] = pair();
+    const [log, de] = recorder();
+    const daemon = createDaemonChannel({ transport: dt, daemonKeypair, events: de });
+    expect(() => daemon.send("x")).toThrow();
+    dt.deliver(new Uint8Array(40));
+    expect(log.texts).toEqual([]);
+    expect(log.ready).toBe(0);
   });
 
-  it("propagates transport close to the onClose event", () => {
-    const daemonKeypair = nacl.box.keyPair();
-    const { client: clientTransport, daemon: daemonTransport } = createLinkedTransports();
-    let clientClosed = false;
-    let daemonClosed = false;
+  it("a client with the wrong daemon key fails at ready", () => {
+    const { cl, ct, client } = setup({ wrongKey: true });
+    expect(cl.ready).toBe(0);
+    expect(ct.closes).toEqual([CHANNEL_ERROR]);
+    expect(cl.errors.length).toBe(1);
+    expect(() => client.send("x")).toThrow();
+  });
 
-    const daemon = createDaemonChannel({
-      transport: daemonTransport,
-      attachment: { sessionId: "sess-close" },
-      daemonKeypair,
-      events: { onClose: () => (daemonClosed = true) },
-    });
+  it("the client cannot send before ready opened", () => {
+    const [ct] = pair();
+    const [, ce] = recorder();
     const client = createClientChannel({
-      transport: clientTransport,
-      attachment: { sessionId: "sess-close" },
+      transport: ct,
       daemonPublicKey: daemonKeypair.publicKey,
-      events: { onClose: () => (clientClosed = true) },
+      events: ce,
     });
+    expect(() => client.send("x")).toThrow();
+    expect(() => client.sendBinary(new Uint8Array(1))).toThrow();
+    expect(ct.sent.length).toBe(1);
+  });
 
-    client.close();
+  it("carries a 5 MiB text message as one frame", () => {
+    const { client, ct, dl } = setup();
+    const text = "é".repeat((5 * 1024 * 1024) / 2);
+    const before = ct.sent.length;
+    client.send(text);
+    expect(ct.sent.length).toBe(before + 1);
+    expect(dl.texts[0]).toBe(text);
+  });
 
-    expect(clientClosed).toBe(true);
-    expect(daemonClosed).toBe(true);
-    expect(() => daemon.send("after-close")).toThrow(/close/);
+  it("closes instead of wrapping at the counter limit", () => {
+    // ready uses d→c counter 0; with limit 3 the daemon can send two more boxes.
+    const { daemon, dt, dl, cl } = setup({ counterLimit: 3n });
+    daemon.send("1");
+    daemon.send("2");
+    expect(cl.texts).toEqual(["1", "2"]);
+    expect(() => daemon.send("3")).toThrow();
+    expect(dt.closes).toEqual([CHANNEL_ERROR]);
+    expect(dl.errors.length).toBe(1);
+    expect(cl.texts).toEqual(["1", "2"]);
+  });
+
+  it("closes when a received counter reaches the limit", () => {
+    const { client, ct, cl } = setup({ counterLimit: 3n });
+    client.send("a");
+    client.send("b");
+    client.send("c");
+    expect(() => client.send("d")).toThrow();
+    expect(ct.closes).toEqual([CHANNEL_ERROR]);
+    expect(cl.errors.length).toBe(1);
+  });
+
+  it("reports the transport's close once", () => {
+    const { ct, cl, client } = setup();
+    ct.closeHandler(1000, "bye");
+    expect(cl.closed).toEqual([[1000, "bye"]]);
+    expect(() => client.send("x")).toThrow();
   });
 });

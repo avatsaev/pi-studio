@@ -1,0 +1,7 @@
+{
+  "type": "relay_daemon_register",
+  "direction": "daemon_to_relay",
+  "description": "First frame of a daemon's control socket. The relay answers `relay_registered`.",
+  "since": "0.0.121",
+  "text": "{\"type\":\"relay_daemon_register\",\"v\":2,\"sessionId\":\"bdece9e2be20db8c37b51a6c0dadfee7\"}"
+}

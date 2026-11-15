@@ -157,8 +157,9 @@ on read error: send Error; stop
 on end: send End ok
 ```
 
-A session whose socket does not expose a buffered amount (the relay path, if it does not) is not
-paced.
+A session whose socket does not expose a buffered amount is not paced. Relay sessions do expose
+one: the daemon's data socket is a real `ws` socket (relay-protocol.md § Behavior & algorithms),
+so relay downloads are paced like direct ones.
 
 ### Web client
 
@@ -238,16 +239,17 @@ None. No stored entity changes.
 - ~~**Dev daemon coverage.**~~ Resolved (task-006): the dev bootstrap now registers the file-transfer
   and terminal handlers (and their binary handlers), wired as in production; the live fixture test
   covers them.
-- ~~**Buffered amount on the relay path.**~~ Daemon side resolved (task-002): the relay session's
-  stand-in socket has no queue to read (`Session.bufferedAmount` is `undefined`), so relay
-  downloads are unpaced and the spec's bounds apply to direct connections only. **The client's relay
-  transport does report it** (task-004): `relay-transport.ts` returns its relay socket's
-  `bufferedAmount`; the channel encrypts and writes synchronously, so the queue is the base64-inflated
-  ciphertext. Verified by reading `relay-transport.ts` and `relay/src/channel.ts`; there is no
-  relay-specific test. Relay **uploads** are therefore paced, relay **downloads** are not.
+- ~~**Buffered amount on the relay path.**~~ Resolved by relay protocol 2
+  ([architecture/relay-protocol.md](../architecture/relay-protocol.md)): each relay client has its own
+  daemon data socket, and the relay session reports that socket's real `bufferedAmount`
+  (`daemon/relay-connection.ts`), so relay downloads are paced like direct ones. (Under 0.0.120 and
+  earlier the relay session had no queue to read and downloads were unpaced.) The client's relay
+  transport reports its socket's `bufferedAmount`, so relay uploads are paced too. The relay itself
+  also applies flow control (pause above 1 MiB queued, resume at or below 256 KiB).
 - ~~**Direct-connection behaviour on an invalid `hello`.**~~ Resolved: the daemon closes the socket
-  with 1008 `first frame must be hello`; only the relay path ignores it silently. Recorded in the
-  handoff doc.
+  with 1008 `first frame must be hello`. Under relay protocol 2 a relay connection does the same
+  (its data socket closes with 1008, which the relay forwards); only 0.0.120 and earlier ignored it
+  silently. Recorded in the handoff doc.
 - ~~**Partial file after a failed upload.**~~ Decided (task-003): it is **left** on disk, as before;
   `file_upload_complete { ok: false }` tells the client it is partial.
 - ~~**Binary fixtures and the dashboard.**~~ Checked against `../pi-studio-dashboard` (task-007): the
@@ -262,5 +264,6 @@ None. No stored entity changes.
   resolves once its transport buffer drains after `End`.
   **Live check (task-008, loopback, isolated production daemon):** 600 MiB each way — upload from the
   Files explorer in ~5 s, download to a TCP-paused client with ~58 MB daemon RSS growth, then a
-  matching SHA-256. LAN, relay and slower links were not measured; the relay path was not run live
-  (unit tests and code reading only).
+  matching SHA-256. LAN and slower links were not measured. **Relay (loopback only, 600 MiB,
+  2026-11-15):** download 4.2 s (~143 MiB/s), upload 4.4 s (~138 MiB/s); with the client socket
+  paused for 30 s the daemon RSS grew by 51.6 MiB and the relay stayed at ~123 MiB.

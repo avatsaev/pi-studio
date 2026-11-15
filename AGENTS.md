@@ -25,7 +25,7 @@ packages/
   client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
-  relay/       E2EE relay channel primitives (Curve25519 ECDH + NaCl box) shared by daemon + client.
+  relay/       Relay protocol 2: standalone relay server (control/data/client sockets, pairing, limits) + E2EE channel (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  The browser shell: a thin Vite SPA rendering `@av-pi-studio/workbench` with a browser host (`main.tsx`,
                build-time brand title/favicon override, pdf.js worker, `vite.config.ts`). Ships only the prebuilt
                static SPA (`dist/web`) that `pi-studio ui` and the Docker image serve. See packages/web-client/AGENTS.md.
@@ -542,9 +542,10 @@ All communication uses a **single WebSocket connection** per client.
   Three additive changes for the Rust desktop client. (1) `hello.platform`: an optional free-form string
   (max 32 chars; a bad value is dropped, not rejected) carried to `Session.platform` and `daemon_status`
   client entries; `clientType` stays a closed enum (the desktop app connects as `browser` +
-  `platform: "desktop"`) because a 0.0.117 daemon rejects an unknown value, silently over the relay.
+  `platform: "desktop"`) because a 0.0.117 daemon rejects an unknown value (over the relay protocol 1 that
+  rejection was silent; a pre-protocol-2 daemon is now parked at the relay and a client sees `daemon_outdated`).
   (2) File-transfer flow control: the daemon paces a download on the socket's buffered amount (direct
-  connections only; the relay's stand-in socket reports none), sends `Error` without a trailing `End`
+  connections and relay data sockets — both report a real `bufferedAmount`), sends `Error` without a trailing `End`
   on a read error, and ignores upload frames from a session that does not own the stream; an upload
   request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
   `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
@@ -574,6 +575,15 @@ All communication uses a **single WebSocket connection** per client.
   exactly one JSON line (`{up, started, host, port, pairingUrl, relay}`; failures `error:
   "not_healthy" | "no_keypair"` with a non-zero exit; `pair` `{pairingUrl, relay}`; `stop`
   `{stopped}`). `pairingUrl` is a credential on relay links.
+- **Relay protocol 2 (`swe/architecture/relay-protocol.md`, `swe/features/relay-multi-client.md`).**
+  A daemon holds one relay control socket (`relay_daemon_register` → `relay_registered`) and opens one
+  data socket per client connection (`relay_dial` → `relay_daemon_attach` → `relay_paired`); a client sends
+  `relay_client_connect`. After `relay_paired` every frame is a binary NaCl-box channel frame (hello/ready,
+  counter nonces, daemon salt), so up to 32 clients share one daemon. The relay refuses with close codes
+  4100–4109 (channel failures 4200) and applies flow control (1 MiB/256 KiB marks) and 30 s pings; the client's
+  15 s connect limit surfaces as `RelayConnectError` reasons. The old per-frame JSON encryption envelope, the session
+  bridge and the Cloudflare adapter are gone; a 0.0.120 daemon is parked and shown as `daemon_outdated`. Package detail:
+  `packages/relay/AGENTS.md`.
 - **Ephemeral `agent_stream` events (sprint-058, `swe/features/tool-output-streaming.md`).** Two
   `AgentStreamEvent`s are live-only: a `tool_call` with `partial: true` (in-flight tool output
   snapshot) and `queue_update`. They are broadcast with a daemon-owned `timestamp` and **no `seq`**
@@ -691,7 +701,7 @@ tolerated without a migration framework.
 
 - `swe/MAIN-SCOPE.md` — system overview and package responsibilities
 - `swe/architecture/` — deep dives (websocket-protocol, persistence, agent-lifecycle,
-  client-app-runtime, daemon-bootstrap, relay-e2ee, …)
+  client-app-runtime, daemon-bootstrap, relay-e2ee, relay-protocol, …)
 - `swe/features/` — feature-level specs (agent-sessions, terminals, cli, projects-
   workspaces, git-checkout, chat-rooms, loops, schedules, file-explorer-transfer, …)
 

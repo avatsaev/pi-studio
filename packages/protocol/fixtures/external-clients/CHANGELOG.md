@@ -98,3 +98,11 @@ any other value reads as `"all"`). New file only; no existing fixture changed, n
 `daemon_status` client entries may now also carry `agentStreams`, present only when the mode is not
 `"all"`, so the existing `daemon_status_*` fixtures are unchanged. A daemon without the feature
 flag ignores the field and sends every `agent_stream` frame.
+
+## Additive — 2026-11-15 (top-level formatVersion unchanged)
+
+New subdirectory `relay/` (pi-studio 0.0.121) with its own `manifest.json`, `formatVersion` 1:
+fixed-key fixtures for relay protocol 2 — `keys.json` (test material), the six control frames and
+the legacy `relay_register` frame, `close-codes.json`, and the channel `hello`, `ready` and
+text/binary messages in both directions. New files only; no top-level or `binary/` fixture changed,
+no migration.

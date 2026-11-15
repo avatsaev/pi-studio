@@ -1,16 +1,18 @@
 {
   "planRoot": "swe",
+  "sprintsDir": "sprints",
+  "grillsDir": "grills",
   "build": "npm run build",
   "typecheck": "npm run typecheck",
   "lint": "npm run lint",
   "test": "npm test",
   "skipGates": [],
   "parallelSprints": true,
+  "isolation": "shared",
   "notesDir": "notes",
 
   "layout": {
-    "comment": "This project predates av-swe's default layout and already holds 47 completed sprints. One deviation from the skill defaults, kept deliberately so existing history stays valid:",
-    "sprintsDir": "swe/sprints",
+    "comment": "This project predates av-swe's default layout and already holds 100+ sprints. Remaining deviation from the skill defaults: specs live in two existing directories plus an existing index (specsDirs/specsIndex below). sprintsDir moved out of this block to the top-level key (relative to planRoot, now the default 'sprints') when the skill schema added it on 2026-11-15.",
     "specsDirs": ["swe/features", "swe/architecture"],
     "specsIndex": "swe/MAIN-SCOPE.md",
     "gitkeepBackfill": "sprints 001-057 backfilled with backlog/in_progress/blocked/done + .gitkeep in every sprint on 2026-08-13, closing the prior 'blockedFolder present in new sprints only' deviation — all sprints now carry all four state folders uniformly, per the skill's .gitkeep convention"

@@ -177,6 +177,7 @@ const offer = parsePairingUrl(pairingUrlOrFragment);
 
 // sessionId defaults to deriveRelaySessionId(offer.publicKey) — the SAME id the daemon's own
 // outbound relay dial always registers under — so it never needs to be transmitted separately.
+// connectTimeoutMs (default 15 000) caps connect(); it never hangs.
 const transport = createRelayTransport({ daemonPublicKey: offer!.publicKey });
 
 const daemon = new DaemonClient({
@@ -187,6 +188,14 @@ const daemon = new DaemonClient({
 });
 await daemon.connect(); // completes the E2EE handshake before the `hello` RPC ever crosses the wire
 ```
+
+Options: `daemonPublicKey`, `sessionId?`, `factory?` (WebSocket factory, tests), `connectTimeoutMs?`
+(default 15 000). A failed `connect()` rejects with `RelayConnectError` (exported), whose `reason`
+is one of `daemon_offline`, `daemon_unresponsive`, `too_many_clients`, `daemon_outdated`,
+`timeout`, `wrong_key`, `relay_unreachable` or `protocol_error`, and whose `message` says what to
+do (e.g. `daemon_offline`: the daemon may be offline, or its key replaced so the pairing link is no
+longer valid). A refusal is a failed connect like any other. Text and binary travel as binary
+WebSocket frames; binary arrives as `ArrayBuffer`.
 
 `createRelayTransport` implements the exact same `Transport` contract as
 `createWebSocketTransport` — swap it in via `DaemonClientOptions.transport` and every other

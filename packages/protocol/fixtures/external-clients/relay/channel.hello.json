@@ -1,0 +1,10 @@
+{
+  "description": "Client to daemon, first frame of the channel: `0x01` (format version) then the client public key (32 bytes). `hex` is the whole binary frame.",
+  "since": "0.0.121",
+  "direction": "client_to_daemon",
+  "hex": "01 88 31 86 b8 00 b4 1d 5c f0 42 96 95 da 9b 3c c4 f3 28 eb cd 18 4a 6e 48 2f a5 78 c1 03 f0 6c 77",
+  "decoded": {
+    "version": 1,
+    "clientPublicKey": "88 31 86 b8 00 b4 1d 5c f0 42 96 95 da 9b 3c c4 f3 28 eb cd 18 4a 6e 48 2f a5 78 c1 03 f0 6c 77"
+  }
+}

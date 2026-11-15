@@ -124,9 +124,12 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 096 | `sprint-096-desktop-protocol-followups` | protocol + server + client (+ workbench browser host): **Desktop-client protocol follow-ups.** `hello.platform`; daemon transfer hardening (paced download, `Error` without `End`, session-owned upload streams); `fileTransferAck` + `file_upload_complete`; SDK paced streaming upload with progress and cancel; browser upload without reading the file into memory; dev-daemon file/terminal handlers + JSON fixtures; binary frame fixtures; docs + live checks. **Done (2026-11-14)** on `feat/desktop-protocol-followups`, cut from `feat/workbench` (stacked, so its browser-host task is not blocked on the 095 merge); merge after it. | 8 |
 | 097 | `sprint-097-download-ranges` | protocol + server + client + workbench browser host: **Desktop-client protocol follow-ups II, download half.** `Begin` gains `mtimeMs`/`offset`/`length`; `file_download_request` by path with a byte range, answered before the stream, with the file's size; the download token removed (fixtures `formatVersion` 2); `ifUnchanged`, per-session download tracking, `file_download_cancel_request`; SDK `downloadTo` with range, progress and abort; additive JSON and binary fixtures; browser host builds Blobs from chunks; docs + live checks. **Done (2026-11-15)** on `feat/desktop-protocol-followups-2`; live-checked against an isolated production daemon (600 MiB download, ranges, abort + resume, cancel, paused client +37 MiB RSS) and in headless Chromium (image, PDF, Download). | 7 |
 | 098 | `sprint-098-agent-stream-mode-cli-json` | protocol + server + client + cli: **Desktop-client protocol follow-ups II, the rest.** `hello.agentStreams` (`all`/`none`) honoured at every `agent_stream` site and reported in `daemon_status`; SDK option + `hello.agentStreams.json`; `--json` on `daemon start/restart/pair/stop`; docs, spec close + live checks. **Done (2026-11-15)** on `feat/desktop-protocol-followups-2`; live-checked against an isolated production daemon (quiet vs normal connection during a mock turn, `daemon_status`, CLI JSON on a scratch home). Closes the follow-ups II scope. | 4 |
+| 099 | `sprint-099-relay-protocol-primitives` | relay (+ protocol fixtures): **Relay multi-client, slice 1 — protocol 2 primitives.** Shared control-protocol module (frames, close codes 4100–4109/4200, limits); the shipped channel parked under `Legacy` names; channel v2 (binary frames, NaCl box with salt ‖ direction ‖ counter nonces, encrypted `ready`); relay server pairing one client socket with one daemon data socket, refusals, old-protocol parking (S9), close forwarding; flow control, pings, shutdown; fixed-key `external-clients/relay/` fixtures. `RelaySessionBridge` and the Cloudflare adapter deleted. Branch `feat/relay-multi-pair`. **Done (2026-11-15).** | 6 |
+| 100 | `sprint-100-relay-daemon-sdk` | server + client (+ cli tests): **Relay multi-client, slice 2 — daemon and SDK.** Daemon `RelayConnection` per data socket; one `Session` per relay connection (real `bufferedAmount`, 1008 on a bad `hello`); control socket with backoff, silence check, 32-socket cap, bootstrap cut over; SDK `createRelayTransport` on protocol 2 with a 15 s limit and `RelayConnectError`; protocol-1 channel deleted; SDK ↔ relay ↔ daemon end-to-end tests. **Done (2026-11-15).** | 6 |
+| 101 | `sprint-101-relay-multi-client-close` | docs + live checks: **Relay multi-client, slice 3 — close.** 600 MiB transfer and memory proof through a local relay; every relay document rewritten to protocol 2 (specs, root/package docs, fern, docker, handoff doc); compose-stack live check with two tabs, old-version rollout checks (0.0.120 daemon and tab), spec close. **Done (2026-11-15)**; live-checked on an isolated compose stack, which found and fixed two SDK reconnect defects (see s101/t003). Merge to `main` releases relay, daemon, SDK and web client together (D21); not merged. | 3 |
 
-Total: **92 sprints, 487 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14) and by 097–098 (+2/+11, 2026-11-15; the table sums to 92/487). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **95 sprints, 502 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15) and by 099–101 (+3/+15, 2026-11-15; the table sums to 95/502). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -2649,6 +2652,99 @@ client documents with `sprint-097/task-004` and the fixture manifest, changelog,
 scenario with `sprint-097/task-005`. t003 depends on nothing and may run in any earlier wave of a
 multi-sprint run.
 
+### sprint-099-relay-protocol-primitives
+> **What it ships.** `features/relay-multi-client.md` + `architecture/relay-protocol.md`, the relay
+> package half: protocol-2 control vocabulary, the v2 encrypted channel, the relay server's pairing,
+> refusals, parking, flow control and pings, and the fixed-key fixtures for the Rust client. Branch
+> `feat/relay-multi-pair`, cut from `main` at 0.0.120. One release with sprints 100–101, no flag
+> (D21).
+>
+> **Found at planning time.**
+> - The new channel keeps the public names `createClientChannel`/`createDaemonChannel` but takes a
+>   byte transport and a different wire, so rewriting `channel.ts` in place would break `server` and
+>   `client` until both move. t002 parks the shipped channel under `Legacy` names (five import sites)
+>   so every task gate stays green; s100/t005 deletes it before the release. Nothing ships with a
+>   `Legacy` name.
+> - No in-repo test pairs the daemon or the SDK with the real relay server: both use their own fake
+>   relay. Rewriting the server (t004) therefore breaks no test outside the relay package, and
+>   sprint-100 moves those tests onto the real server.
+> - S9 (old daemon vs stale tab by silence) is unconfirmed by the owner; t004 keeps it in one place
+>   so dropping it is a one-rule change.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Control protocol module: frames, close codes, limits | feature | none | relay-protocol § 1, § 2, § 3 |
+| task-002 | Shipped channel moved to `legacy-channel.ts` under `Legacy` names | refactor | task-001 | relay-multi-client § Public contract 1 (name reuse) |
+| task-003 | Channel v2: binary frames, counter nonces, daemon salt, encrypted `ready` | feature | task-002 | relay-protocol § 4, § Behavior — Channel; S1–S3; D23 |
+| task-004 | Relay server: control sockets, pairing, refusals, parking, close forwarding; bridge + Cloudflare adapter deleted | feature | task-001, task-002 | relay-protocol § 1–3, § Behavior — Relay; D3, D4, D6, D7, D10, D15, D16, D20, S4, S7–S10 |
+| task-005 | Relay server: flow control, pings, shutdown | feature | task-004 | relay-protocol § 2 (ping, flow control), § 3 (4108, 1001); D17 |
+| task-006 | Fixed-key `external-clients/relay/` fixtures + byte-for-byte tests | test | task-003, task-005 | relay-multi-client § Public contract 5; D11 |
+
+Waves (av-swe `implement`, parallel by default):
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 | everything else needs it, and t002/t004 share `index.ts` with it |
+| 2 | t002 | `index.ts` again; frees `channel.ts` for t003 |
+| 3 | t003 ∥ t004 | t003 = `channel.ts`, t004 = `relay-server.ts` + deletions + `index.ts`: disjoint |
+| 4 | t005 | same file as t004 |
+| 5 | t006 | needs the channel seams (t003) and the final server (t005) |
+
+`packages/relay/AGENTS.md` and `README.md` are written by most tasks; in a parallel wave the
+orchestrator applies those edits from the subagents' summaries (each task file says so).
+
+### sprint-100-relay-daemon-sdk
+> **What it ships.** `features/relay-multi-client.md` § Public contract 2–3: the daemon serves each
+> relay client on its own data socket and session, and the SDK connects through protocol 2 with a
+> time limit and named refusals. After this sprint nothing speaks protocol 1.
+>
+> **Found at planning time.**
+> - `bootstrap.ts`'s relay block (~145 lines) holds a single `relaySession` with a stand-in socket
+>   that has no `bufferedAmount` and a no-op `close()`. t002 moves the `hello` handshake into
+>   `relay-sessions.ts` so it is testable with a fake connection; t003 then shrinks the block to a
+>   `connectRelay` call.
+> - `onSessionClose` disposes subscriptions, status, logs and transfers. The spec also names
+>   terminal attachments; t002 checks that the relay path goes through the same disposal and adds no
+>   second list.
+> - Server and client tests can import `@av-pi-studio/relay/server` (both depend on relay), so
+>   every relay test from here on runs against the real relay server.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Daemon `RelayConnection`: data socket, attach, channel, key-exchange and silence timers | feature | sprint-099/task-001, sprint-099/task-003, sprint-099/task-005 | relay-protocol § Behavior — Daemon (data socket); relay-multi-client § Public contract 2 |
+| task-002 | Daemon `relay-sessions.ts`: one `Session` per connection, real socket facade, 1008 on a bad `hello` | feature | task-001 | relay-protocol § 5; relay-multi-client § Public contract 2; D8, S8 |
+| task-003 | Daemon control socket (register, backoff, replaced, silence, 32 cap) + bootstrap cutover | feature | task-002 | relay-protocol § Behavior — Daemon (control loop); D15, D17, S5, S6 |
+| task-004 | SDK `createRelayTransport` on protocol 2, 15 s limit, `RelayConnectError` | feature | sprint-099/task-001, sprint-099/task-003, sprint-099/task-005 | relay-protocol § Behavior — Client; relay-multi-client § Public contract 3; D7, D17 |
+| task-005 | Delete the protocol-1 channel | chore | task-003, task-004 | relay-multi-client § 6; D3 |
+| task-006 | End to end: SDK ↔ real relay ↔ real daemon (two clients, cap, 64 MiB transfer, binary-only wire, offline, old pairing link) | test | task-005 | relay-multi-client § Acceptance criteria (suite-runnable ones); D14 |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t004 | t001 = `packages/server/src/daemon/relay-connection.ts`, t004 = `packages/client`: disjoint |
+| 2 | t002 | depends on t001 |
+| 3 | t003 | depends on t002 |
+| 4 | t005 | needs both cutovers (t003, t004) |
+| 5 | t006 | needs the final relay package |
+
+t004 depends only on sprint-099, so in a multi-sprint run it may start in any wave after
+sprint-099/t005.
+
+### sprint-101-relay-multi-client-close
+> **What it ships.** The feature's evidence and documents: the 600 MiB transfer and memory proof
+> (D18), every relay document rewritten, the compose-stack live check and the rollout checks against
+> 0.0.120, and the scope closed. The merge to `main` is the release (D21): relay, web client, daemon
+> and SDK switch together, and the owner decides when.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Transfer proof: 600 MiB each way, paused-receiver memory, second client, throughput recorded | test | sprint-100/task-006 | relay-multi-client § Acceptance criteria (transfer); D18 |
+| task-002 | Relay documents rewritten to protocol 2 (specs, root/package docs, fern, docker, handoff) | docs | task-001 | relay-multi-client § Acceptance criteria (documents) |
+| task-003 | Compose live check, 0.0.120 daemon and tab rollout checks, spec close | test | task-002 | relay-multi-client § Acceptance criteria (live check, old daemon, pairing link), § TODO(verify); relay-protocol § TODO(verify) |
+
+Strictly sequential: t002 cites t001's figures and t003 ticks boxes against the final documents.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2769,7 +2865,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/extension-ui-rpc.md | s066/t001-006 (wire family with opaque payloads and open-string `reason`/`error`; provider UI channel + Pi adapter replacing the auto-cancel stub, owning the dialog set, method-namespaced surface keys, clear→`removed` and envelope stamping; `AgentUiService` with daemon-minted wire ids, surface retention/deletion, first-wins resolution and terminal-only sweeps; `AgentManager.onSessionAttached` choke point + handlers + both bootstraps; MCP mirror; real-Pi E2E with `rpiv-ask-user-question`/`rpiv-todo` and docs) |
 | features/provider-auth-ui.md | s065/t001-007 (SDK correlation incl. the subscribe-before-request buffering lock; pure login-flow reducer; capability-gated settings dialog shell — gear at ConnectionBar top-right, category sidebar, Model Providers as the sole category, because web-client has no settings screen or router yet; dialog prompt core finishing API-key login; OAuth `auth_url`+QR+`device_code` rendered concurrently with `manual_code`; Timeline empty-state nudge; live browser+relay E2E and docs) |
 | features/preinstalled-extensions.md | s056/t001-006 (engine: verified pi behavior, manifest+guard test, config+state, pure planner, isolating executor, service+bootstrap sync); s057/t001-006 (surface: wire pairs + feature flag, server config writer, handlers, SDK facade, `extensions` CLI group, E2E+docs) |
-| features/connection-resilience.md | s050/t001-004 |
+| features/connection-resilience.md | s050/t001-004; relay connect limit + refusal reasons in s100/t004, daemon redial backoff + dead-socket detection in s100/t001,t003, relay pings in s099/t005 (document in s101/t002) |
 | features/desktop-app.md | s024/t001-004, s025/t001-005, s013/t002,t004 (local-vs-remote daemon mode UI); s012/t006 (branding config) |
 | features/app-navigation-screens.md | s013/t001-005 (logic); s017/t004, s019/t001-005 (render) |
 | features/workspace-ui.md | s014/t001-004 (logic); s020/t001-004 (render); s061/t001-005 (0.1.0 redesign § 07: 36px band with the height declared once, soft-pill tabs that shrink-and-ellipsise before the strip scrolls, ＋/split row model, session-status attention dot on background chat tabs; t005 rewrites this doc's § Desktop tab strip, which still describes pre-redesign chips and never-implemented skeleton bars) |
@@ -2782,7 +2878,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/white-label-branding.md | s012/t006; s017/t002 (theme injection); s024/t001,t003 (desktop app name/icon/About) |
 | architecture/daemon-bootstrap.md | s004/t001,t005, s023/t002, s024/t001, s056/t006 (fire-and-forget extensions sync after `httpServer.listen`, mirroring agent recovery; `dev-bootstrap` deliberately excluded), s066/t004 (registered in **both** bootstraps — the deliberate inverse of s056/t006's exclusion, because the mock provider is this family's designated producer and the dev daemon is mock-only; reuses each bootstrap's existing `manager.subscribe` fan-out rather than adding a second subscriber) |
 | architecture/websocket-protocol.md | s002/t001-005, s004/t004-005, s045/t006 (`CLIENT_CAPS.inline_image_markdown`), s051/t005 (`CLIENT_CAPS.file_link_markdown`), s053/t004-005 (first live use of the `Restore` binary opcode + `terminal_reflowable_snapshot` × `terminal-restore-modes` negotiation), s055/t001,t004 (`providerAuth` server feature; first RPC family whose domain errors are `{ ok, error }` payloads rather than `rpc_error`, and first push family carrying a correlated prompt round-trip), s057/t001 (`extensionPacks` feature; `reason` deliberately typed as an open string so the daemon can extend its failure taxonomy without narrowing the wire), s058/t001,t004 (first *ephemeral* use of an existing event kind: an optional `partial` flag plus a deliberately omitted `seq` mark a frame as live-only, proving the append-only rules can carry a delivery-semantics change with no new message type), s066/t001 (`extensionUi` feature; first family carrying a **deliberately opaque** `payload: z.record(z.unknown())` the daemon never interprets — opacity achieved *inside* a typed envelope rather than by dropping to the passthrough fallback, which settles that the union-vs-passthrough line is *per-session subscription push* vs *agent-scoped broadcast*, not "typed vs untyped") |
-| architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001 |
+| architecture/relay-e2ee.md | s004/t001, s023/t001-004, s013/t002, s019/t001; wire sections replaced by `architecture/relay-protocol.md` (s099–s100), document rewritten in s101/t002 (§ Pairing kept) |
 | architecture/persistence.md | s001/t003, s003/t001,t004, s056/t003 (`extensions-state.json`: atomic store whose corrupt-file fail-safe is a distinct `"unreadable"` result, never an empty state) |
 | architecture/auth-security.md | s004/t002-003, s009/t003-004, s025/t002,t005 |
 | architecture/agent-lifecycle.md | s005/t004-005, s008/t002, s014/t001, s045/t005 (resume system-prompt fidelity), s066/t003-004 (extension-UI sweeps are **session-terminal only** — archive/delete/re-attach; interrupt and client disconnect deliberately preserve pending dialogs and retained surfaces, and the forced-respawn path gets a leading sweep so a dead process's ids cannot linger) |
@@ -2801,7 +2897,7 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/agent-todos-ui.md | s080/t001-004 (pure model + collapse codec; store + boot; `TodoPanel`; live checks across dev, real Pi, relay + docs) |
 | features/composer-path-drop.md | s081/t001-006 (spike; pure helpers; path-ref payload; pane-host yield; composer drop zone; cross-browser checks + docs). Spec TODO #4 (`relativeToRoot` bug) deliberately left as a follow-up |
 | features/web-ui-agent-deep-link.md | s082/t001-003 (pure parse/strip + store; apply after restore + `hashchange`; live browser checks + docs) |
-| architecture/external-client-fixtures.md | s083/t001-007 (spike + recorder; test client + producers; stage 1 fixtures; Layer A + signature guard; Layer B; publish + docs); stage 2 fixtures in s085/t005 |
+| architecture/external-client-fixtures.md | s083/t001-007 (spike + recorder; test client + producers; stage 1 fixtures; Layer A + signature guard; Layer B; publish + docs); stage 2 fixtures in s085/t005; `relay/` subdirectory in s099/t006 (document in s101/t002) |
 | features/daemon-status-rpc.md | s084/t001-006 (version source; schemas; `Session` metadata; service; handlers/bootstraps/E2E; docs); flag + fixtures in s085/t005 |
 | features/daemon-log-streaming.md | s085/t001-006 (schemas; tap; service; handlers/bootstraps/E2E incl. redaction; flag + stage 2 fixtures; cost run + docs) |
 | grills/ui-library.md (grilled brief; no scope doc by engineer's choice) | s088/t001-005 (baseline; scaffold; move non-primitive design system; move primitives/stores/reset; alias rename), s089/t001-005 (lib build; store/key; brand trim; dev warnings; token checker), s090/t001-005 (gallery; pack smoke + README; release wiring; budget/acceptance; docs). Deferred by the brief: terminal font, heavy renderers |
@@ -2809,6 +2905,8 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | architecture/workbench-host-adapter.md | s093/t001-007 (install + `app` + `storage`; clipboard/dialogs/links; launch; connection; files; pdf + Vite plugin; guard + acceptance); `files.upload` streaming in s096/t005 |
 | features/desktop-client-protocol-followups.md | s096/t001-008 (`hello.platform`; daemon transfer hardening; upload ack; SDK paced upload; browser streaming upload; dev-daemon handlers + JSON fixtures; binary fixtures; docs + live checks). Non-goals by the spec: transfer resume, chunk size, `clientType` change |
 | features/desktop-client-protocol-followups-2.md | s097/t001-007 (`Begin` fields; daemon download by path + token removal + fixtures v2; validator, tracking, cancel; SDK ranged download; additive fixtures; browser host; docs + live checks), s098/t001-004 (`hello.agentStreams` daemon side; SDK option + fixture; CLI `--json`; docs, spec close + live checks). Non-goals by the spec: upload resume, per-agent stream subscriptions, chunk size, relay multi-client, `WorkbenchHost` changes |
+| features/relay-multi-client.md | s099/t001-006 (control module; legacy park; channel v2; relay server pairing + deletions; flow control + pings; fixtures), s100/t001-006 (`RelayConnection`; per-connection sessions; control socket + cutover; SDK transport + `RelayConnectError`; protocol-1 deletion; cross-package E2E), s101/t001-003 (600 MiB + memory proof; documents; compose and old-version live checks, spec close). Non-goals by the spec: protocol 1 kept alive, Cloudflare relay, CLI over relay, forward secrecy / Noise, any daemon-protocol or pairing change. Deferred by the grill: separate pairing secret, per-device credentials, per-address cap, statistics endpoint, throughput pass mark |
+| architecture/relay-protocol.md | s099/t001 (§ 1–3), s099/t003 (§ 4), s099/t004-005 (§ Behavior — Relay), s100/t001-003 (§ Behavior — Daemon, § 5), s100/t004 (§ Behavior — Client), s099/t006 (fixtures pinning § 1, § 3, § 4), s101/t003 (§ TODO(verify) closed live) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
@@ -2978,3 +3076,13 @@ Carried from the scope; resolve against the live source while implementing the o
       fixture needs the test extended — s097/t005.
 - [ ] Follow-ups II: the release that carries this work (`since`, `addedIn`) is assumed to be
       0.0.119 — s097/t002.
+- [ ] Relay multi-client: S9 (an old daemon told from a stale tab by silence) still awaits the
+      owner's confirmation. Built as specified; checked live with a real 0.0.120 daemon and the
+      0.0.120 SDK as the stale tab (not a 0.0.120 browser tab) — s099/t004, s101/t003.
+- [ ] Relay multi-client: the 100 MiB frame limit is confirmed but unmeasured (spec § TODO(verify))
+      — s099/t004, s100/t001.
+- [x] Relay multi-client: a parked 0.0.120 daemon answers pings and never redials — run in
+      s101/t003 (8+ minutes, one connect, no 4108).
+- [ ] Relay multi-client: the fixtures' `since` assumes the release is 0.0.121 — s099/t006.
+- [ ] Relay multi-client: `fern check` was not run (the fern CLI is not installed here) — s101/t002.
+- [ ] Relay multi-client: relay throughput was measured on loopback only (~143 / ~138 MiB/s) — s101/t001.

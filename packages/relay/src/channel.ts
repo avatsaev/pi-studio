@@ -1,363 +1,311 @@
 /**
- * Relay encrypted channel primitives (architecture/relay-e2ee.md § Channel API, § Handshake
- * frames, § Behavior). `createClientChannel` and `createDaemonChannel` expose an IDENTICAL API so
- * the daemon and client share the same E2EE code path over a relay-provided transport.
+ * Relay encrypted channel, protocol 2 (architecture/relay-protocol.md § 4). One channel per socket,
+ * binary frames only. NaCl box with a nonce of salt (15) ‖ direction (1) ‖ counter (8, big-endian).
+ * The daemon draws the salt, so a replayed `hello` cannot make it reuse a key and nonce. Counters
+ * are never sent. Any failure reports `onError`, closes the transport with 4200 `channel_error`
+ * and delivers nothing from the offending frame.
  *
- * Handshake:
- *   client → daemon: e2ee_hello { ephemeralPublicKey }   (client's FRESH ephemeral Curve25519 key)
- *   daemon → client: e2ee_ready                          (handshake acknowledgement)
- *   both:            sharedKey = ECDH(localSecret, remotePublic)   (Curve25519 box.before)
- *
- * Per-message wire format (after handshake):
- *   frame = base64( [24-byte random nonce] ++ box(plaintext, nonce, sharedKey) )   // XSalsa20-Poly1305
- *   receive → split nonce/ciphertext → box_open → reject (drop, never throw to the app) on auth failure.
- *
- * The daemon secret never leaves the daemon; the client keypair is ephemeral per connection, so
- * there is no persistent client-side secret to steal. Session keys are fresh per session, so
- * ciphertext cannot replay across sessions — but replay protection WITHIN a live session is not
- * implemented (random nonces, no counter) per architecture/relay-e2ee.md § Behavior TODO(verify).
+ * Browser-safe: only `tweetnacl` and typed arrays.
  */
 import nacl from "tweetnacl";
-import { decodeBase64, encodeBase64 } from "./base64.js";
+import { RELAY_CLOSE } from "./control.js";
 
-/** Which side of the handshake a channel plays. */
-export type ConnectionRole = "client" | "daemon";
+/** Channel format version: the leading byte of `hello` and `ready`. */
+export const CHANNEL_VERSION = 0x01;
+/** Daemon-chosen salt length in bytes. */
+export const CHANNEL_SALT_LENGTH = 15;
+/** Record kinds (the first plaintext byte inside a box). */
+export const RECORD_KIND = { READY: 0x00, TEXT: 0x01, BINARY: 0x02 } as const;
+/** Nonce direction bytes. */
+export const CHANNEL_DIRECTION = { CLIENT_TO_DAEMON: 0x01, DAEMON_TO_CLIENT: 0x02 } as const;
 
-/** Minimal transport a channel rides on: send/receive UTF-8 text frames over the relay link. */
+const KEY_LENGTH = 32;
+const NONCE_LENGTH = 24;
+/** Smallest valid box: a 1-byte record plus the 16-byte Poly1305 tag. */
+const MIN_BOX_LENGTH = 1 + nacl.box.overheadLength;
+const COUNTER_END = 1n << 64n;
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8", { fatal: true });
+
+/** The socket a channel rides on: bytes, not strings. */
 export interface Transport {
-  send(data: string): void;
-  onMessage(handler: (data: string) => void): void;
-  onClose(handler: (reason?: string) => void): void;
-  close(): void;
+  /** Send one binary WebSocket frame. */
+  send(bytes: Uint8Array): void;
+  /** A string is a text frame, which is a protocol error. */
+  onFrame(handler: (frame: Uint8Array | string) => void): void;
+  onClose(handler: (code?: number, reason?: string) => void): void;
+  close(code?: number, reason?: string): void;
 }
 
-/** Events an `EncryptedChannel` emits to its owner. */
-export interface EncryptedChannelEvents {
-  /** Fired once the E2EE handshake completes and app messages may flow. */
-  onReady?: () => void;
-  /** Fired for each successfully decrypted+authenticated text app message. */
-  onMessage?: (plaintext: string) => void;
-  /**
-   * Fired for each successfully decrypted+authenticated BINARY app message (terminal I/O,
-   * file-transfer chunks). Carried as a distinct wire frame type (`e2ee_bin`) from text `e2ee_app`
-   * messages, but otherwise identical: same handshake gate, same ECDH shared key, same
-   * auth-failure-drops-silently behavior — see `sendBinary`/`openBytes` below.
-   */
-  onBinaryMessage?: (bytes: Uint8Array) => void;
-  /** Fired when the underlying transport closes. */
-  onClose?: (reason?: string) => void;
-  /** Fired when a received frame (text or binary) fails authentication (tampered/corrupt) — the message is dropped. */
-  onAuthError?: (error: unknown) => void;
+export interface ChannelEvents {
+  onText(text: string): void;
+  onBinary(bytes: Uint8Array): void;
+  /** Daemon: `hello` accepted and `ready` sent. Client: the `ready` box opened. */
+  onReady?(): void;
+  onClose?(code?: number, reason?: string): void;
+  onError?(cause: Error): void;
 }
 
-/** Opaque attachment describing which relay session a channel is bound to. */
-export interface RelaySessionAttachment {
-  sessionId: string;
-}
-
-export interface EncryptedChannel {
-  readonly role: ConnectionRole;
-  readonly attachment: RelaySessionAttachment;
-  /** True once the handshake has completed and `send`/`sendBinary` will actually transmit. */
-  readonly ready: boolean;
-  /** Encrypt + send a text application message. Throws if called before the handshake completes. */
-  send(plaintext: string): void;
-  /**
-   * Encrypt + send a BINARY application message (terminal I/O, file-transfer chunks). Wire format
-   * is a sibling of `send()`'s — same crypto, same nonce/ciphertext framing, just fed raw bytes
-   * instead of UTF-8 text and tagged `e2ee_bin` instead of `e2ee_app` so the receiver dispatches
-   * to `onBinaryMessage` instead of `onMessage`. Still travels as a JSON-wrapped base64 STRING
-   * over the relay's text-frame-only wire (architecture/relay-e2ee.md § Behavior) — no raw binary
-   * WebSocket frames are involved, so the relay bridge (`session-bridge.ts`) needs no changes.
-   * Throws if called before the handshake completes.
-   */
+export interface Channel {
+  /** Send one text message. Throws before the channel is open or after it closed. */
+  send(text: string): void;
+  /** Send one binary message. Throws before the channel is open or after it closed. */
   sendBinary(bytes: Uint8Array): void;
-  close(): void;
+  /** Close the transport (default code 1000). */
+  close(code?: number, reason?: string): void;
 }
 
-interface HandshakeHelloFrame {
-  type: "e2ee_hello";
-  ephemeralPublicKey: string;
-}
-interface HandshakeReadyFrame {
-  type: "e2ee_ready";
-}
-interface AppFrame {
-  type: "e2ee_app";
-  frame: string; // base64(nonce ++ ciphertext) of UTF-8 text
-}
-interface AppBinaryFrame {
-  type: "e2ee_bin";
-  frame: string; // base64(nonce ++ ciphertext) of raw bytes
-}
-type WireFrame = HandshakeHelloFrame | HandshakeReadyFrame | AppFrame | AppBinaryFrame;
-
-function parseFrame(data: string): WireFrame | null {
-  try {
-    const parsed = JSON.parse(data) as { type?: unknown };
-    if (!parsed || typeof parsed.type !== "string") return null;
-    return parsed as WireFrame;
-  } catch {
-    return null;
-  }
+/** Test seams shared by both sides. */
+interface CounterOptions {
+  /** First counter used and expected in each direction. Default 0n. */
+  counterStart?: bigint;
+  /** A counter at or above this value is never used; the channel closes instead. Default 2^64. */
+  counterLimit?: bigint;
 }
 
-const NONCE_LENGTH = 24; // XSalsa20-Poly1305 nonce size (nacl.box.nonceLength)
-
-/** Encrypt raw `message` bytes under `sharedKey`, producing the wire frame `base64(nonce ++ ciphertext)`. */
-function sealBytes(message: Uint8Array, sharedKey: Uint8Array): string {
-  const nonce = nacl.randomBytes(NONCE_LENGTH);
-  const ciphertext = nacl.box.after(message, nonce, sharedKey);
-  const combined = new Uint8Array(nonce.length + ciphertext.length);
-  combined.set(nonce, 0);
-  combined.set(ciphertext, nonce.length);
-  return encodeBase64(combined);
-}
-
-/** Decrypt a `base64(nonce ++ ciphertext)` wire frame under `sharedKey` to raw bytes, or `null` on auth failure. */
-function openBytes(frame: string, sharedKey: Uint8Array): Uint8Array | null {
-  let combined: Uint8Array;
-  try {
-    combined = decodeBase64(frame);
-  } catch {
-    return null;
-  }
-  if (combined.length < NONCE_LENGTH) return null;
-  const nonce = combined.slice(0, NONCE_LENGTH);
-  const ciphertext = combined.slice(NONCE_LENGTH);
-  return nacl.box.open.after(ciphertext, nonce, sharedKey);
-}
-
-/** Encrypt `plaintext` under `sharedKey`, producing the wire frame `base64(nonce ++ ciphertext)`. */
-function seal(plaintext: string, sharedKey: Uint8Array): string {
-  return sealBytes(new TextEncoder().encode(plaintext), sharedKey);
-}
-
-/** Decrypt a `base64(nonce ++ ciphertext)` wire frame under `sharedKey`, or return `null` on auth failure. */
-function open(frame: string, sharedKey: Uint8Array): string | null {
-  const opened = openBytes(frame, sharedKey);
-  return opened ? new TextDecoder().decode(opened) : null;
-}
-
-/** Shared app-frame plumbing once both sides agree on `sharedKey` — identical for client/daemon. */
-function wireAppMessages(
-  role: ConnectionRole,
-  attachment: RelaySessionAttachment,
-  transport: Transport,
-  events: EncryptedChannelEvents,
-  getSharedKey: () => Uint8Array | null,
-  isReady: () => boolean,
-): Pick<EncryptedChannel, "send" | "sendBinary" | "close"> & {
-  handleAppFrame: (frame: AppFrame) => void;
-  handleBinaryFrame: (frame: AppBinaryFrame) => void;
-} {
-  let closed = false;
-  transport.onClose((reason) => {
-    closed = true;
-    events.onClose?.(reason);
-  });
-  return {
-    handleAppFrame(frame) {
-      if (closed) return;
-      const sharedKey = getSharedKey();
-      if (!isReady() || !sharedKey) return; // refuse ANY app message before handshake completes
-      const plaintext = open(frame.frame, sharedKey);
-      if (plaintext === null) {
-        events.onAuthError?.(new Error(`relay ${role} channel: message failed authentication`));
-        return;
-      }
-      events.onMessage?.(plaintext);
-    },
-    handleBinaryFrame(frame) {
-      if (closed) return;
-      const sharedKey = getSharedKey();
-      if (!isReady() || !sharedKey) return; // refuse ANY app message before handshake completes
-      const bytes = openBytes(frame.frame, sharedKey);
-      if (bytes === null) {
-        events.onAuthError?.(new Error(`relay ${role} channel: binary message failed authentication`));
-        return;
-      }
-      events.onBinaryMessage?.(bytes);
-    },
-    send(plaintext: string) {
-      if (closed) throw new Error(`relay ${role} channel: cannot send after close()`);
-      const sharedKey = getSharedKey();
-      if (!isReady() || !sharedKey) {
-        throw new Error(`relay ${role} channel: cannot send before the E2EE handshake completes`);
-      }
-      transport.send(JSON.stringify({ type: "e2ee_app", frame: seal(plaintext, sharedKey) } satisfies AppFrame));
-    },
-    sendBinary(bytes: Uint8Array) {
-      if (closed) throw new Error(`relay ${role} channel: cannot send after close()`);
-      const sharedKey = getSharedKey();
-      if (!isReady() || !sharedKey) {
-        throw new Error(`relay ${role} channel: cannot send before the E2EE handshake completes`);
-      }
-      transport.send(
-        JSON.stringify({ type: "e2ee_bin", frame: sealBytes(bytes, sharedKey) } satisfies AppBinaryFrame),
-      );
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      transport.close();
-    },
-  };
-}
-
-export interface CreateDaemonChannelOptions {
+export interface DaemonChannelOptions extends CounterOptions {
   transport: Transport;
-  attachment: RelaySessionAttachment;
-  /**
-   * The daemon's persistent Curve25519 keypair (architecture/relay-e2ee.md § Data & Persistence —
-   * `daemon-keypair.json`). Used directly for ECDH: the client derives its shared key from this
-   * same public key (via the pairing offer) before the handshake even starts, so the daemon MUST
-   * use its persistent secret key here, not a per-connection ephemeral one. The secret never
-   * leaves the daemon process.
-   */
   daemonKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
-  events?: EncryptedChannelEvents;
+  events: ChannelEvents;
+  /** Source of the salt. Default `nacl.randomBytes`. */
+  randomBytes?: (length: number) => Uint8Array;
 }
 
-/**
- * Daemon side of an encrypted relay channel. The daemon waits for the client's `e2ee_hello`,
- * derives the shared key from its own persistent secret key + the client's fresh ephemeral public
- * key, replies with `e2ee_ready`, and only then becomes `ready` (refusing all app traffic before
- * that — architecture/relay-e2ee.md § Error Handling).
- */
-export function createDaemonChannel(opts: CreateDaemonChannelOptions): EncryptedChannel {
-  const { transport, attachment, daemonKeypair } = opts;
-  const events = opts.events ?? {};
-
-  let sharedKey: Uint8Array | null = null;
-  let ready = false;
-
-  const plumbing = wireAppMessages(
-    "daemon",
-    attachment,
-    transport,
-    events,
-    () => sharedKey,
-    () => ready,
-  );
-
-  transport.onMessage((data) => {
-    const frame = parseFrame(data);
-    if (!frame) return; // ignore anything the relay/peer sends that isn't a recognized frame
-
-    if (frame.type === "e2ee_hello") {
-      // Re-run the handshake on EVERY e2ee_hello rather than ignoring it once `ready`. The relay
-      // multiplexes one deterministic session id across however many client sockets attach over
-      // the daemon's lifetime (browser reload, second tab, reconnect) — each is a legitimate NEW
-      // peer presenting a fresh ephemeral key, not a replay of the first one. Re-deriving simply
-      // re-arms the channel for whichever peer is currently attached ("last hello wins"); a truly
-      // identical replayed frame just re-derives the same shared key, so this is idempotent for
-      // an actual replay and correct for a new peer.
-      let remotePublicKey: Uint8Array;
-      try {
-        remotePublicKey = decodeBase64(frame.ephemeralPublicKey);
-      } catch {
-        return;
-      }
-      sharedKey = nacl.box.before(remotePublicKey, daemonKeypair.secretKey);
-      ready = true;
-      transport.send(JSON.stringify({ type: "e2ee_ready" } satisfies HandshakeReadyFrame));
-      events.onReady?.();
-      return;
-    }
-
-    if (frame.type === "e2ee_app") {
-      plumbing.handleAppFrame(frame);
-      return;
-    }
-
-    if (frame.type === "e2ee_bin") {
-      plumbing.handleBinaryFrame(frame);
-    }
-    // `e2ee_ready` is never sent to a daemon channel; ignore if it arrives.
-  });
-
-  return {
-    role: "daemon",
-    attachment,
-    get ready() {
-      return ready;
-    },
-    send: plumbing.send,
-    sendBinary: plumbing.sendBinary,
-    close: plumbing.close,
-  };
-}
-
-export interface CreateClientChannelOptions {
+export interface ClientChannelOptions extends CounterOptions {
   transport: Transport;
-  attachment: RelaySessionAttachment;
-  /** The daemon's persistent public key, obtained out-of-band via the pairing offer (task-003). */
   daemonPublicKey: Uint8Array;
-  events?: EncryptedChannelEvents;
+  events: ChannelEvents;
+  /** Client key pair. Default: a fresh `nacl.box.keyPair()`. */
+  keyPair?: { publicKey: Uint8Array; secretKey: Uint8Array };
 }
 
-/**
- * Client side of an encrypted relay channel. The client already knows the daemon's persistent
- * public key (from the pairing offer), so it generates a FRESH ephemeral keypair, derives the
- * shared key immediately, and sends `e2ee_hello`. It becomes `ready` only after the daemon
- * confirms with `e2ee_ready` — mirroring the daemon's "no app traffic before handshake" gating on
- * the client side too, for a genuinely symmetric API.
- */
-export function createClientChannel(opts: CreateClientChannelOptions): EncryptedChannel {
-  const { transport, attachment, daemonPublicKey } = opts;
-  const events = opts.events ?? {};
-  const ephemeral = nacl.box.keyPair();
-  const sharedKey = nacl.box.before(daemonPublicKey, ephemeral.secretKey);
+/** Build the 24-byte nonce. */
+export function channelNonce(salt: Uint8Array, direction: number, counter: bigint): Uint8Array {
+  const nonce = new Uint8Array(NONCE_LENGTH);
+  nonce.set(salt, 0);
+  nonce[CHANNEL_SALT_LENGTH] = direction;
+  new DataView(nonce.buffer).setBigUint64(CHANNEL_SALT_LENGTH + 1, counter, false);
+  return nonce;
+}
 
-  let ready = false;
+function record(kind: number, payload: Uint8Array): Uint8Array {
+  const out = new Uint8Array(1 + payload.length);
+  out[0] = kind;
+  out.set(payload, 1);
+  return out;
+}
 
-  const plumbing = wireAppMessages(
-    "client",
-    attachment,
-    transport,
-    events,
-    () => sharedKey,
-    () => ready,
-  );
+/** State and framing shared by both roles. */
+class Core implements Channel {
+  protected key: Uint8Array | null = null;
+  protected salt: Uint8Array | null = null;
+  protected open = false;
+  protected closed = false;
+  private sent: bigint;
+  private received: bigint;
+  private readonly limit: bigint;
 
-  transport.onMessage((data) => {
-    const frame = parseFrame(data);
-    if (!frame) return;
+  constructor(
+    protected readonly transport: Transport,
+    protected readonly events: ChannelEvents,
+    private readonly sendDirection: number,
+    private readonly receiveDirection: number,
+    options: CounterOptions,
+  ) {
+    this.sent = options.counterStart ?? 0n;
+    this.received = options.counterStart ?? 0n;
+    this.limit = options.counterLimit ?? COUNTER_END;
+    transport.onClose((code, reason) => this.handleTransportClose(code, reason));
+    transport.onFrame((frame) => this.handleFrame(frame));
+  }
 
-    if (frame.type === "e2ee_ready") {
-      if (ready) return;
-      ready = true;
-      events.onReady?.();
-      return;
+  send(text: string): void {
+    this.sealAndSend(RECORD_KIND.TEXT, encoder.encode(text));
+  }
+
+  sendBinary(bytes: Uint8Array): void {
+    this.sealAndSend(RECORD_KIND.BINARY, bytes);
+  }
+
+  close(code = 1000, reason = ""): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.transport.close(code, reason);
+    this.events.onClose?.(code, reason);
+  }
+
+  protected handleFrame(_frame: Uint8Array | string): void {}
+
+  /** Report `cause`, close with `channel_error`, deliver nothing. */
+  protected fail(cause: string): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.events.onError?.(new Error(cause));
+    this.transport.close(RELAY_CLOSE.CHANNEL_ERROR.code, RELAY_CLOSE.CHANNEL_ERROR.reason);
+    this.events.onClose?.(RELAY_CLOSE.CHANNEL_ERROR.code, RELAY_CLOSE.CHANNEL_ERROR.reason);
+  }
+
+  /** Seal with the next send counter. Closes instead of wrapping. */
+  protected seal(plain: Uint8Array): Uint8Array {
+    if (!this.key || !this.salt) throw new Error("channel not open");
+    if (this.sent >= this.limit) {
+      this.fail("counter limit reached");
+      throw new Error("channel counter limit reached");
     }
+    const nonce = channelNonce(this.salt, this.sendDirection, this.sent);
+    const box = nacl.box.after(plain, nonce, this.key);
+    this.sent += 1n;
+    return box;
+  }
 
-    if (frame.type === "e2ee_app") {
-      plumbing.handleAppFrame(frame);
-      return;
+  /** Open with the next expected counter; null (after failing) when it does not open. */
+  protected unseal(box: Uint8Array): Uint8Array | null {
+    if (!this.key || !this.salt) return null;
+    if (this.received >= this.limit) {
+      this.fail("counter limit reached");
+      return null;
     }
-
-    if (frame.type === "e2ee_bin") {
-      plumbing.handleBinaryFrame(frame);
+    if (box.length < MIN_BOX_LENGTH) {
+      this.fail("box too short");
+      return null;
     }
-    // `e2ee_hello` is never sent to a client channel; ignore if it arrives.
-  });
+    const nonce = channelNonce(this.salt, this.receiveDirection, this.received);
+    const plain = nacl.box.open.after(box, nonce, this.key);
+    if (!plain || plain.length < 1) {
+      this.fail("box did not open");
+      return null;
+    }
+    this.received += 1n;
+    return plain;
+  }
 
-  transport.send(
-    JSON.stringify({
-      type: "e2ee_hello",
-      ephemeralPublicKey: encodeBase64(ephemeral.publicKey),
-    } satisfies HandshakeHelloFrame),
-  );
+  /** Deliver a text or binary record. Returns false (after failing) for any other kind. */
+  protected deliver(plain: Uint8Array): boolean {
+    const kind = plain[0];
+    const payload = plain.subarray(1);
+    if (kind === RECORD_KIND.TEXT) {
+      let text: string;
+      try {
+        text = decoder.decode(payload);
+      } catch {
+        this.fail("text record is not UTF-8");
+        return false;
+      }
+      this.events.onText(text);
+      return true;
+    }
+    if (kind === RECORD_KIND.BINARY) {
+      this.events.onBinary(payload.slice());
+      return true;
+    }
+    this.fail(kind === RECORD_KIND.READY ? "unexpected ready record" : "unknown record kind");
+    return false;
+  }
 
-  return {
-    role: "client",
-    attachment,
-    get ready() {
-      return ready;
-    },
-    send: plumbing.send,
-    sendBinary: plumbing.sendBinary,
-    close: plumbing.close,
-  };
+  private sealAndSend(kind: number, payload: Uint8Array): void {
+    if (this.closed) throw new Error("channel closed");
+    if (!this.open) throw new Error("channel not open");
+    this.transport.send(this.seal(record(kind, payload)));
+  }
+
+  private handleTransportClose(code?: number, reason?: string): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.events.onClose?.(code, reason);
+  }
+}
+
+class DaemonChannel extends Core {
+  private helloSeen = false;
+
+  constructor(private readonly o: DaemonChannelOptions) {
+    super(
+      o.transport,
+      o.events,
+      CHANNEL_DIRECTION.DAEMON_TO_CLIENT,
+      CHANNEL_DIRECTION.CLIENT_TO_DAEMON,
+      o,
+    );
+  }
+
+  protected override handleFrame(frame: Uint8Array | string): void {
+    if (this.closed) return;
+    if (typeof frame === "string") return this.fail("text frame on channel");
+    if (!this.helloSeen) return this.handleHello(frame);
+    const plain = this.unseal(frame);
+    if (plain) this.deliver(plain);
+  }
+
+  private handleHello(frame: Uint8Array): void {
+    if (frame.length !== 1 + KEY_LENGTH || frame[0] !== CHANNEL_VERSION) {
+      return this.fail("malformed hello");
+    }
+    this.helloSeen = true;
+    this.key = nacl.box.before(frame.slice(1), this.o.daemonKeypair.secretKey);
+    this.salt = (this.o.randomBytes ?? nacl.randomBytes)(CHANNEL_SALT_LENGTH).slice();
+    const box = this.seal(new Uint8Array([RECORD_KIND.READY]));
+    const ready = new Uint8Array(1 + CHANNEL_SALT_LENGTH + box.length);
+    ready[0] = CHANNEL_VERSION;
+    ready.set(this.salt, 1);
+    ready.set(box, 1 + CHANNEL_SALT_LENGTH);
+    this.open = true;
+    this.transport.send(ready);
+    this.events.onReady?.();
+  }
+}
+
+class ClientChannel extends Core {
+  private readyOpened = false;
+  private readonly secretKey: Uint8Array;
+
+  constructor(o: ClientChannelOptions) {
+    super(
+      o.transport,
+      o.events,
+      CHANNEL_DIRECTION.CLIENT_TO_DAEMON,
+      CHANNEL_DIRECTION.DAEMON_TO_CLIENT,
+      o,
+    );
+    const keyPair = o.keyPair ?? nacl.box.keyPair();
+    this.secretKey = keyPair.secretKey;
+    this.key = nacl.box.before(o.daemonPublicKey, this.secretKey);
+    const hello = new Uint8Array(1 + KEY_LENGTH);
+    hello[0] = CHANNEL_VERSION;
+    hello.set(keyPair.publicKey, 1);
+    o.transport.send(hello);
+  }
+
+  protected override handleFrame(frame: Uint8Array | string): void {
+    if (this.closed) return;
+    if (typeof frame === "string") return this.fail("text frame on channel");
+    if (!this.readyOpened) return this.handleReady(frame);
+    const plain = this.unseal(frame);
+    if (plain) this.deliver(plain);
+  }
+
+  private handleReady(frame: Uint8Array): void {
+    if (frame.length < 1 + CHANNEL_SALT_LENGTH + MIN_BOX_LENGTH || frame[0] !== CHANNEL_VERSION) {
+      return this.fail("malformed ready");
+    }
+    this.salt = frame.slice(1, 1 + CHANNEL_SALT_LENGTH);
+    const plain = this.unseal(frame.subarray(1 + CHANNEL_SALT_LENGTH));
+    if (!plain) return;
+    if (plain.length !== 1 || plain[0] !== RECORD_KIND.READY) {
+      return this.fail("first box is not a ready record");
+    }
+    this.readyOpened = true;
+    this.open = true;
+    this.events.onReady?.();
+  }
+}
+
+/** Daemon side: waits for `hello`, answers `ready`, then exchanges records. */
+export function createDaemonChannel(options: DaemonChannelOptions): Channel {
+  return new DaemonChannel(options);
+}
+
+/** Client side: sends `hello` at once; sends nothing else until the `ready` box has opened. */
+export function createClientChannel(options: ClientChannelOptions): Channel {
+  return new ClientChannel(options);
 }

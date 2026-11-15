@@ -1,286 +1,438 @@
-import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
+import { createServer, type Server } from "node:http";
 
-import { afterEach, describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
-import { WebSocketServer, WebSocket as NodeWebSocket } from "ws";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket as NodeWebSocket, WebSocketServer } from "ws";
 
-import { createDaemonChannel, deriveRelaySessionId, type EncryptedChannel } from "@av-pi-studio/relay";
+import {
+  createDaemonChannel,
+  deriveRelaySessionId,
+  RELAY_CLOSE,
+  type Channel,
+} from "@av-pi-studio/relay";
+import {
+  startRelayServer,
+  type RelayLimits,
+  type RelayServerHandle,
+} from "@av-pi-studio/relay/server";
 
-import { createRelayTransport, relayDialUrl } from "./relay-transport.js";
-import { createWebSocketTransport } from "./transport.js";
-import { DaemonClient } from "./daemon-client.js";
 import { parsePairingUrl } from "./pairing.js";
+import {
+  createRelayTransport,
+  relayDialUrl,
+  RelayConnectError,
+  type RelayConnectReason,
+} from "./relay-transport.js";
+import type { Transport } from "./transport.js";
 
 /**
- * Integration test for the client-side relay transport (architecture/relay-e2ee.md § Pairing, §
- * Behavior; architecture/client-app-runtime.md § Layered client library). Runs a minimal fake relay
- * (same shape as `packages/server/src/daemon/relay-transport.test.ts`'s fixture) plus a REAL daemon
- * channel (`createDaemonChannel`, task-001) standing in for `packages/server/src/daemon/
- * relay-transport.ts` (task-002) — proving transport-API parity end-to-end, not against a mock.
+ * Integration tests for the protocol-2 client relay transport (architecture/relay-protocol.md
+ * § Behavior — Client; features/relay-multi-client.md § Public contract 3): the REAL relay server
+ * plus a minimal in-test daemon stand-in (raw control socket + data socket + `createDaemonChannel`).
  */
 
-interface FakeRelay {
-  port: number;
-  close(): Promise<void>;
-}
+const daemonKeys = nacl.box.keyPair();
+const SESSION = deriveRelaySessionId(daemonKeys.publicKey);
 
-async function startFakeRelay(): Promise<FakeRelay> {
-  const http: Server = createServer();
-  const wss = new WebSocketServer({ server: http });
-  const bySession = new Map<string, NodeWebSocket[]>();
-
-  wss.on("connection", (socket: NodeWebSocket) => {
-    let sessionId: string | null = null;
-    socket.on("message", (data: Buffer, isBinary: boolean) => {
-      if (isBinary) return;
-      const text = data.toString("utf8");
-      if (sessionId === null) {
-        const parsed = JSON.parse(text) as { type?: string; sessionId?: string };
-        if (parsed.type === "relay_register" && parsed.sessionId) {
-          sessionId = parsed.sessionId;
-          const peers = bySession.get(sessionId) ?? [];
-          peers.push(socket);
-          bySession.set(sessionId, peers);
-          return;
-        }
-        return;
-      }
-      for (const peer of bySession.get(sessionId) ?? []) {
-        if (peer !== socket && peer.readyState === peer.OPEN) peer.send(text);
-      }
-    });
-    socket.on("close", () => {
-      if (sessionId === null) return;
-      const peers = (bySession.get(sessionId) ?? []).filter((s) => s !== socket);
-      if (peers.length > 0) bySession.set(sessionId, peers);
-      else bySession.delete(sessionId);
-    });
-  });
-
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
-  const port = (http.address() as AddressInfo).port;
-  return {
-    port,
-    async close() {
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
-      await new Promise<void>((resolve) => http.close(() => resolve()));
-    },
-  };
-}
-
-/** Attach the daemon side (task-001's `createDaemonChannel` over a raw relay socket) for `sessionId`. */
-function attachDaemonSide(
-  relayPort: number,
-  sessionId: string,
-  daemonKeypair: nacl.BoxKeyPair,
-  onAppMessage: (plaintext: string, reply: (m: string) => void) => void,
-  onAppBinary?: (bytes: Uint8Array, replyBinary: (b: Uint8Array) => void) => void,
-): Promise<{ socket: NodeWebSocket; channel: EncryptedChannel }> {
-  const socket = new NodeWebSocket(`ws://127.0.0.1:${relayPort}`);
-  const messageHandlers: Array<(data: string) => void> = [];
-  return new Promise((resolve) => {
-    socket.once("open", () => {
-      socket.send(JSON.stringify({ type: "relay_register", sessionId }));
-      socket.on("message", (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) for (const h of messageHandlers) h(data.toString("utf8"));
-      });
-      const channel = createDaemonChannel({
-        transport: {
-          send: (data) => socket.send(data),
-          onMessage: (h) => messageHandlers.push(h),
-          onClose: () => {},
-          close: () => socket.close(),
-        },
-        attachment: { sessionId },
-        daemonKeypair,
-        events: {
-          onMessage: (plaintext) => onAppMessage(plaintext, (m) => channel.send(m)),
-          onBinaryMessage: (bytes) => onAppBinary?.(bytes, (b) => channel.sendBinary(b)),
-        },
-      });
-      resolve({ socket, channel });
-    });
-  });
-}
-
-let relay: FakeRelay | undefined;
-let daemonSocket: NodeWebSocket | undefined;
-let client: DaemonClient | undefined;
+let relay: RelayServerHandle | undefined;
+const cleanups: Array<() => void | Promise<void>> = [];
 
 afterEach(async () => {
-  client?.close();
-  client = undefined;
-  daemonSocket?.close();
-  daemonSocket = undefined;
+  for (const fn of cleanups.splice(0).toReversed()) await fn();
   await relay?.close();
   relay = undefined;
 });
 
-describe("client relay transport", () => {
-  it("completes the E2EE handshake before any app RPC (hello) crosses the wire", async () => {
-    relay = await startFakeRelay();
-    const daemonKeypair = nacl.box.keyPair();
-    const sessionId = crypto.randomUUID();
+async function startRelay(limits?: Partial<RelayLimits>): Promise<string> {
+  relay = await startRelayServer({ host: "127.0.0.1", port: 0, limits });
+  return `ws://127.0.0.1:${relay.port}`;
+}
 
-    const receivedOnDaemon: string[] = [];
-    const attached = await attachDaemonSide(relay.port, sessionId, daemonKeypair, (plaintext, reply) => {
-      receivedOnDaemon.push(plaintext);
-      const req = JSON.parse(plaintext) as { type: string };
-      if (req.type === "hello") {
-        reply(
-          JSON.stringify({
-            type: "status",
-            payload: { status: "server_info", serverId: "srv_test", capabilities: {}, features: {} },
-          }),
-        );
-      }
+const settle = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+interface DaemonStandIn {
+  /** Every plaintext text/binary message the daemon received, in order. */
+  texts: string[];
+  binaries: Uint8Array[];
+  /** Every channel (one per dialed connection). */
+  channels: Channel[];
+  /** Raw first-frame strings the data sockets sent to the relay, for ordering checks. */
+  closeEvents: Array<{ code?: number; reason?: string }>;
+}
+
+/** Register a control socket and answer each `relay_dial` with a data socket + daemon channel. */
+async function startDaemon(
+  url: string,
+  opts: { ignoreDial?: boolean; keys?: nacl.BoxKeyPair; echo?: boolean } = {},
+): Promise<DaemonStandIn> {
+  const stand: DaemonStandIn = { texts: [], binaries: [], channels: [], closeEvents: [] };
+  const control = new NodeWebSocket(url);
+  cleanups.push(() => control.terminate());
+  const registered = new Promise<void>((resolve, reject) => {
+    control.once("error", reject);
+    control.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) return;
+      const frame = JSON.parse(data.toString("utf8")) as { type: string; connectionId?: string };
+      if (frame.type === "relay_registered") resolve();
+      if (frame.type !== "relay_dial" || opts.ignoreDial) return;
+      attachData(url, frame.connectionId!, stand, opts);
     });
-    daemonSocket = attached.socket;
+  });
+  await new Promise<void>((resolve) => control.once("open", () => resolve()));
+  control.send(JSON.stringify({ type: "relay_daemon_register", v: 2, sessionId: SESSION }));
+  await registered;
+  return stand;
+}
 
-    const transport = createRelayTransport({ sessionId, daemonPublicKey: daemonKeypair.publicKey });
-    client = new DaemonClient({
-      url: `ws://127.0.0.1:${relay.port}`,
-      clientId: "smoke-client",
-      clientType: "cli",
-      transport,
-    });
+function attachData(
+  url: string,
+  connectionId: string,
+  stand: DaemonStandIn,
+  opts: { keys?: nacl.BoxKeyPair; echo?: boolean },
+): void {
+  const data = new NodeWebSocket(url);
+  cleanups.push(() => data.terminate());
+  let frameHandler: ((f: Uint8Array | string) => void) | null = null;
+  let closeHandler: ((code?: number, reason?: string) => void) | null = null;
+  let paired = false;
+  const channel = createDaemonChannel({
+    daemonKeypair: opts.keys ?? daemonKeys,
+    transport: {
+      send: (bytes) => data.send(bytes),
+      onFrame: (h) => {
+        frameHandler = h;
+      },
+      onClose: (h) => {
+        closeHandler = h;
+      },
+      close: (code, reason) => data.close(code, reason),
+    },
+    events: {
+      onText: (text) => {
+        stand.texts.push(text);
+        if (opts.echo) channel.send(`echo:${text}`);
+      },
+      onBinary: (bytes) => {
+        stand.binaries.push(bytes);
+        if (opts.echo) channel.sendBinary(bytes);
+      },
+      onClose: (code, reason) => stand.closeEvents.push({ code, reason }),
+    },
+  });
+  stand.channels.push(channel);
+  data.on("open", () =>
+    data.send(
+      JSON.stringify({ type: "relay_daemon_attach", v: 2, sessionId: SESSION, connectionId }),
+    ),
+  );
+  data.on("message", (raw: Buffer, isBinary: boolean) => {
+    if (!paired) {
+      // The first text frame is `relay_paired`.
+      paired = true;
+      return;
+    }
+    frameHandler?.(isBinary ? new Uint8Array(raw) : raw.toString("utf8"));
+  });
+  data.on("close", (code, reason: Buffer) => closeHandler?.(code, reason.toString("utf8")));
+}
 
-    const info = await client.connect();
-    expect(info.serverId).toBe("srv_test");
-    // The only message the fake daemon ever decrypted is the real `hello` RPC — proving it arrived
-    // ENCRYPTED (through the completed handshake), not as a plaintext relay_register frame.
-    expect(receivedOnDaemon).toEqual([JSON.stringify({ type: "hello", clientId: "smoke-client", clientType: "cli", protocolVersion: 1 })]);
+function newTransport(
+  extra: { connectTimeoutMs?: number; daemonPublicKey?: Uint8Array } = {},
+): Transport {
+  const transport = createRelayTransport({
+    daemonPublicKey: daemonKeys.publicKey,
+    ...extra,
+  });
+  cleanups.push(() => transport.close());
+  return transport;
+}
+
+async function expectRefusal(promise: Promise<void>): Promise<RelayConnectError> {
+  const error = await promise.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  expect(error).toBeInstanceOf(RelayConnectError);
+  return error as RelayConnectError;
+}
+
+function expectReason(error: RelayConnectError, reason: RelayConnectReason): void {
+  expect(error.reason).toBe(reason);
+  expect(error.name).toBe("RelayConnectError");
+}
+
+describe("client relay transport (protocol 2)", () => {
+  it("connects after ready; text and binary round-trip; binary arrives as ArrayBuffer", async () => {
+    const url = await startRelay();
+    const daemon = await startDaemon(url, { echo: true });
+    const transport = newTransport();
+    const received: Array<string | ArrayBuffer | Blob> = [];
+    transport.onMessage = (data) => received.push(data);
+
+    expect(transport.isOpen).toBe(false);
+    expect(() => transport.sendText("early")).toThrow();
+    await transport.connect(url);
+    expect(transport.isOpen).toBe(true);
+    expect(typeof transport.bufferedAmount).toBe("number");
+
+    transport.sendText("héllo");
+    transport.sendBinary(new Uint8Array([1, 2, 3]));
+    transport.sendText("again");
+    await settle(100);
+
+    expect(daemon.texts).toEqual(["héllo", "again"]);
+    expect(daemon.binaries.map((b) => Array.from(b))).toEqual([[1, 2, 3]]);
+    // Wire order, text as strings, binary as ArrayBuffer.
+    expect(received[0]).toBe("echo:héllo");
+    expect(received[1]).toBeInstanceOf(ArrayBuffer);
+    expect(Array.from(new Uint8Array(received[1] as ArrayBuffer))).toEqual([1, 2, 3]);
+    expect(received[2]).toBe("echo:again");
   });
 
-  it("sendBinary() no longer throws — a binary frame round-trips through the daemon over the relay", async () => {
-    // Regression: `createRelayTransport`'s `sendBinary()` used to unconditionally throw
-    // ("binary frames are not supported over the E2EE relay channel"), so terminal I/O and
-    // file-transfer never worked over a relay connection at all. Proves the fix using a REAL
-    // relay bridge + REAL E2EE handshake, exactly like the handshake test above, just exercising
-    // `sendBinary`/`onmessage`(binary) instead of `sendText`/`hello`.
-    relay = await startFakeRelay();
-    const daemonKeypair = nacl.box.keyPair();
-    const sessionId = crypto.randomUUID();
+  it("rejects at once with daemon_offline when no daemon is registered", async () => {
+    const url = await startRelay();
+    const started = Date.now();
+    const error = await expectRefusal(newTransport().connect(url));
+    expect(Date.now() - started).toBeLessThan(1000);
+    expectReason(error, "daemon_offline");
+    expect(error.message).toMatch(/offline/);
+    expect(error.message).toMatch(/key replaced/);
+    expect(error.message).toMatch(/no longer valid/);
+  });
 
-    const receivedOnDaemon: Uint8Array[] = [];
-    const attached = await attachDaemonSide(
-      relay.port,
-      sessionId,
-      daemonKeypair,
-      (plaintext, reply) => {
-        const req = JSON.parse(plaintext) as { type: string };
-        if (req.type === "hello") {
-          reply(
-            JSON.stringify({
-              type: "status",
-              payload: { status: "server_info", serverId: "srv_bin_test", capabilities: {}, features: {} },
-            }),
-          );
-        }
-      },
-      (bytes, replyBinary) => {
-        receivedOnDaemon.push(bytes);
-        replyBinary(new Uint8Array([0x01, 1, 88, 89, 90])); // opcode Output, slot 1, "XYZ"
-      },
+  it("tells its owner the transport closed after a refused connect (so DaemonClient leaves connecting)", async () => {
+    const url = await startRelay();
+    const transport = newTransport();
+    const closes: Array<[number, string]> = [];
+    transport.onClose = (code, reason) => closes.push([code, reason]);
+    expectReason(await expectRefusal(transport.connect(url)), "daemon_offline");
+    expect(closes.length).toBe(1);
+    expect(closes[0]![1]).toMatch(/offline/);
+    await settle(100);
+    expect(closes.length).toBe(1);
+  });
+
+  it("rejects with daemon_unresponsive when the daemon ignores relay_dial", async () => {
+    const url = await startRelay({ attachTimeoutMs: 80 });
+    await startDaemon(url, { ignoreDial: true });
+    const error = await expectRefusal(newTransport().connect(url));
+    expectReason(error, "daemon_unresponsive");
+    expect(error.message).toMatch(/did not answer/);
+  });
+
+  it("rejects the client past the cap with too_many_clients", async () => {
+    const url = await startRelay({ maxClientsPerDaemon: 2 });
+    await startDaemon(url);
+    await newTransport().connect(url);
+    await newTransport().connect(url);
+    const error = await expectRefusal(newTransport().connect(url));
+    expectReason(error, "too_many_clients");
+    expect(error.message).toMatch(/maximum number of relay connections/);
+  });
+
+  it("rejects with daemon_outdated when only a silent parked relay_register socket exists", async () => {
+    const url = await startRelay();
+    const old = new NodeWebSocket(url);
+    cleanups.push(() => old.terminate());
+    await new Promise<void>((resolve) => old.once("open", () => resolve()));
+    old.send(JSON.stringify({ type: "relay_register", sessionId: SESSION }));
+    await settle();
+    const error = await expectRefusal(newTransport().connect(url));
+    expectReason(error, "daemon_outdated");
+    expect(error.message).toMatch(/older relay protocol/);
+    expect(error.message).toMatch(/updated/);
+  });
+
+  it("rejects with wrong_key when the ready box does not open, sending nothing after hello", async () => {
+    const url = await startRelay();
+    // The daemon holds a different key than the one in the pairing link.
+    const daemon = await startDaemon(url, { keys: nacl.box.keyPair() });
+    const transport = newTransport();
+    const error = await expectRefusal(transport.connect(url));
+    expectReason(error, "wrong_key");
+    expect(error.message).toMatch(/does not match this daemon/);
+    await settle();
+    // The daemon saw only the hello: no application record ever arrived.
+    expect(daemon.texts).toEqual([]);
+    expect(daemon.binaries).toEqual([]);
+    expect(transport.isOpen).toBe(false);
+  });
+
+  it("rejects with timeout after connectTimeoutMs when the server never answers", async () => {
+    const http: Server = createServer();
+    const wss = new WebSocketServer({ server: http });
+    const sockets: NodeWebSocket[] = [];
+    wss.on("connection", (s: NodeWebSocket) => sockets.push(s));
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    cleanups.push(async () => {
+      for (const s of sockets) s.terminate();
+      await new Promise<void>((resolve) => wss.close(() => http.close(() => resolve())));
+    });
+    const port = (http.address() as AddressInfo).port;
+
+    const started = Date.now();
+    const error = await expectRefusal(
+      newTransport({ connectTimeoutMs: 150 }).connect(`ws://127.0.0.1:${port}`),
     );
-    daemonSocket = attached.socket;
-
-    const transport = createRelayTransport({ sessionId, daemonPublicKey: daemonKeypair.publicKey });
-    client = new DaemonClient({
-      url: `ws://127.0.0.1:${relay.port}`,
-      clientId: "binary-smoke-client",
-      clientType: "cli",
-      transport,
-    });
-    await client.connect();
-
-    const binaryReceived = Promise.withResolvers<Uint8Array>();
-    // `DaemonClient.handleBinaryFrame` decodes every non-file-transfer-opcode binary frame as a
-    // terminal frame via `decodeTerminalFrame` — feed/expect bytes shaped like real terminal
-    // frames (opcode byte + slot byte + payload) so both directions decode cleanly.
-    client.onTerminalFrame((frame) => {
-      if (frame.opcode === "Output") binaryReceived.resolve(frame.data);
-    });
-
-    const inputFrame = new Uint8Array([0x02, 1, 65, 66, 67]); // opcode Input, slot 1, "ABC"
-    expect(() => client!.sendBinary(inputFrame)).not.toThrow();
-
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(receivedOnDaemon).toEqual([inputFrame]);
-
-    const echoed = await binaryReceived.promise;
-    expect(Array.from(echoed)).toEqual([88, 89, 90]);
+    expectReason(error, "timeout");
+    expect(error.message).toMatch(/did not answer in time/);
+    expect(error.message).toMatch(/self-hosted relay may need updating/);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+    await settle();
+    expect(sockets[0]!.readyState).not.toBe(NodeWebSocket.OPEN);
   });
 
-  it("relay-profile connection is interchangeable with the direct transport via the same DaemonClient API", async () => {
-    // Structural parity check: both transports satisfy the exact same `Transport` shape and both
-    // drive `DaemonClient` identically — asserted by using `createRelayTransport` as a drop-in for
-    // `createWebSocketTransport` with no DaemonClient code changes (see the `transport` option
-    // above). This test additionally confirms `createWebSocketTransport` still constructs cleanly
-    // for the same options shape, without actually connecting it (no daemon on this URL).
-    const direct = createWebSocketTransport(() => ({
-      readyState: 1,
-      send: () => {},
-      close: () => {},
-      onopen: null,
-      onclose: null,
-      onerror: null,
-      onmessage: null,
-    }));
-    expect(typeof direct.connect).toBe("function");
-    expect(typeof direct.sendText).toBe("function");
-    expect(typeof direct.close).toBe("function");
-
-    const relayTransport = createRelayTransport({
-      sessionId: "unused",
-      daemonPublicKey: nacl.box.keyPair().publicKey,
-    });
-    expect(typeof relayTransport.connect).toBe("function");
-    expect(typeof relayTransport.sendText).toBe("function");
-    expect(typeof relayTransport.close).toBe("function");
+  it("rejects with relay_unreachable for a port nothing listens on", async () => {
+    const http = createServer();
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    const port = (http.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+    const error = await expectRefusal(newTransport().connect(`ws://127.0.0.1:${port}`));
+    expectReason(error, "relay_unreachable");
   });
 
-  it("defaults sessionId to deriveRelaySessionId(daemonPublicKey) when omitted", async () => {
-    relay = await startFakeRelay();
-    const daemonKeypair = nacl.box.keyPair();
-    const derivedSessionId = deriveRelaySessionId(daemonKeypair.publicKey);
+  it("rejects with protocol_error for a relay close without a named refusal", async () => {
+    const http: Server = createServer();
+    const wss = new WebSocketServer({ server: http });
+    wss.on("connection", (s: NodeWebSocket) => s.close(RELAY_CLOSE.PROTOCOL_ERROR.code, "nope"));
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    cleanups.push(
+      () => new Promise<void>((resolve) => wss.close(() => http.close(() => resolve()))),
+    );
+    const port = (http.address() as AddressInfo).port;
+    const error = await expectRefusal(newTransport().connect(`ws://127.0.0.1:${port}`));
+    expectReason(error, "protocol_error");
+  });
 
-    const attached = await attachDaemonSide(relay.port, derivedSessionId, daemonKeypair, (plaintext, reply) => {
-      const req = JSON.parse(plaintext) as { type: string };
-      if (req.type === "hello") {
-        reply(
-          JSON.stringify({
-            type: "status",
-            payload: { status: "server_info", serverId: "srv_derived", capabilities: {}, features: {} },
-          }),
-        );
-      }
+  it("reports onError then onClose 4200 when a frame is tampered after connect", async () => {
+    const url = await startRelay();
+    await startDaemon(url, { echo: true });
+
+    // A proxy between client and relay that corrupts daemon-to-client records once armed.
+    let tamper = false;
+    const http: Server = createServer();
+    const proxy = new WebSocketServer({ server: http });
+    proxy.on("connection", (client: NodeWebSocket) => {
+      const upstream = new NodeWebSocket(url);
+      const backlog: Array<[Buffer, boolean]> = [];
+      client.on("message", (d: Buffer, bin: boolean) => {
+        if (upstream.readyState === NodeWebSocket.OPEN) upstream.send(d, { binary: bin });
+        else backlog.push([d, bin]);
+      });
+      upstream.on("open", () => {
+        for (const [d, bin] of backlog.splice(0)) upstream.send(d, { binary: bin });
+      });
+      upstream.on("message", (d: Buffer, bin: boolean) => {
+        if (tamper && bin) d[d.length - 1] = (d[d.length - 1] ?? 0) ^ 0xff;
+        client.send(d, { binary: bin });
+      });
+      client.on("close", () => upstream.close());
+      upstream.on("close", () => client.close());
     });
-    daemonSocket = attached.socket;
-
-    // No sessionId passed — the transport must derive the exact same id the daemon side
-    // registered under (attachDaemonSide was given `derivedSessionId` explicitly above, standing
-    // in for the daemon's own `connectRelay`, which now always registers under this derived id).
-    const transport = createRelayTransport({ daemonPublicKey: daemonKeypair.publicKey });
-    client = new DaemonClient({
-      url: `ws://127.0.0.1:${relay.port}`,
-      clientId: "derived-session-client",
-      clientType: "cli",
-      transport,
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    cleanups.push(async () => {
+      for (const c of proxy.clients) c.terminate();
+      await new Promise<void>((resolve) => proxy.close(() => http.close(() => resolve())));
     });
 
-    const info = await client.connect();
-    expect(info.serverId).toBe("srv_derived");
+    const transport = newTransport();
+    const events: string[] = [];
+    let closeArgs: [number, string] | undefined;
+    transport.onError = () => events.push("error");
+    transport.onClose = (code, reason) => {
+      events.push("close");
+      closeArgs = [code, reason];
+    };
+    await transport.connect(`ws://127.0.0.1:${(http.address() as AddressInfo).port}`);
+    tamper = true;
+    transport.sendText("trigger");
+    await settle(150);
+
+    expect(events).toEqual(["error", "close"]);
+    expect(closeArgs).toEqual([RELAY_CLOSE.CHANNEL_ERROR.code, RELAY_CLOSE.CHANNEL_ERROR.reason]);
+    expect(transport.isOpen).toBe(false);
+  });
+
+  it("forwards a close from the daemon with its code and reason", async () => {
+    const url = await startRelay();
+    const daemon = await startDaemon(url);
+    const transport = newTransport();
+    const closed = Promise.withResolvers<[number, string]>();
+    transport.onClose = (code, reason) => closed.resolve([code, reason]);
+    await transport.connect(url);
+    daemon.channels[0]!.close(1008, "policy");
+    expect(await closed.promise).toEqual([1008, "policy"]);
+    expect(transport.isOpen).toBe(false);
+  });
+
+  it("can connect again on the same transport after the daemon closed it (DaemonClient reconnect)", async () => {
+    const url = await startRelay();
+    const daemon = await startDaemon(url, { echo: true });
+    const transport = newTransport();
+    const received: Array<string | ArrayBuffer | Blob> = [];
+    const closes: Array<[number, string]> = [];
+    transport.onMessage = (data) => received.push(data);
+    transport.onClose = (code, reason) => closes.push([code, reason]);
+
+    await transport.connect(url);
+    daemon.channels[0]!.close(1001, "daemon shutting down");
+    await expect.poll(() => closes.length).toBe(1);
+    expect(closes[0]).toEqual([1001, "daemon shutting down"]);
+    expect(transport.isOpen).toBe(false);
+
+    await transport.connect(url);
+    expect(transport.isOpen).toBe(true);
+    transport.sendText("second life");
+    await expect.poll(() => received.length).toBe(1);
+    expect(received[0]).toBe("echo:second life");
+    // The first connection's late events never touched the second one.
+    expect(closes.length).toBe(1);
+  });
+
+  it("can retry on the same transport after a refusal", async () => {
+    const url = await startRelay();
+    const transport = newTransport();
+    expectReason(await expectRefusal(transport.connect(url)), "daemon_offline");
+
+    await startDaemon(url, { echo: true });
+    await transport.connect(url);
+    expect(transport.isOpen).toBe(true);
+  });
+
+  it("rejects a second connect() while one is connecting or open", async () => {
+    const url = await startRelay();
+    await startDaemon(url);
+    const transport = newTransport();
+    await transport.connect(url);
+    await expect(transport.connect(url)).rejects.toThrow(/already/);
+  });
+
+  it("close() ends the connection and fires onClose once with the given code", async () => {
+    const url = await startRelay();
+    const daemon = await startDaemon(url);
+    const transport = newTransport();
+    const closes: Array<[number, string]> = [];
+    transport.onClose = (code, reason) => closes.push([code, reason]);
+    await transport.connect(url);
+    transport.close(1000, "bye");
+    await settle(100);
+    expect(closes).toEqual([[1000, "bye"]]);
+    expect(daemon.closeEvents.length).toBe(1);
+  });
+
+  it("defaults sessionId to deriveRelaySessionId(daemonPublicKey)", async () => {
+    const url = await startRelay();
+    await startDaemon(url);
+    // No explicit sessionId: reaching the daemon proves the derived id matched its registration.
+    await newTransport().connect(url);
   });
 
   it("relayDialUrl maps useTls to wss/ws and strips a redundant scheme prefix", () => {
-    expect(relayDialUrl({ endpoint: "relay.molagent.ai", useTls: true })).toBe(
-      "wss://relay.molagent.ai",
+    expect(relayDialUrl({ endpoint: "relay.example.com", useTls: true })).toBe(
+      "wss://relay.example.com",
     );
-    expect(relayDialUrl({ endpoint: "127.0.0.1:7000", useTls: false })).toBe(
-      "ws://127.0.0.1:7000",
-    );
+    expect(relayDialUrl({ endpoint: "127.0.0.1:7000", useTls: false })).toBe("ws://127.0.0.1:7000");
     expect(relayDialUrl({ endpoint: "wss://already-schemed.example/", useTls: true })).toBe(
       "wss://already-schemed.example",
     );
@@ -349,7 +501,9 @@ describe("pairing URL fragment parsing", () => {
   it("treats relayTls=0 (or an absent value) as non-TLS", () => {
     const keypair = nacl.box.keyPair();
     const publicKeyB64 = Buffer.from(keypair.publicKey).toString("base64");
-    const offer = parsePairingUrl(`#offer=${encodeURIComponent(publicKeyB64)}&relay=127.0.0.1%3A7000&relayTls=0`);
+    const offer = parsePairingUrl(
+      `#offer=${encodeURIComponent(publicKeyB64)}&relay=127.0.0.1%3A7000&relayTls=0`,
+    );
     expect(offer!.relay).toEqual({ endpoint: "127.0.0.1:7000", useTls: false });
   });
 });
