@@ -1,0 +1,34 @@
+/* Design tokens. Components take colours and radii from these variables, never from literals,
+   so a theme is one block and a restyle touches one file. `tokens.test.ts` enforces it. */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* Window chrome: menu bar, status bar, panel backgrounds. */
+  --chrome: #323232;
+  /* Popups and cards. */
+  --card: #3c3c3c;
+  /* Text fields. */
+  --field: #262626;
+  /* Buttons and checkboxes at rest. */
+  --control: #4a4a4a;
+  --text: #e0e0e0;
+  --text-dim: #9a9a9a;
+  --accent: #378ef0;
+  --danger: #f06a6a;
+  --separator: #4a4a4a;
+  --radius: 4px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --chrome: #f0f0f0;
+  --card: #ffffff;
+  --field: #ffffff;
+  --control: #e2e2e2;
+  --text: #202020;
+  --text-dim: #6a6a6a;
+  --accent: #1a6fd6;
+  --danger: #c02b2b;
+  --separator: #d0d0d0;
+  --radius: 4px;
+}

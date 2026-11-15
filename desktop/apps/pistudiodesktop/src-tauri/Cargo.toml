@@ -1,0 +1,33 @@
+[package]
+name = "pistudiodesktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "pistudiodesktop"
+description = "Pi Studio: desktop app"
+
+# The workspace lints, with `unsafe_code` at "deny" instead of "forbid": this crate writes no
+# unsafe code, but Tauri's macros generate the app context here and must be able to allow it.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+wildcard_imports = "deny"
+dbg_macro = "warn"
+todo = "warn"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+pistudiodesktop-engine = { workspace = true }
+pistudiodesktop-format = { workspace = true }
+pistudiodesktop-shell = { workspace = true }
+tauri = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+getrandom = { workspace = true }

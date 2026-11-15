@@ -1,0 +1,62 @@
+.menubar {
+  display: flex;
+  gap: 2px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.menu {
+  position: relative;
+}
+
+.top {
+  background: none;
+  border-color: transparent;
+  padding: 2px 8px;
+}
+
+.top:hover,
+.top.open {
+  background: var(--control);
+}
+
+.items {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+}
+
+.items button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border-color: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.items button:hover:enabled {
+  background: var(--control);
+}
+
+.items kbd {
+  font: inherit;
+  color: var(--text-dim);
+}
+
+.check {
+  width: 1em;
+}
+
+.label {
+  flex: 1;
+}

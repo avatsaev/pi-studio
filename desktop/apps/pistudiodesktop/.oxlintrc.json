@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["oxc", "unicorn", "typescript", "react", "jsx-a11y", "vitest"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "typescript/no-explicit-any": "error",
+    // The frontend is thin: only src/lib/backend.ts talks to Tauri (see the override below).
+    // Components get a Backend as a prop.
+    "no-restricted-imports": ["error", { "patterns": [{ "group": ["@tauri-apps/**"] }] }],
+    // No network access and no storage in TypeScript: that is a command in the engine, or UiState.
+    "no-restricted-globals": [
+      "error",
+      { "name": "fetch", "message": "The frontend has no network access. Add a command in the engine." },
+      { "name": "XMLHttpRequest", "message": "The frontend has no network access. Add a command in the engine." },
+      { "name": "WebSocket", "message": "The frontend has no network access. Add a command in the engine." },
+      { "name": "localStorage", "message": "The frontend stores nothing. State lives in the engine or in UiState." },
+      { "name": "sessionStorage", "message": "The frontend stores nothing. State lives in the engine or in UiState." },
+      { "name": "indexedDB", "message": "The frontend stores nothing. State lives in the engine or in UiState." }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/lib/backend.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ],
+  "ignorePatterns": ["dist", "src-tauri"]
+}

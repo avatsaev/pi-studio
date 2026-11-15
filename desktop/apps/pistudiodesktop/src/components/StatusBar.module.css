@@ -1,0 +1,13 @@
+.bar {
+  display: block;
+  padding: 3px 10px;
+  border-top: 1px solid var(--separator);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.summary {
+  color: var(--text-dim);
+}

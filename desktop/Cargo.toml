@@ -1,0 +1,60 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# internal: one line per crate, so members write `pistudiodesktop-doc = { workspace = true }`
+pistudiodesktop-doc = { path = "crates/doc" }
+pistudiodesktop-ops = { path = "crates/ops" }
+pistudiodesktop-format = { path = "crates/format" }
+pistudiodesktop-engine = { path = "crates/engine" }
+pistudiodesktop-shell = { path = "crates/shell" }
+pistudiodesktop-testkit = { path = "crates/testkit" }
+
+# external: versions live here only
+thiserror = "2"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# `std`: the app installs its own boxed logger.
+log = { version = "0.4", features = ["std"] }
+getrandom = "0.3"
+# The Tauri family moves together: keep `tauri`, `tauri-build` and every `tauri-plugin-*` on the
+# same major version, and `@tauri-apps/api` in apps/pistudiodesktop/package.json on the same minor as `tauri`.
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+wildcard_imports = "deny"
+dbg_macro = "warn"
+todo = "warn"
+
+# Dependencies are optimized and carry no debug info: the app stays responsive in dev builds, and
+# the target dir and link times shrink. The test profile inherits both settings.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.dev]
+opt-level = 1
+# Line tables keep file:line in panic backtraces but drop variable info (faster links).
+# To inspect locals in a debugger: CARGO_PROFILE_DEV_DEBUG=true.
+debug = "line-tables-only"
+
+# Never add `panic = "abort"` here, although size guides for Tauri suggest it: the crash guard
+# needs unwinding.
+[profile.release]
+lto = "thin"
+codegen-units = 1

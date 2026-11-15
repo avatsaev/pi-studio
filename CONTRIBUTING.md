@@ -183,6 +183,7 @@ packages/
   web-client/  browser shell: renders the workbench, ships the static SPA
   ui-library/  publishable React design system
   workbench/   the client application as a library (web-client and the desktop app consume it)
+desktop/   Pi Studio Desktop: a Cargo workspace (Tauri) with its own gate; see desktop/AGENTS.md
 swe/   specifications + the sprint implementation plan
 ```
 

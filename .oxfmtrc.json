@@ -3,6 +3,7 @@
   "ignorePatterns": [
     "docs/UI design/**",
     "swe/**",
+    "desktop/**",
     "**/dist/**",
     "**/build/**",
     "**/*.tsbuildinfo",

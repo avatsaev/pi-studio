@@ -1,0 +1,49 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--chrome);
+  color: var(--text);
+  font: 14px/1.4 system-ui, sans-serif;
+  /* A desktop app, not a page: no text selection on chrome, no overscroll bounce. */
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--control);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+}
+
+button:disabled {
+  color: var(--text-dim);
+}
+
+input[type="text"] {
+  background: var(--field);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}

@@ -1,0 +1,19 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.loading {
+  color: var(--text-dim);
+  text-align: center;
+  padding-top: 40vh;
+  margin: 0;
+}

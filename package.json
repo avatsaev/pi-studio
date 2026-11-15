@@ -12,12 +12,13 @@
     "packages/web-client",
     "packages/ui-library",
     "packages/workbench",
-    "packages/ui-gallery"
+    "packages/ui-gallery",
+    "desktop/apps/pistudiodesktop"
   ],
   "type": "module",
   "scripts": {
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
+    "lint": "oxlint --ignore-pattern \"desktop/**\"",
+    "lint:fix": "oxlint --fix --ignore-pattern \"desktop/**\"",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "test": "vitest run",

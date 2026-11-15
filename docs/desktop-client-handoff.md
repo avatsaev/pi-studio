@@ -1,8 +1,8 @@
 # Desktop client handoff
 
-Onboarding notes for the agent building **Pi Studio Desktop** (`pi-studio-desktop`, a separate
-repository): a Tauri app with a Rust backend and a web UI. This document says what to reuse from
-this repository, what to build in Rust, and why.
+Onboarding notes for the agent building **Pi Studio Desktop** (`desktop/` in this repository; until
+2026-11-15 a separate repository, `pi-studio-desktop`): a Tauri app with a Rust backend and a web UI.
+This document says what to reuse from the rest of this repository, what to build in Rust, and why.
 
 Written 2026-11-14 against pi-studio `0.0.117`. Everything under "exists today" was checked against
 the code at that version. Anything marked **planned** or **unverified** was not.
@@ -23,7 +23,7 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
-| `pi-studio-desktop` | Scaffold only (one commit, from the `av-rust-desktop` template). It still holds the template's sample checklist app |
+| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`): the `av-rust-desktop` scaffold, moved in as it was. It still holds the template's sample checklist app. Its frontend is a private npm workspace, so it can depend on the workbench directly; its gate is `cargo xtask ci`, run inside `desktop/` |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
 ## Plan and progress
@@ -119,8 +119,10 @@ The seam between the two halves is narrow on purpose: one interface for socket f
 | `@av-pi-studio/ui-library` | Design tokens, six themes, primitives, `styles.css`, `reset.css` | See `packages/ui-library/README.md` and `DESIGN_SYSTEM.md` |
 | `@av-pi-studio/workbench` | The application: every feature, its stores and its reducers, behind one host object | See below |
 
-All packages are versioned in lockstep and every push to `main` publishes a release, so pin exact
-versions in the desktop repository and upgrade deliberately.
+All packages are versioned in lockstep and every push to `main` publishes a release. The desktop
+frontend is a private workspace of this repository, so it uses the workspace packages as they are
+in the checkout: depend on them with `"*"`, never a version range (`packages/workbench/RELEASING.md`
+says why).
 
 ### The workbench
 

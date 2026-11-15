@@ -35,12 +35,19 @@ packages/
   workbench/   `@av-pi-studio/workbench` — the client application as a library (connection, sessions, chat/timeline,
                composer, files and viewers, git, terminals, settings; split panes with per-pane tab strips, persisted per
                workspace; `#agent=<id>` deep links; drag a Files-tree entry onto the composer to insert its path), consumed
-               by web-client and the separate-repo desktop app through one `WorkbenchHost` object
+               by web-client and the desktop app (`desktop/`) through one `WorkbenchHost` object
                (`swe/architecture/workbench-package.md`, `workbench-host-adapter.md`). Public API: shell components, three
                hooks, `createBrowserHost`; entries `.`, `./styles.css`, `./fonts.css`, `./vite`. See packages/workbench/README.md.
   ui-gallery/  Private (never published/deployed) Vite+React gallery app that consumes the BUILT ui-library `dist`
                through its package `exports`; theme switcher + a section per primitive family.
 
+desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xtask) with its own rules
+                    (desktop/AGENTS.md) and its own gate (`cargo xtask ci`, run inside desktop/). Its web frontend,
+                    desktop/apps/pistudiodesktop, is a private npm workspace of this repository (dependencies in
+                    the root package-lock.json; never published; not in scripts/publish.sh). The root lint, fmt,
+                    test, typecheck and build commands skip desktop/; a push that touches only desktop/ does not
+                    release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. It still holds the
+                    `av-rust-desktop` template's sample app.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
