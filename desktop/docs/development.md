@@ -46,6 +46,29 @@ The frontend is embedded into the desktop binary at compile time, from `apps/pis
 command that compiles the app (`cargo run -p pistudiodesktop`, `cargo clippy --workspace`) needs that
 directory: run `cargo xtask web` (or `npm run build`) first, and again after frontend changes.
 
+## Releasing
+
+Installers are built by `.github/workflows/desktop-release.yml` (at the repository root), not on a
+developer's machine. The desktop client has its own version, `[workspace.package] version` in
+`Cargo.toml`; it does not follow the npm packages' version.
+
+1. Set the version in `Cargo.toml`, run `cargo xtask ci` (it refreshes `Cargo.lock`), merge to `main`
+   and wait for the Desktop CI run of that commit to pass.
+2. Tag that commit `desktop-v<version>` and push the tag. A tag that does not match the version
+   fails the run before anything is built.
+3. The workflow builds on three runners and creates a **draft** GitHub Release with the installers:
+   `.deb`, `.rpm` and `.AppImage` (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64).
+4. Download and try each installer, write the notes, then publish the draft on GitHub.
+
+To build the installers without releasing, run the workflow by hand (Actions → Desktop release → Run
+workflow): they are attached to the run as artifacts. A pull request that changes the workflow file
+does the same, which is how a change to it is tested.
+
+The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
+app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.
+Real signing needs an Apple Developer ID and a Windows code-signing certificate, held as repository
+secrets.
+
 ## Run the pieces
 
 The CLI:

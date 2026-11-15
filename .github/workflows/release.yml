@@ -16,7 +16,7 @@ on:
     branches: [main]
     paths-ignore:
       - "desktop/**"
-      - ".github/workflows/desktop-ci.yml"
+      - ".github/workflows/desktop-*.yml"
 
 # Serialize releases if two pushes land close together (e.g. two PRs merged back-to-back) rather
 # than letting two version bumps race each other.

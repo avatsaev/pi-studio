@@ -46,7 +46,8 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     desktop/apps/pistudiodesktop, is a private npm workspace of this repository (dependencies in
                     the root package-lock.json; never published; not in scripts/publish.sh). The root lint, fmt,
                     test, typecheck and build commands skip desktop/; a push that touches only desktop/ does not
-                    release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. It still holds the
+                    release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
+                    built by desktop-release.yml (see § Release & production deployment). It still holds the
                     `av-rust-desktop` template's sample app.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
@@ -216,6 +217,14 @@ cd docker && docker compose up --build   # see docker/README.md
 packages, build+push Docker images tagged to match, then pin+deploy production on that exact tag.
 Pure orchestration — no logic beyond what the three scripts already do; each remains independently
 runnable (and this is what `release.sh` calls under the hood).
+
+**The desktop client is released separately.** It has its own version (`[workspace.package] version`
+in `desktop/Cargo.toml`), is in none of the three steps below, and is built by
+`.github/workflows/desktop-release.yml`: pushing a tag `desktop-v<version>` builds the installers on
+Linux (deb, rpm, AppImage), macOS (one universal dmg) and Windows (msi, nsis) and creates a **draft**
+GitHub Release that a person publishes; a manual run, or a pull request that changes that file, builds
+them as workflow artifacts only. The installers are not signed with a real identity. Runbook:
+`desktop/docs/development.md` § Releasing.
 
 ```bash
 npm run release                    # full pipeline: publish npm -> publish docker -> deploy

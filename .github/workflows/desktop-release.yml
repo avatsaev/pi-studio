@@ -1,0 +1,151 @@
+name: Desktop release
+
+# Builds the desktop client's installers (`desktop/`) on Linux, macOS and Windows.
+#
+#   a pushed tag `desktop-v<version>`   builds, then creates a DRAFT GitHub Release holding the
+#                                       installers; a person reviews and publishes it
+#   a manual run (workflow_dispatch)    builds only; the installers are artifacts of the run
+#   a pull request changing this file   builds only: how a change to this workflow is tested
+#
+# The installers are not signed with a real identity: macOS gets an ad-hoc signature and Windows
+# none, so both systems warn before opening them. The desktop client has its own version
+# (`[workspace.package] version` in desktop/Cargo.toml) and is not part of release.yml.
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-release.yml"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run; a tag's run always finishes.
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    # Also on Windows (Git Bash): PowerShell mangles the `--` in `npm run bundle -- <args>`.
+    shell: bash
+
+jobs:
+  version:
+    name: Tag matches the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The installers are named after the Cargo version, so a tag that says something else would
+      # publish mislabelled files. Checked before an hour of builds, not after.
+      - name: Tag matches desktop/Cargo.toml
+        if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' desktop/Cargo.toml)
+          if [ "$TAG" != "desktop-v$version" ]; then
+            echo "::error::tag $TAG does not match the version in desktop/Cargo.toml ($version): expected desktop-v$version"
+            exit 1
+          fi
+
+  bundle:
+    name: Bundle (${{ matrix.name }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Ubuntu runner: a .deb or an AppImage runs on any distribution whose glibc is
+          # at least the build host's.
+          - name: linux-x64
+            os: ubuntu-22.04
+            bundle-dir: desktop/target/release/bundle
+          # One .dmg for Apple Silicon and Intel.
+          - name: macos-universal
+            os: macos-15
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri-args: --target universal-apple-darwin
+            bundle-dir: desktop/target/universal-apple-darwin/release/bundle
+          - name: windows-x64
+            os: windows-2025
+            bundle-dir: desktop/target/release/bundle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # What Tauri builds against on Linux: WebKitGTK (the webview), librsvg, libxdo.
+      - name: System packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust-targets }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Only the desktop frontend's dependencies: the daemon's (node-pty and other native add-ons)
+      # are not needed here and do not all build on Windows.
+      - name: Frontend dependencies
+        run: npm ci --workspace pistudiodesktop
+      # `tauri build`: builds the frontend, compiles the app with the release profile, then
+      # packages every format the host can make (deb, rpm, AppImage | dmg | msi, nsis).
+      - name: Bundle
+        working-directory: desktop/apps/pistudiodesktop
+        env:
+          # Read by the macOS bundler only. Ad-hoc: Apple Silicon refuses to run unsigned code.
+          APPLE_SIGNING_IDENTITY: "-"
+        run: npm run bundle -- ${{ matrix.tauri-args }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pi-studio-desktop-${{ matrix.name }}
+          path: |
+            ${{ matrix.bundle-dir }}/deb/*.deb
+            ${{ matrix.bundle-dir }}/rpm/*.rpm
+            ${{ matrix.bundle-dir }}/appimage/*.AppImage
+            ${{ matrix.bundle-dir }}/dmg/*.dmg
+            ${{ matrix.bundle-dir }}/msi/*.msi
+            ${{ matrix.bundle-dir }}/nsis/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: github.ref_type == 'tag'
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: bundles
+          merge-multiple: true
+      # A draft: nothing is public until someone publishes it on GitHub.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -t files < <(find bundles -type f | sort)
+          gh release create "$TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --title "Pi Studio Desktop ${TAG#desktop-v}" \
+            --notes "Unsigned builds: macOS and Windows warn before opening them."
