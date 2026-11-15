@@ -5,6 +5,9 @@ packages/*/dist
 packages/*/*.tsbuildinfo
 **/*.tsbuildinfo
 
+# The desktop client: a Cargo workspace no image is built from (its target/ runs to gigabytes)
+desktop
+
 # VCS + editor
 .git
 .gitignore

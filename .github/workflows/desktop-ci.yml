@@ -1,0 +1,86 @@
+name: Desktop CI
+
+# The gate of the desktop client (`desktop/`, a Cargo workspace plus one npm workspace of this
+# repository). It runs when that directory changes, when the root npm manifest or lock file does
+# (the frontend's dependencies are installed from there), or when one of the packages the frontend
+# builds from source does (the workbench and what it imports).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "packages/workbench/**"
+      - "packages/ui-library/**"
+      - "packages/client/**"
+      - "packages/relay/**"
+      - "packages/protocol/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-ci.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "packages/workbench/**"
+      - "packages/ui-library/**"
+      - "packages/client/**"
+      - "packages/relay/**"
+      - "packages/protocol/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-ci.yml"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run; every push to main runs to the end.
+concurrency:
+  group: desktop-ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # What Tauri builds against on Linux: WebKitGTK (the webview), librsvg, libxdo.
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Only main saves the cache; pull requests restore main's.
+      - uses: step-security/rust-cache@8871c8ba063416da7c32246932ea6ae08700453e # v2.9.2
+        with:
+          workspaces: desktop
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: step-security/taiki-e-install-action@76747d22a7567cc4438546a84f11bdf18e670ab8 # v2.87.32
+        with:
+          tool: cargo-nextest@0.9.150
+      # `cargo xtask` is a plain `cargo run`: it would refresh a stale lock file before the gate's
+      # `--locked` steps could notice it.
+      - name: Cargo.lock is up to date
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      # The gate runs `npm ci` at the repository root itself when the frontend's dependencies are
+      # missing, then checks, tests and builds the frontend before any cargo step compiles the app.
+      - name: Gate
+        run: cargo xtask ci

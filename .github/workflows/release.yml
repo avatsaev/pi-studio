@@ -8,9 +8,15 @@ name: Release
 # Triggers ONLY on a push (including a merged PR, which GitHub delivers as a push) to `main`.
 # The version-bump commit this workflow pushes back includes `[skip ci]`, which GitHub itself
 # recognizes and skips creating a workflow run for — no manual re-trigger guard needed.
+#
+# A push that touches only the desktop client (`desktop/`) is not a release: that directory is not
+# part of any npm package or Docker image, and its gate is desktop-ci.yml.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "desktop/**"
+      - ".github/workflows/desktop-*.yml"
 
 # Serialize releases if two pushes land close together (e.g. two PRs merged back-to-back) rather
 # than letting two version bumps race each other.

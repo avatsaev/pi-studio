@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the main window's webview may ask of the app. The frontend only listens for the `view` event and calls the app's own two commands; file dialogs are opened from Rust, so the webview gets no plug-in permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["oxc", "unicorn", "typescript", "react", "jsx-a11y", "vitest"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "typescript/no-explicit-any": "error",
+    // The UI is the workbench. This package is its shell: it reaches the daemon and the browser's
+    // storage only through the workbench host, never with a call of its own.
+    "no-restricted-imports": ["error", { "patterns": [{ "group": ["@tauri-apps/**"] }] }],
+    "no-restricted-globals": [
+      "error",
+      { "name": "fetch", "message": "The shell makes no network calls of its own: the workbench talks to the daemon through its host." },
+      { "name": "XMLHttpRequest", "message": "The shell makes no network calls of its own: the workbench talks to the daemon through its host." },
+      { "name": "WebSocket", "message": "The shell opens no sockets of its own: a connection is the host's `connection.createTransport`." },
+      { "name": "localStorage", "message": "The shell stores nothing of its own: storage is the host's `storage` member." },
+      { "name": "sessionStorage", "message": "The shell stores nothing of its own: storage is the host's `storage` member." },
+      { "name": "indexedDB", "message": "The shell stores nothing of its own: storage is the host's `storage` member." }
+    ]
+  },
+  "ignorePatterns": ["dist", "src-tauri"]
+}
