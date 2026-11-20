@@ -127,10 +127,24 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 
 The app keeps its files in `--config-dir <dir>` (or `PISTUDIODESKTOP_CONFIG_DIR`), else the
 platform's app configuration directory — on Linux `~/.config/com.avatsaev.pi-studio`. It holds
-`settings.json` (the app settings, with the workbench's app-wide keys under `workbench`) and
-`daemon-state/<id>.json` (the keys kept per daemon; today only `local`). A file that cannot be read
-is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page shows the notice
-once. Point `--config-dir` at a scratch directory for tests and smoke runs.
+`settings.json` (the app settings, with the workbench's app-wide keys under `workbench`),
+`daemons.json` (the daemon registry: the entries, with a direct entry's password or a relay entry's
+pairing link, and `lastUsedId`; mode 0600, never sent to the page) and `daemon-state/<id>.json`
+(the keys kept per daemon; `local` for this machine, the entry's id for the others). A file that
+cannot be read is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page
+shows the notice once. Point `--config-dir` at a scratch directory for tests and smoke runs.
+
+### Pointing the app at a scratch CLI and home
+
+The local daemon is run through the `pi-studio` CLI. Set `cliPath` (`settings.set`, or the Daemons
+screen) to a script of your own to choose which CLI runs, for example one that execs the repository's
+build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`). The CLI inherits
+the app's environment, so start the app with `PI_STUDIO_HOME=<scratch dir>` to keep the daemon's state
+out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
+starts a daemon on launch. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply),
+so nothing else may hold that port. A fake CLI for failure cases is
+`crates/shell/tests/fixtures/fake-pi-studio.sh` (modes in its header). Quitting the app leaves the
+daemon it started running: stop it with `pi-studio daemon stop` under the same `PI_STUDIO_HOME`.
 
 ## Without a display
 
@@ -157,7 +171,8 @@ docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-de
 ```
 
 Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
-`{"id":1,"ok":true,"result":{"menus":[],"settings":{"autoStartLocalDaemon":true,"cliPath":null},"ui":{"status":""}}}`.
+`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"cli_missing"},"settings":{"autoStartLocalDaemon":true,"cliPath":null}},"menus":[…],"settings":{…},"ui":{…}}}`
+(the image has no `pi-studio` CLI, hence `cli_missing`).
 This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
 for the webview itself WebKitWebDriver, as below.
 
