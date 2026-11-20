@@ -123,6 +123,21 @@ jobs:
           "$HOME/.cargo/bin/msedgedriver-tool.exe"
           ls -la
           echo "MSEDGEDRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
+      # WebView2 150 and later ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS when the app runs
+      # elevated, and a GitHub runner runs everything elevated: msedgedriver's
+      # --remote-debugging-port never reached the browser and no session could be made
+      # ("DevToolsActivePort file doesn't exist", runs of 2026-11-20 on runtime 157). The machine
+      # policy is the channel Microsoft names for an elevated host
+      # (MicrosoftEdge/WebView2Feedback#5645, tauri-apps/wry#1782). Port 0: the browser picks one
+      # and writes it to the file msedgedriver reads. Not needed on a machine where the app does
+      # not run elevated.
+      - name: Let WebView2 open its debugging port on an elevated runner
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'pistudiodesktop.exe' -Value '--remote-debugging-port=0' -PropertyType String -Force | Out-Null
+          Get-ItemProperty -Path $key | Format-List
       - name: Platform checks
         run: |
           node desktop/apps/pistudiodesktop/scripts/platform-checks.mjs windows \
