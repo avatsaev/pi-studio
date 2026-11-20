@@ -35,6 +35,7 @@ import { countProcesses, killProcesses } from "./processes.mjs";
 import { Skip } from "./report.mjs";
 import { sleep, waitFor } from "./wait.mjs";
 import { ready, Session, tauriCapabilities, webkitCapabilities } from "./webdriver.mjs";
+import { diagnoseWebView2 } from "./webview2-diagnostics.mjs";
 
 const KEY = "platform-check-key";
 const LAYOUT_KEY = "platform-check-layout";
@@ -104,6 +105,15 @@ export class WindowsRun {
     this.driver?.kill();
   }
 
+  /** Once per run, when no session could be made on Windows: what WebView2 does without msedgedriver. */
+  async diagnose(configDir) {
+    if (this.flavor !== "windows" || this.diagnosed) return;
+    this.diagnosed = true;
+    await killProcesses(this.imageName);
+    const lines = await diagnoseWebView2({ app: this.app, imageName: this.imageName, configDir, outDir: this.outDir }).catch((error) => [`the diagnostics failed: ${error.message}`]);
+    this.report.fact("WebView2 without msedgedriver (no session could be made)", ...lines);
+  }
+
   /** The app in a new WebDriver session on `configDir`, once its page has booted. */
   async openApp(configDir) {
     // One `--flag=value` argument: msedgedriver turns every `args` entry into a browser switch (it
@@ -111,7 +121,13 @@ export class WindowsRun {
     // exited at once (first run on a runner, 2026-11-20).
     const spec = { application: this.app, args: [`--config-dir=${configDir}`] };
     const capabilities = this.flavor === "windows" ? tauriCapabilities(spec) : webkitCapabilities(spec);
-    const session = await Session.open(this.driverUrl, capabilities);
+    let session;
+    try {
+      session = await Session.open(this.driverUrl, capabilities);
+    } catch (error) {
+      await this.diagnose(configDir);
+      throw error;
+    }
     this.sessions.push(session);
     // TODO(verify): on a slow runner the first boot can take longer than this.
     const boot = await waitFor("the page's boot command", async () => {
