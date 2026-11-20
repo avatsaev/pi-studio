@@ -97,14 +97,29 @@ sandboxed `srcdoc` frame, which inherits this policy, and `script-src` has no `'
 In the browser client, which has no policy, they run. Fixing it needs the preview served from an
 origin of its own, not a weaker policy for the main window.
 
-The app still registers two Tauri commands and one event for the shell's view
-(`apps/pistudiodesktop/src-tauri/src/commands.rs`, `bridge.rs`); the frontend calls neither:
+The page has exactly two Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
+receives no event:
 
-| | Does |
+| Command | Does |
 |---|---|
-| `control(method, params)` | A control-protocol call: `engine.execute`, `engine.commands`, `ui.inspect`, `ui.set` |
-| `invoke_command(command)` | A menu click or a shortcut: the shell collects what the command needs (a file dialog) and runs it |
-| event `view` | The shell's view, sent whenever it changed |
+| `boot()` | Returns `{app: {title, version, platform: "desktop"}, storage, notices}`: the stored workbench keys of both scopes merged, and the notices (a file that could not be read and was reset) — each returned once |
+| `storage_set(key, value)` | Queues one stored key. It is a synchronous command, so calls are applied in the order the page made them; it answers once queued. Size caps are checked on the owner thread and a refused write is logged with the key only |
+
+Tauri enforces the list: `build.rs` declares the commands in the app manifest, and
+`capabilities/default.json` grants `allow-boot` and `allow-storage-set` and nothing else — no
+`core:` and no plug-in permission. A command not on the list is refused before it runs. Adding one
+means three places: `build.rs`, the capability and `generate_handler!`.
+
+The owner thread writes the changed scope's file one second after the first unwritten change
+(later changes ride along), and once more at `RunEvent::Exit`, waiting at most five seconds. A
+signal kill (SIGTERM, a crash) skips that last write.
+
+The window also refuses to leave the app: `shell::navigation::allows` admits only the app origin
+(`tauri://localhost`, `http(s)://tauri.localhost`) and, in a dev build, the dev server; a refused
+navigation is logged with scheme and host only. Window-level file drops are off
+(`dragDropEnabled: false`) so the page's HTML5 drops reach the workbench. A second launch focuses
+the first window and exits (`tauri-plugin-single-instance`, registered first; on Linux it needs a
+D-Bus session bus).
 
 ## Threads
 

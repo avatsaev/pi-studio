@@ -38,7 +38,9 @@ enum Command {
         /// command writes). Without it the session lives in memory and writes no file.
         #[arg(long, value_name = "DIR")]
         config_dir: Option<PathBuf>,
-        /// A command id, optionally followed by its JSON params: --cmd 'settings.set {"key":"cliPath","value":"/x"}'
+        /// A command id, optionally followed by its JSON params: --cmd 'settings.set {"key":"cliPath","value":"/x"}'.
+        /// Arguments show in the process list and the shell history: a password or pairing link passed
+        /// here is visible there; that is the caller's choice.
         #[arg(long = "cmd", value_name = "ID [JSON]")]
         cmds: Vec<String>,
     },

@@ -25,8 +25,9 @@ A feature is not done until it is a command.
    - Write the `params` string for a reader who has nothing else: types, defaults, units.
 5. **Test it in the same module**: the behaviour, the disabled state, and bad
    params returning `Err` with the state unchanged.
-6. **If it needs a value only the platform can ask for** (a file): it is collected in
-   `menus::invoke` in the shell, through a `Services` hook. A command never opens UI.
+6. **If it needs a value only the platform can ask for** (a file, a confirmation): add a page
+   command that asks through a `Services` hook — in `build.rs`, the capability and
+   `generate_handler!`. A command never opens UI.
 7. **Run `cargo xtask ci`.** `panic_hunt` covers the new command with no extra work.
 
 ## Other changes

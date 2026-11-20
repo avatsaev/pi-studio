@@ -1,7 +1,7 @@
 # Task 001 — `model` crate: the daemon registry (entries, rules, views, local state)
 
 - **Sprint:** sprint-107-desktop-registry-model
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 007 — Save through Rust in the desktop host, and a confirm before closing during a transfer
 
 - **Sprint:** sprint-104-desktop-dialogs-links-save
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host, desktop/apps/pistudiodesktop/src-tauri, desktop/crates/shell
 - **Priority:** P1

@@ -44,13 +44,11 @@ printf '%s\n' "{\"id\":\"auth\",\"method\":\"auth\",\"params\":{\"token\":\"$TOK
   '{"id":2,"method":"ui.inspect","params":{}}' | nc -q 2 127.0.0.1 7878
 ```
 
-## From the webview
+## Not from the webview
 
-The frontend calls the same methods through the Tauri command `control(method, params)`, with no
-token: the webview is part of the app. It has one more command, `invoke_command(command)`, for a
-menu click or a shortcut. That one may open a native dialog, so it is not offered on the socket.
-After any request, from either side, the app sends the webview a `view` event when the value to
-draw has changed.
+The webview does not use the control protocol: it has the two commands `boot` and `storage_set`
+(`docs/architecture.md` § The webview boundary) and receives no event. Every method below is
+socket-only.
 
 ## Methods
 

@@ -172,6 +172,20 @@ mod tests {
         assert_eq!(names(dir.path()), [kept]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_set_aside_as_corrupt_stays_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemons.json");
+        crate::write_private(&path, b"garbage").unwrap();
+        let Loaded::Reset { kept_as: Some(kept) } = read(&path, decode_json) else {
+            panic!("expected a reset with a kept name");
+        };
+        let mode = std::fs::metadata(dir.path().join(kept)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
     #[test]
     fn two_resets_in_one_second_keep_two_files() {
         let dir = tempfile::tempdir().unwrap();

@@ -5,12 +5,12 @@ the workbench (`@av-pi-studio/workbench`, the same UI as the browser client), an
 what a browser does badly: sockets, files on disk, secrets and OS integration. Read
 `docs/architecture.md` next.
 
-**Where it stands.** The window draws the workbench through the workbench's browser host, so the
-webview itself opens the WebSocket to the daemon and keeps its settings in its own storage. The
-Rust crates are the app's own engine: the settings (`settings.get`, `settings.set`) and the
-workbench's stored keys, kept in files of a configuration directory, behind a command registry that
-the CLI and the control socket dispatch into. The window does not call it yet; moving host members
-into Rust, one at a time, comes next.
+**Where it stands.** The window draws the workbench with a desktop host: at start the page calls
+`boot`, which returns the stored workbench keys from the configuration directory, and every
+storage write goes back through `storage_set` to the Rust engine, which writes the files. The
+webview still opens the WebSocket to the daemon itself. The engine's settings (`settings.get`,
+`settings.set`) sit behind a command registry that the CLI and the control socket dispatch into.
+Moving the remaining host members into Rust, one at a time, comes next.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -51,9 +51,11 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
 5. The workbench owns what the window shows. Colours, sizes and themes come from the design system
    (`@av-pi-studio/ui-library`); this package adds no tokens. Look at a rendered image
    (`npm run snapshot`) before calling a UI change done.
-6. The webview gets the least it needs: no plug-in permissions, no remote content in the main
-   window, and a Content-Security-Policy that lists exactly the sources the workbench uses
-   (`app.security.csp` in `tauri.conf.json`). Add a source only with the feature that needs it;
+6. The webview gets the least it needs: it may call only the commands the build script's app
+   manifest lists and the capability grants (`boot`, `storage_set`); no `core:` or plug-in
+   permissions, no remote content in the main window, navigation only within the app origin, and a
+   Content-Security-Policy that lists exactly the sources the workbench uses (`app.security.csp`
+   in `tauri.conf.json`). Add a source or a command only with the feature that needs it;
    `npm run snapshot` fails when the page breaks the policy.
 7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` or behind `Services`;
    `store` is empty on wasm32.

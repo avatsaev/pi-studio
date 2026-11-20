@@ -1,7 +1,7 @@
 //! Between the webview and the shell.
 //!
 //! One thread owns the [`AppShell`] (and so the session), opens it on the configuration directory
-//! and runs [`pistudiodesktop_shell::owner::serve`]. The webview's two commands (`commands.rs`)
+//! and runs [`pistudiodesktop_shell::owner::serve`]. The webview's commands (`commands.rs`)
 //! and the control socket only forward requests to it over a channel, so a stored key and an
 //! automation request can never race.
 
@@ -76,15 +76,17 @@ pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
 
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
 /// until every sender is gone, and writes the stored keys as [`owner::serve`] decides (`flush_delay`
-/// after the first unwritten change; the app passes `owner::FLUSH_DELAY`).
-pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, inbox: Receiver<Envelope>, flush_delay: Duration) {
+/// after the first unwritten change; the app passes `owner::FLUSH_DELAY`). `services` are the
+/// platform hooks the shell holds; the page's dialog and link commands call their own copy of them
+/// on other threads, never this one.
+pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox: Receiver<Envelope>, flush_delay: Duration) {
     std::thread::spawn(move || {
         log::info!("configuration directory: {}", config_dir.display());
         let (session, notices) = Session::with_config_dir(config_dir);
         for notice in &notices {
             log::warn!("{}", notice.to_json());
         }
-        let mut app = AppShell::new(session, Services::default());
+        let mut app = AppShell::new(session, services);
         app.info = info;
         app.notices = notices;
         owner::serve(&mut app, &inbox, flush_delay);

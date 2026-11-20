@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret) and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -71,6 +71,7 @@ pub fn view(app: &mut AppShell) -> Value {
     json!({
         "ui": app.ui,
         "settings": app.session.execute("settings.get", Value::Null).ok(),
+        "daemons": app.session.execute("daemon.list", Value::Null).ok(),
         "menus": menus::model(app),
     })
 }

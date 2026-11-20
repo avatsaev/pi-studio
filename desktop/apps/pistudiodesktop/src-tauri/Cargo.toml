@@ -26,6 +26,7 @@ pistudiodesktop-engine = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
+tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }

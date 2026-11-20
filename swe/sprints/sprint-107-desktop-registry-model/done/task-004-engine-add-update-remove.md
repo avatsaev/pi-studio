@@ -1,7 +1,7 @@
 # Task 004 — Engine: `daemon.add`, `daemon.update`, `daemon.remove`
 
 - **Sprint:** sprint-107-desktop-registry-model
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1

@@ -7,14 +7,26 @@
 //! [`control::handle`]. The webview in `apps/pistudiodesktop` asks for two other things only: the
 //! boot snapshot and a stored key ([`page`]). [`owner::serve`] is the loop of the thread that
 //! owns the shell: it answers requests in order and writes the stored keys to disk.
+//!
+//! What only the operating system can do for the page goes through [`Services`]: a native confirm
+//! and alert ([`dialogs`]) and opening a link outside the app ([`links`]). Both check what the page
+//! sent first. The app calls them off the owner thread, because a dialog stays open until the user
+//! closes it.
+//!
+//! Saving a file to disk ([`saves`]) is the one thing here that writes the user's files: Rust owns the
+//! destination and the page holds only a handle.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod control;
+pub mod dialogs;
+pub mod links;
 pub mod menus;
 pub mod navigation;
 pub mod owner;
 pub mod page;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod saves;
 pub mod services;
 pub mod shortcuts;
 pub mod state;

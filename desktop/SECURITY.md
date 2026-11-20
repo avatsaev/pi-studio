@@ -12,8 +12,8 @@ happened and which version you used; a file or a command sequence that reproduce
   a crash, a hang or an unbounded allocation.
 - **Automation input.** Command params and control-protocol requests come from scripts and agents
   and are validated like file contents.
-- **The webview.** It is given the least it needs: it may call the app's two commands (`control`
-  and `invoke_command`) and listen for the `view` event. It has no plug-in permissions
+- **The webview.** It is given the least it needs: it may call the app's two commands (`boot` and
+  `storage_set`) and receives no event. It has no `core:` or plug-in permissions
   (`apps/pistudiodesktop/src-tauri/capabilities/default.json`), the content security policy allows only the
   app's own bundled files, and the main window loads no remote content. Everything it sends is
   validated in Rust like any other input.

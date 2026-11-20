@@ -42,6 +42,7 @@ struct Registry {
 
 fn build() -> Vec<CommandSpec> {
     let mut v = Vec::new();
+    v.extend(crate::daemon_cmds::specs());
     v.extend(crate::query_cmds::specs());
     v.extend(crate::settings_cmds::specs());
     #[cfg(test)]

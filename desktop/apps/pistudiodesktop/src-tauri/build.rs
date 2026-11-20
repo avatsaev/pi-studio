@@ -3,7 +3,17 @@ fn main() {
     // the page, a command can be invoked only when it is named here AND granted by
     // `allow-<command>` in `capabilities/default.json`. Without this list every command the
     // handler registers is callable from the page.
-    let manifest = tauri_build::AppManifest::new().commands(&["boot", "storage_set"]);
+    let manifest = tauri_build::AppManifest::new().commands(&[
+        "boot",
+        "storage_set",
+        "dialog_confirm",
+        "dialog_alert",
+        "open_external",
+        "save_begin",
+        "save_write",
+        "save_finish",
+        "save_discard",
+    ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
         eprintln!("pistudiodesktop: build script failed: {e:#}");
         std::process::exit(1);

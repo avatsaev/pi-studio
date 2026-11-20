@@ -19,14 +19,17 @@ mod commands;
 mod control_server;
 mod crash_guard;
 mod logging;
+mod services;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use clap::Parser;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
+use pistudiodesktop_shell::saves::Saves;
 use tauri::Manager as _;
 
 #[derive(Parser)]
@@ -48,17 +51,6 @@ struct Args {
 fn fail(code: i32, message: impl std::fmt::Display) -> ! {
     eprintln!("pistudiodesktop: {message}");
     std::process::exit(code)
-}
-
-/// A second launch: show the open window, un-minimise it and focus it. The second process exits.
-fn focus_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        for result in [window.show(), window.unminimize(), window.set_focus()] {
-            if let Err(e) = result {
-                log::warn!("cannot bring the window forward: {e}");
-            }
-        }
-    }
 }
 
 /// Refuse any navigation of a webview to a URL outside the app's own origin
@@ -95,11 +87,22 @@ fn main() {
     // The single-instance plug-in goes first, as its documentation says. Closing the one window
     // quits the app: Tauri exits when its last window closes, and nothing here changes that.
     let app = match tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| focus_main_window(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| services::bring_forward(app)))
         .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(services::opener_plugin())
         .manage(bridge::Bridge::new(requests))
-        .invoke_handler(tauri::generate_handler![commands::boot, commands::storage_set])
+        .invoke_handler(tauri::generate_handler![
+            commands::boot,
+            commands::storage_set,
+            commands::dialog_confirm,
+            commands::dialog_alert,
+            commands::open_external,
+            commands::save_begin,
+            commands::save_write,
+            commands::save_finish,
+            commands::save_discard
+        ])
         .build(tauri::generate_context!())
     {
         Ok(app) => app,
@@ -111,7 +114,14 @@ fn main() {
     };
     let package = app.package_info();
     let title = app.config().product_name.clone().unwrap_or_else(|| package.name.clone());
-    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, inbox, FLUSH_DELAY);
+    // The page's dialog and link commands take their hooks from the managed state; the owner
+    // thread holds the same ones.
+    let services = services::native(app.handle(), title.clone());
+    app.manage(services.clone());
+    // Opening the saves removes the temporary files a run that ended mid-save left behind. The
+    // dialog starts in the user's Downloads folder until a save has been made.
+    app.manage(Arc::new(Saves::open(&config_dir, app.path().download_dir().ok())));
+    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY);
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
     app.run(|handle, event| bridge::on_run_event(handle, &event));

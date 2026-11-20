@@ -1,7 +1,7 @@
 # Task 006 — Frontend: `dialogs` and `links.openExternal` in the desktop host
 
 - **Sprint:** sprint-104-desktop-dialogs-links-save
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

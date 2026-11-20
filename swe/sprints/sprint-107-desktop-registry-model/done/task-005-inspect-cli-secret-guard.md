@@ -1,7 +1,7 @@
 # Task 005 — Registry over the control socket and the app's CLI, and a guard against leaked secrets
 
 - **Sprint:** sprint-107-desktop-registry-model
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop-cli, desktop/crates/engine (tests)
 - **Priority:** P1

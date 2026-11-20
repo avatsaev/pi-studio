@@ -1,7 +1,7 @@
 # Task 005 — Rust: save-to-disk backend (save dialog, temporary file, finish or discard)
 
 - **Sprint:** sprint-104-desktop-dialogs-links-save
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

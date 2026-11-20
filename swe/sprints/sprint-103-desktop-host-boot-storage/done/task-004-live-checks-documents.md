@@ -1,7 +1,7 @@
 # Task 004 — Live checks in the real webview (Linux) and documents
 
 - **Sprint:** sprint-103-desktop-host-boot-storage
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), desktop/docs
 - **Priority:** P1

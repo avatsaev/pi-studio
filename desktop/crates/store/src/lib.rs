@@ -12,7 +12,7 @@ mod stamp;
 mod write;
 
 pub use read::{Loaded, MAX_BYTES, read};
-pub use write::{remove, write_atomic};
+pub use write::{remove, write_atomic, write_private};
 
 /// The name of `path` for a log line: never the directory, never the content.
 fn log_name(path: &std::path::Path) -> std::borrow::Cow<'_, str> {

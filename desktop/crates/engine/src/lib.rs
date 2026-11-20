@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod commands;
+mod daemon_cmds;
 mod error;
 pub mod params;
 mod query_cmds;
@@ -17,4 +18,4 @@ mod storage;
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
 pub use session::Session;
-pub use storage::{Notice, current_entry_id};
+pub use storage::Notice;

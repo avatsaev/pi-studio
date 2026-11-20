@@ -4,6 +4,13 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod registry;
+
+pub use registry::{
+    Entry, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, NewEntry, Registry,
+    RegistryError, Secret, Update, decode_registry, encode_registry,
+};
+
 use std::collections::BTreeMap;
 
 use serde::de::DeserializeOwned;
@@ -230,7 +237,8 @@ pub fn encode_entry_state(state: &EntryState) -> Vec<u8> {
 
 /// A daemon entry's id: `local` or a lower-case hyphenated UUID. It becomes a file name, so
 /// nothing else is accepted.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
 pub struct EntryId(String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -242,8 +250,20 @@ impl EntryId {
         if s == LOCAL_ENTRY || is_uuid(s) { Ok(EntryId(s.to_owned())) } else { Err(EntryIdError) }
     }
 
+    /// The id of the local daemon's entry.
+    pub fn local() -> EntryId {
+        EntryId(LOCAL_ENTRY.to_owned())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for EntryId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<EntryId, D::Error> {
+        let s = String::deserialize(d)?;
+        EntryId::parse(&s).map_err(serde::de::Error::custom)
     }
 }
 

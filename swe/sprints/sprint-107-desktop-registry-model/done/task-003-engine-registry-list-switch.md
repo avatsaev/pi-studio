@@ -1,7 +1,7 @@
 # Task 003 — Engine: the registry in `Session`, `daemon.list`, `daemon.switch`
 
 - **Sprint:** sprint-107-desktop-registry-model
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1

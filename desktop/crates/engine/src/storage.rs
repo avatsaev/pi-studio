@@ -13,13 +13,15 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pistudiodesktop_model::{
-    EntryId, EntryState, LOCAL_ENTRY, LimitError, MAX_KEY_BYTES, Scope, Settings, check_put, encode_entry_state, encode_settings, scope_of,
+    Entry, EntryId, EntryState, EntryView, LimitError, MAX_KEY_BYTES, NewEntry, Registry, Scope, Settings, Update, check_put, encode_entry_state,
+    encode_registry, encode_settings, scope_of,
 };
 use serde_json::Value;
 
 use crate::{EngineError, Result};
 
 const SETTINGS_FILE: &str = "settings.json";
+const REGISTRY_FILE: &str = "daemons.json";
 const ENTRY_DIR: &str = "daemon-state";
 
 /// Something the user should be told once: a file could not be used and was set aside.
@@ -42,11 +44,25 @@ impl Notice {
     }
 }
 
-/// The id of the daemon entry whose keys are in use: `local` for now, the entry that always
-/// exists. The registry replaces this body with the selected entry. `None` means there is no
-/// current entry, and its keys then stay in memory.
-pub fn current_entry_id() -> Option<EntryId> {
-    EntryId::parse(LOCAL_ENTRY).ok()
+/// The entry whose keys are in use: `lastUsedId` when that entry exists, else `local`.
+fn current_of(registry: &Registry) -> EntryId {
+    registry.last_used_id.as_ref().filter(|id| registry.get(id.as_str()).is_some()).cloned().unwrap_or_else(EntryId::local)
+}
+
+/// A random version-4 UUID. `None` when the system has no random source (and in the browser build).
+#[cfg(not(target_arch = "wasm32"))]
+fn fresh_id() -> Option<EntryId> {
+    let mut b = [0u8; 16];
+    getrandom::fill(&mut b).ok()?;
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    EntryId::parse(&format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])).ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn fresh_id() -> Option<EntryId> {
+    None
 }
 
 fn entry_file(id: &EntryId) -> String {
@@ -59,20 +75,27 @@ pub(crate) struct Storage {
     settings: Settings,
     /// The settings file has changes that are not on disk.
     settings_unwritten: bool,
+    registry: Registry,
+    /// `None` after the current entry was removed, until a switch.
     entry: Option<EntryId>,
     entry_state: EntryState,
     entry_unwritten: bool,
+    /// Entry keys of the entries left, kept only by a session without a directory.
+    left: BTreeMap<String, EntryState>,
 }
 
 impl Default for Storage {
     fn default() -> Self {
+        let registry = Registry::default();
         Storage {
             dir: None,
             settings: Settings::default(),
             settings_unwritten: false,
-            entry: current_entry_id(),
+            entry: Some(current_of(&registry)),
+            registry,
             entry_state: EntryState::default(),
             entry_unwritten: false,
+            left: BTreeMap::new(),
         }
     }
 }
@@ -81,18 +104,138 @@ impl Storage {
     /// Read the files in `dir`. Nothing is created: a missing file or directory means defaults.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn open(dir: PathBuf) -> (Storage, Vec<Notice>) {
+        use pistudiodesktop_store::Loaded;
         let mut notices = Vec::new();
         let mut storage = Storage::default();
         if let Some(settings) = load(&dir, SETTINGS_FILE, |bytes| pistudiodesktop_model::decode_settings(bytes).ok(), &mut notices) {
             storage.settings = settings;
         }
-        if let Some(id) = &storage.entry
-            && let Some(state) = load(&dir, &entry_file(id), |bytes| pistudiodesktop_model::decode_entry_state(bytes).ok(), &mut notices)
+        // The registry is the one file written at open: when missing, or when reading it changed
+        // it (normalising), so the file on disk always has a `local` entry.
+        let rewrite = std::cell::Cell::new(true);
+        let decode = |bytes: &[u8]| {
+            let registry = pistudiodesktop_model::decode_registry(bytes).ok()?;
+            rewrite.set(encode_registry(&registry) != bytes);
+            Some(registry)
+        };
+        match pistudiodesktop_store::read(&dir.join(REGISTRY_FILE), decode) {
+            Loaded::Missing => {}
+            Loaded::Value(registry) => storage.registry = registry,
+            Loaded::Reset { kept_as } => notices.push(Notice::FileReset { file: REGISTRY_FILE.to_owned(), kept_as }),
+        }
+        if rewrite.get()
+            && let Err(e) = write_private_file(&dir, REGISTRY_FILE, &encode_registry(&storage.registry))
         {
+            log::warn!("cannot write {REGISTRY_FILE}: {e}");
+        }
+        let entry = current_of(&storage.registry);
+        if let Some(state) = load(&dir, &entry_file(&entry), |bytes| pistudiodesktop_model::decode_entry_state(bytes).ok(), &mut notices) {
             storage.entry_state = state;
         }
+        storage.entry = Some(entry);
         storage.dir = Some(dir);
         (storage, notices)
+    }
+
+    pub(crate) fn registry(&self) -> &Registry {
+        &self.registry
+    }
+
+    pub(crate) fn current(&self) -> Option<&EntryId> {
+        self.entry.as_ref()
+    }
+
+    /// Replace the registry by `next`, which is on disk before this returns. When it cannot be
+    /// written nothing has changed. The error is a wire code.
+    fn commit(&mut self, next: Registry) -> std::result::Result<(), &'static str> {
+        if let Some(dir) = &self.dir
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry(&next))
+        {
+            log::warn!("cannot write {REGISTRY_FILE}: {e}");
+            return Err("write_failed");
+        }
+        self.registry = next;
+        Ok(())
+    }
+
+    /// Add an entry under a fresh id; it is not made current.
+    pub(crate) fn add_entry(&mut self, new: NewEntry) -> std::result::Result<EntryView, &'static str> {
+        let id = fresh_id().ok_or("write_failed")?;
+        let view_id = id.as_str().to_owned();
+        let next = self.registry.add(id, new).map_err(|e| e.code())?;
+        self.commit(next)?;
+        self.registry.get(&view_id).map(Entry::view).ok_or("not_found")
+    }
+
+    pub(crate) fn update_entry(&mut self, id: &str, update: Update) -> std::result::Result<EntryView, &'static str> {
+        let next = self.registry.update(id, update).map_err(|e| e.code())?;
+        self.commit(next)?;
+        self.registry.get(id).map(Entry::view).ok_or("not_found")
+    }
+
+    /// Remove an entry and its stored-state file. When it was current, the session has no current
+    /// entry until a switch.
+    pub(crate) fn remove_entry(&mut self, id: &str) -> std::result::Result<(), &'static str> {
+        let next = self.registry.remove(id).map_err(|e| e.code())?;
+        self.commit(next)?;
+        if self.entry.as_ref().is_some_and(|e| e.as_str() == id) {
+            self.entry = None;
+            self.entry_state = EntryState::default();
+            self.entry_unwritten = false;
+        }
+        self.left.remove(id);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(dir) = &self.dir
+            && let Err(e) = std::fs::remove_file(dir.join(ENTRY_DIR).join(format!("{id}.json")))
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("cannot delete the stored state of a removed entry: {e}");
+        }
+        Ok(())
+    }
+
+    /// Make `id` the current entry: write the keys of the entry being left, record `lastUsedId`,
+    /// then load the new entry's keys. `Ok(false)` when `id` already is current. The error is a
+    /// wire code, and on error nothing has changed.
+    pub(crate) fn switch(&mut self, id: &str) -> std::result::Result<bool, &'static str> {
+        let next = self.registry.set_last_used(id).map_err(|e| e.code())?;
+        let Some(target) = next.get(id).map(|e| e.id.clone()) else { return Err("not_found") };
+        if self.entry.as_ref() == Some(&target) {
+            return Ok(false);
+        }
+        if self.entry_unwritten && self.write(Scope::Entry).is_err() {
+            return Err("write_failed");
+        }
+        if let Some(dir) = &self.dir
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry(&next))
+        {
+            log::warn!("cannot write {REGISTRY_FILE}: {e}");
+            return Err("write_failed");
+        }
+        let state = self.load_entry_state(&target);
+        let old = self.entry.replace(target);
+        let old_state = std::mem::replace(&mut self.entry_state, state);
+        if self.dir.is_none()
+            && let Some(old) = old
+        {
+            self.left.insert(old.as_str().to_owned(), old_state);
+        }
+        self.registry = next;
+        Ok(true)
+    }
+
+    /// The keys of `id`: from its file, from what a directory-less session kept, or empty.
+    fn load_entry_state(&mut self, id: &EntryId) -> EntryState {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(dir) = &self.dir {
+            let mut notices = Vec::new();
+            let state = load(dir, &entry_file(id), |bytes| pistudiodesktop_model::decode_entry_state(bytes).ok(), &mut notices);
+            for Notice::FileReset { file, .. } in notices {
+                log::warn!("{file} could not be read and was set aside");
+            }
+            return state.unwrap_or_default();
+        }
+        self.left.remove(id.as_str()).unwrap_or_default()
     }
 
     pub(crate) fn settings(&self) -> &Settings {
@@ -123,6 +266,14 @@ impl Storage {
     /// stays, and the error is returned (the log line names the key only).
     pub(crate) fn put(&mut self, key: &str, value: &str) -> std::result::Result<(), LimitError> {
         let scope = scope_of(key);
+        if scope == Scope::Entry && self.entry.is_none() {
+            if key.len() <= MAX_KEY_BYTES {
+                log::warn!("dropped a stored value for `{key}`: no current daemon entry");
+            } else {
+                log::warn!("dropped a stored value with an over-long key: no current daemon entry");
+            }
+            return Ok(());
+        }
         let keys = match scope {
             Scope::Global => &mut self.settings.workbench,
             Scope::Entry => &mut self.entry_state.keys,
@@ -177,7 +328,7 @@ impl Storage {
 
     /// Something to write only where a file will be written.
     fn mark_unwritten(&mut self, scope: Scope) {
-        if self.dir.is_some() && (scope == Scope::Global || self.entry.is_some()) {
+        if self.dir.is_some() {
             self.set_unwritten(scope, true);
         }
     }
@@ -228,9 +379,19 @@ fn write_file(dir: &Path, file: &str, bytes: &[u8]) -> std::io::Result<()> {
     pistudiodesktop_store::write_atomic(&dir.join(file), bytes)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn write_private_file(dir: &Path, file: &str, bytes: &[u8]) -> std::io::Result<()> {
+    pistudiodesktop_store::write_private(&dir.join(file), bytes)
+}
+
 /// The browser build has no configuration directory, so a session there never has a `dir`.
 #[cfg(target_arch = "wasm32")]
 fn write_file(_: &Path, _: &str, _: &[u8]) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "files are not available in the browser build"))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn write_private_file(_: &Path, _: &str, _: &[u8]) -> std::io::Result<()> {
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "files are not available in the browser build"))
 }
 
@@ -253,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_directory_gives_defaults_and_creates_nothing() {
+    fn an_empty_directory_gives_defaults_and_only_the_registry_is_written() {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, notices) = open(dir.path());
         assert!(notices.is_empty());
@@ -261,11 +422,7 @@ mod tests {
         assert!(s.storage_snapshot().is_empty());
         assert!(!s.storage_unwritten());
         s.storage_flush().unwrap();
-        assert!(names(dir.path()).is_empty());
-        // A directory that does not exist yet is fine too.
-        let (s, notices) = open(&dir.path().join("later"));
-        assert!(notices.is_empty() && !s.storage_unwritten());
-        assert!(!dir.path().join("later").exists());
+        assert_eq!(names(dir.path()), ["daemons.json"]);
     }
 
     #[test]
@@ -309,7 +466,7 @@ mod tests {
         s.storage_set("pi-studio-appearance", "dark").unwrap();
         s.storage_set("pi-studio-pane-layout", "{\"a\":1}").unwrap();
         assert!(s.storage_unwritten());
-        assert!(names(dir.path()).is_empty(), "nothing is written until a flush");
+        assert_eq!(names(dir.path()), ["daemons.json"], "nothing else is written until a flush");
         s.storage_flush().unwrap();
         assert!(!s.storage_unwritten());
 
@@ -332,7 +489,7 @@ mod tests {
         let (mut s, _) = open(dir.path());
         s.storage_set("pi-studio-pane-layout", "x").unwrap();
         s.storage_flush().unwrap();
-        assert_eq!(names(dir.path()), ["daemon-state"]);
+        assert_eq!(names(dir.path()), ["daemon-state", "daemons.json"]);
         s.storage_set("pi-studio-pane-layout", "x").unwrap();
         assert!(!s.storage_unwritten());
     }

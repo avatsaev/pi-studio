@@ -3,16 +3,23 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
-use pistudiodesktop_model::{LimitError, Settings};
+use pistudiodesktop_model::{EntryId, EntryView, LimitError, LocalState, NewEntry, Registry, Settings, Update};
 use serde_json::{Map, Value};
 
 use crate::storage::Storage;
 use crate::{EngineError, Result, commands, params};
 
 /// One user's working state: the settings and the workbench's stored keys.
-#[derive(Default)]
 pub struct Session {
     storage: Storage,
+    local: LocalState,
+    changed: bool,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Session { storage: Storage::default(), local: LocalState::Checking, changed: false }
+    }
 }
 
 impl Session {
@@ -27,7 +34,74 @@ impl Session {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_config_dir(dir: impl Into<PathBuf>) -> (Self, Vec<crate::Notice>) {
         let (storage, notices) = Storage::open(dir.into());
-        (Session { storage }, notices)
+        (Session { storage, ..Session::default() }, notices)
+    }
+
+    /// Say whether this platform can run a local daemon. When it cannot, the local state is
+    /// `unsupported` for good; otherwise it starts as `checking`.
+    pub fn set_local_supported(&mut self, supported: bool) {
+        if supported {
+            if self.local == LocalState::Unsupported {
+                self.set_local_state(LocalState::Checking);
+            }
+        } else {
+            self.set_local_state(LocalState::Unsupported);
+        }
+    }
+
+    /// The local daemon's state as last stored here.
+    pub fn local_state(&self) -> &LocalState {
+        &self.local
+    }
+
+    /// Store the local daemon's state; a different one counts as a change.
+    pub fn set_local_state(&mut self, state: LocalState) {
+        if self.local != state {
+            self.local = state;
+            self.changed = true;
+        }
+    }
+
+    /// The registry. Secrets are in it: callers send only `Entry::view`s out.
+    pub fn registry(&self) -> &Registry {
+        self.storage.registry()
+    }
+
+    /// The entry whose stored keys are loaded: `lastUsedId` when that entry exists, else `local`.
+    /// `None` only after the current entry was removed, until a switch.
+    pub fn current_entry_id(&self) -> Option<&EntryId> {
+        self.storage.current()
+    }
+
+    /// Whether the registry view or the local state changed since this was last asked.
+    pub fn take_registry_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
+    }
+
+    /// Make `id` the current entry (see `daemon.switch`). `Ok(true)` when it changed.
+    pub(crate) fn switch_entry(&mut self, id: &str) -> std::result::Result<bool, &'static str> {
+        let changed = self.storage.switch(id)?;
+        self.changed |= changed;
+        Ok(changed)
+    }
+
+    /// Add an entry (see `daemon.add`); the registry is on disk before this returns.
+    pub(crate) fn add_entry(&mut self, new: NewEntry) -> std::result::Result<EntryView, &'static str> {
+        let view = self.storage.add_entry(new)?;
+        self.changed = true;
+        Ok(view)
+    }
+
+    pub(crate) fn update_entry(&mut self, id: &str, update: Update) -> std::result::Result<EntryView, &'static str> {
+        let view = self.storage.update_entry(id, update)?;
+        self.changed = true;
+        Ok(view)
+    }
+
+    pub(crate) fn remove_entry(&mut self, id: &str) -> std::result::Result<(), &'static str> {
+        self.storage.remove_entry(id)?;
+        self.changed = true;
+        Ok(())
     }
 
     pub fn settings(&self) -> &Settings {

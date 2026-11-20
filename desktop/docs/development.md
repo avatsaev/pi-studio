@@ -120,7 +120,17 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 | `PISTUDIODESKTOP_LOG` | `trace`, `debug`, `warn` or `error`: the level for Pi Studio's own crates (default `info`). Other crates log at `warn` |
 | `PISTUDIODESKTOP_CONTROL_PORT` | Same as `--control <port>` |
 | `PISTUDIODESKTOP_CONTROL_TOKEN_FILE` | Same as `--control-token-file <file>` |
+| `PISTUDIODESKTOP_CONFIG_DIR` | Same as `--config-dir <dir>`: the configuration directory |
 | `CARGO_PROFILE_DEV_DEBUG=true` | Full debug info for one build, to inspect local variables in a debugger |
+
+## Configuration directory
+
+The app keeps its files in `--config-dir <dir>` (or `PISTUDIODESKTOP_CONFIG_DIR`), else the
+platform's app configuration directory — on Linux `~/.config/com.avatsaev.pi-studio`. It holds
+`settings.json` (the app settings, with the workbench's app-wide keys under `workbench`) and
+`daemon-state/<id>.json` (the keys kept per daemon; today only `local`). A file that cannot be read
+is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page shows the notice
+once. Point `--config-dir` at a scratch directory for tests and smoke runs.
 
 ## Without a display
 
@@ -154,8 +164,21 @@ for the webview itself WebKitWebDriver, as below.
 To drive the real webview on Linux without a display, run the binary under WebKit's WebDriver
 (`WebKitWebDriver`, Ubuntu package `webkitgtk-webdriver`) with `TAURI_WEBVIEW_AUTOMATION=true` in
 its environment, and open a session with the capabilities `{"browserName": "wry",
-"webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>"}}`. Scripts, clicks and
-screenshots then go through the WebDriver protocol.
+"webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>", "args": ["--config-dir",
+"<scratch dir>"]}}`. Scripts, clicks and screenshots then go through the WebDriver protocol; from
+an async script, `window.__TAURI_INTERNALS__.invoke('boot')` shows what the page booted with.
+
+Three things the container does not give you by default:
+
+- **A D-Bus session bus.** Without one the single-instance check never runs and a second launch
+  opens a second window. Start one before WebKitWebDriver:
+  `dbus-daemon --session --fork --print-address=3 3>/tmp/bus` and export
+  `DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/bus)`.
+- **A window manager.** There is none, so focus cannot be observed, and closing the WebDriver
+  session kills the app (no exit flush). To close it like a user, send `WM_DELETE_WINDOW` to the
+  window `xwininfo -root -tree` lists as "Pi Studio" (an `XSendEvent` `ClientMessage`).
+- **One app at a time.** The single-instance lock is per app identifier, not per configuration
+  directory: two sessions at once collide.
 
 ## Debugging the frontend
 

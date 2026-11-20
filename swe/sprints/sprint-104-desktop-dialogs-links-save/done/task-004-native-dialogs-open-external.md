@@ -1,7 +1,7 @@
 # Task 004 — Rust: native confirm and alert, and opening links outside the app
 
 - **Sprint:** sprint-104-desktop-dialogs-links-save
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

@@ -401,11 +401,19 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
   handlers; check that nothing depends on the dialog blocking the page's event loop.
 - **The file input in each webview.** Assumed to open the OS picker everywhere; tried on none.
 - **Dropped-file handling off on macOS and Linux.** The documented reason to turn it off is
-  Windows; confirm HTML5 drops keep working on the other two with it off.
+  Windows; confirm HTML5 drops keep working on the other two with it off. *Linux, 2026-11-20
+  (sprint-103/task-004): a page-dispatched HTML5 drop on the file explorer uploads with it off;
+  a real drag from the desktop is still unchecked.*
 - **Chunk-by-chunk save throughput.** Not measured. If it is too slow to be usable before
   milestone 3, raise the chunk size before changing the design.
 - **`pagehide` on reload and on close.** The workbench flushes its debounced layout write on
   `pagehide`. Whether each webview fires it when the page is reloaded for a daemon switch and when
   the window closes is not known; if not, the last 250 ms of layout changes can be lost.
+  *Linux, 2026-11-20 (sprint-103/task-004): on reload the change survives; on a window close
+  (`WM_DELETE_WINDOW`) 27 ms after a split, the split is lost — the page's flush does not reach
+  Rust before exit. Proposed fix (not done): on `CloseRequested`, hold the close, ask the page to
+  flush (evaluate a script that runs the `pagehide` handlers and then `storage.settled()`), and
+  close when it answers or after a short timeout.*
 - **Configuration directory on each platform**, and whether mode 0600 survives the atomic rename.
+  *Linux: `~/.config/com.avatsaev.pi-studio`.*
 - **macOS and Windows.** Nothing here has run on either.

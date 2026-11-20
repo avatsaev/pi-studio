@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-dialog-confirm"
+description = "Enables the dialog_confirm command without any pre-configured scope."
+commands.allow = ["dialog_confirm"]
+
+[[permission]]
+identifier = "deny-dialog-confirm"
+description = "Denies the dialog_confirm command without any pre-configured scope."
+commands.deny = ["dialog_confirm"]

@@ -1,7 +1,7 @@
 # Task 002 — `store` crate: files readable by the user only
 
 - **Sprint:** sprint-107-desktop-registry-model
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/store
 - **Priority:** P1
