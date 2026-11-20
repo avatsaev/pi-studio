@@ -553,12 +553,15 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    *State: the window renders the workbench with the browser host and the policy is settled; the
    Tauri-backed host members are not written.*
    **Scope widened on 2026-11-15** (grill `swe/grills/desktop-native-shell.md`, 27 decisions) and
-   specified in two documents, neither planned nor built yet:
+   specified in two documents, neither built yet:
    - `swe/features/desktop-native-host.md`: the desktop host (settings and per-daemon state in
      Rust-owned files, native confirm and alert, external links, save to disk, HTML preview on
      its own origin after a spike), in-app session rename, and removal of the sample engine's
-     checklist while keeping its command registry and control socket.
-   - `swe/features/desktop-daemon-registry.md`: a daemon registry owned by Rust (this machine, a
+     checklist while keeping its command registry and control socket. **Planned 2026-11-20:**
+     sprints 102–106 in `swe/sprints/PLAN.md` (Rust model; boot and storage; dialogs, links and
+     save; HTML preview origin; close). Until the registry exists the app keeps one daemon
+     entry, `local`. The macOS and Windows checks need a person with those machines.
+   - `swe/features/desktop-daemon-registry.md` (**not planned yet**): a daemon registry owned by Rust (this machine, a
      direct address, a relay pairing link), switching from the native menu, a Daemons screen in
      the workbench, and supervision of this machine's daemon through an installed `pi-studio` CLI
      (`pi-studio --json daemon start|stop|restart`; no bundled daemon). The app opens on the
