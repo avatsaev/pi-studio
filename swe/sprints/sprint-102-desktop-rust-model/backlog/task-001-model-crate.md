@@ -32,7 +32,7 @@ The Rust side still models a checklist. The desktop host needs settings and the 
 
 ## Out of scope
 - Reading or writing files (task-002), commands (task-003).
-- The daemon registry's types (`swe/features/desktop-daemon-registry.md`, not planned yet).
+- The daemon registry's types (`swe/features/desktop-daemon-registry.md`: sprint-107/task-001).
 
 ## Acceptance criteria
 - [ ] Decoding `{}` with `version: 1` gives the defaults; decoding then encoding a document with unknown fields keeps them.

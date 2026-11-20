@@ -1,6 +1,6 @@
 # Feature — Desktop Daemon Registry and Local Daemon
 
-> **Status: specified (2026-11-15), not planned, not built.**
+> **Status: specified (2026-11-15), planned (2026-11-20, sprints 107–111, 26 tasks), not built.**
 > Milestone 1 of the desktop client, with [desktop-native-host.md](desktop-native-host.md).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)

@@ -561,7 +561,9 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
      sprints 102–106 in `swe/sprints/PLAN.md` (Rust model; boot and storage; dialogs, links and
      save; HTML preview origin; close). Until the registry exists the app keeps one daemon
      entry, `local`. The macOS and Windows checks need a person with those machines.
-   - `swe/features/desktop-daemon-registry.md` (**not planned yet**): a daemon registry owned by Rust (this machine, a
+   - `swe/features/desktop-daemon-registry.md` (**planned 2026-11-20:** sprints 107–111 in
+     `swe/sprints/PLAN.md`: registry model; local daemon through the CLI; wiring, switch and
+     native menu; the workbench's switcher and Daemons screen; close): a daemon registry owned by Rust (this machine, a
      direct address, a relay pairing link), switching from the native menu, a Daemons screen in
      the workbench, and supervision of this machine's daemon through an installed `pi-studio` CLI
      (`pi-studio --json daemon start|stop|restart`; no bundled daemon). The app opens on the

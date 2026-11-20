@@ -34,7 +34,7 @@ The native-host spec, the host adapter contract and every document that describe
 - **Desktop and repository documents:** "Where it stands" and the golden rules in `desktop/AGENTS.md`, the root `AGENTS.md` desktop paragraph (no longer "with the browser host"), the handoff document's status row and milestone 1 state, the workbench documents' host sections.
 
 ## Out of scope
-- `swe/features/desktop-daemon-registry.md`: unchanged, still not planned.
+- `swe/features/desktop-daemon-registry.md`: unchanged here; it is closed by sprint-111/task-003.
 - Code.
 
 ## Acceptance criteria
