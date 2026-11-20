@@ -12,11 +12,14 @@ happened and which version you used; a file or a command sequence that reproduce
   a crash, a hang or an unbounded allocation.
 - **Automation input.** Command params and control-protocol requests come from scripts and agents
   and are validated like file contents.
-- **The webview.** It is given the least it needs: it may call the app's two commands (`boot` and
-  `storage_set`) and receives no event. It has no `core:` or plug-in permissions
-  (`apps/pistudiodesktop/src-tauri/capabilities/default.json`), the content security policy allows only the
-  app's own bundled files, and the main window loads no remote content. Everything it sends is
-  validated in Rust like any other input.
+- **The webview.** It is given the least it needs: it may call only the app's own commands
+  (`docs/architecture.md` § The webview boundary) and receives no event. It has no `core:` or
+  plug-in permissions (`apps/pistudiodesktop/src-tauri/capabilities/default.json`), the content
+  security policy allows only the app's own bundled files, and the main window loads no remote
+  content. Everything it sends is validated in Rust like any other input: a link leaves the app
+  only through `open_external` after a Rust check (http, https and mailto, at most 8,192
+  characters), and a save never takes a path from the page — the destination comes from the native
+  dialog and stays in Rust.
 
 ## The control channel
 

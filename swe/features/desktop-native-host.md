@@ -396,16 +396,25 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
   need a person or a CI job.
 - **Clipboard in the webview.** `navigator.clipboard.writeText` needs a secure context and, in
   some webviews, a user gesture. The browser host's fallback may cover it. If it fails on a
-  platform, back `clipboard` with Rust on that platform.
+  platform, back `clipboard` with Rust on that platform. *Linux, 2026-11-20: "Copy Absolute Path"
+  works in WebKitGTK.*
 - **Native confirm and alert from an asynchronous call.** The workbench awaits them inside event
-  handlers; check that nothing depends on the dialog blocking the page's event loop.
-- **The file input in each webview.** Assumed to open the OS picker everywhere; tried on none.
+  handlers; check that nothing depends on the dialog blocking the page's event loop. *Linux,
+  2026-11-20 (sprint-104/task-008): delete-confirm, alert and the close confirm behave; the page
+  and the owner thread keep answering while a dialog is open.*
+- **The file input in each webview.** Assumed to open the OS picker everywhere. *Linux,
+  2026-11-20 (sprint-104/task-008, Xvfb container, no window manager, no portal): clicking Upload
+  opened nothing. HTML5 drops upload. Recheck on a real Linux desktop (sprint-106 checklist); if it
+  still opens nothing, add a native open-file command like `save_begin`.*
+- **Save dialog starting folder.** Downloads per the spec; in the container (no XDG user dirs) the
+  dialog opened at `/`. Recheck on a real desktop.
 - **Dropped-file handling off on macOS and Linux.** The documented reason to turn it off is
   Windows; confirm HTML5 drops keep working on the other two with it off. *Linux, 2026-11-20
   (sprint-103/task-004): a page-dispatched HTML5 drop on the file explorer uploads with it off;
   a real drag from the desktop is still unchecked.*
-- **Chunk-by-chunk save throughput.** Not measured. If it is too slow to be usable before
-  milestone 3, raise the chunk size before changing the design.
+- **Chunk-by-chunk save throughput.** *Linux, 2026-11-20 (sprint-104/task-008): 1 GiB in 6.5 s
+  (~160 MiB/s) from a local dev daemon, SHA-256 equal, the app's processes (Rust + WebKit) grew
+  from 738 to 854 MiB at peak — flat, not proportional to the file.*
 - **`pagehide` on reload and on close.** The workbench flushes its debounced layout write on
   `pagehide`. Whether each webview fires it when the page is reloaded for a daemon switch and when
   the window closes is not known; if not, the last 250 ms of layout changes can be lost.

@@ -6,7 +6,11 @@ describe("classifyExternalHref", () => {
     expect(classifyExternalHref(href)).toBe("url");
   });
 
-  it.each(["", "  ", "#", "#usage"])("%j is in-page", (href) => {
+  it.each(["#", "#usage"])("%j is in-page", (href) => {
     expect(classifyExternalHref(href)).toBe("in-page");
+  });
+
+  it.each(["", "  "])("%j has no target, so it never becomes a reloading anchor", (href) => {
+    expect(classifyExternalHref(href)).toBe("none");
   });
 });

@@ -7,10 +7,11 @@ what a browser does badly: sockets, files on disk, secrets and OS integration. R
 
 **Where it stands.** The window draws the workbench with a desktop host: at start the page calls
 `boot`, which returns the stored workbench keys from the configuration directory, and every
-storage write goes back through `storage_set` to the Rust engine, which writes the files. The
-webview still opens the WebSocket to the daemon itself. The engine's settings (`settings.get`,
-`settings.set`) sit behind a command registry that the CLI and the control socket dispatch into.
-Moving the remaining host members into Rust, one at a time, comes next.
+storage write goes back through `storage_set` to the Rust engine, which writes the files. Confirm
+and alert dialogs, external links and save-to-disk are native, through Rust commands. The webview
+still opens the WebSocket to the daemon itself. The engine also holds the daemon registry
+(`daemon.*`, not yet used by the window) and the settings, behind a command registry that the CLI
+and the control socket dispatch into.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -52,7 +53,7 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
    (`@av-pi-studio/ui-library`); this package adds no tokens. Look at a rendered image
    (`npm run snapshot`) before calling a UI change done.
 6. The webview gets the least it needs: it may call only the commands the build script's app
-   manifest lists and the capability grants (`boot`, `storage_set`); no `core:` or plug-in
+   manifest lists and the capability grants (`docs/architecture.md` § The webview boundary); no `core:` or plug-in
    permissions, no remote content in the main window, navigation only within the app origin, and a
    Content-Security-Policy that lists exactly the sources the workbench uses (`app.security.csp`
    in `tauri.conf.json`). Add a source or a command only with the feature that needs it;

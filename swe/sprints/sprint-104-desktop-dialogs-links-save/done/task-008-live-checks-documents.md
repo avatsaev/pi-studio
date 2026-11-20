@@ -1,7 +1,7 @@
 # Task 008 — Live checks: dialogs, links, save (Linux webview and web client), and documents
 
 - **Sprint:** sprint-104-desktop-dialogs-links-save
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), packages/web-client (browser), documents
 - **Priority:** P1

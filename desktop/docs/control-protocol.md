@@ -46,9 +46,8 @@ printf '%s\n' "{\"id\":\"auth\",\"method\":\"auth\",\"params\":{\"token\":\"$TOK
 
 ## Not from the webview
 
-The webview does not use the control protocol: it has the two commands `boot` and `storage_set`
-(`docs/architecture.md` § The webview boundary) and receives no event. Every method below is
-socket-only.
+The webview does not use the control protocol: it has its own commands (`docs/architecture.md`
+§ The webview boundary) and receives no event. Every method below is socket-only.
 
 ## Methods
 

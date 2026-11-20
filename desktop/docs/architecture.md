@@ -68,12 +68,17 @@ Where new code goes, stopping at the first yes:
    commands. A file that cannot be read is renamed aside and replaced by defaults, and the session
    returns a notice once. Logs name files, never their content.
 4. **`Services`** (`crates/shell/src/services.rs`): optional function hooks the app binary fills
-   in. The shell and the engine never call the OS themselves. Where a hook is missing, the feature
-   that needs it is disabled.
+   in — `confirm`, `alert`, `open_url` and `pick_save_path`, built from the dialog and opener
+   plug-ins in `src-tauri/src/services.rs`. The shell and the engine never call the OS themselves;
+   the shell checks first (`links::check`: http, https and mailto only, at most 8,192 characters;
+   `dialogs::cap_text`: 8,192 characters). Hooks may block, so the page's commands run them on the
+   blocking pool, never on the owner or main thread. Where a hook is missing, the feature that
+   needs it is disabled.
 5. **The view and the control protocol** (`crates/shell/src/state.rs`, `control.rs`): all UI state
-   is one serde struct, and `control::view` is the single value the frontend draws: UI state,
-   the settings and the menu model. Four JSON methods expose the running app (`docs/control-protocol.md`),
-   and the webview uses the same four.
+   is one serde struct, and `control::view` is the single value `ui.inspect` returns: UI state,
+   the settings, the daemon list (views only, no secret) and the menu model. Four JSON methods
+   expose the running app over the control socket (`docs/control-protocol.md`); the webview does
+   not use them.
 
 ## The webview boundary
 
@@ -97,18 +102,30 @@ sandboxed `srcdoc` frame, which inherits this policy, and `script-src` has no `'
 In the browser client, which has no policy, they run. Fixing it needs the preview served from an
 origin of its own, not a weaker policy for the main window.
 
-The page has exactly two Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
+The page has exactly these Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
 receives no event:
 
 | Command | Does |
 |---|---|
-| `boot()` | Returns `{app: {title, version, platform: "desktop"}, storage, notices}`: the stored workbench keys of both scopes merged, and the notices (a file that could not be read and was reset) — each returned once |
+| `boot()` | Returns `{app: {title, version, platform: "desktop"}, storage, notices}`: the stored workbench keys of both scopes merged, and the notices (a file that could not be read and was reset) — each returned once. Resets the transfer count |
 | `storage_set(key, value)` | Queues one stored key. It is a synchronous command, so calls are applied in the order the page made them; it answers once queued. Size caps are checked on the owner thread and a refused write is logged with the key only |
+| `dialog_confirm(message)` → bool | Native OK/Cancel dialog over the window; the text is capped at 8,192 characters. Closing it, or a failure, answers `false` |
+| `dialog_alert(message)` | Native message dialog, same cap |
+| `open_external(url)` | Opens the URL with the system opener after `links::check`; a refused or failed open is logged (scheme only) and the page is not told |
+| `save_begin(suggestedName)` → `{handle}` \| null | Native save dialog starting in the last folder used this run, else Downloads. The name is reduced to a file name (no path parts, no control characters, at most 255 bytes). Creates `.pistudio-save-<hex>.part` beside the destination, listed in `pending-saves.json`. `null` when cancelled; at most 8 open |
+| `save_write(bytes)` | Appends a raw body (at most 16 MiB) to the save named by the `handle` request header |
+| `save_finish(handle)` / `save_discard(handle)` | Sync and rename over the destination / remove the temporary file. A handle is single use; errors never contain a path |
+| `transfers_set(count)` | The page's count of uploads and saves in flight. Closing the window while it is above zero asks first ("N file transfer(s) are still running. Quit anyway?") |
+
+The page never names a path: the destination comes from the native dialog and stays in Rust. A
+temporary file left by a killed app is removed at the next launch, and a damaged journal can only
+remove files named `.pistudio-save-*.part`.
 
 Tauri enforces the list: `build.rs` declares the commands in the app manifest, and
-`capabilities/default.json` grants `allow-boot` and `allow-storage-set` and nothing else — no
-`core:` and no plug-in permission. A command not on the list is refused before it runs. Adding one
-means three places: `build.rs`, the capability and `generate_handler!`.
+`capabilities/default.json` grants their `allow-*` permissions and nothing else — no `core:` and no
+plug-in permission (the opener plug-in is registered with its link-click script off). A command
+not on the list is refused before it runs. Adding one means three places: `build.rs`, the
+capability and `generate_handler!`; a test asserts the exact capability list.
 
 The owner thread writes the changed scope's file one second after the first unwritten change
 (later changes ride along), and once more at `RunEvent::Exit`, waiting at most five seconds. A

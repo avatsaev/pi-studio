@@ -1948,10 +1948,12 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   (`#section`) is `external` too, so in-page anchors are never intercepted.
   **Render layer:** `timeline/FileLink.tsx` is `markdown.tsx`'s `a` node override, threaded the
   same `assetBase`/`owningPaneId`/`workspaceCwd` props as the `img` override. `external` is split
-  by `timeline/external-href.ts#classifyExternalHref` (sprint-104): an in-page href (empty or
-  `#…`) renders a plain, unmodified `<a>`; anything else renders through `ExternalAnchor` (host
-  `links.openExternal` when present, else `target="_blank" rel="noreferrer"`), so a web link never
-  replaces the app. `local(path)` renders an actionable, draggable one.
+  by `timeline/external-href.ts#classifyExternalHref` (sprint-104): an empty href (the markdown
+  renderer blanks `javascript:`, `file:` and other unsafe URLs to `""`) renders the label as plain
+  text, because `<a href="">` would reload the app; an in-page href (`#…`) renders a plain,
+  unmodified `<a>`; anything else renders through `ExternalAnchor` (host `links.openExternal` when
+  present, else `target="_blank" rel="noreferrer"`), so a web link never replaces the app.
+  `local(path)` renders an actionable, draggable one.
   **Converged click-to-open + pane targeting:** both `FileLink` and `InlineImage` dispatch through
   `openFileTab` (`features/files/open-file-tab.ts`, the same primitive the Files tree and its
   context menu use) with arguments from one shared pure function,

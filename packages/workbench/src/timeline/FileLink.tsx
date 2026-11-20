@@ -1,8 +1,9 @@
 /**
  * `[label](href)` renderer for finalized assistant markdown (features/file-link-rendering.md §
  * Render pipeline, § Click-to-open pane targeting, § Drag-to-split). `classifyFileLinkSrc`'s
- * `external` result is split by `classifyExternalHref`: an in-page reference (`#section`) renders
- * an ordinary, unmodified anchor, a URL with a scheme renders through `ExternalAnchor` (host
+ * `external` result is split by `classifyExternalHref`: an empty href (an unsafe URL the markdown
+ * renderer blanked) renders the label as text, an in-page reference (`#section`) renders an
+ * ordinary, unmodified anchor, a URL with a scheme renders through `ExternalAnchor` (host
  * `openExternal`, else a new tab) so it never replaces the app. A `local` result renders an
  * actionable, draggable anchor: click prevents navigation and dispatches through the same
  * `openFileTab` primitive the Files tree and its context menu already use, targeted at the owning
@@ -34,7 +35,9 @@ export function FileLink({ href, children, assetBase, owningPaneId, workspaceCwd
   const classification = classifyFileLinkSrc(href ?? "", assetBase, homeDir);
 
   if (classification.kind === "external") {
-    if (classifyExternalHref(href ?? "") === "in-page") return <a href={href}>{children}</a>;
+    const kind = classifyExternalHref(href ?? "");
+    if (kind === "none") return <span>{children}</span>;
+    if (kind === "in-page") return <a href={href}>{children}</a>;
     return <ExternalAnchor href={href ?? ""}>{children}</ExternalAnchor>;
   }
 
