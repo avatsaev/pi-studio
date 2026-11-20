@@ -4,7 +4,13 @@
  */
 
 import { type KeyValueStore } from "@av-pi-studio/ui-library";
-import { type ConnectIntent, type HostConnection, type WorkbenchHost } from "../host/types.js";
+import {
+  type ConnectIntent,
+  type HostConnection,
+  type HostDaemons,
+  type HostPreview,
+  type WorkbenchHost,
+} from "../host/types.js";
 
 export interface TestHostCall {
   member: string;
@@ -14,8 +20,6 @@ export interface TestHostCall {
 export interface TestHostOptions {
   /** Answers for successive `dialogs.confirm` calls; missing answers are `true`. */
   confirms?: boolean[];
-  /** Answers for successive `dialogs.prompt` calls; missing answers are `null`. */
-  prompts?: (string | null)[];
   storage?: Record<string, string>;
   openExternal?: boolean;
   clipboardFails?: boolean;
@@ -29,6 +33,15 @@ export interface TestHostOptions {
   uploadFails?: string;
   /** `files.saveToDisk` resolves only when this does. */
   saveToDisk?: Promise<void>;
+  /**
+   * The host's `preview`: `"inert"`, `"origin"` (mounts and releases are recorded), or
+   * `{ mountFails }` (an `origin` whose `mount` rejects with that message).
+   */
+  preview?: "inert" | "origin" | { mountFails: string };
+  /** The host's `daemons` registry, e.g. from `createTestDaemons`. Absent by default. */
+  daemons?: HostDaemons;
+  /** The host's `app.minDaemonVersion`. */
+  minDaemonVersion?: string;
 }
 
 export interface TestHost extends WorkbenchHost {
@@ -45,12 +58,26 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
   const calls: TestHostCall[] = [];
   const data = new Map(Object.entries(options.storage ?? {}));
   const confirms = [...(options.confirms ?? [])];
-  const prompts = [...(options.prompts ?? [])];
   const record = (member: string, ...args: unknown[]): void => void calls.push({ member, args });
   const deepLinkListeners = new Set<(agentId: string) => void>();
   let pendingDeepLink = options.agentDeepLink ?? null;
   const resumeListeners = new Set<() => void>();
   let viewCount = 0;
+  let mountCount = 0;
+  const preview: HostPreview | undefined =
+    options.preview === undefined
+      ? undefined
+      : options.preview === "inert"
+        ? { kind: "inert" }
+        : {
+            kind: "origin",
+            mount: async (html) => {
+              record("preview.mount", html);
+              if (typeof options.preview === "object") throw new Error(options.preview.mountFails);
+              const url = `test-preview:${++mountCount}`;
+              return { url, release: () => record("preview.release", url) };
+            },
+          };
 
   const storage: KeyValueStore = {
     get: (key) => data.get(key) ?? null,
@@ -67,7 +94,13 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
       for (const listener of resumeListeners) listener();
     },
     resumeListenerCount: () => resumeListeners.size,
-    app: { title: "Test", version: "0.0.0-test" },
+    app: {
+      title: "Test",
+      version: "0.0.0-test",
+      ...(options.minDaemonVersion === undefined
+        ? {}
+        : { minDaemonVersion: options.minDaemonVersion }),
+    },
     storage,
     clipboard: {
       writeText: async (text) => {
@@ -81,10 +114,6 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
         return confirms.shift() ?? true;
       },
       alert: async (message) => record("dialogs.alert", message),
-      prompt: async (message, initial) => {
-        record("dialogs.prompt", message, initial);
-        return prompts.shift() ?? null;
-      },
     },
     links: options.openExternal ? { openExternal: (url) => record("links.openExternal", url) } : {},
     launch: {
@@ -133,5 +162,7 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
         return { url, release: () => record("files.release", url) };
       },
     },
+    ...(preview ? { preview } : {}),
+    ...(options.daemons ? { daemons: options.daemons } : {}),
   };
 }

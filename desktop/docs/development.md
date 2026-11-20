@@ -74,10 +74,16 @@ secrets.
 The CLI:
 
 ```sh
-cargo run -q -p pistudiodesktop-cli -- run --new Groceries --cmd 'item.add {"text":"milk"}' --out list.pistudiodesktop
-cargo run -q -p pistudiodesktop-cli -- info list.pistudiodesktop
-cargo run -q -p pistudiodesktop-cli -- commands --filter undo
+cargo run -q -p pistudiodesktop-cli -- commands --filter settings
+cargo run -q -p pistudiodesktop-cli -- run --cmd settings.get
+cargo run -q -p pistudiodesktop-cli -- run --config-dir ./cfg --cmd 'settings.set {"key":"autoStartLocalDaemon","value":false}' --cmd settings.get
 ```
+
+`commands` lists the registry, one JSON object per line. `run` executes each `--cmd '<id> [json]'`
+in order and prints `{"command": …, "result": …}` per step. With `--config-dir DIR` the session
+reads and writes that configuration directory (`settings.json`, `daemon-state/<entry>.json`);
+nothing is created until a command writes, so the third line leaves `./cfg/settings.json` behind.
+Without it the session lives in memory and writes no file.
 
 Results are JSON lines on standard output; diagnostics go to standard error. Exit status 1 is a
 failed command, 2 a usage error.
@@ -105,12 +111,6 @@ This is how to check a UI change without opening a window. The browser is Playwr
 (or `--browser webkit`), not the platform webview the app runs in: trust it for layout, themes and
 the policy, and check platform behaviour in the running app.
 
-The sample engine's view as JSON, without any browser:
-
-```sh
-cargo run -q -p pistudiodesktop-shell --example view -- --script '[["ui.set", {"theme": "light"}]]'
-```
-
 The running app, driven from outside: see `docs/control-protocol.md`.
 
 ## Environment variables
@@ -126,6 +126,30 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 
 Running the window needs a display: `Xvfb :99 -screen 0 1280x800x24 &` and then
 `DISPLAY=:99 cargo run -p pistudiodesktop`. The snapshot tool and every test need none.
+
+The `pi-desktop-xvfb` Docker image (Xvfb, WebKitGTK and WebKitWebDriver; no `nc`) runs the built
+app with no display of your own. After `cargo build -p pistudiodesktop` (which needs
+`apps/pistudiodesktop/dist`), mount the workspace read-only and talk to the control socket from
+inside the container. Pick a scratch port other than 6767, which a daemon may use:
+
+```sh
+cat > /tmp/pi-smoke.sh <<'EOF'
+cd /work
+xvfb-run -a ./target/debug/pistudiodesktop --control 7979 --control-token-file /tmp/control.token >/tmp/app.log 2>&1 &
+sleep 6
+TOKEN=$(tr -d '\r\n' < /tmp/control.token)
+exec 3<>/dev/tcp/127.0.0.1/7979
+printf '%s\n' "{\"id\":\"auth\",\"method\":\"auth\",\"params\":{\"token\":\"$TOKEN\"}}" \
+  '{"id":1,"method":"ui.inspect","params":{}}' >&3
+for i in 1 2; do read -t 5 -u 3 line; echo "$line"; done
+EOF
+docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-desktop-xvfb bash /tmp/pi-smoke.sh
+```
+
+Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
+`{"id":1,"ok":true,"result":{"menus":[],"settings":{"autoStartLocalDaemon":true,"cliPath":null},"ui":{"status":""}}}`.
+This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
+for the webview itself WebKitWebDriver, as below.
 
 To drive the real webview on Linux without a display, run the binary under WebKit's WebDriver
 (`WebKitWebDriver`, Ubuntu package `webkitgtk-webdriver`) with `TAURI_WEBVIEW_AUTOMATION=true` in

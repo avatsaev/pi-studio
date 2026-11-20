@@ -2,7 +2,7 @@
 
 What a frontend or automation can ask of a running Pi Studio. The methods are implemented in
 `crates/shell/src/control.rs` (`handle`), which has no transport: the desktop app feeds it from the
-webview and from a loopback socket, and tests and the `view` example call it directly.
+webview and from a loopback socket, and tests call it directly.
 
 ## From outside: the loopback socket
 
@@ -23,8 +23,8 @@ The wire format is JSON lines over TCP: one request per line, one reply per line
 ```text
 {"id": 1, "method": "auth", "params": {"token": "<64 hex>"}}
 {"id": 1, "ok": true, "result": {"authenticated": true}}
-{"id": 2, "method": "engine.execute", "params": {"command": "item.add", "params": {"text": "milk"}}}
-{"id": 2, "ok": true, "result": {"id": 1}}
+{"id": 2, "method": "engine.execute", "params": {"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}}
+{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "cliPath": null}}
 ```
 
 - The first line on a connection must be `auth`. Anything else, or a wrong token, gets
@@ -40,7 +40,7 @@ With a netcat that waits for replies (`nc -q 2` on most Linux distributions):
 ```sh
 TOKEN=$(tr -d '\r\n' < control.token)
 printf '%s\n' "{\"id\":\"auth\",\"method\":\"auth\",\"params\":{\"token\":\"$TOKEN\"}}" \
-  '{"id":1,"method":"engine.execute","params":{"command":"item.add","params":{"text":"milk"}}}' \
+  '{"id":1,"method":"engine.execute","params":{"command":"settings.set","params":{"key":"autoStartLocalDaemon","value":false}}}' \
   '{"id":2,"method":"ui.inspect","params":{}}' | nc -q 2 127.0.0.1 7878
 ```
 
@@ -56,15 +56,15 @@ draw has changed.
 
 | Method | Params | Does |
 |---|---|---|
-| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id, engine commands and shell commands alike. The result is the command's result |
-| `engine.commands` | none | Lists the registry: `id`, `label`, `menu`, `shortcut`, `params`, `enabled`, and `reason` when disabled |
-| `ui.inspect` | none | Returns the view, exactly what the frontend draws: `{"ui": …, "document": …, "menus": […], "shellCommands": […]}`. `document` is what `document.inspect` returns, or `null`. Each menu has a `label` and `items` with `id`, `label`, `shortcut`, `enabled`, `reason` and `checked` |
-| `ui.set` | `{"theme"?: "dark" \| "light", "hideDone"?: bool}` | Changes UI state. Every field is validated before any is applied: an unknown field or a bad value is an error and nothing changes |
+| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id: `command.list`, `settings.get` or `settings.set`. The result is the command's result |
+| `engine.commands` | none | Lists the registry, as `command.list` does: `id`, `label`, `menu`, `shortcut`, `params`, `enabled`, and `reason` when disabled |
+| `ui.inspect` | none | Returns the view: `{"ui": {"status": …}, "settings": {"autoStartLocalDaemon": …, "cliPath": …}, "menus": […]}`. `menus` is the generated menu model; it is empty while no command has a menu entry |
+| `ui.set` | `{}` | Changes UI state. It has no field yet: `{}` succeeds with `null`, and any field is an error with nothing changed |
 
 An unknown method is an error that lists the methods.
 
 ## Keeping this page current
 
 A new control method is an arm in `handle()` and a name in `METHODS`; a new `UiState` field is an
-arm in `set()` and a field in `apps/pistudiodesktop/src/lib/types.ts`. Update this page in the same change.
+arm in `set()`. Update this page in the same change.
 Most needs are better served by a new command, which every frontend gets at once.

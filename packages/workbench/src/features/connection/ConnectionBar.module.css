@@ -90,6 +90,65 @@
   background: color-mix(in srgb, var(--pi-color-destructive) 12%, var(--pi-color-surface1));
 }
 
+/* ---- Daemon switcher ----
+   The pill as a button (host with a registry). `.statusPill` supplies the shape; the button's own
+   UA look is reset explicitly. Only the entry name may ellipsize — the state word after it stays
+   readable, like `.statusHost` — so a 64-character name cannot widen the bar past the pill's cap. */
+
+button.switcher {
+  appearance: none;
+  margin: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.switcher:hover {
+  border-color: var(--pi-color-foregroundMuted);
+}
+button.switcher:focus-visible,
+button.switcher[data-state="open"] {
+  border-color: var(--pi-color-accentBright);
+  outline: none;
+}
+.switcherName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-color-foreground);
+}
+.switcherChevron {
+  flex: none;
+}
+
+.switcherMenu {
+  max-width: 360px;
+}
+/* Reserves the check's column on every row so names line up whether or not one is marked. */
+.switcherCheck {
+  flex: none;
+  width: 14px;
+  display: inline-flex;
+}
+.switcherItemName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.switcherItemKind {
+  flex: none;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.switcherItemInvalid {
+  flex: none;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-statusDanger);
+}
+
 /* ---- Url / password fields ----
    Element+class selectors (`input.field`) so these win over `TextInput`'s own `.input` rules
    regardless of CSS-module bundle order — the bar restyles the primitive substantially (26px tall,

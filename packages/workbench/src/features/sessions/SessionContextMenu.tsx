@@ -14,11 +14,11 @@ import { Pencil, Square, Archive as ArchiveIcon, GitFork, Trash2 } from "lucide-
 import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-studio/ui-library";
 import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useSessionRenameStore } from "../../stores/session-rename-store.js";
 import { useSessionStore } from "../../stores/session-store.js";
 import { useTabStore, tabIds } from "../../stores/tab-store.js";
 import { useUiStore } from "../../stores/ui-store.js";
 import { useForkMenu } from "../chat/use-fork-action.js";
-import { renameSession } from "./session-actions.js";
 
 export function SessionContextMenu() {
   const menu = useUiStore((s) => s.sessionMenu);
@@ -44,9 +44,9 @@ export function SessionContextMenu() {
     if (!next) closeSessionMenu();
   }
 
-  async function rename() {
+  function rename() {
     if (!session) return;
-    await renameSession(session, client);
+    useSessionRenameStore.getState().open(session.id);
     closeSessionMenu();
   }
 

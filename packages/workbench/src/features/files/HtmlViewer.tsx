@@ -18,17 +18,19 @@
  * its scripts twice (see the asset-bundle query below).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Spinner, EmptyState, Switch } from "@av-pi-studio/ui-library";
 import { useFileSource } from "../../hooks/use-file-source.js";
 import { useHomeDir } from "../../hooks/use-home-dir.js";
+import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { rpcKeys } from "../../lib/connection/rpc-keys.js";
 import { dirOf, resolveWorkspacePath } from "../../lib/paths.js";
 import { transferFor } from "../../hooks/file-transfer-instance.js";
 import { assembleHtmlPreview, HTML_SANDBOX_TOKENS } from "./html-sandbox.js";
 import { confineAssetRef, confinementRoot, extractLocalAssetRefs } from "./html-assets.js";
+import { createPreviewMounts } from "./preview-mounts.js";
 import { loadHtmlAssetBundle, type SkippedRef } from "./html-asset-loader.js";
 import { CodeView } from "./CodeView.js";
 import { SaveFileButton } from "./SaveFileButton.js";
@@ -151,6 +153,37 @@ export function HtmlViewer({ path, workspaceCwd }: ViewerProps) {
     return assembleHtmlPreview(content, { assets, blockRemote });
   }, [content, assets, blockRemote]);
 
+  // A host `preview` of kind `origin` loads the frame from a URL it serves instead of `srcdoc`.
+  // Only a settled document is mounted (never the assetless intermediate the single-load rule
+  // holds back); the previous URL keeps showing until the next one is ready.
+  const preview = getHost().preview;
+  const mountHtml =
+    preview?.kind === "origin" &&
+    srcDoc !== null &&
+    !(hasLocalRefs && assetQuery.data === undefined)
+      ? srcDoc
+      : null;
+  const mount = preview?.kind === "origin" ? preview.mount : null;
+  const [mounts] = useState(createPreviewMounts);
+  const [mountedUrl, setMountedUrl] = useState<string | null>(null);
+  const [mountError, setMountError] = useState<string | null>(null);
+  useEffect(() => {
+    if (mountHtml === null || mount === null) return;
+    const token = mounts.begin();
+    setMountError(null);
+    mount(mountHtml).then(
+      (doc) => {
+        if (mounts.settle(token, doc)) setMountedUrl(doc.url);
+      },
+      (err: unknown) => {
+        if (mounts.isCurrent(token)) {
+          setMountError(err instanceof Error ? err.message : String(err));
+        }
+      },
+    );
+  }, [mountHtml, mount, mounts]);
+  useEffect(() => () => mounts.dispose(), [mounts]);
+
   function handleReload() {
     // Mirrors `useFileLiveRefresh`'s invalidation set exactly: `useFileText`'s decode is keyed on
     // the download's object URL, so invalidating `fileDownload` already forces a fresh decode —
@@ -246,6 +279,11 @@ export function HtmlViewer({ path, workspaceCwd }: ViewerProps) {
       {state.kind === "streamed" ? (
         <div className={styles.streamedNote}>{formatMegabytes(state.size)} file streamed</div>
       ) : null}
+      {preview?.kind === "inert" ? (
+        <div className={styles.inertNote}>
+          Scripts are disabled in the desktop app on this platform.
+        </div>
+      ) : null}
       {skipped.length > 0 ? (
         <div className={styles.skippedNote}>
           <button
@@ -276,15 +314,35 @@ export function HtmlViewer({ path, workspaceCwd }: ViewerProps) {
           // scripts, lost scroll position) despite `srcDoc`'s memoized string being unchanged.
           // `CodeView` has no persistent state worth keeping, so it stays conditional.
         }
-        <iframe
-          sandbox={SANDBOX}
-          srcDoc={srcDoc}
-          referrerPolicy="no-referrer"
-          allow=""
-          className={styles.frame}
-          style={mode === "preview" ? undefined : { display: "none" }}
-          title={name}
-        />
+        {preview?.kind !== "origin" ? (
+          <iframe
+            sandbox={SANDBOX}
+            srcDoc={srcDoc}
+            referrerPolicy="no-referrer"
+            allow=""
+            className={styles.frame}
+            style={mode === "preview" ? undefined : { display: "none" }}
+            title={name}
+          />
+        ) : mountError !== null ? (
+          mode === "preview" ? (
+            <EmptyState>Error: {mountError}</EmptyState>
+          ) : null
+        ) : mountedUrl !== null ? (
+          <iframe
+            sandbox={SANDBOX}
+            src={mountedUrl}
+            referrerPolicy="no-referrer"
+            allow=""
+            className={styles.frame}
+            style={mode === "preview" ? undefined : { display: "none" }}
+            title={name}
+          />
+        ) : mode === "preview" ? (
+          <EmptyState>
+            <Spinner size="sm" /> Loading...
+          </EmptyState>
+        ) : null}
         {mode === "source" ? <CodeView path={path} content={content} /> : null}
       </div>
     </div>

@@ -5,9 +5,9 @@ whose webview runs the workbench (`@av-pi-studio/workbench`, the same UI as the 
 and a Rust side for what a browser does badly: sockets, files on disk, secrets and OS integration.
 
 Today the window draws the workbench and connects to a daemon with the webview's own WebSocket.
-The Rust crates still hold the starter sample (a checklist engine with undo, a file format, menus
-and a control channel), which the window no longer draws; the CLI and the control socket still
-reach it. Replacing it, and moving the sockets into Rust, comes next.
+The Rust crates hold an engine with settings and stored workbench state, a command registry (every
+action is a command), generated menus and a control channel; the CLI and the control socket reach
+it. Moving the host members and the sockets into Rust comes next.
 
 ## Build and run
 
@@ -27,14 +27,13 @@ with hot reload. `npm run bundle` builds installers.
 
 | Path | What |
 |---|---|
-| `crates/doc` | L1: the model, pure data |
-| `crates/ops` | L2: history (undo and redo over snapshots) |
-| `crates/format` | L3: the native file format |
-| `crates/engine` | L5: `Session` and the command registry |
+| `crates/model` | L1: the settings and one daemon entry's stored state, pure data |
+| `crates/store` | L3: JSON files, read safely and written atomically |
+| `crates/engine` | L5: `Session`, the command registry, the settings and the stored workbench keys |
 | `crates/shell` | L6: UI state, the generated menu bar and the control protocol, with no UI toolkit in it |
 | `crates/testkit` | Test helpers |
 | `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
-| `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, file dialogs, the control server |
+| `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, dialogs, the control server |
 | `apps/pistudiodesktop-cli` | The headless CLI |
 | `xtask` | `cargo xtask layers \| web \| wasm \| test \| ci` |
 

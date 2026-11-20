@@ -36,17 +36,16 @@ impl Class {
 ///
 /// ```text
 /// L0  foundation (geometry, units, storage containers) and standalone format crates
-/// L1  doc                 the document model: pure data
-/// L2  ops, algorithms     history, domain algorithms
-/// L3  format, rendering   native format, storage, renderers
+/// L1  model               the app's settings and stored state: pure data
+/// L2  algorithms          domain algorithms
+/// L3  store, rendering    files on disk, renderers
 /// L4  io, plugins         import/export orchestration
 /// L5  engine              Session + command registry
 /// L6  shell, automation  the shell (what the webview draws), the MCP server
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
-    ("doc", Class::Layer(1)),
-    ("ops", Class::Layer(2)),
-    ("format", Class::Layer(3)),
+    ("model", Class::Layer(1)),
+    ("store", Class::Layer(3)),
     ("engine", Class::Layer(5)),
     ("shell", Class::Layer(6)),
     ("testkit", Class::Testkit),
@@ -225,7 +224,7 @@ mod tests {
         let crates = [
             krate(
                 "pistudiodesktop-engine",
-                &[("pistudiodesktop-doc", DepKind::Normal, true), ("pistudiodesktop-testkit", DepKind::Dev, true), ("serde_json", DepKind::Normal, false)],
+                &[("pistudiodesktop-model", DepKind::Normal, true), ("pistudiodesktop-testkit", DepKind::Dev, true), ("serde_json", DepKind::Normal, false)],
             ),
             krate("pistudiodesktop-shell", &[("pistudiodesktop-engine", DepKind::Normal, true), ("serde", DepKind::Normal, false)]),
             krate("pistudiodesktop", &[("pistudiodesktop-shell", DepKind::Normal, true), ("tauri", DepKind::Normal, false)]),
@@ -236,22 +235,18 @@ mod tests {
     #[test]
     fn each_rule_reports_its_violation() {
         let crates = [
-            krate("pistudiodesktop-doc", &[("pistudiodesktop-engine", DepKind::Normal, true)]),
-            krate(
-                "pistudiodesktop-ops",
-                &[("pistudiodesktop-doc", DepKind::Normal, true), ("pistudiodesktop-ops", DepKind::Dev, true), ("tauri", DepKind::Normal, false)],
-            ),
-            krate("pistudiodesktop-format", &[("pistudiodesktop-testkit", DepKind::Normal, true), ("tauri-plugin-dialog", DepKind::Dev, false)]),
+            krate("pistudiodesktop-model", &[("pistudiodesktop-engine", DepKind::Normal, true), ("tauri", DepKind::Normal, false)]),
+            krate("pistudiodesktop-store", &[("pistudiodesktop-testkit", DepKind::Normal, true), ("tauri-plugin-dialog", DepKind::Dev, false)]),
             krate("pistudiodesktop-engine", &[("pistudiodesktop", DepKind::Normal, true)]),
             krate("pistudiodesktop-new", &[]),
         ];
         let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
         assert_eq!(found.len(), 6, "{found:#?}");
         for expected in [
-            "pistudiodesktop-doc (L1) depends on pistudiodesktop-engine (L5)",
-            "pistudiodesktop-ops (L2) depends on UI crate tauri",
-            "pistudiodesktop-format (L3) depends on UI crate tauri-plugin-dialog",
-            "pistudiodesktop-format uses the testkit outside [dev-dependencies]",
+            "pistudiodesktop-model (L1) depends on pistudiodesktop-engine (L5)",
+            "pistudiodesktop-model (L1) depends on UI crate tauri",
+            "pistudiodesktop-store (L3) depends on UI crate tauri-plugin-dialog",
+            "pistudiodesktop-store uses the testkit outside [dev-dependencies]",
             "pistudiodesktop-engine (L5) depends on pistudiodesktop (L7)",
             "pistudiodesktop-new: not in the layering table",
         ] {

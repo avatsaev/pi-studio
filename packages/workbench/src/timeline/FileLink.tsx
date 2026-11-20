@@ -1,8 +1,9 @@
 /**
  * `[label](href)` renderer for finalized assistant markdown (features/file-link-rendering.md §
  * Render pipeline, § Click-to-open pane targeting, § Drag-to-split). `classifyFileLinkSrc`'s
- * `external` result renders an ordinary, unmodified anchor — never intercepted, so in-page anchors
- * and real links keep working exactly as the browser's default. A `local` result renders an
+ * `external` result is split by `classifyExternalHref`: an in-page reference (`#section`) renders
+ * an ordinary, unmodified anchor, a URL with a scheme renders through `ExternalAnchor` (host
+ * `openExternal`, else a new tab) so it never replaces the app. A `local` result renders an
  * actionable, draggable anchor: click prevents navigation and dispatches through the same
  * `openFileTab` primitive the Files tree and its context menu already use, targeted at the owning
  * chat tab's pane — the converged click-to-open dispatch `InlineImage` also uses
@@ -12,9 +13,11 @@
  */
 
 import type { ReactNode } from "react";
+import { classifyExternalHref } from "./external-href.js";
 import { classifyFileLinkSrc } from "./file-link-src.js";
 import { resolveFileOpenTarget } from "./file-open-target.js";
 import { useHomeDir } from "../hooks/use-home-dir.js";
+import { ExternalAnchor } from "../host/external-link.js";
 import { openFileTab } from "../features/files/open-file-tab.js";
 import { pathDragStartHandler } from "../features/workspace/external-drag.js";
 
@@ -31,7 +34,8 @@ export function FileLink({ href, children, assetBase, owningPaneId, workspaceCwd
   const classification = classifyFileLinkSrc(href ?? "", assetBase, homeDir);
 
   if (classification.kind === "external") {
-    return <a href={href}>{children}</a>;
+    if (classifyExternalHref(href ?? "") === "in-page") return <a href={href}>{children}</a>;
+    return <ExternalAnchor href={href ?? ""}>{children}</ExternalAnchor>;
   }
 
   const path = classification.path;

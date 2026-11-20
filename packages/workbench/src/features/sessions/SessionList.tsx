@@ -21,6 +21,7 @@ import {
 import { useHomeDir } from "../../hooks/use-home-dir.js";
 import { useAgentUiPendingAgentIds } from "../agent-ui/agent-ui-store.js";
 import { SessionItem } from "./SessionItem.js";
+import { RenameSessionDialog } from "./RenameSessionDialog.js";
 import { SessionContextMenu } from "./SessionContextMenu.js";
 import { WorkspaceGroupHeader } from "./WorkspaceGroupHeader.js";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu.js";
@@ -133,6 +134,7 @@ export function SessionList() {
         Add workspace
       </button>
       <SessionContextMenu />
+      <RenameSessionDialog />
       <WorkspaceContextMenu />
     </Panel>
   );

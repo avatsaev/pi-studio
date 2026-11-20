@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHost, resetHostForTests } from "./install.js";
 import { routeExternalLinkClick } from "./external-link.js";
 import {
+  applySessionRename,
   deleteWorkspaceConversations,
-  renameSession,
 } from "../features/sessions/session-actions.js";
 import { useSessionStore } from "../stores/session-store.js";
 import { resetSessionStore, resetTabStore } from "../test/reset-stores.js";
+import { createTestDaemons } from "../test/test-daemons.js";
 import { createTestHost } from "../test/test-host.js";
 
 function fakeClient() {
@@ -31,25 +32,11 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("dialogs through the host", () => {
-  it("does not rename when the prompt is dismissed", async () => {
-    const host = createTestHost({ prompts: [null] });
-    installHost(host);
+  it("renames locally and on the daemon", () => {
     const id = seedSession();
     const { client, update } = fakeClient();
 
-    await renameSession(useSessionStore.getState().sessions[id]!, client as never);
-
-    expect(useSessionStore.getState().sessions[id]!.title).toBe("Old title");
-    expect(update).not.toHaveBeenCalled();
-    expect(host.calls).toEqual([{ member: "dialogs.prompt", args: ["Rename:", "Old title"] }]);
-  });
-
-  it("renames locally and on the daemon when the prompt answers", async () => {
-    installHost(createTestHost({ prompts: ["  New title  "] }));
-    const id = seedSession();
-    const { client, update } = fakeClient();
-
-    await renameSession(useSessionStore.getState().sessions[id]!, client as never);
+    applySessionRename(useSessionStore.getState().sessions[id]!, "New title", client as never);
 
     expect(useSessionStore.getState().sessions[id]!.title).toBe("New title");
     expect(update).toHaveBeenCalledWith({ title: "New title" });
@@ -114,5 +101,44 @@ describe("external links through the host", () => {
     routeExternalLinkClick({ preventDefault }, "https://example.com/login");
 
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe("preview through the host", () => {
+  it("is absent unless the test host is given one", () => {
+    expect(createTestHost().preview).toBeUndefined();
+    expect(createTestHost({ preview: "inert" }).preview).toEqual({ kind: "inert" });
+  });
+
+  it("mounts a document and records its release", async () => {
+    const host = createTestHost({ preview: "origin" });
+    if (host.preview?.kind !== "origin") throw new Error("expected an origin preview");
+    const doc = await host.preview.mount("<p>hi</p>");
+    doc.release();
+    expect(host.calls).toEqual([
+      { member: "preview.mount", args: ["<p>hi</p>"] },
+      { member: "preview.release", args: [doc.url] },
+    ]);
+  });
+
+  it("rejects the mount when told to fail", async () => {
+    const host = createTestHost({ preview: { mountFails: "no origin" } });
+    if (host.preview?.kind !== "origin") throw new Error("expected an origin preview");
+    await expect(host.preview.mount("x")).rejects.toThrow("no origin");
+  });
+});
+
+describe("daemons through the host", () => {
+  it("is absent unless the test host is given a registry", () => {
+    const host = createTestHost();
+    expect(host.daemons).toBeUndefined();
+    expect(host.app.minDaemonVersion).toBeUndefined();
+  });
+
+  it("carries the registry and the minimum daemon version when given", () => {
+    const daemons = createTestDaemons();
+    const host = createTestHost({ daemons, minDaemonVersion: "0.0.119" });
+    expect(host.daemons).toBe(daemons);
+    expect(host.app.minDaemonVersion).toBe("0.0.119");
   });
 });

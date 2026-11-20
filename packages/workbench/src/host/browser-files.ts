@@ -8,10 +8,43 @@
 import { type FileTransferClient } from "@av-pi-studio/client";
 import {
   type HostFiles,
+  type SaveTarget,
   type UploadOptions,
   type UploadSource,
   type ViewableFile,
 } from "./types.js";
+
+/** Bytes per ranged request when saving into a target (chosen, not measured). */
+const SAVE_RANGE_BYTES = 8 * 1024 * 1024;
+
+/** Stream `path` into `target`, one range at a time, awaiting every write. */
+async function saveIntoTarget(
+  client: FileTransferClient,
+  path: string,
+  target: SaveTarget,
+): Promise<void> {
+  try {
+    let offset = 0;
+    let ifUnchanged: { size: number; mtimeMs: number } | undefined;
+    for (;;) {
+      const chunks: Uint8Array[] = [];
+      const info = await client.downloadTo(path, (chunk) => void chunks.push(chunk), {
+        offset,
+        length: SAVE_RANGE_BYTES,
+        ...(ifUnchanged ? { ifUnchanged } : {}),
+      });
+      ifUnchanged ??= { size: info.totalBytes, mtimeMs: info.mtimeMs };
+      for (const chunk of chunks) await target.write(chunk);
+      offset += info.length;
+      if (offset >= info.totalBytes) break;
+      if (info.length === 0) throw new Error("the daemon returned no bytes before the end of file");
+    }
+    await target.finish();
+  } catch (error) {
+    await target.discard().catch(() => {});
+    throw error;
+  }
+}
 
 /**
  * Download `path` into a `Blob` built from the chunks as they arrive. The SDK keeps no reference to
@@ -31,7 +64,10 @@ async function downloadAsBlob(
   return { blob, fileName: info.fileName, mimeType: info.mimeType };
 }
 
-export function createBrowserFiles(transfer: () => FileTransferClient): HostFiles {
+export function createBrowserFiles(
+  transfer: () => FileTransferClient,
+  saveTarget?: (suggestedName: string) => Promise<SaveTarget | null>,
+): HostFiles {
   return {
     async upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void> {
       if (!(source instanceof Blob)) {
@@ -43,6 +79,11 @@ export function createBrowserFiles(transfer: () => FileTransferClient): HostFile
     },
 
     async saveToDisk(path: string): Promise<void> {
+      if (saveTarget) {
+        const target = await saveTarget(path.split("/").pop() || "download");
+        if (target) await saveIntoTarget(transfer(), path, target);
+        return;
+      }
       const file = await downloadAsBlob(transfer(), path);
       const url = URL.createObjectURL(file.blob);
       const anchor = document.createElement("a");

@@ -599,6 +599,17 @@ branches to `createRelayTransport` when it carries a relay offer).
 
 ---
 
+## Desktop app contract
+
+The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
+
+- `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`) add `error` (string) and exit 1.
+- `--json daemon stop`: `{ stopped: boolean }`.
+- `--version`: one line, a semantic version, nothing else.
+
+Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too.
+
 ## Testing
 
 ```bash

@@ -11,3 +11,7 @@ workspace = true
 pistudiodesktop-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+pistudiodesktop-model = { workspace = true }
+tempfile = { workspace = true }

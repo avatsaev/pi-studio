@@ -11,11 +11,13 @@ import {
   PiStudioClient,
   ReconnectionManager,
   type ConnectionState,
+  type RelayConnectReason,
   type Transport,
 } from "@av-pi-studio/client";
 import type { ServerInfoPayload } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { getHost } from "../../host/install.js";
+import { connectFailure } from "./connect-failure.js";
 import { resolveConnectTarget } from "./resolve-connect-target.js";
 import { clearInlineImageCache } from "../inline-image-cache.js";
 
@@ -38,6 +40,12 @@ interface ConnectionStoreState {
   status: ConnectionState;
   serverInfo: ServerInfoPayload | null;
   error: string | null;
+  /**
+   * The SDK's reason code beside `error`, when the failure is a `RelayConnectError` (e.g.
+   * `wrong_key`: the pairing link does not match the daemon). `null` for every other failure and
+   * whenever `error` is `null`.
+   */
+  errorReason: RelayConnectReason | null;
   /** Non-null once `connect()` has ever succeeded — the live SDK handles. */
   daemon: DaemonClient | null;
   client: PiStudioClient | null;
@@ -55,6 +63,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
   status: "idle",
   serverInfo: null,
   error: null,
+  errorReason: null,
   daemon: null,
   client: null,
   reconnection: null,
@@ -75,7 +84,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     try {
       transport = connection.createTransport(target, { password: opts.password });
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set(connectFailure(error));
       throw error;
     }
 
@@ -112,19 +121,17 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
     });
 
     daemon.onStateChange((state) => set({ status: state }));
-    reconnection.onReconnected(() => set({ error: null }));
-    reconnection.onReconnectFailed((error) => {
-      set({ error: error instanceof Error ? error.message : String(error) });
-    });
+    reconnection.onReconnected(() => set({ error: null, errorReason: null }));
+    reconnection.onReconnectFailed((error) => set(connectFailure(error)));
 
-    set({ daemon, client, reconnection, error: null, status: "connecting" });
+    set({ daemon, client, reconnection, error: null, errorReason: null, status: "connecting" });
 
     try {
       const info = await daemon.connect();
       set({ serverInfo: info });
       reconnection.start();
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
+      set(connectFailure(error));
       throw error;
     }
   },

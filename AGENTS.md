@@ -50,7 +50,8 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     built by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
                     the browser host, so desktop-ci.yml also runs when workbench, ui-library, client, relay or
-                    protocol change; its Rust crates still hold the `av-rust-desktop` template's sample engine.
+                    protocol change; its Rust crates (`model`, `store`, `engine`, `shell`) hold the settings, the
+                    stored workbench state and the command registry.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent

@@ -7,9 +7,10 @@ what a browser does badly: sockets, files on disk, secrets and OS integration. R
 
 **Where it stands.** The window draws the workbench through the workbench's browser host, so the
 webview itself opens the WebSocket to the daemon and keeps its settings in its own storage. The
-Rust crates still hold the template's sample (a checklist engine with undo and a file format): the
-window no longer draws it, and only the CLI and the control socket reach it. It is to be replaced;
-until then rules 3, 4 and 7 describe that engine.
+Rust crates are the app's own engine: the settings (`settings.get`, `settings.set`) and the
+workbench's stored keys, kept in files of a configuration directory, behind a command registry that
+the CLI and the control socket dispatch into. The window does not call it yet; moving host members
+into Rust, one at a time, comes next.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -21,9 +22,8 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
 ## Workspace map
 
-    crates/doc              L1  the model: pure data
-    crates/ops              L2  history
-    crates/format           L3  native file format
+    crates/model            L1  the settings and one daemon entry's stored state: pure data
+    crates/store            L3  JSON files: safe reads, atomic writes
     crates/engine           L5  Session + command registry (every action is a command)
     crates/shell            L6  UI state, generated menus, control protocol (no UI toolkit)
     crates/testkit              test helpers
@@ -55,7 +55,8 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
    window, and a Content-Security-Policy that lists exactly the sources the workbench uses
    (`app.security.csp` in `tauri.conf.json`). Add a source only with the feature that needs it;
    `npm run snapshot` fails when the page breaks the policy.
-7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` or behind `Services`.
+7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` or behind `Services`;
+   `store` is empty on wasm32.
 8. Tests are the gate. Every change comes with tests.
 9. Permissive licences only, for crates and npm packages alike. Check a dependency's licence
    before adding it; record every bundled asset in `ATTRIBUTION.md`. Known exception, not yet

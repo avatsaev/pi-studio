@@ -693,3 +693,122 @@ describe("daemon --json", () => {
     expect(rotate.out.every((l) => !l.startsWith("{"))).toBe(true);
   });
 });
+
+// ─── desktop app contract ─────────────────────────────────────────────────────────
+
+/** One stdout line, parsed as a JSON object. */
+function onlyJsonObject(out: string[]): Record<string, unknown> {
+  expect(out).toHaveLength(1);
+  const parsed: unknown = JSON.parse(out[0] as string);
+  expect(typeof parsed).toBe("object");
+  expect(parsed).not.toBeNull();
+  return parsed as Record<string, unknown>;
+}
+
+describe("desktop app contract: CLI output read by the desktop app", () => {
+  it("--json daemon status prints one {up:boolean,host:string,port:number} line when up (exit 0)", async () => {
+    const { out, code } = await runCli(tmpHome(), fakeRuntime({ probe: async () => true }), [
+      "--json",
+      "daemon",
+      "status",
+    ]);
+    const o = onlyJsonObject(out);
+    expect(o.up).toBe(true);
+    expect(typeof o.host).toBe("string");
+    expect(typeof o.port).toBe("number");
+    expect(code).toBe(0);
+  });
+
+  it("--json daemon status prints the same fields when down (exit 1)", async () => {
+    const { out, code } = await runCli(tmpHome(), fakeRuntime({ probe: async () => false }), [
+      "--json",
+      "daemon",
+      "status",
+    ]);
+    const o = onlyJsonObject(out);
+    expect(o.up).toBe(false);
+    expect(typeof o.host).toBe("string");
+    expect(typeof o.port).toBe("number");
+    expect(code).toBe(1);
+  });
+
+  it("--json daemon start and restart: up/host/port typed as the app reads them", async () => {
+    for (const cmd of ["start", "restart"]) {
+      const home = tmpHome();
+      writeKeypair(home);
+      let probes = 0;
+      const { out } = await runCli(home, fakeRuntime({ probe: async () => probes++ > 0 }), [
+        "--json",
+        "daemon",
+        cmd,
+      ]);
+      const o = onlyJsonObject(out);
+      expect(o.up).toBe(true);
+      expect(typeof o.host).toBe("string");
+      expect(typeof o.port).toBe("number");
+      expect(typeof o.pairingUrl).toBe("string");
+    }
+  });
+
+  it("--json daemon start and restart failure shapes carry up/host/port and a string error", async () => {
+    for (const cmd of ["start", "restart"]) {
+      // not_healthy: the daemon never comes up.
+      vi.useFakeTimers();
+      try {
+        const pending = runCli(tmpHome(), fakeRuntime({ probe: async () => false }), [
+          "--json",
+          "daemon",
+          cmd,
+        ]);
+        await vi.advanceTimersByTimeAsync(60_000);
+        const { out, code } = await pending;
+        const o = onlyJsonObject(out);
+        expect(o.up).toBe(false);
+        expect(typeof o.host).toBe("string");
+        expect(typeof o.port).toBe("number");
+        expect(typeof o.error).toBe("string");
+        expect(code).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      // no_keypair: healthy, but no key file.
+      const { out, code } = await runCli(tmpHome(), fakeRuntime({ probe: async () => true }), [
+        "--json",
+        "daemon",
+        cmd,
+      ]);
+      const o = onlyJsonObject(out);
+      expect(o.up).toBe(true);
+      expect(typeof o.host).toBe("string");
+      expect(typeof o.port).toBe("number");
+      expect(typeof o.error).toBe("string");
+      expect(code).toBe(1);
+    }
+  });
+
+  it("--json daemon stop: stopped is a boolean", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const yes = await runCli(home, fakeRuntime(), ["--json", "daemon", "stop"]);
+    expect(typeof onlyJsonObject(yes.out).stopped).toBe("boolean");
+    const no = await runCli(tmpHome(), fakeRuntime(), ["--json", "daemon", "stop"]);
+    expect(typeof onlyJsonObject(no.out).stopped).toBe("boolean");
+  });
+
+  it("--version prints one line that is a semantic version and nothing else", async () => {
+    const { ctx } = ctxWith(tmpHome(), fakeRuntime());
+    const program = buildProgram(ctx, () => {});
+    let stdout = "";
+    let stderr = "";
+    program.configureOutput({
+      writeOut: (s) => void (stdout += s),
+      writeErr: (s) => void (stderr += s),
+    });
+    await expect(program.parseAsync(["node", "pi-studio", "--version"])).rejects.toMatchObject({
+      code: "commander.version",
+    });
+    expect(stderr).toBe("");
+    expect(stdout).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\n$/);
+  });
+});

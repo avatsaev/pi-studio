@@ -46,6 +46,9 @@ export function SessionItem({
         // A selected row always reads as selected first — the failed tint only applies unselected.
         !active && view.state === "failed" && styles.itemFailed,
       )}
+      data-session-row={session.id}
+      // Not a tab stop — focusable only so closing the rename dialog can return focus here.
+      tabIndex={-1}
       draggable={draggable}
       onDragStart={onDragStartRow}
       onClick={onSelect}

@@ -9,10 +9,10 @@ Two halves, joined today by nothing:
   (`WorkbenchHost`, `packages/workbench/README.md`). The host is the workbench's browser host: the
   webview opens the WebSocket to the daemon itself and keeps settings in its own storage. Rust
   takes over one host member at a time (transport, file transfer, dialogs, secrets).
-- **The Rust workspace.** Still the template's sample: a headless engine in which every action is
-  a command over immutable snapshots of a data model (a checklist), and a shell that turns its
-  state into one value. The window no longer draws that value; the CLI and the control socket
-  still reach the engine. Everything below "Layers" describes this half until it is replaced.
+- **The Rust workspace.** A headless engine in which every action is a command, holding the
+  settings and the workbench's stored keys, and a shell that turns its state into one value. The
+  window does not draw that value; the CLI and the control socket reach the engine. Everything
+  below "Layers" describes this half.
 
 ## Layers
 
@@ -24,11 +24,11 @@ missing from it fails the gate.
 | Layer | Crates | What belongs here |
 |---|---|---|
 | L0 | none yet | Types with no domain model (geometry, units, colour, storage containers), and standalone crates that parse or encode a foreign format and depend on no workspace crate |
-| L1 | `doc` | The model: plain serde data and the invariants that keep it valid |
-| L2 | `ops` | History, and domain algorithms written as pure functions over L0 and L1 data |
-| L3 | `format` | The native file format, storage, renderers |
+| L1 | `model` | The settings and one daemon entry's stored state, as plain serde data with the limits that keep them valid |
+| L2 | none yet | Domain algorithms written as pure functions over L0 and L1 data |
+| L3 | `store` | JSON files: read with a fallback when corrupt, written atomically. Knows no document type; empty on wasm32 |
 | L4 | none yet | Mapping the model to and from foreign formats; a plug-in host |
-| L5 | `engine` | `Session` and the command registry: the façade every frontend talks to |
+| L5 | `engine` | `Session`, the command registry, the settings and the stored workbench keys: the façade every frontend talks to |
 | L6 | `shell` | UI state, the menu bar generated from the registry, shortcuts, the control protocol. No UI toolkit: it produces the view as data |
 | testkit | `testkit` | Test helpers; other crates use it as a dev-dependency only |
 | apps | `pistudiodesktop` (`apps/pistudiodesktop/src-tauri`), `pistudiodesktop-cli` | Binaries: argument parsing, the Tauri window, file dialogs, sockets, OS integration |
@@ -59,16 +59,20 @@ Where new code goes, stopping at the first yes:
    label, menu, shortcut, params doc, `enabled`, `run`), collected from `<area>_cmds.rs` modules.
    Menus, shortcuts, `pistudiodesktop-cli commands` and the control channel's `engine.commands` are generated
    from it.
-3. **Immutable snapshots.** The current state is an `Arc<Document>`. `Session::edit(label, f)`
-   clones it, lets the command change the copy, and publishes the copy with one history step only
-   when the command returned `Ok`. A failed or panicking command leaves the state untouched; undo
-   and redo swap pointers; readers hold a snapshot without a lock.
+3. **Storage.** `Session::with_config_dir(dir)` loads two files from one configuration directory,
+   and `Session::new()` keeps everything in memory and writes nothing: `settings.json` (the
+   settings and the global workbench keys) and `daemon-state/<entry id>.json` (the current daemon
+   entry's workbench keys; the entry is `local` until the registry exists). A settings change is
+   written before `settings.set` answers. The workbench's keys are opaque strings written often,
+   so they are a plain API on `Session` (`storage_set`, `storage_snapshot`, `storage_flush`), not
+   commands. A file that cannot be read is renamed aside and replaced by defaults, and the session
+   returns a notice once. Logs name files, never their content.
 4. **`Services`** (`crates/shell/src/services.rs`): optional function hooks the app binary fills
    in. The shell and the engine never call the OS themselves. Where a hook is missing, the feature
    that needs it is disabled.
 5. **The view and the control protocol** (`crates/shell/src/state.rs`, `control.rs`): all UI state
    is one serde struct, and `control::view` is the single value the frontend draws: UI state,
-   document and menu bar. Four JSON methods expose the running app (`docs/control-protocol.md`),
+   the settings and the menu model. Four JSON methods expose the running app (`docs/control-protocol.md`),
    and the webview uses the same four.
 
 ## The webview boundary
@@ -93,14 +97,14 @@ sandboxed `srcdoc` frame, which inherits this policy, and `script-src` has no `'
 In the browser client, which has no policy, they run. Fixing it needs the preview served from an
 origin of its own, not a weaker policy for the main window.
 
-The app still registers two Tauri commands and one event for the sample engine
+The app still registers two Tauri commands and one event for the shell's view
 (`apps/pistudiodesktop/src-tauri/src/commands.rs`, `bridge.rs`); the frontend calls neither:
 
 | | Does |
 |---|---|
 | `control(method, params)` | A control-protocol call: `engine.execute`, `engine.commands`, `ui.inspect`, `ui.set` |
 | `invoke_command(command)` | A menu click or a shortcut: the shell collects what the command needs (a file dialog) and runs it |
-| event `view` | The sample's view, sent whenever it changed |
+| event `view` | The shell's view, sent whenever it changed |
 
 ## Threads
 
@@ -119,7 +123,7 @@ state. The shell crate holds to the same rules.
 
 ## Decisions
 
-Record design decisions here as they are made (is there a file, is there undo, where the state
+Record design decisions here as they are made (which files, where the state
 lives, what runs off the owner thread, which windows exist).
 
 | Decision | Choice | Why |

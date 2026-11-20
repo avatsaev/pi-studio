@@ -23,11 +23,16 @@ tauri-build = { workspace = true }
 
 [dependencies]
 pistudiodesktop-engine = { workspace = true }
-pistudiodesktop-format = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 getrandom = { workspace = true }
+
+[dev-dependencies]
+# `test`: a mock runtime, to run the page's commands through Tauri's permission check without a window.
+tauri = { workspace = true, features = ["test"] }
+tempfile = { workspace = true }

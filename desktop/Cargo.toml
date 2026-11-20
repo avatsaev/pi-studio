@@ -9,10 +9,9 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.95"
 
 [workspace.dependencies]
-# internal: one line per crate, so members write `pistudiodesktop-doc = { workspace = true }`
-pistudiodesktop-doc = { path = "crates/doc" }
-pistudiodesktop-ops = { path = "crates/ops" }
-pistudiodesktop-format = { path = "crates/format" }
+# internal: one line per crate, so members write `pistudiodesktop-model = { workspace = true }`
+pistudiodesktop-model = { path = "crates/model" }
+pistudiodesktop-store = { path = "crates/store" }
 pistudiodesktop-engine = { path = "crates/engine" }
 pistudiodesktop-shell = { path = "crates/shell" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
@@ -25,11 +24,13 @@ clap = { version = "4", features = ["derive", "env"] }
 # `std`: the app installs its own boxed logger.
 log = { version = "0.4", features = ["std"] }
 getrandom = "0.3"
+tempfile = "3"
 # The Tauri family moves together: keep `tauri`, `tauri-build` and every `tauri-plugin-*` on the
 # same major version, and `@tauri-apps/api` in apps/pistudiodesktop/package.json on the same minor as `tauri`.
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
