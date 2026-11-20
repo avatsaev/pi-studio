@@ -195,6 +195,10 @@ Three things the container does not give you by default:
 - **One app at a time.** The single-instance lock is per app identifier, not per configuration
   directory: two sessions at once collide.
 
+## Platform checks on macOS and Windows runners
+
+`apps/pistudiodesktop/scripts/platform-checks.mjs` (helpers in `scripts/platform-checks/`, run by `.github/workflows/desktop-platform-checks.yml`) checks on a runner what a machine can check; `docs/platform-checks.md` says which items it covers. Modes: `macos` (the control socket only), `windows` (WebDriver through `tauri-driver` and `msedgedriver`) and `rehearse-webdriver`, which runs the Windows checks on Linux against a `WebKitWebDriver` already listening (the container of § Without a display), so the script can be tried without a Windows machine. It writes `summary.md` and `results.json`, appends the summary to `GITHUB_STEP_SUMMARY` and exits 1 when a check fails. Its unit tests run with the app's `npm test`.
+
 ## Debugging the frontend
 
 In a debug build, right-click in the window and choose "Inspect Element" for the webview's

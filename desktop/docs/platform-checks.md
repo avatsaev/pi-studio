@@ -53,4 +53,23 @@ Fill one row per machine and pass. Mark each item pass, fail (with what you saw)
 
 ## The automated workflow
 
-`.github/workflows/desktop-platform-checks.yml` builds a debug app on a Windows and a macOS runner and runs the checks a machine can run. Start it by hand: Actions → Desktop platform checks → Run workflow, on the branch; it also runs on a pull request that changes the workflow. It never runs on a push to `main` and publishes nothing. The job summary shows the results (and the Windows preview probe and the macOS configuration directory); screenshots and logs are artifacts. What it covers is filled in below once it has run.
+`.github/workflows/desktop-platform-checks.yml` builds a debug app on a Windows and a macOS runner and runs the checks a machine can run (`apps/pistudiodesktop/scripts/platform-checks.mjs`). Start it by hand: Actions → Desktop platform checks → Run workflow on the branch (or `gh workflow run desktop-platform-checks.yml --ref <branch>`, then `gh run watch`); it also runs on a pull request that changes the workflow file. It never runs on a push to `main` and publishes nothing. **Read the job summary first:** it holds the printed facts (the Windows preview probe, the macOS configuration directory, where `daemons.json` is, the first daemon start's duration, which shells found the CLI). Screenshots and logs are the `platform-checks-<os>` artifacts. Nothing in it has run on a runner yet: the first run settles the `TODO(verify)` comments at the top of `windows.mjs` and `macos.mjs`.
+
+What it covers, so that a person can skip those items:
+
+| Item | Automated on |
+|---|---|
+| N1 starts and restores (storage written within 2 s and back after a restart) | Windows: `windows.boot`, `windows.storage-persist`, `windows.storage-restart`; macOS: `macos.control.start`, `macos.control.settings-write` (control socket, no page) |
+| N1 configuration directory | macOS: `macos.config-dir` prints it |
+| N5/N7 partly: an unlisted command and an off-origin navigation are refused | Windows: `windows.command-refused`, `windows.navigation-refused` |
+| N8 second launch leaves one process | Windows: `windows.single-instance` |
+| N11 preview probe | Windows: `windows.preview-probe` — the app's preview kind is `inert` there, so the probe runs in a `srcdoc` frame and prints "scripts blocked"; whether `origin` would work needs an app change (a debug switch), so N11 stays manual |
+| R1 (the mechanism) CLI found with only the login shell's start-up file | macOS: `registry.macos.cli-found.zsh`, `registry.macos.cli-found.bash` (an emptied environment; a launch from the Dock is still manual) |
+| R4 `daemons.json` | macOS: `registry.macos.direct-entry` (mode 0600, no password in answers), `registry.macos.no-secret-in-log`; Windows: `registry.windows.daemons-json` prints the location |
+| R5 quit keeps the daemon | macOS: `registry.macos.quit-leaves-daemon` (also `registry.macos.daemon-start`, `-health`, `-stop`; `macos.control.quit` is skipped if the runner refuses Command-Q) |
+| R7 no local daemon on Windows | Windows: `registry.windows.local-unsupported` |
+| Registry switching | Windows: `registry.windows.switch` (two direct entries, each keeps its layout, same theme) |
+| An outdated CLI | macOS: `registry.macos.cli-outdated` (the fake CLI, 0.0.118) |
+
+Still manual: N2–N4, N6, N9, N10, N12 (keyboard, pickers, drags, native dialogs, the clipboard), R2, R3 (native menus have no driver), R6, R8, and the macOS Dock launch of R1.
+

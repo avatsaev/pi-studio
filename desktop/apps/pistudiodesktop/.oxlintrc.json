@@ -23,6 +23,12 @@
   },
   "overrides": [
     {
+      // Node scripts that check the built app from outside (`scripts/platform-checks`): they use
+      // `fetch` for WebDriver and the daemon's health endpoint. They are not the shell's code.
+      "files": ["scripts/**/*.mjs"],
+      "rules": { "no-restricted-globals": "off" }
+    },
+    {
       // The one module that talks to the Rust host.
       "files": ["src/host/ipc.ts"],
       "rules": { "no-restricted-imports": "off" }

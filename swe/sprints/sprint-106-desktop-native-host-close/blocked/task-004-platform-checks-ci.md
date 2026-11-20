@@ -1,7 +1,7 @@
 # Task 004 — Automated platform checks on macOS and Windows runners (native host)
 
 - **Sprint:** sprint-106-desktop-native-host-close
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** test
 - **Area:** .github/workflows (new workflow), desktop/apps/pistudiodesktop/scripts, desktop/docs
 - **Priority:** P1
@@ -58,3 +58,6 @@ The development machine is Linux. The macOS (WKWebView) and Windows (WebView2) w
 - **A run needs the branch on GitHub.** Pushing is the engineer's decision: ask before pushing, and never push to `main`.
 - How `tauri-driver` and `msedgedriver` are installed and matched to the runner's WebView2 version is from Tauri's documentation and was not tried here; record what worked in the workflow's comments.
 - Task-002 (manual) does not depend on this task, but if this one is done first the person skips every item it marked.
+
+## Blocker
+The workflow `.github/workflows/desktop-platform-checks.yml`, the check script `desktop/apps/pistudiodesktop/scripts/platform-checks.mjs` (+ `scripts/platform-checks/`, 37 unit tests) and the checklist marks are written and validated on Linux only: lint, `node --check`, YAML parse, vitest (98 tests), `cargo xtask ci`, and a rehearsal of the Windows checks through WebKitWebDriver and of the macOS checks with bash against the real CLI. **A run on GitHub's runners is the acceptance criterion, and it needs the branch pushed — the engineer's decision.** Unblock when the branch is pushed, `gh workflow run desktop-platform-checks.yml --ref <branch>` is green on both runners, the deliberately broken Windows check turns that job red (and is reverted), and the summary prints the Windows preview probe result and the macOS configuration directory. Unverified assumptions are the `TODO(verify)` comments at the top of `windows.mjs` and `macos.mjs` (tauri-driver and msedgedriver setup, zsh/bash printing their environment on a runner, the macOS default configuration directory, Command-Q through osascript).

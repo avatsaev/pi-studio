@@ -1,7 +1,7 @@
 # Task 004 — Automated platform checks on macOS and Windows runners (daemon registry)
 
 - **Sprint:** sprint-111-desktop-daemon-registry-close
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** test
 - **Area:** .github/workflows/desktop-platform-checks.yml, desktop/apps/pistudiodesktop/scripts, desktop/docs
 - **Priority:** P1
@@ -51,3 +51,6 @@ Same reason as sprint-106/task-004: the manual run of task-002 should keep only 
 ## Notes
 - Pushing the branch to run the workflow is the engineer's decision: ask first; never push to `main`.
 - An emptied environment on a runner is not identical to a launch from the dock (launchd sets a few variables of its own); task-002's person still checks the dock once.
+
+## Blocker
+Built together with sprint-106/task-004 (one workflow and one script): the registry checks (`registry.macos.*`, `registry.windows.*`) are written and validated on Linux only — the macOS shell-environment check was rehearsed with bash against the real CLI and went red with `cli_missing` when pointed at a shell that ignores the start-up file. **A green run on both runners is the acceptance criterion and needs the branch pushed — the engineer's decision.** Unblock after sprint-106/task-004's run; then also try, on a throwaway commit, removing the shell-environment lookup and confirm the macOS job's `registry.macos.cli-found.*` goes red (revert it), and read the start duration and the shells that found the CLI from the summary.
