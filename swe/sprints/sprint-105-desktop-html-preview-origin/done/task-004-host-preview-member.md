@@ -1,7 +1,7 @@
 # Task 004 — Frontend: the `preview` member of the desktop host
 
 - **Sprint:** sprint-105-desktop-html-preview-origin
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

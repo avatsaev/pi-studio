@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use pistudiodesktop_shell::Services;
+use pistudiodesktop_shell::{Services, process};
 use tauri::plugin::Plugin;
 use tauri::{AppHandle, Manager as _, Runtime};
 use tauri_plugin_dialog::{Dialog, MessageDialogButtons};
@@ -130,6 +130,11 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         })),
         open_url: Some(Arc::new(move |url: &str| for_open.open(url))),
         pick_save_path: Some(Arc::new(move |name: &str, folder: Option<&Path>| for_save.pick_save_path(name, folder))),
+        run: Some(Arc::new(process::run)),
+        is_executable: Some(Arc::new(process::is_executable)),
+        env: Some(Arc::new(process::process_env)),
+        home_dir: Some(Arc::new(process::home_dir)),
+        list_dir: Some(Arc::new(process::list_dir)),
     }
 }
 

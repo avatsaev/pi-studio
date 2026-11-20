@@ -10,6 +10,8 @@ export interface BootSnapshot {
   app: { title: string; version: string; platform: "desktop" };
   storage: Record<string, string>;
   notices: FileResetNotice[];
+  /** Whether the HTML viewer can load from the preview origin on this platform. */
+  preview: "origin" | "inert";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,7 +30,7 @@ function isNotice(value: unknown): value is FileResetNotice {
 /** The snapshot, or `null` when it is not the expected shape. */
 export function parseBootSnapshot(value: unknown): BootSnapshot | null {
   if (!isRecord(value)) return null;
-  const { app, storage, notices } = value;
+  const { app, storage, notices, preview } = value;
   if (
     !isRecord(app) ||
     typeof app.title !== "string" ||
@@ -41,10 +43,12 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
     return null;
   }
   if (!Array.isArray(notices) || !notices.every(isNotice)) return null;
+  if (preview !== "origin" && preview !== "inert") return null;
   return {
     app: { title: app.title, version: app.version, platform: "desktop" },
     storage: storage as Record<string, string>,
     notices,
+    preview,
   };
 }
 

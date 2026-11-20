@@ -241,7 +241,7 @@ fn recording(seen: &Seen, answer: bool) -> Services {
             pushed(&opened, url);
             Ok(())
         })),
-        pick_save_path: None,
+        ..Services::default()
     }
 }
 

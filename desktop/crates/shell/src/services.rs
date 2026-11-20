@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Show a native confirmation with `message` and wait for the answer: `true` only for the
 /// affirmative button, `false` for the other button and for closing the dialog.
@@ -24,6 +25,41 @@ pub type OpenUrlHook = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 /// Blocks like [`ConfirmHook`].
 pub type PickSavePathHook = Arc<dyn Fn(&str, Option<&Path>) -> Option<PathBuf> + Send + Sync>;
 
+/// A program to run, for [`RunHook`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunSpec {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    /// The whole environment of the program: nothing is inherited. May hold tokens, so a `RunSpec`
+    /// is never logged.
+    pub env: Vec<(String, String)>,
+    /// A program that runs longer is killed, with its children.
+    pub limit: Duration,
+}
+
+/// Why a program gave no output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunFailure {
+    CouldNotStart,
+    TimedOut,
+}
+
+/// Run a program and give its standard output (lossy UTF-8); the exit code is not reported, the
+/// CLI's answer is in its output. Blocks until the program ends or its limit passes.
+pub type RunHook = Arc<dyn Fn(&RunSpec) -> Result<String, RunFailure> + Send + Sync>;
+
+/// Whether the path is a file the user may run.
+pub type IsExecutableHook = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+/// The environment of the app's own process.
+pub type EnvHook = Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
+
+/// The user's home directory.
+pub type HomeDirHook = Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>;
+
+/// The entries of a directory (full paths); empty when it cannot be read.
+pub type ListDirHook = Arc<dyn Fn(&Path) -> Vec<PathBuf> + Send + Sync>;
+
 /// Every hook is optional: where one is missing (tests, a platform without it), what needs it is
 /// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk is refused.
 ///
@@ -35,4 +71,9 @@ pub struct Services {
     pub alert: Option<AlertHook>,
     pub open_url: Option<OpenUrlHook>,
     pub pick_save_path: Option<PickSavePathHook>,
+    pub run: Option<RunHook>,
+    pub is_executable: Option<IsExecutableHook>,
+    pub env: Option<EnvHook>,
+    pub home_dir: Option<HomeDirHook>,
+    pub list_dir: Option<ListDirHook>,
 }

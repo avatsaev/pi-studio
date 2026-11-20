@@ -22,6 +22,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod cli_answers;
+pub mod cli_find;
 pub mod control;
 pub mod dialogs;
 pub mod links;
@@ -31,8 +32,12 @@ pub mod owner;
 pub mod page;
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod process;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod saves;
 pub mod services;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shell_env;
 pub mod shortcuts;
 pub mod state;
 

@@ -1,7 +1,7 @@
 # Task 003 — Rust: the preview origin (document store, scheme handler, commands, policy)
 
 - **Sprint:** sprint-105-desktop-html-preview-origin
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

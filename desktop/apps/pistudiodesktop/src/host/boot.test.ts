@@ -7,6 +7,7 @@ const good = {
   app: { title: "Pi Studio", version: "1.0.0", platform: "desktop" },
   storage: { k: "v" },
   notices: [{ kind: "file_reset", file: "settings.json", keptAs: "settings.json.bad" }],
+  preview: "origin",
 };
 
 describe("parseBootSnapshot", () => {
@@ -21,6 +22,8 @@ describe("parseBootSnapshot", () => {
     ["storage missing", { ...good, storage: undefined }],
     ["storage value not a string", { ...good, storage: { k: 1 } }],
     ["notices not an array", { ...good, notices: {} }],
+    ["preview missing", { ...good, preview: undefined }],
+    ["preview unknown", { ...good, preview: "other" }],
     ["bad notice", { ...good, notices: [{ kind: "other", file: "a", keptAs: "b" }] }],
   ])("rejects %s", (_name, value) => {
     expect(parseBootSnapshot(value)).toBeNull();

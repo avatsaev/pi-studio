@@ -4,6 +4,7 @@ import { type BootSnapshot } from "./boot.js";
 import { type Ipc } from "./ipc.js";
 import { createSaveTarget, countTransfers } from "./transfers.js";
 import { createNativeDialogs, createNativeLinks } from "./native.js";
+import { createDesktopPreview } from "./preview.js";
 import { createDesktopStorage } from "./storage.js";
 
 /** A launch with no connect intent and no deep-link source. */
@@ -33,6 +34,7 @@ export function createDesktopHost(
     storage,
     dialogs: createNativeDialogs(ipc, log),
     links: createNativeLinks(ipc, log),
+    preview: createDesktopPreview(snapshot.preview, ipc, log),
     launch: NO_LAUNCH,
   };
 }
