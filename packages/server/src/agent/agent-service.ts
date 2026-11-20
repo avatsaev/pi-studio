@@ -166,8 +166,15 @@ export async function spawnOrResumeSession(
   const client = deps.resolveClient(record.provider);
   const cwd = record.cwd;
   const handle = record.persistence;
+  // Resume must re-apply the persisted system prompt: Pi takes it as a spawn flag
+  // (`--append-system-prompt`), so a fresh process without it silently loses capability-gated
+  // instructions (inline images, file links, mermaid) composed at create time.
   const session = handle
-    ? await client.resumeSession(handle as PersistenceHandle, { cwd }, { cwd })
+    ? await client.resumeSession(
+        handle as PersistenceHandle,
+        { cwd, systemPrompt: record.config?.systemPrompt },
+        { cwd },
+      )
     : await client.createSession(
         { provider: record.provider, cwd, ...record.config } as Parameters<
           AgentClient["createSession"]

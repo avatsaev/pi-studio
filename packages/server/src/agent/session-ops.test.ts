@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { AgentClient, AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService } from "./agent-service.js";
+import { AgentService, spawnOrResumeSession } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import { SessionOperationsService } from "./session-operations.js";
 
@@ -375,6 +375,50 @@ describe("send prompt", () => {
     // was replayed onto it — neither `createSession` nor `resumeSession` consult
     // `AgentSessionConfig.model` themselves (Pi resolves its own default at spawn regardless).
     expect(setProviderModelCalls).toEqual([["anthropic", "picked-model"]]);
+  });
+  it("re-applies the persisted system prompt when resuming a spawned agent", async () => {
+    const { manager } = makeSetup();
+    const resumeOverrides: unknown[] = [];
+    const fakeSession = {
+      provider: "mock",
+      id: "fake-session",
+      capabilities: {},
+      subscribe: () => () => {},
+      run: () => Promise.resolve(),
+      getRuntimeInfo: () => ({ provider: "mock" }),
+      getAvailableModes: () => [],
+      getCurrentMode: () => null,
+      setMode: () => Promise.resolve(),
+      describePersistence: () => ({
+        provider: "mock",
+        sessionId: "fake-session",
+        nativeHandle: "mock:fake-session",
+      }),
+      close: () => Promise.resolve(),
+    } as unknown as AgentSession;
+    const fakeClient = {
+      provider: "mock",
+      capabilities: {},
+      createSession: () => Promise.resolve(fakeSession),
+      resumeSession: (_handle: unknown, overrides: unknown) => {
+        resumeOverrides.push(overrides);
+        return Promise.resolve(fakeSession);
+      },
+      listModels: () => Promise.resolve([]),
+      isAvailable: () => true,
+    } as unknown as AgentClient;
+    const deps = { manager, resolveClient: () => fakeClient };
+    const service = new AgentService({ ...deps, broadcast: () => {}, now: () => NOW });
+
+    const created = (await service.handleCreate(
+      { requestId: "req", config: { provider: "mock", cwd: "/work", systemPrompt: "SHOW IMAGES" } },
+      () => [],
+    )) as Record<string, unknown>;
+    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    await spawnOrResumeSession(deps, agentId); // first spawn persists the handle
+    await spawnOrResumeSession(deps, agentId); // e.g. after a daemon restart
+
+    expect(resumeOverrides).toEqual([{ cwd: "/work", systemPrompt: "SHOW IMAGES" }]);
   });
   it("replays the pinned thinking level strictly AFTER the model on first spawn, and not at all when absent (sprint-070)", async () => {
     const { manager } = makeSetup();
