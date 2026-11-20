@@ -1,7 +1,8 @@
 import { createBrowserHost, type BrowserHostOptions, type WorkbenchHost } from "@av-pi-studio/workbench";
 
 import { type BootSnapshot } from "./boot.js";
-import { type Ipc } from "./ipc.js";
+import { createDesktopDaemons } from "./daemons.js";
+import { type Ipc, type IpcEvents } from "./ipc.js";
 import { createSaveTarget, countTransfers } from "./transfers.js";
 import { createNativeDialogs, createNativeLinks } from "./native.js";
 import { createDesktopPreview } from "./preview.js";
@@ -13,10 +14,10 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage` and `launch` replaced by the desktop's. */
+/** The browser host with `app`, `storage`, `launch` and `daemons` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
-  ipc: Ipc,
+  ipc: Ipc & IpcEvents,
   pdf: BrowserHostOptions["pdf"],
 ): WorkbenchHost {
   const log = (message: string, error: unknown): void => console.error(message, error);
@@ -36,5 +37,6 @@ export function createDesktopHost(
     links: createNativeLinks(ipc, log),
     preview: createDesktopPreview(snapshot.preview, ipc, log),
     launch: NO_LAUNCH,
+    daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log),
   };
 }

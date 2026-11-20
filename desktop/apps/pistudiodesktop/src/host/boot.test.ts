@@ -3,16 +3,32 @@ import { describe, expect, it } from "vitest";
 import { errorReason, noticeText, parseBootSnapshot, runBoot } from "./boot.js";
 import { selectHostKind } from "./select.js";
 
+const daemons = {
+  currentId: "local",
+  entries: [
+    { id: "local", kind: "local", name: "This machine", hasPassword: false },
+    { id: "d1", kind: "direct", name: "Box", address: "box:6767", hasPassword: true },
+  ],
+  local: { state: "running", host: "127.0.0.1", port: 6767 },
+  settings: { autoStartLocalDaemon: true, cliPath: null },
+};
+
 const good = {
-  app: { title: "Pi Studio", version: "1.0.0", platform: "desktop" },
+  app: { title: "Pi Studio", version: "1.0.0", platform: "desktop", minDaemonVersion: "0.0.119" },
   storage: { k: "v" },
   notices: [{ kind: "file_reset", file: "settings.json", keptAs: "settings.json.bad" }],
   preview: "origin",
+  daemons,
 };
 
 describe("parseBootSnapshot", () => {
   it("accepts the expected shape", () => {
     expect(parseBootSnapshot(good)?.storage).toEqual({ k: "v" });
+  });
+  it("carries the daemon view and the minimum daemon version", () => {
+    const parsed = parseBootSnapshot(good);
+    expect(parsed?.daemons).toEqual(daemons);
+    expect(parsed?.app.minDaemonVersion).toBe("0.0.119");
   });
   it.each([
     ["null", null],
@@ -24,6 +40,12 @@ describe("parseBootSnapshot", () => {
     ["notices not an array", { ...good, notices: {} }],
     ["preview missing", { ...good, preview: undefined }],
     ["preview unknown", { ...good, preview: "other" }],
+    ["no minDaemonVersion", { ...good, app: { ...good.app, minDaemonVersion: undefined } }],
+    ["empty minDaemonVersion", { ...good, app: { ...good.app, minDaemonVersion: "" } }],
+    ["no daemons", { ...good, daemons: undefined }],
+    ["daemons without settings", { ...good, daemons: { ...daemons, settings: undefined } }],
+    ["daemons with an unknown local state", { ...good, daemons: { ...daemons, local: { state: "x" } } }],
+    ["daemons with a bad entry", { ...good, daemons: { ...daemons, entries: [{ id: "a" }] } }],
     ["bad notice", { ...good, notices: [{ kind: "other", file: "a", keptAs: "b" }] }],
   ])("rejects %s", (_name, value) => {
     expect(parseBootSnapshot(value)).toBeNull();

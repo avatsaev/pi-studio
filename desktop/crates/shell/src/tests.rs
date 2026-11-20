@@ -17,10 +17,11 @@ fn the_view_is_the_ui_state_the_settings_and_the_generated_menu_bar() {
     let view = control::view(&mut app);
     assert_eq!(view["ui"], json!({"status": ""}));
     assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
-    assert_eq!(view["menus"], json!([]));
+    assert_eq!(view["menus"][0]["label"], "Daemons");
+    assert_eq!(view["menus"].as_array().unwrap().len(), 1);
     assert_eq!(view["daemons"]["currentId"], "local");
     assert_eq!(view["daemons"]["entries"].as_array().unwrap().len(), 1);
-    assert!(menus::model(&app).is_empty(), "no command has a menu path yet");
+    assert_eq!(menus::model(&mut app).len(), 1, "only the daemons menu: no command has a menu path yet");
 }
 
 #[test]
@@ -39,7 +40,13 @@ fn the_control_protocol_drives_and_inspects_the_app() {
     assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "cliPath": null}}));
     let seen = call(&mut app, "ui.inspect", Value::Null);
     assert_eq!(seen["result"]["settings"]["autoStartLocalDaemon"], false);
-    assert_eq!(seen["result"]["menus"], json!([]));
+    assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
+    let count = |seen: &Value| {
+        seen["result"]["menus"][0]["items"].as_array().unwrap().iter().filter(|i| i["id"].as_str().unwrap().starts_with("daemon.entry:")).count()
+    };
+    assert_eq!(count(&seen), 1);
+    call(&mut app, "engine.execute", json!({"command": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1"}}));
+    assert_eq!(count(&call(&mut app, "ui.inspect", Value::Null)), 2, "the menu model follows the registry");
 
     assert_eq!(call(&mut app, "ui.set", json!({})), json!({"ok": true, "result": null}));
     let before = app.ui.clone();

@@ -1,3 +1,5 @@
+import { isRecord, parseDaemonsView, type DaemonsView } from "./daemons-view.js";
+
 /** One file the engine could not read at start, reset and kept under another name. */
 export interface FileResetNotice {
   kind: "file_reset";
@@ -7,15 +9,14 @@ export interface FileResetNotice {
 
 /** The answer of the `boot` command. */
 export interface BootSnapshot {
-  app: { title: string; version: string; platform: "desktop" };
+  /** `minDaemonVersion` is the oldest daemon the app expects (`AppIdentity` of the workbench). */
+  app: { title: string; version: string; platform: "desktop"; minDaemonVersion: string };
   storage: Record<string, string>;
   notices: FileResetNotice[];
   /** Whether the HTML viewer can load from the preview origin on this platform. */
   preview: "origin" | "inert";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  /** The daemon registry at boot: entries, the current one, the local daemon's state, settings. */
+  daemons: DaemonsView;
 }
 
 function isNotice(value: unknown): value is FileResetNotice {
@@ -35,7 +36,9 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
     !isRecord(app) ||
     typeof app.title !== "string" ||
     typeof app.version !== "string" ||
-    app.platform !== "desktop"
+    app.platform !== "desktop" ||
+    typeof app.minDaemonVersion !== "string" ||
+    app.minDaemonVersion === ""
   ) {
     return null;
   }
@@ -44,11 +47,14 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
   }
   if (!Array.isArray(notices) || !notices.every(isNotice)) return null;
   if (preview !== "origin" && preview !== "inert") return null;
+  const daemons = parseDaemonsView(value.daemons);
+  if (!daemons) return null;
   return {
-    app: { title: app.title, version: app.version, platform: "desktop" },
+    app: { title: app.title, version: app.version, platform: "desktop", minDaemonVersion: app.minDaemonVersion },
     storage: storage as Record<string, string>,
     notices,
     preview,
+    daemons,
   };
 }
 

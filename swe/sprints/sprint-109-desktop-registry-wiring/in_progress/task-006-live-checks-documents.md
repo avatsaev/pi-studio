@@ -1,7 +1,7 @@
 # Task 006 — Live checks of the wiring (Linux webview) and documents
 
 - **Sprint:** sprint-109-desktop-registry-wiring
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), desktop/docs
 - **Priority:** P1

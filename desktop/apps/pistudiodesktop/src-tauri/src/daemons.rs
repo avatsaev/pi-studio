@@ -36,13 +36,14 @@ impl Events {
         Self { emit: Box::new(emit), wake }
     }
 
-    /// The app's events: the page hears [`CHANGED_EVENT`] with the view.
+    /// The app's events: the page hears [`CHANGED_EVENT`] with the view, and the native menu is redrawn.
     pub fn to_page<R: Runtime>(handle: AppHandle<R>, wake: Sender<()>) -> Self {
         Self::new(
             move |view| {
                 if let Err(e) = handle.emit(CHANGED_EVENT, view) {
                     log::warn!("the page could not be told of a change to the daemons: {e}");
                 }
+                crate::menu::rebuild(&handle, view);
             },
             wake,
         )

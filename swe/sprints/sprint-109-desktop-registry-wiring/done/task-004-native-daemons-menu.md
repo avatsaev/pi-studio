@@ -1,7 +1,7 @@
 # Task 004 — The native "Daemons" menu
 
 - **Sprint:** sprint-109-desktop-registry-wiring
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

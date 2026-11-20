@@ -20,6 +20,7 @@ mod control_server;
 mod crash_guard;
 mod daemons;
 mod logging;
+mod menu;
 mod preview_scheme;
 mod services;
 mod transfers;
@@ -104,6 +105,7 @@ fn main() {
         .manage(Previews::default())
         .register_uri_scheme_protocol(preview::SCHEME, preview_scheme::handle)
         .on_window_event(transfers::on_window_event)
+        .on_menu_event(menu::on_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
             commands::engine_command,
@@ -146,6 +148,7 @@ fn main() {
     let wake = daemons::start_runner(runner_requests, supervisor);
     let launch = bridge::Launch { notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)), local_supported: daemons::LOCAL_SUPPORTED };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY, launch);
+    menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
     app.run(|handle, event| bridge::on_run_event(handle, &event));
