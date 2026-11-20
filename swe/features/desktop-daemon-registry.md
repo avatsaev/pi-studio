@@ -46,6 +46,18 @@ daemons connected at once (D16), a bundled daemon, a daemon on Windows, more tha
 | D24 | Names are unique; addresses may repeat |
 | D25 | Switching during a file transfer asks first |
 
+Accepted by the owner on 2026-11-20, at planning (sprints 107–111). They amend the contract sections below, which sprint-111/task-003 rewrites to match:
+
+| # | Decision |
+|---|---|
+| P1 | `LocalState` gains `checking`: the state until the first probe after launch has finished |
+| P2 | `daemon.local.start`, `.stop`, `.restart` and `.refresh` answer `{ accepted: true }`; the outcome arrives as a state change (the engine cannot run the CLI) |
+| P3 | `HostDaemons.snapshot()` carries the two settings, and `HostDaemons.setSettings` changes them |
+| P4 | In the native menu, choosing the current entry does nothing; reconnecting is the connection bar's Retry (Rust cannot see the page's connection) |
+| P5 | The confirm before stopping belongs to the caller (the Daemons screen, the native menu); a control-socket caller is not asked. The window reacts to the `stopping` state |
+| P6 | The "pairing link no longer valid" marker is kept in memory, not in the registry file |
+| P7 | The error text of a `daemon.*` command is its code (`name_taken`, …) |
+
 ## Public contract
 
 ### 1. Registry file
