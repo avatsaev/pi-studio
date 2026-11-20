@@ -1,7 +1,7 @@
 # Task 005 — Frontend: the `daemons` member of the desktop host
 
 - **Sprint:** sprint-109-desktop-registry-wiring
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

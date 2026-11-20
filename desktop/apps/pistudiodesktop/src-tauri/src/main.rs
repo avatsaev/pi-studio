@@ -108,6 +108,7 @@ fn main() {
             commands::boot,
             commands::engine_command,
             commands::daemon_resolve_current,
+            commands::daemon_switch,
             commands::storage_set,
             commands::dialog_confirm,
             commands::dialog_alert,

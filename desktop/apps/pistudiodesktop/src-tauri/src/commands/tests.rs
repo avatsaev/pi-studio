@@ -20,8 +20,8 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use super::{
-    boot, daemon_resolve_current, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin, save_discard,
-    save_finish, save_write, storage_set, transfers_set, unwrap_reply,
+    boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
+    save_discard, save_finish, save_write, storage_set, transfers_set, unwrap_reply,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
@@ -59,6 +59,7 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
             boot,
             engine_command,
             daemon_resolve_current,
+            daemon_switch,
             storage_set,
             dialog_confirm,
             dialog_alert,
@@ -370,7 +371,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_fourteen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_fifteen_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -379,6 +380,7 @@ fn the_capability_grants_the_fourteen_commands_and_listening_for_events_and_noth
             "allow-boot",
             "allow-engine-command",
             "allow-daemon-resolve-current",
+            "allow-daemon-switch",
             "allow-storage-set",
             "allow-dialog-confirm",
             "allow-dialog-alert",
@@ -688,6 +690,48 @@ fn the_page_runs_the_listed_engine_commands_and_is_refused_the_rest() {
         json!("name_taken")
     );
     assert!(invoke(&window, "engine_command", json!({})).is_err(), "an id is required");
+}
+
+fn added_entry(window: &WebviewWindow<MockRuntime>) -> String {
+    let added = invoke(window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1"}})).unwrap();
+    added["id"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn the_page_switches_after_the_question_and_declining_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = Seen::default();
+    let (app, window) = app_with(dir.path(), recording(&seen, false));
+    let b = added_entry(&window);
+    invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "on-local"})).unwrap();
+    invoke(&window, "transfers_set", json!({"count": 2})).unwrap();
+
+    assert_eq!(invoke(&window, "daemon_switch", json!({"id": b})).unwrap(), json!("cancelled"));
+    assert_eq!(taken(&seen.confirmed), vec!["2 file transfers are still running. Switch anyway?".to_string()]);
+    assert_eq!(app.state::<crate::transfers::Transfers>().get(), 2);
+    let list = invoke(&window, "engine_command", json!({"id": "daemon.list"})).unwrap();
+    assert_eq!(list["currentId"], json!("local"));
+
+    assert_eq!(invoke(&window, "daemon_switch", json!({"id": "nope"})).unwrap_err(), json!("not_found"));
+    assert_eq!(taken(&seen.confirmed).len(), 1, "an unknown id is refused before any question");
+}
+
+#[test]
+fn a_confirmed_switch_records_the_entry_writes_the_old_layout_and_boots_on_the_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = Seen::default();
+    let (_app, window) = app_with(dir.path(), recording(&seen, true));
+    let b = added_entry(&window);
+    invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "on-local"})).unwrap();
+    invoke(&window, "transfers_set", json!({"count": 1})).unwrap();
+
+    assert_eq!(invoke(&window, "daemon_switch", json!({"id": b})).unwrap(), Value::Null);
+    assert_eq!(taken(&seen.confirmed), vec!["1 file transfer is still running. Switch anyway?".to_string()]);
+    let registry: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("daemons.json")).unwrap()).unwrap();
+    assert_eq!(registry["lastUsedId"], json!(b));
+    assert!(std::fs::read_to_string(dir.path().join("daemon-state").join("local.json")).unwrap().contains("on-local"));
+    let boot = invoke(&window, "boot", json!({})).unwrap();
+    assert_eq!((boot["daemons"]["currentId"].clone(), boot["storage"].get("pi-studio-pane-layout").cloned()), (json!(b), None));
 }
 
 #[test]

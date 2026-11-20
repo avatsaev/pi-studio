@@ -7,6 +7,7 @@ fn main() {
         "boot",
         "engine_command",
         "daemon_resolve_current",
+        "daemon_switch",
         "storage_set",
         "dialog_confirm",
         "dialog_alert",

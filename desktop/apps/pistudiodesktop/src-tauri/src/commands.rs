@@ -1,7 +1,7 @@
-//! What the webview may call: fourteen commands, and nothing else of the app is reachable from it.
+//! What the webview may call: fifteen commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
-//! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-storage-set`, `allow-dialog-confirm`,
+//! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
 //! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount` and
 //! `allow-preview-release` to the main window, and listening for events (`core:event:allow-listen`
@@ -21,9 +21,10 @@ use pistudiodesktop_shell::supervisor::Supervisor;
 use pistudiodesktop_shell::{Request, Services, daemons, dialogs, links};
 use serde_json::{Value, json};
 use tauri::ipc::InvokeBody;
-use tauri::{State, ipc};
+use tauri::{Manager as _, State, ipc};
 
 use crate::bridge::Bridge;
+use crate::daemons as app_daemons;
 use crate::transfers::Transfers;
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
@@ -56,6 +57,17 @@ pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Optio
 pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
     let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));
     off_thread(move || supervisor.resolve_current(&access).and_then(daemons::dial_for_page)).await?
+}
+
+/// Switch the window to another daemon entry: ask first when file transfers are running, have the
+/// registry switch (the entry being left is written to disk, the new one recorded as last used)
+/// and reload the page, which then boots on the new entry. Answers `"cancelled"` when the user
+/// declined the question, an error (`not_found` for an unknown id), and nothing on success: the
+/// page is gone by then. Whether to switch when `id` is already current is the caller's call.
+#[tauri::command]
+pub async fn daemon_switch<R: tauri::Runtime>(window: tauri::WebviewWindow<R>, id: String) -> Result<Option<&'static str>, String> {
+    let handle = window.app_handle().clone();
+    off_thread(move || app_daemons::switch_window(&handle, &window, &id)).await?
 }
 
 /// One workbench key. Answers once the write is queued, not once it is on disk: the owner thread

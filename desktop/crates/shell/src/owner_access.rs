@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use pistudiodesktop_engine::Dial;
 use pistudiodesktop_model::LocalState;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::daemons::{self, Batch, LocalOp};
 use crate::supervisor::LocalAccess;
@@ -28,9 +28,14 @@ impl OwnerAccess {
         Self { requests }
     }
 
-    /// Send `op` and read the reply's `result`, or its error text.
-    fn ask(&self, op: LocalOp) -> Result<Value, String> {
-        let (envelope, reply) = Envelope::new(Request::Local(op));
+    /// Run the engine command `command` and read its result, or its error text.
+    pub fn execute(&self, command: &str, params: Value) -> Result<Value, String> {
+        self.call(Request::Control { method: "engine.execute".into(), params: json!({"command": command, "params": params}) })
+    }
+
+    /// Send `request` and read the reply's `result`, or its error text.
+    pub fn call(&self, request: Request) -> Result<Value, String> {
+        let (envelope, reply) = Envelope::new(request);
         self.requests.send(envelope).map_err(|_| "shutting_down".to_owned())?;
         let mut reply = reply.recv_timeout(REPLY_DEADLINE).map_err(|_| "timeout".to_owned())?;
         if reply["ok"] == true {
@@ -38,6 +43,10 @@ impl OwnerAccess {
         } else {
             Err(reply["error"].as_str().unwrap_or("internal").to_owned())
         }
+    }
+
+    fn ask(&self, op: LocalOp) -> Result<Value, String> {
+        self.call(Request::Local(op))
     }
 }
 

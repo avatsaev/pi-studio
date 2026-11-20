@@ -67,6 +67,28 @@ pub fn close_decision(transfers: usize) -> CloseDecision {
     }
 }
 
+/// What switching to another daemon entry does first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SwitchDecision {
+    /// The id names no entry: an error, nothing happens.
+    NotFound,
+    /// Nothing is running: switch.
+    Switch,
+    /// Transfers are running: ask first, with this text. "No" ends the switch.
+    Ask(String),
+}
+
+/// The switch decision for an entry that is (`known`) or is not in the registry, given the page's
+/// count of running file transfers (a hint, like [`close_decision`]'s).
+pub fn switch_decision(known: bool, transfers: usize) -> SwitchDecision {
+    match (known, transfers) {
+        (false, _) => SwitchDecision::NotFound,
+        (true, 0) => SwitchDecision::Switch,
+        (true, 1) => SwitchDecision::Ask("1 file transfer is still running. Switch anyway?".into()),
+        (true, n) => SwitchDecision::Ask(format!("{n} file transfers are still running. Switch anyway?")),
+    }
+}
+
 /// Store one workbench key in memory; the owner loop writes it soon (`owner::serve`). A key or
 /// value over the model's caps is refused, and the error says which cap (never the value).
 pub fn storage_set(app: &mut AppShell, key: &str, value: &str) -> Result<Value, String> {
@@ -95,6 +117,14 @@ mod tests {
         assert_eq!(close_decision(0), CloseDecision::Close);
         assert_eq!(close_decision(1), CloseDecision::Ask("1 file transfer is still running. Quit anyway?".into()));
         assert_eq!(close_decision(3), CloseDecision::Ask("3 file transfers are still running. Quit anyway?".into()));
+    }
+
+    #[test]
+    fn switching_needs_a_known_entry_and_asks_with_the_count_only_while_transfers_run() {
+        assert_eq!(switch_decision(false, 5), SwitchDecision::NotFound);
+        assert_eq!(switch_decision(true, 0), SwitchDecision::Switch);
+        assert_eq!(switch_decision(true, 1), SwitchDecision::Ask("1 file transfer is still running. Switch anyway?".into()));
+        assert_eq!(switch_decision(true, 2), SwitchDecision::Ask("2 file transfers are still running. Switch anyway?".into()));
     }
 
     #[test]

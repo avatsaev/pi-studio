@@ -48,6 +48,8 @@ pub mod shortcuts;
 pub mod state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod supervisor;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod switch;
 
 use pistudiodesktop_engine::{Notice, Session};
 use serde_json::Value;
