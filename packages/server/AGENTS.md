@@ -735,7 +735,8 @@ src/
   No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at hand) →
   every flag check returns `false` → `effectiveConfig.systemPrompt === config.systemPrompt`,
   untouched. Task-005 (below) is what makes the composed value survive a daemon restart:
-  `resumeSession` reads it back via `overrides.systemPrompt`.
+  `spawnOrResumeSession` passes `record.config.systemPrompt` as `overrides.systemPrompt`, and
+  `resumeSession` re-applies it as `--append-system-prompt` (`session-ops.test.ts` pins this).
 
 **`ProviderRegistry`** — resolves a provider id string to an `AgentClient`.
 Two built-in providers: `pi` and `mock`.
