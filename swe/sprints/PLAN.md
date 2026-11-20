@@ -3505,8 +3505,8 @@ Carried from the scope; resolve against the live source while implementing the o
       app unless that variable is in the shell environment (several local daemons are out of
       scope, D12); `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply); a
       daemon in WSL2 reached as a `direct` entry was not tried — s111/t002.
-- [ ] Desktop daemon registry: nothing has run on macOS or Windows; s111/t004 automates what a
-      CI runner can check, s111/t002 (a person with those machines) the rest, and waits in
-      `blocked/` until someone runs it.
+- [ ] Desktop daemon registry: on macOS and Windows only the automated checks have run (s111/t004,
+      green on GitHub runners 2026-11-20); s111/t002 (a person with those machines) covers the
+      rest, and waits in `blocked/` until someone runs it.
 - [ ] Desktop: the IPC benchmark that milestone 2 (the Rust transport) starts with is in no spec
       and has no task; milestone 2 starts with it (`docs/desktop-client-handoff.md`).
