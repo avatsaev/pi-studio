@@ -106,11 +106,10 @@ export class WindowsRun {
   }
 
   /** Once per run, when no session could be made on Windows: what WebView2 does without msedgedriver. */
-  async diagnose(configDir) {
+  async diagnose() {
     if (this.flavor !== "windows" || this.diagnosed) return;
     this.diagnosed = true;
-    await killProcesses(this.imageName);
-    const lines = await diagnoseWebView2({ app: this.app, imageName: this.imageName, configDir, outDir: this.outDir }).catch((error) => [`the diagnostics failed: ${error.message}`]);
+    const lines = await diagnoseWebView2({ app: this.app, imageName: this.imageName, root: this.root, outDir: this.outDir, nativeDriver: this.nativeDriver }).catch((error) => [`the diagnostics failed: ${error.message}`]);
     this.report.fact("WebView2 without msedgedriver (no session could be made)", ...lines);
   }
 
@@ -125,7 +124,7 @@ export class WindowsRun {
     try {
       session = await Session.open(this.driverUrl, capabilities);
     } catch (error) {
-      await this.diagnose(configDir);
+      await this.diagnose();
       throw error;
     }
     this.sessions.push(session);
