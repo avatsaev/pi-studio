@@ -1,7 +1,7 @@
 # Task 001 — Linux acceptance run and the platform checklist
 
 - **Sprint:** sprint-106-desktop-native-host-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), desktop/docs
 - **Priority:** P1

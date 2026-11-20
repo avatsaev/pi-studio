@@ -1,7 +1,7 @@
 # Task 003 — Documents and spec close
 
 - **Sprint:** sprint-106-desktop-native-host-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** swe (specs, MAIN-SCOPE, PLAN), desktop documents, root AGENTS.md, packages/workbench documents, docs/desktop-client-handoff.md
 - **Priority:** P1

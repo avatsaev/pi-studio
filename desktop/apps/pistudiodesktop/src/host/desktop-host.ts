@@ -14,7 +14,7 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage`, `launch` and `daemons` replaced or added by the desktop's. */
+/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` and `daemons` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,

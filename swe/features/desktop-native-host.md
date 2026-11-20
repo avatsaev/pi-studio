@@ -1,6 +1,9 @@
 # Feature — Desktop Native Host
 
-> **Status: specified (2026-11-15), planned (2026-11-20, sprints 102–106, 25 tasks), not built.**
+> **Status: built on `feat/desktop-client` (sprints 102–106; checked live on Linux, 2026-11-20). Every acceptance criterion
+> is ticked on Linux evidence except one (a file dragged from the OS: not run in the headless
+> container). macOS and Windows have not run: sprint-106/task-002 waits for a person with those
+> machines (`desktop/docs/platform-checks.md`).**
 > Milestone 1 of the desktop client, with [desktop-daemon-registry.md](desktop-daemon-registry.md).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
@@ -16,11 +19,11 @@
 
 ## Purpose
 
-The desktop window draws the workbench through the workbench's **browser** host, so it behaves
-like a web page in a frame: settings live in the webview's storage, dialogs are the webview's,
-a link in a message navigates the whole window away, saving a file depends on the webview's
-download handling, and scripts in the HTML preview are blocked by the window's policy. The Rust
-side is still the template's sample checklist application.
+Before this feature the desktop window drew the workbench through the workbench's **browser** host,
+so it behaved like a web page in a frame: settings lived in the webview's storage, dialogs were
+the webview's, a link in a message navigated the whole window away, saving a file depended on the
+webview's download handling, and scripts in the HTML preview were blocked by the window's policy.
+The Rust side was still the template's sample checklist application.
 
 This feature gives the app a **desktop host**: a `WorkbenchHost` whose members are backed by Rust
 where a browser does the job badly, and deletes the sample. It does not move sockets, large-file
@@ -59,10 +62,16 @@ The page asks Rust for one value before the workbench first renders, and builds 
 boot() -> {
   app:      { title, version, platform: "desktop", minDaemonVersion },
   storage:  { [key]: string },          # global keys plus the current entry's keys
-  daemons:  { currentId, entries, local },   # desktop-daemon-registry.md § 2, `daemon.list`
+  preview:  "origin" | "inert",         # the platform's preview kind (§ HTML preview origin)
+  daemons:  { currentId, entries, local, settings },   # desktop-daemon-registry.md § 2, `daemon.list`
   notices:  [ { kind: "file_reset", file, keptAs } ]
 }
 ```
+
+`preview` is in the snapshot because the host is built synchronously from it; the page cannot ask
+later. `daemons` and `app.minDaemonVersion` were added when the registry arrived (sprint 109).
+Each `file_reset` notice is returned once, and `boot` also resets the page's transfer count and
+clears the preview store, so a reload starts clean.
 
 `host.storage` is synchronous, and the workbench reads it during its first render; that is why the
 snapshot is fetched before rendering and not from an effect.
@@ -88,9 +97,15 @@ snapshot is fetched before rendering and not from an effect.
 | `daemons` | [desktop-daemon-registry.md](desktop-daemon-registry.md) § 3 | Rust |
 | `preview` | § HTML preview origin | Rust |
 
-The desktop frontend builds this host in one module; that module is the only place in the package
-allowed to call Tauri. Members listed as "the browser host's" are taken from `createBrowserHost()`
-unchanged.
+The desktop frontend builds this host in one module (`apps/pistudiodesktop/src/host/desktop-host.ts`);
+that module is the only place in the package allowed to call Tauri. It calls
+`createBrowserHost({ app, pdf, saveTarget })`, which supplies the members listed as "the browser
+host's" (and the download logic behind `saveToDisk`), then replaces `storage`, `dialogs`, `links`,
+`launch`, `preview` and `daemons` and wraps `files` to count unfinished transfers.
+
+**Outside Tauri** (the snapshot tool, a browser on the dev server) the page boots the browser host
+with `platform: "desktop"` and none of the desktop members (`host/select.ts`, chosen once at
+start): there is no Rust to ask.
 
 ### 3. New and changed host members
 
@@ -116,7 +131,18 @@ interface WorkbenchHost {
 }
 ```
 
-The browser host changes only by losing `prompt`.
+The browser host changes by losing `prompt` and by gaining one option of `createBrowserHost`:
+
+```ts
+interface SaveTarget {                 // where a saved daemon file goes; the shell supplies it
+  write(chunk: Uint8Array): Promise<void>;
+  finish(): Promise<void>;
+  discard(): Promise<void>;
+}
+saveTarget?: (suggestedName: string) => Promise<SaveTarget | null>;   // null: the user cancelled
+```
+
+With it, `files.saveToDisk` streams into the target instead of building a `Blob` (§ Save to disk).
 
 ### 4. Workbench changes visible to both clients
 
@@ -136,9 +162,9 @@ The browser host changes only by losing `prompt`.
 | Shell state (`ui.inspect`) | What automation should see: the current entry id, the entries without secrets, the local daemon state, and the settings. The sample's theme field goes: the theme belongs to the workbench |
 | Control protocol | Unchanged methods (`engine.execute`, `engine.commands`, `ui.inspect`, `ui.set`), carrying the new commands. No answer contains a secret |
 | App CLI (`pistudiodesktop-cli`) | Runs the same commands without a window |
-| Services | The platform hooks the engine needs: running a process (the `pi-studio` CLI), reading and writing the app's files, the clock. File and process access stay behind them so the core still builds for wasm32 |
-| Tauri commands for the page | One per host member that Rust backs: boot, storage write, confirm, alert, open external, the save-to-disk steps, preview mount and release, and one that runs an engine command (for `daemons`). Each validates its input in Rust |
-| Events to the page | Registry or local-state changed; "open the Daemons screen" |
+| Services | The platform hooks the shell needs: `confirm`, `alert`, `open_url`, `pick_save_path`, and for the CLI `run` (a process with a time limit), `is_executable`, `env`, `home_dir`, `list_dir`. **The app's own files are not behind a hook**: the engine reads and writes them through the native-only `store` crate (empty on wasm32), so the core still builds for wasm32 |
+| Tauri commands for the page | `boot`, `storage_set`, `dialog_confirm`, `dialog_alert`, `open_external`, `save_begin` / `save_write` / `save_finish` / `save_discard`, `transfers_set`, `preview_mount`, `preview_release`, `engine_command` (ten allow-listed engine ids), `daemon_resolve_current`, `daemon_switch`; listed with what each validates in `desktop/docs/architecture.md` § The webview boundary. Each validates its input in Rust |
+| Events to the page | `daemons_changed` (the registry view, after a change to the registry, the local state or a setting) and `daemons_manage` ("open the Daemons screen") |
 
 The golden rules of `desktop/AGENTS.md` keep holding: no panics, layering checked by
 `cargo xtask layers`, nothing below the app binary depends on Tauri, every command has tests and
@@ -177,8 +203,13 @@ Rust, on a storage write:
 | Per daemon entry | Every other key. Today: `pi-studio-pane-layout`, `pi-studio-agent-todos-ui` | `daemon-state/<entry id>.json` |
 
 A key the app does not know is per entry: a new workbench key is never shared between daemons by
-accident. Values are opaque strings to Rust, at most 4 MiB each; a larger write is dropped.
-Removing an entry deletes its state file.
+accident. Values are opaque strings to Rust. Caps, chosen at planning: a key is at most 256 bytes,
+a value 4 MiB, a scope 256 keys and 16 MiB of values; a write beyond any of them is dropped with a
+log line naming the key only. `cliPath` is at most 4,096 characters; an app file is read up to
+32 MiB. Removing an entry deletes its state file.
+
+The current entry was `local` while there was no registry (sprints 103–108); from sprint 109 it is
+the registry's current entry, and `daemon.switch` flushes the entry left before the page reloads.
 
 The pane layout is keyed by workspace path inside its own record, and two daemons can have the
 same path; keeping the record per entry is what stops one daemon's layout from being applied to
@@ -217,8 +248,8 @@ The app always starts. Notices are shown once, as non-blocking messages in the w
 
 `confirm` shows a native dialog with two buttons and resolves `true` only for the affirmative
 one; closing it resolves `false`. `alert` shows a native message dialog and resolves when it is
-closed. Both are modal to the window. The 21 confirm and alert call sites in the workbench do not
-change.
+closed. Both are modal to the window, and the text is capped at 8,192 characters. The 21 confirm
+and alert call sites in the workbench do not change.
 
 ### External links (D26)
 
@@ -235,21 +266,27 @@ agent). Independently, the navigation rule in § 6 stops the window itself from 
 ### Save to disk
 
 ```
-saveToDisk(path):
-    ask Rust to show a native save dialog
-        suggested name: the file's name; folder: the one used last, else Downloads
-        cancelled -> resolve, nothing saved
-    Rust creates a temporary file beside the destination and returns an opaque handle
-    download the file with the SDK, and for each chunk, in order:
+saveToDisk(path):                       # createBrowserHost's `saveTarget` option; the desktop supplies it
+    target = await saveTarget(the file's name)       # save_begin: a native save dialog
+        suggested name: the file's name reduced to a file name; folder: the one used last
+        in this run of the app, else Downloads
+        cancelled -> target is null: resolve, nothing downloaded, nothing saved
+    Rust creates a temporary file `.pistudio-save-<hex>.part` beside the destination and returns
+    an opaque handle
+    download the file with the SDK in 8 MiB ranges, one range at a time; the first range learns
+    the size and modification time, later ranges send them as `ifUnchanged`; for each chunk, in order:
         send (handle, chunk) to Rust and wait for the answer before sending the next
-    on the last chunk: finish(handle) -> flush, then rename over the destination
-    on a download error, a write error or an abort: discard(handle) -> temporary file removed; reject
+    after the last range: finish(handle) -> flush, then rename over the destination
+    on a download error, a write error, a changed file or an abort: discard(handle) -> temporary
+    file removed; reject with the original error
 ```
 
 The page never names a path on the user's machine: the destination comes from the dialog and the
 page holds only the handle, which is valid for that one save. An existing file is replaced only
 after the user agreed in the dialog, and only by the final rename, so a failed save leaves the
-old file intact. Memory use does not grow with the file's size.
+old file intact. Memory use does not grow with the file's size. The last folder is remembered for
+one run of the app only; it is not stored. Caps: at most 8 saves open at once, 16 MiB per write,
+255 bytes for the file name (control characters and path parts removed).
 
 This milestone makes saving correct, not fast: each chunk crosses the webview-to-Rust channel.
 Milestone 3 replaces the byte path with Rust's own connection behind the same member.
@@ -339,8 +376,9 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
 
 - [desktop-daemon-registry.md](desktop-daemon-registry.md): supplies the `daemons` member and the
   commands this feature's engine holds; uses this feature's boot snapshot, storage and settings.
-- [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md): amended
-  with `daemons`, `preview`, `app.minDaemonVersion` and the removal of `dialogs.prompt`.
+- [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md): its
+  contract now holds `daemons`, `preview`, `app.minDaemonVersion`, the `saveTarget` option and the
+  removal of `dialogs.prompt`.
 - [html-file-preview.md](html-file-preview.md): its two invariants (never `allow-same-origin`; the
   policy tag is a network policy, not the isolation boundary) hold unchanged.
 - [desktop-client-protocol-followups-2.md](desktop-client-protocol-followups-2.md) § 1: the
@@ -348,43 +386,62 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
 
 ## Acceptance criteria
 
-- [ ] The desktop frontend mounts the workbench with a desktop host built from the boot snapshot;
+- [x] The desktop frontend mounts the workbench with a desktop host built from the boot snapshot;
       `createBrowserHost()` supplies only the members the table in § 2 marks as the browser host's.
-- [ ] Given a pane layout arranged while on entry A, when the app is quit and started again, then
+      *Linux: sprint-103/task-004 (the page boots through `boot`; `localStorage` empty); sprint-106/task-001 check 1.*
+- [x] Given a pane layout arranged while on entry A, when the app is quit and started again, then
       the layout is restored from `daemon-state/<A>.json`; the webview's own storage holds none
       of the workbench's keys.
-- [ ] Given entries A and B with a workspace at the same path, then each keeps its own layout,
+      *Linux: sprint-103/task-004 checks 1, 2; sprint-106/task-001 check 2 (`Object.keys(localStorage)` is `[]`).*
+- [x] Given entries A and B with a workspace at the same path, then each keeps its own layout,
       and a theme change made on A is in effect on B.
-- [ ] Given a corrupt `settings.json`, `daemons.json` or state file, when the app launches, then
+      *Linux: sprint-110/task-007 check 5 (layouts of 1, 2 and 3 panes kept apart; the theme lives in `settings.json`), after the fix for the layout of the entry left being written onto the entry switched to (§ TODO(verify)); sprint-111/task-001.*
+- [x] Given a corrupt `settings.json`, `daemons.json` or state file, when the app launches, then
       it starts with defaults, the file is kept as `*.corrupt-<timestamp>`, and a notice says so.
-- [ ] Given a destructive action (delete a file), then the confirmation is a native dialog, and
+      *Linux: sprint-106/task-001 check 4 (three notices, three `*.corrupt-*` files, `daemons.json.corrupt-*` mode 0600, the registry reset to the local entry, no notice on a second boot); sprint-111/task-001.*
+- [x] Given a destructive action (delete a file), then the confirmation is a native dialog, and
       declining it leaves the file in place.
-- [ ] Given a session rename, then an in-app dialog is shown in the desktop app and in the web
+      *Linux: sprint-104/task-008 check 1; sprint-106/task-001 check 5.*
+- [x] Given a session rename, then an in-app dialog is shown in the desktop app and in the web
       client; Escape changes nothing; no code calls `dialogs.prompt`, and the host guard test
       rejects it.
-- [ ] Given an `https` link in a chat message, when it is clicked in the desktop app, then it
+      *sprint-104/task-008 checks 8 and 10 (desktop and web client); `host-guard.test.ts`.*
+- [x] Given an `https` link in a chat message, when it is clicked in the desktop app, then it
       opens in the system browser and the window stays on the workbench. In the web client it
       opens in a new tab and the app's tab is not replaced.
-- [ ] Given a `file:` or `javascript:` link, then nothing opens.
-- [ ] Given "Download" on a 1 GiB file, then a native save dialog chooses the destination, the
+      *sprint-104/task-008 checks 3 and 11.*
+- [x] Given a `file:` or `javascript:` link, then nothing opens. *sprint-104/task-008 check 3.*
+- [x] Given "Download" on a 1 GiB file, then a native save dialog chooses the destination, the
       file there is byte-identical, and the app's memory use stays flat during the save.
-- [ ] Given the save dialog is cancelled, or the save fails midway, then no file and no temporary
+      *Linux: sprint-104/task-008 check 4 (6.5 s, SHA-256 equal, 738 → 854 MiB); repeated in sprint-110/task-007 check 13.*
+- [x] Given the save dialog is cancelled, or the save fails midway, then no file and no temporary
       file is left at the destination.
+      *sprint-104/task-008 checks 5 and 6, and the save tests.*
 - [ ] Given a file dragged from the OS onto the file explorer, then it uploads, on Linux, macOS
-      and Windows.
-- [ ] Given an HTML file with an inline script, when it is previewed on a platform with the
+      and Windows. **Open: not run.** The container has no desktop to drag from; a page-dispatched
+      HTML5 drop uploads with Tauri's handling off (sprint-103/task-004 check 8). Needs a real
+      desktop on each platform: `desktop/docs/platform-checks.md` N4; sprint-106/task-002.
+- [x] Given an HTML file with an inline script, when it is previewed on a platform with the
       `"origin"` preview, then the script runs; a script in it that tries the app's command
       channel, the parent document or a popup fails; and "Block remote resources" still blocks.
-- [ ] On a platform with the `"inert"` preview, the viewer shows the notice and the page's markup.
-- [ ] Given a transfer in progress, when the window is closed, then a native confirm is shown and
+      *Linux (`origin`): sprint-105/task-005 checks 1–3. macOS and Windows are not measured and stay `inert`
+      until they are (platform-checks N11, sprint-106/task-002).*
+- [x] On a platform with the `"inert"` preview, the viewer shows the notice and the page's markup.
+      *sprint-105/task-004 tests and the Chromium snapshot with the browser host; not seen in a macOS or Windows webview.*
+- [x] Given a transfer in progress, when the window is closed, then a native confirm is shown and
       "no" keeps the app open.
-- [ ] Given the app is running, when it is launched again, then the existing window is focused and
+      *Linux: sprint-104/task-008 check 7 (`WM_DELETE_WINDOW`); the switch variant in sprint-110/task-007 check 13.*
+- [x] Given the app is running, when it is launched again, then the existing window is focused and
       there is one process.
-- [ ] The crates `doc`, `ops` and `format` and the item, undo and file commands are gone;
+      *Linux: sprint-106/task-001 check 15 (the second process exited 0; one process, one window). Focus itself is not observable without a window manager (sprint-103/task-004 check 5).*
+- [x] The crates `doc`, `ops` and `format` and the item, undo and file commands are gone;
       `cargo xtask ci` passes; `ui.inspect` returns the registry view and settings without secrets.
-- [ ] The window's capability file grants only the app's own commands.
-- [ ] The web client's build and tests pass; its only visible changes are the rename dialog and
+      *`cargo xtask ci`, all 8 steps (sprint-106/task-001); the `ui.inspect` output is in `desktop/docs/control-protocol.md` (sprint-109/task-006).*
+- [x] The window's capability file grants only the app's own commands.
+      *`capabilities/default.json`: the `allow-*` permissions of the page's commands plus `core:event:allow-listen` / `allow-unlisten`, which Tauri cannot scope to event names (sprint-106/task-001 check 17; a test asserts the exact list).*
+- [x] The web client's build and tests pass; its only visible changes are the rename dialog and
       external links opening in a new tab.
+      *Workbench tests (1,720), root `tsc -b`; a browser shows the unchanged connection bar (sprint-110/task-007 check 16; sprint-106/task-001 check 18).*
 
 ## TODO(verify)
 
@@ -408,17 +465,19 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
 - **Clipboard in the webview.** `navigator.clipboard.writeText` needs a secure context and, in
   some webviews, a user gesture. The browser host's fallback may cover it. If it fails on a
   platform, back `clipboard` with Rust on that platform. *Linux, 2026-11-20: "Copy Absolute Path"
-  works in WebKitGTK.*
+  works in WebKitGTK (sprint-106/task-001: the path was on the X `CLIPBOARD` selection). macOS and
+  Windows: platform-checks N12.*
 - **Native confirm and alert from an asynchronous call.** The workbench awaits them inside event
   handlers; check that nothing depends on the dialog blocking the page's event loop. *Linux,
   2026-11-20 (sprint-104/task-008): delete-confirm, alert and the close confirm behave; the page
   and the owner thread keep answering while a dialog is open.*
 - **The file input in each webview.** Assumed to open the OS picker everywhere. *Linux,
   2026-11-20 (sprint-104/task-008, Xvfb container, no window manager, no portal): clicking Upload
-  opened nothing. HTML5 drops upload. Recheck on a real Linux desktop (sprint-106 checklist); if it
-  still opens nothing, add a native open-file command like `save_begin`.*
+  opened nothing. HTML5 drops upload. **Still unverified** (sprint-106/task-001): recheck on a real
+  Linux desktop and on macOS and Windows (platform-checks N3); if it still opens nothing, add a
+  native open-file command like `save_begin`.*
 - **Save dialog starting folder.** Downloads per the spec; in the container (no XDG user dirs) the
-  dialog opened at `/`. Recheck on a real desktop.
+  dialog opened at `/`. **Still unverified**: recheck on a real desktop (platform-checks N6).
 - **Dropped-file handling off on macOS and Linux.** The documented reason to turn it off is
   Windows; confirm HTML5 drops keep working on the other two with it off. *Linux, 2026-11-20
   (sprint-103/task-004): a page-dispatched HTML5 drop on the file explorer uploads with it off;
@@ -431,9 +490,17 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
   the window closes is not known; if not, the last 250 ms of layout changes can be lost.
   *Linux, 2026-11-20 (sprint-103/task-004): on reload the change survives; on a window close
   (`WM_DELETE_WINDOW`) 27 ms after a split, the split is lost — the page's flush does not reach
-  Rust before exit. Proposed fix (not done): on `CloseRequested`, hold the close, ask the page to
-  flush (evaluate a script that runs the `pagehide` handlers and then `storage.settled()`), and
-  close when it answers or after a short timeout.*
+  Rust before exit. **Known gap, not fixed** (still true in sprint-106/task-001; platform-checks
+  N10). Proposed fix: on `CloseRequested`, hold the close, ask the page to flush (evaluate a script
+  that runs the `pagehide` handlers and then `storage.settled()`), and close when it answers or
+  after a short timeout.* A daemon switch is not affected: the page being left sends its layout as
+  it unloads, and the app drops `storage_set` from the switch until the next `boot` so that write
+  cannot land on the new entry (sprint-110/task-007: a bug the live run found and fixed, with a
+  regression test).
 - **Configuration directory on each platform**, and whether mode 0600 survives the atomic rename.
-  *Linux: `~/.config/com.avatsaev.pi-studio`.*
-- **macOS and Windows.** Nothing here has run on either.
+  *Linux: `~/.config/com.avatsaev.pi-studio`; mode 0600 survives: `write_private` creates the
+  temporary file at 0600 and the rename keeps it, and a `*.corrupt-*` copy keeps its mode
+  (sprint-107/task-002). macOS and Windows directories: platform-checks N1.*
+- **macOS and Windows.** Nothing here has run on either. The list a person runs and the table for
+  the results are in `desktop/docs/platform-checks.md`; sprint-106/task-002 waits in `blocked/`
+  for someone with those machines. Until the preview is measured there, both ship `inert`.

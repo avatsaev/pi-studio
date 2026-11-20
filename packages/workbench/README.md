@@ -133,7 +133,7 @@ render; the first host wins (a later different one is ignored, with a developmen
 | `storage` | `{ get(key): string \| null, set(key, value) }`. **Synchronous**: stores read it while initialising. If your storage is asynchronous, load it into memory before the first render and write behind. Never throws |
 | `clipboard.writeText(text)` | Promise; rejects on failure |
 | `dialogs.confirm/alert` | Promises. Dismissal resolves `false` / nothing. Session rename is not a host dialog: the workbench draws its own |
-| `links.openExternal?(url)` | Optional. When present, every external link calls it instead of navigating |
+| `links.openExternal?(url)` | Optional. When present, every external link (login dialog, messages, Markdown files) calls it and the default navigation is suppressed; when absent the link opens in a new tab (`target="_blank"`, `rel="noreferrer"`) |
 | `launch.initialConnect()` | Read once at boot: `{ url?, password?, cwd?, connect } \| null`. `url` may be a pairing link |
 | `launch.agentDeepLink` | `{ current(), subscribe(listener), consume() }`: "open this agent" requests |
 | `connection.createTransport(target, { password })` | The `Transport` for one connect, or `undefined` for the SDK's WebSocket. `target` is `{ mode: "direct", url }` or `{ mode: "relay", url, daemonPublicKey }`. **A transport must deliver frames in wire order and binary frames as `ArrayBuffer`.** Throwing fails that connect with your message |

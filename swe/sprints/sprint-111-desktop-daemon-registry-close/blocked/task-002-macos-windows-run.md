@@ -1,7 +1,7 @@
 # Task 002 — macOS and Windows: run the registry section of the platform checklist
 
 - **Sprint:** sprint-111-desktop-daemon-registry-close
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** test
 - **Area:** desktop (installers on real machines)
 - **Priority:** P2
@@ -43,3 +43,6 @@ The local daemon is where the three platforms differ most: how an app started fr
 ## Notes
 - Not a dependency of task-003: the spec closes for Linux with the macOS and Windows criteria left open and pointing here.
 - The installers are unsigned: macOS needs the app allowed in System Settings, Windows shows a SmartScreen warning.
+
+## Blocker
+Needs a person with a Mac and a Windows machine (see sprint-106/task-002); the registry section of `desktop/docs/platform-checks.md` (R1–R8) is ready. Run both sections in one sitting. Unblock when the table has dated rows for macOS (naming the login shell and the version manager) and Windows.

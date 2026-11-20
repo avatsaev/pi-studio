@@ -49,9 +49,13 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
                     built by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
-                    the browser host, so desktop-ci.yml also runs when workbench, ui-library, client, relay or
-                    protocol change; its Rust crates (`model`, `store`, `engine`, `shell`) hold the settings, the
-                    stored workbench state and the command registry.
+                    a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview
+                    and the daemon registry backed by Rust; the WebSocket is still the webview's), so desktop-ci.yml
+                    also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
+                    (`model`, `store`, `engine`, `shell`) hold the daemon registry, the settings, the stored
+                    workbench state and the command registry, and run this machine's daemon through the installed
+                    `pi-studio` CLI. Milestone 1 is built and checked on Linux; macOS and Windows have not run
+                    (desktop/docs/platform-checks.md).
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent

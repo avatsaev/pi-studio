@@ -3278,7 +3278,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/desktop-native-host.md | s102/t001-005 (`model` crate; `store` crate; engine settings + storage; sample removed; Rust documents), s103/t001-004 (`boot` + `storage_set` + flush + command list; window and security configuration; frontend host + boot; live checks), s104/t001-008 (in-app rename; external links; `saveTarget` ranged save; native dialogs + `open_external`; save backend; host dialogs + links; host save + transfer count + close confirm; live checks), s105/t001-005 (spike; `HostPreview` seam; Rust preview origin; host member; live checks), s106/t001-004 (Linux acceptance + platform checklist; macOS and Windows run; documents + spec close; automated checks on macOS and Windows runners). Left to the registry by the spec: the `daemons` member, `app.minDaemonVersion`, the confirm on a daemon switch (D25's other half) |
 | features/desktop-native-host.md — criteria that need the registry | s111/t001 (two entries keeping separate layouts while sharing the theme, also s109/t006 and s110/t007; a corrupt `daemons.json`; `ui.inspect` returning the registry view, also s107/t005), ticked in the spec by s111/t003 |
 | features/desktop-daemon-registry.md | s107/t001-005 (registry model; private files; engine registry + list/switch; add/update/remove; `ui.inspect` + secret guard), s108/t001-005 (CLI answers; process hooks + CLI lookup; `daemon.local.*`; supervisor + dial answer; `packages/cli` contract tests), s109/t001-006 (`HostDaemons` contract; app launch + snapshot + page commands; switch; native menu; frontend member; live checks), s110/t001-007 (boot through the registry; switcher; Daemons screen; forms; reactions; outdated notice; live checks), s111/t001-004 (Linux acceptance; macOS and Windows run; documents + spec close; automated registry checks on macOS and Windows runners) |
-| architecture/workbench-host-adapter.md § Amendment (2026-11-15) | s104/t001 (`dialogs.prompt` removed), s104/t002 (external links), s104/t003 (`saveTarget`, added at planning), s105/t002 (`preview`), s106/t003 (amendment folded into the main contract), s109/t001 (`daemons`, `app.minDaemonVersion`, with the settings added at planning), s110/t001-006 (their consumers), s111/t003 (moved into the main contract) |
+| architecture/workbench-host-adapter.md § Amendment (2026-11-15), now § History | s104/t001 (`dialogs.prompt` removed), s104/t002 (external links), s104/t003 (`saveTarget`, added at planning), s105/t002 (`preview`), s106/t003 (built rows folded into the main contract), s109/t001 (`daemons`, `app.minDaemonVersion`, with the settings added at planning), s110/t001-006 (their consumers), s111/t003 (`daemons` and `minDaemonVersion` moved into the main contract; the amendment kept as history) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
@@ -3459,44 +3459,54 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Relay multi-client: `fern check` was not run (the fern CLI is not installed here) — s101/t002.
 - [ ] Relay multi-client: relay throughput was measured on loopback only (~143 / ~138 MiB/s) — s101/t001.
 - [ ] Desktop native host: a sandboxed frame on a custom scheme must run scripts and stay isolated
-      in each webview. Linux is measured first — s105/t001; macOS and Windows — s106/t002. Until
-      measured, a platform ships `inert` (scripts disabled, a notice shown).
-- [ ] Desktop native host: Tauri's app-command list (build-script manifest + `allow-<command>`
-      permissions) was read, not tried; an unlisted command must be refused — s103/t001, s103/t004.
+      in each webview. **Linux: `origin`, measured** (s105/t001, s105/t005). macOS and Windows —
+      s106/t002 (blocked, needs a person); until measured a platform ships `inert` (scripts
+      disabled, a notice shown).
+- [x] Desktop native host: Tauri's app-command list (build-script manifest + `allow-<command>`
+      permissions) — **tried and works** (s103/t001, s103/t004 check 7): an unlisted command is
+      refused with "not allowed", and a test pins the capability list.
 - [ ] Desktop native host: whether a layout change made in the last 250 ms before a close or a
-      reload reaches Rust (`pagehide`) — s103/t004.
-- [ ] Desktop native host: the 8 MiB save range and the per-chunk call into Rust are chosen, not
-      measured; throughput and memory of a 1 GiB save — s104/t008.
+      reload reaches Rust (`pagehide`) — s103/t004. **Reload: yes. Window close: no**, the change
+      is lost (known gap, still true in s106/t001; fix proposed in the spec, not planned).
+- [x] Desktop native host: the 8 MiB save range and the per-chunk call into Rust are chosen, not
+      measured — **measured (s104/t008, Linux): a 1 GiB save took 6.5 s (~160 MiB/s), SHA-256
+      equal, memory 738 → 854 MiB, flat**; repeated in s110/t007 check 13.
 - [ ] Desktop native host: the caps chosen at planning (key 256 bytes, 256 keys and 16 MiB per
       scope, `cliPath` 4,096 characters, dialog text 8,192 characters, 16 MiB per save write, 8 open
-      saves, 32 MiB read cap for an app file) await the owner's confirmation — s102/t001-002,
-      s104/t004-005; recorded in the spec by s106/t003.
-- [ ] Desktop native host: HTML5 drops with Tauri's handling off, the file input opening the
-      system picker, the clipboard, native dialogs from an asynchronous call: Linux — s103/t004,
-      s104/t008, s106/t001; macOS and Windows — s106/t002.
+      saves, 32 MiB read cap for an app file) are recorded in the spec (s106/t003) and still await
+      the owner's confirmation — s102/t001-002, s104/t004-005.
+- [ ] Desktop native host: the file input opening the system picker and a file dragged from the
+      OS onto the explorer, not verified in the headless container (s104/t008 check 9, s106/t001
+      check 11); the save dialog's start folder; macOS and Windows — platform-checks N3, N4, N6,
+      s106/t002. Answered on Linux: HTML5 drops with Tauri's handling off, the clipboard, native
+      dialogs from an asynchronous call — s103/t004, s104/t008, s106/t001.
 - [ ] Desktop native host: nothing has run on macOS or Windows; s106/t004 automates what a CI
       runner can check, s106/t002 (a person with those machines) the rest, and waits in
-      `blocked/` until someone runs it.
-- [ ] Desktop daemon registry: reading the user's shell environment (login, interactive, 5 s) was
-      not tried; start-up files that print, a slow shell and `fish` must not break it — s108/t002,
-      s111/t001; a launch from the macOS dock — s111/t002.
-- [ ] Desktop daemon registry: the 90 s limit for `daemon start` against a slow first start —
-      measured in s109/t006 and s110/t007.
-- [ ] Desktop daemon registry: whether a rotated daemon key reaches the client as `wrong_key` or
-      `daemon_offline`; the "pairing link no longer valid" marker depends on it — s110/t007.
-- [ ] Desktop daemon registry: `minDaemonVersion` is 0.0.119 as the spec proposes; confirm when
-      the app is first released — s109/t002.
+      `blocked/` until someone runs it. `desktop/docs/platform-checks.md` is the list.
+- [ ] Desktop daemon registry: reading the user's shell environment (login, interactive, 5 s) —
+      **Linux: bash, zsh and fish find the CLI; start-up files that print are harmless; one that
+      takes 8 s gives `cli_missing` after ~5 s without a hang** (s111/t001). A real version manager
+      (nvm, fnm, volta, Homebrew) and a launch from the macOS dock — s111/t002.
+- [ ] Desktop daemon registry: the 90 s limit for `daemon start` against a slow first start — the
+      first start measured 1.2–2.1 s (s109/t006, s110/t007); a slow one was not measured.
+- [x] Desktop daemon registry: whether a rotated daemon key reaches the client as `wrong_key` or
+      `daemon_offline` — **`daemon_offline`** through the relay (s110/t007 check 12). The "pairing
+      link no longer valid" marker could not be reached live; its unit test covers it, and Replace
+      link works. Whether any path yields `wrong_key` is not known.
+- [ ] Desktop daemon registry: `minDaemonVersion` is 0.0.119 as the spec proposes (built, s109/t002;
+      notice seen against a 0.0.100 daemon, s110/t007); confirm when the app is first released.
 - [x] Desktop daemon registry: decisions taken at planning that change the spec's contract —
       **accepted by the owner 2026-11-20** (all seven): `LocalState` gains `checking`;
       `daemon.local.*` (refresh included) answer `{ accepted: true }`; `HostDaemons` carries the two
       settings; the native menu does nothing on the current entry; the stop confirm belongs to the
       caller; the dead-link marker is kept in memory; a `daemon.*` error text is its code. Recorded
-      in the spec's § Decisions (P1–P7); s111/t003 folds them into the contract sections.
+      in the spec's § Decisions (P1–P7) and folded into its contract sections by s111/t003.
 - [ ] Desktop daemon registry: a daemon started with another `PI_STUDIO_HOME` is invisible to the
       app unless that variable is in the shell environment (several local daemons are out of
-      scope, D12); a daemon in WSL2 reached as a `direct` entry was not tried — s111/t002.
+      scope, D12); `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply); a
+      daemon in WSL2 reached as a `direct` entry was not tried — s111/t002.
 - [ ] Desktop daemon registry: nothing has run on macOS or Windows; s111/t004 automates what a
       CI runner can check, s111/t002 (a person with those machines) the rest, and waits in
       `blocked/` until someone runs it.
 - [ ] Desktop: the IPC benchmark that milestone 2 (the Rust transport) starts with is in no spec
-      and has no task.
+      and has no task; milestone 2 starts with it (`docs/desktop-client-handoff.md`).

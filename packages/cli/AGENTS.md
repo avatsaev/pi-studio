@@ -608,7 +608,7 @@ The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desk
 - `--json daemon stop`: `{ stopped: boolean }`.
 - `--version`: one line, a semantic version, nothing else.
 
-Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too.
+The app reads the last non-empty line of standard output as JSON **whatever the exit code** (a down daemon or a failed start exits 1 and the line still says why), within a limit per command (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s). It discards `pairingUrl`. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply). Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too (`desktop/docs/architecture.md` § The registry and the local daemon).
 
 ## Testing
 

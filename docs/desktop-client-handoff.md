@@ -23,7 +23,7 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
-| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **The window renders the workbench** (first half of milestone 1): `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases; the webview still opens the WebSocket itself. **Storage is in Rust** (sprint 103, checked live on Linux 2026-11-20): the page calls `boot` for the stored workbench keys and `storage_set` for every write; the engine writes `settings.json` and `daemon-state/local.json` in the configuration directory (`--config-dir`). **Dialogs, links and save are native** (sprint 104, checked live on Linux 2026-11-20): confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no `core:` or plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Known gaps: a layout change made in the last ~250 ms before closing the window is lost; the Upload button opened no picker in the headless Linux container (spec TODO(verify)). Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`) against a dev daemon: connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in `desktop/docs/architecture.md` § The webview boundary. **HTML preview has its own origin** (sprint 105, checked live on Linux 2026-11-20): the page mounts the document with `preview_mount` and frames `pi-preview://localhost/<id>`; its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). Not done: the daemon registry in the window (sprints 108–110; the engine side is done). Its gate is `cargo xtask ci`, run inside `desktop/` | **Daemon registry and local daemon** (sprints 107–110, checked live on Linux 2026-11-20): Rust owns `daemons.json` (0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status|start|restart|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a secret is never read back to the page), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. Known gaps: a relay link whose daemon key was rotated reports `daemon_offline`, not `wrong_key`, so the entry is not marked (Replace link works); macOS and Windows are untested.
+| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **Milestone 1 is done for Linux** (sprints 102–111, checked live on Linux 2026-11-20; macOS and Windows have not run). `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases; the webview still opens the WebSocket itself. **Storage is in Rust:** the page calls `boot` (stored workbench keys, registry view, preview kind) and `storage_set` for every write; the engine writes `settings.json` (with the app-wide keys such as the theme), `daemons.json` and `daemon-state/<entry>.json` (one layout per daemon entry) in the configuration directory (`--config-dir`). **Dialogs, links and save are native:** confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. **The HTML preview has its own origin** (`pi-preview://localhost/<id>`): its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). **Daemon registry and local daemon:** Rust owns `daemons.json` (mode 0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status\|start\|restart\|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a secret is never read back to the page), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`): connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in the same section. **Open:** macOS and Windows (the list is `desktop/docs/platform-checks.md`; sprint-106/task-002 and sprint-111/task-002 wait for a person with those machines); on Linux, the Upload picker and a file dragged from the OS (not verifiable in the headless container), a real Node version manager finding the CLI, a relay link whose daemon key was rotated (it reports `daemon_offline`, not `wrong_key`, so the entry is not marked; Replace link works), and the close-time layout flush (a change in the last ~250 ms before closing the window is lost). Its gate is `cargo xtask ci`, run inside `desktop/` |
 | `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
 
 ## Plan and progress
@@ -486,18 +486,22 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   network access in TypeScript"): **rewritten**. The UI is the workbench; the desktop frontend only
   mounts it and gives it a host, and makes no network call or storage access of its own.
 - **Golden rule 6** ("the webview may call the app's two commands and listen for one event"):
-  **rewritten** around the policy and plug-in permissions. It will change again when the transport
-  bridge and the host adapter add commands.
-- **CSP**: **done** for the browser host. `tauri.conf.json` now allows `ws:`/`wss:` to any address
+  **rewritten** around the policy and plug-in permissions: the page may call only the commands
+  the build script's manifest lists (`desktop/docs/architecture.md` § The webview boundary), with
+  no plug-in permission and no `core:` permission but listening to events. It will change again
+  when the transport bridge adds commands.
+- **CSP**: **done** for the desktop host. `tauri.conf.json` now allows `ws:`/`wss:` to any address
   (the user types it), `blob:` for workers, images, video and reading files back, `data:` for
-  fonts and images, and `'wasm-unsafe-eval'` for syntax highlighting; the table with the reason
-  for each is in `desktop/docs/architecture.md`. `connect-src` can drop `ws:`/`wss:` once every
-  socket goes through Rust.
+  fonts and images, `'wasm-unsafe-eval'` for syntax highlighting and `pi-preview:` frames for the
+  HTML preview; the table with the reason for each is in `desktop/docs/architecture.md`.
+  `connect-src` can drop `ws:`/`wss:` once every socket goes through Rust.
 - The template's sample (a checklist with undo and a file format) is **removed**. The Rust crates
-  are now `model` (settings and one daemon entry's stored state), `store` (JSON files), `engine`
-  (the command registry: `command.list`, `settings.get`, `settings.set`; the configuration
-  directory's `settings.json` and `daemon-state/<entry>.json`) and `shell`; golden rules 3, 4 and
-  7 in `desktop/AGENTS.md` describe them. The window does not call the engine yet.
+  are now `model` (the settings, the daemon registry and one entry's stored state), `store` (JSON
+  files), `engine` (the command registry: `command.list`, `settings.get`, `settings.set`, the
+  `daemon.*` commands; the configuration directory's `settings.json`, `daemons.json` and
+  `daemon-state/<entry>.json`) and `shell`; golden rules 3, 4 and 7 in `desktop/AGENTS.md`
+  describe them. The page reaches the engine through `engine_command` (ten allow-listed ids),
+  `daemon_resolve_current` and `daemon_switch`.
 - Rules kept as they are: never crash, layering enforced by `cargo xtask layers`, tests as the
   gate, permissive licences only (with a recorded exception: the workbench and the ui-library are
   AGPL-3.0, and pdf.js ships Liberation Sans under GPL-2.0 with a font exception).
@@ -553,29 +557,37 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 
 1. **Shell renders the workbench.** Tauri window, workbench whole-app entry, a host adapter backed
    by Tauri storage and clipboard, direct WebSocket from the webview. Proves packaging and CSP.
-   *State: the window renders the workbench with the browser host and the policy is settled; the
-   Rust engine holds settings and stored workbench state (CLI and control socket only); the
-   Tauri-backed host members are not written.*
+   *State (2026-11-20): **done for Linux.** The window renders the workbench with a desktop host
+   and the policy is settled; both documents below are built and were checked live on Linux in
+   the real webview (sprints 102–111).*
    **Scope widened on 2026-11-15** (grill `swe/grills/desktop-native-shell.md`, 27 decisions) and
-   specified in two documents, neither built yet:
+   specified in two documents, both built (sprints 102–111 in `swe/sprints/PLAN.md`):
    - `swe/features/desktop-native-host.md`: the desktop host (settings and per-daemon state in
      Rust-owned files, native confirm and alert, external links, save to disk, HTML preview on
-     its own origin after a spike), in-app session rename, and the engine in place of the sample (the
-     checklist is gone; the command registry and control socket remain). **Planned 2026-11-20:**
-     sprints 102–106 in `swe/sprints/PLAN.md` (Rust model; boot and storage; dialogs, links and
-     save; HTML preview origin; close). Until the registry exists the app keeps one daemon
-     entry, `local`. The macOS and Windows checks need a person with those machines.
-   - `swe/features/desktop-daemon-registry.md` (**planned 2026-11-20:** sprints 107–111 in
-     `swe/sprints/PLAN.md`: registry model; local daemon through the CLI; wiring, switch and
-     native menu; the workbench's switcher and Daemons screen; close): a daemon registry owned by Rust (this machine, a
-     direct address, a relay pairing link), switching from the native menu, a Daemons screen in
-     the workbench, and supervision of this machine's daemon through an installed `pi-studio` CLI
-     (`pi-studio --json daemon start|stop|restart`; no bundled daemon). The app opens on the
-     daemon used last, never stops a daemon on quit, and keeps secrets in a user-only file until
-     the keychain in milestone 2. Windows has no local daemon (POSIX-only): remote, or untested,
-     WSL2 on `127.0.0.1`.
+     its own origin after a spike: `origin` on Linux), in-app session rename, and the engine in
+     place of the sample (the checklist is gone; the command registry and control socket remain).
+     All acceptance criteria are ticked on Linux evidence but one (a file dragged from the OS).
+   - `swe/features/desktop-daemon-registry.md`: a daemon registry owned by Rust (this machine, a
+     direct address, a relay pairing link), switching from the native menu and the connection bar,
+     a Daemons screen in the workbench, and supervision of this machine's daemon through an
+     installed `pi-studio` CLI (`pi-studio --json daemon start|stop|restart`; no bundled daemon).
+     The app opens on the daemon used last, never stops a daemon on quit, and keeps secrets in a
+     user-only file until the keychain in milestone 2. Windows has no local daemon (POSIX-only):
+     remote, or untested, WSL2 on `127.0.0.1`. 13 of 17 criteria are ticked on Linux evidence.
+   **What is open.** macOS and Windows have not run: the checklist is
+   `desktop/docs/platform-checks.md`, and sprint-106/task-002 and sprint-111/task-002 wait in
+   `blocked/` for a person with those machines (the preview stays `inert` there until measured).
+   On Linux: the Upload button's picker and a file dragged from the OS (the headless container
+   has no desktop), a real Node version manager (nvm, fnm, volta, Homebrew) finding the CLI, a
+   rotated relay key reaching the client as `wrong_key` (it looked like `daemon_offline`), and the
+   close-time layout flush (a change in the last ~250 ms before closing is lost; a fix is
+   proposed in the spec). The live runs found and fixed two bugs (the layout of the entry left
+   was written onto the entry switched to; Start on the Daemons screen did not connect) and one
+   in the workbench (an empty link href reloaded the app).
    Not in milestone 1 after all: a native upload picker and native drops with file paths (both
-   wait for the transfer engine).
+   wait for the transfer engine). **Milestone 2 starts with the IPC benchmark** (is ordered,
+   low-overhead binary delivery over Tauri IPC fast enough for terminal traffic); it is in no
+   spec yet.
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte

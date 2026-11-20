@@ -1,7 +1,7 @@
 # Task 001 — Linux acceptance run for the registry, and the platform checklist extended
 
 - **Sprint:** sprint-111-desktop-daemon-registry-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), desktop/docs
 - **Priority:** P1

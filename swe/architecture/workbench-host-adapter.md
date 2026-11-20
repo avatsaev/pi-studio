@@ -1,6 +1,6 @@
 # Architecture — Workbench Host Adapter
 
-> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package**
+> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-package.md](workbench-package.md) (the package this seam belongs to),
@@ -50,13 +50,12 @@ are bounded by existing size ceilings. They are **not** part of the host.
 
 ```ts
 interface WorkbenchHost {
-  app: { title: string; version: string };
+  app: { title: string; version: string; platform?: string; minDaemonVersion?: string };
   storage: KeyValueStore;                       // from @av-pi-studio/ui-library, synchronous
   clipboard: { writeText(text: string): Promise<void> };
   dialogs: {
     confirm(message: string): Promise<boolean>;
     alert(message: string): Promise<void>;
-    prompt(message: string, initial?: string): Promise<string | null>;
   };
   links: { openExternal?(url: string): void };
   launch: {
@@ -79,29 +78,86 @@ interface WorkbenchHost {
     pickUploads?(): Promise<UploadSource[]>;
   };
   pdf?: { createWorker(): Worker; assetBaseUrl: string };
+  preview?: HostPreview;
+  daemons?: HostDaemons;
 }
 
+type HostPreview =
+  | { kind: "origin"; mount(html: string): Promise<{ url: string; release(): void }> }
+  | { kind: "inert" };
+
 createBrowserHost(overrides?: Partial<BrowserHostOptions>): WorkbenchHost
+
+interface BrowserHostOptions {
+  app: AppIdentity;                             // required in practice
+  pdf: HostPdf;
+  saveTarget?: (suggestedName: string) => Promise<SaveTarget | null>;
+}
+
+interface SaveTarget {                          // write per chunk in file order, awaited; then finish once;
+  write(chunk: Uint8Array): Promise<void>;      // on any failure discard once instead, never finish
+  finish(): Promise<void>;
+  discard(): Promise<void>;
+}
+```
+
+`HostDaemons` and its types (optional; the desktop host supplies them, the browser host does not):
+
+```ts
+interface DaemonEntryView { id: string; kind: "local" | "direct" | "relay"; name: string;
+                            address?: string; hasPassword: boolean }   // never a secret
+
+type LocalDaemonState =
+  | { state: "checking" } | { state: "unsupported" }
+  | { state: "cli_missing"; path?: string } | { state: "cli_outdated"; version: string }
+  | { state: "stopped" } | { state: "starting" } | { state: "stopping" }
+  | { state: "running"; host: string; port: number }
+  | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
+
+type NewDaemon =
+  | { kind: "direct"; name: string; address: string; password?: string }
+  | { kind: "relay"; name: string; pairingLink: string };
+interface DaemonPatch { name?: string; address?: string; password?: string | null; pairingLink?: string }
+interface DaemonSettings { autoStartLocalDaemon: boolean; cliPath: string | null }
+
+type DaemonErrorCode = "invalid_name" | "name_taken" | "invalid_address" | "invalid_link" | "too_many"
+  | "not_found" | "wrong_kind" | "local_not_removable" | "unsupported" | "cli_missing" | "cli_outdated"
+  | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed";
+interface DaemonError extends Error { readonly code: DaemonErrorCode }   // message is the code; a type only
+
+interface HostDaemons {
+  snapshot(): { currentId: string | null; entries: DaemonEntryView[]; local: LocalDaemonState;
+                settings: DaemonSettings };                             // synchronous, in memory
+  subscribe(listener: () => void): () => void;
+  resolveCurrent(): Promise<ConnectIntent>;                             // rejects with a DaemonError
+  add(input: NewDaemon): Promise<DaemonEntryView>;
+  update(id: string, patch: DaemonPatch): Promise<DaemonEntryView>;
+  remove(id: string): Promise<void>;                                    // `local_not_removable` for local
+  switchTo(id: string): Promise<void>;                                  // reloads the page; does not resolve on success
+  setSettings(patch: Partial<DaemonSettings>): Promise<void>;
+  local: { start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; refresh(): Promise<void> };
+  onManageRequest(listener: () => void): () => void;
+}
 ```
 
 Supporting types:
 
 | Type | Meaning |
 |---|---|
-| `ConnectIntent` | `{ url: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link |
-| `ConnectTarget` | The result of today's `resolveConnectTarget`: `{ mode: "direct" \| "relay"; url; daemonPublicKey? }` |
-| `UploadSource` | `{ name: string; size?: number }` plus host-private data. The browser host wraps a `File`; a native host wraps a local path. Opaque to the workbench |
+| `ConnectIntent` | `{ url?: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link; every field pre-fills the connection bar |
+| `ConnectTarget` | The result of today's `resolveConnectTarget`: `{ mode: "direct"; url } \| { mode: "relay"; url; daemonPublicKey: Uint8Array }` |
+| `UploadSource` | `{ name: string; readonly size?: number }` plus host-private data. The browser host wraps a `File`; a native host may accept its own kind. Opaque to the workbench, which reads only `name` and `size`; every host must accept a `Blob`, because the workbench makes `File`s itself |
 | `ViewableFile` | `{ url: string; mimeType?: string; fileName?: string; release(): void }` |
 
 ### Member contracts
 
 | Member | Contract |
 |---|---|
-| `app` | Shown in the connection bar. Static for the lifetime of the page |
+| `app` | Shown in the connection bar. Static for the lifetime of the page. `platform` is sent as `hello.platform` (`"desktop"` for the Tauri app; a browser omits it; informational, nothing branches on it). `minDaemonVersion`: when set and the connected daemon's `server_info.version` is lower or absent, the workbench shows one non-blocking notice per connection naming both versions; the browser host does not set it |
 | `storage` | **Synchronous** `get`/`set`. Never throws; a failed write is dropped. A host with asynchronous storage must load into memory before the first render and write behind |
 | `clipboard.writeText` | Rejects on failure. Callers report the failure to the user |
-| `dialogs.*` | Resolve when the user answers. `confirm` resolves `false` and `prompt` resolves `null` on dismissal |
-| `links.openExternal` | Optional. When present, activating an external link calls it and suppresses the default navigation. When absent, the anchor behaves natively |
+| `dialogs.*` | Resolve when the user answers. `confirm` resolves `false` on dismissal. There is no text prompt: session rename is an in-app dialog of the workbench, in both clients, and the host guard test forbids `window.prompt` and `dialogs.prompt` |
+| `links.openExternal` | Optional. Every link the workbench classifies as external (login dialog, messages, Markdown files) goes through it when present, and the default navigation is suppressed; when absent the link opens in a new tab (`target="_blank"`, `rel="noreferrer"`). An empty `href` is not external: the label is drawn as text |
 | `launch.initialConnect` | Read once at boot. `null` means "no intent": show the connection fields. `connect: true` connects immediately; a pairing link always connects |
 | `launch.agentDeepLink.current` | The pending agent id at boot, or `null` |
 | `launch.agentDeepLink.subscribe` | Fires for each later deep-link request while the app is open |
@@ -110,10 +166,12 @@ Supporting types:
 | `connection.timers` | Passed to `ReconnectionManager`. Must keep firing when the window is hidden |
 | `connection.onResume` | Fires when the host believes a stale connection may need checking: the window became visible, the network came back, the machine woke. The workbench decides what to do (`resolveResumeAction`, unchanged) |
 | `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options.onProgress(sent, total?)` is optional. The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005). The workbench then refreshes the explorer listing |
-| `files.saveToDisk` | Saves a daemon file to the user's machine. Where it lands is the host's business. Rejects on failure; resolves without saving if the user cancels a native dialog |
+| `files.saveToDisk` | Saves a daemon file to the user's machine. Where it lands is the host's business: the browser host builds a `Blob` and clicks an anchor, or, when `saveTarget` is given, streams the file into the `SaveTarget` it returns (`null`: the user cancelled, nothing happens) in 8 MiB ranges, one at a time — the first learns size and modification time, later ones send them as `ifUnchanged` — awaiting each `write` in order, then `finish()`; on any failure `discard()` runs once and the original error is rethrown. Rejects on failure; resolves without saving if the user cancels a native dialog |
 | `files.openForView` | Returns a URL a media element, `fetch` or pdf.js can read. The workbench calls `release()` when the URL is superseded or the viewer unmounts |
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
 | `pdf` | Optional. `createWorker` returns a pdf.js worker; `assetBaseUrl` is where the pdf.js data directories are served (trailing slash) |
+| `preview` | Optional. Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled document to `mount` and loads its frame from the returned `url` (same sandbox tokens, never `allow-same-origin`) instead of `srcdoc`; it calls `release` once a newer document replaces it and on unmount; a `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this host; the viewer keeps `srcdoc` and says so. Absent: `srcdoc`, unchanged |
+| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
 
 ### Browser host
 
@@ -123,32 +181,38 @@ Supporting types:
 |---|---|
 | `storage` | `localStorageKvStore` |
 | `clipboard` | Today's `copyText` |
-| `dialogs` | `window.confirm` / `alert` / `prompt`, wrapped in resolved promises |
-| `links` | No `openExternal` |
+| `dialogs` | `window.confirm` / `alert`, wrapped in resolved promises |
+| `links` | No `openExternal`: anchors keep their native `target="_blank"` |
 | `launch` | Today's query and fragment parsing; `hashchange` subscription |
 | `connection.createTransport` | Today's branch: relay transport, bearer-subprotocol socket, or `undefined` |
 | `connection.timers` | Worker timers with the plain-timer fallback |
 | `connection.onResume` | `visibilitychange` (hidden to visible only) and `online` |
-| `files` | Today's in-memory paths over `FileTransferClient` |
+| `files` | Today's in-memory paths over `FileTransferClient`; with the `saveTarget` option, `saveToDisk` streams into it |
 | `pdf` | Not provided by default; `web-client` passes it in `overrides` because only an application can import a `?worker` |
 | `app` | Required override (`title`, `version`) |
+| `preview`, `daemons` | Not provided |
 
-### Amendment — desktop native shell (specified 2026-11-15, not built)
+### The desktop host
 
-[../features/desktop-native-host.md](../features/desktop-native-host.md) and
-[../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) change this
-contract. Until they are built, the shape above is what the code has.
+The desktop app assembles its host from `createBrowserHost({ app, pdf, saveTarget })` plus its own
+members (`apps/pistudiodesktop/src/host/desktop-host.ts`): `storage`, `dialogs`, `links`, `launch`,
+`preview` and `daemons` are replaced or added, and `files` is wrapped to count unfinished
+transfers. Which member comes from where: [../features/desktop-native-host.md](../features/desktop-native-host.md)
+§ Public contract 2. Outside Tauri the desktop frontend uses the plain browser host.
 
-| Change | Kind | Contract |
+### History — the 2026-11-15 amendment, built
+
+Specified for the desktop native shell on 2026-11-15 and built in sprints 103–110; every row is now
+in the contract above. Kept so the reasons are findable.
+
+| Change | Kind | Where it landed |
 |---|---|---|
-| `dialogs.prompt` | **Removed** | Session rename, its only caller, becomes an in-app dialog in both clients. Every host loses the member; the host guard test forbids `window.prompt` and `dialogs.prompt` |
-| `app.minDaemonVersion?: string` | Added, optional | When set and the connected daemon's `server_info.version` is lower or absent, the workbench shows one non-blocking notice per connection. The browser host does not set it |
-| `daemons?: HostDaemons` | Added, optional | A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. Shape and rules: desktop-daemon-registry.md § Public contract 3 |
-| `preview?: HostPreview` | Added, optional | Where the HTML preview's document is loaded from: `{ kind: "origin", mount(html) }` gives a URL on an origin of its own, `{ kind: "inert" }` says scripts cannot run. Absent: the `srcdoc` frame, as today. desktop-native-host.md § HTML preview origin |
-| External links | Behaviour | Every link the workbench classifies as external goes through `links.openExternal` when the host has it, and opens in a new tab otherwise. Today only the login dialog's link does; links in messages replace the page |
-
-The desktop host is assembled from `createBrowserHost()` plus its own members; the table of which
-member comes from where is desktop-native-host.md § Public contract 2.
+| `dialogs.prompt` | Removed | Sprint-104: session rename became the in-app `RenameSessionDialog` in both clients |
+| `app.minDaemonVersion?: string` | Added, optional | Sprint-109 (the app sets it to `0.0.119`); the notice, sprint-110 |
+| `daemons?: HostDaemons` | Added, optional | Types and an in-memory test registry sprint-109; consumed by the connection bar, the Daemons screen and connection boot in sprint-110 |
+| `preview?: HostPreview` | Added, optional | Sprint-105 |
+| External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
+| `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |
 
 ## Behavior & algorithms
 
@@ -171,9 +235,9 @@ Code that runs before any provider (tests, mostly) gets the browser host lazily.
 
 ### Dialog call sites
 
-The 21 `window.confirm`/`alert`/`prompt` call sites become awaited host calls. Each already sits in
-an event handler that is, or can become, asynchronous. Behaviour in the browser is unchanged: same
-text, same blocking native dialog.
+The `window.confirm`/`alert` call sites become awaited host calls. Each already sits in an event
+handler that is, or can become, asynchronous. Behaviour in the browser is unchanged: same text,
+same blocking native dialog. The one `window.prompt` (session rename) became an in-app dialog.
 
 ### View URLs
 
@@ -258,11 +322,11 @@ Checked in sprint 093 task-007 (2026-11-14); evidence in that task's summary and
 
 ## TODO(verify)
 
-- **Dialogs in a Tauri webview.** Whether `window.confirm`/`alert`/`prompt` work in the system
-  webviews Tauri uses is not verified. The host seam is needed either way; verify in the desktop
-  repository.
-- **`target="_blank"` in a Tauri webview.** Not verified to open the system browser. This is why
-  `links.openExternal` exists.
+- ~~**Dialogs in a Tauri webview.**~~ Resolved (sprint-104, Linux): the desktop host's `confirm` and
+  `alert` are native dialogs (Rust), the page keeps answering while one is open, and rename is an
+  in-app dialog. Not run on macOS or Windows (`desktop/docs/platform-checks.md` N5).
+- ~~**`target="_blank"` in a Tauri webview.**~~ Resolved by not relying on it: the desktop host's
+  `links.openExternal` opens the system browser after a scheme check in Rust (sprint-104, Linux).
 - ~~**`UploadSource` for drag-and-drop.**~~ Resolved in sprint 093 (task-005): the explorer has one
   upload path, `features/files/upload-sources.ts`'s `uploadSources(dir, sources, deps)`, fed by
   the file input and a DOM drop (both `File`s) or by `files.pickUploads()`. A native host that

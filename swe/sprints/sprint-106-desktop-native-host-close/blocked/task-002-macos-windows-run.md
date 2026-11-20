@@ -1,7 +1,7 @@
 # Task 002 — macOS and Windows: run the platform checklist
 
 - **Sprint:** sprint-106-desktop-native-host-close
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** test
 - **Area:** desktop (installers on real machines)
 - **Priority:** P2
@@ -44,3 +44,6 @@ The development machine is Linux. No part of the desktop app has ever run on mac
 ## Notes
 - Not a dependency of task-003: the spec can be closed for Linux with the macOS and Windows criteria left open and pointing here.
 - macOS runs unsigned downloads only after the user allows the app in System Settings; Windows shows a SmartScreen warning.
+
+## Blocker
+Needs a person with a Mac and a Windows machine. The development machine is Linux, and nothing can be run on the other two webviews from here. The checklist (`desktop/docs/platform-checks.md`) is ready; the engineer starts a manual Desktop release run, installs the artifacts and fills in the results table. Unblock when the table has dated rows for macOS and Windows.

@@ -1,8 +1,9 @@
 # Control protocol
 
 What a frontend or automation can ask of a running Pi Studio. The methods are implemented in
-`crates/shell/src/control.rs` (`handle`), which has no transport: the desktop app feeds it from the
-webview and from a loopback socket, and tests call it directly.
+`crates/shell/src/control.rs` (`handle`), which has no transport: the desktop app feeds it from a
+loopback socket, and tests call it directly. The webview does not use it; it has its own commands
+(`architecture.md` § The webview boundary).
 
 ## From outside: the loopback socket
 

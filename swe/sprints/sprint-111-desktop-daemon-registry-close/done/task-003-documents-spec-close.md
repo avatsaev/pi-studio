@@ -1,7 +1,7 @@
 # Task 003 — Documents and spec close for the registry; milestone 1 closed
 
 - **Sprint:** sprint-111-desktop-daemon-registry-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** swe (specs, MAIN-SCOPE, PLAN), desktop documents, root AGENTS.md, packages/workbench and packages/cli documents, docs/desktop-client-handoff.md
 - **Priority:** P1
