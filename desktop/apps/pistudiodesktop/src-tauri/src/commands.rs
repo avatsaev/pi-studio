@@ -1,9 +1,9 @@
-//! What the webview may call: nine commands, and nothing else of the app is reachable from it.
+//! What the webview may call: ten commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
-//! `allow-save-finish` and `allow-save-discard` to the main window. A command missing from either
+//! `allow-save-finish`, `allow-save-discard` and `allow-transfers-set` to the main window. A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
 //! the page can reach.
 // `#[tauri::command]` generates code beside each function that names `unreachable!`. This module
@@ -19,11 +19,14 @@ use tauri::ipc::InvokeBody;
 use tauri::{State, ipc};
 
 use crate::bridge::Bridge;
+use crate::transfers::Transfers;
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
 /// key, and the notices about files that were reset (handed out once).
 #[tauri::command]
-pub async fn boot(bridge: State<'_, Bridge>) -> Result<Value, String> {
+pub async fn boot(bridge: State<'_, Bridge>, transfers: State<'_, Transfers>) -> Result<Value, String> {
+    // A reloaded page has no transfers running, whatever the old one last said.
+    transfers.set(0);
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
 
@@ -108,6 +111,13 @@ pub async fn save_finish(saves: State<'_, Arc<Saves>>, handle: String) -> Result
 pub async fn save_discard(saves: State<'_, Arc<Saves>>, handle: String) -> Result<(), String> {
     let saves = Arc::clone(&saves);
     off_thread(move || saves.discard(&handle)).await?.map_err(|e| e.to_string())
+}
+
+/// The page's count of file transfers (uploads and saves) that have not settled. Closing the window
+/// asks first while it is above zero. A hint from the page: a wrong number only causes or skips a question.
+#[tauri::command]
+pub fn transfers_set(transfers: State<'_, Transfers>, count: usize) {
+    transfers.set(count);
 }
 
 /// Run `work` with the services on a thread of the blocking pool. A dialog hook waits for the user,

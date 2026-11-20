@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use pistudiodesktop_model::{EntryId, EntryView, LimitError, LocalState, NewEntry, Registry, Settings, Update};
 use serde_json::{Map, Value};
 
+use crate::local::LocalQueue;
 use crate::storage::Storage;
 use crate::{EngineError, Result, commands, params};
 
@@ -13,12 +14,13 @@ use crate::{EngineError, Result, commands, params};
 pub struct Session {
     storage: Storage,
     local: LocalState,
+    pub(crate) local_queue: LocalQueue,
     changed: bool,
 }
 
 impl Default for Session {
     fn default() -> Self {
-        Session { storage: Storage::default(), local: LocalState::Checking, changed: false }
+        Session { storage: Storage::default(), local: LocalState::Checking, local_queue: LocalQueue::default(), changed: false }
     }
 }
 
@@ -71,6 +73,10 @@ impl Session {
     /// `None` only after the current entry was removed, until a switch.
     pub fn current_entry_id(&self) -> Option<&EntryId> {
         self.storage.current()
+    }
+
+    pub(crate) fn mark_changed(&mut self) {
+        self.changed = true;
     }
 
     /// Whether the registry view or the local state changed since this was last asked.

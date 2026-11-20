@@ -9,6 +9,7 @@
 pub mod commands;
 mod daemon_cmds;
 mod error;
+mod local;
 pub mod params;
 mod query_cmds;
 mod session;
@@ -17,5 +18,6 @@ mod storage;
 
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
+pub use local::{Dial, LocalRequest};
 pub use session::Session;
 pub use storage::Notice;

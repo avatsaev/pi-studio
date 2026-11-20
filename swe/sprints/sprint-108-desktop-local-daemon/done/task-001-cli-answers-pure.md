@@ -1,7 +1,7 @@
 # Task 001 — Reading the `pi-studio` CLI's answers (pure functions)
 
 - **Sprint:** sprint-108-desktop-local-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell
 - **Priority:** P1

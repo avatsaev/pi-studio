@@ -20,6 +20,7 @@ mod control_server;
 mod crash_guard;
 mod logging;
 mod services;
+mod transfers;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -92,6 +93,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
         .manage(bridge::Bridge::new(requests))
+        .manage(transfers::Transfers::default())
+        .on_window_event(transfers::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
             commands::storage_set,
@@ -101,7 +104,8 @@ fn main() {
             commands::save_begin,
             commands::save_write,
             commands::save_finish,
-            commands::save_discard
+            commands::save_discard,
+            commands::transfers_set
         ])
         .build(tauri::generate_context!())
     {

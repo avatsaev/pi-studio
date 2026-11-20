@@ -44,6 +44,25 @@ pub fn boot(app: &mut AppShell) -> Value {
     })
 }
 
+/// What closing the window does, given the page's count of file transfers still running.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloseDecision {
+    /// Nothing is running: close.
+    Close,
+    /// Transfers are running: ask first, with this text. "No" keeps the window open.
+    Ask(String),
+}
+
+/// The close decision for `transfers` running file transfers. The count is the page's hint, not a
+/// security boundary: a wrong number can only cause or skip a question.
+pub fn close_decision(transfers: usize) -> CloseDecision {
+    match transfers {
+        0 => CloseDecision::Close,
+        1 => CloseDecision::Ask("1 file transfer is still running. Quit anyway?".into()),
+        n => CloseDecision::Ask(format!("{n} file transfers are still running. Quit anyway?")),
+    }
+}
+
 /// Store one workbench key in memory; the owner loop writes it soon (`owner::serve`). A key or
 /// value over the model's caps is refused, and the error says which cap (never the value).
 pub fn storage_set(app: &mut AppShell, key: &str, value: &str) -> Result<Value, String> {
@@ -65,6 +84,13 @@ mod tests {
 
     fn app() -> AppShell {
         AppShell::new(Session::new(), Services::default())
+    }
+
+    #[test]
+    fn closing_asks_with_the_count_only_while_transfers_run() {
+        assert_eq!(close_decision(0), CloseDecision::Close);
+        assert_eq!(close_decision(1), CloseDecision::Ask("1 file transfer is still running. Quit anyway?".into()));
+        assert_eq!(close_decision(3), CloseDecision::Ask("3 file transfers are still running. Quit anyway?".into()));
     }
 
     #[test]

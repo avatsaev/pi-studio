@@ -1,7 +1,7 @@
 # Task 003 — Engine: local daemon state and the `daemon.local.*` commands
 
 - **Sprint:** sprint-108-desktop-local-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1

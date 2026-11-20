@@ -51,7 +51,23 @@ fn the_control_protocol_drives_and_inspects_the_app() {
     assert_eq!(call(&mut app, "engine.execute", json!({}))["error"], "missing `command`");
     let listed = call(&mut app, "engine.commands", Value::Null);
     let ids: Vec<&str> = listed["result"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
-    assert_eq!(ids, ["daemon.list", "daemon.switch", "daemon.add", "daemon.update", "daemon.remove", "command.list", "settings.get", "settings.set"]);
+    assert_eq!(
+        ids,
+        [
+            "daemon.list",
+            "daemon.switch",
+            "daemon.add",
+            "daemon.update",
+            "daemon.remove",
+            "daemon.local.start",
+            "daemon.local.stop",
+            "daemon.local.restart",
+            "daemon.local.refresh",
+            "command.list",
+            "settings.get",
+            "settings.set",
+        ]
+    );
 }
 
 #[test]

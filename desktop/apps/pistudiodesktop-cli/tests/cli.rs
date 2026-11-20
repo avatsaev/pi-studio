@@ -54,7 +54,23 @@ fn commands_lists_the_registry() {
     let (ok, out, _) = cli(&["commands"]);
     assert!(ok);
     let ids: Vec<String> = out.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["id"].as_str().unwrap().to_owned()).collect();
-    assert_eq!(ids, ["daemon.list", "daemon.switch", "daemon.add", "daemon.update", "daemon.remove", "command.list", "settings.get", "settings.set"]);
+    assert_eq!(
+        ids,
+        [
+            "daemon.list",
+            "daemon.switch",
+            "daemon.add",
+            "daemon.update",
+            "daemon.remove",
+            "daemon.local.start",
+            "daemon.local.stop",
+            "daemon.local.restart",
+            "daemon.local.refresh",
+            "command.list",
+            "settings.get",
+            "settings.set",
+        ]
+    );
     let (ok, out, _) = cli(&["commands", "--filter", "settings.set"]);
     assert!(ok);
     let entry: Value = serde_json::from_str(out.lines().next().unwrap()).unwrap();

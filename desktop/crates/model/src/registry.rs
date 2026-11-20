@@ -366,6 +366,18 @@ pub enum FailReason {
     SpawnFailed,
 }
 
+impl FailReason {
+    /// The code a rejected `resolveCurrent` carries.
+    pub fn code(self) -> &'static str {
+        match self {
+            FailReason::NotHealthy => "not_healthy",
+            FailReason::Timeout => "timeout",
+            FailReason::BadOutput => "bad_output",
+            FailReason::SpawnFailed => "spawn_failed",
+        }
+    }
+}
+
 /// The local daemon's state. JSON form: `{ "state": "...", ... }`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]

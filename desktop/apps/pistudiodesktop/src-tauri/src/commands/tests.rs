@@ -16,7 +16,7 @@ use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
 use tauri::webview::InvokeRequest;
 use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use super::{boot, dialog_alert, dialog_confirm, open_external, save_begin, save_discard, save_finish, save_write, storage_set, unwrap_reply};
+use super::{boot, dialog_alert, dialog_confirm, open_external, save_begin, save_discard, save_finish, save_write, storage_set, transfers_set, unwrap_reply};
 use crate::bridge::{Bridge, on_run_event, spawn_owner};
 use crate::services::opener_plugin;
 
@@ -38,6 +38,7 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
         .plugin(opener_plugin())
         .manage(Bridge::new(requests))
         .manage(services.clone())
+        .manage(crate::transfers::Transfers::default())
         .manage(Arc::new(Saves::open(config_dir, None)))
         .invoke_handler(tauri::generate_handler![
             boot,
@@ -49,6 +50,7 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
             save_write,
             save_finish,
             save_discard,
+            transfers_set,
             unlisted
         ])
         .build(tauri::generate_context!())
@@ -345,7 +347,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_nine_commands_and_no_plug_in_or_core_permission() {
+fn the_capability_grants_the_ten_commands_and_no_plug_in_or_core_permission() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -359,7 +361,8 @@ fn the_capability_grants_the_nine_commands_and_no_plug_in_or_core_permission() {
             "allow-save-begin",
             "allow-save-write",
             "allow-save-finish",
-            "allow-save-discard"
+            "allow-save-discard",
+            "allow-transfers-set"
         ])
     );
 }
@@ -461,6 +464,19 @@ fn a_chunk_over_sixteen_mebibytes_and_a_malformed_chunk_call_are_refused() {
     {
         assert!(invoke(&window, command, body.clone()).is_err(), "{command} {body}");
     }
+}
+
+#[test]
+fn the_page_reports_its_transfer_count_and_boot_resets_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let transfers = app.state::<crate::transfers::Transfers>();
+    assert_eq!(invoke(&window, "transfers_set", json!({"count": 2})).unwrap(), Value::Null);
+    assert_eq!(transfers.get(), 2);
+    assert!(invoke(&window, "transfers_set", json!({"count": -1})).is_err());
+    assert!(invoke(&window, "transfers_set", json!({})).is_err());
+    invoke(&window, "boot", json!({})).unwrap();
+    assert_eq!(transfers.get(), 0);
 }
 
 #[test]

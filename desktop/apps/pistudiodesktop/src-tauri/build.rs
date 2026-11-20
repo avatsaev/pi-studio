@@ -13,6 +13,7 @@ fn main() {
         "save_write",
         "save_finish",
         "save_discard",
+        "transfers_set",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
         eprintln!("pistudiodesktop: build script failed: {e:#}");

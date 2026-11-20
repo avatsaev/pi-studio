@@ -2,6 +2,7 @@ import { createBrowserHost, type BrowserHostOptions, type WorkbenchHost } from "
 
 import { type BootSnapshot } from "./boot.js";
 import { type Ipc } from "./ipc.js";
+import { createSaveTarget, countTransfers } from "./transfers.js";
 import { createNativeDialogs, createNativeLinks } from "./native.js";
 import { createDesktopStorage } from "./storage.js";
 
@@ -23,8 +24,12 @@ export function createDesktopHost(
     (key, value) => ipc.invoke("storage_set", { key, value }),
     log,
   );
+  const base = createBrowserHost({ app: snapshot.app, pdf, saveTarget: createSaveTarget(ipc) });
   return {
-    ...createBrowserHost({ app: snapshot.app, pdf }),
+    ...base,
+    files: countTransfers(base.files, (count) => {
+      ipc.invoke("transfers_set", { count }).catch((error: unknown) => log("transfers_set failed", error));
+    }),
     storage,
     dialogs: createNativeDialogs(ipc, log),
     links: createNativeLinks(ipc, log),
