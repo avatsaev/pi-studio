@@ -15,6 +15,9 @@
 //!
 //! Saving a file to disk ([`saves`]) is the one thing here that writes the user's files: Rust owns the
 //! destination and the page holds only a handle.
+//!
+//! The HTML documents the page previews ([`preview`]) are held in memory and served to the webview
+//! from a custom scheme of the app, so their scripts can run in a frame isolated from the page.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -26,6 +29,7 @@ pub mod menus;
 pub mod navigation;
 pub mod owner;
 pub mod page;
+pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod saves;
 pub mod services;

@@ -19,6 +19,7 @@ mod commands;
 mod control_server;
 mod crash_guard;
 mod logging;
+mod preview_scheme;
 mod services;
 mod transfers;
 
@@ -30,6 +31,7 @@ use clap::Parser;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
+use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use tauri::Manager as _;
 
@@ -94,6 +96,10 @@ fn main() {
         .plugin(services::opener_plugin())
         .manage(bridge::Bridge::new(requests))
         .manage(transfers::Transfers::default())
+        // The preview origin: documents the page mounts are served from this scheme, and the
+        // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
+        .manage(Previews::default())
+        .register_uri_scheme_protocol(preview::SCHEME, preview_scheme::handle)
         .on_window_event(transfers::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
@@ -105,7 +111,9 @@ fn main() {
             commands::save_write,
             commands::save_finish,
             commands::save_discard,
-            commands::transfers_set
+            commands::transfers_set,
+            commands::preview_mount,
+            commands::preview_release
         ])
         .build(tauri::generate_context!())
     {

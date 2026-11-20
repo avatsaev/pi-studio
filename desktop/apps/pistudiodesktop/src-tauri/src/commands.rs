@@ -1,9 +1,10 @@
-//! What the webview may call: ten commands, and nothing else of the app is reachable from it.
+//! What the webview may call: twelve commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
-//! `allow-save-finish`, `allow-save-discard` and `allow-transfers-set` to the main window. A command missing from either
+//! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount` and
+//! `allow-preview-release` to the main window. A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
 //! the page can reach.
 // `#[tauri::command]` generates code beside each function that names `unreachable!`. This module
@@ -12,6 +13,7 @@
 
 use std::sync::Arc;
 
+use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::{MAX_WRITE_BYTES, SaveError, Saves};
 use pistudiodesktop_shell::{Request, Services, dialogs, links};
 use serde_json::{Value, json};
@@ -22,11 +24,14 @@ use crate::bridge::Bridge;
 use crate::transfers::Transfers;
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
-/// key, and the notices about files that were reset (handed out once).
+/// key, the notices about files that were reset (handed out once), and whether previewed documents
+/// can run scripts on this platform (`preview`).
 #[tauri::command]
-pub async fn boot(bridge: State<'_, Bridge>, transfers: State<'_, Transfers>) -> Result<Value, String> {
-    // A reloaded page has no transfers running, whatever the old one last said.
+pub async fn boot(bridge: State<'_, Bridge>, transfers: State<'_, Transfers>, previews: State<'_, Previews>) -> Result<Value, String> {
+    // A reloaded page has no transfers running, whatever the old one last said, and holds none of
+    // the preview URLs it was given: the documents do not outlive it.
     transfers.set(0);
+    previews.clear();
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
 
@@ -118,6 +123,24 @@ pub async fn save_discard(saves: State<'_, Arc<Saves>>, handle: String) -> Resul
 #[tauri::command]
 pub fn transfers_set(transfers: State<'_, Transfers>, count: usize) {
     transfers.set(count);
+}
+
+/// Mount an HTML document for preview. Answers `{ "url": … }`, the address the document is served
+/// from on the app's preview origin; a frame loads it as `<iframe sandbox="allow-scripts" src=…>`.
+/// An error on a platform that cannot serve previews from an origin (the page keeps its `srcdoc`
+/// frame), and when 32 documents or 32 MiB in total are already mounted. The document is never logged.
+///
+/// Not `async`: queueing a document is a map insert. The page mounts, then releases.
+#[tauri::command]
+pub fn preview_mount(previews: State<'_, Previews>, html: String) -> Result<Value, String> {
+    let id = previews.mount(html).map_err(|e| e.to_string())?;
+    Ok(json!({ "url": preview::url_for(&id) }))
+}
+
+/// Drop a mounted document by the URL [`preview_mount`] answered. An unknown URL is ignored.
+#[tauri::command]
+pub fn preview_release(previews: State<'_, Previews>, url: String) {
+    previews.release_url(&url);
 }
 
 /// Run `work` with the services on a thread of the blocking pool. A dialog hook waits for the user,

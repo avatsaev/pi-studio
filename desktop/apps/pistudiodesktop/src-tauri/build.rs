@@ -14,6 +14,8 @@ fn main() {
         "save_finish",
         "save_discard",
         "transfers_set",
+        "preview_mount",
+        "preview_release",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
         eprintln!("pistudiodesktop: build script failed: {e:#}");

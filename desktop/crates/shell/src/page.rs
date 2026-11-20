@@ -5,7 +5,7 @@
 use pistudiodesktop_engine::Notice;
 use serde_json::{Value, json};
 
-use crate::AppShell;
+use crate::{AppShell, preview};
 
 /// The platform the page is told it runs on.
 pub const PLATFORM: &str = "desktop";
@@ -30,7 +30,8 @@ impl Default for AppInfo {
 /// ```text
 /// { app: { title, version, platform: "desktop" },
 ///   storage: { [key]: string },                       the global keys and the current entry's
-///   notices: [ { kind: "file_reset", file, keptAs } ] }
+///   notices: [ { kind: "file_reset", file, keptAs } ],
+///   preview: "origin" | "inert" }                     whether a previewed document's scripts can run
 /// ```
 ///
 /// The notices are handed out once: this call clears them, so a page reload does not show them
@@ -41,6 +42,7 @@ pub fn boot(app: &mut AppShell) -> Value {
         "app": { "title": app.info.title, "version": app.info.version, "platform": PLATFORM },
         "storage": app.session.storage_snapshot(),
         "notices": notices,
+        "preview": preview::kind().as_str(),
     })
 }
 
@@ -97,7 +99,11 @@ mod tests {
     fn boot_names_the_app_and_the_platform_and_starts_with_nothing_stored() {
         let mut app = app();
         app.info = AppInfo { title: "Pi Studio".into(), version: "1.2.3".into() };
-        assert_eq!(boot(&mut app), json!({"app": {"title": "Pi Studio", "version": "1.2.3", "platform": "desktop"}, "storage": {}, "notices": []}));
+        let expected_preview = preview::kind().as_str();
+        assert_eq!(
+            boot(&mut app),
+            json!({"app": {"title": "Pi Studio", "version": "1.2.3", "platform": "desktop"}, "storage": {}, "notices": [], "preview": expected_preview})
+        );
     }
 
     #[test]

@@ -28,7 +28,8 @@
         "img-src": ["'self'", "data:", "blob:"],
         "media-src": ["'self'", "blob:"],
         "font-src": ["'self'", "data:"],
-        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws:", "wss:", "blob:"]
+        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws:", "wss:", "blob:"],
+        "frame-src": ["pi-preview:"]
       }
     }
   },

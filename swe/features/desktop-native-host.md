@@ -393,7 +393,12 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
   window's `frame-src` accepts that scheme in each platform's URL form, and whether the app's
   command channel is really unreachable from it. Run it first; each platform gets `"origin"` or
   `"inert"` from the result. Linux can be tried on the development machine; macOS and Windows
-  need a person or a CI job.
+  need a person or a CI job. *Linux, 2026-11-20 (sprint-105/task-001,
+  `swe/notes/desktop-preview-origin-spike.md`): **"origin"** — scripts run, the frame is isolated
+  (opaque origin, no parent, no storage, no popups, no `__TAURI_INTERNALS__`; `ipc://` answers
+  "missing Tauri-Invoke-Key" when the blocking tag is off). Needs `frame-src pi-preview:` and the
+  scheme admitted by the navigation rule (WebKitGTK runs `on_navigation` for subframes). macOS and
+  Windows not measured → "inert".*
 - **Clipboard in the webview.** `navigator.clipboard.writeText` needs a secure context and, in
   some webviews, a user gesture. The browser host's fallback may cover it. If it fails on a
   platform, back `clipboard` with Rust on that platform. *Linux, 2026-11-20: "Copy Absolute Path"

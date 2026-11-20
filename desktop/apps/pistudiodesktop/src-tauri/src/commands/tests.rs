@@ -7,6 +7,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::{AppInfo, Services};
 use serde_json::{Value, json};
@@ -16,7 +17,10 @@ use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
 use tauri::webview::InvokeRequest;
 use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use super::{boot, dialog_alert, dialog_confirm, open_external, save_begin, save_discard, save_finish, save_write, storage_set, transfers_set, unwrap_reply};
+use super::{
+    boot, dialog_alert, dialog_confirm, open_external, preview_mount, preview_release, save_begin, save_discard, save_finish, save_write, storage_set,
+    transfers_set, unwrap_reply,
+};
 use crate::bridge::{Bridge, on_run_event, spawn_owner};
 use crate::services::opener_plugin;
 
@@ -39,6 +43,8 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
         .manage(Bridge::new(requests))
         .manage(services.clone())
         .manage(crate::transfers::Transfers::default())
+        .manage(Previews::default())
+        .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
         .invoke_handler(tauri::generate_handler![
             boot,
@@ -51,6 +57,8 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
             save_finish,
             save_discard,
             transfers_set,
+            preview_mount,
+            preview_release,
             unlisted
         ])
         .build(tauri::generate_context!())
@@ -111,7 +119,10 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     let (app, window) = app_on(dir.path());
 
     let first = invoke(&window, "boot", json!({})).unwrap();
-    assert_eq!(first, json!({"app": {"title": "Pi Studio", "version": "9.9.9", "platform": "desktop"}, "storage": {}, "notices": []}));
+    assert_eq!(
+        first,
+        json!({"app": {"title": "Pi Studio", "version": "9.9.9", "platform": "desktop"}, "storage": {}, "notices": [], "preview": preview::kind().as_str()})
+    );
 
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "{\"a\":1}"})).unwrap(), Value::Null);
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-appearance", "value": "dark"})).unwrap(), Value::Null);
@@ -347,7 +358,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_ten_commands_and_no_plug_in_or_core_permission() {
+fn the_capability_grants_the_twelve_commands_and_no_plug_in_or_core_permission() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -362,7 +373,9 @@ fn the_capability_grants_the_ten_commands_and_no_plug_in_or_core_permission() {
             "allow-save-write",
             "allow-save-finish",
             "allow-save-discard",
-            "allow-transfers-set"
+            "allow-transfers-set",
+            "allow-preview-mount",
+            "allow-preview-release"
         ])
     );
 }
@@ -477,6 +490,153 @@ fn the_page_reports_its_transfer_count_and_boot_resets_it() {
     assert!(invoke(&window, "transfers_set", json!({})).is_err());
     invoke(&window, "boot", json!({})).unwrap();
     assert_eq!(transfers.get(), 0);
+}
+
+/// The path of a preview URL, for the scheme handler.
+fn path_of(url: &str) -> String {
+    format!("/{}", preview::id_of(url).unwrap())
+}
+
+fn mounted_url(window: &WebviewWindow<MockRuntime>, html: &str) -> Result<String, Value> {
+    invoke(window, "preview_mount", json!({"html": html})).map(|answer| answer["url"].as_str().unwrap().to_string())
+}
+
+#[test]
+fn the_boot_snapshot_says_whether_previews_run_scripts_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(dir.path());
+    let snapshot = invoke(&window, "boot", json!({})).unwrap();
+    let expected = if cfg!(target_os = "linux") { "origin" } else { "inert" };
+    assert_eq!(snapshot["preview"], expected, "only the platforms the spike measured are `origin`");
+}
+
+#[test]
+fn the_page_mounts_a_document_gets_its_url_and_releases_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let previews = app.state::<Previews>();
+    if preview::kind() == preview::Kind::Inert {
+        let refused = rejection(invoke(&window, "preview_mount", json!({"html": "<p>hi</p>"})));
+        assert!(refused.contains("not supported on this platform"), "{refused}");
+        assert!(previews.is_empty());
+        return;
+    }
+    let url = mounted_url(&window, "<script>1</script>").unwrap();
+    assert!(url.starts_with("pi-preview://localhost/"), "{url}");
+    assert_eq!(url.len(), "pi-preview://localhost/".len() + 32);
+    let served = previews.serve("GET", &path_of(&url));
+    assert_eq!((served.status, served.body.as_slice()), (200, &b"<script>1</script>"[..]), "the scheme handler's core serves it");
+
+    assert_eq!(invoke(&window, "preview_release", json!({"url": "https://example.com/"})).unwrap(), Value::Null);
+    assert_eq!(invoke(&window, "preview_release", json!({"url": "pi-preview://localhost/ffffffffffffffffffffffffffffffff"})).unwrap(), Value::Null);
+    assert_eq!(previews.len(), 1, "an unknown URL is ignored");
+    assert_eq!(invoke(&window, "preview_release", json!({"url": url})).unwrap(), Value::Null);
+    assert_eq!(previews.serve("GET", &path_of(&url)).status, 404, "a released URL answers 404");
+    assert!(previews.is_empty());
+}
+
+#[test]
+fn a_url_from_before_boot_answers_404() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    if preview::kind() == preview::Kind::Inert {
+        return;
+    }
+    let url = mounted_url(&window, "<p>hi</p>").unwrap();
+    assert_eq!(app.state::<Previews>().serve("GET", &path_of(&url)).status, 200);
+    invoke(&window, "boot", json!({})).unwrap();
+    assert_eq!(app.state::<Previews>().serve("GET", &path_of(&url)).status, 404, "the page reloaded: its documents are gone");
+    assert!(app.state::<Previews>().is_empty());
+}
+
+#[test]
+fn a_mount_past_32_documents_or_32_mib_is_an_error_through_the_page_and_nothing_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    if preview::kind() == preview::Kind::Inert {
+        return;
+    }
+    let first = mounted_url(&window, "0").unwrap();
+    for n in 1..preview::MAX_DOCUMENTS {
+        mounted_url(&window, &n.to_string()).unwrap();
+    }
+    let refused = rejection(invoke(&window, "preview_mount", json!({"html": "one too many"})));
+    assert!(refused.contains("32 previews"), "{refused}");
+    assert!(!refused.contains("one too many"), "the document is not echoed");
+    invoke(&window, "preview_release", json!({"url": first})).unwrap();
+    assert!(mounted_url(&window, "fits again").is_ok(), "released space is reusable");
+    assert_eq!(app.state::<Previews>().len(), preview::MAX_DOCUMENTS);
+
+    invoke(&window, "boot", json!({})).unwrap();
+    let refused = rejection(invoke(&window, "preview_mount", json!({"html": "a".repeat(preview::MAX_BYTES + 1)})));
+    assert!(refused.contains("32 MiB"), "{refused}");
+    assert!(app.state::<Previews>().is_empty());
+}
+
+#[test]
+fn a_preview_call_with_the_wrong_arguments_is_an_error_not_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(dir.path());
+    assert!(invoke(&window, "preview_mount", json!({})).is_err());
+    assert!(invoke(&window, "preview_mount", json!({"html": 1})).is_err());
+    assert!(invoke(&window, "preview_release", json!({})).is_err());
+    assert!(invoke(&window, "preview_release", json!({"url": null})).is_err());
+    assert!(invoke(&window, "boot", json!({})).is_ok(), "and the app still answers");
+}
+
+/// What a frame loaded from the preview origin could do. The frame is not given the page's
+/// `__TAURI_INTERNALS__` (the spike saw it `undefined`), so it cannot learn the invoke key; the
+/// native side drops a call without the right key before anything runs. Tauri counts a registered
+/// custom scheme as a local origin for permissions, so this key is the one barrier between the
+/// preview origin and the page's twelve commands: nothing in a capability names the origin.
+#[test]
+fn a_call_from_the_preview_origin_without_the_invoke_key_is_dropped_and_runs_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let origin_url = preview::url_for(&"0".repeat(32));
+    // Whether a call from the preview origin with this key got an answer.
+    let answered = |cmd: &str, key: &str| {
+        let request = InvokeRequest {
+            cmd: cmd.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: origin_url.parse().unwrap(),
+            body: InvokeBody::Json(json!({"html": "<p>x</p>", "key": "k", "value": "v", "message": "m", "url": "https://example.com/", "suggestedName": "a"})),
+            headers: HeaderMap::new(),
+            invoke_key: key.to_string(),
+        };
+        let (sender, answers) = channel();
+        window.as_ref().clone().on_message(
+            request,
+            Box::new(move |_window, _cmd, response, _callback, _error| {
+                let _ = sender.send(response);
+            }),
+        );
+        answers.recv_timeout(Duration::from_millis(200)).is_ok()
+    };
+    for key in ["", "guessed", "__invoke-key__ "] {
+        for cmd in ["preview_mount", "storage_set", "dialog_confirm", "open_external", "save_begin"] {
+            assert!(!answered(cmd, key), "{cmd} with key {key:?} must get no answer: it is dropped, not run");
+        }
+    }
+    // The control: the same call with the key the page holds is answered, so the drops above are the key's doing.
+    assert!(answered("preview_release", INVOKE_KEY), "the key is what separates the page from the frame");
+    assert!(app.state::<Previews>().is_empty(), "nothing was mounted");
+    assert_eq!(invoke(&window, "boot", json!({})).unwrap()["storage"], json!({}), "and nothing was stored");
+}
+
+#[test]
+fn the_preview_origin_appears_in_no_capability() {
+    let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
+    assert!(capability.get("remote").is_none(), "no remote-origin grant");
+    assert_eq!(capability["windows"], json!(["main"]), "the only window is the app's own");
+    let dir = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities")).unwrap();
+    let files: Vec<_> = dir.map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(files.len(), 1, "one capability file: {files:?}");
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("pi-preview") && !text.contains(".localhost"), "{}", file.display());
+    }
 }
 
 #[test]

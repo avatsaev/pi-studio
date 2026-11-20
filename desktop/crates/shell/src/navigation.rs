@@ -1,9 +1,14 @@
-//! The navigation rule: the main frame may load only the app's own origin.
+//! The navigation rule: a webview may load only the app's own origin, and the preview origin.
 //!
-//! The origin's form differs per platform: `tauri://localhost` on macOS and Linux,
+//! The app's origin's form differs per platform: `tauri://localhost` on macOS and Linux,
 //! `http://tauri.localhost` (or `https://`, when the window is set to use it) on Windows. In a
-//! development build the dev server's origin is allowed too. Everything else (another site, a
-//! `file:` URL, `about:blank`, a look-alike host) is refused. Frames are not covered.
+//! development build the dev server's origin is allowed too. The preview origin
+//! ([`crate::preview`], `pi-preview://localhost`) is admitted because WebKitGTK runs this rule for
+//! subframes as well, and would otherwise leave the preview frame blank; a preview document loaded
+//! as the main frame is still isolated, because its own response headers sandbox it. Everything
+//! else (another site, a `file:` URL, `about:blank`, a look-alike host) is refused.
+
+use crate::preview::{HOST, SCHEME};
 
 /// The parts of a URL the rule looks at.
 struct Origin<'a> {
@@ -35,7 +40,7 @@ pub fn allows(url: &str, dev_origin: Option<&str>) -> bool {
     let own = target.port.is_none()
         && matches!(
             (target.scheme.to_ascii_lowercase().as_str(), target.host.to_ascii_lowercase().as_str()),
-            ("tauri", "localhost") | ("http" | "https", "tauri.localhost")
+            ("tauri", "localhost") | ("http" | "https", "tauri.localhost") | (SCHEME, HOST)
         );
     own || dev_origin
         .and_then(origin)
@@ -57,6 +62,13 @@ mod tests {
     #[test]
     fn accepts_the_app_origin_on_each_platform() {
         for url in ["tauri://localhost", "tauri://localhost/", "tauri://localhost/index.html?x=1#y", "http://tauri.localhost/", "https://tauri.localhost/a"] {
+            assert!(allows(url, None), "{url}");
+        }
+    }
+
+    #[test]
+    fn accepts_the_preview_origin_for_subframes() {
+        for url in ["pi-preview://localhost/0123456789abcdef0123456789abcdef", "pi-preview://localhost", "PI-PREVIEW://LOCALHOST/x"] {
             assert!(allows(url, None), "{url}");
         }
     }
@@ -86,6 +98,13 @@ mod tests {
             "http://tauri.localhost:8080/",
             "tauri://localhost:1/",
             "tauri://localhost.evil.test",
+            "pi-preview://localhost:1/x",
+            "pi-preview://localhost.evil.test/x",
+            "pi-preview://evil.test/x",
+            "pi-preview://localhost@evil.test/x",
+            "http://pi-preview.localhost/x",
+            "https://pi-preview.localhost/x",
+            "pi-preview:x",
             "",
         ] {
             assert!(!allows(url, dev), "{url}");

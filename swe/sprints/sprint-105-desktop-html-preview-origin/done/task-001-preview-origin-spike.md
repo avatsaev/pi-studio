@@ -1,7 +1,7 @@
 # Task 001 — Spike: a sandboxed frame served from a custom scheme
 
 - **Sprint:** sprint-105-desktop-html-preview-origin
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/apps/pistudiodesktop (throwaway experiment), swe/notes
 - **Priority:** P1
