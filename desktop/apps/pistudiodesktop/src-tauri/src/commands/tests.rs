@@ -751,6 +751,10 @@ fn one_add_is_one_event_with_the_view_and_no_secret() {
     };
     let answer = tauri::async_runtime::block_on(bridge.ask(control)).unwrap();
     assert_eq!(answer["ok"], true);
+    // The owner answers first and tells afterwards, on its own thread, and takes the next request
+    // only once it has told: a second request answered means the add's event has been sent.
+    let read = pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.list"}) };
+    assert_eq!(tauri::async_runtime::block_on(bridge.ask(read)).unwrap()["ok"], true);
     let sent = sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["entries"].as_array().map(Vec::len), Some(2));
