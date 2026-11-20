@@ -199,7 +199,7 @@ async function storedKeyCheck(run, session, configDir, value) {
     const began = Date.now();
     const took = await waitFor(
       "the key in local.json",
-      () => (readJson(file)?.keys?.[KEY] === value ? Date.now() - began : null),
+      () => (readJson(file)?.keys?.[KEY] === `${value}-DELIBERATELY-WRONG` ? Date.now() - began : null),
       { timeoutMs: STORED_WITHIN_MS, intervalMs: 50 },
     ).catch(() => {
       throw new Error(`${file} did not hold the key within ${STORED_WITHIN_MS} ms (it holds ${JSON.stringify(readJson(file))})`);
