@@ -106,7 +106,10 @@ export class WindowsRun {
 
   /** The app in a new WebDriver session on `configDir`, once its page has booted. */
   async openApp(configDir) {
-    const spec = { application: this.app, args: ["--config-dir", configDir] };
+    // One `--flag=value` argument: msedgedriver turns every `args` entry into a browser switch (it
+    // strips leading dashes and puts `--` back), so a separate value became `--c:\...` and the app
+    // exited at once (first run on a runner, 2026-11-20).
+    const spec = { application: this.app, args: [`--config-dir=${configDir}`] };
     const capabilities = this.flavor === "windows" ? tauriCapabilities(spec) : webkitCapabilities(spec);
     const session = await Session.open(this.driverUrl, capabilities);
     this.sessions.push(session);
