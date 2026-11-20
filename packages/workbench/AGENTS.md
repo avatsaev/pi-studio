@@ -47,7 +47,7 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `{kind:"inert"}` keeps `srcdoc` with a "Scripts are disabled" line; absent = unchanged.
   Optional `daemons` (sprint-109, `HostDaemons`: the desktop daemon registry — snapshot without
   secrets, local daemon actions, `resolveCurrent`, `switchTo`) and `app.minDaemonVersion`; read by
-  the workbench from sprint-110. `DaemonError` is exported as a type only (`shell/public-api.test.ts`
+  the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
@@ -447,7 +447,14 @@ src/
                            `ModelProvidersPanel` and `Timeline`'s onboarding nudge so a login/logout
                            in either surface invalidates one cache, never two fetch paths)
   features/
-    daemons/               (sprint-110, desktop registry; nothing renders without `host.daemons`)
+    daemons/               (sprint-110, desktop registry; nothing renders without `host.daemons`). Invariants: the registry is
+                            `host.daemons` and this feature holds no copy of it; a password or pairing link is never
+                            read back (the edit form shows a "Saved" marker and an empty field); one
+                            `connectCurrent` runs at a time (boot, Retry and the lifecycle's connect share
+                            it); a local daemon that comes up from a start while the window is connected to
+                            nothing is connected to (not after a restart, which keeps the connection, and
+                            not for one started from a terminal); the workbench never starts a daemon
+                            itself
                             daemon-presentation.ts (pure: `localStateView` — label/tone/actions per
                             local state; `daemonErrorView` — message/detail/command/isError per code,
                             `DAEMON_ERROR_CODES`, install/update commands) (+ test), connect-current.ts

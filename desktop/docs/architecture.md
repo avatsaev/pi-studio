@@ -135,7 +135,7 @@ names, so the page could listen to any event; the app emits only `daemons_change
 | `preview_release(url)` | Drops a mounted document; an unknown URL is ignored |
 | `engine_command(id, params?)` | Runs one of ten allowed engine ids (`daemon.list/add/update/remove`, `daemon.local.*`, settings); anything else, including `daemon.switch` and `command.list`, is refused |
 | `daemon_resolve_current()` | What to dial for the current entry: `{url, password?, connect: true}` or an error code. Starts a stopped local daemon when auto-start is on. The only command that returns a secret |
-| `daemon_switch(id)` | Switches the current entry: unknown id → `not_found`; transfers running → native confirm ("N file transfer(s) are still running. Switch anyway?", "no" answers `cancelled`); then `daemon.switch` (flushes the entry left, records `lastUsedId`) and reloads the page. The native menu uses the same path |
+| `daemon_switch(id)` | Switches the current entry: unknown id → `not_found`; transfers running → native confirm ("N file transfer(s) are still running. Switch anyway?", "no" answers `cancelled`); then `daemon.switch` (flushes the entry left, records `lastUsedId`) and reloads the page. From the switch until the next `boot`, `storage_set` is dropped: the page being left writes its layout as it unloads, and that write would otherwise replace the new entry's. The native menu uses the same path |
 
 The page never names a path: the destination comes from the native dialog and stays in Rust. A
 temporary file left by a killed app is removed at the next launch, and a damaged journal can only

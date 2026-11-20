@@ -67,11 +67,15 @@ pub struct AppShell {
     pub info: AppInfo,
     /// What went wrong reading the app's files at start. The boot snapshot hands them out once.
     pub notices: Vec<Notice>,
+    /// A switch reloads the page, and the page being left may still send a stored key (its layout
+    /// is written as it unloads). Such a key would land in the entry switched to, so from the switch
+    /// until the next `boot`, stored keys are dropped.
+    pub awaiting_boot: bool,
 }
 
 impl AppShell {
     pub fn new(session: Session, services: Services) -> Self {
-        Self { session, ui: UiState::default(), services, info: AppInfo::default(), notices: Vec::new() }
+        Self { session, ui: UiState::default(), services, info: AppInfo::default(), notices: Vec::new(), awaiting_boot: false }
     }
 
     /// Run a command by id. Every control request ends here. The outcome goes to the status bar as
@@ -90,6 +94,11 @@ impl AppShell {
             Request::Boot => control::reply(Ok(page::boot(self))),
             Request::StorageSet { key, value } => control::reply(page::storage_set(self, key, value)),
             Request::Flush => control::reply(page::flush(self)),
+            Request::SwitchEntry { id } => {
+                let switched = self.run("daemon.switch", serde_json::json!({ "id": id }));
+                self.awaiting_boot |= switched.is_ok();
+                control::reply(switched)
+            }
             Request::Engine { id, params } => control::reply(daemons::page_command(self, id, params.clone())),
             Request::Local(op) => daemons::local_op(self, op),
         }

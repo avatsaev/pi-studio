@@ -8,7 +8,9 @@
  * `lifecycleReactions` is the decision, pure over two looks at the facts. `watchDaemonLifecycle`
  * reads the facts from the registry and the connection store, applies the decision through
  * injected effects and returns the unsubscribe. A restart changes nothing here: the connection is
- * kept and the SDK's reconnection covers the gap. The workbench never starts a daemon by itself.
+ * kept and the SDK's reconnection covers the gap. The workbench never starts a daemon by itself;
+ * when one that was started (from the screen or the native menu) comes up while the window is
+ * connected to nothing, it connects.
  */
 
 import { type ConnectionState, type RelayConnectReason } from "@av-pi-studio/client";
@@ -30,7 +32,9 @@ export type LifecycleReaction =
   | { kind: "markLinkInvalid"; id: string }
   | { kind: "clearLinkInvalid"; id: string }
   /** Ask the host to probe the local daemon again; once per drop. */
-  | { kind: "refreshLocal" };
+  | { kind: "refreshLocal" }
+  /** The local daemon came up from a start and the window is connected to nothing: connect. */
+  | { kind: "connect" };
 
 export function lifecycleReactions(
   prev: LifecycleFacts,
@@ -63,6 +67,17 @@ export function lifecycleReactions(
     reactions.push({ kind: "refreshLocal" });
   }
 
+  // `idle` is "never connected" or "left on purpose". A restart keeps the connection, so it is not
+  // idle; a daemon started from a terminal appears as running without passing through `starting`.
+  if (
+    next.currentKind === "local" &&
+    prev.local === "starting" &&
+    next.local === "running" &&
+    next.status === "idle"
+  ) {
+    reactions.push({ kind: "connect" });
+  }
+
   return reactions;
 }
 
@@ -71,6 +86,7 @@ export interface LifecycleEffects {
   markLinkInvalid(id: string): void;
   clearLinkInvalid(id: string): void;
   refreshLocal(): void;
+  connect(): void;
   openScreen(): void;
 }
 
@@ -88,6 +104,9 @@ function applyReaction(effects: LifecycleEffects, reaction: LifecycleReaction): 
       return;
     case "refreshLocal":
       effects.refreshLocal();
+      return;
+    case "connect":
+      effects.connect();
       return;
   }
 }

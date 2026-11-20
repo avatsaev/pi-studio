@@ -1,7 +1,7 @@
 # Task 007 — Live checks of the switcher and the Daemons screen (Linux webview), and documents
 
 - **Sprint:** sprint-110-workbench-daemons-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), packages/web-client (browser), documents
 - **Priority:** P1

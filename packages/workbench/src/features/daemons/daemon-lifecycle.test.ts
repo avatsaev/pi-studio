@@ -43,6 +43,21 @@ describe("lifecycleReactions", () => {
     expect(react(LOCAL_UP, { local: "stopping" })).toEqual([{ kind: "leave" }]);
   });
 
+  it("connects when a started local daemon comes up and the window is connected to nothing", () => {
+    const stopped: LifecycleFacts = { ...LOCAL_UP, local: "starting", status: "idle" };
+    expect(react(stopped, { local: "running" })).toEqual([{ kind: "connect" }]);
+  });
+
+  it("does not connect for a restart, a daemon started elsewhere, or another entry kind", () => {
+    expect(react({ ...LOCAL_UP, local: "starting" }, { local: "running" })).toEqual([]);
+    expect(react({ ...LOCAL_UP, local: "stopped", status: "idle" }, { local: "running" })).toEqual(
+      [],
+    );
+    expect(
+      react({ ...DIRECT_UP, local: "starting", status: "idle" }, { local: "running" }),
+    ).toEqual([]);
+  });
+
   it("does nothing for a restart: the connection is kept", () => {
     expect(react(LOCAL_UP, { local: "starting" })).toEqual([]);
     expect(react({ ...LOCAL_UP, local: "starting" }, { local: "running" })).toEqual([]);
@@ -98,10 +113,18 @@ interface Recorded {
   marked: string[];
   cleared: string[];
   refreshes: number;
+  connects: number;
 }
 
 function recordingEffects(): { effects: LifecycleEffects; log: Recorded } {
-  const log: Recorded = { leaves: 0, opened: 0, marked: [], cleared: [], refreshes: 0 };
+  const log: Recorded = {
+    leaves: 0,
+    opened: 0,
+    marked: [],
+    cleared: [],
+    refreshes: 0,
+    connects: 0,
+  };
   return {
     log,
     effects: {
@@ -113,6 +136,7 @@ function recordingEffects(): { effects: LifecycleEffects; log: Recorded } {
       markLinkInvalid: (id) => log.marked.push(id),
       clearLinkInvalid: (id) => log.cleared.push(id),
       refreshLocal: () => log.refreshes++,
+      connect: () => log.connects++,
       openScreen: () => log.opened++,
     },
   };

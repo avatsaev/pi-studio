@@ -26,6 +26,10 @@ pub enum Request {
     StorageSet { key: String, value: String },
     /// Write every unwritten stored key now: the app asks it when it quits.
     Flush,
+    /// Switch the current daemon entry for a page about to be reloaded: runs `daemon.switch`, then
+    /// drops the keys the page being left still sends until the new page boots
+    /// (see [`crate::AppShell::awaiting_boot`]). Never from automation.
+    SwitchEntry { id: String },
     /// An engine command from the page, if it is on [`crate::daemons::PAGE_COMMANDS`].
     Engine { id: String, params: Value },
     /// A short operation of the local-daemon supervisor; never from automation.

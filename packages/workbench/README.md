@@ -145,8 +145,8 @@ render; the first host wins (a later different one is ignored, with a developmen
 | `files.pickUploads?()` | Optional native picker, replacing the file input |
 | `pdf?` | Optional `{ createWorker(), assetBaseUrl }`. Without it PDFs show an error with Download |
 | `preview?` | Optional `{ kind: "origin", mount(html) → Promise<{ url, release() }> }`: the HTML viewer loads its frame from `url` instead of `srcdoc` (same sandbox; `release` when replaced or unmounted), or `{ kind: "inert" }`: `srcdoc` with a "Scripts are disabled" line. Absent: `srcdoc`, unchanged |
-| `daemons?` | Optional daemon registry (`HostDaemons`): `snapshot()` (entries without secrets, current id, local daemon state, the two local-daemon settings), `subscribe`, `add`/`update`/`remove`, `local.start/stop/restart/refresh`, `setSettings`, `resolveCurrent()`, `switchTo(id)`, `onManageRequest`. Rejections carry a `code` (`DaemonError`, a type only). Absent in a browser. Read from sprint-110 on |
-| `app.minDaemonVersion?` | Optional oldest daemon version the shell expects; an older daemon still connects and gets a notice. Read from sprint-110 on |
+| `daemons?` | Optional daemon registry (`HostDaemons`): `snapshot()` (entries without secrets, current id, local daemon state, the two local-daemon settings), `subscribe`, `add`/`update`/`remove`, `local.start/stop/restart/refresh`, `setSettings`, `resolveCurrent()`, `switchTo(id)`, `onManageRequest`. Rejections carry a `code` (`DaemonError`, a type only). Absent in a browser. Read by the switcher and the Daemons screen |
+| `app.minDaemonVersion?` | Optional oldest daemon version the shell expects; an older daemon still connects and gets a notice. Read by the connection bar |
 
 `createBrowserHost({ saveTarget })` lets a shell own where a saved file goes while keeping the
 browser host's download logic. `saveTarget(suggestedName)` returns a `SaveTarget`

@@ -49,3 +49,7 @@ All met, including `daemon_switch` being the only capability added. The mock run
 ```
 Agent-run cargo xtask ci (8 steps) passed; real reload observed in task-006.
 ```
+
+
+## Reopened by sprint-110/task-007 (2026-11-20)
+The live run found that the page being left wrote its layout onto the entry switched to. Fixed with `Request::SwitchEntry` and `AppShell::awaiting_boot` (stored keys are dropped from the switch until the next `boot`); regression test in `switch.rs`.

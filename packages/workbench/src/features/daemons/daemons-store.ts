@@ -31,6 +31,9 @@ interface DaemonsStoreState {
   connectCurrent(): Promise<void>;
 }
 
+/** A `connectCurrent` is waiting for the host's answer. */
+let resolving = false;
+
 const INITIAL = { open: false, error: null, invalidLinks: new Set<string>() };
 
 export const useDaemonsStore = create<DaemonsStoreState>()((set, get) => ({
@@ -58,7 +61,10 @@ export const useDaemonsStore = create<DaemonsStoreState>()((set, get) => ({
 
   async connectCurrent() {
     const daemons = getHost().daemons;
-    if (!daemons) return;
+    // Boot, Retry and the lifecycle's connect can overlap (a start from boot comes up while boot
+    // is still resolving): one resolution at a time.
+    if (!daemons || resolving) return;
+    resolving = true;
     await connectCurrent(daemons, {
       // A failed connection is already held in the connection store; nothing to rethrow here.
       connect: (options) =>
@@ -68,11 +74,14 @@ export const useDaemonsStore = create<DaemonsStoreState>()((set, get) => ({
           .catch(() => {}),
       resolved: () => set({ error: null }),
       rejected: (failure) => set({ error: failure, open: true }),
+    }).finally(() => {
+      resolving = false;
     });
   },
 }));
 
 /** Back to the initial state, for tests. */
 export function resetDaemonsStoreForTests(): void {
+  resolving = false;
   useDaemonsStore.setState({ ...INITIAL, invalidLinks: new Set() });
 }

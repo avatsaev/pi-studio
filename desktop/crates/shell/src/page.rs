@@ -38,6 +38,7 @@ impl Default for AppInfo {
 /// The notices are handed out once: this call clears them, so a page reload does not show them
 /// again.
 pub fn boot(app: &mut AppShell) -> Value {
+    app.awaiting_boot = false;
     let notices: Vec<Value> = std::mem::take(&mut app.notices).iter().map(Notice::to_json).collect();
     json!({
         "app": { "title": app.info.title, "version": app.info.version, "platform": PLATFORM, "minDaemonVersion": daemons::min_daemon_version() },
@@ -89,9 +90,12 @@ pub fn switch_decision(known: bool, transfers: usize) -> SwitchDecision {
     }
 }
 
-/// Store one workbench key in memory; the owner loop writes it soon (`owner::serve`). A key or
+/// Store one workbench key in memory (none between a switch and the next `boot`: they are the old page's); the owner loop writes it soon (`owner::serve`). A key or
 /// value over the model's caps is refused, and the error says which cap (never the value).
 pub fn storage_set(app: &mut AppShell, key: &str, value: &str) -> Result<Value, String> {
+    if app.awaiting_boot {
+        return Ok(Value::Null);
+    }
     app.session.storage_set(key, value).map(|()| Value::Null).map_err(|e| e.to_string())
 }
 

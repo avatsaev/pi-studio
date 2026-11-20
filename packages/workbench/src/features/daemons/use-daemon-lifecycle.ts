@@ -13,6 +13,7 @@ function storeEffects(daemons: HostDaemons): LifecycleEffects {
     clearLinkInvalid: (id) => useDaemonsStore.getState().clearLinkInvalid(id),
     // A refused probe has nothing to add: the registry's own state change says what is wrong.
     refreshLocal: () => void daemons.local.refresh().catch(() => {}),
+    connect: () => void useDaemonsStore.getState().connectCurrent(),
     openScreen: () => useDaemonsStore.getState().openScreen(),
   };
 }

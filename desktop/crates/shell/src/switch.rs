@@ -3,11 +3,11 @@
 //! stored keys of the entry being left, records the new last-used entry and writes the registry),
 //! and then has the page reloaded, so the workbench boots on the new entry's stored state.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::owner_access::OwnerAccess;
 use crate::page::{SwitchDecision, switch_decision};
-use crate::{Services, dialogs};
+use crate::{Request, Services, dialogs};
 
 /// How a switch ended when it did not fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub fn switch_to(
         SwitchDecision::Ask(text) if !dialogs::confirm(services, &text) => return Ok(Switched::Cancelled),
         SwitchDecision::Ask(_) | SwitchDecision::Switch => {}
     }
-    access.execute("daemon.switch", json!({ "id": id }))?;
+    access.call(Request::SwitchEntry { id: id.to_owned() })?;
     reload()?;
     Ok(Switched::Done)
 }
@@ -51,6 +51,7 @@ mod tests {
     use std::time::Duration;
 
     use pistudiodesktop_engine::Session;
+    use serde_json::json;
 
     use super::*;
     use crate::{AppShell, Request, owner};
@@ -130,6 +131,26 @@ mod tests {
         let boot = access.call(Request::Boot).unwrap();
         assert_eq!(boot["storage"].get("pi-studio-pane-layout"), None, "{boot}");
         assert_eq!(boot["daemons"]["currentId"], json!(b));
+    }
+
+    #[test]
+    fn a_key_the_old_page_sends_while_unloading_is_not_stored_on_the_new_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let (access, b) = running(dir.path());
+        access.execute("daemon.switch", json!({"id": b})).unwrap();
+        access.call(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "layout-of-b".into() }).unwrap();
+        access.execute("daemon.switch", json!({"id": "local"})).unwrap();
+        access.call(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "layout-of-local".into() }).unwrap();
+
+        // The reload sends the old page's last write, after the switch.
+        let late = || access.call(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "layout-of-local".into() }).map(|_| ());
+        assert_eq!(switch_to(&Services::default(), &access, 0, &b, late), Ok(Switched::Done));
+
+        let boot = access.call(Request::Boot).unwrap();
+        assert_eq!(boot["storage"]["pi-studio-pane-layout"], json!("layout-of-b"), "{boot}");
+        // The new page's own writes are stored again.
+        access.call(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "newer".into() }).unwrap();
+        assert_eq!(access.call(Request::Boot).unwrap()["storage"]["pi-studio-pane-layout"], json!("newer"));
     }
 
     #[test]
