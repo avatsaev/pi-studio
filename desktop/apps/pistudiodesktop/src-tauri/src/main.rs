@@ -18,6 +18,7 @@ mod bridge;
 mod commands;
 mod control_server;
 mod crash_guard;
+mod daemons;
 mod logging;
 mod preview_scheme;
 mod services;
@@ -33,6 +34,7 @@ use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
+use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use tauri::Manager as _;
 
 #[derive(Parser)]
@@ -84,6 +86,7 @@ fn main() {
     // Every request, from the webview and from the control socket, crosses this channel to the
     // one thread that owns the session.
     let (requests, inbox) = channel();
+    let runner_requests = requests.clone();
     if let Some((listener, token)) = control {
         control_server::start(listener, token, requests.clone());
     }
@@ -103,6 +106,8 @@ fn main() {
         .on_window_event(transfers::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
+            commands::engine_command,
+            commands::daemon_resolve_current,
             commands::storage_set,
             commands::dialog_confirm,
             commands::dialog_alert,
@@ -133,7 +138,13 @@ fn main() {
     // Opening the saves removes the temporary files a run that ended mid-save left behind. The
     // dialog starts in the user's Downloads folder until a save has been made.
     app.manage(Arc::new(Saves::open(&config_dir, app.path().download_dir().ok())));
-    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY);
+    // The background runner carries out what the session queues for the local daemon, off the
+    // session's thread; the page's `daemon_resolve_current` uses the same supervisor.
+    let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
+    app.manage(Arc::clone(&supervisor));
+    let wake = daemons::start_runner(runner_requests, supervisor);
+    let launch = bridge::Launch { notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)), local_supported: daemons::LOCAL_SUPPORTED };
+    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY, launch);
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
     app.run(|handle, event| bridge::on_run_event(handle, &event));

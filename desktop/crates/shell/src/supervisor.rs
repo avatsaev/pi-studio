@@ -20,6 +20,7 @@ use serde_json::Value;
 
 use crate::cli_answers::{self, Answer, Command, Failure, VersionCheck};
 use crate::cli_find;
+use crate::daemons::{self, Batch};
 use crate::services::{RunFailure, RunSpec, Services};
 use crate::shell_env::ShellEnv;
 
@@ -58,17 +59,6 @@ impl Limits {
     }
 }
 
-/// What [`LocalAccess::take`] hands over: the requests queued, and what they need from the session.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Batch {
-    pub requests: Vec<LocalRequest>,
-    /// The `cliPath` setting.
-    pub cli_path: Option<String>,
-    /// The CLI was missing or outdated: the user may have installed it since, so the shell
-    /// environment is read again (the Retry of the Daemons screen).
-    pub refresh_env: bool,
-}
-
 /// The short moments the supervisor needs the session. Implemented for `Mutex<Session>`; the app
 /// implements it over its owner thread.
 pub trait LocalAccess {
@@ -88,10 +78,7 @@ fn lock(session: &Mutex<Session>) -> std::sync::MutexGuard<'_, Session> {
 
 impl LocalAccess for Mutex<Session> {
     fn take(&self) -> Batch {
-        let mut s = lock(self);
-        let requests = s.take_local_requests();
-        let refresh_env = matches!(s.local_state(), LocalState::CliMissing { .. } | LocalState::CliOutdated { .. });
-        Batch { requests, cli_path: s.settings().cli_path.clone(), refresh_env }
+        daemons::take_batch(&mut lock(self))
     }
 
     fn apply(&self, state: LocalState) {

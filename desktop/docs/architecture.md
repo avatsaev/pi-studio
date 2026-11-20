@@ -96,18 +96,33 @@ was added only after `npm run snapshot` reported the page blocked without it:
 | `media-src` | `blob:` | Video files opened from the daemon |
 | `font-src` | `data:` | Fonts inlined by stylesheets |
 | `connect-src` | `ws:`, `wss:`, `blob:`, `ipc:`, `http://ipc.localhost` | The daemon and the relay, at an address the user types; reading opened files back (`fetch` of a `blob:` URL); Tauri's own channel |
+| `frame-src` | `pi-preview:` | The HTML file preview, served from the app's own preview origin |
 
-Known gap: the HTML file preview draws the page but its scripts do not run. The preview is a
-sandboxed `srcdoc` frame, which inherits this policy, and `script-src` has no `'unsafe-inline'`.
-In the browser client, which has no policy, they run. Fixing it needs the preview served from an
-origin of its own, not a weaker policy for the main window.
+The HTML file preview is served from an origin of its own, `pi-preview://localhost/<id>`, not a
+`srcdoc` frame under this policy. `preview_mount` keeps the document in memory (at most 32
+documents and 32 MiB; a 128-bit random id) and the scheme handler answers a `GET` of a mounted
+id with `Content-Security-Policy: sandbox allow-scripts`, `no-store` and `nosniff`; anything else
+is an empty 404 that is sandboxed too. `boot` clears the store, so a URL from before a reload is
+dead. The frame is sandboxed without `allow-same-origin`: its scripts run, but it has no parent
+access, no storage, no popups and no `__TAURI_INTERNALS__`. It has no capability; Tauri's
+channel refuses its calls because it lacks the per-launch invoke key (a test pins this). The
+navigation rule admits exactly `pi-preview://localhost`, because WebKitGTK runs it for subframes.
+
+| Platform | Preview | Measured |
+|---|---|---|
+| Linux (WebKitGTK) | `origin`: scripts run, isolated | yes, 2026-11-20 (spike and sprint-105/task-005) |
+| macOS (WKWebView) | `inert`: markup drawn, scripts blocked, a notice says why | no |
+| Windows (WebView2) | `inert` | no; would also need `http://pi-preview.localhost` |
 
 The page has exactly these Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
-receives no event:
+listens for one event, `daemons_changed` (the registry view, sent after any request that changed
+the registry, the local daemon state or a setting). Tauri cannot scope `core:event:allow-listen` to
+names, so the page could listen to any event; the app emits only `daemons_changed` and
+`daemons_manage`:
 
 | Command | Does |
 |---|---|
-| `boot()` | Returns `{app: {title, version, platform: "desktop"}, storage, notices}`: the stored workbench keys of both scopes merged, and the notices (a file that could not be read and was reset) — each returned once. Resets the transfer count |
+| `boot()` | Returns `{app: {title, version, platform: "desktop", minDaemonVersion}, storage, notices, preview, daemons}`: the stored workbench keys of both scopes merged, the notices (a file that could not be read and was reset) — each returned once — the preview kind, and the registry view (`currentId`, entries, local state, settings; no secret). Resets the transfer count and clears the preview store |
 | `storage_set(key, value)` | Queues one stored key. It is a synchronous command, so calls are applied in the order the page made them; it answers once queued. Size caps are checked on the owner thread and a refused write is logged with the key only |
 | `dialog_confirm(message)` → bool | Native OK/Cancel dialog over the window; the text is capped at 8,192 characters. Closing it, or a failure, answers `false` |
 | `dialog_alert(message)` | Native message dialog, same cap |
@@ -116,6 +131,10 @@ receives no event:
 | `save_write(bytes)` | Appends a raw body (at most 16 MiB) to the save named by the `handle` request header |
 | `save_finish(handle)` / `save_discard(handle)` | Sync and rename over the destination / remove the temporary file. A handle is single use; errors never contain a path |
 | `transfers_set(count)` | The page's count of uploads and saves in flight. Closing the window while it is above zero asks first ("N file transfer(s) are still running. Quit anyway?") |
+| `preview_mount(html)` → `{url}` | Mounts an HTML document at the preview origin. An error on an `inert` platform or past the caps; the error never contains the document |
+| `preview_release(url)` | Drops a mounted document; an unknown URL is ignored |
+| `engine_command(id, params?)` | Runs one of ten allowed engine ids (`daemon.list/add/update/remove`, `daemon.local.*`, settings); anything else, including `daemon.switch` and `command.list`, is refused |
+| `daemon_resolve_current()` | What to dial for the current entry: `{url, password?, connect: true}` or an error code. Starts a stopped local daemon when auto-start is on. The only command that returns a secret |
 
 The page never names a path: the destination comes from the native dialog and stays in Rust. A
 temporary file left by a killed app is removed at the next launch, and a damaged journal can only

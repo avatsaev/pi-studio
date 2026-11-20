@@ -1,10 +1,12 @@
-//! What the webview may call: twelve commands, and nothing else of the app is reachable from it.
+//! What the webview may call: fourteen commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
-//! `capabilities/default.json` grants `allow-boot`, `allow-storage-set`, `allow-dialog-confirm`,
+//! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
 //! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount` and
-//! `allow-preview-release` to the main window. A command missing from either
+//! `allow-preview-release` to the main window, and listening for events (`core:event:allow-listen`
+//! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`
+//! and `daemons_manage`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
 //! the page can reach.
 // `#[tauri::command]` generates code beside each function that names `unreachable!`. This module
@@ -15,7 +17,8 @@ use std::sync::Arc;
 
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::{MAX_WRITE_BYTES, SaveError, Saves};
-use pistudiodesktop_shell::{Request, Services, dialogs, links};
+use pistudiodesktop_shell::supervisor::Supervisor;
+use pistudiodesktop_shell::{Request, Services, daemons, dialogs, links};
 use serde_json::{Value, json};
 use tauri::ipc::InvokeBody;
 use tauri::{State, ipc};
@@ -33,6 +36,26 @@ pub async fn boot(bridge: State<'_, Bridge>, transfers: State<'_, Transfers>, pr
     transfers.set(0);
     previews.clear();
     unwrap_reply(bridge.ask(Request::Boot).await?)
+}
+
+/// Run an engine command for the page. `id` must be one of
+/// [`pistudiodesktop_shell::daemons::PAGE_COMMANDS`]; any other is refused (`daemon.switch` is not
+/// on the list: a switch needs a confirm, a flush and a reload). Answers the command's result, or
+/// its error text. `params` is an object, or absent for none.
+#[tauri::command]
+pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Option<Value>) -> Result<Value, String> {
+    unwrap_reply(bridge.ask(Request::Engine { id, params: params.unwrap_or(Value::Null) }).await?)
+}
+
+/// What to dial for the current entry: `{ url, password?, connect: true }`, or an error code. While
+/// the local daemon is starting or being probed this waits for it (at most a few minutes), and
+/// starts it when it is stopped and the setting says so. It runs off the session's thread, which
+/// is never held up. Takes no id: the page is trusted with the entry it opens and no other. This is
+/// the only command that returns a secret, and nothing here logs one.
+#[tauri::command]
+pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
+    let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));
+    off_thread(move || supervisor.resolve_current(&access).and_then(daemons::dial_for_page)).await?
 }
 
 /// One workbench key. Answers once the write is queued, not once it is on disk: the owner thread

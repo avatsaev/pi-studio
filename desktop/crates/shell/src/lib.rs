@@ -27,11 +27,14 @@
 pub mod cli_answers;
 pub mod cli_find;
 pub mod control;
+pub mod daemons;
 pub mod dialogs;
 pub mod links;
 pub mod menus;
 pub mod navigation;
 pub mod owner;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod owner_access;
 pub mod page;
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
@@ -85,6 +88,8 @@ impl AppShell {
             Request::Boot => control::reply(Ok(page::boot(self))),
             Request::StorageSet { key, value } => control::reply(page::storage_set(self, key, value)),
             Request::Flush => control::reply(page::flush(self)),
+            Request::Engine { id, params } => control::reply(daemons::page_command(self, id, params.clone())),
+            Request::Local(op) => daemons::local_op(self, op),
         }
     }
 }

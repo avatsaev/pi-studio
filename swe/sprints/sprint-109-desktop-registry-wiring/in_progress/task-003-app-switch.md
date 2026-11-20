@@ -1,7 +1,7 @@
 # Task 003 — App: switching to another daemon entry
 
 - **Sprint:** sprint-109-desktop-registry-wiring
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri, desktop/crates/shell
 - **Priority:** P1

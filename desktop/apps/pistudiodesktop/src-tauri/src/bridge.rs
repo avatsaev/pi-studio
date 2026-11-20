@@ -10,7 +10,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use pistudiodesktop_engine::Session;
-use pistudiodesktop_shell::owner;
+use pistudiodesktop_shell::owner::{self, Notify};
+use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::{AppInfo, AppShell, Envelope, Request, Services};
 use serde_json::Value;
 use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
@@ -27,6 +28,11 @@ pub struct Bridge {
 impl Bridge {
     pub fn new(requests: Sender<Envelope>) -> Self {
         Self { requests }
+    }
+
+    /// The supervisor's way to the session, for the page's `daemon_resolve_current`.
+    pub fn access(&self) -> OwnerAccess {
+        OwnerAccess::new(self.requests.clone())
     }
 
     /// Send a request and wait for its answer.
@@ -74,21 +80,40 @@ pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
     }
 }
 
+/// What the owner thread is started with besides the shell's own state.
+pub struct Launch {
+    /// Told of changes to the registry view and of local work waiting ([`Notify`]).
+    pub notify: Box<dyn Notify + Send>,
+    /// Whether this platform can run a local daemon. When it can, a first probe is queued at
+    /// start; the window does not wait for it.
+    pub local_supported: bool,
+}
+
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
-/// until every sender is gone, and writes the stored keys as [`owner::serve`] decides (`flush_delay`
-/// after the first unwritten change; the app passes `owner::FLUSH_DELAY`). `services` are the
-/// platform hooks the shell holds; the page's dialog and link commands call their own copy of them
-/// on other threads, never this one.
-pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox: Receiver<Envelope>, flush_delay: Duration) {
+/// until every sender is gone, and writes the stored keys as [`owner::serve_notifying`] decides
+/// (`flush_delay` after the first unwritten change; the app passes `owner::FLUSH_DELAY`).
+/// `services` are the platform hooks the shell holds; the page's dialog and link commands call
+/// their own copy of them on other threads, never this one.
+pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox: Receiver<Envelope>, flush_delay: Duration, mut launch: Launch) {
     std::thread::spawn(move || {
         log::info!("configuration directory: {}", config_dir.display());
-        let (session, notices) = Session::with_config_dir(config_dir);
+        let (mut session, notices) = Session::with_config_dir(config_dir);
         for notice in &notices {
             log::warn!("{}", notice.to_json());
         }
+        session.set_local_supported(launch.local_supported);
+        if launch.local_supported {
+            // The first probe: the runner carries it out; nothing waits for it.
+            if let Err(e) = session.execute("daemon.local.refresh", serde_json::Value::Null) {
+                log::warn!("the first probe of the local daemon was not queued: {e}");
+            }
+            launch.notify.local_work();
+        }
+        // The page's boot snapshot is the first view it sees: nothing to tell it about the above.
+        let _ = session.take_registry_changed();
         let mut app = AppShell::new(session, services);
         app.info = info;
         app.notices = notices;
-        owner::serve(&mut app, &inbox, flush_delay);
+        owner::serve_notifying(&mut app, &inbox, flush_delay, launch.notify.as_mut());
     });
 }

@@ -10,6 +10,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use serde_json::{Value, json};
 
+use crate::daemons::{self, LocalOp};
 use crate::{AppShell, menus};
 
 pub const METHODS: &[&str] = &["engine.commands", "engine.execute", "ui.inspect", "ui.set"];
@@ -25,6 +26,10 @@ pub enum Request {
     StorageSet { key: String, value: String },
     /// Write every unwritten stored key now: the app asks it when it quits.
     Flush,
+    /// An engine command from the page, if it is on [`crate::daemons::PAGE_COMMANDS`].
+    Engine { id: String, params: Value },
+    /// A short operation of the local-daemon supervisor; never from automation.
+    Local(LocalOp),
 }
 
 /// One request on its way to the thread that owns the shell, with the channel its reply goes
@@ -71,7 +76,7 @@ pub fn view(app: &mut AppShell) -> Value {
     json!({
         "ui": app.ui,
         "settings": app.session.execute("settings.get", Value::Null).ok(),
-        "daemons": app.session.execute("daemon.list", Value::Null).ok(),
+        "daemons": daemons::view(app),
         "menus": menus::model(app),
     })
 }

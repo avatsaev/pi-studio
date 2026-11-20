@@ -399,6 +399,12 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
   "missing Tauri-Invoke-Key" when the blocking tag is off). Needs `frame-src pi-preview:` and the
   scheme admitted by the navigation rule (WebKitGTK runs `on_navigation` for subframes). macOS and
   Windows not measured → "inert".*
+  *Linux in the app, 2026-11-20 (sprint-105/task-005): confirmed through the product — the
+  previewed page's scripts run; parent, `localStorage` and the command channel are refused; popups
+  return `null`; "Block remote resources" blocks a remote image and `fetch`; Preview ↔ Source keeps
+  the frame; Reload mounts a new URL and the old one is an empty 404, as is any URL after a page
+  reload; the 33rd preview shows "32 previews are already open". Auto-refresh after an edit was not
+  checked: the dev daemon has no file watch.*
 - **Clipboard in the webview.** `navigator.clipboard.writeText` needs a secure context and, in
   some webviews, a user gesture. The browser host's fallback may cover it. If it fails on a
   platform, back `clipboard` with Rust on that platform. *Linux, 2026-11-20: "Copy Absolute Path"

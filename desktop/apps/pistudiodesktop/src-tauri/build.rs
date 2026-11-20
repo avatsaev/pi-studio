@@ -5,6 +5,8 @@ fn main() {
     // handler registers is callable from the page.
     let manifest = tauri_build::AppManifest::new().commands(&[
         "boot",
+        "engine_command",
+        "daemon_resolve_current",
         "storage_set",
         "dialog_confirm",
         "dialog_alert",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-daemon-resolve-current"
+description = "Enables the daemon_resolve_current command without any pre-configured scope."
+commands.allow = ["daemon_resolve_current"]
+
+[[permission]]
+identifier = "deny-daemon-resolve-current"
+description = "Denies the daemon_resolve_current command without any pre-configured scope."
+commands.deny = ["daemon_resolve_current"]

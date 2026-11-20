@@ -5,7 +5,7 @@
 use pistudiodesktop_engine::Notice;
 use serde_json::{Value, json};
 
-use crate::{AppShell, preview};
+use crate::{AppShell, daemons, preview};
 
 /// The platform the page is told it runs on.
 pub const PLATFORM: &str = "desktop";
@@ -28,7 +28,8 @@ impl Default for AppInfo {
 /// The one value the page needs before the workbench first renders:
 ///
 /// ```text
-/// { app: { title, version, platform: "desktop" },
+/// { app: { title, version, platform: "desktop", minDaemonVersion },
+///   daemons: { currentId, entries, local, settings },  the registry view: no password, no pairing link
 ///   storage: { [key]: string },                       the global keys and the current entry's
 ///   notices: [ { kind: "file_reset", file, keptAs } ],
 ///   preview: "origin" | "inert" }                     whether a previewed document's scripts can run
@@ -39,7 +40,8 @@ impl Default for AppInfo {
 pub fn boot(app: &mut AppShell) -> Value {
     let notices: Vec<Value> = std::mem::take(&mut app.notices).iter().map(Notice::to_json).collect();
     json!({
-        "app": { "title": app.info.title, "version": app.info.version, "platform": PLATFORM },
+        "app": { "title": app.info.title, "version": app.info.version, "platform": PLATFORM, "minDaemonVersion": daemons::min_daemon_version() },
+        "daemons": daemons::view(app),
         "storage": app.session.storage_snapshot(),
         "notices": notices,
         "preview": preview::kind().as_str(),
@@ -100,10 +102,10 @@ mod tests {
         let mut app = app();
         app.info = AppInfo { title: "Pi Studio".into(), version: "1.2.3".into() };
         let expected_preview = preview::kind().as_str();
-        assert_eq!(
-            boot(&mut app),
-            json!({"app": {"title": "Pi Studio", "version": "1.2.3", "platform": "desktop"}, "storage": {}, "notices": [], "preview": expected_preview})
-        );
+        let snapshot = boot(&mut app);
+        assert_eq!(snapshot["app"], json!({"title": "Pi Studio", "version": "1.2.3", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
+        assert_eq!((&snapshot["storage"], &snapshot["notices"], &snapshot["preview"]), (&json!({}), &json!([]), &json!(expected_preview)));
+        assert_eq!(snapshot["daemons"], daemons::view(&mut app), "the boot snapshot and ui.inspect hold one view");
     }
 
     #[test]

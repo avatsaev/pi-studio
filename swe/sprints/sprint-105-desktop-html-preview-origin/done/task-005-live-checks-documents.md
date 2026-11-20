@@ -1,7 +1,7 @@
 # Task 005 — Live checks: preview scripts and isolation (Linux webview), and documents
 
 - **Sprint:** sprint-105-desktop-html-preview-origin
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (app in the WebDriver container), documents
 - **Priority:** P1

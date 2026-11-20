@@ -60,6 +60,11 @@ impl std::fmt::Debug for Dial {
 }
 
 impl Session {
+    /// Whether a request is waiting for the host to take it.
+    pub(crate) fn local_requests_waiting(&self) -> bool {
+        !self.local_queue.requests.is_empty()
+    }
+
     /// Record an action. `Err` is the code the command answers with.
     pub(crate) fn request_local(&mut self, action: Action) -> std::result::Result<(), &'static str> {
         match self.local_state() {

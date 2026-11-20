@@ -7,8 +7,10 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pistudiodesktop_shell::owner::Quiet;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
+use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::{AppInfo, Services};
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
@@ -18,10 +20,11 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use super::{
-    boot, dialog_alert, dialog_confirm, open_external, preview_mount, preview_release, save_begin, save_discard, save_finish, save_write, storage_set,
-    transfers_set, unwrap_reply,
+    boot, daemon_resolve_current, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin, save_discard,
+    save_finish, save_write, storage_set, transfers_set, unwrap_reply,
 };
-use crate::bridge::{Bridge, on_run_event, spawn_owner};
+use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
+use crate::daemons::Events;
 use crate::services::opener_plugin;
 
 /// A flush delay that never ends inside a test: only the exit flush can write a file.
@@ -36,18 +39,26 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
+    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false })
+}
+
+/// The same, with the owner thread told what `launch` says.
+fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> App<MockRuntime> {
     let (requests, inbox) = channel();
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
         .manage(Bridge::new(requests))
         .manage(services.clone())
+        .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
         .invoke_handler(tauri::generate_handler![
             boot,
+            engine_command,
+            daemon_resolve_current,
             storage_set,
             dialog_confirm,
             dialog_alert,
@@ -63,7 +74,7 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
         ])
         .build(tauri::generate_context!())
         .unwrap();
-    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, inbox, NEVER);
+    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, inbox, NEVER, launch);
     app
 }
 
@@ -119,10 +130,10 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     let (app, window) = app_on(dir.path());
 
     let first = invoke(&window, "boot", json!({})).unwrap();
-    assert_eq!(
-        first,
-        json!({"app": {"title": "Pi Studio", "version": "9.9.9", "platform": "desktop"}, "storage": {}, "notices": [], "preview": preview::kind().as_str()})
-    );
+    assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
+    assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
+    assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
+    assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
 
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "{\"a\":1}"})).unwrap(), Value::Null);
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-appearance", "value": "dark"})).unwrap(), Value::Null);
@@ -175,7 +186,8 @@ fn plug_in_and_core_commands_are_refused_for_the_page() {
         ("plugin:opener|open_url", "opener.open_url not allowed"),
         ("plugin:opener|open_path", "opener.open_path not allowed"),
         ("plugin:opener|reveal_item_in_dir", "opener.reveal_item_in_dir not allowed"),
-        ("plugin:event|listen", "event.listen not allowed"),
+        ("plugin:event|emit", "event.emit not allowed"),
+        ("plugin:event|emit_to", "event.emit_to not allowed"),
         ("plugin:window|close", "window.close not allowed"),
         ("plugin:webview|webview_close", "webview.webview_close not allowed"),
         ("control", "control not allowed"),
@@ -358,13 +370,15 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_twelve_commands_and_no_plug_in_or_core_permission() {
+fn the_capability_grants_the_fourteen_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
         capability["permissions"],
         json!([
             "allow-boot",
+            "allow-engine-command",
+            "allow-daemon-resolve-current",
             "allow-storage-set",
             "allow-dialog-confirm",
             "allow-dialog-alert",
@@ -375,7 +389,9 @@ fn the_capability_grants_the_twelve_commands_and_no_plug_in_or_core_permission()
             "allow-save-discard",
             "allow-transfers-set",
             "allow-preview-mount",
-            "allow-preview-release"
+            "allow-preview-release",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten"
         ])
     );
 }
@@ -645,4 +661,95 @@ fn the_reply_of_the_shell_becomes_a_result() {
     assert_eq!(unwrap_reply(json!({"ok": true})), Ok(Value::Null));
     assert_eq!(unwrap_reply(json!({"ok": false, "error": "no"})), Err("no".to_string()));
     assert!(unwrap_reply(json!("odd")).is_err());
+}
+
+/// A fake emitter: the views the page would have been sent.
+fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
+    let sent = Arc::clone(sent);
+    let (wake, _woken) = channel();
+    Launch { notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)), local_supported: false }
+}
+
+#[test]
+fn the_page_runs_the_listed_engine_commands_and_is_refused_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(dir.path());
+    assert_eq!(invoke(&window, "engine_command", json!({"id": "settings.get"})).unwrap(), json!({"autoStartLocalDaemon": true, "cliPath": null}));
+    let added = invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1"}})).unwrap();
+    assert_eq!(added["name"], "B");
+    let list = invoke(&window, "engine_command", json!({"id": "daemon.list"})).unwrap();
+    assert_eq!(list["entries"].as_array().map(Vec::len), Some(2));
+    for id in ["daemon.switch", "command.list", "test.panic", "daemon.nothing"] {
+        let refused = invoke(&window, "engine_command", json!({"id": id})).unwrap_err();
+        assert!(refused.as_str().is_some_and(|e| e.contains("may not run")), "{id}: {refused}");
+    }
+    assert_eq!(
+        invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:2"}})).unwrap_err(),
+        json!("name_taken")
+    );
+    assert!(invoke(&window, "engine_command", json!({})).is_err(), "an id is required");
+}
+
+#[test]
+fn one_add_is_one_event_with_the_view_and_no_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let app = built_app_telling(dir.path(), Services::default(), telling(&sent));
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+    invoke(&window, "boot", json!({})).unwrap();
+    invoke(&window, "engine_command", json!({"id": "daemon.list"})).unwrap();
+    assert!(sent.lock().unwrap().is_empty(), "reading tells nobody");
+    // The control socket's way in: a request on the bridge, not a command of the page.
+    let bridge = app.state::<Bridge>();
+    let control = pistudiodesktop_shell::Request::Control {
+        method: "engine.execute".into(),
+        params: json!({"command": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1", "password": "hunter2"}}),
+    };
+    let answer = tauri::async_runtime::block_on(bridge.ask(control)).unwrap();
+    assert_eq!(answer["ok"], true);
+    let sent = sent.lock().unwrap();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["entries"].as_array().map(Vec::len), Some(2));
+    assert!(!sent[0].to_string().contains("hunter2"));
+}
+
+#[test]
+fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1", "password": "hunter2"}})).unwrap();
+    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "pi://secret-link"}})).unwrap();
+    let booted = invoke(&window, "boot", json!({})).unwrap();
+    let inspect =
+        tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))
+            .unwrap();
+    assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
+    for text in [booted.to_string(), inspect.to_string()] {
+        assert!(!text.contains("hunter2") && !text.contains("secret-link"), "{text}");
+    }
+}
+
+#[test]
+fn resolving_the_current_entry_answers_the_address_and_password_to_the_page_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let added = invoke(
+        &window,
+        "engine_command",
+        json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "hunter2"}}),
+    )
+    .unwrap();
+    let switch =
+        pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.switch", "params": {"id": added["id"]}}) };
+    assert_eq!(tauri::async_runtime::block_on(app.state::<Bridge>().ask(switch)).unwrap()["ok"], true);
+    assert_eq!(invoke(&window, "daemon_resolve_current", json!({})).unwrap(), json!({"url": "10.0.0.2:8080", "password": "hunter2", "connect": true}));
+    // It takes no id: a page cannot ask for another entry's secret.
+    assert_eq!(invoke(&window, "daemon_resolve_current", json!({"id": "local"})).unwrap()["url"], "10.0.0.2:8080");
+}
+
+#[test]
+fn without_a_local_daemon_the_current_local_entry_cannot_be_dialled() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(dir.path());
+    assert_eq!(invoke(&window, "daemon_resolve_current", json!({})).unwrap_err(), json!("unsupported"));
 }

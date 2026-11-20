@@ -79,6 +79,11 @@ impl Session {
         self.changed = true;
     }
 
+    /// Whether a local daemon request is waiting for the host to take it.
+    pub fn has_local_requests(&self) -> bool {
+        self.local_requests_waiting()
+    }
+
     /// Whether the registry view or the local state changed since this was last asked.
     pub fn take_registry_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)
@@ -115,7 +120,9 @@ impl Session {
     }
 
     pub(crate) fn set_setting(&mut self, name: &str, value: &Value) -> Result<()> {
-        self.storage.set_setting(name, value)
+        self.storage.set_setting(name, value)?;
+        self.changed = true;
+        Ok(())
     }
 
     /// The workbench's stored keys: the global ones and the current entry's.
