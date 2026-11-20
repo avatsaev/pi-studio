@@ -406,8 +406,25 @@ async function shellChecks(run, shell, withLifecycle) {
   else await run.quitApp(session).catch(() => {});
 }
 
+/**
+ * Run the real CLI's `--version` once, before the app does, and print how long that first run took.
+ * The app allows `--version` 5 s; the first run on a macOS runner (cold files, Gatekeeper) took
+ * over that once (run of 2026-11-20: `failed`/`timeout` under zsh) and about 4.5 s another time,
+ * which is a fact about a cold machine, not about the shell lookup these checks are for.
+ */
+async function warmCli(run) {
+  const began = Date.now();
+  try {
+    await execFileAsync(process.execPath, [path.resolve(run.cliEntry), "--version"], { timeout: 60_000 });
+    run.report.fact("The real CLI's first `--version` (cold), run before the app's checks", `${((Date.now() - began) / 1000).toFixed(1)} s (the app allows 5 s)`);
+  } catch (error) {
+    run.report.fact("The real CLI's first `--version` (cold)", `failed: ${error.message.split("\n")[0]}`);
+  }
+}
+
 /** Every macOS check. Daemons and apps started on the way are stopped at the end, whatever failed. */
 export async function runMacosChecks(run) {
+  await warmCli(run);
   try {
     await configDirCheck(run);
     await controlChecks(run);
