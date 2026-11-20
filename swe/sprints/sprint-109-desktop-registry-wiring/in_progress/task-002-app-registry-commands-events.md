@@ -1,7 +1,7 @@
 # Task 002 — App: the registry at launch, in the boot snapshot, and reachable from the page
 
 - **Sprint:** sprint-109-desktop-registry-wiring
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri (+ desktop/crates/shell)
 - **Priority:** P1

@@ -106,3 +106,37 @@ fn daemon_commands_work_from_the_cli_and_the_answers_hold_no_secret() {
     assert!(!ok && out.is_empty() && err.contains("wrong_kind"), "{out}{err}");
     assert!(!err.contains(PASSWORD), "{err}");
 }
+
+#[cfg(unix)]
+#[test]
+fn local_daemon_commands_run_the_cli_set_in_cli_path() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let write_exec = |name: &str, body: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let fake = write_exec("pi-studio", include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    // A shell that prints the environment the way the app asks for it, without start-up files.
+    let shell = write_exec("shell", "#!/bin/sh\neval \"$4\"\n");
+    let state = dir.path().join("state");
+    std::fs::create_dir(&state).unwrap();
+    let config = dir.path().join("config");
+    let set_cli = format!(r#"settings.set {{"key":"cliPath","value":"{}"}}"#, fake.display());
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("SHELL", &shell)
+        .env("FAKE_PI_DIR", &state)
+        .args(["run", "--config-dir", config.to_str().unwrap(), "--cmd", &set_cli, "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
+    assert!(out.status.success(), "{stderr}");
+    let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[1]["result"], serde_json::json!({"accepted": true}));
+    assert_eq!(lines[2]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
+    assert!(!stdout.contains("S3CRET") && !stderr.contains("S3CRET"));
+}

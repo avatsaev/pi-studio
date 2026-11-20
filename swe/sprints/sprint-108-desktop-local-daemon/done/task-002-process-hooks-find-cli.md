@@ -1,7 +1,7 @@
 # Task 002 — Process hooks: the shell environment, finding the CLI, running it with a time limit
 
 - **Sprint:** sprint-108-desktop-local-daemon
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell
 - **Priority:** P1

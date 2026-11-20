@@ -98,6 +98,11 @@ pub struct ShellEnv {
 }
 
 impl ShellEnv {
+    /// A cache that already holds `env`: nothing is asked of the shell until [`Self::refresh`].
+    pub fn preset(env: Vec<(String, String)>) -> Self {
+        Self { cached: Mutex::new(Some(env)) }
+    }
+
     /// The cached environment; read on first use.
     pub fn get(&self, services: &Services) -> Vec<(String, String)> {
         let mut cached = self.cached.lock().unwrap_or_else(|e| e.into_inner());

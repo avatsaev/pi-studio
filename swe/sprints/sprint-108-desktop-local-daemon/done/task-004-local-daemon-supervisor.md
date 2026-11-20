@@ -1,7 +1,7 @@
 # Task 004 — Supervisor: run local daemon requests through the CLI, and resolve what to dial
 
 - **Sprint:** sprint-108-desktop-local-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop-cli
 - **Priority:** P1

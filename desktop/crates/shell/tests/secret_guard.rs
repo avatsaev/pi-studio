@@ -2,15 +2,18 @@
 //! distinctive strings, so a plain search is reliable. One test: the logger is process-wide.
 use std::sync::Mutex;
 
-use pistudiodesktop_engine::Session;
-use pistudiodesktop_shell::{AppShell, Request, Services, control};
+use pistudiodesktop_engine::{LocalRequest, Session};
+use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
+use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
 use serde_json::{Value, json};
 
 const PASSWORD: &str = "S3CRET-PASSWORD-7f3a91";
 const LINK: &str = "pi://S3CRET-PAIRING-LINK-b04c52";
 const NEW_PASSWORD: &str = "S3CRET-NEW-PASSWORD-1d8e66";
 const NEW_LINK: &str = "pi://S3CRET-NEW-LINK-92aa07";
-const SECRETS: [&str; 4] = [PASSWORD, LINK, NEW_PASSWORD, NEW_LINK];
+/// What the fake CLI prints as its `pairingUrl`.
+const CLI_PAIRING: &str = "S3CRET-CLI-PAIRING-5c1e90";
+const SECRETS: [&str; 5] = [PASSWORD, LINK, NEW_PASSWORD, NEW_LINK, CLI_PAIRING];
 
 static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -140,6 +143,21 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     assert!(leaks(&status).is_none(), "status bar: {status}");
     assert!(leaks(&format!("{:?}", app.session.registry())).is_none(), "Debug of the registry");
     assert!(seen.len() >= 30, "the sequence ran: {}", seen.len());
+
+    // The supervisor runs a CLI whose answers carry a pairing URL: it reaches no state and no log line.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let cli = dir.path().join("pi-studio");
+        std::fs::write(&cli, include_str!("fixtures/fake-pi-studio.sh")).expect("write cli");
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let env = vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned()), ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string())];
+        let supervisor = Supervisor::with_env(process::native_services(), Limits::default(), env);
+        for request in [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Restart, LocalRequest::Stop] {
+            let state = supervisor.carry_out(request, cli.to_str(), false);
+            assert!(leaks(&format!("{state:?}")).is_none(), "{state:?}");
+        }
+    }
 
     let lines = logged();
     assert!(lines.iter().all(|l| leaks(l).is_none()), "a log line leaked a secret: {lines:?}");

@@ -16,6 +16,9 @@
 //! Saving a file to disk ([`saves`]) is the one thing here that writes the user's files: Rust owns the
 //! destination and the page holds only a handle.
 //!
+//! The local daemon ([`supervisor`]) is driven through the `pi-studio` CLI: the engine queues what was
+//! asked, the supervisor runs it off the session's thread and hands back the state reached.
+//!
 //! The HTML documents the page previews ([`preview`]) are held in memory and served to the webview
 //! from a custom scheme of the app, so their scripts can run in a frame isolated from the page.
 #![forbid(unsafe_code)]
@@ -40,6 +43,8 @@ pub mod services;
 pub mod shell_env;
 pub mod shortcuts;
 pub mod state;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod supervisor;
 
 use pistudiodesktop_engine::{Notice, Session};
 use serde_json::Value;

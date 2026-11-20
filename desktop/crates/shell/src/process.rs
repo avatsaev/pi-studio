@@ -95,6 +95,19 @@ fn kill_tree(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+/// Every process hook filled from this module; the dialog and link hooks are the app's own.
+pub fn native_services() -> crate::Services {
+    use std::sync::Arc;
+    crate::Services {
+        run: Some(Arc::new(run)),
+        is_executable: Some(Arc::new(is_executable)),
+        env: Some(Arc::new(process_env)),
+        home_dir: Some(Arc::new(home_dir)),
+        list_dir: Some(Arc::new(list_dir)),
+        ..crate::Services::default()
+    }
+}
+
 /// A regular file with an execute bit (Unix), or a file (elsewhere).
 pub fn is_executable(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return false };

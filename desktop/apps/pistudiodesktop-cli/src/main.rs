@@ -12,9 +12,12 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Mutex;
 
 use clap::{Parser, Subcommand};
 use pistudiodesktop_engine::Session;
+use pistudiodesktop_shell::process::native_services;
+use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use serde_json::{Value, json};
 
 #[derive(Parser)]
@@ -46,8 +49,8 @@ enum Command {
     },
 }
 
-fn execute(session: &mut Session, id: &str, params: Value) -> Result<Value, String> {
-    session.execute(id, params).map_err(|e| e.to_string())
+fn execute(session: &Mutex<Session>, id: &str, params: Value) -> Result<Value, String> {
+    session.lock().unwrap_or_else(|e| e.into_inner()).execute(id, params).map_err(|e| e.to_string())
 }
 
 /// `settings.set {"key":"cliPath","value":null}` to (`settings.set`, params).
@@ -62,7 +65,7 @@ fn parse_step(step: &str) -> Result<(&str, Value), String> {
 fn run(cli: Cli) -> Result<(), String> {
     match cli.command {
         Command::Commands { filter } => {
-            let listed = execute(&mut Session::new(), "command.list", json!({"filter": filter}))?;
+            let listed = execute(&Mutex::new(Session::new()), "command.list", json!({"filter": filter}))?;
             for entry in listed.as_array().into_iter().flatten() {
                 println!("{entry}");
             }
@@ -81,8 +84,19 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
                 None => Session::new(),
             };
+            // Local daemon commands are carried out here, with the real CLI, as the app does: the
+            // state is probed before the first of them (so `cliPath` set by an earlier step counts),
+            // and every request is run to completion before the next step.
+            let supervisor = Supervisor::new(native_services(), Limits::default());
+            session.set_local_supported(cfg!(unix));
+            let session = Mutex::new(session);
+            let mut probed = false;
             for (id, params) in steps {
-                let result = execute(&mut session, id, params).map_err(|e| format!("{id}: {e}"))?;
+                if id.starts_with("daemon.local.") && !std::mem::replace(&mut probed, true) && Supervisor::probe_now(&session).is_ok() {
+                    supervisor.pump(&session);
+                }
+                let result = execute(&session, id, params).map_err(|e| format!("{id}: {e}"))?;
+                supervisor.pump(&session);
                 println!("{}", json!({"command": id, "result": result}));
             }
         }

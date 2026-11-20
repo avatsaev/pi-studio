@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 pistudiodesktop-engine = { workspace = true }
+pistudiodesktop-shell = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 
