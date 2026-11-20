@@ -1,7 +1,7 @@
 # Task 004 — Automated platform checks on macOS and Windows runners (native host)
 
 - **Sprint:** sprint-106-desktop-native-host-close
-- **Status:** blocked
+- **Status:** done
 - **Type:** test
 - **Area:** .github/workflows (new workflow), desktop/apps/pistudiodesktop/scripts, desktop/docs
 - **Priority:** P1
@@ -43,12 +43,12 @@ The development machine is Linux. The macOS (WKWebView) and Windows (WebView2) w
 - Running on every push: the macOS and Windows runners are slow and costly; this workflow is started on demand.
 
 ## Acceptance criteria
-- [ ] A run of the workflow is green on both runners, with the screenshots, logs and summary attached.
-- [ ] A deliberately broken check (for example, expecting the wrong storage value) turns the Windows job red; reverted afterwards.
-- [ ] The summary prints the Windows preview probe result and the macOS configuration directory.
-- [ ] `desktop/docs/platform-checks.md` marks the automated items and explains how to start the workflow.
-- [ ] `release.yml` is not triggered by this workflow or its files.
-- [ ] `cargo xtask ci` passes; the script passes the app's lint.
+- [x] A run of the workflow is green on both runners, with the screenshots, logs and summary attached. *Run 44835263318 (pull request #59, commit 5751855): macOS 14 passed, Windows 10 passed; the `platform-checks-<os>` artifacts hold the logs, screenshots (Windows) and `summary.md`. Desktop CI on the same commit is green too.*
+- [x] A deliberately broken check (for example, expecting the wrong storage value) turns the Windows job red; reverted afterwards. *Run 44833729601 (commit eba9d04): `windows.storage-persist` failed, the other nine passed, the job was red; reverted in 5751855.*
+- [x] The summary prints the Windows preview probe result and the macOS configuration directory. *Probe: `inert`, scripts blocked, `origin` not measured; macOS: `~/Library/Application Support/com.avatsaev.pi-studio`.*
+- [x] `desktop/docs/platform-checks.md` marks the automated items and explains how to start the workflow. *Including the 404 on `gh workflow run` until the file is on `main`.*
+- [x] `release.yml` is not triggered by this workflow or its files. *No `release.yml` run exists for the branch; the workflow triggers on `workflow_dispatch` and on a pull request that changes the workflow file only.*
+- [x] `cargo xtask ci` passes; the script passes the app's lint. *Desktop CI (runs `cargo xtask ci`) green on 5751855, run 44835263462; `npm run lint` in the app and its 98 tests pass.*
 
 ## Test / verification plan
 - A `workflow_dispatch` run on the branch, and a pull-request run that changes the workflow.
@@ -59,5 +59,4 @@ The development machine is Linux. The macOS (WKWebView) and Windows (WebView2) w
 - How `tauri-driver` and `msedgedriver` are installed and matched to the runner's WebView2 version is from Tauri's documentation and was not tried here; record what worked in the workflow's comments.
 - Task-002 (manual) does not depend on this task, but if this one is done first the person skips every item it marked.
 
-## Blocker
-The workflow `.github/workflows/desktop-platform-checks.yml`, the check script `desktop/apps/pistudiodesktop/scripts/platform-checks.mjs` (+ `scripts/platform-checks/`, 37 unit tests) and the checklist marks are written and validated on Linux only: lint, `node --check`, YAML parse, vitest (98 tests), `cargo xtask ci`, and a rehearsal of the Windows checks through WebKitWebDriver and of the macOS checks with bash against the real CLI. **A run on GitHub's runners is the acceptance criterion. The branch is pushed (2026-11-20) but `workflow_dispatch` is refused (404) while the workflow file is only on the branch, so the run needs a pull request from `feat/desktop-client` into `main` (the workflow runs on a pull request that changes it; do not merge until the results are read — a merge to `main` starts the release pipeline).** Unblock when the branch is pushed, `gh workflow run desktop-platform-checks.yml --ref <branch>` is green on both runners, the deliberately broken Windows check turns that job red (and is reverted), and the summary prints the Windows preview probe result and the macOS configuration directory. Unverified assumptions are the `TODO(verify)` comments at the top of `windows.mjs` and `macos.mjs` (tauri-driver and msedgedriver setup, zsh/bash printing their environment on a runner, the macOS default configuration directory, Command-Q through osascript).
+

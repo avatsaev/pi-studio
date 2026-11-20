@@ -9,7 +9,7 @@ saving files and the HTML preview go through Rust, and a daemon registry (this m
 address, a relay pairing link) opens on the daemon used last and starts this machine's daemon
 through the installed `pi-studio` CLI. The webview still opens the WebSocket to the daemon itself;
 sockets, large-file transfer and secrets in the OS keychain are later milestones. Built and
-checked on Linux; macOS and Windows have not run (see [docs/platform-checks.md](docs/platform-checks.md)).
+checked on Linux; on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
 Behind the window, the Rust crates hold an engine with the registry, the settings and the stored
 workbench state, a command registry (every action is a command), generated menus and a control
 channel; the page, the CLI and the control socket reach it.

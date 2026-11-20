@@ -54,8 +54,8 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
                     (`model`, `store`, `engine`, `shell`) hold the daemon registry, the settings, the stored
                     workbench state and the command registry, and run this machine's daemon through the installed
-                    `pi-studio` CLI. Milestone 1 is built and checked on Linux; macOS and Windows have not run
-                    (desktop/docs/platform-checks.md).
+                    `pi-studio` CLI. Milestone 1 is built and checked on Linux; on macOS and Windows only the
+                    automated checks have run (desktop/docs/platform-checks.md).
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent

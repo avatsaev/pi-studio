@@ -46,7 +46,7 @@ async function environmentFacts(options, report) {
   if (options.mode === "macos") lines.push(`macOS ${await versionOf("sw_vers", ["-productVersion"])}`);
   if (options.mode === "windows") {
     lines.push(`tauri-driver ${await versionOf(options.driver, ["--version"])}`);
-    // TODO(verify): msedgedriver prints its version with --version, as chromedriver does.
+    // msedgedriver prints its version with --version (157.0.4341.46 on the first runner).
     lines.push(`msedgedriver ${await versionOf(options.nativeDriver ?? "msedgedriver", ["--version"])}`);
   }
   report.fact("Environment", ...lines);

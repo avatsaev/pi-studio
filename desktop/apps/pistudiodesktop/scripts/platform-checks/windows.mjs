@@ -11,18 +11,19 @@
 // script without a Windows machine; there the local daemon is `cli_missing` and the process
 // checks are skipped.
 
-// TODO(verify), none of it has run on a Windows machine (the page's flow was rehearsed on Linux):
-//  - tauri-driver forwards `tauri:options.args` to msedgedriver as `ms:edgeOptions.args` (read in
-//    its source, version 2.1.0); that msedgedriver then starts the app and that deleting the
-//    session ends it (`closeApp` waits for the process and kills it otherwise).
-//  - `msedgedriver --version` prints a version (`environmentFacts` in ../platform-checks.mjs).
-//  - WebView2 runs `execute/async` scripts that call `window.__TAURI_INTERNALS__.invoke`, and
-//    shows the Radix switcher and the Daemons dialog with the same attributes as WebKitGTK
-//    (`aria-haspopup="menu"`, `role="menuitem"`, `role="dialog"`, a Close button).
-//  - WebView2 runs `on_navigation` for `location.href = ...` (navigation-refused) and keeps the
-//    page's script context after a refused navigation.
+// What the first runs on a runner showed (windows-latest, WebView2 157, 2026-11-20, pull request #59):
+//  - `tauri:options.args` reaches msedgedriver as `ms:edgeOptions.args` and the app starts with them.
+//    msedgedriver turns every entry into a browser switch, so the app is given one
+//    `--config-dir=<dir>` entry. Deleting the session ends the app.
+//  - A runner needs the machine policy the workflow writes (WebView2 150+ ignores the debugging
+//    port from the environment when the app runs elevated); see the workflow and
+//    `webview2-diagnostics.mjs`, which prints what to look at when no session can be made.
+//  - WebView2 runs `execute/async` scripts that call `window.__TAURI_INTERNALS__.invoke`, shows the
+//    Radix switcher and the Daemons dialog with the same attributes as WebKitGTK, runs
+//    `on_navigation` for `location.href = ...` and keeps the page's script context after a refused
+//    navigation.
 //  - The second launch of the app exits on its own (single instance), within 15 s.
-//  - The 90 s for the first boot and the 120 s for a new session are enough on a runner.
+//  - The first boot took about a second; the 90 s and 120 s limits are far above that.
 
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync } from "node:fs";
@@ -128,7 +129,7 @@ export class WindowsRun {
       throw error;
     }
     this.sessions.push(session);
-    // TODO(verify): on a slow runner the first boot can take longer than this.
+    // The first boot took about a second on a runner (2026-11-20).
     const boot = await waitFor("the page's boot command", async () => {
       const answer = await session.invoke("boot");
       return answer.ok ? answer.value : null;

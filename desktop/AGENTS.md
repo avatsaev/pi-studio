@@ -6,8 +6,9 @@ what a browser does badly: sockets, files on disk, secrets and OS integration. R
 `docs/architecture.md` next.
 
 **Where it stands.** Milestone 1 (the native host and the daemon registry) is built and checked
-live on Linux; macOS and Windows have not run (`docs/platform-checks.md` is the list a person
-runs). The window draws the workbench with a desktop host: at start the page calls `boot` (the
+live on Linux; on macOS and Windows only the automated checks have run (GitHub runners, 2026-11-20:
+`.github/workflows/desktop-platform-checks.yml`; `docs/platform-checks.md` lists them and what a person
+still runs). The window draws the workbench with a desktop host: at start the page calls `boot` (the
 stored workbench keys, the registry view, the preview kind), and every storage write goes back
 through `storage_set` to the Rust engine, which writes the files in the configuration directory.
 Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and

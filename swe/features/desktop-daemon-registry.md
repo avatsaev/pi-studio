@@ -1,9 +1,10 @@
 # Feature — Desktop Daemon Registry and Local Daemon
 
-> **Status: built on `feat/desktop-client` (sprints 107–111; checked live on Linux, 2026-11-20). 13 of 17 acceptance
-> criteria are ticked on Linux evidence; four stay open (a real Node version manager, a rotated
-> key reaching the client as `wrong_key`, mode 0600 on macOS, Windows). macOS and Windows have not
-> run: sprint-111/task-002 waits for a person with those machines (`desktop/docs/platform-checks.md`).**
+> **Status: built on `feat/desktop-client` (sprints 107–111; checked live on Linux, 2026-11-20, and by the
+> automated platform checks on macOS 15 and Windows, same day). 15 of 17 acceptance criteria are ticked;
+> two stay open (a real Node version manager and a Dock launch, a rotated key reaching the client as
+> `wrong_key`). Only the automated checks have run on macOS and Windows: sprint-111/task-002 waits
+> for a person with those machines (`desktop/docs/platform-checks.md`).**
 > Milestone 1 of the desktop client, with [desktop-native-host.md](desktop-native-host.md); done for Linux.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
@@ -435,15 +436,19 @@ No existing desktop users: nothing to migrate. The web client's storage is untou
       **Open: the marker was not reached live.** A rotated key looked like `daemon_offline` through
       the relay, so `wrong_key` never arrived; the unit test covers the marker. The second half
       passed: "Replace link" connected with the name and the 3-pane layout kept (sprint-110/task-007 check 12).
-- [ ] `daemons.json` has mode 0600 on macOS and Linux. No log line, and no control-socket answer,
+- [x] `daemons.json` has mode 0600 on macOS and Linux. No log line, and no control-socket answer,
       contains a password, a pairing link or a `pairingUrl`.
-      **Linux passes; macOS open.** Mode 0600, also on `daemons.json.corrupt-*`; scans of the app logs (56 and 85 lines)
-      and the control answers found no secret (sprint-109/task-006 checks 5 and 9; sprint-111/task-001 check 13). macOS: platform-checks R4.
+      Mode 0600, also on `daemons.json.corrupt-*`; scans of the app logs (56 and 85 lines)
+      and the control answers found no secret (sprint-109/task-006 checks 5 and 9; sprint-111/task-001 check 13).
+      **macOS:** `registry.macos.direct-entry` and `registry.macos.no-secret-in-log` passed on a macos-15 runner
+      (run 44835263318, sprint-111/task-004).
 - [x] Given a daemon older than `minDaemonVersion`, then the connection succeeds and one notice
       names both versions.
       *Linux: sprint-110/task-007 check 14 (a 0.0.100 daemon).*
-- [ ] On Windows the local entry shows the explanation and no Start; `daemon.local.start` answers
-      `unsupported`. **Open: Windows.** Unit tests cover the answer; platform-checks R7; sprint-111/task-002.
+- [x] On Windows the local entry shows the explanation and no Start; `daemon.local.start` answers
+      `unsupported`. **Windows:** `registry.windows.local-unsupported` passed on a Windows runner (the state is
+      `unsupported`, the screen says "Not available on this system" and has no Start button; run 44835263318,
+      sprint-111/task-004). The `unsupported` answer of the start command is covered by unit tests only.
 - [x] In the web client the connection bar is unchanged and no Daemons screen exists.
       *sprint-110/task-007 check 16.*
 - [x] Every command of § 2 can be run from the control socket and the app's CLI, with tests, and
@@ -479,6 +484,9 @@ No existing desktop users: nothing to migrate. The web client's storage is untou
   restarts the daemon and then tries to bind 6767, the app's local daemon (sprint-110/task-007).*
 - **WSL2.** A daemon inside WSL2 reached as a `direct` entry on `127.0.0.1` is expected to work and
   was not tried (platform-checks R8).
-- **macOS and Windows.** Nothing in this spec has run on either. The list a person runs is
-  `desktop/docs/platform-checks.md` (R1–R8); sprint-111/task-002 waits in `blocked/` for someone
-  with those machines. The Windows and macOS criteria need a person at those machines.
+- **macOS and Windows.** Only the automated checks have run there (run 44835263318, sprint-111/task-004):
+  the CLI found through the login shell's start-up file under zsh and bash, the first start in 3.5–3.8 s
+  (against the 90 s limit), quit leaving the daemon running, mode 0600, `cli_outdated`, switching with
+  separate layouts, and the Windows `unsupported` state. The list a person runs is
+  `desktop/docs/platform-checks.md` (R1–R8); sprint-111/task-002 waits in `blocked/` for someone with
+  those machines. A launch from the macOS Dock and a real version manager need a person.

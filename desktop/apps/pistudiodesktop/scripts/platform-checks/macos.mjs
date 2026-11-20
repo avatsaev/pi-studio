@@ -9,18 +9,18 @@
 // Every daemon runs in a scratch `PI_STUDIO_HOME` on a free port, and is stopped in the `finally`
 // of the run, also when a check failed.
 
-// TODO(verify), none of it has run on a Mac (the flow was rehearsed on Linux with bash):
-//  - Command-Q through System Events. It needs the runner to let `osascript` send keystrokes
-//    (Accessibility); when it does not, the app is sent SIGTERM, `macos.control.quit` is skipped
-//    and the checklist item stays manual.
-//  - `/bin/zsh -l -i -c` and `/bin/bash -l -i -c` print their environment on a runner without a
-//    terminal, within the app's 5 s, and `~/.zprofile` / `~/.bash_profile` of a scratch HOME are
-//    read (macOS bash is 3.2).
-//  - The app puts its default configuration directory under `$HOME` (Tauri's `app_config_dir`,
-//    `~/Library/Application Support/com.avatsaev.pi-studio`); the check fails if it does not.
-//  - A window opens for an app started from the runner's session (a GUI session exists).
-//  - An emptied environment with HOME, USER, LOGNAME, SHELL, PATH and TMPDIR is close enough to
-//    launchd's for the dock; a launch from the dock itself stays in the manual checklist.
+// What the first runs on a runner showed (macos-15, arm64, 2026-11-20, pull request #59):
+//  - Command-Q through System Events works there (`macos.control.quit` passes); when a runner does
+//    not let `osascript` send keystrokes, the app is sent SIGTERM, the check is skipped and the
+//    checklist item stays manual.
+//  - `/bin/zsh -l -i -c` and `/bin/bash -l -i -c` print their environment without a terminal within
+//    the app's 5 s (zsh in 160 ms, bash in 43 ms), and `~/.zprofile` / `~/.bash_profile` of a
+//    scratch HOME are read.
+//  - The app's default configuration directory is under `$HOME`:
+//    `~/Library/Application Support/com.avatsaev.pi-studio` (the check fails if it is not).
+// Not shown: that a window opens (the control socket answers either way), and that an emptied
+// environment with HOME, USER, LOGNAME, SHELL, PATH and TMPDIR is close enough to launchd's for
+// the dock; a launch from the dock itself stays in the manual checklist.
 
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";

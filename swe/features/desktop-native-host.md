@@ -1,9 +1,10 @@
 # Feature — Desktop Native Host
 
-> **Status: built on `feat/desktop-client` (sprints 102–106; checked live on Linux, 2026-11-20). Every acceptance criterion
+> **Status: built on `feat/desktop-client` (sprints 102–106; checked live on Linux, 2026-11-20, and by the
+> automated platform checks on macOS 15 and Windows, same day). Every acceptance criterion
 > is ticked on Linux evidence except one (a file dragged from the OS: not run in the headless
-> container). macOS and Windows have not run: sprint-106/task-002 waits for a person with those
-> machines (`desktop/docs/platform-checks.md`).**
+> container). Only the automated checks have run on macOS and Windows: sprint-106/task-002 waits for a
+> person with those machines (`desktop/docs/platform-checks.md`).**
 > Milestone 1 of the desktop client, with [desktop-daemon-registry.md](desktop-daemon-registry.md).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
@@ -500,7 +501,12 @@ The webview's own storage is no longer used by the app. Nothing is migrated: the
 - **Configuration directory on each platform**, and whether mode 0600 survives the atomic rename.
   *Linux: `~/.config/com.avatsaev.pi-studio`; mode 0600 survives: `write_private` creates the
   temporary file at 0600 and the rename keeps it, and a `*.corrupt-*` copy keeps its mode
-  (sprint-107/task-002). macOS and Windows directories: platform-checks N1.*
-- **macOS and Windows.** Nothing here has run on either. The list a person runs and the table for
-  the results are in `desktop/docs/platform-checks.md`; sprint-106/task-002 waits in `blocked/`
-  for someone with those machines. Until the preview is measured there, both ship `inert`.
+  (sprint-107/task-002). **macOS:** `~/Library/Application Support/com.avatsaev.pi-studio` (printed by a
+  macos-15 runner, sprint-106/task-004). **Windows:** the default directory was not printed; the run
+  used `--config-dir`, and the files were written there (platform-checks N1 for the default).*
+- **macOS and Windows.** Only the automated checks have run there (run 44835263318,
+  sprint-106/task-004): macOS 14 and Windows 10 checks pass (boot and storage on Windows, the control
+  socket and settings on macOS, a refused command and navigation, the single instance, the preview
+  probe: scripts blocked in the `inert` fallback, `origin` not measured). The list a person runs and
+  the table for the results are in `desktop/docs/platform-checks.md`; sprint-106/task-002 waits in
+  `blocked/` for someone with those machines. Until the preview is measured there, both ship `inert`.

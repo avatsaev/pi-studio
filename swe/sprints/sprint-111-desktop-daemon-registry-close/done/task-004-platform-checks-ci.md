@@ -1,7 +1,7 @@
 # Task 004 — Automated platform checks on macOS and Windows runners (daemon registry)
 
 - **Sprint:** sprint-111-desktop-daemon-registry-close
-- **Status:** blocked
+- **Status:** done
 - **Type:** test
 - **Area:** .github/workflows/desktop-platform-checks.yml, desktop/apps/pistudiodesktop/scripts, desktop/docs
 - **Priority:** P1
@@ -37,12 +37,12 @@ Same reason as sprint-106/task-004: the manual run of task-002 should keep only 
 - The native "Daemons" menu and the macOS Edit menu (no driver reaches native menus), a WSL2 daemon, a launch from the real dock: manual, task-002.
 
 ## Acceptance criteria
-- [ ] A run is green on both runners with the new checks, artifacts and summary.
-- [ ] Removing the shell-environment lookup (tried locally on the branch, then reverted) turns the macOS job's check 1 red.
-- [ ] The summary prints the start duration and which shells found the CLI.
-- [ ] The checklist marks the automated registry items.
-- [ ] Every daemon started by the job uses a scratch home and is stopped at the end, also on failure.
-- [ ] `cargo xtask ci` passes; the script passes the app's lint.
+- [x] A run is green on both runners with the new checks, artifacts and summary. *Run 44835263318 (see sprint-106/task-004).*
+- [x] Removing the shell-environment lookup (tried locally on the branch, then reverted) turns the macOS job's check 1 red. *The macOS script run on Linux against the real CLI with the lookup in `read_with` removed: both `cli-found` checks (zsh and bash) went red with `cli_missing`; reverted. The baseline passed bash.*
+- [x] The summary prints the start duration and which shells found the CLI. *`daemon.local.start` 3.5 s; zsh via `~/.zprofile` and bash via `~/.bash_profile` found the CLI.*
+- [x] The checklist marks the automated registry items. *`desktop/docs/platform-checks.md`, "What it covers".*
+- [x] Every daemon started by the job uses a scratch home and is stopped at the end, also on failure. *A scratch `PI_STUDIO_HOME` and a free port per daemon; `daemon-stop` passes in the green run and the run's `finally` stops what is left. The failure path is by construction: no run failed while a daemon was up.*
+- [x] `cargo xtask ci` passes; the script passes the app's lint. *Desktop CI green on 5751855; app lint and 98 tests pass.*
 
 ## Test / verification plan
 - A `workflow_dispatch` run on the branch.
@@ -51,6 +51,3 @@ Same reason as sprint-106/task-004: the manual run of task-002 should keep only 
 ## Notes
 - Pushing the branch to run the workflow is the engineer's decision: ask first; never push to `main`.
 - An emptied environment on a runner is not identical to a launch from the dock (launchd sets a few variables of its own); task-002's person still checks the dock once.
-
-## Blocker
-Built together with sprint-106/task-004 (one workflow and one script): the registry checks (`registry.macos.*`, `registry.windows.*`) are written and validated on Linux only — the macOS shell-environment check was rehearsed with bash against the real CLI and went red with `cli_missing` when pointed at a shell that ignores the start-up file. **A run on GitHub's runners is the acceptance criterion. The branch is pushed (2026-11-20) but `workflow_dispatch` is refused (404) while the workflow file is only on the branch, so the run needs a pull request from `feat/desktop-client` into `main` (the workflow runs on a pull request that changes it; do not merge until the results are read — a merge to `main` starts the release pipeline).** Unblock after sprint-106/task-004's run; then also try, on a throwaway commit, removing the shell-environment lookup and confirm the macOS job's `registry.macos.cli-found.*` goes red (revert it), and read the start duration and the shells that found the CLI from the summary.

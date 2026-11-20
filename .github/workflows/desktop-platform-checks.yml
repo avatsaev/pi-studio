@@ -107,12 +107,13 @@ jobs:
         run: npm run bundle -- --debug --no-bundle
       # The WebDriver stack, from Tauri's WebDriver documentation (v2.tauri.app/develop/tests/webdriver):
       # `tauri-driver` starts the native driver, which starts the app under WebView2.
-      # TODO(verify): none of this has run yet. Record here what worked.
-      #  - tauri-driver 2.1.0 was the newest release when this was written; bump it knowingly.
+      # Worked on the first runs that got this far (2026-11-20, PR #59): tauri-driver 2.1.0 with the
+      # msedgedriver that msedgedriver-tool downloads for the runner's WebView2 (157.0.4341.46), plus
+      # the machine policy step below. Bump either knowingly.
       #  - msedgedriver must match the WebView2 runtime of the runner or the session hangs while
       #    connecting. msedgedriver-tool downloads the matching one into the current directory.
       #    It is installed from its repository's default branch (the documented way; it has no
-      #    release to pin): pin `--rev` to the commit that worked once there is one.
+      #    release to pin): pin `--rev` to the commit that worked if it ever breaks.
       - name: Install tauri-driver
         run: cargo install tauri-driver --version 2.1.0 --locked
       - name: Install msedgedriver (matching the runner's WebView2)
