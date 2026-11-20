@@ -20,7 +20,7 @@ The native-host spec, the host adapter contract and every document that describe
 - The task-001 summary (the Linux results) and, if it ran, task-002's
 
 ## What to build
-- **Spec:** status line; tick each acceptance criterion that passed on Linux, with a pointer to its evidence; leave the macOS and Windows parts open and pointing at sprint-106/task-002. Record the decisions taken at planning and during the work, each in the section it belongs to:
+- **Spec:** status line; tick each acceptance criterion that passed on Linux, with a pointer to its evidence; leave the macOS and Windows parts open and pointing at sprint-106/task-002. Three criteria need a second daemon entry or the registry file and stay open, marked "needs the registry": separate layouts for entries A and B with a shared theme, a corrupt `daemons.json`, and the registry view in `ui.inspect`. Record the decisions taken at planning and during the work, each in the section it belongs to:
   - outside Tauri (the snapshot tool, a browser on the dev server) the page uses the browser host;
   - the boot snapshot carries `preview`; `daemons` and `minDaemonVersion` arrive with the registry;
   - the save runs range by range through the `saveTarget` option of `createBrowserHost`;
