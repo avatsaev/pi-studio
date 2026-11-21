@@ -115,6 +115,7 @@ struct Counters {
     channel_messages: AtomicU64,
     direct_messages: AtomicU64,
     fetched_messages: AtomicU64,
+    channel_send_errors: AtomicU64,
     frames_out: AtomicU64,
     bytes_out: AtomicU64,
     raw_bodies: AtomicU64,
@@ -143,6 +144,10 @@ pub struct Stats {
     /// 8,192): the others make the page fetch the body, one more round trip each.
     pub direct_messages: u64,
     pub fetched_messages: u64,
+    /// `Channel::send` calls that returned an error (Tauri could not hand the message to the webview). A send
+    /// that returns `Ok` only means the script was queued: whether the page's fetch of a large message then
+    /// worked is not reported to Rust anywhere, and is not observable here.
+    pub channel_send_errors: u64,
     pub frames_out: u64,
     pub bytes_out: u64,
     /// Outbound bodies that reached Rust as bytes.
@@ -351,7 +356,10 @@ impl Conn {
         if messages_paused {
             c.message_pauses.fetch_add(1, Relaxed);
         }
-        channel.send(body).map_err(channel_error)
+        channel.send(body).map_err(|e| {
+            c.channel_send_errors.fetch_add(1, Relaxed);
+            channel_error(e)
+        })
     }
 
     fn stats(&self, server_fed_bytes: u64) -> Stats {
@@ -366,6 +374,7 @@ impl Conn {
             channel_messages: c.channel_messages.load(Relaxed),
             direct_messages: c.direct_messages.load(Relaxed),
             fetched_messages: c.fetched_messages.load(Relaxed),
+            channel_send_errors: c.channel_send_errors.load(Relaxed),
             frames_out: c.frames_out.load(Relaxed),
             bytes_out: c.bytes_out.load(Relaxed),
             raw_bodies: c.raw_bodies.load(Relaxed),

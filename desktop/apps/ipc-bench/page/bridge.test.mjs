@@ -2,7 +2,7 @@
 // for `window.__TAURI__.core`: what it invokes, in which order, and what it hands to `onMessage`.
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { ACK_BYTES, ACK_MS, CLOSED_GRACE_MS, createBridgeTransport, describeStats, ipcPathOf } from "./bridge.js";
+import { ACK_BYTES, ACK_MS, CLOSED_GRACE_MS, createBridgeTransport, describeStats, diagnose, ipcPathOf } from "./bridge.js";
 import { KIND_BINARY, KIND_TEXT, encodeBatch, forEachItem } from "./batch.js";
 
 /** A stand-in for Tauri's core API: records invokes, answers `bridge_open` at once, the others when told. */
@@ -239,11 +239,49 @@ test("describeStats says what stalled: counters, bounds, and why the connection 
     ended: { byPage: false, code: 1006, reason: "", error: { code: "channel_failed", message: "failed to send message to the webview" } },
   };
   const text = describeStats(stats);
-  assert.match(text, /Rust sent 12130 frames \(388160 bytes\) in 12130 channel messages, the page delivered 12118 frames in 12118 messages/);
+  assert.match(text, /Rust sent 12130 frames \(388160 bytes\) in 12130 channel messages \(\? Channel::send errors\), the page delivered 12118 frames in 12118 messages/);
   assert.match(text, /12 messages unacknowledged \(peak 400 bytes of 8388608, 513 messages of 512\)/);
   assert.match(text, /ended by itself: code 1006, channel_failed: failed to send message to the webview/);
   assert.match(describeStats({ ...stats, ended: null }), /the connection is still open/);
   assert.match(describeStats({ ...stats, ended: { byPage: true, code: 1000, reason: "done", error: null } }), /ended by the page: code 1000 \(done\)/);
+});
+
+/** The macOS runner's stall: 24425 messages sent, 23912 delivered and acknowledged, 513 outstanding in Rust. */
+const stalled = {
+  framesIn: 24425,
+  bytesIn: 100044800,
+  channelMessages: 24425,
+  channelSendErrors: 0,
+  outstanding: 2101248,
+  messagesOutstanding: 513,
+  maxOutstanding: 2101248,
+  maxMessagesInFlight: 513,
+  windowHighBytes: 8388608,
+  windowMaxMessages: 512,
+  mayRead: false,
+  ended: null,
+  page: { framesDelivered: 23912, messagesDelivered: 23912, ackedMessages: 23912, acksSent: 190 },
+};
+const channelOf = (over) => ({ rawCallbacks: 24424, nextIndex: 23912, highestIndex: 24424, waiting: 512, missingIndexes: [23912], ends: 0, duplicates: 0, malformed: 0, idleMs: 30000, ...over });
+
+test("the stall report names a lost channel message when later ones wait behind a gap", () => {
+  const fetches = { channelFetches: { started: 24000, ok: 23999, errorResponses: 1, rejected: 0, pending: 0, lastFailure: "status 200, Tauri-Response error" } };
+  const text = describeStats({ ...stalled, page: { ...stalled.page, channel: channelOf(), fetches, console: { recent: ["error: data not found"] } } });
+  assert.match(text, /Tauri's channel in the page got 24424 raw callbacks \(the last 30000 ms ago\), waits for index 23912, highest index seen 24424, 512 waiting behind a gap at 23912/);
+  assert.match(text, /fetches of channel data: 24000 started, 23999 ok, 1 answered with an error, 0 rejected, 0 pending \(last failure: status 200, Tauri-Response error\)/);
+  assert.match(text, /console: error: data not found/);
+  assert.match(text, /DIAGNOSIS: Tauri's channel lost message 23912: it never reached the page, and 512 later messages wait behind it$/);
+});
+
+test("the diagnosis tells a lost tail, lost acknowledgements and no evidence apart", () => {
+  const tail = diagnose({ ...stalled, page: { ...stalled.page, channel: channelOf({ rawCallbacks: 23912, highestIndex: 23911, waiting: 0, missingIndexes: [] }) } });
+  assert.match(tail, /^513 of the messages Rust sent never reached the page \(the channel's last index seen is 23911, Rust sent 24425\)$/);
+  const arrived = channelOf({ rawCallbacks: 24425, nextIndex: 24425, highestIndex: 24424, waiting: 0, missingIndexes: [] });
+  const everything = { ...stalled, page: { ...stalled.page, channel: arrived, ackedMessages: 24425 } };
+  assert.match(diagnose(everything), /^acknowledgements the page sent never reached Rust \(the page acknowledged 24425 messages, Rust has 23912\)$/);
+  assert.equal(diagnose({ ...everything, page: { ...everything.page, ackedMessages: 23912 } }), "");
+  assert.equal(diagnose({ ...stalled, page: { ...stalled.page, channel: null } }), "");
+  assert.match(describeStats({ ...stalled, page: { ...stalled.page, channel: null } }), /the channel's raw callbacks could not be observed; fetches of channel data are not observed/);
 });
 
 test("describe answers with the counters, or says they are not available", async () => {

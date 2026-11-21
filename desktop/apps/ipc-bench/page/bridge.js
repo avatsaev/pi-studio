@@ -15,6 +15,7 @@
 // reading at the window; `enableAck()` ends it.
 
 import { KIND_BINARY, KIND_TEXT, decodeText, encodeBatch, forEachItem, utf8Length } from "./batch.js";
+import { watchChannel, watchPage } from "./watch.js";
 
 /** Acknowledge when this many bytes were delivered since the last acknowledgement... */
 export const ACK_BYTES = 256 * 1024;
@@ -35,8 +36,10 @@ const isUnknownHandle = (error) => Boolean(error) && error.code === "unknown_han
  * @param {{ inbound: "frame" | "batch", outbound: "frame" | "batch", ack?: boolean }} options
  * @param {{ invoke: Function, Channel: Function }} tauri `window.__TAURI__.core`, or a stand-in in tests
  */
-export function createBridgeTransport({ inbound, outbound, ack = true }, tauri = window.__TAURI__.core) {
+export function createBridgeTransport({ inbound, outbound, ack = true }, tauri = window.__TAURI__.core, env = typeof window === "undefined" ? {} : window) {
   const { invoke, Channel } = tauri;
+  const pageWatch = watchPage(env);
+  let channelWatch = null;
   let handle = null;
   let open = false;
   let closedSeen = false;
@@ -81,6 +84,8 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     async connect(url) {
       const channel = new Channel();
       channel.onmessage = onChannelMessage;
+      // Look at the callbacks Tauri's channel gets before it puts them in order (it exposes the map for debugging).
+      channelWatch = watchChannel(env.__TAURI_INTERNALS__ && env.__TAURI_INTERNALS__.callbacks, channel.id);
       try {
         const answer = await invoke("bridge_open", { url, inbound, onMessage: channel });
         handle = answer.handle;
@@ -123,7 +128,11 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     /** Rust's counters of this connection now, and the page's own. */
     async stats() {
       const rust = await invoke("bridge_stats", { handle });
-      return { ...rust, page: { ...page, inbound, outbound, ack: acking } };
+      const seen = pageWatch ? pageWatch.summary() : null;
+      return {
+        ...rust,
+        page: { ...page, inbound, outbound, ack: acking, channel: channelWatch ? channelWatch.summary() : null, fetches: seen, console: seen ? seen.console : null },
+      };
     },
 
     /** For a run that stalled: where the connection stands, in one line. */
@@ -328,8 +337,31 @@ export function ipcPathOf(stats) {
 }
 
 /**
+ * What the counters say went wrong, from the evidence alone: a gap in Tauri's channel indexes (a message that was
+ * lost on its way to the page, with later ones waiting behind it), a tail that never arrived, or acknowledgements
+ * that never reached Rust. Empty when nothing points at one.
+ */
+export function diagnose(stats) {
+  const page = stats.page || {};
+  const channel = page.channel;
+  if (channel && channel.waiting > 0 && channel.missingIndexes.length > 0) {
+    return `Tauri's channel lost message ${channel.missingIndexes[0]}: it never reached the page, and ${channel.waiting} later messages wait behind it`;
+  }
+  if (channel && channel.waiting === 0 && stats.channelMessages > channel.highestIndex + 1) {
+    return `${stats.channelMessages - (channel.highestIndex + 1)} of the messages Rust sent never reached the page (the channel's last index seen is ${channel.highestIndex}, Rust sent ${stats.channelMessages})`;
+  }
+  const rustAcked = stats.channelMessages - stats.messagesOutstanding;
+  if (typeof page.ackedMessages === "number" && page.ackedMessages > rustAcked) {
+    return `acknowledgements the page sent never reached Rust (the page acknowledged ${page.ackedMessages} messages, Rust has ${rustAcked})`;
+  }
+  return "";
+}
+
+/**
  * One line that says where a connection stands, for the error of a run that stalled: what Rust sent, what the
- * page took, what is unacknowledged against the two bounds, and whether and why the connection ended.
+ * page took, what is unacknowledged against the two bounds, whether and why the connection ended, what Tauri's
+ * channel looked like from the page (raw callbacks before the reordering, the next index it waits for, the gap),
+ * the page's fetches of channel data, and what the evidence points to.
  */
 export function describeStats(stats) {
   const page = stats.page || {};
@@ -338,10 +370,24 @@ export function describeStats(stats) {
         stats.ended.error ? `, ${stats.ended.error.code}: ${stats.ended.error.message}` : ""
       }`
     : "the connection is still open";
-  return (
-    `Rust sent ${stats.framesIn} frames (${stats.bytesIn} bytes) in ${stats.channelMessages} channel messages, the page delivered ${page.framesDelivered ?? "?"} frames ` +
-    `in ${page.channelMessages ?? "?"} messages; ${stats.outstanding} bytes and ${stats.messagesOutstanding} messages unacknowledged ` +
-    `(peak ${stats.maxOutstanding} bytes of ${stats.windowHighBytes}, ${stats.maxMessagesInFlight} messages of ${stats.windowMaxMessages}); ` +
-    `reading is ${stats.mayRead ? "allowed" : "stopped"}; ${end}`
-  );
+  const channel = page.channel;
+  const fetches = page.fetches && page.fetches.channelFetches;
+  const consoleLines = page.console && page.console.recent && page.console.recent.length > 0 ? `; console: ${page.console.recent.join(" | ")}` : "";
+  const parts = [
+    `Rust sent ${stats.framesIn} frames (${stats.bytesIn} bytes) in ${stats.channelMessages} channel messages (${stats.channelSendErrors ?? "?"} Channel::send errors), the page delivered ${page.framesDelivered ?? "?"} frames ` +
+      `in ${page.messagesDelivered ?? page.channelMessages ?? "?"} messages and acknowledged ${page.ackedMessages ?? "?"} messages in ${page.acksSent ?? "?"} acks; ${stats.outstanding} bytes and ${stats.messagesOutstanding} messages unacknowledged ` +
+      `(peak ${stats.maxOutstanding} bytes of ${stats.windowHighBytes}, ${stats.maxMessagesInFlight} messages of ${stats.windowMaxMessages}); ` +
+      `reading is ${stats.mayRead ? "allowed" : "stopped"}; ${end}`,
+    channel
+      ? `Tauri's channel in the page got ${channel.rawCallbacks} raw callbacks (the last ${channel.idleMs} ms ago), waits for index ${channel.nextIndex}, highest index seen ${channel.highestIndex}, ` +
+        `${channel.waiting} waiting behind ${channel.missingIndexes.length > 0 ? `a gap at ${channel.missingIndexes.join(", ")}` : "no gap"}, ${channel.duplicates} duplicates, ${channel.ends} end markers`
+      : "the channel's raw callbacks could not be observed",
+    fetches
+      ? `fetches of channel data: ${fetches.started} started, ${fetches.ok} ok, ${fetches.errorResponses} answered with an error, ${fetches.rejected} rejected, ${fetches.pending} pending${
+          fetches.lastFailure ? ` (last failure: ${fetches.lastFailure})` : ""
+        }`
+      : "fetches of channel data are not observed",
+  ];
+  const diagnosis = diagnose(stats);
+  return `${parts.join("; ")}${consoleLines}${diagnosis ? `; DIAGNOSIS: ${diagnosis}` : ""}`;
 }
