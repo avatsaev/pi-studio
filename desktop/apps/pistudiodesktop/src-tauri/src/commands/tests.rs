@@ -41,7 +41,7 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
-    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new() })
+    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() })
 }
 
 /// The same, with the owner thread told what `launch` says.
@@ -159,7 +159,7 @@ fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once()
     // A damaged registry file gives a notice of the session's own.
     std::fs::write(dir.path().join("daemons.json"), "{ not json").unwrap();
     let notices = vec![Notice::SecretStoreFallback { reason: "unavailable".into() }, Notice::FileReset { file: "secrets.json".into(), kept_as: None }];
-    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices });
+    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default() });
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
     let first = invoke(&window, "boot", json!({})).unwrap();
     let kinds: Vec<&str> = first["notices"].as_array().unwrap().iter().map(|n| n["kind"].as_str().unwrap()).collect();
@@ -690,7 +690,12 @@ fn the_reply_of_the_shell_becomes_a_result() {
 fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
     let sent = Arc::clone(sent);
     let (wake, _woken) = channel();
-    Launch { notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)), local_supported: false, notices: Vec::new() }
+    Launch {
+        notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)),
+        local_supported: false,
+        notices: Vec::new(),
+        resume: Arc::default(),
+    }
 }
 
 #[test]
@@ -794,7 +799,11 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
         tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))
             .unwrap();
     assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
-    assert_eq!(inspect["result"]["connection"], json!({"secretStore": "memory"}), "the test harness gives the session a memory store");
+    assert_eq!(
+        inspect["result"]["connection"],
+        json!({"secretStore": "memory", "resumeSignals": {"wake": 0, "network": 0}}),
+        "the test harness gives the session a memory store"
+    );
     for text in [booted.to_string(), inspect.to_string()] {
         assert!(!text.contains("hunter2") && !text.contains("secret-link"), "{text}");
     }

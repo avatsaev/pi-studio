@@ -1,7 +1,7 @@
 # Task 008 — Linux live checks and documents for the secret store
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs, swe/features
 - **Priority:** P1

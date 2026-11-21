@@ -34,7 +34,7 @@ daemons connected at once (D16), a bundled daemon, a daemon on Windows, more tha
 | # | Decision |
 |---|---|
 | D8, D12 | A registry owned by Rust. Three kinds of entry: `local` (this machine, through the CLI), `direct` (address, optional password), `relay` (pairing link) |
-| D13, D27 | Passwords and pairing links are stored in the registry file, readable by the user only. The OS keychain replaces this in milestone 2 |
+| D13, D27 | Passwords and pairing links were stored in the registry file, readable by the user only (milestone 1, `daemons.json` version 1). Carried out in milestone 2 (sprint 113): they are in the OS keychain, or in `secrets.json` when no keychain answers, and the file is version 2 without them. § 1 shows version 2; the store is in `swe/features/desktop-transport-bridge.md` § 5 |
 | D14, D15 | Entries are managed in a Daemons screen drawn by the workbench when the host has a registry. The connection bar becomes a switcher. The web client has no registry and is unchanged |
 | D16 | One window, one daemon at a time. Each entry has its own stored layout |
 | D17, D19 | Launch opens the entry used last, even when it is unreachable. First run opens the local entry |
@@ -67,16 +67,22 @@ Accepted by the owner on 2026-11-20, at planning (sprints 107–111). The contra
 
 `daemons.json` in the app's configuration directory (the platform's per-user directory for
 `com.avatsaev.pi-studio`). Mode 0600 on macOS and Linux; default profile permissions on Windows.
-Written atomically (temporary file, then rename).
+Written atomically (temporary file, then rename). **Version 2** (since milestone 2) holds no
+secret: a password or pairing link is in the secret store, keyed by entry id and kind
+(`swe/features/desktop-transport-bridge.md` § 5), and the entry says `hasPassword`. A version 1
+file (milestone 1: `password` on `local` and `direct` entries, `pairingLink` on `relay` ones) is
+read once, its secrets moved to the store, and rewritten as version 2 (that spec's § Launch and
+migration (P5)); a version above 2 is refused like any unknown version. The text below describes
+the rules as milestone 1 set them; `password` and `pairingLink` now name the stored secrets.
 
 ```
 {
-  version: 1,
+  version: 2,
   lastUsedId: string | null,
   entries: [
-    { id: "local", kind: "local",  name: string, password?: string },
-    { id: uuid,    kind: "direct", name: string, address: string, password?: string },
-    { id: uuid,    kind: "relay",  name: string, pairingLink: string }
+    { id: "local", kind: "local",  name: string, hasPassword?: boolean },
+    { id: uuid,    kind: "direct", name: string, address: string, hasPassword?: boolean },
+    { id: uuid,    kind: "relay",  name: string }
   ]
 }
 ```
@@ -92,8 +98,9 @@ Written atomically (temporary file, then rename).
 | Unknown fields | Kept on rewrite |
 | `lastUsedId` | Set when an entry is opened (at switch time, not on a successful connection) |
 
-Secrets are `password` and `pairingLink`. They are never logged, never returned by a control
-method, and reach the webview only through `resolveCurrent` (§ 3), for the entry being opened.
+Secrets are `password` and `pairingLink`, now in the secret store, not in this file. They are never
+logged, never returned by a control method, and reach the webview only through `resolveCurrent`
+(§ 3), for the entry being opened.
 
 ### 2. Engine commands
 
@@ -354,7 +361,8 @@ same steps.
 
 | Data | Where | Lifecycle |
 |---|---|---|
-| Registry, including secrets | `daemons.json`, app configuration directory | Created on first launch; rewritten on every change |
+| Registry (no secrets since version 2) | `daemons.json`, app configuration directory | Created on first launch; rewritten on every change |
+| Secrets | The OS keychain, or `secrets.json` in the configuration directory | One item per secret; removed with the entry (`desktop-transport-bridge.md` § 5) |
 | Stored state per entry | [desktop-native-host.md](desktop-native-host.md) § Storage | Deleted with the entry |
 | Shell environment, CLI location, local state | Memory | Per app run |
 | Daemon's own state | The daemon's `PI_STUDIO_HOME`, untouched by the app | The app only runs the CLI |

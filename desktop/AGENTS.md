@@ -38,7 +38,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     crates/store            L3  JSON files: safe reads, atomic writes
     crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; the choice between them is the shell's
     crates/engine           L5  Session + command registry (every action is a command)
-    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`) (no UI toolkit)
+    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`), resume signals (`resume`: the pure wake detector, the rate limit, the counts; the app's ticker thread is `src-tauri/src/resume.rs`) (no UI toolkit)
     crates/net              L7  the bridge's pure parts (frame batch codec, inbound window, outbound order buffer): no socket yet, no dependency, empty on wasm32; only an app binary may use it
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench

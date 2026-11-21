@@ -85,7 +85,7 @@ Where new code goes, stopping at the first yes:
    needs it is disabled.
 5. **The view and the control protocol** (`crates/shell/src/state.rs`, `control.rs`): all UI state
    is one serde struct, and `control::view` is the single value `ui.inspect` returns: UI state,
-   the settings, the daemon list (views only, no secret), `connection: { secretStore }` and the menu model. Four JSON methods
+   the settings, the daemon list (views only, no secret), `connection: { secretStore, resumeSignals }` and the menu model. Four JSON methods
    expose the running app over the control socket (`docs/control-protocol.md`); the webview does
    not use them.
 
@@ -124,10 +124,10 @@ navigation rule admits exactly `pi-preview://localhost`, because WebKitGTK runs 
 | Windows (WebView2) | `inert` | no; would also need `http://pi-preview.localhost` |
 
 The page has exactly these Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
-listens for one event, `daemons_changed` (the registry view, sent after any request that changed
-the registry, the local daemon state or a setting). Tauri cannot scope `core:event:allow-listen` to
-names, so the page could listen to any event; the app emits only `daemons_changed` and
-`daemons_manage`:
+listens for two events: `daemons_changed` (the registry view, sent after any request that changed
+the registry, the local daemon state or a setting) and `connection_resume` (`{ reason }`, § Resume
+signals). Tauri cannot scope `core:event:allow-listen` to names, so the page could listen to any
+event; the app emits only `daemons_changed`, `daemons_manage` and `connection_resume`:
 
 | Command | Does |
 |---|---|
@@ -220,6 +220,19 @@ otherwise, and the registry view says which (`secretStore`). The app binary does
 on a real directory before that choice; the memory backend is only for a session without a
 configuration directory (tests, `Session::new()`).
 
+**Resume signals.** After a sleep a socket is often dead while nothing has told the page. A
+ticker thread in the app binary (`src-tauri/src/resume.rs`) wakes every 2 s and passes the wall
+clock and a steady clock to `shell::resume::WakeDetector`, which is pure (no clock read, no `log`,
+so it compiles for wasm32): when the larger of the two elapsed times exceeds the 2 s period by 10 s
+or more, that is a wake. A wall clock that went backwards is not one; a clock set forward, or a
+process that was stopped and continued, is one, which is harmless: the page probes and finds the
+connection alive. `shell::resume::ResumeSignals` is one rate limit shared by every reason (at most
+one signal per 5 s; a dropped signal is not counted) and the counts, reported as
+`connection.resumeSignals: { wake, network }` in `ui.inspect` (`network` stays 0 until the network
+watcher exists). The event is `connection_resume` with `{ "reason": "wake" | "network" }`; the host's
+`connection.onResume` listens to it, and the workbench probes with a 5 s ping and reconnects. Rust
+closes and probes no socket on a signal.
+
 ## Threads
 
 - One thread owns the `AppShell` and so the `Session`. Commands run there.
@@ -231,6 +244,8 @@ configuration directory (tests, `Session::new()`).
 - A secret-store call may block (a keychain prompt), so it is slow work: the owner thread plans a
   dial and a worker reads the store; `daemon.add`, `.update` and `.remove` store on a worker and
   commit on the owner thread (§ Decisions, "Where a secret-store call runs").
+- A ticker thread (`src-tauri/src/resume.rs`) wakes every 2 s, reads the wall and a steady clock and
+  emits `connection_resume`; it ends with the app (§ Resume signals).
 
 ## What stays out of the core
 

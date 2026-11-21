@@ -5,8 +5,8 @@
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
 //! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount` and
 //! `allow-preview-release` to the main window, and listening for events (`core:event:allow-listen`
-//! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`
-//! and `daemons_manage`). A command missing from either
+//! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
+//! `daemons_manage` and `connection_resume`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
 //! the page can reach.
 // `#[tauri::command]` generates code beside each function that names `unreachable!`. This module

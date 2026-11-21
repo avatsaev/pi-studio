@@ -260,7 +260,7 @@ fn views_name_the_kind(kind: StoreKind) {
     ];
     let mut seen = Vec::new();
     let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
-    assert_eq!(inspect["result"]["connection"], json!({"secretStore": kind.as_str()}), "{inspect}");
+    assert_eq!(inspect["result"]["connection"], json!({"secretStore": kind.as_str(), "resumeSignals": {"wake": 0, "network": 0}}), "{inspect}");
     assert_eq!(inspect["result"]["daemons"]["secretStore"], kind.as_str(), "{inspect}");
     let added = execute(&mut app, &mut seen, "daemon.add", json!({"kind": "direct", "name": "Work", "address": "10.0.0.9:8080", "password": PASSWORD}));
     assert_eq!(added["ok"], true, "{added}");

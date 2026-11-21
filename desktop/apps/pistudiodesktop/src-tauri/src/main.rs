@@ -22,6 +22,7 @@ mod daemons;
 mod logging;
 mod menu;
 mod preview_scheme;
+mod resume;
 mod services;
 mod transfers;
 
@@ -35,6 +36,7 @@ use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
 use pistudiodesktop_shell::preview::{self, Previews};
+use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
@@ -168,14 +170,22 @@ fn main() {
     // known, because the file backend needs the configuration directory.
     app.manage(bridge::Bridge::new(requests, Arc::clone(&store)));
     let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor);
+    // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
+    let resume_signals = Arc::new(ResumeSignals::new());
     let launch = bridge::Launch {
         notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)),
         local_supported: daemons::LOCAL_SUPPORTED,
         notices: chosen.notices,
+        resume: Arc::clone(&resume_signals),
     };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
+    // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
+    app.manage(resume::start(app.handle().clone(), resume_signals));
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
-    app.run(|handle, event| bridge::on_run_event(handle, &event));
+    app.run(|handle, event| {
+        bridge::on_run_event(handle, &event);
+        resume::on_run_event(handle, &event);
+    });
 }

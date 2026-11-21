@@ -43,9 +43,12 @@ fn the_control_protocol_drives_and_inspects_the_app() {
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
     assert_eq!(
         seen["result"]["connection"],
-        json!({"secretStore": "memory"}),
-        "ui.inspect names the kind of secret store, and the object has room for later fields"
+        json!({"secretStore": "memory", "resumeSignals": {"wake": 0, "network": 0}}),
+        "ui.inspect names the kind of secret store and the resume signal counts, and the object has room for later fields"
     );
+    assert!(app.resume.signal(crate::resume::Reason::Wake, 1_000));
+    assert!(!app.resume.signal(crate::resume::Reason::Network, 2_000), "inside the shared 5 s");
+    assert_eq!(call(&mut app, "ui.inspect", Value::Null)["result"]["connection"]["resumeSignals"], json!({"wake": 1, "network": 0}));
     let count = |seen: &Value| {
         seen["result"]["menus"][0]["items"].as_array().unwrap().iter().filter(|i| i["id"].as_str().unwrap().starts_with("daemon.entry:")).count()
     };

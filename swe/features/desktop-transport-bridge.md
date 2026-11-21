@@ -226,7 +226,7 @@ and reported as a notice, and the entry is still removed.
 
 | Signal | Detection | Limits |
 |---|---|---|
-| `wake` | A tick every 2 s compares the wall clock with the time expected; 10 s or more unaccounted for is a wake | Also fires after the process was stopped and continued, or the clock was set forward: harmless |
+| `wake` | A tick every 2 s compares both the wall clock and a steady clock with the time expected; 10 s or more unaccounted for in either is a wake (a system sleep moves only the wall clock, a stopped process moves both) | A backward clock is not a wake. Also fires after the process was stopped and continued, or the clock was set forward: harmless |
 | `network` | The set of non-loopback interface addresses is read every 5 s; a change that leaves at least one address fires after 1 s without another change | — |
 
 At most one `connection_resume` every 5 s. Rust closes no socket on a signal: the workbench probes
@@ -297,14 +297,17 @@ at launch, before the registry is used:
     if daemons.json is version 1:
         for each entry with a password or a pairing link: store it
         if every store succeeded: write version 2 without secrets
-        else: keep the version 1 file, use the file backend for this run, add a notice
+        else: keep the version 1 file byte for byte, serve secrets from memory for this run, add one
+              `secrets_not_moved` notice; `daemon.add/update/remove` answer `secret_store_failed`
+              meanwhile (a version 2 file must not claim secrets only this run holds)
 ```
 
 A `daemons.json.corrupt-*` copy from milestone 1 is not touched: it may still hold secrets
 (documented already).
 
 Version 2 of the file: `password` and `pairingLink` are gone; an entry has `hasPassword: boolean`
-(`local`, `direct`); a `relay` entry's link is in the store.
+(`local`, `direct`); a `relay` entry's link is in the store. A `relay` entry with `hasPassword: true`
+is a wrong shape, as are repeated ids and a field the kind does not have.
 
 ### After a wake
 
@@ -386,9 +389,9 @@ Bridge (only after the gate passed):
 
 Secrets:
 
-- [ ] Given a version 1 `daemons.json` with a password and a pairing link, when the new app starts, then both are in the secret store, the file is version 2 with neither, and both entries still connect.
-- [ ] Given the keychain backend, when an entry is added, edited and removed, then its item appears, changes and disappears in the OS keychain (checked with the platform's own tool on macOS, Windows and Linux).
-- [ ] Given no keychain (a container without a Secret Service), when the app starts, then `secretStore` is `file`, `secrets.json` is mode 0600, and the Daemons screen shows the line.
+- [x] Given a version 1 `daemons.json` with a password and a pairing link, when the new app starts, then both are in the secret store, the file is version 2 with neither, and both entries still connect. *(Linux, 2026-11-21, sprint-113/task-008: the real webview in `pi-desktop-xvfb`, scratch `--config-dir`, a password-protected daemon and a local relay on free ports. A version 1 file with a direct entry and a relay entry became version 2, `hasPassword` true for the direct one, no secret in it; `secrets.json` (0600) held both; the direct entry showed `connected`, and the relay entry, chosen in the switcher, showed `connected` too and the relay logged a paired connection.)*
+- [ ] Given the keychain backend, when an entry is added, edited and removed, then its item appears, changes and disappears in the OS keychain (checked with the platform's own tool on macOS, Windows and Linux). *(Open: macOS and Windows. Linux shown 2026-11-21, sprint-113/task-008: in `pi-desktop-keyring`, no option gave `secretStore` `keychain`; `secret-tool search` showed the password item appear on add, change on edit, go on clearing, return, and go on remove, and the link item the same; `daemons.json` held no secret and no `secrets.json` was made.)*
+- [x] Given no keychain (a container without a Secret Service), when the app starts, then `secretStore` is `file`, `secrets.json` is mode 0600, and the Daemons screen shows the line. *(Linux, 2026-11-21, sprint-113/task-008: no option, `pi-desktop-xvfb` without a Secret Service: `boot` said `file`, `secrets.json` was mode 600, and a screenshot of the Daemons screen shows "Passwords and pairing links are kept in a file only this user can read, because no keychain is available." In the same run the page showed a notice that no keychain could be reached.)*
 - [ ] Given the secret guard test, when it runs with marker secrets through every command, the supervisor and a bridged connect, then no answer, event or log line contains a marker.
 
 Resume:
@@ -406,8 +409,8 @@ Gates and documents:
 
 - **The numbers of P1 (partly answered, 2026-11-21).** xterm.js's 5–35 MB/s is its documentation's figure, not measured here. A real flood's frame sizes were measured (`swe/notes/desktop-ipc-benchmark.md`, dev daemon with a real PTY, a Node consumer, a fast machine): median about 354 KiB, so B2 gained a 256 KiB size; a slower producer gives smaller frames, which the 4 KiB and 64 KiB sizes cover. The 40 MiB/s and 5,000 frames/s marks are still derived, not measured.
 - **Which IPC path each webview uses** for raw bodies (the `ipc://` fetch or the `postMessage` fallback), and whether invokes ever reach Rust out of order. § 3's `seq` assumes they can.
-- **The keychain crate.** `keyring` 4.2.0 is MIT OR Apache-2.0 and needs Rust 1.88 (the workspace is on 1.95); its backends per platform and their licences were not read. The Linux backend needs a D-Bus session.
-- **How the engine reaches the store without blocking the owner thread**: a step the caller runs before and after the command, or a hook in the style of `Services`. Decide in the first secrets task.
+- **The keychain crate (answered, 2026-11-21, sprint-113/task-002).** `keyring-core` with one store crate per platform (`zbus-secret-service-keyring-store`, `apple-native-keyring-store`, `windows-native-keyring-store`), all MIT OR Apache-2.0 with their dependencies; the Linux backend needs a D-Bus session bus and a Secret Service, and is pure Rust. The macOS and Windows crates were not compiled or run here.
+- **How the engine reaches the store without blocking the owner thread (answered, sprint-113/task-004 and 005).** A pure `plan` on the owner thread and a `finish` or `SecretJob` step on a worker thread; see `desktop/docs/architecture.md` § Decisions and § Threads.
 - **macOS and an unsigned build**: whether the keychain prompts after every update, and whether a GitHub runner can use a keychain unattended.
 - **The TLS crates' licences** (`rustls` with `ring`, the platform certificate verifier) against the permissive-only rule, and whether `ring` builds on all three runners without extra tools.
 - **The interface-address crate** (`if-addrs` 0.15.0, MIT OR BSD-3-Clause, not read) and the cost of reading the addresses every 5 s.

@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore }` and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, resumeSignals }` and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -76,14 +76,15 @@ fn execute(app: &mut AppShell, params: &Value) -> Result<Value, String> {
 
 /// Everything the frontend draws, and everything `ui.inspect` returns: what a person sees is
 /// what an agent reads. `connection` is what an agent reads about how the app reaches daemons:
-/// for now the kind of secret store (`keychain`, `file` or `memory`), never a secret; later
-/// milestones add fields to the same object.
+/// the kind of secret store (`keychain`, `file` or `memory`), never a secret, and the counts of
+/// resume signals sent since launch (`resumeSignals: { wake, network }`); later milestones add
+/// fields to the same object.
 pub fn view(app: &mut AppShell) -> Value {
     json!({
         "ui": app.ui,
         "settings": app.session.execute("settings.get", Value::Null).ok(),
         "daemons": daemons::view(app),
-        "connection": { "secretStore": daemons::secret_store_kind(app) },
+        "connection": { "secretStore": daemons::secret_store_kind(app), "resumeSignals": app.resume.counts() },
         "menus": menus::model(app),
     })
 }

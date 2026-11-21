@@ -7,9 +7,11 @@ and a Rust side for what a browser does badly: sockets, files on disk, secrets a
 The window draws the workbench with a desktop host: settings, per-daemon layouts, dialogs, links,
 saving files and the HTML preview go through Rust, and a daemon registry (this machine, a direct
 address, a relay pairing link) opens on the daemon used last and starts this machine's daemon
-through the installed `pi-studio` CLI. The webview still opens the WebSocket to the daemon itself;
-sockets, large-file transfer and secrets in the OS keychain are later milestones. Built and
-checked on Linux; on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
+through the installed `pi-studio` CLI. Passwords and pairing links are kept in the operating
+system's keychain when it answers, else in a file only the user can read, never in `daemons.json`.
+The webview still opens the WebSocket to the daemon itself; sockets and large-file transfer are
+later milestones. Built and checked on Linux (the keychain too: a Secret Service, and the file
+fallback); on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
 Behind the window, the Rust crates hold an engine with the registry, the settings and the stored
 workbench state, a command registry (every action is a command), generated menus and a control
 channel; the page, the CLI and the control socket reach it.
