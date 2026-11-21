@@ -251,9 +251,10 @@ mod tests {
 
         fn running() -> (OwnerAccess, String) {
             let mut app = AppShell::new(Session::new(), Services::default());
+            let store = app.session.secret_store();
             let (tx, rx) = channel();
             std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
-            let access = OwnerAccess::new(tx);
+            let access = OwnerAccess::new(tx, store);
             let added = access.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080"})).unwrap();
             (access, added["id"].as_str().unwrap().to_owned())
         }

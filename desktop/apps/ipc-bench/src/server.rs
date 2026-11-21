@@ -12,6 +12,8 @@
 //! counter after the next one (`/flood` as sent, `/sink` as received; `/echo` answers one frame at a
 //! time and cannot).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -99,15 +101,20 @@ fn parse_flood(query: &str) -> Result<FloodSpec> {
     Ok(FloodSpec { frames, size, kind })
 }
 
+/// Bytes of flood frames the server has handed to a socket, over all floods: it stops growing when a
+/// reader stops reading and the socket's buffers are full (the no-acknowledgement test reads it).
+pub type Fed = Arc<AtomicU64>;
+
 /// Accepts connections on `listener` for as long as the process runs.
-pub async fn serve(listener: std::net::TcpListener, switches: Switches) -> Result<()> {
+pub async fn serve(listener: std::net::TcpListener, switches: Switches, fed: Fed) -> Result<()> {
     listener.set_nonblocking(true).map_err(|e| format!("cannot make the listener non-blocking: {e}"))?;
     let listener = TcpListener::from_std(listener).map_err(|e| format!("cannot use the listener: {e}"))?;
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
+                let fed = fed.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = connection(stream, switches).await {
+                    if let Err(e) = connection(stream, switches, fed).await {
                         eprintln!("ipc-bench: connection ended: {e}");
                     }
                 });
@@ -122,7 +129,7 @@ pub async fn serve(listener: std::net::TcpListener, switches: Switches) -> Resul
 
 // The handshake callback's refusal is tungstenite's `ErrorResponse`, a whole HTTP response: its type, not ours.
 #[allow(clippy::result_large_err)]
-async fn connection(stream: TcpStream, switches: Switches) -> Result<()> {
+async fn connection(stream: TcpStream, switches: Switches, fed: Fed) -> Result<()> {
     // Without this a 32-byte echo waits for the delayed-ACK timer: row B1 would measure Nagle.
     stream.set_nodelay(true).map_err(|e| format!("cannot set TCP_NODELAY: {e}"))?;
     let mut route = None;
@@ -143,7 +150,7 @@ async fn connection(stream: TcpStream, switches: Switches) -> Result<()> {
     let mut ws = accept_hdr_async_with_config(stream, callback, Some(config)).await.map_err(|e| format!("handshake: {e}"))?;
     match route {
         Some(Route::Echo) => echo(&mut ws, switches).await,
-        Some(Route::Flood(spec)) => flood(&mut ws, spec, switches).await,
+        Some(Route::Flood(spec)) => flood(&mut ws, spec, switches, &fed).await,
         Some(Route::Sink) => sink(&mut ws, switches).await,
         None => Err("the handshake passed without a route".into()),
     }
@@ -179,7 +186,7 @@ async fn echo(ws: &mut Ws, switches: Switches) -> Result<()> {
     Ok(())
 }
 
-async fn flood(ws: &mut Ws, spec: FloodSpec, switches: Switches) -> Result<()> {
+async fn flood(ws: &mut Ws, spec: FloodSpec, switches: Switches, fed: &AtomicU64) -> Result<()> {
     // The page says when to start, so that it is listening and its clock is running.
     match ws.next().await {
         Some(Ok(Message::Text(t))) if t.as_str() == "go" => {}
@@ -198,14 +205,18 @@ async fn flood(ws: &mut Ws, spec: FloodSpec, switches: Switches) -> Result<()> {
         if switches.corrupt == Some(counter) {
             frame::corrupt(&mut data, text);
         }
+        let len = data.len() as u64;
         let message = if text { Message::Text(Utf8Bytes::try_from(data).map_err(|e| format!("text frame: {e}"))?) } else { Message::binary(data) };
         if switches.swap == Some(counter) && counter + 1 < spec.frames {
             held = Some(message);
             continue;
         }
         ws.feed(message).await.map_err(send_err)?;
+        fed.fetch_add(len, Ordering::Relaxed);
         if let Some(earlier) = held.take() {
+            let earlier_len = earlier.len() as u64;
             ws.feed(earlier).await.map_err(send_err)?;
+            fed.fetch_add(earlier_len, Ordering::Relaxed);
         }
         if counter % FLUSH_EVERY == FLUSH_EVERY - 1 {
             ws.flush().await.map_err(send_err)?;
@@ -326,7 +337,7 @@ mod tests {
     async fn start(switches: Switches) -> u16 {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        tokio::spawn(serve(listener, switches));
+        tokio::spawn(serve(listener, switches, Fed::default()));
         port
     }
 

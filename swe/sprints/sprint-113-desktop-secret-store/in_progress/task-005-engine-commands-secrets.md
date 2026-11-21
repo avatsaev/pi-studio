@@ -1,7 +1,7 @@
 # Task 005 — Engine commands: add, update and remove entries with their secrets in the store
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1
@@ -24,6 +24,7 @@ The page sends a typed password or pairing link to Rust in these commands and ne
 - Update that clears a password deletes the item and clears `hasPassword`. A relay entry's replaced link (D23) overwrites its item.
 - Remove: delete both kinds for the entry, then remove it. A delete that fails is logged with the entry id only and reported as a notice; the entry is removed all the same.
 - The answers are the same views as before.
+- **Added at wave 2 (2026-11-21, from s113/t004's summary):** the ordering (secret first, then the file; a clear removes the item; remove deletes after the file write), `secret_store_failed` and "a refused store writes nothing" are already in `daemon.add/update/remove` with tests, and while secrets are held back by a failed migration these commands answer `secret_store_failed`. What remains here: move the store calls of those three commands off the executing thread with the same two-step split as the dial (`plan_dial`/`DialPlan::finish`: plan under the session lock, store call on the caller's thread), and report a failed delete on remove as a notice. Extend the existing tests rather than duplicating them.
 
 ## Out of scope
 - The Daemons screen (task-007).

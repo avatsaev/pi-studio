@@ -1,7 +1,7 @@
 # Task 004 — Engine: the secret store in `Session`, migration at launch, the dial answer from the store
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine, desktop/crates/shell
 - **Priority:** P1

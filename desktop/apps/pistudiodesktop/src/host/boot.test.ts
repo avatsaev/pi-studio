@@ -66,6 +66,11 @@ describe("text and selection", () => {
       "settings.json could not be read and was reset. The old file was kept as settings.json.bad.",
     );
   });
+  it("accepts and words the notice that secrets were not moved", () => {
+    const notice = { kind: "secrets_not_moved" } as const;
+    expect(parseBootSnapshot({ ...good, notices: [notice] })?.notices).toEqual([notice]);
+    expect(noticeText(notice)).toMatch(/could not be moved to the secret store/);
+  });
   it("reads an error reason", () => {
     expect(errorReason(new Error("x"))).toBe("x");
     expect(errorReason("y")).toBe("y");

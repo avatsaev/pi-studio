@@ -38,6 +38,12 @@ tauri-plugin-single-instance = "2"
 tokio = "1"
 tokio-tungstenite = "0.30"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# The OS keychain (`secrets`): keyring-core's API and one store crate per platform, chosen by `cfg` in
+# the member (the `keyring` wrapper crate would pull the same three and a global default store).
+keyring-core = "1"
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+windows-native-keyring-store = "1"
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

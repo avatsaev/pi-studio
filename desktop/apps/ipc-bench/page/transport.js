@@ -8,6 +8,8 @@
 //
 // A candidate bridge is one more entry in `TRANSPORTS`; the workloads and the runner do not change.
 
+import { createBridgeTransport } from "./bridge.js";
+
 /** The page's own `WebSocket`: what the app does today (the baseline). */
 export function createWebSocketTransport() {
   let ws = null;
@@ -52,7 +54,23 @@ export function createWebSocketTransport() {
   return transport;
 }
 
-/** Every transport the benchmark measures, the baseline first. */
+/**
+ * Every transport the benchmark measures, the baseline first. `create(options)` makes one connection's
+ * transport; `bridge` marks the candidates (the baseline has no inbound window and no ordering of its
+ * own to test). A candidate pair is one design: inbound and outbound the same way, per frame or batched.
+ */
 export const TRANSPORTS = [
-  { id: "websocket", label: "the webview's WebSocket (what the app does today)", create: createWebSocketTransport },
+  { id: "websocket", label: "the webview's WebSocket (what the app does today)", bridge: false, create: createWebSocketTransport },
+  {
+    id: "bridge-frame",
+    label: "bridge: one channel message per frame in, one invoke per frame out",
+    bridge: true,
+    create: (options) => createBridgeTransport({ inbound: "frame", outbound: "frame", ...options }),
+  },
+  {
+    id: "bridge-batch",
+    label: "bridge: batches in (64 KiB or what the socket has), frames queued in one task out as one invoke",
+    bridge: true,
+    create: (options) => createBridgeTransport({ inbound: "batch", outbound: "batch", ...options }),
+  },
 ];

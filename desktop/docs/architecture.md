@@ -36,7 +36,7 @@ missing from it fails the gate.
 | L7 | `net` | The transport bridge's pure parts: the frame batch codec, the inbound window and the outbound order buffer, all tested with hostile input. Above `shell` on purpose, so `engine` and `shell` cannot depend on it; only an app binary may. Empty on wasm32 |
 | testkit | `testkit` | Test helpers; other crates use it as a dev-dependency only |
 | apps | `pistudiodesktop` (`apps/pistudiodesktop/src-tauri`), `pistudiodesktop-cli` | Binaries: argument parsing, the Tauri window, file dialogs, sockets, OS integration |
-| tool | `ipc-bench` (`apps/ipc-bench`) | The IPC benchmark, the gate of the transport bridge: a Tauri window with a static page (no npm package) and a loopback WebSocket server. Exempt from the layer rules, depends on no workspace crate, is never bundled or released, and adds no command or permission to the shipped app. How to run it: `development.md` § The IPC benchmark |
+| tool | `ipc-bench` (`apps/ipc-bench`) | The IPC benchmark, the gate of the transport bridge: a Tauri window with a static page (no npm package), a loopback WebSocket server and the candidate bridges (a client socket in Rust, a `Channel` inward and commands outward, built on the `net` crate). Exempt from the layer rules, depends on no workspace crate but `net`, is never bundled or released, and adds no command or permission to the shipped app. How to run it: `development.md` § The IPC benchmark |
 | frontend | `apps/pistudiodesktop/src` | React + TypeScript. Mounts the workbench and gives it a host. Not a crate; the UI itself is `packages/workbench` |
 
 The layer numbers have gaps on purpose: a crate added later slots in without renumbering.
@@ -131,7 +131,7 @@ names, so the page could listen to any event; the app emits only `daemons_change
 
 | Command | Does |
 |---|---|
-| `boot()` | Returns `{app: {title, version, platform: "desktop", minDaemonVersion}, storage, notices, preview, daemons}`: the stored workbench keys of both scopes merged, the notices (a file that could not be read and was reset) — each returned once — the preview kind, and the registry view (`currentId`, entries, local state, settings; no secret). Resets the transfer count and clears the preview store |
+| `boot()` | Returns `{app: {title, version, platform: "desktop", minDaemonVersion}, storage, notices, preview, daemons}`: the stored workbench keys of both scopes merged, the notices (a file that could not be read and was reset, `file_reset`; or a version 1 registry's secrets the store would not take, `secrets_not_moved`) — each returned once — the preview kind, and the registry view (`currentId`, entries, local state, settings; no secret). Resets the transfer count and clears the preview store |
 | `storage_set(key, value)` | Queues one stored key. It is a synchronous command, so calls are applied in the order the page made them; it answers once queued. Size caps are checked on the owner thread and a refused write is logged with the key only |
 | `dialog_confirm(message)` → bool | Native OK/Cancel dialog over the window; the text is capped at 8,192 characters. Closing it, or a failure, answers `false` |
 | `dialog_alert(message)` | Native message dialog, same cap |
@@ -169,12 +169,12 @@ D-Bus session bus).
 
 ## The registry and the local daemon
 
-**The registry** is `daemons.json`: the entries (`local`, `direct` with an address and an optional
-password, `relay` with a pairing link) and `lastUsedId`. The rules and caps are in
-`crates/model/src/registry.rs` (a name of 1–64 characters, unique without regard to case; an
-address at most 2,048, a password 1,024 and a pairing link 4,096 characters; at most 64 entries).
-The file is written with `store::write_private`: the temporary file is created at mode 0600 on
-Unix, so it is never readable by others, and a `*.corrupt-*` copy keeps that mode. Views
+**The registry** is `daemons.json`, version 2: the entries (`local`, `direct` with an address,
+`relay`; `hasPassword` on `local` and `direct`) and `lastUsedId`. No secret is in it. The rules and
+caps are in `crates/model/src/registry.rs` (a name of 1–64 characters, unique without regard to
+case; an address at most 2,048, a password 1,024 and a pairing link 4,096 characters; at most 64
+entries). The file is written with `store::write_private`: the temporary file is created at mode
+0600 on Unix, so it is never readable by others, and a `*.corrupt-*` copy keeps that mode. Views
 (`EntryView`) carry `hasPassword`, never a secret.
 
 **The supervisor** (`crates/shell/src/supervisor.rs`) runs the local daemon through the installed
@@ -202,15 +202,20 @@ switch as the page (`daemon_switch`); Stop asks first when the current entry is 
 "Manage Daemons…" brings the window forward and emits `daemons_manage`. The native items have no
 tooltips, so a disabled item's reason is only in the model.
 
-**Secrets.** A direct entry's password and a relay entry's pairing link live only in
-`daemons.json`. They are never logged, never in a control answer, in `boot` or in `ui.inspect`,
-and travel to the page once, in the answer of `daemon_resolve_current`, for the entry being
-opened (the page sends them to Rust in `daemon.add` and `daemon.update`, and never gets them
-back). A test (`crates/shell/tests/secret_guard.rs`) runs commands and the supervisor against
-marker secrets and scans every answer and log line. Removing an entry deletes its secret from
-`daemons.json` and its state file; a `daemons.json.corrupt-*` copy, made when the file could not
-be read, keeps the old contents and mode 0600 and **may hold secrets the registry no longer
-does**: the app does not delete it. The OS keychain replaces this file in milestone 2.
+**Secrets.** A direct (or local) entry's password and a relay entry's pairing link are not in
+`daemons.json` (version 2: the entry says `hasPassword`); they are in the secret store the session
+was given (`crates/secrets`). A version 1 file, which held them, is migrated when the session
+opens (§ Decisions). They are never logged, never in a control answer, in `boot` or in
+`ui.inspect`, and travel to the page once, in the answer of `daemon_resolve_current`, for the entry
+being opened (the page sends them to Rust in `daemon.add` and `daemon.update`, and never gets them
+back). A dial that finds the item gone from the store answers `secret_missing`; one that cannot
+read the store answers `secret_unavailable`. A test (`crates/shell/tests/secret_guard.rs`) opens
+on a version 1 file, runs commands and the supervisor against marker secrets, scans every answer
+and log line, and checks that the file holds none. Removing an entry removes its secrets from the
+store and its state file; a `daemons.json.corrupt-*` copy, made when the file could not be read,
+keeps the old contents and mode 0600 and **may hold secrets the registry no longer does**: the
+app does not delete it. The app binary still passes the memory backend, and the CLI the file one
+(`secrets.json` under `--config-dir`), until sprint 113 task 006 chooses the keychain or the file.
 
 ## Threads
 
@@ -220,6 +225,8 @@ does**: the app does not delete it. The OS keychain replaces this file in milest
   never race.
 - Slow work belongs on a worker that computes from a snapshot and hands back a result the owner
   thread applies as one command.
+- A secret-store call may block (a keychain prompt), so it is slow work: the owner thread plans a
+  dial and a worker reads the store (§ Decisions, "Where a secret-store call runs").
 
 ## What stays out of the core
 
@@ -238,3 +245,5 @@ lives, what runs off the owner thread, which windows exist).
 | How the frontend gets the workbench | From source, through Vite aliases to `packages/*/src`, as `packages/web-client` does | A workbench change shows up without building it, and `vite build` needs no package's `dist` |
 | Which host the window uses | The desktop host: the browser host with storage, dialogs, links, save-to-disk, preview and the registry replaced by Rust-backed members; the transport, timers, upload and view URLs stay the browser host's for now. Outside Tauri, the plain browser host | Rust replaces host members one at a time; the snapshot tool and a dev-server browser have no Rust to ask |
 | Local daemon | Supervise an installed `pi-studio` CLI (`pi-studio --json daemon start\|stop\|restart`); no bundled daemon for now | Cheap, and reuses the CLI's lifecycle code. Bundling Node is deferred until the app ships to people without Node; Windows has no local daemon (POSIX-only) and connects to remote or WSL2 daemons |
+| Where a secret-store call runs | The session never calls the store on the thread that owns it, except at launch. A read is split in two: the session's `plan_dial` (pure, on the owner thread) answers with a `DialPlan` that names the item (`Password { url, entry }`, `PairingLink { entry }`) or is already final, and the caller finishes it (`DialPlan::finish(&dyn SecretStore)`) on its own thread: the supervisor's `OwnerAccess` holds the session's `Arc<dyn SecretStore>` (`Session::secret_store()`). Migration of a version 1 `daemons.json` runs once in `Session::with_config_dir`, before the owner thread has answered anything. `daemon.add`, `daemon.update` and `daemon.remove` still call the store where they run, in the right order (secret first, then the file); moving them to the same split is sprint 113 task 005 | A keychain call can block on a system prompt, and the owner thread must keep answering storage writes, the control socket and dialogs meanwhile. A plan that names the item keeps the engine free of a thread or a hook it would have to wait on, and the owner never waits: a store that blocks 3 s holds up nothing (`owner_access.rs` test) |
+| A migration the store refuses | The version 1 file is left byte for byte as it was, this run serves its secrets from memory, and one `secrets_not_moved` notice is returned. While they are held, `daemon.add`, `.update` and `.remove` answer `secret_store_failed` and a switch does not rewrite the file | A version 2 file would claim secrets that only this run has: writing it would lose them when the app closes. The next launch tries again |

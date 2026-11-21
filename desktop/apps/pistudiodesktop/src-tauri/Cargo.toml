@@ -23,6 +23,7 @@ tauri-build = { workspace = true }
 
 [dependencies]
 pistudiodesktop-engine = { workspace = true }
+pistudiodesktop-secrets = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }

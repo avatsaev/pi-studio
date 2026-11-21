@@ -3,10 +3,12 @@
 //! the local-daemon operations that cross to the thread that owns the session.
 //!
 //! The view never holds a password or a pairing link. The one answer that does, "what to dial",
-//! is [`Request::Local`] with [`LocalOp::Resolve`] and nothing else.
+//! is [`Request::Local`] with [`LocalOp::Resolve`] and nothing else, and that answer carries the
+//! name of the secret to read, not the secret: the caller reads the store off the owner thread
+//! (see `docs/architecture.md` § Decisions).
 
-use pistudiodesktop_engine::{Dial, LocalRequest, Session};
-use pistudiodesktop_model::{FailReason, LocalState, Secret};
+use pistudiodesktop_engine::{Dial, DialPlan, LocalRequest, Session};
+use pistudiodesktop_model::{EntryId, FailReason, LocalState, Secret};
 use serde_json::{Value, json};
 
 use crate::AppShell;
@@ -81,7 +83,8 @@ pub enum LocalOp {
     Take,
     /// Store the state a request reached.
     Apply(LocalState),
-    /// What to dial for the current entry.
+    /// What to dial for the current entry: a [`DialPlan`], which names the secret to read and
+    /// never reads it (a store read may block, and the owner thread never waits on one).
     Resolve,
     /// Run the engine command `id` (`daemon.local.refresh` and the like).
     Request(String),
@@ -95,7 +98,7 @@ pub fn local_op(app: &mut AppShell, op: &LocalOp) -> Value {
             app.session.apply_local_outcome(state.clone());
             Ok(Value::Null)
         }
-        LocalOp::Resolve => app.session.resolve_current(cli_answers::dial_address).map(dial_to_json).map_err(str::to_owned),
+        LocalOp::Resolve => app.session.plan_dial(cli_answers::dial_address).map(plan_to_json).map_err(str::to_owned),
         LocalOp::Request(id) => app.session.execute(id, Value::Null).map(|_| Value::Null).map_err(|e| e.to_string()),
     })
 }
@@ -143,22 +146,31 @@ pub fn batch_from_json(value: &Value) -> Batch {
     }
 }
 
-fn dial_to_json(dial: Dial) -> Value {
-    match dial {
-        Dial::Connect { url, password } => json!({"dial": "connect", "url": url, "password": password.as_ref().map(Secret::expose)}),
-        Dial::StartNeeded => json!({"dial": "start_needed"}),
-        Dial::Wait => json!({"dial": "wait"}),
+/// What the owner thread answers [`LocalOp::Resolve`] with. It holds a held-in-memory password
+/// only when a version 1 file's secrets could not be moved to the store (see the engine's
+/// `Storage::open`); otherwise it names the item to read, and the caller reads it.
+fn plan_to_json(plan: DialPlan) -> Value {
+    match plan {
+        DialPlan::Ready(Dial::Connect { url, password }) => json!({"dial": "connect", "url": url, "password": password.as_ref().map(Secret::expose)}),
+        DialPlan::Ready(Dial::StartNeeded) => json!({"dial": "start_needed"}),
+        DialPlan::Ready(Dial::Wait) => json!({"dial": "wait"}),
+        DialPlan::Password { url, entry } => json!({"dial": "password", "url": url, "entry": entry.as_str()}),
+        DialPlan::PairingLink { entry } => json!({"dial": "pairing_link", "entry": entry.as_str()}),
     }
 }
 
 /// The inverse of [`LocalOp::Resolve`]'s answer.
-pub fn dial_from_json(value: &Value) -> Result<Dial, &'static str> {
+pub fn plan_from_json(value: &Value) -> Result<DialPlan, &'static str> {
+    let entry = || value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal");
     match value["dial"].as_str() {
-        Some("connect") => {
-            Ok(Dial::Connect { url: value["url"].as_str().ok_or("internal")?.to_owned(), password: value["password"].as_str().map(Secret::new) })
-        }
-        Some("start_needed") => Ok(Dial::StartNeeded),
-        Some("wait") => Ok(Dial::Wait),
+        Some("connect") => Ok(DialPlan::Ready(Dial::Connect {
+            url: value["url"].as_str().ok_or("internal")?.to_owned(),
+            password: value["password"].as_str().map(Secret::new),
+        })),
+        Some("start_needed") => Ok(DialPlan::Ready(Dial::StartNeeded)),
+        Some("wait") => Ok(DialPlan::Ready(Dial::Wait)),
+        Some("password") => Ok(DialPlan::Password { url: value["url"].as_str().ok_or("internal")?.to_owned(), entry: entry()? }),
+        Some("pairing_link") => Ok(DialPlan::PairingLink { entry: entry()? }),
         _ => Err("internal"),
     }
 }
@@ -181,7 +193,8 @@ pub fn dial_for_page(dial: Dial) -> Result<Value, String> {
 
 /// The code a rejected resolve carries, as a `&'static str` (the supervisor's trait wants one).
 pub fn static_code(code: &str) -> &'static str {
-    const KNOWN: &[&str] = &["no_current", "not_found", "unsupported", "cli_missing", "cli_outdated", "local_stopped", "busy"];
+    const KNOWN: &[&str] =
+        &["no_current", "not_found", "unsupported", "cli_missing", "cli_outdated", "local_stopped", "busy", "secret_missing", "secret_unavailable"];
     const FAILS: [FailReason; 4] = [FailReason::NotHealthy, FailReason::Timeout, FailReason::BadOutput, FailReason::SpawnFailed];
     KNOWN.iter().copied().find(|known| *known == code).or_else(|| FAILS.iter().map(|f| f.code()).find(|known| *known == code)).unwrap_or("internal")
 }
@@ -237,15 +250,25 @@ mod tests {
     }
 
     #[test]
-    fn batches_and_dials_survive_the_trip_to_the_owner_thread() {
+    fn batches_and_dial_plans_survive_the_trip_to_the_owner_thread() {
         let batch = Batch { requests: vec![LocalRequest::Probe, LocalRequest::Start], cli_path: Some("/x/pi".into()), refresh_env: true };
         assert_eq!(batch_from_json(&batch_to_json(&batch)), batch);
         assert_eq!(batch_from_json(&Value::Null), Batch::default());
-        let dial = Dial::Connect { url: "ws://h:1".into(), password: Some(Secret::new("pw")) };
-        assert_eq!(dial_from_json(&dial_to_json(dial.clone())), Ok(dial));
-        assert_eq!(dial_from_json(&dial_to_json(Dial::Wait)), Ok(Dial::Wait));
-        assert_eq!(dial_from_json(&Value::Null), Err("internal"));
-        for code in ["no_current", "timeout", "spawn_failed", "local_stopped"] {
+        let entry = EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();
+        let plans = [
+            DialPlan::Ready(Dial::Connect { url: "ws://h:1".into(), password: Some(Secret::new("pw")) }),
+            DialPlan::Ready(Dial::Connect { url: "ws://h:1".into(), password: None }),
+            DialPlan::Ready(Dial::Wait),
+            DialPlan::Ready(Dial::StartNeeded),
+            DialPlan::Password { url: "ws://h:1".into(), entry: entry.clone() },
+            DialPlan::PairingLink { entry },
+        ];
+        for plan in plans {
+            assert_eq!(plan_from_json(&plan_to_json(plan.clone())), Ok(plan));
+        }
+        assert_eq!(plan_from_json(&Value::Null), Err("internal"));
+        assert_eq!(plan_from_json(&json!({"dial": "password", "url": "u", "entry": "../x"})), Err("internal"));
+        for code in ["no_current", "timeout", "spawn_failed", "local_stopped", "secret_missing", "secret_unavailable"] {
             assert_eq!(static_code(code), code);
         }
         assert_eq!(static_code("surprise"), "internal");

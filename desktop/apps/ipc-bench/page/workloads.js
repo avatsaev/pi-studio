@@ -3,10 +3,11 @@
 // result of row B6 (counter, checksum and running hash of every stream) in `integrity`.
 //
 //   B1  keystroke echo: round trips of a 32-byte binary frame, one at a time
-//   B2  terminal flood: 256 MiB inbound as 4 KiB and as 64 KiB binary frames
+//   B2  terminal flood: 256 MiB inbound as 4 KiB, 64 KiB and 256 KiB binary frames
 //   B3  many small frames: 200,000 inbound text frames of 200 bytes
 //   B4  download: 1 GiB inbound as 32 KiB binary frames, with the memory of the app's processes
 //   B5  upload: 256 MiB outbound as 32 KiB binary frames, paced on bufferedAmount at 1 MiB
+//   W1  (candidates only) the page never acknowledges: Rust must stop reading at the window
 
 import { BASIS, StreamCheck, binaryFrame, binaryTemplate, hex, mix } from "./frame.js";
 import { round, summarize } from "./stats.js";
@@ -16,6 +17,8 @@ const GIB = 1024 * MIB;
 /** The pacing the SDK's upload uses (`UPLOAD_POLL_MS` in file-transfer-client.ts), and the spec's 1 MiB. */
 const UPLOAD_HIGH_WATER = 1 * MIB;
 const UPLOAD_POLL_MS = 10;
+/** How long the answers of the last sends may take after the sink's report, before `bufferedAmount` must be 0. */
+const UPLOAD_SETTLE_MS = 2000;
 const MEMORY_SAMPLE_MS = 250;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,9 +50,9 @@ function newRun(timeoutMs) {
 }
 
 /** A transport, connected to `path`, closed again at the end; a close before the end fails the run. */
-async function withTransport(ctx, path, body) {
+async function withTransport(ctx, path, body, options = {}) {
   const run = newRun(ctx.runTimeoutMs);
-  const transport = ctx.transport.create();
+  const transport = ctx.transport.create(options);
   transport.onClose = (code, reason) => {
     if (!run.over) run.fail(new Error(`the socket closed before the end (code ${code}${reason ? `, ${reason}` : ""})`));
   };
@@ -58,7 +61,10 @@ async function withTransport(ctx, path, body) {
   };
   try {
     await run.wait(transport.connect(ctx.url(path)));
-    return await body(transport, run);
+    const result = await body(transport, run);
+    // The candidates' record of the run: the IPC path, the out-of-order count, the window's numbers.
+    if (transport.report) result.ipc = await run.wait(transport.report());
+    return result;
   } finally {
     run.end();
     transport.close(1000, "done");
@@ -250,6 +256,12 @@ async function upload(ctx) {
     transport.sendText("end");
     const reply = await run.wait(answer);
     const durationMs = performance.now() - start;
+    // The report can overtake the answers of the last sends (it travels another way in a bridge): give
+    // the answers a moment, and record both numbers. `bufferedAmountEnd` is the one that must be 0.
+    const bufferedAmountAtReport = transport.bufferedAmount;
+    const settleStart = performance.now();
+    while (transport.bufferedAmount > 0 && performance.now() - settleStart < UPLOAD_SETTLE_MS) await run.wait(sleep(5));
+    const settleMs = performance.now() - settleStart;
     const bufferedAmountEnd = transport.bufferedAmount;
     if (reply.type !== "report") throw new Error(`the sink answered ${JSON.stringify(reply).slice(0, 200)}`);
     const bytes = frames * size;
@@ -261,12 +273,110 @@ async function upload(ctx) {
       durationMs: round(durationMs),
       mibPerS: round(mibPerS(bytes, durationMs)),
       framesPerS: round(frames / (durationMs / 1000), 1),
+      bufferedAmountAtReport,
       bufferedAmountEnd,
+      settleMs: round(settleMs),
       maxBufferedAmountSeen: maxBuffered,
       pacingWaits: polls,
       integrity: verdict,
     };
   });
+}
+
+// -------------------------------------------------------------------------- window test
+
+const WINDOW_FRAME = 64 * 1024;
+/** More than the window and every buffer between Rust and the server can hold, whatever the scale. */
+const WINDOW_FLOOD_BYTES = 128 * MIB;
+/** The spec's high mark (§ 3): Rust stops reading once more than this is unacknowledged. */
+const WINDOW_HIGH = 8 * MIB;
+const STALL_SAMPLE_MS = 250;
+const STALL_STABLE_SAMPLES = 6;
+const STALL_GIVE_UP_MS = 60 * 1000;
+
+/** Samples Rust's counters until the bytes it sent and the bytes the server handed on stop changing. */
+async function waitForStall(transport, run) {
+  const trace = [];
+  const started = performance.now();
+  let key = null;
+  let stable = 0;
+  let stats;
+  while (stable < STALL_STABLE_SAMPLES) {
+    await run.wait(sleep(STALL_SAMPLE_MS));
+    stats = await run.wait(transport.stats());
+    const now = `${stats.bytesIn}/${stats.serverFedBytes}`;
+    stable = now === key ? stable + 1 : 0;
+    key = now;
+    trace.push({ atMs: round(performance.now() - started, 0), bytesIn: stats.bytesIn, outstanding: stats.outstanding, serverFedBytes: stats.serverFedBytes });
+    if (performance.now() - started > STALL_GIVE_UP_MS) throw new Error(`the flood neither finished nor stopped in ${STALL_GIVE_UP_MS / 1000} s`);
+  }
+  return { stats, trace, stalledAfterMs: trace[Math.max(0, trace.length - STALL_STABLE_SAMPLES - 1)].atMs };
+}
+
+/** An integrity verdict plus a problem of the window test. */
+function addProblem(verdict, problem) {
+  verdict.ok = false;
+  verdict.errorCount++;
+  verdict.errors.push({ frame: null, problem });
+}
+
+/**
+ * The page never acknowledges. Rust must stop reading just past the window (8 MiB), so that the
+ * server's sends stall; then the page acknowledges, the flood resumes and arrives whole.
+ */
+async function noAck(ctx) {
+  const frames = WINDOW_FLOOD_BYTES / WINDOW_FRAME;
+  return withTransport(
+    ctx,
+    `/flood?frames=${frames}&size=${WINDOW_FRAME}&kind=binary`,
+    async (transport, run) => {
+      const check = new StreamCheck();
+      let finished = false;
+      let finish;
+      const done = new Promise((resolve) => {
+        finish = resolve;
+      });
+      transport.onMessage = (data) => {
+        if (typeof data === "string" && data.charCodeAt(0) === 123) {
+          finished = true;
+          finish(JSON.parse(data));
+        } else check.accept(data);
+      };
+      const before = await run.wait(transport.stats());
+      transport.sendText("go");
+      const stall = await waitForStall(transport, run);
+      const held = stall.stats;
+      const problems = [];
+      if (finished) problems.push("the flood finished although the page never acknowledged");
+      if (held.outstanding <= WINDOW_HIGH) problems.push(`Rust holds ${held.outstanding} bytes: it stopped below the ${WINDOW_HIGH}-byte window`);
+      if (held.outstanding > WINDOW_HIGH + 2 * WINDOW_FRAME + 5) problems.push(`Rust holds ${held.outstanding} bytes: it read on past the ${WINDOW_HIGH}-byte window`);
+      if (held.mayRead) problems.push("the window still lets Rust read");
+      const fed = held.serverFedBytes - before.serverFedBytes;
+      if (fed >= WINDOW_FLOOD_BYTES) problems.push("the server sent the whole flood: its sends did not stall");
+      // The window opens: from here the page acknowledges, as in a normal run.
+      await run.wait(transport.enableAck());
+      const closing = await run.wait(done);
+      const report = check.report();
+      const verdict = integrity(report, { frames: closing.frames, bytes: closing.bytes, hash: closing.hash });
+      for (const problem of problems) addProblem(verdict, problem);
+      return {
+        frameBytes: WINDOW_FRAME,
+        frames: report.frames,
+        bytes: report.bytes,
+        heldBytes: held.outstanding,
+        windowHighBytes: WINDOW_HIGH,
+        readingStopped: !held.mayRead,
+        pauses: held.pauses,
+        serverFedBytes: fed,
+        serverFedMiB: round(fed / MIB, 2),
+        serverFloodBytes: WINDOW_FLOOD_BYTES,
+        stalledAfterMs: stall.stalledAfterMs,
+        trace: stall.trace,
+        integrity: verdict,
+      };
+    },
+    { ack: false },
+  );
 }
 
 /**
@@ -292,6 +402,14 @@ export const WORKLOADS = [
     run: (ctx) => flood(ctx, { kind: "binary", size: 65536, frames: Math.max(1, Math.round((256 * MIB * ctx.scale) / 65536)) }),
   },
   {
+    row: "b2",
+    id: "B2",
+    variant: "256KiB",
+    title: "terminal flood, 256 KiB frames",
+    metrics: [["mibPerS", "min"]],
+    run: (ctx) => flood(ctx, { kind: "binary", size: 262144, frames: Math.max(1, Math.round((256 * MIB * ctx.scale) / 262144)) }),
+  },
+  {
     row: "b3",
     id: "B3",
     variant: "",
@@ -308,4 +426,13 @@ export const WORKLOADS = [
     run: (ctx) => flood(ctx, { kind: "binary", size: 32768, frames: Math.max(1, Math.round((GIB * ctx.scale) / 32768)), memory: true }),
   },
   { row: "b5", id: "B5", variant: "", title: "upload", metrics: [["mibPerS", "min"], ["bufferedAmountEnd", "max"]], run: upload },
+  {
+    row: "window",
+    id: "W1",
+    variant: "",
+    title: "no acknowledgement: Rust stops reading at the window",
+    bridgeOnly: true,
+    metrics: [["heldBytes", "max"], ["serverFedMiB", "min"]],
+    run: noAck,
+  },
 ];

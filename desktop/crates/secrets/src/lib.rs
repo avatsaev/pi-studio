@@ -1,24 +1,30 @@
 //! The secret store: small secrets (a direct entry's password, a relay entry's pairing link) kept
 //! apart from the registry file.
 //!
-//! [`SecretStore`] is the contract; this crate has the two backends that need no operating-system
-//! service: [`FileStore`] (`secrets.json`, mode 0600) and [`MemoryStore`] (nowhere). A secret is a
-//! [`Secret`], whose `Debug` and `Display` never show the value, and no error carries one.
+//! [`SecretStore`] is the contract. It has three backends: [`KeychainStore`] (the operating system's
+//! keychain; [`KeychainStore::probe`] says within two seconds whether there is one), [`FileStore`]
+//! (`secrets.json`, mode 0600) and [`MemoryStore`] (nowhere). A secret is a [`Secret`], whose `Debug`
+//! and `Display` never show the value, and no error carries one. [`FakeKeychain`] is a keychain for
+//! tests, one that can block.
 //!
 //! Secrets are not wiped from memory on drop: that needs `unsafe` or a dependency for little gain
 //! here, since the process also holds the same secrets in its registry while it runs.
 //!
-//! File access is native only: on wasm32 this crate is empty.
+//! Keychain and file access are native only: on wasm32 this crate is empty.
 #![cfg(not(target_arch = "wasm32"))]
 
+mod fake;
 mod file;
+mod keychain;
 mod memory;
 
 use std::fmt;
 
 use pistudiodesktop_model::{EntryId, MAX_LINK_CHARS, MAX_PASSWORD_CHARS};
 
+pub use fake::{FakeFailure, FakeKeychain};
 pub use file::{FILE_NAME, FileStore, Opened, Reset};
+pub use keychain::{KeychainStore, PROBE_TIMEOUT, SERVICE, Scope};
 pub use memory::MemoryStore;
 
 /// A secret string. `Debug` and `Display` print a placeholder; there is no `Serialize`.

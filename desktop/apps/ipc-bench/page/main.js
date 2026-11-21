@@ -3,6 +3,7 @@
 // writes it and exits. Nothing here waits for a person.
 
 import { BASIS, hashWords } from "./frame.js";
+import { compare, describe } from "./compare.js";
 import { median, round, timerResolutionMs } from "./stats.js";
 import { TRANSPORTS } from "./transport.js";
 import { WORKLOADS } from "./workloads.js";
@@ -53,7 +54,7 @@ function summarizeRuns(workload, runs) {
 async function main() {
   const config = await invoke("bench_config");
   const results = {
-    schema: 1,
+    schema: 2,
     startedAt: new Date().toISOString(),
     app: { name: "ipc-bench", tauri: config.tauriVersion, os: config.os, arch: config.arch, userAgent: navigator.userAgent, navigatorPlatform: navigator.platform },
     options: { runs: config.runs, only: config.only, scale: config.scale, corrupt: config.corrupt, swap: config.swap },
@@ -74,6 +75,7 @@ async function main() {
     const ctx = { ...ctxBase, transport, url: (path) => `ws://127.0.0.1:${config.port}${path}` };
     for (const workload of WORKLOADS) {
       if (!config.only.includes(workload.row)) continue;
+      if (workload.bridgeOnly && !transport.bridge) continue;
       const name = workload.variant ? `${workload.id}/${workload.variant}` : workload.id;
       const own = [];
       for (let run = 1; run <= config.runs; run++) {
@@ -91,27 +93,57 @@ async function main() {
         for (const e of record.integrity ? record.integrity.errors : []) {
           results.problems.push(`${transport.id} ${name} run ${run}: ${e.frame === null ? "stream" : `frame ${e.frame}`}: ${e.problem}`);
         }
+        if (record.ipc) {
+          record.ipcPath = record.ipc.ipcPath;
+          record.outOfOrder = record.ipc.outOfOrder;
+        }
         own.push(record);
         entry.runs.push(record);
         await progress(`  ${record.ok ? "ok" : "FAILED"} ${headline(record)}`);
       }
       entry.summary.push(summarizeRuns(workload, own));
     }
+    entry.ipc = summarizeIpc(entry.runs);
   }
   if (pageErrors.length > 0) results.problems.push(...pageErrors.map((e) => `page error: ${e}`));
+  results.comparison = compare(results);
+  for (const line of results.comparison) await progress(describe(line));
   results.finishedAt = new Date().toISOString();
-  results.ok = results.problems.length === 0 && Object.values(results.transports).every((t) => t.runs.length > 0 && t.runs.every((r) => r.ok));
+  const runCounts = Object.values(results.transports).map((t) => t.runs.length);
+  results.ok = results.problems.length === 0 && runCounts.some((n) => n > 0) && Object.values(results.transports).every((t) => t.runs.every((r) => r.ok));
   await invoke("bench_finish", { results });
 }
 
 function headline(record) {
   if (record.error) return record.error;
-  if (record.medianMs !== undefined) return `median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms`;
+  const path = record.ipc ? `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order` : "";
+  if (record.medianMs !== undefined) return `median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms${path}`;
+  if (record.heldBytes !== undefined) {
+    return `Rust held ${record.heldBytes} bytes (window ${record.windowHighBytes}), the server sent ${record.serverFedMiB} of ${record.serverFloodBytes / 1048576} MiB while it stalled${path}`;
+  }
   const parts = [`${record.mibPerS} MiB/s`, `${record.framesPerS} frames/s`];
   if (record.memory) parts.push(`memory +${Math.round(record.memory.growthKiB / 1024)} MiB`);
   if (record.bufferedAmountEnd !== undefined) parts.push(`bufferedAmount at the end ${record.bufferedAmountEnd}`);
   if (!record.integrity.ok) parts.push(`${record.integrity.errorCount} integrity error(s)`);
-  return parts.join(", ");
+  return parts.join(", ") + path;
+}
+
+/** What a candidate's runs say about the IPC: the path of the raw bodies, the sends out of order, how messages were delivered. */
+function summarizeIpc(runs) {
+  const ipcs = runs.filter((r) => r.ipc).map((r) => r.ipc);
+  if (ipcs.length === 0) return undefined;
+  const sum = (key) => ipcs.reduce((total, ipc) => total + (ipc[key] ?? 0), 0);
+  const max = (key) => Math.max(...ipcs.map((ipc) => ipc[key] ?? 0));
+  return {
+    ipcPaths: [...new Set(ipcs.map((ipc) => ipc.ipcPath))],
+    rawBodies: sum("rawBodies"),
+    jsonArrayBodies: sum("jsonArrayBodies"),
+    outOfOrderSends: sum("outOfOrder"),
+    maxEarlyFramesWaiting: max("maxWaiting"),
+    channelMessagesEvaluated: sum("directMessages"),
+    channelMessagesFetched: sum("fetchedMessages"),
+    maxOutstandingBytes: max("maxOutstanding"),
+  };
 }
 
 

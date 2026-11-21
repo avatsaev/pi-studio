@@ -22,10 +22,11 @@ P4. Automated checks and live checks run with scratch configuration directories 
 - `desktop/apps/pistudiodesktop/scripts/platform-checks/*.mjs`, `desktop/docs/development.md`, `desktop/docs/control-protocol.md`
 
 ## What to build
-- Launch option `--secret-store keychain|file` on the app and on the app's CLI. Without it: probe the keychain (off the main thread, at most 2 s); use it when it answers, else the file backend.
+- Launch option `--secret-store keychain|file` on the app and on the app's CLI. Without it: probe the keychain (off the main thread, at most 2 s); use it when it answers, else the file backend. **Added at wave 2 (2026-11-21, from s113/t002):** `KeychainStore::probe` only reads a missing item, so a Secret Service whose default collection is locked or absent passes it and the first `set` then fails with `Denied`. The launch check therefore also writes and deletes a throwaway probe item through the store (within the same 2 s); a `Denied` or `Unavailable` there means the file backend, with a notice that says why. Never leave the probe item behind.
 - The chosen kind is `secretStore` in the registry view that `boot` returns and that `daemons_changed` carries, and in `ui.inspect` as `connection: { secretStore }` (the object the later sprints add fields to).
 - The platform-checks script and every command line in `desktop/docs/development.md` pass `--secret-store file`.
 - The secret guard test covers the new answers.
+- **Added at wave 2 (2026-11-21, from s113/t004's summary):** (1) The app binary still passes the memory backend to the session (the configuration directory is known only after the Tauri builder runs), so a real version 1 `daemons.json` would lose its secrets at exit. This task gives the app the real store choice **before** the session opens a real configuration directory; nothing is released between s113/t004 and this task. (2) Turn `Opened.reset` of the `FileStore` into a notice (`Notice::FileReset` fits; `boot.ts` needs `keptAs` as a string, so decide how a missing name is worded). (3) The workbench's `DaemonErrorCode` (`packages/workbench`) and `CODES` in `desktop/apps/pistudiodesktop/src/host/daemons.ts` lack `secret_missing`, `secret_unavailable` and `secret_store_failed`: add them with their messages, so the page shows words instead of a code. (4) The documents list the page-visible `secrets_not_moved` notice and those three codes.
 - `desktop/docs/control-protocol.md` documents the new field.
 
 ## Out of scope

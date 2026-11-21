@@ -7,9 +7,8 @@
 mod registry;
 
 pub use registry::{
-    Entry, EntryV2, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS,
-    MigratedSecret, NewEntry, REGISTRY_V2, Registry, RegistryError, RegistryV2, Secret, Update, decode_registry, decode_registry_any, decode_registry_v2,
-    encode_registry, encode_registry_v2,
+    EntryV2, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MigratedSecret,
+    NewEntry, REGISTRY_V2, RegistryError, RegistryV2, Secret, Update, check_link, check_password, decode_registry_any, decode_registry_v2, encode_registry_v2,
 };
 
 use std::collections::BTreeMap;

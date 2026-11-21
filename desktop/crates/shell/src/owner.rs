@@ -215,9 +215,12 @@ mod tests {
 
         use super::*;
         use crate::{Request, Services};
+        fn memory_store() -> std::sync::Arc<dyn pistudiodesktop_secrets::SecretStore> {
+            std::sync::Arc::new(pistudiodesktop_secrets::MemoryStore::new())
+        }
 
         fn app_on(dir: &std::path::Path) -> AppShell {
-            let (session, notices) = Session::with_config_dir(dir);
+            let (session, notices) = Session::with_config_dir(dir, memory_store());
             let mut app = AppShell::new(session, Services::default());
             app.notices = notices;
             app
@@ -279,7 +282,7 @@ mod tests {
             drop(tx);
             serve(&mut app, &rx, Duration::from_secs(3600));
             assert!(layout_file(dir.path()).is_file());
-            let (again, _) = Session::with_config_dir(dir.path());
+            let (again, _) = Session::with_config_dir(dir.path(), memory_store());
             assert_eq!(again.storage_snapshot().get("pi-studio-pane-layout").map(String::as_str), Some("last"));
         }
 

@@ -131,8 +131,8 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 The app keeps its files in `--config-dir <dir>` (or `PISTUDIODESKTOP_CONFIG_DIR`), else the
 platform's app configuration directory — on Linux `~/.config/com.avatsaev.pi-studio`. It holds
 `settings.json` (the app settings, with the workbench's app-wide keys under `workbench`),
-`daemons.json` (the daemon registry: the entries, with a direct entry's password or a relay entry's
-pairing link, and `lastUsedId`; mode 0600, never sent to the page) and `daemon-state/<id>.json`
+`daemons.json` (the daemon registry, version 2: the entries, `hasPassword` for an entry that has a
+secret in the secret store, and `lastUsedId`; mode 0600, no secret in it) and `daemon-state/<id>.json`
 (the keys kept per daemon; `local` for this machine, the entry's id for the others). A file that
 cannot be read is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page
 shows the notice once. Point `--config-dir` at a scratch directory for tests and smoke runs.
@@ -198,29 +198,58 @@ Three things the container does not give you by default:
 - **One app at a time.** The single-instance lock is per app identifier, not per configuration
   directory: two sessions at once collide.
 
+### The keychain in the container
+
+`crates/secrets/tests/keychain_live.rs` checks the real keychain on Linux. Its tests are `#[ignore]`d: an ordinary `cargo test` never writes to a keychain. Each item they write has a scope of its own (a hash of a scratch path) and is removed again. The default image has no Secret Service, which is what the second test wants; the first needs a derived image with GNOME Keyring and `secret-tool` (not added to the default image):
+
+```sh
+mkdir -p /tmp/pi-keyring-img /tmp/pi-live && cd /tmp/pi-keyring-img
+printf 'FROM pi-desktop-xvfb:latest\nRUN apt-get update && apt-get install -y --no-install-recommends gnome-keyring libsecret-tools && rm -rf /var/lib/apt/lists/*\n' > Dockerfile
+docker build -t pi-desktop-keyring:latest .
+cd <repo>/desktop && cargo test -p pistudiodesktop-secrets --test keychain_live --no-run   # prints the binary's path
+cp <that binary> /tmp/pi-live/keychain_live
+cat > /tmp/pi-live/with-keyring.sh <<'EOF'
+set -e
+eval "$(printf 'test-password' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)"   # creates and unlocks the login keyring
+sleep 1
+eval "$(gnome-keyring-daemon --start --components=secrets 2>/dev/null)"   # serves it on the session bus
+sleep 1
+/tmp/pi-live/keychain_live --ignored --test-threads=1 set_get_and_delete --nocapture
+EOF
+# with a Secret Service: set, get, delete, and `secret-tool lookup service com.avatsaev.pi-studio username <scope>/<entry id>/<kind>` sees the item
+docker run --rm -v /tmp/pi-live:/tmp/pi-live:ro pi-desktop-keyring dbus-run-session -- bash /tmp/pi-live/with-keyring.sh
+# without one (default image; with a bus that nobody answers on, and with no bus): the probe says `unavailable` within 2 s
+docker run --rm -v /tmp/pi-live:/tmp/pi-live:ro pi-desktop-xvfb dbus-run-session -- /tmp/pi-live/keychain_live --ignored --nocapture the_probe_without
+docker run --rm -v /tmp/pi-live:/tmp/pi-live:ro pi-desktop-xvfb /tmp/pi-live/keychain_live --ignored --nocapture the_probe_without
+```
+
+Order matters in the keyring script: with the daemon started first, or `--unlock` alone, the `login` collection is missing or locked and every write fails (`denied`) or waits for a prompt that has no display. In the derived image a bus activates GNOME Keyring on its own, so its probe succeeds even without the script: the probe reads an item and cannot tell a locked or missing `login` collection (a later `set` then fails with `denied`).
+
 ## The IPC benchmark
 
-`apps/ipc-bench` is the measuring instrument of the transport bridge's gate (`swe/features/desktop-transport-bridge.md` § 1). A small Tauri app: its page (`page/`, plain ES modules, no npm package and no entry in the root `package-lock.json`) runs the workloads against a WebSocket server in the same process, on `127.0.0.1` and a free port, and Rust writes `results.json` and exits. It is a workspace member, exempt from the layer rules, with its own `tauri.conf.json`, capability and four commands (`bench_config`, `bench_rss`, `bench_progress`, `bench_finish`); it is never bundled or released and the shipped app has nothing of it. Rows B1 to B5, over the page's own `WebSocket` (the baseline); B6 (order and integrity) is checked in every workload. A candidate bridge is one more entry in `page/transport.js`.
+`apps/ipc-bench` is the measuring instrument of the transport bridge's gate (`swe/features/desktop-transport-bridge.md` § 1). A small Tauri app: its page (`page/`, plain ES modules, no npm package and no entry in the root `package-lock.json`) runs the workloads against a WebSocket server in the same process, on `127.0.0.1` and a free port, and Rust writes `results.json` and exits. It is a workspace member, exempt from the layer rules, with its own `tauri.conf.json`, capability and eleven commands (`bench_config`, `bench_rss`, `bench_progress`, `bench_finish` and the seven `bridge_*` ones below); it depends on the `net` crate (codec, inbound window, outbound order buffer); it is never bundled or released and the shipped app has nothing of it. Rows B1 to B5 (B2 with 4 KiB, 64 KiB and 256 KiB frames) run over three transports in `page/transport.js`: the page's own `WebSocket` (the baseline), and two candidate bridges, `bridge-frame` and `bridge-batch`. B6 (order and integrity) is checked in every workload of every transport. W1 (`--only window`) is the candidates' no-acknowledgement test: the page never acknowledges a 128 MiB flood, Rust must stop reading just past the 8 MiB window (the bytes it holds stop there and the server's sends stall), then the page acknowledges and the flood must arrive whole.
+
+**The candidates** (`src/bridge.rs`, `src/bridge_commands.rs`, `page/bridge.js`, `page/batch.js`): Rust holds a client socket to the benchmark's own server and forwards between it and the page. Inbound goes over a Tauri `Channel`: `bridge-frame` sends one channel message per WebSocket message (raw for binary, JSON for text), `bridge-batch` sends batches in the `net` codec's format, flushed when 64 KiB is waiting or the socket has nothing more to read right now. Outbound goes through commands shaped like the spec's: `bridge_open` (`url`, `inbound`, a `Channel`), `bridge_send_text` (`handle`, `seq`, `data`), `bridge_send_binary` (a raw body with the headers `handle` and `seq`), `bridge_ack`, `bridge_close`, plus `bridge_send_batch` (a raw body in the codec's format under one `seq`) and `bridge_stats` (the counters of a connection). `bridge-frame` sends one invoke per frame; `bridge-batch` sends the frames queued in the same task as one raw invoke. In both, the `net` crate's `InboundWindow` counts the payload bytes sent and the page acknowledges every 256 KiB or 50 ms (stop reading above 8 MiB, resume below 4 MiB), and the `OrderBuffer` puts sends back in `seq` order before the write task writes them; the write task flushes once per queued group and answers each send after the flush. The page's `bufferedAmount` adds a frame's bytes at send and subtracts them at the send's answer. The socket is plain and local: no TLS, password or error classes, and the order buffer's 5 s gap timer and the 16 MiB byte cap of the spec are not part of the benchmark (a gap shows as a run that times out).
 
 The server picks its behaviour by path: `/echo`; `/flood?frames=N&size=S&kind=binary|text` (waits for the text `go`, then sends N frames and a closing JSON message with the count and the running hash); `/sink` (checks what it receives, answers a report on the text `end`). Every frame carries its counter and a checksum, every stream a running hash (`src/frame.rs`, mirrored in `page/frame.js`; the same vectors are tested in both).
 
 ```sh
 cargo build --release -p pistudiodesktop-ipc-bench      # measure only with a release build
 cargo run --release -p pistudiodesktop-ipc-bench -- --out /tmp/results.json --scale 0.1
-node --test apps/ipc-bench/page/frame.test.mjs          # the page's half of the frame format
+node --test 'apps/ipc-bench/page/*.test.mjs'            # the page's half: frame format, batch codec, bridge transport, comparison
 ```
 
 | Option | Effect |
 |---|---|
 | `--out FILE` | Where `results.json` goes (default `results.json` in the current directory) |
 | `--runs N` | Runs of each workload (default 3) |
-| `--only ROWS` | A comma-separated subset of `b1,b2,b3,b4,b5` |
+| `--only ROWS` | A comma-separated subset of `b1,b2,b3,b4,b5,window` (`window` is the candidates' no-acknowledgement test; the baseline skips it) |
 | `--scale F` | Shrink every count and byte total to the fraction `F` (above 0, at most 1): `0.1` is a quick run |
 | `--corrupt N` | The server changes a byte of frame N of each stream it sends (and of what it receives): the run must exit 1 and name the workload and the frame |
 | `--swap N` | The server sends frame N after frame N+1 (on `/sink` it checks the frame it received as N after N+1); `/echo` answers one frame at a time and cannot |
 | `--timeout S` | Give up with exit 1 after S seconds (default 3600) |
 
-The app runs unattended and exits 0 when every run completed and B6 found nothing, 1 otherwise; the problems are printed as `PROBLEM <transport> <workload> run <n>: frame <k>: …`. In the `pi-desktop-xvfb` container (see § Without a display; mount a writable directory for the results):
+The app runs unattended and exits 0 when every run completed and B6 found nothing, 1 otherwise; the problems are printed as `PROBLEM <transport> <workload> run <n>: frame <k>: …`. The reading of the baseline against the candidates is printed at the end as `PASS`/`FAIL` lines. In the `pi-desktop-xvfb` container (see § Without a display; mount a writable directory for the results):
 
 ```sh
 mkdir -p /tmp/ipc-bench && cat > /tmp/ipc-bench/run.sh <<'EOF'
@@ -230,13 +259,14 @@ EOF
 docker run --rm -v "$PWD:/work:ro" -v /tmp/ipc-bench:/out pi-desktop-xvfb bash /out/run.sh --scale 0.1
 ```
 
-`results.json` (`schema` 1) holds the platform, the webview's user agent, the Tauri version, the options, the timer's step and, per transport, every run's raw measurements (durations, bytes, frames, percentiles, the memory samples of B4, the integrity result) and a `summary` with the worst and the median run of each metric. Three things to read it with:
+`results.json` (`schema` 2) holds the platform, the webview's user agent, the Tauri version, the options, the timer's step and, per transport, every run's raw measurements (durations, bytes, frames, percentiles, the memory samples of B4, the integrity result, and for a candidate the `ipc` record of the run) and a `summary` with the worst and the median run of each metric. For a candidate, `ipc` (per transport: `ipc`) says which way raw bodies reached Rust (`custom protocol (raw bytes)`, or `postMessage (JSON array)` when Tauri fell back after one failed fetch), how many sends arrived out of `seq` order (and the most frames that waited for an earlier one), how many channel messages Tauri evaluated into the page and how many the page fetched (a raw message under 1,024 bytes and a JSON one under 8,192 are evaluated), the most bytes unacknowledged, and the window's numbers. `comparison` is a first reading of each candidate against the baseline with the pass column of the spec's § 1 (a `pass: false` row is a finding, not a failed run: only an incomplete run or a damaged frame makes the exit code 1). Four things to read it with:
 
 - The page's timer (`performance.now()`) steps by 1 ms in WebKit: a round trip under 1 ms reads 0 or 1. B1's `medianMs` and `p99Ms` are quantized by it; `meanMs` (the total over the trips) is not. `timerResolutionMs` says what the page saw.
 - Every check (counter, checksum, running hash) costs the page the same in every transport: `pageHash.mibPerS` says how fast the page hashes.
 - B4's memory is the sum of the resident memory of the app and its descendants (`/proc` on Linux, `ps` on macOS, PowerShell on Windows). On macOS the web content process is not a child of the app, so read `processesAtStart` before trusting the total. Only Linux has been run.
+- B5's `bufferedAmountEnd` is read once the answers of the last sends have arrived (waiting at most 2 s; `settleMs` says how long it took): through a bridge the sink's report can overtake them. `bufferedAmountAtReport` is the number at the report itself.
 
-Rows B7 and B8 and the candidate bridges are later tasks.
+Rows B7 and B8 are a later task.
 
 ## Platform checks on macOS and Windows runners
 

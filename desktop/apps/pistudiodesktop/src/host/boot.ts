@@ -7,25 +7,30 @@ export interface FileResetNotice {
   keptAs: string;
 }
 
+/** A version 1 registry had secrets that the secret store would not take: they stay in the file. */
+export interface SecretsNotMovedNotice {
+  kind: "secrets_not_moved";
+}
+
+/** Something the user is told once, at start. */
+export type BootNotice = FileResetNotice | SecretsNotMovedNotice;
+
 /** The answer of the `boot` command. */
 export interface BootSnapshot {
   /** `minDaemonVersion` is the oldest daemon the app expects (`AppIdentity` of the workbench). */
   app: { title: string; version: string; platform: "desktop"; minDaemonVersion: string };
   storage: Record<string, string>;
-  notices: FileResetNotice[];
+  notices: BootNotice[];
   /** Whether the HTML viewer can load from the preview origin on this platform. */
   preview: "origin" | "inert";
   /** The daemon registry at boot: entries, the current one, the local daemon's state, settings. */
   daemons: DaemonsView;
 }
 
-function isNotice(value: unknown): value is FileResetNotice {
-  return (
-    isRecord(value) &&
-    value.kind === "file_reset" &&
-    typeof value.file === "string" &&
-    typeof value.keptAs === "string"
-  );
+function isNotice(value: unknown): value is BootNotice {
+  if (!isRecord(value)) return false;
+  if (value.kind === "secrets_not_moved") return true;
+  return value.kind === "file_reset" && typeof value.file === "string" && typeof value.keptAs === "string";
 }
 
 /** The snapshot, or `null` when it is not the expected shape. */
@@ -66,7 +71,10 @@ export async function runBoot(ipcInvoke: (command: string) => Promise<unknown>):
   return snapshot;
 }
 
-export function noticeText(notice: FileResetNotice): string {
+export function noticeText(notice: BootNotice): string {
+  if (notice.kind === "secrets_not_moved") {
+    return "Saved passwords could not be moved to the secret store. They still work for now and stay in the registry file; Pi Studio tries again at the next start.";
+  }
   return `${notice.file} could not be read and was reset. The old file was kept as ${notice.keptAs}.`;
 }
 

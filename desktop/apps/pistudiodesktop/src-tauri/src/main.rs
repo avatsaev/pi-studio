@@ -30,6 +30,7 @@ use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use clap::Parser;
+use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
@@ -88,6 +89,9 @@ fn main() {
     // one thread that owns the session.
     let (requests, inbox) = channel();
     let runner_requests = requests.clone();
+    // The one secret store: the session writes it, and a dial reads it off the owner thread. The
+    // keychain-or-file choice is not made yet, so secrets live in memory for now.
+    let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
     if let Some((listener, token)) = control {
         control_server::start(listener, token, requests.clone());
     }
@@ -98,7 +102,7 @@ fn main() {
         .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
-        .manage(bridge::Bridge::new(requests))
+        .manage(bridge::Bridge::new(requests, Arc::clone(&store)))
         .manage(transfers::Transfers::default())
         // The preview origin: documents the page mounts are served from this scheme, and the
         // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
@@ -145,9 +149,9 @@ fn main() {
     // session's thread; the page's `daemon_resolve_current` uses the same supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
-    let wake = daemons::start_runner(runner_requests, supervisor);
+    let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor);
     let launch = bridge::Launch { notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)), local_supported: daemons::LOCAL_SUPPORTED };
-    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY, launch);
+    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.

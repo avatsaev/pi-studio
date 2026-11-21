@@ -12,12 +12,15 @@ mod error;
 mod local;
 pub mod params;
 mod query_cmds;
+mod secret;
 mod session;
 mod settings_cmds;
 mod storage;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test_store;
 
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
-pub use local::{Dial, LocalRequest};
+pub use local::{Dial, DialPlan, LocalRequest};
 pub use session::Session;
 pub use storage::Notice;

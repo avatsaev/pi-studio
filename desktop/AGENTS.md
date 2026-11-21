@@ -13,7 +13,8 @@ stored workbench keys, the registry view, the preview kind), and every storage w
 through `storage_set` to the Rust engine, which writes the files in the configuration directory.
 Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and
 the HTML preview is served from an origin of its own. The engine holds the daemon registry
-(`daemons.json`, mode 0600; local, direct and relay entries) and the settings; a supervisor runs
+(`daemons.json`, version 2, mode 0600, no secret in it; local, direct and relay entries; the secrets
+are in a store the engine is given) and the settings; a supervisor runs
 the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
 the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
 add, edit and remove entries, each with its own stored layout. All of it sits behind a command
@@ -34,7 +35,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
     crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
     crates/store            L3  JSON files: safe reads, atomic writes
-    crates/secrets          L3  the secret store: file (`secrets.json`, 0600) and memory backends; the keychain comes later
+    crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; no backend choice yet
     crates/engine           L5  Session + command registry (every action is a command)
     crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor (no UI toolkit)
     crates/net              L7  the bridge's pure parts (frame batch codec, inbound window, outbound order buffer): no socket yet, no dependency, empty on wasm32; only an app binary may use it
@@ -42,7 +43,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
     apps/pistudiodesktop-cli              headless CLI
-    apps/ipc-bench                        the IPC benchmark (exempt from the layers; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
+    apps/ipc-bench                        the IPC benchmark: baseline and two candidate bridges (exempt from the layers; uses `net`; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci
 
 Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src/layers.rs`.
@@ -78,10 +79,13 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
 9. Permissive licences only, for crates and npm packages alike. Check a dependency's licence
    before adding it; record every bundled asset in `ATTRIBUTION.md`. Known exception, not yet
    decided: the workbench and `@av-pi-studio/ui-library` are AGPL-3.0 and are bundled into the app.
-10. Secrets (a direct entry's password, a relay entry's pairing link) live only in `daemons.json`,
-    mode 0600; the CLI's `pairingUrl` is discarded. They are never logged, never in a control answer, in `boot`
-    or in `ui.inspect`, and reach the page only through `daemon_resolve_current`, for the entry
-    being opened. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
+10. Secrets (a direct entry's password, a relay entry's pairing link) live only in the secret store
+    (`crates/secrets`), never in `daemons.json` (version 2: `hasPassword`); the CLI's `pairingUrl` is
+    discarded. They are never logged, never in a control answer, in `boot` or in `ui.inspect`, and
+    reach the page only through `daemon_resolve_current`, for the entry being opened. A store call
+    may block: the session never makes one on the owner thread (it plans a dial, `DialPlan`, and the
+    caller reads the store), except at launch, where a version 1 file's secrets are moved.
+    A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 
 ## Conventions
 

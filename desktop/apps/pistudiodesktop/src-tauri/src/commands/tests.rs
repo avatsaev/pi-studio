@@ -7,6 +7,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
@@ -45,10 +46,11 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
 /// The same, with the owner thread told what `launch` says.
 fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> App<MockRuntime> {
     let (requests, inbox) = channel();
+    let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
-        .manage(Bridge::new(requests))
+        .manage(Bridge::new(requests, Arc::clone(&store)))
         .manage(services.clone())
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
@@ -75,7 +77,7 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
         ])
         .build(tauri::generate_context!())
         .unwrap();
-    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, inbox, NEVER, launch);
+    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, store, inbox, NEVER, launch);
     app
 }
 

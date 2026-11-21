@@ -34,14 +34,14 @@ with hot reload. `npm run bundle` builds installers.
 |---|---|
 | `crates/model` | L1: the settings, the daemon registry and one entry's stored state, pure data |
 | `crates/store` | L3: JSON files, read safely and written atomically |
-| `crates/secrets` | L3: the secret store, with a file backend (`secrets.json`, mode 0600) and a memory backend |
+| `crates/secrets` | L3: the secret store, with a keychain backend (macOS Keychain, Windows Credential Manager, the Secret Service), a file backend (`secrets.json`, mode 0600) and a memory backend |
 | `crates/engine` | L5: `Session`, the command registry, the registry, the settings and the stored workbench keys |
 | `crates/shell` | L6: UI state, the generated menu bar (with the Daemons menu), the control protocol, the page's commands and the local-daemon supervisor, with no UI toolkit in it |
 | `crates/testkit` | Test helpers |
 | `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
 | `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, dialogs, the control server |
 | `apps/pistudiodesktop-cli` | The headless CLI |
-| `apps/ipc-bench` | The IPC benchmark: a small Tauri app that measures the webview's WebSocket (and, later, the transport bridge) and writes `results.json`. Never bundled or released |
+| `apps/ipc-bench` | The IPC benchmark: a small Tauri app that measures the webview's WebSocket (the baseline) and two candidate transport bridges (per-frame and batched) and writes `results.json`. Never bundled or released |
 | `xtask` | `cargo xtask layers \| web \| wasm \| test \| ci` |
 
 Read [AGENTS.md](AGENTS.md) for the rules and [docs/architecture.md](docs/architecture.md) for the

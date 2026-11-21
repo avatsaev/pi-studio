@@ -1,7 +1,7 @@
 # Task 002 — Keychain backend: macOS Keychain, Windows Credential Manager, the Secret Service on Linux
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/secrets
 - **Priority:** P1

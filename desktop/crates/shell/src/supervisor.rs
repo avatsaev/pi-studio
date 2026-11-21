@@ -66,7 +66,9 @@ pub trait LocalAccess {
     fn take(&self) -> Batch;
     /// Store the state a request reached.
     fn apply(&self, state: LocalState);
-    /// [`Session::resolve_current`] with the dial address of [`cli_answers::dial_address`].
+    /// What to dial for the current entry, secret included: [`Session::plan_dial`] with the dial
+    /// address of [`cli_answers::dial_address`], then the store read of
+    /// [`pistudiodesktop_engine::DialPlan::finish`], which may block.
     fn resolve(&self) -> Result<Dial, &'static str>;
     /// Run the engine command `id` (`daemon.local.start` and the like); `Err` is its error text.
     fn request(&self, id: &str) -> Result<(), String>;
@@ -86,7 +88,13 @@ impl LocalAccess for Mutex<Session> {
     }
 
     fn resolve(&self) -> Result<Dial, &'static str> {
-        lock(self).resolve_current(cli_answers::dial_address)
+        // Plan under the lock, read the store outside it: a read may block, and the lock is the
+        // one every other caller of this session waits on.
+        let (plan, store) = {
+            let session = lock(self);
+            (session.plan_dial(cli_answers::dial_address)?, session.secret_store())
+        };
+        plan.finish(&*store)
     }
 
     fn request(&self, id: &str) -> Result<(), String> {

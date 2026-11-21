@@ -12,10 +12,11 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use clap::{Parser, Subcommand};
 use pistudiodesktop_engine::Session;
+use pistudiodesktop_secrets::FileStore;
 use pistudiodesktop_shell::process::native_services;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use serde_json::{Value, json};
@@ -76,7 +77,13 @@ fn run(cli: Cli) -> Result<(), String> {
             let steps = cmds.iter().map(|step| parse_step(step)).collect::<Result<Vec<_>, _>>()?;
             let mut session = match config_dir {
                 Some(dir) => {
-                    let (session, notices) = Session::with_config_dir(dir);
+                    // `secrets.json` in the directory (the file backend): a memory store would lose, at exit,
+                    // every secret a version 1 `daemons.json` gives up here. The app's keychain choice is not shared with this CLI yet.
+                    let opened = FileStore::open(&dir);
+                    if let Some(reset) = &opened.reset {
+                        eprintln!("note: secrets.json could not be read and was set aside as {}", reset.kept_as.as_deref().unwrap_or("(not renamed)"));
+                    }
+                    let (session, notices) = Session::with_config_dir(dir, Arc::new(opened.store));
                     for notice in notices {
                         eprintln!("note: {}", notice.to_json());
                     }

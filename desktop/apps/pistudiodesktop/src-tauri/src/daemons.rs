@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::Envelope;
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::daemons::CHANGED_EVENT;
@@ -77,9 +78,9 @@ pub fn switch_window<R: Runtime>(handle: &AppHandle<R>, window: &WebviewWindow<R
     }
 }
 
-pub fn start_runner(requests: Sender<Envelope>, supervisor: Arc<Supervisor>) -> Sender<()> {
+pub fn start_runner(requests: Sender<Envelope>, store: Arc<dyn SecretStore>, supervisor: Arc<Supervisor>) -> Sender<()> {
     let (wake, woken) = channel();
-    std::thread::spawn(move || run(&OwnerAccess::new(requests), &supervisor, &woken));
+    std::thread::spawn(move || run(&OwnerAccess::new(requests, store), &supervisor, &woken));
     wake
 }
 

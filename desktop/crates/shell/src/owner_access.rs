@@ -3,8 +3,11 @@
 //! storage writes and the control socket's requests, so a 90 s daemon start, which happens in
 //! the supervisor between calls, holds none of them up.
 
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
+
+use pistudiodesktop_secrets::SecretStore;
 
 use pistudiodesktop_engine::Dial;
 use pistudiodesktop_model::LocalState;
@@ -17,15 +20,19 @@ use crate::{Envelope, Request};
 /// The owner thread answers each of these at once; a minute is only a bound on a stuck thread.
 const REPLY_DEADLINE: Duration = Duration::from_secs(60);
 
-/// [`LocalAccess`] through the channel of the thread that owns the session.
+/// [`LocalAccess`] through the channel of the thread that owns the session. It also holds the
+/// session's secret store: a dial's secret is read here, on the caller's thread, never on the
+/// owner thread (a store read may block until the user answers a system prompt).
 #[derive(Clone)]
 pub struct OwnerAccess {
     requests: Sender<Envelope>,
+    store: Arc<dyn SecretStore>,
 }
 
 impl OwnerAccess {
-    pub fn new(requests: Sender<Envelope>) -> Self {
-        Self { requests }
+    /// `store` is the one the session was given ([`pistudiodesktop_engine::Session::secret_store`]).
+    pub fn new(requests: Sender<Envelope>, store: Arc<dyn SecretStore>) -> Self {
+        Self { requests, store }
     }
 
     /// Run the engine command `command` and read its result, or its error text.
@@ -62,10 +69,12 @@ impl LocalAccess for OwnerAccess {
     }
 
     fn resolve(&self) -> Result<Dial, &'static str> {
-        match self.ask(LocalOp::Resolve) {
-            Ok(value) => daemons::dial_from_json(&value),
-            Err(code) => Err(daemons::static_code(&code)),
-        }
+        let plan = match self.ask(LocalOp::Resolve) {
+            Ok(value) => daemons::plan_from_json(&value)?,
+            Err(code) => return Err(daemons::static_code(&code)),
+        };
+        // The owner thread has answered: the store read below may block as long as it likes.
+        plan.finish(&*self.store)
     }
 
     fn request(&self, id: &str) -> Result<(), String> {
@@ -78,8 +87,11 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
+    use std::sync::Arc;
+
     use pistudiodesktop_engine::Session;
     use pistudiodesktop_model::LocalState;
+    use pistudiodesktop_secrets::{MemoryStore, SecretError, SecretKey, SecretStore};
     use serde_json::json;
 
     use super::*;
@@ -89,8 +101,9 @@ mod tests {
 
     fn running_owner(mut app: AppShell) -> (OwnerAccess, std::thread::JoinHandle<()>) {
         let (tx, rx) = channel();
+        let store = app.session.secret_store();
         let worker = std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
-        (OwnerAccess::new(tx), worker)
+        (OwnerAccess::new(tx, store), worker)
     }
 
     #[test]
@@ -123,7 +136,7 @@ mod tests {
     fn a_stopped_channel_is_an_empty_batch_and_a_refused_request() {
         let (tx, rx) = channel();
         drop(rx);
-        let access = OwnerAccess::new(tx);
+        let access = OwnerAccess::new(tx, std::sync::Arc::new(MemoryStore::new()));
         assert_eq!(access.take(), Batch::default());
         assert_eq!(access.request("daemon.local.refresh"), Err("shutting_down".to_owned()));
         assert_eq!(access.resolve(), Err("internal"));
@@ -143,6 +156,7 @@ mod tests {
         session.execute("settings.set", json!({"key": "cliPath", "value": cli.display().to_string()})).unwrap();
         session.execute("daemon.local.start", json!({})).unwrap();
         let (tx, rx) = channel();
+        let store = session.secret_store();
         let mut app = AppShell::new(session, Services::default());
         let worker = std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
         let env = vec![
@@ -151,7 +165,7 @@ mod tests {
             ("FAKE_PI_MODE".to_owned(), "slow".to_owned()),
         ];
         let supervisor = std::sync::Arc::new(Supervisor::with_env(process::native_services(), Limits::default(), env));
-        let access = OwnerAccess::new(tx.clone());
+        let access = OwnerAccess::new(tx.clone(), store);
         let runner = std::thread::spawn({
             let supervisor = std::sync::Arc::clone(&supervisor);
             move || supervisor.pump(&access)
@@ -169,5 +183,64 @@ mod tests {
         assert_eq!(runner.join().unwrap(), 1);
         drop(tx);
         worker.join().unwrap();
+    }
+
+    /// A store whose reads wait, as a keychain does while it shows a prompt.
+    #[derive(Default)]
+    struct SlowStore {
+        inner: pistudiodesktop_secrets::MemoryStore,
+        wait_ms: std::sync::atomic::AtomicU64,
+    }
+
+    impl SecretStore for SlowStore {
+        fn kind(&self) -> pistudiodesktop_secrets::StoreKind {
+            self.inner.kind()
+        }
+
+        fn get(&self, key: &SecretKey) -> Result<Option<pistudiodesktop_secrets::Secret>, SecretError> {
+            std::thread::sleep(Duration::from_millis(self.wait_ms.load(std::sync::atomic::Ordering::SeqCst)));
+            self.inner.get(key)
+        }
+
+        fn set(&self, key: &SecretKey, secret: &pistudiodesktop_secrets::Secret) -> Result<(), SecretError> {
+            std::thread::sleep(Duration::from_millis(self.wait_ms.load(std::sync::atomic::Ordering::SeqCst)));
+            self.inner.set(key, secret)
+        }
+
+        fn delete(&self, key: &SecretKey) -> Result<(), SecretError> {
+            std::thread::sleep(Duration::from_millis(self.wait_ms.load(std::sync::atomic::Ordering::SeqCst)));
+            self.inner.delete(key)
+        }
+    }
+
+    #[test]
+    fn a_store_that_blocks_for_3_s_holds_up_neither_storage_writes_nor_control_requests() {
+        use std::time::Instant;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SlowStore::default());
+        let (mut session, _) = Session::with_config_dir(dir.path(), store.clone());
+        let added = session.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "pw"})).unwrap();
+        session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
+        // From here on every store call takes 3 s.
+        store.wait_ms.store(3000, std::sync::atomic::Ordering::SeqCst);
+        let (access, _worker) = running_owner(AppShell::new(session, Services::default()));
+        let resolver = std::thread::spawn({
+            let access = access.clone();
+            move || {
+                let started = Instant::now();
+                (access.resolve(), started.elapsed())
+            }
+        });
+        // The plan is answered at once; the resolver is now inside the store's read.
+        std::thread::sleep(Duration::from_millis(300));
+        let begun = Instant::now();
+        access.call(Request::StorageSet { key: "pi-studio-appearance".into(), value: "dark".into() }).unwrap();
+        let listed = access.execute("daemon.list", Value::Null).unwrap();
+        assert!(begun.elapsed() < Duration::from_millis(100), "answered in {:?}", begun.elapsed());
+        assert_eq!(listed["entries"].as_array().map(Vec::len), Some(2));
+        let (dial, took) = resolver.join().unwrap();
+        assert!(took >= Duration::from_millis(2900), "the read really blocked: {took:?}");
+        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "10.0.0.2:8080", "password": "pw", "connect": true}));
     }
 }

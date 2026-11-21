@@ -12,7 +12,7 @@ import { createBrowserHost, Workbench, type WorkbenchHost } from "@av-pi-studio/
 import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 
 import { BootError } from "./BootError.js";
-import { errorReason, noticeText, runBoot, type FileResetNotice } from "./host/boot.js";
+import { errorReason, noticeText, runBoot, type BootNotice } from "./host/boot.js";
 import { createDesktopHost } from "./host/desktop-host.js";
 import { tauriIpc, tauriPresent } from "./host/ipc.js";
 import { selectHostKind } from "./host/select.js";
@@ -27,7 +27,7 @@ const pdf = {
   assetBaseUrl: `${import.meta.env.BASE_URL}pdfjs/`,
 };
 
-function mount(host: WorkbenchHost, notices: FileResetNotice[]): void {
+function mount(host: WorkbenchHost, notices: BootNotice[]): void {
   reactRoot.render(
     <StrictMode>
       <Workbench host={host} />

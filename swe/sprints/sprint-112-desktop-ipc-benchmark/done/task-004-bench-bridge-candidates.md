@@ -1,7 +1,7 @@
 # Task 004 — Benchmark: the bridge candidates (per-frame and batched channel, raw invokes with `seq`, acknowledgements)
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/ipc-bench
 - **Priority:** P1

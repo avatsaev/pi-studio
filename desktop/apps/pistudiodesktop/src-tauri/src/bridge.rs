@@ -6,10 +6,12 @@
 //! automation request can never race.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use pistudiodesktop_engine::Session;
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::owner::{self, Notify};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::{AppInfo, AppShell, Envelope, Request, Services};
@@ -23,16 +25,18 @@ const EXIT_FLUSH_DEADLINE: Duration = Duration::from_secs(5);
 /// The webview's way to the owner thread. Managed by Tauri.
 pub struct Bridge {
     requests: Sender<Envelope>,
+    /// The session's secret store, for the dial's read (see [`OwnerAccess`]).
+    store: Arc<dyn SecretStore>,
 }
 
 impl Bridge {
-    pub fn new(requests: Sender<Envelope>) -> Self {
-        Self { requests }
+    pub fn new(requests: Sender<Envelope>, store: Arc<dyn SecretStore>) -> Self {
+        Self { requests, store }
     }
 
     /// The supervisor's way to the session, for the page's `daemon_resolve_current`.
     pub fn access(&self) -> OwnerAccess {
-        OwnerAccess::new(self.requests.clone())
+        OwnerAccess::new(self.requests.clone(), Arc::clone(&self.store))
     }
 
     /// Send a request and wait for its answer.
@@ -94,10 +98,20 @@ pub struct Launch {
 /// (`flush_delay` after the first unwritten change; the app passes `owner::FLUSH_DELAY`).
 /// `services` are the platform hooks the shell holds; the page's dialog and link commands call
 /// their own copy of them on other threads, never this one.
-pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox: Receiver<Envelope>, flush_delay: Duration, mut launch: Launch) {
+pub fn spawn_owner(
+    info: AppInfo,
+    config_dir: PathBuf,
+    services: Services,
+    store: Arc<dyn SecretStore>,
+    inbox: Receiver<Envelope>,
+    flush_delay: Duration,
+    mut launch: Launch,
+) {
     std::thread::spawn(move || {
         log::info!("configuration directory: {}", config_dir.display());
-        let (mut session, notices) = Session::with_config_dir(config_dir);
+        // The one place the owner thread calls the store: at launch, before it has answered
+        // anything (a version 1 `daemons.json` is migrated here). Requests wait in the inbox.
+        let (mut session, notices) = Session::with_config_dir(config_dir, store);
         for notice in &notices {
             log::warn!("{}", notice.to_json());
         }
