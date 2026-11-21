@@ -7,6 +7,7 @@
 //! | `/sink` | checks every frame it receives; on the text `end` answers `{"type":"report",…}` ([`Report`]) |
 //! | `/mixed?frames=N&size=S` | `/flood` (binary) that also echoes every binary or text message it receives, on the same socket, until the page closes (row B7: B1's echo while B4's download runs) |
 //! | `/paced?rate=R&seconds=T&size=S` | waits for the text `go`, sends `R` binary frames of `S` bytes per second for `T` seconds (10 ms ticks; a tick that runs late sends what is due), then the closing message of a flood (row B8) |
+//! | `/close?code=C` | closes first, with code `C` (3000 to 4999) and the reason `the server closed`, and waits for the page's answer (the proxy's close tests) |
 //!
 //! The switches (`--corrupt`, `--swap`) damage one frame of each stream, to prove that the page's
 //! check (B6) notices: `corrupt` changes a byte of the frame with that counter (in `/echo` and
@@ -24,6 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 
@@ -83,6 +85,8 @@ pub enum Route {
     Mixed(FloodSpec),
     Paced(PacedSpec),
     Sink,
+    /// Closes with this code at once (the proxy's close tests).
+    Close(u16),
 }
 
 /// The behaviour a request path and query ask for, or what is wrong with them.
@@ -97,7 +101,11 @@ pub fn parse_route(path: &str, query: Option<&str>) -> Result<Route> {
             Err(e) => Err(e),
         },
         "/paced" => parse_paced(query.unwrap_or("")).map(Route::Paced),
-        other => Err(format!("no such path: {other} (known: /echo, /flood, /mixed, /paced, /sink)")),
+        "/close" => match query.and_then(|q| q.strip_prefix("code=")).and_then(|c| c.parse::<u16>().ok()) {
+            Some(code) if (3000..=4999).contains(&code) => Ok(Route::Close(code)),
+            _ => Err("/close?code=<3000 to 4999>".into()),
+        },
+        other => Err(format!("no such path: {other} (known: /echo, /flood, /mixed, /paced, /sink, /close)")),
     }
 }
 
@@ -202,12 +210,26 @@ async fn connection(stream: TcpStream, switches: Switches, fed: Fed) -> Result<(
         Some(Route::Mixed(spec)) => flood(&mut ws, spec, switches, &fed, true).await,
         Some(Route::Paced(spec)) => paced(&mut ws, spec, switches, &fed).await,
         Some(Route::Sink) => sink(&mut ws, switches).await,
+        Some(Route::Close(code)) => close_first(&mut ws, code).await,
         None => Err("the handshake passed without a route".into()),
     }
 }
 
 fn send_err(e: impl std::fmt::Display) -> String {
     format!("send: {e}")
+}
+
+/// The close frame of `/close`: the server's code, and a reason the proxy's test can look for.
+const CLOSE_REASON: &str = "the server closed";
+
+/// Closes first, with `code`, and waits for the page's answer (or [`LINGER`]): how the proxy's tests see a
+/// close code and reason travel from the server to the page.
+async fn close_first(ws: &mut Ws, code: u16) -> Result<()> {
+    let frame = CloseFrame { code: code.into(), reason: CLOSE_REASON.into() };
+    ws.send(Message::Close(Some(frame))).await.map_err(send_err)?;
+    let waiting = async { while let Some(Ok(_)) = ws.next().await {} };
+    let _ = tokio::time::timeout(LINGER, waiting).await;
+    Ok(())
 }
 
 /// Answers one message of an echo: the same message back, damaged when the switches ask for it at

@@ -63,7 +63,7 @@ async function main() {
   const results = {
     schema: 2,
     startedAt: new Date().toISOString(),
-    app: { name: "ipc-bench", tauri: config.tauriVersion, os: config.os, arch: config.arch, userAgent: navigator.userAgent, navigatorPlatform: navigator.platform },
+    app: { name: "ipc-bench", tauri: config.tauriVersion, os: config.os, arch: config.arch, userAgent: navigator.userAgent, navigatorPlatform: navigator.platform, pageOrigin: location.origin },
     options: { runs: config.runs, only: config.only, scale: config.scale, corrupt: config.corrupt, swap: config.swap },
     // The two bounds on what the bridge candidates' Rust side holds unacknowledged (reading stops above either).
     bridge: { window: { maxBytes: WINDOW_MAX_BYTES, maxMessages: config.maxInflightMessages } },
@@ -96,12 +96,12 @@ async function main() {
   await progress(`page ready: ${navigator.userAgent}; timer step ${results.timerResolutionMs} ms; page hashes ${results.pageHash.mibPerS} MiB/s`);
 
   for (const transport of TRANSPORTS) {
-    const entry = { label: transport.label, runs: [], summary: [] };
+    const entry = { label: transport.label, proxy: transport.proxy === true, runs: [], summary: [] };
     results.transports[transport.id] = entry;
     const ctx = { ...ctxBase, transport, url: (path) => `ws://127.0.0.1:${config.port}${path}` };
     for (const workload of WORKLOADS) {
       if (!config.only.includes(workload.row)) continue;
-      if (workload.bridgeOnly && !transport.bridge) continue;
+      if (workload.candidatesOnly && !transport.bridge && !transport.proxy) continue;
       const name = workload.variant ? `${workload.id}/${workload.variant}` : workload.id;
       const own = [];
       for (let run = 1; run <= config.runs; run++) {
@@ -142,9 +142,12 @@ async function main() {
 
 function headline(record) {
   if (record.error) return record.error;
-  const path = record.ipc
-    ? `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order, peak ${record.ipc.maxMessagesInFlight} messages and ${record.ipc.maxOutstanding} bytes in flight`
-    : "";
+  let path = "";
+  if (record.ipc && record.ipc.maxMessagesInFlight !== undefined) {
+    path = `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order, peak ${record.ipc.maxMessagesInFlight} messages and ${record.ipc.maxOutstanding} bytes in flight`;
+  } else if (record.ipc) {
+    path = `; ${record.ipc.ipcPath}, Rust held at most ${record.ipc.maxOutstanding} bytes (to the server ${record.ipc.maxHeldToServer}), ${record.ipc.stalls} stalled writes, longest write ${record.ipc.maxWriteMs} ms`;
+  }
   if (record.lostFrames !== undefined) {
     const held = record.heldBytes === null ? "Rust holds nothing (no bridge)" : `Rust held at most ${record.heldBytes} bytes`;
     const worker = record.workerTimer.maxDelayMs === null ? "no worker timer due" : `worker timer ${round(record.workerTimer.maxDelayMs, 0)} ms late at most`;
@@ -155,6 +158,11 @@ function headline(record) {
     return `echo median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms over ${record.trips} trips while the download ran at ${record.downloadMibPerS} MiB/s${path}`;
   }
   if (record.medianMs !== undefined) return `median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms${path}`;
+  if (record.heldBytes !== undefined && record.blockedMs !== undefined) {
+    const stalled = record.stalled ? `the first stalled write came when the server had sent ${record.serverFedMiB} of ${record.serverFloodBytes / 1048576} MiB` : "no write to the page stalled";
+    const memory = record.memory ? `, the app's memory +${Math.round(record.memory.growthKiB / 1024)} MiB` : "";
+    return `page read nothing for ${record.blockedMs} ms: Rust held at most ${record.heldBytes} bytes, ${record.stalls} stalled writes (longest ${record.maxWriteMs} ms), ${stalled}${memory}${path}`;
+  }
   if (record.heldBytes !== undefined) {
     return `Rust held ${record.heldBytes} bytes (window ${record.windowHighBytes}), the server sent ${record.serverFedMiB} of ${record.serverFloodBytes / 1048576} MiB while it stalled${path}`;
   }
@@ -171,6 +179,18 @@ function summarizeIpc(runs) {
   if (ipcs.length === 0) return undefined;
   const sum = (key) => ipcs.reduce((total, ipc) => total + (ipc[key] ?? 0), 0);
   const max = (key) => Math.max(...ipcs.map((ipc) => ipc[key] ?? 0));
+  if (ipcs.every((ipc) => ipc.framesToPage !== undefined)) {
+    // The proxy: Rust's counters of the two sockets it pumps between.
+    return {
+      ipcPaths: [...new Set(ipcs.map((ipc) => ipc.ipcPath))],
+      maxOutstandingBytes: max("maxOutstanding"),
+      maxHeldToServerBytes: max("maxHeldToServer"),
+      stalledWrites: sum("stalls"),
+      maxWriteMs: max("maxWriteMs"),
+      refusals: sum("refusals"),
+      pageOrigins: [...new Set(ipcs.map((ipc) => ipc.pageOrigin))],
+    };
+  }
   return {
     ipcPaths: [...new Set(ipcs.map((ipc) => ipc.ipcPath))],
     rawBodies: sum("rawBodies"),

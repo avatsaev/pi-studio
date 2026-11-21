@@ -52,7 +52,7 @@ const BATCH_FLUSH_BYTES: usize = 64 * 1024;
 const WRITE_FLUSH_BYTES: usize = 1024 * 1024;
 /// The spec's limit of bridged sockets.
 const MAX_SOCKETS: usize = 4;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// The default bound on unacknowledged channel messages (`--max-inflight-messages`).
 pub const DEFAULT_MAX_INFLIGHT_MESSAGES: u64 = 512;
 /// Tauri 2.12.5 (`ipc/channel.rs`) evaluates a raw channel message under this many bytes into the page...
@@ -60,7 +60,7 @@ const TAURI_DIRECT_RAW_BYTES: usize = 1024;
 /// ...and a JSON one under this many; a larger one is fetched by the page.
 const TAURI_DIRECT_JSON_BYTES: usize = 8192;
 
-type Ws = WebSocketStream<TcpStream>;
+pub(crate) type Ws = WebSocketStream<TcpStream>;
 type Sink = SplitSink<Ws, Message>;
 type Done = oneshot::Sender<Result<(), BridgeError>>;
 type Registry = Arc<Mutex<HashMap<String, Arc<Conn>>>>;
@@ -75,7 +75,7 @@ pub struct BridgeError {
     pub message: String,
 }
 
-fn err(code: &'static str, message: impl Into<String>) -> BridgeError {
+pub(crate) fn err(code: &'static str, message: impl Into<String>) -> BridgeError {
     BridgeError { code, message: message.into() }
 }
 
@@ -84,8 +84,17 @@ fn closed_error() -> BridgeError {
 }
 
 /// A poisoned lock still holds consistent data here (counters and queues): keep going.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The benchmark dials only its own server: `ws://127.0.0.1:<port>/<path>`.
+pub(crate) fn check_bench_url(port: u16, url: &str) -> Result<(), BridgeError> {
+    let prefix = format!("ws://127.0.0.1:{port}");
+    match url.strip_prefix(&prefix) {
+        Some(path) if path.starts_with('/') => Ok(()),
+        _ => Err(err("invalid_address", format!("the benchmark dials only {prefix}/<path>, not {url:?}"))),
+    }
 }
 
 /// How inbound frames reach the page.
@@ -430,11 +439,7 @@ impl Bridge {
     }
 
     fn check_url(&self, url: &str) -> Result<(), BridgeError> {
-        let prefix = format!("ws://127.0.0.1:{}", self.port);
-        match url.strip_prefix(&prefix) {
-            Some(path) if path.starts_with('/') => Ok(()),
-            _ => Err(err("invalid_address", format!("the benchmark dials only {prefix}/<path>, not {url:?}"))),
-        }
+        check_bench_url(self.port, url)
     }
 
     fn conn(&self, handle: &str) -> Result<Arc<Conn>, BridgeError> {
@@ -547,7 +552,7 @@ fn body_bytes(conn: &Conn, body: &InvokeBody) -> Result<Vec<u8>, BridgeError> {
     }
 }
 
-async fn dial(port: u16, url: &str) -> Result<Ws, BridgeError> {
+pub(crate) async fn dial(port: u16, url: &str) -> Result<Ws, BridgeError> {
     let connect = |e: std::io::Error| err("connect_failed", format!("cannot connect to 127.0.0.1:{port}: {e}"));
     let stream = TcpStream::connect(("127.0.0.1", port)).await.map_err(connect)?;
     // As the server's side: without it a small frame waits for the delayed-ACK timer.

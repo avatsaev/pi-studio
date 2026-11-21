@@ -44,7 +44,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
     apps/pistudiodesktop-cli              headless CLI
-    apps/ipc-bench                        the IPC benchmark: baseline and two candidate bridges, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net`; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
+    apps/ipc-bench                        the IPC benchmark: baseline, two candidate bridges and a loopback WebSocket proxy, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net`; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci
 
 Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src/layers.rs`.

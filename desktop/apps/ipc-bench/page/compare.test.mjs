@@ -113,3 +113,18 @@ test("B8 fails on a lost frame, on too many held bytes and on a run that produce
   assert.equal(find(rows, "B8/hide", "bytes Rust held").pass, false);
   assert.equal(find(rows, "B8/minimise", "frames lost").pass, false, "no number is not a pass");
 });
+
+test("the proxy's W1 is judged on the bytes Rust holds while the page reads nothing: a few frames", () => {
+  const proxy = (held, okRuns = 3) => ({
+    timerResolutionMs: 1,
+    transports: { websocket: { summary: baseline }, "proxy-ws": { proxy: true, summary: [summary("W1", "", { heldBytes: held }, 3, okRuns)] } },
+  });
+  const row = (rows) => find(rows, "W1", "bytes Rust holds");
+  assert.equal(row(compare(proxy(300000))).pass, true);
+  assert.match(row(compare(proxy(300000))).rule, /a few frames/);
+  assert.equal(row(compare(proxy(600000))).pass, false, "above 512 KiB");
+  assert.equal(row(compare(proxy(300000, 2))).pass, false, "a damaged run");
+  // A bridge candidate keeps the window rule.
+  const bridge = { timerResolutionMs: 1, transports: { websocket: { summary: baseline }, "bridge-x": { summary: [summary("W1", "", { heldBytes: 8400000 })] } } };
+  assert.match(find(compare(bridge), "W1", "bytes Rust holds").rule, /8 MiB/);
+});

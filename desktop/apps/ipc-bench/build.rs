@@ -17,6 +17,8 @@ fn main() {
         "bridge_ack",
         "bridge_close",
         "bridge_stats",
+        "proxy_open",
+        "proxy_stats",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
         eprintln!("ipc-bench: build script failed: {e:#}");

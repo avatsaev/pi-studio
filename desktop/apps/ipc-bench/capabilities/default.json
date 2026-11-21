@@ -17,6 +17,8 @@
     "allow-bridge-send-batch",
     "allow-bridge-ack",
     "allow-bridge-close",
-    "allow-bridge-stats"
+    "allow-bridge-stats",
+    "allow-proxy-open",
+    "allow-proxy-stats"
   ]
 }

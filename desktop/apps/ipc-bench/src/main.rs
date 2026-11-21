@@ -18,6 +18,8 @@ mod bridge_commands;
 mod commands;
 mod frame;
 mod procs;
+mod proxy;
+mod proxy_commands;
 mod server;
 mod tick;
 
@@ -121,6 +123,7 @@ fn main() {
     let built = tauri::Builder::default()
         .manage(shared)
         .manage(bridge)
+        .manage(proxy::Proxy::new(port, fed.clone()))
         .manage(tick::Ticker::default())
         .setup(move |_| {
             tauri::async_runtime::spawn(async move {
@@ -144,7 +147,9 @@ fn main() {
             bridge_commands::bridge_send_batch,
             bridge_commands::bridge_ack,
             bridge_commands::bridge_close,
-            bridge_commands::bridge_stats
+            bridge_commands::bridge_stats,
+            proxy_commands::proxy_open,
+            proxy_commands::proxy_stats
         ])
         .run(tauri::generate_context!());
     if let Err(e) = built {

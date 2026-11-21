@@ -308,11 +308,78 @@ export function addProblem(verdict, problem) {
   verdict.errors.push({ frame: null, problem });
 }
 
+/** How long the proxy's W1 keeps the page's main thread busy: nothing is read from its WebSocket meanwhile. */
+export const PAGE_BLOCK_MS = 3000;
+/** The most Rust may hold between the proxy's two sockets: a write batch and a frame, so "a few frames". */
+export const PROXY_HELD_LIMIT_BYTES = 512 * 1024;
+
+/**
+ * W1 for the proxy. A webview's `WebSocket` has no acknowledgements to withhold: the page can only stop reading,
+ * and does, by keeping its main thread busy for [`PAGE_BLOCK_MS`] inside the first frame's handler. Rust writes to
+ * the page's socket and awaits each write, so what the webview and the kernel cannot take stalls the server
+ * through TCP and Rust holds only the write in progress (the counters: `heldBytes`, the writes that stalled,
+ * and the server's bytes sent when the first one did). Then the page reads on and the flood arrives whole.
+ */
+async function blockedPage(ctx) {
+  const frames = WINDOW_FLOOD_BYTES / WINDOW_FRAME;
+  return withTransport(ctx, `/flood?frames=${frames}&size=${WINDOW_FRAME}&kind=binary`, async (transport, run) => {
+    const check = new StreamCheck();
+    let blocked = false;
+    let finish;
+    const done = new Promise((resolve) => {
+      finish = resolve;
+    });
+    transport.onMessage = (data) => {
+      if (!blocked) {
+        blocked = true;
+        const until = performance.now() + PAGE_BLOCK_MS;
+        while (performance.now() < until) {
+          // The page is busy and reads nothing.
+        }
+      }
+      if (typeof data === "string" && data.charCodeAt(0) === 123) finish(JSON.parse(data));
+      else check.accept(data);
+    };
+    // Where the bytes go while the page reads nothing: the app's processes' memory, before, during and after.
+    const sampler = await startMemorySampler(ctx);
+    let closing;
+    let sampled;
+    try {
+      transport.sendText("go");
+      closing = await run.wait(done);
+    } finally {
+      sampled = await sampler.stop();
+    }
+    const stats = await run.wait(transport.stats());
+    const report = check.report();
+    const verdict = integrity(report, { frames: closing.frames, bytes: closing.bytes, hash: closing.hash });
+    if (stats.maxOutstanding > PROXY_HELD_LIMIT_BYTES) addProblem(verdict, `Rust held ${stats.maxOutstanding} bytes between the sockets: more than ${PROXY_HELD_LIMIT_BYTES}`);
+    const stalled = stats.stalledAtServerFedBytes !== null && stats.stalledAtServerFedBytes !== undefined;
+    const fed = stalled ? stats.stalledAtServerFedBytes : stats.serverFedBytes;
+    return {
+      frameBytes: WINDOW_FRAME,
+      frames: report.frames,
+      bytes: report.bytes,
+      blockedMs: PAGE_BLOCK_MS,
+      heldBytes: stats.maxOutstanding,
+      stalls: stats.stalls,
+      stalled,
+      maxWriteMs: stats.maxWriteMs,
+      serverFedBytes: fed,
+      serverFedMiB: round(fed / MIB, 2),
+      serverFloodBytes: WINDOW_FLOOD_BYTES,
+      memory: sampled,
+      integrity: verdict,
+    };
+  });
+}
+
 /**
  * The page never acknowledges. Rust must stop reading just past the window (8 MiB), so that the
  * server's sends stall; then the page acknowledges, the flood resumes and arrives whole.
  */
 async function noAck(ctx) {
+  if (ctx.transport.proxy) return blockedPage(ctx);
   const frames = WINDOW_FLOOD_BYTES / WINDOW_FRAME;
   return withTransport(
     ctx,
@@ -418,8 +485,8 @@ export const WORKLOADS = [
     row: "window",
     id: "W1",
     variant: "",
-    title: "no acknowledgement: Rust stops reading at the window",
-    bridgeOnly: true,
+    title: "no acknowledgement: Rust stops reading at the window (proxy: the page reads nothing for 3 s)",
+    candidatesOnly: true,
     metrics: [["heldBytes", "max"], ["serverFedMiB", "min"]],
     run: noAck,
   },

@@ -14,6 +14,8 @@ const B4_GROWTH_LIMIT_KIB = (8 + 64) * 1024;
 const COARSE_TIMER_MS = 0.5;
 /** The spec's inbound window (§ 3): 8 MiB, and the frame (4 KiB in row B8) Rust may read past it. */
 const WINDOW_HELD_LIMIT_BYTES = 8 * 1024 * 1024 + 2 * 4096;
+/** The most the proxy may hold between its two sockets: a write batch and a frame (`PROXY_HELD_LIMIT_BYTES` of `workloads.js`). */
+const PROXY_HELD_LIMIT_BYTES = 512 * 1024;
 
 const find = (entry, id, variant) => entry.summary.find((s) => s.id === id && s.variant === variant);
 
@@ -99,7 +101,14 @@ export function compare(results) {
           break;
         }
         case "W1":
-          rows.push(row(id, "W1", "", "bytes Rust holds without acknowledgements", at("heldBytes"), "just past 8 MiB; the server's sends stall", summary.okRuns === summary.runs));
+          if (entry.proxy) {
+            // A webview WebSocket has no acknowledgements to withhold: the page stops reading instead, and Rust must hold only a few frames.
+            const held = at("heldBytes");
+            const rule = `at most ${PROXY_HELD_LIMIT_BYTES} (a few frames) while the page reads nothing`;
+            rows.push(row(id, "W1", "", "bytes Rust holds while the page reads nothing", held, rule, held !== null && held <= PROXY_HELD_LIMIT_BYTES && summary.okRuns === summary.runs));
+          } else {
+            rows.push(row(id, "W1", "", "bytes Rust holds without acknowledgements", at("heldBytes"), "just past 8 MiB; the server's sends stall", summary.okRuns === summary.runs));
+          }
           break;
         case "B7":
           rows.push(...b7(id, summary, id === "websocket" ? undefined : baseline));
