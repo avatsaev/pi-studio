@@ -589,9 +589,9 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    low-overhead binary delivery over Tauri IPC fast enough for terminal traffic).
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
-   *State (2026-11-21): specified in `swe/features/desktop-transport-bridge.md`, not planned, not
-   built. The benchmark is a gate: if it fails, another bridge design is explored first. Relay
-   entries keep the webview's socket until milestone 4.*
+   *State (2026-11-21): specified in `swe/features/desktop-transport-bridge.md` and planned as
+   sprints 112–117; not built. The benchmark is a gate: if it fails, another bridge design is
+   explored first. Relay entries keep the webview's socket until milestone 4.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
 4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the

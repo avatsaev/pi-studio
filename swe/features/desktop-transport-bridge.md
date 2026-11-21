@@ -1,7 +1,8 @@
 # Feature — Desktop Transport Bridge
 
-> **Status: specified 2026-11-21. Not planned, not built.** Milestone 2 of the desktop client.
-> Decisions T1–T4 are the owner's; P1–P10 are proposed here and are accepted or changed at planning.
+> **Status: specified 2026-11-21, planned as sprints 112–117. Not built.** Milestone 2 of the
+> desktop client. Decisions T1–T4 are the owner's; P1–P10 were proposed here and accepted by the
+> owner on 2026-11-21, with the note that the goal is to reach milestone 4 (the relay in Rust).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -40,7 +41,7 @@ Owner, 2026-11-21:
 | T3 | The benchmark is a gate. If it fails, another bridge design is explored before anything else of the bridge is built. A socket left in the webview is not the fallback |
 | T4 | The `hello` handshake, request/response matching, JSON `ping`/`pong` and `ReconnectionManager` stay in TypeScript (the handoff's rule). No store and no reducer changes |
 
-Proposed, to accept at planning:
+Proposed in this document and accepted by the owner on 2026-11-21:
 
 | # | Decision | Why |
 |---|---|---|
@@ -91,7 +92,7 @@ webview versions.
 **If it fails (T3).** § 2–3 are not built. A design task compares other bridges in the same
 benchmark application and proposes one to the owner. Candidates, none evaluated: a WebSocket served
 by the app on `127.0.0.1` with a per-launch token; a streamed response from a custom URI scheme for
-the inbound direction. §§ 4–6 do not depend on the outcome.
+the inbound direction. §§ 5–6 and `onResume` (§ 4) do not depend on the outcome.
 
 Facts read in Tauri 2.12.5 on 2026-11-21, which the benchmark exists to put numbers on:
 
@@ -254,7 +255,7 @@ No address, no secret, no frame content.
 | Socket, TLS, the frame codec, the inbound window, the outbound order buffer | New crate `pistudiodesktop-net`, no workspace dependency, native only | Only the app binary depends on it; registered in `xtask/src/layers.rs` so that neither `engine` nor `shell` can. The codec, window and order buffer are pure and tested with hostile input |
 | The secret store and its backends | New crate `pistudiodesktop-secrets`, beside `store` (L3), native only | The engine uses it as it uses `store`; empty on wasm32 |
 | The page's commands, the channel, the resume ticker | The app binary (`src-tauri`) | Socket tasks run on Tauri's async runtime. Frames never cross the owner thread; `transport_open` asks it once for the current entry |
-| The bridged transport, `onResume` | `desktop/apps/pistudiodesktop/src/host/` | No change in `packages/workbench` or `packages/client` is expected. If the host contract must change, `workbench-host-adapter.md` is amended in the same task |
+| The bridged transport, `onResume` | `desktop/apps/pistudiodesktop/src/host/` | The transport needs no change in `packages/workbench` or `packages/client`. One workbench change comes from § 5: the registry view gains `secretStore` and the Daemons screen draws its line, with `workbench-host-adapter.md` amended in the same task |
 | The benchmark application | `desktop/apps/ipc-bench` | § 1 |
 
 `desktop/docs/architecture.md` says no socket exists below the app binary; that sentence becomes
@@ -353,7 +354,7 @@ password:
 | A relay entry is current | The webview's socket and the pairing link in the page, exactly as in milestone 1 |
 | The 0.1.0 app opens a version 2 file | It sets the file aside and shows only the local entry (P5); the newer app's file is the `.corrupt-` copy |
 | A daemon behind an HTTP proxy | Not reachable through the bridge (P6) |
-| An unsigned build on macOS | Expected: the keychain asks again after each update, because the item is bound to the build's signature. To verify |
+| An unsigned build on macOS | Expected: the keychain asks again after each update, because the item is bound to the build's signature. Accepted by the owner for now (signing is milestone 5); to verify |
 
 ## Dependencies on other specs
 
@@ -409,5 +410,5 @@ Gates and documents:
 - **The interface-address crate** (`if-addrs` 0.15.0, MIT OR BSD-3-Clause, not read) and the cost of reading the addresses every 5 s.
 - **Largest frame either side sends.** The server sets no `maxPayload` on direct connections and the browser's socket has no limit, so the 128 MiB cap is a guess above the `ws` library's default.
 - **Whether the app's 2 s tick runs while macOS naps a hidden app.** A stalled tick looks like a wake; the 5 s rate limit bounds the cost.
-- **The control socket on Windows.** The Windows checks drive the page through WebDriver; whether `ui.inspect` is reachable there was not checked.
+- **The control socket on Windows.** It is a TCP listener on `127.0.0.1` (read in `control_server.rs`), so it should work there; the Windows checks have only driven the page through WebDriver so far.
 - **A page memory dump** as evidence that the password is absent: how to take one from WebKitGTK. If it cannot be done, the criterion is argued from the code path (the password is never an input or an output of a page command).
