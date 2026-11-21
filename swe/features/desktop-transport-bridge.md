@@ -405,8 +405,8 @@ Secrets:
 
 Resume:
 
-- [ ] Given a connected window on Linux, when the app's processes are stopped for 30 s while the daemon is restarted, then continued, then `resumeSignals.wake` rises by one and the session is connected again within 10 s, without a reload.
-- [ ] Given an interface address added or removed, then `resumeSignals.network` rises by one and no more than one event is emitted in 5 s.
+- [x] Given a connected window on Linux, when the app's processes are stopped for 30 s while the daemon is restarted, then continued, then `resumeSignals.wake` rises by one and the session is connected again within 10 s, without a reload. (Linux 2026-11-21, 114/t004: wake +1, connected 12 ms after the continue, page not reloaded; the socket was the webview's, run again with the bridge in sprint 117.)
+- [x] Given an interface address added or removed, then `resumeSignals.network` rises by one and no more than one event is emitted in 5 s. (Linux 2026-11-21, 114/t004: a dummy interface; add or remove +1; two changes 2 s apart gave one event; a change 39 ms after a wake was delivered 6.0 s after it. The page's reaction to the `network` reason was not seen; run again with the bridge in sprint 117.)
 - [ ] Given a real machine of each kind (Linux, macOS, Windows), when it sleeps for five minutes with a session open and wakes, then the session recovers without a reload. A person runs this one; it is added to `desktop/docs/platform-checks.md`.
 
 Gates and documents:

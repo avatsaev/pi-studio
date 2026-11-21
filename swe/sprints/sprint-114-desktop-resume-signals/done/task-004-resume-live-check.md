@@ -1,7 +1,7 @@
 # Task 004 — Linux live check: stop and continue, and an address change
 
 - **Sprint:** sprint-114-desktop-resume-signals
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs
 - **Priority:** P1
