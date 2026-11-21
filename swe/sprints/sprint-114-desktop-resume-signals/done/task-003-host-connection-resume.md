@@ -1,7 +1,7 @@
 # Task 003 — Desktop host: a `connection` member whose `onResume` also hears the app
 
 - **Sprint:** sprint-114-desktop-resume-signals
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

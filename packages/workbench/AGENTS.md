@@ -469,7 +469,10 @@ src/
                             DaemonsScreen.tsx (modal, mounted once in WorkspaceShell; open state and
                             banner from `useDaemonsStore`; `local.refresh()` once per opening),
                             daemons-screen-view.ts (pure: rows and their actions, the local row's
-                            state/actions/notice, `bannerView`, CLI-path field rules) (+ test),
+                            state/actions/notice, `bannerView`, CLI-path field rules, and
+                            `secretStoreNote` — `FILE_SECRET_STORE_NOTE` when `snapshot.secretStore`
+                            is `"file"`, `null` for `"keychain"` or an absent field; drawn as one
+                            muted line under the settings) (+ test),
                             daemons-screen-actions.ts (host calls → failure code or `null`: open,
                             local actions, remove after `dialogs.confirm`, settings) (+ test),
                             DaemonForm.tsx (add/edit, swapped in for the list; values in component

@@ -1,7 +1,7 @@
 # Task 001 — `secrets` crate: the store's contract, the memory and file backends
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/secrets
 - **Priority:** P1

@@ -42,22 +42,27 @@ impl Class {
 /// L4  io, plugins         import/export orchestration
 /// L5  engine              Session + command registry
 /// L6  shell, automation  the shell (what the webview draws), the MCP server
+/// L7  net                 sockets and the bridge's pure parts: only an app binary may use it
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
     ("model", Class::Layer(1)),
     ("store", Class::Layer(3)),
+    ("secrets", Class::Layer(3)),
     ("engine", Class::Layer(5)),
     ("shell", Class::Layer(6)),
+    // Above the shell, so a layered crate (engine, shell) cannot depend on it: only apps may.
+    ("net", Class::Layer(7)),
     ("testkit", Class::Testkit),
     // Apps and tooling.
     ("pistudiodesktop", Class::Exempt),
     ("cli", Class::Exempt),
+    ("ipc-bench", Class::Exempt),
     ("xtask", Class::Exempt),
 ];
 
 /// Explicit orderings within a layer (earlier may be used by later), e.g. `&["render", "gpu"]`
-/// when a GPU backend reuses the CPU reference.
-pub const INTRA_LAYER_ORDER: &[&[&str]] = &[];
+/// when a GPU backend reuses the CPU reference. `secrets` writes `secrets.json` through `store`.
+pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["store", "secrets"]];
 
 /// External crates that are a UI toolkit, a webview or a windowing dependency. A trailing `*`
 /// is a prefix. wgpu is not listed: a renderer below the UI layer may use the GPU, but no
@@ -252,5 +257,38 @@ mod tests {
         ] {
             assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
         }
+    }
+
+    #[test]
+    fn net_is_usable_by_apps_only() {
+        let crates = [
+            krate("pistudiodesktop-engine", &[("pistudiodesktop-net", DepKind::Normal, true)]),
+            krate("pistudiodesktop-shell", &[("pistudiodesktop-net", DepKind::Normal, true)]),
+            krate("pistudiodesktop-store", &[("pistudiodesktop-net", DepKind::Dev, true)]),
+            krate("pistudiodesktop", &[("pistudiodesktop-net", DepKind::Normal, true)]),
+            krate("pistudiodesktop-net", &[]),
+        ];
+        let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 3, "{found:#?}");
+        for expected in [
+            "pistudiodesktop-engine (L5) depends on pistudiodesktop-net (L7)",
+            "pistudiodesktop-shell (L6) depends on pistudiodesktop-net (L7)",
+            "pistudiodesktop-store (L3) depends on pistudiodesktop-net (L7)",
+        ] {
+            assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn secrets_may_use_store_and_not_the_other_way_round() {
+        let allowed = [
+            krate("pistudiodesktop-secrets", &[("pistudiodesktop-store", DepKind::Normal, true), ("pistudiodesktop-model", DepKind::Normal, true)]),
+            krate("pistudiodesktop-store", &[]),
+        ];
+        assert_eq!(check(&allowed), []);
+        let reversed = [krate("pistudiodesktop-store", &[("pistudiodesktop-secrets", DepKind::Normal, true)]), krate("pistudiodesktop-secrets", &[])];
+        let found: Vec<String> = check(&reversed).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found[0].starts_with("pistudiodesktop-store (L3) depends on pistudiodesktop-secrets (L3)"), "{found:#?}");
     }
 }

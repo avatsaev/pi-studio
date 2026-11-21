@@ -1,7 +1,7 @@
 # Task 001 — Measure what a daemon sends: frame sizes of a terminal flood, the largest frames
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/client (a throwaway script), swe/notes
 - **Priority:** P1

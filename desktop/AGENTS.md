@@ -34,12 +34,15 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
     crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
     crates/store            L3  JSON files: safe reads, atomic writes
+    crates/secrets          L3  the secret store: file (`secrets.json`, 0600) and memory backends; the keychain comes later
     crates/engine           L5  Session + command registry (every action is a command)
     crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor (no UI toolkit)
+    crates/net              L7  the bridge's pure parts (frame batch codec, inbound window, outbound order buffer): no socket yet, no dependency, empty on wasm32; only an app binary may use it
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
     apps/pistudiodesktop-cli              headless CLI
+    apps/ipc-bench                        the IPC benchmark (exempt from the layers; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci
 
 Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src/layers.rs`.

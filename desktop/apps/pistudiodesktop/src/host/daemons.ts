@@ -129,11 +129,12 @@ export function createDesktopDaemons(
 
   // An event sent between the boot snapshot and the listener's registration is lost, so the view is
   // read once more when the listener is in place (the local daemon's first probe is such a change).
+  // The engine's answers do not name the secret store, which is fixed for the launch: it stays.
   const resync = async (): Promise<void> => {
     const before = heard;
     const [list, settings] = await Promise.all([engine("daemon.list"), engine("settings.get")]);
     if (heard !== before || !isRecord(list)) return;
-    const next = parseDaemonsView({ ...list, settings });
+    const next = parseDaemonsView({ secretStore: view.secretStore, ...list, settings });
     if (!next) throw new Error("The app host answered daemon.list with an unexpected shape.");
     if (JSON.stringify(next) === JSON.stringify(view)) return;
     view = next;

@@ -1,7 +1,7 @@
 # Task 002 — Benchmark application: scaffold, local WebSocket server, baseline workloads
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/ipc-bench
 - **Priority:** P1

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "xtask"]
+members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "apps/ipc-bench", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,8 +12,10 @@ rust-version = "1.95"
 # internal: one line per crate, so members write `pistudiodesktop-model = { workspace = true }`
 pistudiodesktop-model = { path = "crates/model" }
 pistudiodesktop-store = { path = "crates/store" }
+pistudiodesktop-secrets = { path = "crates/secrets" }
 pistudiodesktop-engine = { path = "crates/engine" }
 pistudiodesktop-shell = { path = "crates/shell" }
+pistudiodesktop-net = { path = "crates/net" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
 
 # external: versions live here only
@@ -32,6 +34,10 @@ tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+# WebSocket server of the IPC benchmark (apps/ipc-bench); features are chosen by the member.
+tokio = "1"
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

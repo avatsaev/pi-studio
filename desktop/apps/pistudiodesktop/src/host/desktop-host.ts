@@ -1,6 +1,7 @@
 import { createBrowserHost, type BrowserHostOptions, type WorkbenchHost } from "@av-pi-studio/workbench";
 
 import { type BootSnapshot } from "./boot.js";
+import { createDesktopConnection } from "./connection.js";
 import { createDesktopDaemons } from "./daemons.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 import { createSaveTarget, countTransfers } from "./transfers.js";
@@ -36,6 +37,7 @@ export function createDesktopHost(
     dialogs: createNativeDialogs(ipc, log),
     links: createNativeLinks(ipc, log),
     preview: createDesktopPreview(snapshot.preview, ipc, log),
+    connection: createDesktopConnection(base.connection, ipc, log),
     launch: NO_LAUNCH,
     daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log),
   };

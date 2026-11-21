@@ -27,6 +27,7 @@ The candidates are variants of the design in the spec's §§ 2–3. Tauri delive
 - Page side: one transport implementation per variant behind the interface of task-002, so the workloads are shared. `bufferedAmount` as the spec defines it (added at send, subtracted at the answer).
 - Recorded per run: whether a raw body reached Rust as bytes or as a JSON array (the `postMessage` fallback), and how many sends arrived out of `seq` order.
 - A test mode in which the page never acknowledges, to show that Rust stops reading at the window.
+- **Added at wave 1 (2026-11-21, from the measurements of s112/t001 and t002):** B2 also runs with 256 KiB binary frames (a real terminal flood arrives at a median of about 350 KiB; the baseline of task-002 has only 4 KiB and 64 KiB, so add 256 KiB to the baseline too); and the verdict on B1 uses the mean round trip where the webview's timer steps by 1 ms (WebKit does), as the spec's B1 row now says.
 
 ## Out of scope
 - Rows B7 and B8 (task-005).

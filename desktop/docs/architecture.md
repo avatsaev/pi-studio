@@ -33,8 +33,10 @@ missing from it fails the gate.
 | L4 | none yet | Mapping the model to and from foreign formats; a plug-in host |
 | L5 | `engine` | `Session`, the command registry, the daemon registry, the settings and the stored workbench keys: the façade every frontend talks to |
 | L6 | `shell` | UI state, the menu bar generated from the registry (the Daemons menu included), shortcuts, the control protocol, the page's commands, and the local-daemon supervisor. No UI toolkit: it produces the view as data |
+| L7 | `net` | The transport bridge's pure parts: the frame batch codec, the inbound window and the outbound order buffer, all tested with hostile input. Above `shell` on purpose, so `engine` and `shell` cannot depend on it; only an app binary may. Empty on wasm32 |
 | testkit | `testkit` | Test helpers; other crates use it as a dev-dependency only |
 | apps | `pistudiodesktop` (`apps/pistudiodesktop/src-tauri`), `pistudiodesktop-cli` | Binaries: argument parsing, the Tauri window, file dialogs, sockets, OS integration |
+| tool | `ipc-bench` (`apps/ipc-bench`) | The IPC benchmark, the gate of the transport bridge: a Tauri window with a static page (no npm package) and a loopback WebSocket server. Exempt from the layer rules, depends on no workspace crate, is never bundled or released, and adds no command or permission to the shipped app. How to run it: `development.md` § The IPC benchmark |
 | frontend | `apps/pistudiodesktop/src` | React + TypeScript. Mounts the workbench and gives it a host. Not a crate; the UI itself is `packages/workbench` |
 
 The layer numbers have gaps on purpose: a crate added later slots in without renumbering.

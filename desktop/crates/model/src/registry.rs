@@ -7,7 +7,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{DecodeError, EntryId, LOCAL_ENTRY, VERSION, decode, encode};
+use crate::{DecodeError, EntryId, LOCAL_ENTRY, VERSION, decode, decode_at, encode};
 
 /// Name given to the `local` entry when it is created.
 pub const LOCAL_NAME: &str = "This machine";
@@ -354,6 +354,195 @@ pub fn decode_registry(bytes: &[u8]) -> Result<Registry, DecodeError> {
 
 pub fn encode_registry(registry: &Registry) -> Vec<u8> {
     encode(registry)
+}
+
+/// The schema version of the secret-free registry file.
+pub const REGISTRY_V2: u32 = 2;
+
+/// One entry of the version 2 file: as [`Entry`] without `password` and `pairingLink`, and
+/// with `hasPassword` (always false on `relay`). Unknown fields are kept and written back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryV2 {
+    pub id: EntryId,
+    pub kind: Kind,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub has_password: bool,
+    #[serde(flatten)]
+    pub unknown: Map<String, Value>,
+}
+
+impl EntryV2 {
+    fn local() -> EntryV2 {
+        EntryV2 { id: EntryId::local(), kind: Kind::Local, name: LOCAL_NAME.to_owned(), address: None, has_password: false, unknown: Map::new() }
+    }
+
+    fn consistent(&self) -> bool {
+        let id_ok = (self.kind == Kind::Local) == (self.id.as_str() == LOCAL_ENTRY);
+        let fields_ok = match self.kind {
+            Kind::Local => self.address.is_none(),
+            Kind::Direct => self.address.is_some(),
+            Kind::Relay => self.address.is_none() && !self.has_password,
+        };
+        id_ok && fields_ok
+    }
+}
+
+/// The version 2 `daemons.json` document: no secret in it. Unknown fields are kept.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryV2 {
+    pub version: u32,
+    #[serde(default)]
+    pub last_used_id: Option<EntryId>,
+    pub entries: Vec<EntryV2>,
+    #[serde(flatten)]
+    pub unknown: Map<String, Value>,
+}
+
+impl Default for RegistryV2 {
+    fn default() -> Self {
+        RegistryV2 { version: REGISTRY_V2, last_used_id: None, entries: vec![EntryV2::local()], unknown: Map::new() }
+    }
+}
+
+impl RegistryV2 {
+    fn valid(&self) -> bool {
+        let mut ids = HashSet::new();
+        self.entries.iter().all(|e| e.consistent() && ids.insert(e.id.as_str())) && self.entries.iter().filter(|e| e.kind == Kind::Local).count() <= 1
+    }
+
+    fn normalise(mut self) -> RegistryV2 {
+        if !self.entries.iter().any(|e| e.kind == Kind::Local) {
+            self.entries.insert(0, EntryV2::local());
+        }
+        if let Some(id) = &self.last_used_id
+            && !self.entries.iter().any(|e| e.id == *id)
+        {
+            self.last_used_id = None;
+        }
+        self
+    }
+
+    pub fn get(&self, id: &str) -> Option<&EntryV2> {
+        self.entries.iter().find(|e| e.id.as_str() == id)
+    }
+}
+
+impl Registry {
+    /// The version 2 document and the secrets that version 1 held.
+    pub fn into_v2(&self) -> (RegistryV2, Vec<MigratedSecret>) {
+        let v1 = self;
+        let mut secrets = Vec::new();
+        let entries = v1
+            .entries
+            .iter()
+            .map(|e| {
+                let secret = match e.kind {
+                    Kind::Relay => e.pairing_link.clone(),
+                    Kind::Local | Kind::Direct => e.password.clone(),
+                };
+                let has_password = e.kind != Kind::Relay && secret.is_some();
+                if let Some(secret) = secret {
+                    secrets.push(MigratedSecret { id: e.id.clone(), kind: e.kind, secret });
+                }
+                let mut unknown = e.unknown.clone();
+                unknown.remove("hasPassword");
+                EntryV2 { id: e.id.clone(), kind: e.kind, name: e.name.clone(), address: e.address.clone(), has_password, unknown }
+            })
+            .collect();
+        (RegistryV2 { version: REGISTRY_V2, last_used_id: v1.last_used_id.clone(), entries, unknown: v1.unknown.clone() }, secrets)
+    }
+}
+
+/// A secret found in a version 1 file: the entry it belongs to, that entry's kind (a `relay`
+/// secret is its pairing link, the others a password) and the value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigratedSecret {
+    pub id: EntryId,
+    pub kind: Kind,
+    pub secret: Secret,
+}
+
+/// Decodes a version 2 `daemons.json` with the same repairs and refusals as [`decode_registry`].
+/// A `password` or `pairingLink` field is just an unknown field here, never a secret.
+pub fn decode_registry_v2(bytes: &[u8]) -> Result<RegistryV2, DecodeError> {
+    decode_at(bytes, REGISTRY_V2, RegistryV2::valid).map(RegistryV2::normalise)
+}
+
+pub fn encode_registry_v2(registry: &RegistryV2) -> Vec<u8> {
+    encode(registry)
+}
+
+/// Reads either file version: version 1 gives the version 2 document and its secrets, version 2
+/// the document and no secrets; any other version is `UnknownVersion`.
+pub fn decode_registry_any(bytes: &[u8]) -> Result<(RegistryV2, Vec<MigratedSecret>), DecodeError> {
+    match decode_registry_v2(bytes) {
+        Err(DecodeError::UnknownVersion) => {
+            let v1 = decode_registry(bytes)?;
+            Ok(v1.into_v2())
+        }
+        other => other.map(|doc| (doc, Vec::new())),
+    }
+}
+
+#[cfg(test)]
+mod tests_v2 {
+    use super::*;
+
+    const V1: &str = r#"{"version":1,"lastUsedId":"3f2b8a40-1111-4222-8333-444455556666","extra":7,"entries":[
+        {"id":"local","kind":"local","name":"This machine","password":"SECRET-L"},
+        {"id":"3f2b8a40-1111-4222-8333-444455556666","kind":"direct","name":"d","address":"h:1","password":"SECRET-D","note":1},
+        {"id":"3f2b8a40-1111-4222-8333-444455557777","kind":"relay","name":"r","pairingLink":"SECRET-R"}]}"#;
+
+    #[test]
+    fn v1_splits_into_document_and_secrets() {
+        let (doc, secrets) = decode_registry_any(V1.as_bytes()).unwrap();
+        assert_eq!(doc.version, 2);
+        assert_eq!(doc.entries.iter().map(|e| e.has_password).collect::<Vec<_>>(), [true, true, false]);
+        assert_eq!(secrets.len(), 3);
+        assert_eq!((secrets[0].id.as_str(), secrets[0].kind, secrets[0].secret.expose()), ("local", Kind::Local, "SECRET-L"));
+        assert_eq!(secrets[1].kind, Kind::Direct);
+        assert_eq!((secrets[2].kind, secrets[2].secret.expose()), (Kind::Relay, "SECRET-R"));
+        let text = String::from_utf8(encode_registry_v2(&doc)).unwrap_or_default();
+        assert!(!text.contains("SECRET") && !text.contains("pairingLink"));
+        assert!(text.contains("\"extra\"") && text.contains("\"note\""));
+    }
+
+    #[test]
+    fn v2_round_trips_with_unknown_fields() {
+        let text = r#"{"version":2,"entries":[{"id":"local","kind":"local","name":"This machine","hasPassword":true,"x":1},
+            {"id":"3f2b8a40-1111-4222-8333-444455557777","kind":"relay","name":"r"}],"top":"t"}"#;
+        let (doc, secrets) = decode_registry_any(text.as_bytes()).unwrap();
+        assert!(secrets.is_empty());
+        let again = decode_registry_v2(&encode_registry_v2(&doc)).unwrap();
+        assert_eq!(doc, again);
+        assert_eq!(again.unknown.get("top"), Some(&Value::from("t")));
+        assert_eq!(again.entries[0].unknown.get("x"), Some(&Value::from(1)));
+        assert!(!String::from_utf8(encode_registry_v2(&again)).unwrap_or_default().contains("pairingLink"));
+    }
+
+    #[test]
+    fn version_three_is_unknown_and_v2_password_is_not_a_secret() {
+        assert_eq!(decode_registry_any(br#"{"version":3,"entries":[]}"#).err(), Some(DecodeError::UnknownVersion));
+        let text = r#"{"version":2,"entries":[{"id":"local","kind":"local","name":"This machine","password":"P"}]}"#;
+        let (doc, secrets) = decode_registry_any(text.as_bytes()).unwrap();
+        assert!(secrets.is_empty() && !doc.entries[0].has_password);
+        assert_eq!(doc.entries[0].unknown.get("password"), Some(&Value::from("P")));
+    }
+
+    #[test]
+    fn v2_rules_still_apply() {
+        let relay_pw = r#"{"version":2,"entries":[{"id":"3f2b8a40-1111-4222-8333-444455557777","kind":"relay","name":"r","hasPassword":true}]}"#;
+        assert_eq!(decode_registry_v2(relay_pw.as_bytes()).err(), Some(DecodeError::WrongShape));
+        let direct_no_address = r#"{"version":2,"entries":[{"id":"3f2b8a40-1111-4222-8333-444455557777","kind":"direct","name":"r"}]}"#;
+        assert_eq!(decode_registry_v2(direct_no_address.as_bytes()).err(), Some(DecodeError::WrongShape));
+        assert_eq!(decode_registry_v2(b"[]").err(), Some(DecodeError::WrongShape));
+        assert_eq!(decode_registry_v2(b"x").err(), Some(DecodeError::NotJson));
+    }
 }
 
 /// Why a local daemon action failed.

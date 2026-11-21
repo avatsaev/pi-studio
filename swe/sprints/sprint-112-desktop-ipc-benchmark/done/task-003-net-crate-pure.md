@@ -1,7 +1,7 @@
 # Task 003 — `net` crate, pure parts: frame batch codec, inbound window, outbound order buffer
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/net
 - **Priority:** P1

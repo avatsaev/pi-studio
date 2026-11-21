@@ -1,7 +1,7 @@
 # Task 003 — `model` crate: registry file version 2, without secrets
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model
 - **Priority:** P1

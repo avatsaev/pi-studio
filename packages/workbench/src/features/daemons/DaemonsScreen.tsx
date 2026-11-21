@@ -166,6 +166,9 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
               ))}
             </ul>
             <SettingsSection daemons={daemons} settings={snapshot.settings} />
+            {view.secretStoreNote && (
+              <p className={styles.secretStoreNote}>{view.secretStoreNote}</p>
+            )}
           </>
         )}
       </div>

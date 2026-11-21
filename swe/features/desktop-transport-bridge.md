@@ -70,8 +70,8 @@ run counts.
 
 | # | Workload | Measured | Pass (P1) |
 |---|---|---|---|
-| B1 | Keystroke echo: 2,000 round trips of a 32-byte binary frame, one at a time | Round-trip time, median and 99th percentile, minus the baseline's | Median at most 1 ms slower; 99th percentile at most 5 ms slower |
-| B2 | Terminal flood: 256 MiB inbound as 4 KiB and as 64 KiB binary frames | MiB/s | At least 40 MiB/s (xterm.js states it parses 5–35 MB/s, so the bridge is not the limit) |
+| B1 | Keystroke echo: 2,000 round trips of a 32-byte binary frame, one at a time | Round-trip time: mean, median and 99th percentile, minus the baseline's. WebKit's timer steps by 1 ms, so there the median and 99th percentile read 0 or 1 and the **mean** decides (measured 2026-11-21: baseline round trip about 30–45 µs on Linux) | Median at most 1 ms slower; 99th percentile at most 5 ms slower; where the timer is coarse, mean at most 1 ms slower |
+| B2 | Terminal flood: 256 MiB inbound as binary frames of 4 KiB, 64 KiB and **256 KiB** (a real flood measured 2026-11-21 arrives at a median of about 350 KiB, p99 about 475 KiB, max 553 KiB; the first two sizes cover a slow producer) | MiB/s | At least 40 MiB/s (xterm.js states it parses 5–35 MB/s, so the bridge is not the limit) |
 | B3 | Many small frames: 200,000 inbound text frames of 200 bytes | Frames/s | At least 5,000 (ten flooding terminals are 2,500 frames/s at one frame per 4 ms; the rest is headroom for agent streams) |
 | B4 | Download: 1 GiB inbound as 32 KiB binary frames | MiB/s; growth of the app's processes | At least half the baseline and at least 40 MiB/s (P2); growth at most the inbound window (§ 3) plus 64 MiB |
 | B5 | Upload: 256 MiB outbound as 32 KiB binary frames, paced on `bufferedAmount` at 1 MiB | MiB/s; `bufferedAmount` at the end | At least half the baseline and at least 40 MiB/s; back to 0 |
@@ -158,7 +158,10 @@ which already paces a download on its send buffer. It reads again below 4 MiB.
 
 **Outbound order.** `seq` starts at 0 for each connection and rises by one per send. Rust writes
 frames to the socket in `seq` order: one that arrives early waits (at most 64 messages); a gap
-that lasts 5 s closes the connection with the error `send_order`.
+that lasts 5 s closes the connection with the error `send_order`, and so does a `seq` that was
+already used or is already waiting, and a 65th early message (the `net` crate's `OrderError`, built
+in s112/t003). The 64-message cap does not bound bytes: the connection task of s115/t002 adds a
+byte cap (16 MiB) for waiting frames.
 
 **`bufferedAmount`.** The page adds a frame's byte length when it sends and subtracts it when the
 send's answer arrives. Since an answer means "written to the socket", the number has the meaning
@@ -401,14 +404,14 @@ Gates and documents:
 
 ## TODO(verify)
 
-- **The numbers of P1.** xterm.js's 5–35 MB/s is its documentation's figure, not measured here. The 4 KiB and 64 KiB frame sizes of B2 are guesses at what a 4 ms coalescing window produces: measure a real flood's frame sizes from a daemon before running B2.
+- **The numbers of P1 (partly answered, 2026-11-21).** xterm.js's 5–35 MB/s is its documentation's figure, not measured here. A real flood's frame sizes were measured (`swe/notes/desktop-ipc-benchmark.md`, dev daemon with a real PTY, a Node consumer, a fast machine): median about 354 KiB, so B2 gained a 256 KiB size; a slower producer gives smaller frames, which the 4 KiB and 64 KiB sizes cover. The 40 MiB/s and 5,000 frames/s marks are still derived, not measured.
 - **Which IPC path each webview uses** for raw bodies (the `ipc://` fetch or the `postMessage` fallback), and whether invokes ever reach Rust out of order. § 3's `seq` assumes they can.
 - **The keychain crate.** `keyring` 4.2.0 is MIT OR Apache-2.0 and needs Rust 1.88 (the workspace is on 1.95); its backends per platform and their licences were not read. The Linux backend needs a D-Bus session.
 - **How the engine reaches the store without blocking the owner thread**: a step the caller runs before and after the command, or a hook in the style of `Services`. Decide in the first secrets task.
 - **macOS and an unsigned build**: whether the keychain prompts after every update, and whether a GitHub runner can use a keychain unattended.
 - **The TLS crates' licences** (`rustls` with `ring`, the platform certificate verifier) against the permissive-only rule, and whether `ring` builds on all three runners without extra tools.
 - **The interface-address crate** (`if-addrs` 0.15.0, MIT OR BSD-3-Clause, not read) and the cost of reading the addresses every 5 s.
-- **Largest frame either side sends.** The server sets no `maxPayload` on direct connections and the browser's socket has no limit, so the 128 MiB cap is a guess above the `ws` library's default.
+- **Largest frame either side sends (answered, 2026-11-21).** Largest daemon text frame seen: 5,243,061 bytes (a 5 MiB `file_read_request`); largest binary: 553,220 bytes (a terminal `Output` frame); the client's largest: 32,770 bytes (an upload chunk). 128 MiB leaves ample room. Measured with the mock provider's small rows only: a session with large tool outputs was not measured.
 - **Whether the app's 2 s tick runs while macOS naps a hidden app.** A stalled tick looks like a wake; the 5 s rate limit bounds the cost.
 - **The control socket on Windows.** It is a TCP listener on `127.0.0.1` (read in `control_server.rs`), so it should work there; the Windows checks have only driven the page through WebDriver so far.
 - **A page memory dump** as evidence that the password is absent: how to take one from WebKitGTK. If it cannot be done, the criterion is argued from the code path (the password is never an input or an output of a page command).

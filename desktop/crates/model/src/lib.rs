@@ -7,8 +7,9 @@
 mod registry;
 
 pub use registry::{
-    Entry, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, NewEntry, Registry,
-    RegistryError, Secret, Update, decode_registry, encode_registry,
+    Entry, EntryV2, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS,
+    MigratedSecret, NewEntry, REGISTRY_V2, Registry, RegistryError, RegistryV2, Secret, Update, decode_registry, decode_registry_any, decode_registry_v2,
+    encode_registry, encode_registry_v2,
 };
 
 use std::collections::BTreeMap;
@@ -201,10 +202,14 @@ impl EntryState {
 }
 
 fn decode<T: DeserializeOwned>(bytes: &[u8], valid: fn(&T) -> bool) -> Result<T, DecodeError> {
+    decode_at(bytes, VERSION, valid)
+}
+
+fn decode_at<T: DeserializeOwned>(bytes: &[u8], version: u32, valid: fn(&T) -> bool) -> Result<T, DecodeError> {
     let json: Value = serde_json::from_slice(bytes).map_err(|_| DecodeError::NotJson)?;
     let Value::Object(object) = &json else { return Err(DecodeError::WrongShape) };
     match object.get("version") {
-        Some(v) if v.as_u64() == Some(u64::from(VERSION)) => {}
+        Some(v) if v.as_u64() == Some(u64::from(version)) => {}
         Some(v) if v.is_u64() || v.is_i64() => return Err(DecodeError::UnknownVersion),
         _ => return Err(DecodeError::WrongShape),
     }

@@ -64,7 +64,12 @@ export interface BannerView {
 export interface DaemonsScreenView {
   rows: EntryRowView[];
   banner: BannerView | null;
+  /** One line under the list when the host keeps secrets in a file; `null` otherwise. */
+  secretStoreNote: string | null;
 }
+
+export const FILE_SECRET_STORE_NOTE =
+  "Passwords and pairing links are kept in a file only this user can read, because no keychain is available.";
 
 const KIND_LABELS: Record<DaemonEntryView["kind"], string> = {
   local: "This machine",
@@ -160,6 +165,7 @@ export function buildDaemonsScreenView(
   return {
     rows: snapshot.entries.map((entry) => entryRow(entry, snapshot, invalidLinks)),
     banner: bannerView(error, snapshot.local),
+    secretStoreNote: snapshot.secretStore === "file" ? FILE_SECRET_STORE_NOTE : null,
   };
 }
 

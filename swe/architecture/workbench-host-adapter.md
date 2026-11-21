@@ -127,7 +127,8 @@ interface DaemonError extends Error { readonly code: DaemonErrorCode }   // mess
 
 interface HostDaemons {
   snapshot(): { currentId: string | null; entries: DaemonEntryView[]; local: LocalDaemonState;
-                settings: DaemonSettings };                             // synchronous, in memory
+                settings: DaemonSettings;
+                secretStore?: "keychain" | "file" };                    // synchronous, in memory
   subscribe(listener: () => void): () => void;
   resolveCurrent(): Promise<ConnectIntent>;                             // rejects with a DaemonError
   add(input: NewDaemon): Promise<DaemonEntryView>;
@@ -171,7 +172,7 @@ Supporting types:
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
 | `pdf` | Optional. `createWorker` returns a pdf.js worker; `assetBaseUrl` is where the pdf.js data directories are served (trailing slash) |
 | `preview` | Optional. Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled document to `mount` and loads its frame from the returned `url` (same sandbox tokens, never `allow-same-origin`) instead of `srcdoc`; it calls `release` once a newer document replaces it and on unmount; a `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this host; the viewer keeps `srcdoc` and says so. Absent: `srcdoc`, unchanged |
-| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
+| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; its optional `secretStore` (`"keychain" \| "file"`) says where the host keeps them: with `file` the Daemons screen shows one line (kept in a file only this user can read, because no keychain is available), with `keychain` or when absent it shows nothing; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
 
 ### Browser host
 
@@ -210,6 +211,7 @@ in the contract above. Kept so the reasons are findable.
 | `dialogs.prompt` | Removed | Sprint-104: session rename became the in-app `RenameSessionDialog` in both clients |
 | `app.minDaemonVersion?: string` | Added, optional | Sprint-109 (the app sets it to `0.0.119`); the notice, sprint-110 |
 | `daemons?: HostDaemons` | Added, optional | Types and an in-memory test registry sprint-109; consumed by the connection bar, the Daemons screen and connection boot in sprint-110 |
+| `HostDaemons.snapshot().secretStore?` | Added, optional | Sprint-113 (task-007): the desktop host reads it from the app's registry view; the Daemons screen draws one line for `file` ([../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 5) |
 | `preview?: HostPreview` | Added, optional | Sprint-105 |
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |

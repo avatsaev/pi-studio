@@ -146,6 +146,24 @@ describe("snapshot and subscribe", () => {
     await flush();
     expect(daemons.snapshot()).toEqual(NEXT);
   });
+
+  it("keeps the boot's secret store when the read after the listener answers without one", async () => {
+    const booted: DaemonsView = { ...BOOT, secretStore: "file" };
+    const daemons = createDesktopDaemons(
+      booted,
+      {
+        invoke: async (_command, args) =>
+          (args as Record<string, unknown>).id === "settings.get"
+            ? NEXT.settings
+            : { currentId: "d1", entries: NEXT.entries, local: NEXT.local },
+        listen: async () => () => undefined,
+      },
+      async () => undefined,
+      () => undefined,
+    );
+    await flush();
+    expect(daemons.snapshot()).toEqual({ ...NEXT, secretStore: "file" });
+  });
 });
 
 describe("registry commands", () => {

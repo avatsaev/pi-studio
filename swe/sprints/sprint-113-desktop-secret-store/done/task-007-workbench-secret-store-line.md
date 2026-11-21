@@ -1,7 +1,7 @@
 # Task 007 — Workbench: `secretStore` in the registry view and the Daemons screen's line
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench, desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

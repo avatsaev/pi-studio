@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the benchmark's page may ask of the app: its four commands (listed in build.rs) and nothing else.",
+  "windows": ["main"],
+  "permissions": ["allow-bench-config", "allow-bench-rss", "allow-bench-progress", "allow-bench-finish"]
+}

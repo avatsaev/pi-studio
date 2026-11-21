@@ -12,3 +12,5 @@ dist/
 # Control-channel tokens (`--control-token-file`) are credentials.
 *.token
 *.log
+# The IPC benchmark's default output (`--out`), when run from this directory.
+/results.json

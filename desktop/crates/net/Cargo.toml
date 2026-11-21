@@ -1,0 +1,11 @@
+[package]
+name = "pistudiodesktop-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# No dependency at all: the pure parts of the bridge (frame codec, inbound window, outbound order
+# buffer) are plain std. The browser build has no sockets, so on wasm32 the crate is empty.

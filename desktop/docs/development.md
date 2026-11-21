@@ -198,6 +198,46 @@ Three things the container does not give you by default:
 - **One app at a time.** The single-instance lock is per app identifier, not per configuration
   directory: two sessions at once collide.
 
+## The IPC benchmark
+
+`apps/ipc-bench` is the measuring instrument of the transport bridge's gate (`swe/features/desktop-transport-bridge.md` § 1). A small Tauri app: its page (`page/`, plain ES modules, no npm package and no entry in the root `package-lock.json`) runs the workloads against a WebSocket server in the same process, on `127.0.0.1` and a free port, and Rust writes `results.json` and exits. It is a workspace member, exempt from the layer rules, with its own `tauri.conf.json`, capability and four commands (`bench_config`, `bench_rss`, `bench_progress`, `bench_finish`); it is never bundled or released and the shipped app has nothing of it. Rows B1 to B5, over the page's own `WebSocket` (the baseline); B6 (order and integrity) is checked in every workload. A candidate bridge is one more entry in `page/transport.js`.
+
+The server picks its behaviour by path: `/echo`; `/flood?frames=N&size=S&kind=binary|text` (waits for the text `go`, then sends N frames and a closing JSON message with the count and the running hash); `/sink` (checks what it receives, answers a report on the text `end`). Every frame carries its counter and a checksum, every stream a running hash (`src/frame.rs`, mirrored in `page/frame.js`; the same vectors are tested in both).
+
+```sh
+cargo build --release -p pistudiodesktop-ipc-bench      # measure only with a release build
+cargo run --release -p pistudiodesktop-ipc-bench -- --out /tmp/results.json --scale 0.1
+node --test apps/ipc-bench/page/frame.test.mjs          # the page's half of the frame format
+```
+
+| Option | Effect |
+|---|---|
+| `--out FILE` | Where `results.json` goes (default `results.json` in the current directory) |
+| `--runs N` | Runs of each workload (default 3) |
+| `--only ROWS` | A comma-separated subset of `b1,b2,b3,b4,b5` |
+| `--scale F` | Shrink every count and byte total to the fraction `F` (above 0, at most 1): `0.1` is a quick run |
+| `--corrupt N` | The server changes a byte of frame N of each stream it sends (and of what it receives): the run must exit 1 and name the workload and the frame |
+| `--swap N` | The server sends frame N after frame N+1 (on `/sink` it checks the frame it received as N after N+1); `/echo` answers one frame at a time and cannot |
+| `--timeout S` | Give up with exit 1 after S seconds (default 3600) |
+
+The app runs unattended and exits 0 when every run completed and B6 found nothing, 1 otherwise; the problems are printed as `PROBLEM <transport> <workload> run <n>: frame <k>: …`. In the `pi-desktop-xvfb` container (see § Without a display; mount a writable directory for the results):
+
+```sh
+mkdir -p /tmp/ipc-bench && cat > /tmp/ipc-bench/run.sh <<'EOF'
+cd /work
+xvfb-run -a ./target/release/ipc-bench --out /out/results.json "$@"
+EOF
+docker run --rm -v "$PWD:/work:ro" -v /tmp/ipc-bench:/out pi-desktop-xvfb bash /out/run.sh --scale 0.1
+```
+
+`results.json` (`schema` 1) holds the platform, the webview's user agent, the Tauri version, the options, the timer's step and, per transport, every run's raw measurements (durations, bytes, frames, percentiles, the memory samples of B4, the integrity result) and a `summary` with the worst and the median run of each metric. Three things to read it with:
+
+- The page's timer (`performance.now()`) steps by 1 ms in WebKit: a round trip under 1 ms reads 0 or 1. B1's `medianMs` and `p99Ms` are quantized by it; `meanMs` (the total over the trips) is not. `timerResolutionMs` says what the page saw.
+- Every check (counter, checksum, running hash) costs the page the same in every transport: `pageHash.mibPerS` says how fast the page hashes.
+- B4's memory is the sum of the resident memory of the app and its descendants (`/proc` on Linux, `ps` on macOS, PowerShell on Windows). On macOS the web content process is not a child of the app, so read `processesAtStart` before trusting the total. Only Linux has been run.
+
+Rows B7 and B8 and the candidate bridges are later tasks.
+
 ## Platform checks on macOS and Windows runners
 
 `apps/pistudiodesktop/scripts/platform-checks.mjs` (helpers in `scripts/platform-checks/`, run by `.github/workflows/desktop-platform-checks.yml`) checks on a runner what a machine can check; `docs/platform-checks.md` says which items it covers. Modes: `macos` (the control socket only), `windows` (WebDriver through `tauri-driver` and `msedgedriver`) and `rehearse-webdriver`, which runs the Windows checks on Linux against a `WebKitWebDriver` already listening (the container of § Without a display), so the script can be tried without a Windows machine. It writes `summary.md` and `results.json`, appends the summary to `GITHUB_STEP_SUMMARY` and exits 1 when a check fails. Its unit tests run with the app's `npm test`.

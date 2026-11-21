@@ -21,7 +21,7 @@ This is the part of the bridge that carries frames. It delivers to a sink the ca
 
 ## What to build
 - A connection owns the socket and two tasks. Read: WebSocket messages become channel messages in the encoding the benchmark chose, passed to a sink; reading pauses while the window is full. When the socket ends, the sink gets `closed` with the code and reason, or 1006 with an error when there was no close frame, and nothing after it.
-- Write: a send carries `seq`; frames are written in order through the order buffer; the caller is answered when its frame was written. A gap that times out closes the connection with `send_order`.
+- Write: a send carries `seq`; frames are written in order through the order buffer; the caller is answered when its frame was written. A gap that times out closes the connection with `send_order`, and so does a duplicate or an already-used `seq` and a 65th early message. **Added at wave 1 (2026-11-21):** the order buffer bounds early frames by count only; this task adds a 16 MiB cap on the bytes of waiting frames (over it is `send_order`), in the connection task or in the buffer.
 - Close: send a close frame with the code and a reason of at most 123 bytes, wait up to 2 s for the peer's, then drop the socket.
 - A message above 128 MiB is `too_large` for a send, and inbound closes with 1009.
 - Counters per connection: frames and bytes in and out.
