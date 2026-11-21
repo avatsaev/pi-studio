@@ -42,13 +42,29 @@ pub fn min_daemon_version() -> String {
     cli_answers::MIN_CLI_VERSION.to_string()
 }
 
-/// `{ currentId, entries, local, settings }`: the registry view, with no secret in it.
+/// `{ currentId, entries, local, settings, secretStore }`: the registry view, with no secret in it.
+/// `secretStore` is the kind of the launch's secret store ([`secret_store_kind`]).
 pub fn view(app: &mut AppShell) -> Value {
     let mut list = app.session.execute("daemon.list", Value::Null).unwrap_or(Value::Null);
     if let Some(fields) = list.as_object_mut() {
         fields.insert("settings".into(), app.session.execute("settings.get", Value::Null).unwrap_or(Value::Null));
+        fields.insert("secretStore".into(), Value::from(secret_store_kind(app)));
     }
     list
+}
+
+/// The kind of secret store this launch uses: `keychain`, `file` or `memory` (a session without a
+/// configuration directory, and the browser build). Fixed for the launch.
+pub fn secret_store_kind(app: &AppShell) -> &'static str {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        app.session.secret_store().kind().as_str()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = app;
+        "memory"
+    }
 }
 
 /// The view to send the page when the registry, the local state or a setting changed since the
@@ -234,6 +250,7 @@ mod tests {
         assert_eq!(view["entries"].as_array().map(Vec::len), Some(3));
         assert_eq!(view["settings"]["autoStartLocalDaemon"], true);
         assert!(view.get("currentId").is_some() && view.get("local").is_some());
+        assert_eq!(view["secretStore"], "memory", "a session without a configuration directory holds its secrets in memory");
     }
 
     #[test]

@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use pistudiodesktop_engine::{LocalRequest, Session};
+use pistudiodesktop_engine::{LocalRequest, Notice, Session};
 use pistudiodesktop_model::EntryId;
 use pistudiodesktop_secrets::{MemoryStore, Secret, SecretError, SecretKey, SecretKind, SecretStore, StoreKind};
 use pistudiodesktop_shell::daemons::LocalOp;
@@ -58,6 +58,24 @@ impl SecretStore for Flaky {
     }
     fn delete(&self, key: &SecretKey) -> Result<(), SecretError> {
         if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) { Err(SecretError::Unavailable("down".into())) } else { self.inner.delete(key) }
+    }
+}
+
+/// A memory store that reports another kind, to see each kind named in the views.
+struct Kinded(StoreKind, MemoryStore);
+
+impl SecretStore for Kinded {
+    fn kind(&self) -> StoreKind {
+        self.0
+    }
+    fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretError> {
+        self.1.get(key)
+    }
+    fn set(&self, key: &SecretKey, secret: &Secret) -> Result<(), SecretError> {
+        self.1.set(key, secret)
+    }
+    fn delete(&self, key: &SecretKey) -> Result<(), SecretError> {
+        self.1.delete(key)
     }
 }
 
@@ -221,6 +239,45 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     assert_eq!(held("local", SecretKind::Password).as_deref(), Some(OLD_PASSWORD));
     assert_eq!(held(ARCHIVE, SecretKind::PairingLink).as_deref(), Some(OLD_LINK));
 
+    for kind in [StoreKind::Keychain, StoreKind::File, StoreKind::Memory] {
+        views_name_the_kind(kind);
+    }
+
     let lines = logged();
     assert!(lines.iter().all(|l| leaks(l).is_none()), "a log line leaked a secret: {lines:?}");
+}
+
+/// The kind of store is told in every view, whichever backend the launch chose, with the launch's
+/// notices, and no view holds a secret.
+fn views_name_the_kind(kind: StoreKind) {
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let (session, _) = Session::with_config_dir(scratch.path(), Arc::new(Kinded(kind, MemoryStore::default())));
+    let mut app = AppShell::new(session, Services::default());
+    app.notices = vec![
+        Notice::SecretStoreFallback { reason: "denied".into() },
+        Notice::FileReset { file: "secrets.json".into(), kept_as: None },
+        Notice::SecretNotRemoved { entry: ARCHIVE.into() },
+    ];
+    let mut seen = Vec::new();
+    let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
+    assert_eq!(inspect["result"]["connection"], json!({"secretStore": kind.as_str()}), "{inspect}");
+    assert_eq!(inspect["result"]["daemons"]["secretStore"], kind.as_str(), "{inspect}");
+    let added = execute(&mut app, &mut seen, "daemon.add", json!({"kind": "direct", "name": "Work", "address": "10.0.0.9:8080", "password": PASSWORD}));
+    assert_eq!(added["ok"], true, "{added}");
+    // What `daemons_changed` carries.
+    let changed = pistudiodesktop_shell::daemons::take_change(&mut app).expect("the registry changed");
+    check_answer("daemons_changed", &changed);
+    assert_eq!(changed["secretStore"], kind.as_str(), "{changed}");
+    let boot = app.answer(&Request::Boot);
+    check_answer("boot", &boot);
+    assert_eq!(boot["result"]["daemons"]["secretStore"], kind.as_str(), "{boot}");
+    assert_eq!(
+        boot["result"]["notices"],
+        json!([
+            {"kind": "secret_store_fallback", "reason": "denied"},
+            {"kind": "file_reset", "file": "secrets.json", "keptAs": null},
+            {"kind": "secret_not_removed", "entry": ARCHIVE},
+        ]),
+        "{boot}"
+    );
 }

@@ -7,6 +7,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pistudiodesktop_engine::Notice;
 use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
 use pistudiodesktop_shell::preview::{self, Previews};
@@ -40,7 +41,7 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
-    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false })
+    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new() })
 }
 
 /// The same, with the owner thread told what `launch` says.
@@ -137,6 +138,7 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
     assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
+    assert_eq!(first["daemons"]["secretStore"], "memory");
 
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "{\"a\":1}"})).unwrap(), Value::Null);
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-appearance", "value": "dark"})).unwrap(), Value::Null);
@@ -149,6 +151,23 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     assert_eq!(layout["keys"], json!({"pi-studio-pane-layout": "{\"a\":1}"}));
     let settings: Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["workbench"], json!({"pi-studio-appearance": "dark"}));
+}
+
+#[test]
+fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once() {
+    let dir = tempfile::tempdir().unwrap();
+    // A damaged registry file gives a notice of the session's own.
+    std::fs::write(dir.path().join("daemons.json"), "{ not json").unwrap();
+    let notices = vec![Notice::SecretStoreFallback { reason: "unavailable".into() }, Notice::FileReset { file: "secrets.json".into(), kept_as: None }];
+    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices });
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+    let first = invoke(&window, "boot", json!({})).unwrap();
+    let kinds: Vec<&str> = first["notices"].as_array().unwrap().iter().map(|n| n["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["secret_store_fallback", "file_reset", "file_reset"], "{first}");
+    assert_eq!(first["notices"][0]["reason"], "unavailable");
+    assert_eq!(first["notices"][1], json!({"kind": "file_reset", "file": "secrets.json", "keptAs": null}));
+    assert_eq!(first["notices"][2]["file"], "daemons.json");
+    assert_eq!(invoke(&window, "boot", json!({})).unwrap()["notices"], json!([]), "a reload does not show them again");
 }
 
 #[test]
@@ -671,7 +690,7 @@ fn the_reply_of_the_shell_becomes_a_result() {
 fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
     let sent = Arc::clone(sent);
     let (wake, _woken) = channel();
-    Launch { notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)), local_supported: false }
+    Launch { notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)), local_supported: false, notices: Vec::new() }
 }
 
 #[test]
@@ -760,6 +779,7 @@ fn one_add_is_one_event_with_the_view_and_no_secret() {
     let sent = sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["entries"].as_array().map(Vec::len), Some(2));
+    assert_eq!(sent[0]["secretStore"], "memory", "the event carries the kind too: a view without it would drop the Daemons screen's line");
     assert!(!sent[0].to_string().contains("hunter2"));
 }
 
@@ -774,6 +794,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
         tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))
             .unwrap();
     assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
+    assert_eq!(inspect["result"]["connection"], json!({"secretStore": "memory"}), "the test harness gives the session a memory store");
     for text in [booted.to_string(), inspect.to_string()] {
         assert!(!text.contains("hunter2") && !text.contains("secret-link"), "{text}");
     }

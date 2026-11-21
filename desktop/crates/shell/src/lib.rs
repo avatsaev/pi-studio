@@ -21,6 +21,10 @@
 //!
 //! The HTML documents the page previews ([`preview`]) are held in memory and served to the webview
 //! from a custom scheme of the app, so their scripts can run in a frame isolated from the page.
+//!
+//! Which secret store a launch uses (the keychain when it answers, else `secrets.json`, or what
+//! `--secret-store` says) is chosen by [`secret_choice`]; the kind chosen is `secretStore` in the
+//! registry view and in `ui.inspect`.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -43,6 +47,8 @@ pub mod preview;
 pub mod process;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod saves;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod secret_choice;
 pub mod services;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shell_env;

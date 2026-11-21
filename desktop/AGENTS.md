@@ -14,7 +14,8 @@ through `storage_set` to the Rust engine, which writes the files in the configur
 Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and
 the HTML preview is served from an origin of its own. The engine holds the daemon registry
 (`daemons.json`, version 2, mode 0600, no secret in it; local, direct and relay entries; the secrets
-are in a store the engine is given) and the settings; a supervisor runs
+are in a store the engine is given: the keychain when it answers, else `secrets.json`; `--secret-store`
+forces one) and the settings; a supervisor runs
 the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
 the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
 add, edit and remove entries, each with its own stored layout. All of it sits behind a command
@@ -35,9 +36,9 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
     crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
     crates/store            L3  JSON files: safe reads, atomic writes
-    crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; no backend choice yet
+    crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; the choice between them is the shell's
     crates/engine           L5  Session + command registry (every action is a command)
-    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor (no UI toolkit)
+    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`) (no UI toolkit)
     crates/net              L7  the bridge's pure parts (frame batch codec, inbound window, outbound order buffer): no socket yet, no dependency, empty on wasm32; only an app binary may use it
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
@@ -86,7 +87,13 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
     may block: the session never makes one on the owner thread (it plans a dial, `DialPlan`, and the
     caller reads the store; `daemon.add/update/remove` are a `SecretJob` whose store steps run on
     worker threads, `deferred.rs`), except at launch, where a version 1 file's secrets are moved.
-    A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
+    Which store a launch uses is chosen once, by `shell/src/secret_choice.rs` (shared by the app and
+    its CLI): `--secret-store keychain|file`, else the keychain when a check (open, read a missing
+    item, write and delete a throwaway one; 2 s in all, on its own thread) passes, else `secrets.json`
+    with a notice; the app never opens a real configuration directory before that. Every automated
+    or live run passes `--secret-store file`, so that none writes to a developer's keychain. The kind
+    is `secretStore` in the registry view and `connection.secretStore` in `ui.inspect`; nothing else
+    of the store is shown. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 
 ## Conventions
 

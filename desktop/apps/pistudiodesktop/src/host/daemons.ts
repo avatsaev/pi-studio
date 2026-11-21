@@ -34,6 +34,9 @@ const CODES: Record<DaemonErrorCode, true> = {
   timeout: true,
   bad_output: true,
   spawn_failed: true,
+  secret_missing: true,
+  secret_unavailable: true,
+  secret_store_failed: true,
 };
 
 /** What a `HostDaemons` call rejects with when the app answered with one of the spec's codes. */
@@ -72,10 +75,15 @@ function isIntent(value: unknown): value is ConnectIntent {
   return isRecord(value) && typeof value.connect === "boolean";
 }
 
+/** Said once per removed entry whose saved password or pairing link the secret store would not delete. */
+export const SECRET_NOT_REMOVED_TEXT =
+  "The daemon was removed, but its saved password or pairing link could not be deleted from the secret store. It is still stored there.";
+
 /**
  * The daemon registry for the workbench: the view held in memory from the boot snapshot, replaced
  * on each `daemons_changed`, and the app's commands behind every action. `settled` resolves when
- * every `storage_set` sent so far was answered; a switch waits for it.
+ * every `storage_set` sent so far was answered; a switch waits for it. `tell` shows a message to
+ * the person (a toast): the one thing an answer can say that no rejection does.
  *
  * The intent `resolveCurrent` returns holds a password or a pairing link: it is handed over and
  * kept nowhere here, and no log call receives it.
@@ -85,6 +93,7 @@ export function createDesktopDaemons(
   ipc: Ipc & IpcEvents,
   settled: () => Promise<void>,
   log: (message: string, error: unknown) => void,
+  tell: (text: string) => void,
 ): HostDaemons {
   let view = initial;
   /** Counts the events heard, so an answer that was asked for before one is not taken over it. */
@@ -167,7 +176,13 @@ export function createDesktopDaemons(
       return entryOf(await engine("daemon.update", { id, ...patch }));
     },
     async remove(id) {
-      await engine("daemon.remove", { id });
+      const answer = await engine("daemon.remove", { id });
+      // The entry is gone either way; a secret the store would not delete is told to the person.
+      if (isRecord(answer) && Array.isArray(answer.notices)) {
+        for (const notice of answer.notices) {
+          if (isRecord(notice) && notice.kind === "secret_not_removed") tell(SECRET_NOT_REMOVED_TEXT);
+        }
+      }
     },
     async switchTo(id) {
       await settled();

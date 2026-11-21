@@ -30,12 +30,13 @@ use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use clap::Parser;
-use pistudiodesktop_secrets::{MemoryStore, SecretStore};
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
+use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use tauri::Manager as _;
 
@@ -52,6 +53,12 @@ struct Args {
     /// configuration directory for the app (`com.avatsaev.pi-studio`).
     #[arg(long, env = "PISTUDIODESKTOP_CONFIG_DIR", value_name = "DIR")]
     config_dir: Option<PathBuf>,
+    /// Where the daemon passwords and pairing links are kept: `keychain` (the operating system's) or
+    /// `file` (`secrets.json` in the configuration directory, readable by this user only). Default:
+    /// the keychain when it answers within 2 s and takes a test item, else the file. Automated and
+    /// live runs pass `file`, so that they never write to a person's keychain.
+    #[arg(long, value_name = "keychain|file")]
+    secret_store: Option<secret_choice::Preference>,
 }
 
 /// A startup error: say what, and leave.
@@ -89,9 +96,10 @@ fn main() {
     // one thread that owns the session.
     let (requests, inbox) = channel();
     let runner_requests = requests.clone();
-    // The one secret store: the session writes it, and a dial reads it off the owner thread. The
-    // keychain-or-file choice is not made yet, so secrets live in memory for now.
-    let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
+    // The secret store is chosen once per launch (keychain, else file; `--secret-store` forces one).
+    // The keychain check runs on a thread of its own from here, while the window is built: the
+    // keychain's scope depends on the arguments only, the file store's directory on the builder.
+    let secret_check = secret_choice::start(args.secret_store, secret_choice::scope_for(args.config_dir.as_deref()));
     if let Some((listener, token)) = control {
         control_server::start(listener, token, requests.clone());
     }
@@ -102,7 +110,6 @@ fn main() {
         .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
-        .manage(bridge::Bridge::new(requests, Arc::clone(&store)))
         .manage(transfers::Transfers::default())
         // The preview origin: documents the page mounts are served from this scheme, and the
         // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
@@ -132,10 +139,18 @@ fn main() {
         Ok(app) => app,
         Err(e) => fail(1, e),
     };
-    let config_dir = match args.config_dir.map_or_else(|| app.path().app_config_dir(), Ok) {
+    let config_dir = match args.config_dir.clone().map_or_else(|| app.path().app_config_dir(), Ok) {
         Ok(dir) => dir,
         Err(e) => fail(2, format!("cannot find the configuration directory ({e}); pass --config-dir <DIR>")),
     };
+    // The keychain check began before the window was built; this waits for what is left of its 2 s
+    // and opens `secrets.json` when the keychain is not used. Nothing opens a real directory with
+    // the session before this: a version 1 `daemons.json` is migrated into the chosen store.
+    let chosen = match secret_check.finish(&config_dir) {
+        Ok(chosen) => chosen,
+        Err(e) => fail(2, e),
+    };
+    let store: Arc<dyn SecretStore> = chosen.store;
     let package = app.package_info();
     let title = app.config().product_name.clone().unwrap_or_else(|| package.name.clone());
     // The page's dialog and link commands take their hooks from the managed state; the owner
@@ -149,8 +164,15 @@ fn main() {
     // session's thread; the page's `daemon_resolve_current` uses the same supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
+    // The store reaches the page's dial (`Bridge`), the runner and the owner thread; it is only now
+    // known, because the file backend needs the configuration directory.
+    app.manage(bridge::Bridge::new(requests, Arc::clone(&store)));
     let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor);
-    let launch = bridge::Launch { notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)), local_supported: daemons::LOCAL_SUPPORTED };
+    let launch = bridge::Launch {
+        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)),
+        local_supported: daemons::LOCAL_SUPPORTED,
+        notices: chosen.notices,
+    };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the

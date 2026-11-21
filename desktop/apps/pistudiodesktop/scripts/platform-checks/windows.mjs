@@ -30,6 +30,7 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync }
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { SECRET_STORE_ARG } from "./app-process.mjs";
 import { bodyText, chooseInSwitcher, closeDialogs, dialogButtonTexts, showDaemonsScreen } from "./page-ui.mjs";
 import { interpretProbe, PROBE_HTML, RUN_PROBE_SCRIPT } from "./probe.mjs";
 import { countProcesses, killProcesses } from "./processes.mjs";
@@ -119,7 +120,7 @@ export class WindowsRun {
     // One `--flag=value` argument: msedgedriver turns every `args` entry into a browser switch (it
     // strips leading dashes and puts `--` back), so a separate value became `--c:\...` and the app
     // exited at once (first run on a runner, 2026-11-20).
-    const spec = { application: this.app, args: [`--config-dir=${configDir}`] };
+    const spec = { application: this.app, args: [`--config-dir=${configDir}`, SECRET_STORE_ARG] };
     const capabilities = this.flavor === "windows" ? tauriCapabilities(spec) : webkitCapabilities(spec);
     let session;
     try {
@@ -278,7 +279,7 @@ async function secondLaunchCheck(run, configDir) {
     if (run.flavor !== "windows") throw new Skip("the app runs in a container in the rehearsal, out of reach of a process count");
     const before = await countProcesses(run.imageName);
     if (before !== 1) throw new Error(`${before} ${run.imageName} processes before the second launch, expected 1`);
-    const second = spawn(run.app, ["--config-dir", configDir], { stdio: "ignore" });
+    const second = spawn(run.app, ["--config-dir", configDir, SECRET_STORE_ARG], { stdio: "ignore" });
     const ended = await Promise.race([new Promise((resolve) => second.once("exit", (code) => resolve(`exited with code ${code}`))), sleep(15_000).then(() => null)]);
     if (ended === null) second.kill();
     await sleep(1000);

@@ -41,6 +41,11 @@ fn the_control_protocol_drives_and_inspects_the_app() {
     let seen = call(&mut app, "ui.inspect", Value::Null);
     assert_eq!(seen["result"]["settings"]["autoStartLocalDaemon"], false);
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
+    assert_eq!(
+        seen["result"]["connection"],
+        json!({"secretStore": "memory"}),
+        "ui.inspect names the kind of secret store, and the object has room for later fields"
+    );
     let count = |seen: &Value| {
         seen["result"]["menus"][0]["items"].as_array().unwrap().iter().filter(|i| i["id"].as_str().unwrap().starts_with("daemon.entry:")).count()
     };

@@ -10,7 +10,7 @@ import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { launch } from "./app-process.mjs";
+import { launch, SECRET_STORE_ARG } from "./app-process.mjs";
 import { killProcesses } from "./processes.mjs";
 import { sleep, waitFor } from "./wait.mjs";
 import { ready, Session } from "./webdriver.mjs";
@@ -60,7 +60,7 @@ async function debugEndpoint(timeoutMs) {
 /** Start the app alone with `extraEnv`, look at the browser process, end it. */
 async function probe({ name, app, imageName, configDir, outDir, extraEnv }) {
   await killProcesses(imageName);
-  const launched = launch(app, [`--config-dir=${configDir}`], { ...process.env, ...extraEnv }, path.join(outDir, `webview2-probe-${name}.log`));
+  const launched = launch(app, [`--config-dir=${configDir}`, SECRET_STORE_ARG], { ...process.env, ...extraEnv }, path.join(outDir, `webview2-probe-${name}.log`));
   try {
     const endpoint = await debugEndpoint(20_000);
     const processes = await powershell(POWERSHELL_PROCESSES);
@@ -89,7 +89,7 @@ async function directSession({ app, imageName, configDir, outDir, nativeDriver, 
   try {
     await waitFor("msedgedriver to answer /status", () => ready(base), { timeoutMs: 30_000, intervalMs: 500 });
     const capabilities = {
-      capabilities: { alwaysMatch: { browserName: "webview2", "ms:edgeChromium": true, "ms:edgeOptions": { binary: app, args: [`--config-dir=${configDir}`], webviewOptions } } },
+      capabilities: { alwaysMatch: { browserName: "webview2", "ms:edgeChromium": true, "ms:edgeOptions": { binary: app, args: [`--config-dir=${configDir}`, SECRET_STORE_ARG], webviewOptions } } },
     };
     const session = await Session.open(base, capabilities);
     const href = await session.execute("return location.href").catch((error) => `execute failed: ${error.message}`);

@@ -29,7 +29,7 @@ import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { launch, waitForControlPort, waitForExit } from "./app-process.mjs";
+import { launch, SECRET_STORE_ARG, waitForControlPort, waitForExit } from "./app-process.mjs";
 import { ControlClient, parseConfigDir } from "./control-client.mjs";
 import { freePort, healthStatus } from "./net.mjs";
 import { Skip } from "./report.mjs";
@@ -122,7 +122,7 @@ export class MacosRun {
   async start(name, { env, configDir }) {
     const dir = this.scratch("control", name);
     const tokenFile = path.join(dir, "token");
-    const args = ["--control", "0", "--control-token-file", tokenFile, ...(configDir ? ["--config-dir", configDir] : [])];
+    const args = ["--control", "0", "--control-token-file", tokenFile, SECRET_STORE_ARG, ...(configDir ? ["--config-dir", configDir] : [])];
     const app = launch(this.app, args, { ...displayVariables(process.env), ...env }, path.join(this.outDir, `app-${name}.log`));
     this.apps.push(app);
     const port = await waitForControlPort(app);

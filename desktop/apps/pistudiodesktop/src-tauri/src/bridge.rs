@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use pistudiodesktop_engine::Session;
+use pistudiodesktop_engine::{Notice, Session};
 use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::owner::{self, Notify};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
@@ -91,6 +91,8 @@ pub struct Launch {
     /// Whether this platform can run a local daemon. When it can, a first probe is queued at
     /// start; the window does not wait for it.
     pub local_supported: bool,
+    /// What the choice of the secret store has to tell the user ([`pistudiodesktop_shell::secret_choice`]).
+    pub notices: Vec<Notice>,
 }
 
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
@@ -111,8 +113,8 @@ pub fn spawn_owner(
         log::info!("configuration directory: {}", config_dir.display());
         // The one place the owner thread calls the store: at launch, before it has answered
         // anything (a version 1 `daemons.json` is migrated here). Requests wait in the inbox.
-        let (mut session, notices) = Session::with_config_dir(config_dir, store);
-        for notice in &notices {
+        let (mut session, session_notices) = Session::with_config_dir(config_dir, store);
+        for notice in &session_notices {
             log::warn!("{}", notice.to_json());
         }
         session.set_local_supported(launch.local_supported);
@@ -127,6 +129,10 @@ pub fn spawn_owner(
         let _ = session.take_registry_changed();
         let mut app = AppShell::new(session, services);
         app.info = info;
+        // What the launch's store choice told (a keychain that was not used, an unreadable
+        // `secrets.json`) comes before what the files said.
+        let mut notices = std::mem::take(&mut launch.notices);
+        notices.extend(session_notices);
         app.notices = notices;
         owner::serve_notifying(&mut app, &inbox, flush_delay, launch.notify.as_mut());
     });

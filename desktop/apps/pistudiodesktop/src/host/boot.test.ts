@@ -71,6 +71,30 @@ describe("text and selection", () => {
     expect(parseBootSnapshot({ ...good, notices: [notice] })?.notices).toEqual([notice]);
     expect(noticeText(notice)).toMatch(/could not be moved to the secret store/);
   });
+  it("accepts a reset file that could not be renamed and words it without a name", () => {
+    const notice = { kind: "file_reset", file: "secrets.json", keptAs: null } as const;
+    expect(parseBootSnapshot({ ...good, notices: [notice] })?.notices).toEqual([notice]);
+    expect(noticeText(notice)).toBe(
+      "secrets.json could not be read and was reset. The old file could not be renamed and is still in the folder.",
+    );
+    expect(parseBootSnapshot({ ...good, notices: [{ kind: "file_reset", file: "a" }] })).toBeNull();
+  });
+  it("accepts and words the notice that the keychain was not used, by reason", () => {
+    for (const [reason, start] of [
+      ["unavailable", "No keychain could be reached"],
+      ["denied", "The keychain refused access"],
+      ["failed", "The keychain did not work"],
+      ["something new", "The keychain could not be used"],
+      ["constructor", "The keychain could not be used"],
+    ] as const) {
+      const notice = { kind: "secret_store_fallback", reason } as const;
+      expect(parseBootSnapshot({ ...good, notices: [notice] })?.notices).toEqual([notice]);
+      const text = noticeText(notice);
+      expect(text.slice(0, start.length)).toBe(start);
+      expect(text).toMatch(/secrets\.json, a file only you can read\.$/);
+    }
+    expect(parseBootSnapshot({ ...good, notices: [{ kind: "secret_store_fallback" }] })).toBeNull();
+  });
   it("reads an error reason", () => {
     expect(errorReason(new Error("x"))).toBe("x");
     expect(errorReason("y")).toBe("y");

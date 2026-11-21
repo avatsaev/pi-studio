@@ -122,7 +122,8 @@ interface DaemonSettings { autoStartLocalDaemon: boolean; cliPath: string | null
 
 type DaemonErrorCode = "invalid_name" | "name_taken" | "invalid_address" | "invalid_link" | "too_many"
   | "not_found" | "wrong_kind" | "local_not_removable" | "unsupported" | "cli_missing" | "cli_outdated"
-  | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed";
+  | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed"
+  | "secret_missing" | "secret_unavailable" | "secret_store_failed";   // the last three: the secret store (sprint 113)
 interface DaemonError extends Error { readonly code: DaemonErrorCode }   // message is the code; a type only
 
 interface HostDaemons {

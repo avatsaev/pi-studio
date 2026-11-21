@@ -20,6 +20,8 @@ export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
   pdf: BrowserHostOptions["pdf"],
+  /** Shows a message to the person, once (the app's toast). */
+  tell: (text: string) => void,
 ): WorkbenchHost {
   const log = (message: string, error: unknown): void => console.error(message, error);
   const storage = createDesktopStorage(
@@ -39,6 +41,6 @@ export function createDesktopHost(
     preview: createDesktopPreview(snapshot.preview, ipc, log),
     connection: createDesktopConnection(base.connection, ipc, log),
     launch: NO_LAUNCH,
-    daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log),
+    daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log, tell),
   };
 }

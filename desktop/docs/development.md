@@ -79,7 +79,7 @@ The CLI:
 ```sh
 cargo run -q -p pistudiodesktop-cli -- commands --filter settings
 cargo run -q -p pistudiodesktop-cli -- run --cmd settings.get
-cargo run -q -p pistudiodesktop-cli -- run --config-dir ./cfg --cmd 'settings.set {"key":"autoStartLocalDaemon","value":false}' --cmd settings.get
+cargo run -q -p pistudiodesktop-cli -- run --config-dir ./cfg --secret-store file --cmd 'settings.set {"key":"autoStartLocalDaemon","value":false}' --cmd settings.get
 ```
 
 `commands` lists the registry, one JSON object per line. `run` executes each `--cmd '<id> [json]'`
@@ -137,6 +137,19 @@ secret in the secret store, and `lastUsedId`; mode 0600, no secret in it) and `d
 cannot be read is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page
 shows the notice once. Point `--config-dir` at a scratch directory for tests and smoke runs.
 
+**Where the secrets go.** `--secret-store keychain|file` (the app and its CLI): without it the app
+takes the operating system's keychain when it answers within 2 s and accepts a throwaway item
+(written and deleted at launch), else `secrets.json` in this directory (mode 0600), and the page says
+so once (a notice) and on the Daemons screen. `file` never touches the keychain; `keychain` on a
+machine without one fails the launch with a message that names the option. **Every automated or
+live run passes `--secret-store file` with a scratch `--config-dir`**, so that nothing writes to a
+developer's keychain: the commands in this document do, and so does
+`apps/pistudiodesktop/scripts/platform-checks` (`SECRET_STORE_ARG`, checked by a unit test). The
+keychain's items are named by the directory as it is given (a hash of the path; the default
+directory is `default`), so the CLI sees the app's keychain secrets only when `--config-dir` names
+the app's directory the same way, and not at all for the app's default directory: use
+`--secret-store file` on both or neither.
+
 ### Pointing the app at a scratch CLI and home
 
 The local daemon is run through the `pi-studio` CLI. Set `cliPath` (`settings.set`, or the Daemons
@@ -152,7 +165,8 @@ daemon it started running: stop it with `pi-studio daemon stop` under the same `
 ## Without a display
 
 Running the window needs a display: `Xvfb :99 -screen 0 1280x800x24 &` and then
-`DISPLAY=:99 cargo run -p pistudiodesktop`. The snapshot tool and every test need none.
+`DISPLAY=:99 cargo run -p pistudiodesktop -- --secret-store file` (the option keeps the run's secrets
+out of your keychain; § Configuration directory). The snapshot tool and every test need none.
 
 The `pi-desktop-xvfb` Docker image (Xvfb, WebKitGTK and WebKitWebDriver; no `nc`) runs the built
 app with no display of your own. After `cargo build -p pistudiodesktop` (which needs
@@ -162,7 +176,7 @@ inside the container. Pick a scratch port other than 6767, which a daemon may us
 ```sh
 cat > /tmp/pi-smoke.sh <<'EOF'
 cd /work
-xvfb-run -a ./target/debug/pistudiodesktop --control 7979 --control-token-file /tmp/control.token >/tmp/app.log 2>&1 &
+xvfb-run -a ./target/debug/pistudiodesktop --control 7979 --control-token-file /tmp/control.token --secret-store file >/tmp/app.log 2>&1 &
 sleep 6
 TOKEN=$(tr -d '\r\n' < /tmp/control.token)
 exec 3<>/dev/tcp/127.0.0.1/7979
@@ -183,7 +197,7 @@ To drive the real webview on Linux without a display, run the binary under WebKi
 (`WebKitWebDriver`, Ubuntu package `webkitgtk-webdriver`) with `TAURI_WEBVIEW_AUTOMATION=true` in
 its environment, and open a session with the capabilities `{"browserName": "wry",
 "webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>", "args": ["--config-dir",
-"<scratch dir>"]}}`. Scripts, clicks and screenshots then go through the WebDriver protocol; from
+"<scratch dir>", "--secret-store=file"]}}`. Scripts, clicks and screenshots then go through the WebDriver protocol; from
 an async script, `window.__TAURI_INTERNALS__.invoke('boot')` shows what the page booted with.
 
 Three things the container does not give you by default:
@@ -271,6 +285,8 @@ docker run --rm -v "$PWD:/work:ro" -v /tmp/ipc-bench:/out pi-desktop-xvfb bash /
 - **B7** runs B1's echo (32-byte frames, one at a time, 5 warm-up trips not counted) on the same connection while B4's download (1 GiB as 32 KiB frames, `/mixed`) runs, until the download's closing message. The record has the trips, the mean, median, 90th and 99th percentile, the maximum and the 20 slowest round trips, and the download's own rate; both streams are checked (B6). It is reported only: one socket is shared, as in the app today. WebKit's timer steps by 1 ms, so the 99th percentile is quantised; the baseline finishes the download in a second or so, so its trip count is small (`trips`).
 - **B8** runs `/paced` at 1,000 frames a second of 4 KiB for the hidden period plus 2 s (30 s hidden at full scale, 2 s at least when scaled), twice per transport: `B8/hide` (`window.hide()` then `show()`) and `B8/minimise` (`minimize()` then `unminimize()`). Rust does the whole hold (`bench_window_hold`): a hidden page may run late or not at all, so it cannot be the one that shows the window again. The record has `lostFrames` (the stream's own count less the page's; B6 names each missing frame), `heldBytes` (Rust's most unacknowledged bytes, `null` for the baseline: the webview's own buffers cannot be read) against the window (8 MiB and a frame: more is a problem and fails the run), `framesDeliveredWhileHidden` and `framesBehindAtShow` (the page's deliveries against the stream's clock), `catchUpMs` (from the show until the page is within 100 frames of the stream), `window` (what the system said after each request, and the `visibilitychange` events the page saw: `systemHidIt`, `pageSawHidden`), `workerTimer`, `pageTimer` and `rustTick`. The two timers are chains of 500 ms timers, each armed when the last fired (as the app's reconnect timers are): the worker one is the source of `packages/workbench/src/host/browser-worker-timers.ts` (a test fails when `page/worker-timers.js` drifts from it), the page one is `setTimeout`; each reports `expectedFires` and `firedWhileHidden` (a stopped timer fires nothing) and `maxDelayMs`, the lateness of the fires that were due while the window was away (also when they fired after it came back, and for the timer still waiting at the end). `rustTick` is a 2 s tick on the Rust side (`src/tick.rs`) over the whole run: `maxGapMs` is its longest sleep and `maxDelayMs` how much later than 2 s that was; the wake detector of the app's connection resilience uses such a tick. The timers and the tick decide nothing here: the note reports them and the owner decides P7.
 - Under Xvfb a hidden window is not a real desktop's: with no window manager `minimize()` is accepted and does nothing (`window.afterHide.minimized` stays false, `pageSawHidden` false), and WebKitGTK keeps running a hidden page's timers and deliveries, so the page never falls behind and the window bound is not stressed (W1 is the test of the bound). The runners and a real machine are the evidence for P7. To minimise under a window manager in the container, derive an image (`FROM pi-desktop-xvfb:latest`, `RUN apt-get update && apt-get install -y --no-install-recommends openbox`) and start it before the benchmark: `xvfb-run -a bash -c 'openbox & sleep 1; exec ./target/release/ipc-bench "$@"' _ --out /out/results.json`.
+
+**On the macOS and Windows runners** (`.github/workflows/desktop-ipc-benchmark.yml`): builds `ipc-bench` in release mode on `macos-15` and `windows-latest` and runs it with `--runs` and `--scale` (no npm install, no WebDriver, no machine policy). Start it from Actions → Desktop IPC benchmark → Run workflow (inputs `runs`, default 3, and `scale`, default 1), or by a pull request that changes the workflow file (a quick run: 1 run, scale 0.1). A workflow file that exists only on a branch cannot be started by hand (`gh workflow run` answers 404), so the first run needs such a pull request or the file on `main`; pushing a branch and opening a pull request need the owner's word. It never runs on a push to `main`, and `release.yml` ignores `desktop/**` and `.github/workflows/desktop-*.yml`. Results: the job summary (runner CPU model, core count, OS, webview version, the user agent, a table of the summary rows and the PASS/FAIL comparison) and an artifact per platform, `ipc-benchmark-macos` and `ipc-benchmark-windows`, with `results.json` and `bench.log`. A job fails only when the application exits non-zero; the thresholds are read by a person.
 
 ## Platform checks on macOS and Windows runners
 

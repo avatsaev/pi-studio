@@ -7,6 +7,13 @@ import { parseControlPort } from "./control-client.mjs";
 import { Abort, waitFor } from "./wait.mjs";
 
 /**
+ * Every automated launch of the app passes this, so that no check writes to a person's keychain:
+ * secrets go to `secrets.json` in the scratch configuration directory. One `--flag=value` argument,
+ * because msedgedriver turns each `args` entry into a browser switch (see `windows.mjs`).
+ */
+export const SECRET_STORE_ARG = "--secret-store=file";
+
+/**
  * Start `command` with exactly `env` (nothing is inherited) and its standard output and error in
  * `logPath`. A launch that fails to start is an `exited` result with `error`, not a throw.
  */

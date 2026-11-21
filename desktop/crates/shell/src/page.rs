@@ -29,9 +29,11 @@ impl Default for AppInfo {
 ///
 /// ```text
 /// { app: { title, version, platform: "desktop", minDaemonVersion },
-///   daemons: { currentId, entries, local, settings },  the registry view: no password, no pairing link
+///   daemons: { currentId, entries, local, settings, secretStore },  the registry view: no password, no pairing link;
+///                                                     secretStore is "keychain" | "file" | "memory"
 ///   storage: { [key]: string },                       the global keys and the current entry's
-///   notices: [ { kind: "file_reset", file, keptAs } | { kind: "secrets_not_moved" } ],
+///   notices: [ { kind: "file_reset", file, keptAs: string | null } | { kind: "secrets_not_moved" }
+///            | { kind: "secret_store_fallback", reason: "unavailable" | "denied" | "failed" } ],
 ///   preview: "origin" | "inert" }                     whether a previewed document's scripts can run
 /// ```
 ///

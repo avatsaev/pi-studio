@@ -48,16 +48,22 @@ pub enum Notice {
         /// The removed entry's id.
         entry: String,
     },
+    /// The keychain could not be used at launch and no `--secret-store` was given, so the secrets
+    /// are kept in `secrets.json` (mode 0600). `reason` is the store's error code: `unavailable`
+    /// (no keychain, or no answer in time), `denied` (locked, or refused) or `failed`.
+    SecretStoreFallback { reason: String },
 }
 
 impl Notice {
-    /// `{ kind: "file_reset", file, keptAs }`, `{ kind: "secrets_not_moved" }` or
-    /// `{ kind: "secret_not_removed", entry }`.
+    /// `{ kind: "file_reset", file, keptAs }` (`keptAs` is `null` when the file could not be
+    /// renamed), `{ kind: "secrets_not_moved" }`, `{ kind: "secret_not_removed", entry }` or
+    /// `{ kind: "secret_store_fallback", reason }`.
     pub fn to_json(&self) -> Value {
         match self {
             Notice::FileReset { file, kept_as } => serde_json::json!({"kind": "file_reset", "file": file, "keptAs": kept_as}),
             Notice::SecretsNotMoved => serde_json::json!({"kind": "secrets_not_moved"}),
             Notice::SecretNotRemoved { entry } => serde_json::json!({"kind": "secret_not_removed", "entry": entry}),
+            Notice::SecretStoreFallback { reason } => serde_json::json!({"kind": "secret_store_fallback", "reason": reason}),
         }
     }
 }

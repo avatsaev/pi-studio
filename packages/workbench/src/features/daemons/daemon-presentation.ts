@@ -137,6 +137,18 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
   timeout: { message: "The daemon did not start in time." },
   bad_output: { message: "The pi-studio CLI printed something unexpected." },
   spawn_failed: { message: "The pi-studio CLI could not be run." },
+  secret_missing: {
+    message: "The saved password or pairing link for this daemon was not found.",
+    detail: "Edit the daemon and enter it again.",
+  },
+  secret_unavailable: {
+    message: "Pi Studio could not read its saved passwords.",
+    detail: "Check that your keychain is unlocked, then try again.",
+  },
+  secret_store_failed: {
+    message: "The password or pairing link could not be saved.",
+    detail: "Nothing was changed. Check that your keychain is unlocked, then try again.",
+  },
   unexpected: { message: "The daemon could not be opened." },
 };
 

@@ -117,6 +117,9 @@ describe("daemonErrorView", () => {
         "timeout",
         "bad_output",
         "spawn_failed",
+        "secret_missing",
+        "secret_unavailable",
+        "secret_store_failed",
       ].toSorted(),
     );
   });

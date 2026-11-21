@@ -1,7 +1,7 @@
 # Task 001 — Wake detection and the `connection_resume` event
 
 - **Sprint:** sprint-114-desktop-resume-signals
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

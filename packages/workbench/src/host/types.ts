@@ -73,7 +73,10 @@ export type DaemonErrorCode =
   | "not_healthy"
   | "timeout"
   | "bad_output"
-  | "spawn_failed";
+  | "spawn_failed"
+  | "secret_missing"
+  | "secret_unavailable"
+  | "secret_store_failed";
 
 /**
  * What a `HostDaemons` call rejects with: an `Error` whose `code` says why and whose message is the
