@@ -11,20 +11,21 @@ import { describe, expect, it } from "vitest";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 
-/** Forbidden token → the host member to use instead. */
+/** Forbidden token → what to use instead. */
 const FORBIDDEN: Readonly<Record<string, string>> = {
-  localStorage: "storage",
-  sessionStorage: "storage",
-  "navigator.clipboard": "clipboard",
-  "window.confirm": "dialogs.confirm",
-  "window.alert": "dialogs.alert",
-  "window.prompt": "dialogs.prompt",
-  "window.location": "launch",
-  "window.history": "launch.agentDeepLink.consume",
-  "window.open": "links.openExternal",
-  "import.meta.env": "app / pdf.assetBaseUrl",
-  "?worker": "pdf.createWorker",
-  "new WebSocket(": "connection.createTransport",
+  localStorage: "host.storage",
+  sessionStorage: "host.storage",
+  "navigator.clipboard": "host.clipboard",
+  "window.confirm": "host.dialogs.confirm",
+  "window.alert": "host.dialogs.alert",
+  "window.prompt": "the in-app dialogs (RenameSessionDialog); the host has no text prompt",
+  "dialogs.prompt": "the in-app dialogs (RenameSessionDialog); the host has no text prompt",
+  "window.location": "host.launch",
+  "window.history": "host.launch.agentDeepLink.consume",
+  "window.open": "host.links.openExternal",
+  "import.meta.env": "host.app / host.pdf.assetBaseUrl",
+  "?worker": "host.pdf.createWorker",
+  "new WebSocket(": "host.connection.createTransport",
 };
 
 function sourceFiles(dir: string): string[] {
@@ -47,7 +48,7 @@ function findHostViolations(files: readonly string[]): string[] {
     const code = stripComments(readFileSync(file, "utf8"));
     return Object.entries(FORBIDDEN)
       .filter(([token]) => code.includes(token))
-      .map(([token, member]) => `${relative(SRC, file)}: ${token} (use host.${member})`);
+      .map(([token, instead]) => `${relative(SRC, file)}: ${token} (use ${instead})`);
   });
 }
 

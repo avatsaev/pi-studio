@@ -284,6 +284,9 @@ kind, so persisted pane layouts (`file:<path>` identity) keep working with no mi
   dispatches `openFileTab`, so agent-produced reports become one-click previews for free.
 - [inline-image-rendering.md](inline-image-rendering.md) — `classifyImageSrc` consumes
   `detectViewerKind`; the registry refactor must not perturb it.
+- [desktop-native-host.md](desktop-native-host.md) — in the desktop app the preview is served
+  from the `pi-preview://` origin through the host's `preview` member (`origin` on Linux, `inert`
+  elsewhere); see `desktop/docs/architecture.md` § The webview boundary.
 - `packages/web-client/AGENTS.md` (molecule dispatch: `isMoleculeFile`, the separate `molecule` tab
   kind) — the other dispatch path (tab kind, not viewer kind); no dedicated `swe/features/` spec
   exists for it (predates this doc; see sprint-044's task files). HTML deliberately does **not**

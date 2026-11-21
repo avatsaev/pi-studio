@@ -116,8 +116,8 @@ provider. Mount `ToastViewport` and `Announcer` yourself (the default shell does
 | `useConnection()` | `{ status, serverInfo, error, connect(options), disconnect() }` |
 | `useShellLayout()` | `{ left, right }`, each `{ collapsed, width, toggle(), resize(delta) }` |
 | `useSettingsDialog()` | `{ open, openSettings(), closeSettings() }` |
-| `createBrowserHost(options?)` | The browser host (`options.app`, `options.pdf`) |
-| Types | `WorkbenchHost` and its member types (below), `WorkbenchProviderProps`, `SettingsDialogProps`, `WorkbenchConnection`, `SidebarLayout`, `ConnectOptions`, `BrowserHostOptions` |
+| `createBrowserHost(options?)` | The browser host (`options.app`, `options.pdf`, `options.saveTarget`) |
+| Types | `WorkbenchHost` and its member types (below), `WorkbenchProviderProps`, `SettingsDialogProps`, `WorkbenchConnection`, `SidebarLayout`, `ConnectOptions`, `BrowserHostOptions`, `SaveTarget` |
 
 Entries: `.` (the above), `./styles.css`, `./fonts.css`, `./vite` (Node, for `vite.config.ts`).
 
@@ -132,8 +132,8 @@ render; the first host wins (a later different one is ignored, with a developmen
 | `app` | `{ title, version, platform? }`: shown in the top bar; `platform` is sent as `hello.platform` (the desktop app passes `"desktop"`; a browser omits it) |
 | `storage` | `{ get(key): string \| null, set(key, value) }`. **Synchronous**: stores read it while initialising. If your storage is asynchronous, load it into memory before the first render and write behind. Never throws |
 | `clipboard.writeText(text)` | Promise; rejects on failure |
-| `dialogs.confirm/alert/prompt` | Promises. Dismissal resolves `false` / `null` |
-| `links.openExternal?(url)` | Optional. When present, every external link calls it instead of navigating |
+| `dialogs.confirm/alert` | Promises. Dismissal resolves `false` / nothing. Session rename is not a host dialog: the workbench draws its own |
+| `links.openExternal?(url)` | Optional. When present, every external link (login dialog, messages, Markdown files) calls it and the default navigation is suppressed; when absent the link opens in a new tab (`target="_blank"`, `rel="noreferrer"`) |
 | `launch.initialConnect()` | Read once at boot: `{ url?, password?, cwd?, connect } \| null`. `url` may be a pairing link |
 | `launch.agentDeepLink` | `{ current(), subscribe(listener), consume() }`: "open this agent" requests |
 | `connection.createTransport(target, { password })` | The `Transport` for one connect, or `undefined` for the SDK's WebSocket. `target` is `{ mode: "direct", url }` or `{ mode: "relay", url, daemonPublicKey }`. **A transport must deliver frames in wire order and binary frames as `ArrayBuffer`.** Throwing fails that connect with your message |
@@ -144,6 +144,18 @@ render; the first host wins (a later different one is ignored, with a developmen
 | `files.openForView(path)` | `{ url, mimeType?, fileName?, release() }` for viewers; `release` is called when the URL is unused |
 | `files.pickUploads?()` | Optional native picker, replacing the file input |
 | `pdf?` | Optional `{ createWorker(), assetBaseUrl }`. Without it PDFs show an error with Download |
+| `preview?` | Optional `{ kind: "origin", mount(html) → Promise<{ url, release() }> }`: the HTML viewer loads its frame from `url` instead of `srcdoc` (same sandbox; `release` when replaced or unmounted), or `{ kind: "inert" }`: `srcdoc` with a "Scripts are disabled" line. Absent: `srcdoc`, unchanged |
+| `daemons?` | Optional daemon registry (`HostDaemons`): `snapshot()` (entries without secrets, current id, local daemon state, the two local-daemon settings), `subscribe`, `add`/`update`/`remove`, `local.start/stop/restart/refresh`, `setSettings`, `resolveCurrent()`, `switchTo(id)`, `onManageRequest`. Rejections carry a `code` (`DaemonError`, a type only). Absent in a browser. Read by the switcher and the Daemons screen |
+| `app.minDaemonVersion?` | Optional oldest daemon version the shell expects; an older daemon still connects and gets a notice. Read by the connection bar |
+
+`createBrowserHost({ saveTarget })` lets a shell own where a saved file goes while keeping the
+browser host's download logic. `saveTarget(suggestedName)` returns a `SaveTarget`
+(`write(chunk)`, `finish()`, `discard()`, all promises) or `null` when the user cancelled (nothing
+happens). The file is then fetched in 8 MiB ranges: the first learns its size and modification time,
+later ones send them as `ifUnchanged`; each range's chunks go through `write`, awaited in order,
+before the next range is asked for, so memory stays bounded however slow the target is. `finish()`
+runs after the last range; on any failure `discard()` runs once and the original error is rethrown.
+Without `saveTarget`, "Download" builds a `Blob` and clicks an anchor.
 
 ## PDF viewing
 

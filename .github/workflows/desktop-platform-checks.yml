@@ -1,0 +1,153 @@
+name: Desktop platform checks
+
+# Builds the desktop client (`desktop/`) on GitHub's macOS and Windows runners and checks what a
+# machine can check there, so the manual run of `desktop/docs/platform-checks.md` keeps only what
+# needs a person. The runners have the webviews the Linux development machine does not:
+#
+#   macOS    WKWebView has no WebDriver: the app is started like the dock starts it and driven
+#            through its control socket and its files (native host, daemon registry, the CLI).
+#   Windows  WebView2 has msedgedriver, reached through tauri-driver: the page itself is driven.
+#
+#   a manual run (workflow_dispatch)   Actions -> Desktop platform checks -> Run workflow
+#   a pull request changing this file  how a change to this workflow is tested
+#
+# It never runs on a push to main, publishes nothing, and does not touch release.yml (which runs on
+# push to main only) or desktop-release.yml. The results are the job summary (which prints the
+# preview probe, the configuration directory, the start time of the daemon and so on) and an
+# artifact per job with the screenshots and the logs of every app and driver the run started.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-platform-checks.yml"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run.
+concurrency:
+  group: desktop-platform-checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    # Also on Windows (Git Bash): PowerShell mangles the `--` in `npm run bundle -- <args>`.
+    shell: bash
+
+jobs:
+  macos:
+    name: macOS (control socket)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # The whole workspace, not only the desktop frontend: the daemon the checks start is this
+      # repository's, with its native add-ons.
+      - name: Dependencies
+        run: npm ci
+      # The `pi-studio` CLI the app finds and runs (packages/cli/dist/cli.js); `tsc -b` also builds
+      # the protocol, the client and the server it needs.
+      - name: Build the CLI
+        run: npm run build:cli
+      # A debug build, no installer: `tauri build` builds the frontend, then compiles the app with
+      # the debug profile and the frontend embedded, as `npm run bundle` does for a release.
+      - name: Build the app
+        working-directory: desktop/apps/pistudiodesktop
+        run: npm run bundle -- --debug --no-bundle
+      - name: Platform checks
+        run: |
+          node desktop/apps/pistudiodesktop/scripts/platform-checks.mjs macos \
+            --app desktop/target/debug/pistudiodesktop \
+            --cli-entry packages/cli/dist/cli.js \
+            --fake-cli desktop/crates/shell/tests/fixtures/fake-pi-studio.sh \
+            --out platform-checks-out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: platform-checks-macos
+          path: platform-checks-out
+          if-no-files-found: warn
+
+  windows:
+    name: Windows (WebDriver)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Only the desktop frontend's dependencies: the daemon's (node-pty and other native add-ons)
+      # do not all build on Windows, and the Windows checks need no daemon.
+      - name: Frontend dependencies
+        run: npm ci --workspace pistudiodesktop
+      - name: Build the app
+        working-directory: desktop/apps/pistudiodesktop
+        run: npm run bundle -- --debug --no-bundle
+      # The WebDriver stack, from Tauri's WebDriver documentation (v2.tauri.app/develop/tests/webdriver):
+      # `tauri-driver` starts the native driver, which starts the app under WebView2.
+      # Worked on the first runs that got this far (2026-11-20, PR #59): tauri-driver 2.1.0 with the
+      # msedgedriver that msedgedriver-tool downloads for the runner's WebView2 (157.0.4341.46), plus
+      # the machine policy step below. Bump either knowingly.
+      #  - msedgedriver must match the WebView2 runtime of the runner or the session hangs while
+      #    connecting. msedgedriver-tool downloads the matching one into the current directory.
+      #    It is installed from its repository's default branch (the documented way; it has no
+      #    release to pin): pin `--rev` to the commit that worked if it ever breaks.
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --version 2.1.0 --locked
+      - name: Install msedgedriver (matching the runner's WebView2)
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          mkdir -p "$RUNNER_TEMP/msedgedriver"
+          cd "$RUNNER_TEMP/msedgedriver"
+          "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          ls -la
+          echo "MSEDGEDRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
+      # WebView2 150 and later ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS when the app runs
+      # elevated, and a GitHub runner runs everything elevated: msedgedriver's
+      # --remote-debugging-port never reached the browser and no session could be made
+      # ("DevToolsActivePort file doesn't exist", runs of 2026-11-20 on runtime 157). The machine
+      # policy is the channel Microsoft names for an elevated host
+      # (MicrosoftEdge/WebView2Feedback#5645, tauri-apps/wry#1782). Port 0: the browser picks one
+      # and writes it to the file msedgedriver reads. Not needed on a machine where the app does
+      # not run elevated.
+      - name: Let WebView2 open its debugging port on an elevated runner
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'pistudiodesktop.exe' -Value '--remote-debugging-port=0' -PropertyType String -Force | Out-Null
+          Get-ItemProperty -Path $key | Format-List
+      - name: Platform checks
+        run: |
+          node desktop/apps/pistudiodesktop/scripts/platform-checks.mjs windows \
+            --app "desktop/target/debug/pistudiodesktop.exe" \
+            --native-driver "$MSEDGEDRIVER" \
+            --out platform-checks-out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: platform-checks-windows
+          path: platform-checks-out
+          if-no-files-found: warn

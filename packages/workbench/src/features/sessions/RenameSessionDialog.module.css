@@ -1,0 +1,5 @@
+/* `Dialog`'s own `.body` carries no padding — every dialog body supplies its own
+   (`ForkDialog.module.css` convention). */
+.content {
+  padding: var(--pi-spacing-14);
+}

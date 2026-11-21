@@ -15,7 +15,8 @@
         "height": 800,
         "minWidth": 480,
         "minHeight": 320,
-        "center": true
+        "center": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -27,7 +28,8 @@
         "img-src": ["'self'", "data:", "blob:"],
         "media-src": ["'self'", "blob:"],
         "font-src": ["'self'", "data:"],
-        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws:", "wss:", "blob:"]
+        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws:", "wss:", "blob:"],
+        "frame-src": ["pi-preview:"]
       }
     }
   },

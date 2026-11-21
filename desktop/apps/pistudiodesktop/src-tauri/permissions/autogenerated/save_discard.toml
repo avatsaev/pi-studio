@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-discard"
+description = "Enables the save_discard command without any pre-configured scope."
+commands.allow = ["save_discard"]
+
+[[permission]]
+identifier = "deny-save-discard"
+description = "Denies the save_discard command without any pre-configured scope."
+commands.deny = ["save_discard"]

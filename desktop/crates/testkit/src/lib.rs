@@ -12,10 +12,11 @@ pub fn adversarial_params() -> Vec<Value> {
     let long = "x".repeat(1 << 20);
     vec![
         json!({}),
-        json!({"id": -1, "text": 7, "done": "yes", "path": 3, "title": [], "filter": {}}),
-        json!({"id": u64::MAX, "text": "", "done": null, "path": "", "title": ""}),
-        json!({"id": 1e300, "text": long, "path": "/definitely/not/a/dir/\u{0}/file", "title": long}),
-        json!({"id": "1", "text": "\u{202e}\u{0}\n", "path": "..", "filter": "\\"}),
-        json!({"id": [1], "text": {"a": 1}, "done": 1, "unknown": true}),
+        json!({"key": -1, "value": "yes", "filter": {}}),
+        json!({"key": "autoStartLocalDaemon", "value": 7, "filter": []}),
+        json!({"key": "cliPath", "value": long, "filter": long}),
+        json!({"key": "", "value": null, "filter": "\\"}),
+        json!({"key": [1], "value": {"a": 1}, "unknown": true}),
+        json!({"key": "\u{202e}\u{0}\n", "value": 1e300}),
     ]
 }

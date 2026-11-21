@@ -30,7 +30,8 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
 
 - `types.ts` — `WorkbenchHost`. Members: `app` (`{title, version, platform?}`, shown in the connection
   bar; `platform` is passed to the SDK as `hello.platform`), `storage` (ui-library's **synchronous** `KeyValueStore`), `clipboard.writeText` (rejects on
-  failure), `dialogs.confirm/alert/prompt` (promises; dismissal → `false`/`null`),
+  failure), `dialogs.confirm/alert` (promises; dismissal → `false`; no host provides a text prompt:
+  session rename is the workbench's own `RenameSessionDialog`),
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`
   (`createTransport(target, {password})` → `Transport | undefined`, called once per `connect()`;
@@ -39,7 +40,15 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   optional `pickUploads()`; `UploadSource` = `{name, size?}`, a `File` satisfies it) and the
   optional `pdf` (`createWorker()`, `assetBaseUrl`; absent → `PdfUnavailableError` → the PDF
   viewer's error state). The browser host takes `pdf` as a `createBrowserHost` option because only
-  the application bundle can build the worker.
+  the application bundle can build the worker. Optional `preview` (sprint-105, `HostPreview`):
+  `{kind:"origin", mount(html) → {url, release()}}` makes `HtmlViewer` load its frame from `url`
+  (same sandbox tokens; mounts only a settled document; `release` on supersede and unmount; a
+  rejected mount shows the error state; bookkeeping in the pure `features/files/preview-mounts.ts`),
+  `{kind:"inert"}` keeps `srcdoc` with a "Scripts are disabled" line; absent = unchanged.
+  Optional `daemons` (sprint-109, `HostDaemons`: the desktop daemon registry — snapshot without
+  secrets, local daemon actions, `resolveCurrent`, `switchTo`) and `app.minDaemonVersion`; read by
+  the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
+  pins the runtime exports): a host rejects with an `Error` carrying `code`.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
@@ -48,7 +57,11 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   Every viewer, `lib/inline-image-cache.ts` and every "Download" action (`features/files/
   SaveFileButton.tsx`, the explorer menu, the PDF toolbar) go through it; the explorer's upload
   flow is `features/files/upload-sources.ts`. Only in-memory *byte reads* (HTML preview assets)
-  still call `FileTransferClient.download` directly.
+  still call `FileTransferClient.download` directly. With `createBrowserHost({ saveTarget })`
+  (sprint-104), save goes through `saveIntoTarget` instead: 8 MiB ranges via `downloadTo`
+  (`ifUnchanged` after the first), each range's chunks awaited through `SaveTarget.write` before
+  the next range is requested (the SDK sink is synchronous, so ranges are the only backpressure),
+  `finish` after the last, `discard` once on any failure; a `null` target is a silent cancel.
 - `browser-connection.ts` — the browser `connection`: relay transport for a relay pairing link,
   `pi-studio.bearer.<pw>` subprotocol socket with a password, else `undefined`; `timers` from
   `browser-worker-timers.ts` (worker-backed, `setTimeout` fallback); `onResume` = `visibilitychange`
@@ -65,7 +78,7 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   browser host), `onHostInstalled` (for module-level stores that read storage at module load),
   `resetHostForTests`.
 - `browser-host.ts` — `createBrowserHost({ app })`: `localStorageKvStore`, `copyText` from
-  `browser-clipboard.ts` (Clipboard API with the `execCommand` fallback), `window.confirm/alert/prompt`
+  `browser-clipboard.ts` (Clipboard API with the `execCommand` fallback), `window.confirm/alert`
   wrapped in promises, no `openExternal`. Default app `{title: "Pi-Studio", version: ""}` (the bar
   hides an empty version).
 - `external-link.tsx` — `ExternalAnchor` (an `<a target="_blank">` whose click goes to
@@ -73,8 +86,12 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `routeExternalLinkClick`.
 
 Dialog-gated actions call `await getHost().dialogs.*` in their (async) handlers; message texts are
-unchanged. The sidebar's rename and workspace-delete flows live in
-`features/sessions/session-actions.ts` so they are testable outside React. Tests use
+unchanged. Session rename is not a host dialog: the session menu opens
+`features/sessions/RenameSessionDialog.tsx` through `stores/session-rename-store.ts`, and the pure
+`features/sessions/rename-title.ts#resolveRenameTitle` decides the title (trimmed; `null` for blank
+or unchanged). The rename and workspace-delete flows live in `features/sessions/session-actions.ts`
+(`applySessionRename`, `deleteWorkspaceConversations`) so they are testable outside React.
+`host-guard.test.ts` forbids `window.prompt` and `dialogs.prompt`. Tests use
 `test/test-host.ts`'s `createTestHost` (in-memory storage, scripted dialog answers, recorded calls).
 
 Rules: non-React code reads the host with `getHost()` **at call time**, never captures it at module
@@ -111,7 +128,8 @@ src/
                        Copied verbatim into `dist/` by the build (`./fonts.css` export).
   features/ stores/ hooks/ timeline/ lib/ viewer-plugins/
                        The application (moved from web-client, layout unchanged).
-  test/                Shared test helpers (`reset-stores.ts`, `test-host.ts`); excluded from the build.
+  test/                Shared test helpers (`reset-stores.ts`, `test-host.ts`, `test-daemons.ts` — an
+                       in-memory `HostDaemons` with the registry's rules, sprint-109); excluded from the build.
   design-tokens.test.ts  Token guard over this package's sources.
   css-modules.d.ts     Ambient `*.module.css` / `*.css` typings.
 vite/index.ts          `pdfjsAssetsPlugin()` — Node-side Vite plugin serving/emitting pdf.js data
@@ -182,7 +200,9 @@ src/
    `components/primitives/` — the design-system React components, incl. ToastViewport and
    Announcer, the app's one § 08/§ 11 `aria-live` region, see § Invariants "Announcements";
    the primitive list is in `packages/ui-library/AGENTS.md`)
-  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; also handles
+  lib/connection/          connection-store (Zustand + DaemonClient/PiStudioClient; keeps
+                           `errorReason` — the `RelayConnectError` reason, via connect-failure.ts —
+                           beside `error`, sprint-110; also handles
                            relay-transport pairing-link connections; constructs
                            ReconnectionManager with createWorkerTimers()'s injected timers —
                            sprint-050), resolve-connect-target (pure routing: plain address vs.
@@ -427,7 +447,60 @@ src/
                            `ModelProvidersPanel` and `Timeline`'s onboarding nudge so a login/logout
                            in either surface invalidates one cache, never two fetch paths)
   features/
-    connection/            ConnectionBar (the 42px top row: brand/version, status pill, url+password
+    daemons/               (sprint-110, desktop registry; nothing renders without `host.daemons`). Invariants: the registry is
+                            `host.daemons` and this feature holds no copy of it; a password or pairing link is never
+                            read back (the edit form shows a "Saved" marker and an empty field); one
+                            `connectCurrent` runs at a time (boot, Retry and the lifecycle's connect share
+                            it); a local daemon that comes up from a start while the window is connected to
+                            nothing is connected to (not after a restart, which keeps the connection, and
+                            not for one started from a terminal); the workbench never starts a daemon
+                            itself
+                            daemon-presentation.ts (pure: `localStateView` — label/tone/actions per
+                            local state; `daemonErrorView` — message/detail/command/isError per code,
+                            `DAEMON_ERROR_CODES`, install/update commands) (+ test), connect-current.ts
+                            (pure `connectCurrent`: `resolveCurrent()` → connect, or the rejection
+                            code; shared by boot, Retry and "Reconnect now") (+ test),
+                            daemons-store.ts (`useDaemonsStore`: screen open, error, links marked
+                            invalid; memory only) (+ test), use-daemons.ts (`useDaemons()`: the
+                            registry snapshot, fresh through `subscribe`; `null` without a registry).
+                            Boot: with `host.daemons`, `useConnectionBoot` → `bootConnection` calls
+                            `connectCurrent()` once; the secret never reaches the UI store's
+                            host/password fields; a rejection dials nothing and opens the screen.
+                            DaemonsScreen.tsx (modal, mounted once in WorkspaceShell; open state and
+                            banner from `useDaemonsStore`; `local.refresh()` once per opening),
+                            daemons-screen-view.ts (pure: rows and their actions, the local row's
+                            state/actions/notice, `bannerView`, CLI-path field rules) (+ test),
+                            daemons-screen-actions.ts (host calls → failure code or `null`: open,
+                            local actions, remove after `dialogs.confirm`, settings) (+ test),
+                            DaemonForm.tsx (add/edit, swapped in for the list; values in component
+                            state only, secrets in `type="password"` fields and never pre-filled;
+                            "Reconnect now" after a saved address/password/link change on the current
+                            entry), daemon-form.ts (pure: fields per kind, `buildNewDaemon` /
+                            `buildPatch` — only changed fields, typed password beats Clear —
+                            `refusalErrors` code → field, `needsReconnect`) (+ test),
+                            daemon-form-actions.ts (`submitAdd`/`submitEdit`, never throw),
+                            daemon-lifecycle.ts (pure `lifecycleReactions(prev, next)`: leave —
+                            manual disconnect + open the screen — when the current local entry goes
+                            `stopping` or the current entry is removed; mark a relay entry "pairing
+                            link no longer valid" on `wrong_key`, clear it on connect or a saved new
+                            link; `local.refresh()` once per dropped local connection; a restart
+                            changes nothing; `watchDaemonLifecycle` applies it and opens the screen on
+                            `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
+                            WorkspaceShell). Stop on the current local entry while connected asks
+                            first (`stopNeedsConfirm`); the workbench never starts a daemon by itself
+    connection/            With `host.daemons`, ConnectionBar draws DaemonSwitcher.tsx instead of the
+                            url/password fields and Connect: the pill is a menu of entries + "Manage
+                            daemons…"; picking another entry calls `switchTo` (page reloads), the
+                            current one while down and Retry call `connectCurrent()`;
+                            daemon-switcher-presentation.ts (pure `daemonSwitcherView`/`daemonChoice`)
+                            (+ test). Without a registry the bar is unchanged.
+                            outdated-daemon.ts (pure `parseVersion`/`outdatedDaemonNotice`: numeric
+                            semver compare; unparsable = absent) + use-outdated-daemon-notice.ts
+                            (mounted in WorkspaceShell: one toast per established connection — `open`
+                            + `serverInfo` — when `app.minDaemonVersion` is set and the daemon is older
+                            or silent; informational only, features stay gated by `server_info.features`;
+                            a reconnect reuses the first handshake's `serverInfo`) (+ tests)
+                            ConnectionBar (the 42px top row: brand/version, status pill, url+password
                             fields, one primary connect/disconnect action, the two panel toggles —
                             design spec § 08; replaced Toolbar + ConnectionStatus),
                             connection-presentation.ts (+ test — `connectionBarView`/
@@ -786,7 +859,8 @@ src/
                             iframe preview for `.html`/`.htm`/`.xhtml`; see AGENTS.md § Invariants
                             "HTML preview sandbox"), html-sandbox.ts (`assembleHtmlPreview` +
                             `HTML_SANDBOX_TOKENS`/`HTML_PREVIEW_BLOCKING_CSP` — pure, no React,
-                            see the same invariant) (+ test), html-assets.ts (sprint-064 — pure
+                            see the same invariant) (+ test), preview-mounts.ts (sprint-105 — pure
+                            `host.preview` mount/release bookkeeping) (+ test), html-assets.ts (sprint-064 — pure
                             local-asset-inlining core: `extractLocalAssetRefs`/`confineAssetRef`/
                             `confinementRoot`/`rewriteHtmlAssetRefs`/`extractCssUrlRefs`/
                             `rewriteCssUrls`/`dataUri`/`mimeForAssetPath`/`ASSET_LIMITS`/
@@ -1880,8 +1954,13 @@ Infinity`, permanent leak). Do not migrate this cache onto Query — re-implemen
   fallback, since a non-file `href` may be a genuinely working link) — a fragment-only href
   (`#section`) is `external` too, so in-page anchors are never intercepted.
   **Render layer:** `timeline/FileLink.tsx` is `markdown.tsx`'s `a` node override, threaded the
-  same `assetBase`/`owningPaneId`/`workspaceCwd` props as the `img` override. `external` renders a
-  plain, unmodified `<a>`; `local(path)` renders an actionable, draggable one.
+  same `assetBase`/`owningPaneId`/`workspaceCwd` props as the `img` override. `external` is split
+  by `timeline/external-href.ts#classifyExternalHref` (sprint-104): an empty href (the markdown
+  renderer blanks `javascript:`, `file:` and other unsafe URLs to `""`) renders the label as plain
+  text, because `<a href="">` would reload the app; an in-page href (`#…`) renders a plain,
+  unmodified `<a>`; anything else renders through `ExternalAnchor` (host `links.openExternal` when
+  present, else `target="_blank" rel="noreferrer"`), so a web link never replaces the app.
+  `local(path)` renders an actionable, draggable one.
   **Converged click-to-open + pane targeting:** both `FileLink` and `InlineImage` dispatch through
   `openFileTab` (`features/files/open-file-tab.ts`, the same primitive the Files tree and its
   context menu use) with arguments from one shared pure function,

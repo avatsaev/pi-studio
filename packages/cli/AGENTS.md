@@ -599,6 +599,17 @@ branches to `createRelayTransport` when it carries a relay offer).
 
 ---
 
+## Desktop app contract
+
+The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
+
+- `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`) add `error` (string) and exit 1.
+- `--json daemon stop`: `{ stopped: boolean }`.
+- `--version`: one line, a semantic version, nothing else.
+
+The app reads the last non-empty line of standard output as JSON **whatever the exit code** (a down daemon or a failed start exits 1 and the line still says why), within a limit per command (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s). It discards `pairingUrl`. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply). Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too (`desktop/docs/architecture.md` § The registry and the local daemon).
+
 ## Testing
 
 ```bash

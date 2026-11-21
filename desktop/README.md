@@ -4,10 +4,15 @@ Pi Studio Desktop is the native client for a Pi-Studio daemon: a [Tauri](https:/
 whose webview runs the workbench (`@av-pi-studio/workbench`, the same UI as the browser client),
 and a Rust side for what a browser does badly: sockets, files on disk, secrets and OS integration.
 
-Today the window draws the workbench and connects to a daemon with the webview's own WebSocket.
-The Rust crates still hold the starter sample (a checklist engine with undo, a file format, menus
-and a control channel), which the window no longer draws; the CLI and the control socket still
-reach it. Replacing it, and moving the sockets into Rust, comes next.
+The window draws the workbench with a desktop host: settings, per-daemon layouts, dialogs, links,
+saving files and the HTML preview go through Rust, and a daemon registry (this machine, a direct
+address, a relay pairing link) opens on the daemon used last and starts this machine's daemon
+through the installed `pi-studio` CLI. The webview still opens the WebSocket to the daemon itself;
+sockets, large-file transfer and secrets in the OS keychain are later milestones. Built and
+checked on Linux; on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
+Behind the window, the Rust crates hold an engine with the registry, the settings and the stored
+workbench state, a command registry (every action is a command), generated menus and a control
+channel; the page, the CLI and the control socket reach it.
 
 ## Build and run
 
@@ -16,7 +21,7 @@ Prerequisites are listed in [docs/development.md](docs/development.md).
 ```sh
 (cd .. && npm ci)                       # once, at the repository root: the frontend is an npm workspace of it
 cargo xtask ci                          # the gate: fmt, frontend, clippy, layering, tests, command fuzz, doctests, wasm check
-cargo run -p pistudiodesktop                      # the window: type a daemon address (127.0.0.1:6767) and connect
+cargo run -p pistudiodesktop                      # the window: opens on the local daemon (started through the CLI if needed)
 cargo run -q -p pistudiodesktop-cli -- commands   # every command the app has, as JSON lines
 ```
 
@@ -27,14 +32,13 @@ with hot reload. `npm run bundle` builds installers.
 
 | Path | What |
 |---|---|
-| `crates/doc` | L1: the model, pure data |
-| `crates/ops` | L2: history (undo and redo over snapshots) |
-| `crates/format` | L3: the native file format |
-| `crates/engine` | L5: `Session` and the command registry |
-| `crates/shell` | L6: UI state, the generated menu bar and the control protocol, with no UI toolkit in it |
+| `crates/model` | L1: the settings, the daemon registry and one entry's stored state, pure data |
+| `crates/store` | L3: JSON files, read safely and written atomically |
+| `crates/engine` | L5: `Session`, the command registry, the registry, the settings and the stored workbench keys |
+| `crates/shell` | L6: UI state, the generated menu bar (with the Daemons menu), the control protocol, the page's commands and the local-daemon supervisor, with no UI toolkit in it |
 | `crates/testkit` | Test helpers |
 | `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
-| `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, file dialogs, the control server |
+| `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, dialogs, the control server |
 | `apps/pistudiodesktop-cli` | The headless CLI |
 | `xtask` | `cargo xtask layers \| web \| wasm \| test \| ci` |
 

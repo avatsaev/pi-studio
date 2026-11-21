@@ -48,5 +48,5 @@ export default defineConfig({
     // The files are embedded in the binary and read from memory: a large chunk costs no download.
     chunkSizeWarningLimit: 8000,
   },
-  test: { include: ["src/**/*.test.ts"] },
+  test: { include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"] },
 });

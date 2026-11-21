@@ -10,6 +10,121 @@ export interface AppIdentity {
    * Tauri app). Omit in a plain browser. Informational: nothing branches on it.
    */
   platform?: string;
+  /**
+   * The oldest daemon version this app expects. A connected daemon below it (or reporting none)
+   * gets a one-time notice. Set by the desktop host; a browser host omits it.
+   */
+  minDaemonVersion?: string;
+}
+
+/** A registry entry without its secrets (`password`, `pairingLink`). */
+export interface DaemonEntryView {
+  id: string;
+  kind: "local" | "direct" | "relay";
+  name: string;
+  /** `direct` entries only, as typed. */
+  address?: string;
+  hasPassword: boolean;
+}
+
+/** The local daemon's state, as the host last probed or drove it. */
+export type LocalDaemonState =
+  /** Until the first probe after launch has finished. */
+  | { state: "checking" }
+  /** Windows: no local daemon. */
+  | { state: "unsupported" }
+  /** No CLI found. Carries the configured path when one was set and is not an executable file. */
+  | { state: "cli_missing"; path?: string }
+  /** A CLI too old for `--json daemon start`. */
+  | { state: "cli_outdated"; version: string }
+  | { state: "stopped" }
+  | { state: "starting" }
+  | { state: "stopping" }
+  | { state: "running"; host: string; port: number }
+  | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
+
+export type NewDaemon =
+  | { kind: "direct"; name: string; address: string; password?: string }
+  | { kind: "relay"; name: string; pairingLink: string };
+
+/** Fields to change; an absent field is unchanged. `password: null` clears it. */
+export interface DaemonPatch {
+  name?: string;
+  address?: string;
+  password?: string | null;
+  pairingLink?: string;
+}
+
+export type DaemonErrorCode =
+  | "invalid_name"
+  | "name_taken"
+  | "invalid_address"
+  | "invalid_link"
+  | "too_many"
+  | "not_found"
+  | "wrong_kind"
+  | "local_not_removable"
+  | "unsupported"
+  | "cli_missing"
+  | "cli_outdated"
+  | "busy"
+  | "no_current"
+  | "local_stopped"
+  | "not_healthy"
+  | "timeout"
+  | "bad_output"
+  | "spawn_failed";
+
+/**
+ * What a `HostDaemons` call rejects with: an `Error` whose `code` says why and whose message is the
+ * code. An interface, so the package exports no runtime value for it; narrow with `"code" in e`.
+ */
+export interface DaemonError extends Error {
+  readonly code: DaemonErrorCode;
+}
+
+export interface DaemonSettings {
+  /** Opening the local entry starts its daemon when it is stopped. */
+  autoStartLocalDaemon: boolean;
+  /** An explicit path of the `pi-studio` executable; `null` means "find it". */
+  cliPath: string | null;
+}
+
+/**
+ * Optional. The daemon registry of a host that owns one (the desktop app). Absent: the workbench
+ * keeps its address and password fields.
+ */
+export interface HostDaemons {
+  /** Synchronous: the host keeps it in memory. Never contains a password or a pairing link. */
+  snapshot(): {
+    currentId: string | null;
+    entries: DaemonEntryView[];
+    local: LocalDaemonState;
+    settings: DaemonSettings;
+  };
+  /** Fires after any change to the registry, the settings or the local daemon's state. */
+  subscribe(listener: () => void): () => void;
+  /**
+   * What to dial for the current entry; starts the local daemon when it is stopped and
+   * `autoStartLocalDaemon` is on. Rejects with a `DaemonError`.
+   */
+  resolveCurrent(): Promise<ConnectIntent>;
+  add(input: NewDaemon): Promise<DaemonEntryView>;
+  update(id: string, patch: DaemonPatch): Promise<DaemonEntryView>;
+  /** Rejects `local_not_removable` for the local entry. */
+  remove(id: string): Promise<void>;
+  /** Opens another entry. The page is reloaded; the promise does not resolve on success. */
+  switchTo(id: string): Promise<void>;
+  setSettings(patch: Partial<DaemonSettings>): Promise<void>;
+  /** Each resolves once the action is accepted; the outcome arrives as a state change. */
+  local: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+    restart(): Promise<void>;
+    refresh(): Promise<void>;
+  };
+  /** Fires when the native menu asks for the Daemons screen. Returns the unsubscribe. */
+  onManageRequest(listener: () => void): () => void;
 }
 
 /** Blocking questions to the user. Each resolves when the user answers. */
@@ -17,8 +132,6 @@ export interface HostDialogs {
   /** Resolves `false` on dismissal. */
   confirm(message: string): Promise<boolean>;
   alert(message: string): Promise<void>;
-  /** Resolves `null` on dismissal. */
-  prompt(message: string, initial?: string): Promise<string | null>;
 }
 
 export interface HostClipboard {
@@ -122,6 +235,17 @@ export interface UploadOptions {
   onProgress?(sent: number, total?: number): void;
 }
 
+/**
+ * Where a saved daemon file goes when the shell supplies the destination. The workbench calls
+ * `write` for each chunk in file order and awaits it, then `finish` once; on any failure it calls
+ * `discard` once instead (never `finish`) and rejects with the original error.
+ */
+export interface SaveTarget {
+  write(chunk: Uint8Array): Promise<void>;
+  finish(): Promise<void>;
+  discard(): Promise<void>;
+}
+
 export interface HostFiles {
   /**
    * Upload `source` to `<dir>/<source.name>` on the daemon. Resolves only once the daemon has
@@ -150,6 +274,17 @@ export interface HostPdf {
 }
 
 /**
+ * Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled
+ * document to `mount` and loads the frame from the returned `url` (same sandbox tokens) instead
+ * of `srcdoc`; it calls `release` once a newer document replaces it and when the viewer unmounts.
+ * A `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this
+ * host; the viewer keeps `srcdoc` and says so.
+ */
+export type HostPreview =
+  | { kind: "origin"; mount(html: string): Promise<{ url: string; release(): void }> }
+  | { kind: "inert" };
+
+/**
  * The one object an embedding shell supplies to the workbench for everything browser-bound
  * (`swe/architecture/workbench-host-adapter.md`). `web-client` passes `createBrowserHost(...)`; a
  * desktop shell passes its own implementation. Members are added as the call sites move behind it.
@@ -173,4 +308,13 @@ export interface WorkbenchHost {
    * its Download action.
    */
   pdf?: HostPdf;
+  /**
+   * Optional. Where the HTML viewer loads its document from. Absent: the `srcdoc` frame, unchanged.
+   */
+  preview?: HostPreview;
+  /**
+   * Optional. The daemon registry. Absent: the connection bar's address and password fields,
+   * unchanged. Consumed from sprint-110.
+   */
+  daemons?: HostDaemons;
 }

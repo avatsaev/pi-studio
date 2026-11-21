@@ -13,6 +13,10 @@
  * `parsePairingUrl` and routes through the relay transport automatically; the password field is
  * ignored in that case (the pairing link's key is itself the credential). The 220px field can't
  * show that as placeholder text, so it lives in the field's `title` tooltip.
+ *
+ * When the host has a daemon registry (`host.daemons`, the desktop app) the pill becomes the daemon
+ * switcher (`DaemonSwitcher.tsx`) and the url/password fields and the Connect button are not drawn;
+ * Disconnect and Retry stay. State shape: `daemon-switcher-presentation.ts`.
  */
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -32,6 +36,10 @@ import {
   SETTINGS_CATEGORIES,
 } from "../settings/settings-categories.js";
 import { useUiStore } from "../../stores/ui-store.js";
+import { useDaemonsStore } from "../daemons/daemons-store.js";
+import { useDaemons } from "../daemons/use-daemons.js";
+import { DaemonSwitcher } from "./DaemonSwitcher.js";
+import { daemonSwitcherView } from "./daemon-switcher-presentation.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
 import styles from "./ConnectionBar.module.css";
 
@@ -98,6 +106,14 @@ export function ConnectionBar() {
 
   const view = connectionBarView({ status, error, url: host });
   const dot = connectionDot(view.kind);
+  // A host with a registry replaces the address/password fields and the Connect button by the
+  // daemon switcher; without one the bar is exactly the fields-and-pill bar.
+  const daemons = useDaemons();
+  const invalidLinks = useDaemonsStore((s) => s.invalidLinks);
+  const switcher = daemons
+    ? daemonSwitcherView({ snapshot: daemons, status, error, invalidLinks })
+    : null;
+  const action = switcher ? switcher.action : view.action;
 
   // Esc reverts a field to its last committed value — the pair last handed to `connect()`, seeded
   // with what was restored into the store so Esc before any attempt still has something to go to.
@@ -113,6 +129,11 @@ export function ConnectionBar() {
   }
 
   function onAction() {
+    if (switcher) {
+      if (switcher.action?.intent === "retry") void useDaemonsStore.getState().connectCurrent();
+      else disconnect();
+      return;
+    }
     if (view.kind === "connected" || view.kind === "closing") {
       disconnect();
       return;
@@ -146,34 +167,38 @@ export function ConnectionBar() {
         {app.version && <span className={styles.version}>v{app.version}</span>}
       </span>
 
-      <span
-        className={clsx(styles.statusPill, view.kind === "error" && styles.statusPillError)}
-        title={view.title}
-      >
-        {dot ? (
-          <StatusDot {...dot} className={styles.statusDot} />
-        ) : (
-          <Spinner
-            size={SPINNER_SIZE}
-            color="var(--pi-color-statusWarning)"
-            className={styles.statusSpinner}
-            aria-label="Connecting"
-          />
-        )}
-        <span className={styles.statusText}>
-          {view.hostLabel && <span className={styles.statusHost}>{view.hostLabel}</span>}
-          {view.hostLabel && (
-            <span className={styles.statusSep} aria-hidden>
-              ·
-            </span>
+      {switcher ? (
+        <DaemonSwitcher view={switcher} currentId={daemons?.currentId ?? null} status={status} />
+      ) : (
+        <span
+          className={clsx(styles.statusPill, view.kind === "error" && styles.statusPillError)}
+          title={view.title}
+        >
+          {dot ? (
+            <StatusDot {...dot} className={styles.statusDot} />
+          ) : (
+            <Spinner
+              size={SPINNER_SIZE}
+              color="var(--pi-color-statusWarning)"
+              className={styles.statusSpinner}
+              aria-label="Connecting"
+            />
           )}
-          <span className={styles.statusLabel} aria-live="polite">
-            {view.statusLabel}
+          <span className={styles.statusText}>
+            {view.hostLabel && <span className={styles.statusHost}>{view.hostLabel}</span>}
+            {view.hostLabel && (
+              <span className={styles.statusSep} aria-hidden>
+                ·
+              </span>
+            )}
+            <span className={styles.statusLabel} aria-live="polite">
+              {view.statusLabel}
+            </span>
           </span>
         </span>
-      </span>
+      )}
 
-      {view.showFields && (
+      {!switcher && view.showFields && (
         <>
           <TextInput
             className={clsx(styles.field, styles.fieldUrl, urlInvalid && styles.fieldInvalid)}
@@ -205,16 +230,18 @@ export function ConnectionBar() {
         </>
       )}
 
-      <Button
-        className={styles.action}
-        size="xs"
-        variant={view.action.variant}
-        disabled={view.action.disabled}
-        style={{ minHeight: CONTROL_HEIGHT, fontSize: CONTROL_FONT_SIZE }}
-        onClick={onAction}
-      >
-        {view.action.label}
-      </Button>
+      {action && (
+        <Button
+          className={styles.action}
+          size="xs"
+          variant={action.variant}
+          disabled={action.disabled}
+          style={{ minHeight: CONTROL_HEIGHT, fontSize: CONTROL_FONT_SIZE }}
+          onClick={onAction}
+        >
+          {action.label}
+        </Button>
+      )}
 
       <div className={styles.panelToggles}>
         <Button

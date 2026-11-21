@@ -6,7 +6,13 @@ import { createBrowserLaunch } from "./browser-launch.js";
 // Read at call time only (inside the files member), so the import cycle through the connection
 // store is harmless.
 import { currentFileTransfer } from "../lib/connection/live-file-transfer.js";
-import { type AppIdentity, type HostDialogs, type HostPdf, type WorkbenchHost } from "./types.js";
+import {
+  type AppIdentity,
+  type HostDialogs,
+  type HostPdf,
+  type SaveTarget,
+  type WorkbenchHost,
+} from "./types.js";
 
 export interface BrowserHostOptions {
   /** Brand title and version for the connection bar. A real shell always passes it. */
@@ -17,6 +23,11 @@ export interface BrowserHostOptions {
    * `build/pdf.worker.min.mjs`, and the app base plus `pdfjs/`). Omitted: no PDF preview.
    */
   pdf: HostPdf;
+  /**
+   * Where "Download" saves a file. Asked with the file's name; resolves a target, or `null` when the
+   * user cancelled. Omitted: the browser's Blob and download anchor.
+   */
+  saveTarget?: (suggestedName: string) => Promise<SaveTarget | null>;
 }
 
 const DEFAULT_APP: AppIdentity = { title: "Pi-Studio", version: "" };
@@ -25,7 +36,6 @@ const DEFAULT_APP: AppIdentity = { title: "Pi-Studio", version: "" };
 const browserDialogs: HostDialogs = {
   confirm: async (message) => window.confirm(message),
   alert: async (message) => window.alert(message),
-  prompt: async (message, initial) => window.prompt(message, initial),
 };
 
 /** The host `web-client` uses: today's browser behaviour behind the host contract. */
@@ -40,7 +50,7 @@ export function createBrowserHost(overrides: Partial<BrowserHostOptions> = {}): 
     launch: createBrowserLaunch(),
     connection: createBrowserConnection(),
     // No `pickUploads`: the explorer uses its `<input type="file">`.
-    files: createBrowserFiles(currentFileTransfer),
+    files: createBrowserFiles(currentFileTransfer, overrides.saveTarget),
     ...(overrides.pdf ? { pdf: overrides.pdf } : {}),
   };
 }

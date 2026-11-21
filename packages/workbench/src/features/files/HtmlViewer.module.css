@@ -42,6 +42,14 @@
   border-bottom: 1px solid var(--pi-color-border);
   flex-shrink: 0;
 }
+.inertNote {
+  padding: var(--pi-spacing-4) var(--pi-spacing-14);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+  background: var(--pi-color-surface1);
+  border-bottom: 1px solid var(--pi-color-border);
+  flex-shrink: 0;
+}
 .skippedNote {
   padding: var(--pi-spacing-4) var(--pi-spacing-14);
   font-size: var(--pi-font-size-2xs);

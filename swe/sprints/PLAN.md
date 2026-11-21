@@ -127,9 +127,19 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 099 | `sprint-099-relay-protocol-primitives` | relay (+ protocol fixtures): **Relay multi-client, slice 1 — protocol 2 primitives.** Shared control-protocol module (frames, close codes 4100–4109/4200, limits); the shipped channel parked under `Legacy` names; channel v2 (binary frames, NaCl box with salt ‖ direction ‖ counter nonces, encrypted `ready`); relay server pairing one client socket with one daemon data socket, refusals, old-protocol parking (S9), close forwarding; flow control, pings, shutdown; fixed-key `external-clients/relay/` fixtures. `RelaySessionBridge` and the Cloudflare adapter deleted. Branch `feat/relay-multi-pair`. **Done (2026-11-15).** | 6 |
 | 100 | `sprint-100-relay-daemon-sdk` | server + client (+ cli tests): **Relay multi-client, slice 2 — daemon and SDK.** Daemon `RelayConnection` per data socket; one `Session` per relay connection (real `bufferedAmount`, 1008 on a bad `hello`); control socket with backoff, silence check, 32-socket cap, bootstrap cut over; SDK `createRelayTransport` on protocol 2 with a 15 s limit and `RelayConnectError`; protocol-1 channel deleted; SDK ↔ relay ↔ daemon end-to-end tests. **Done (2026-11-15).** | 6 |
 | 101 | `sprint-101-relay-multi-client-close` | docs + live checks: **Relay multi-client, slice 3 — close.** 600 MiB transfer and memory proof through a local relay; every relay document rewritten to protocol 2 (specs, root/package docs, fern, docker, handoff doc); compose-stack live check with two tabs, old-version rollout checks (0.0.120 daemon and tab), spec close. **Done (2026-11-15)**; live-checked on an isolated compose stack, which found and fixed two SDK reconnect defects (see s101/t003). Merge to `main` releases relay, daemon, SDK and web client together (D21); not merged. | 3 |
+| 102 | `sprint-102-desktop-rust-model` | desktop (Rust crates, app, CLI): **Desktop native host, slice 1 — the Rust model.** New `model` crate (settings, per-entry state, storage scope rule, caps) and `store` crate (read with set-aside, atomic write); engine `Session` holding settings and the workbench's stored keys, `settings.get` / `settings.set`; the checklist sample deleted (crates `doc`, `ops`, `format`; item, undo and file commands); Rust-side documents. | 5 |
+| 103 | `sprint-103-desktop-host-boot-storage` | desktop (app + frontend): **Desktop native host, slice 2 — boot and storage.** Configuration directory, `boot` and `storage_set` as the page's only commands, 1 s coalesced flush and flush on exit; dropped-file handling off, single instance, navigation rule; the frontend's desktop host (`app`, `storage`, `launch`), host selection, boot error, reset notices; live checks in the Linux webview. | 4 |
+| 104 | `sprint-104-desktop-dialogs-links-save` | workbench + desktop: **Desktop native host, slice 3 — dialogs, links, save.** Workbench: in-app session rename (`dialogs.prompt` removed), external links through the host, ranged save into a shell-supplied target. Desktop: native confirm and alert, scheme-checked `open_external`, save-to-disk backend with a temporary file, the host members, a confirm before closing during a transfer; live checks (1 GiB save). | 8 |
+| 105 | `sprint-105-desktop-html-preview-origin` | workbench + desktop: **Desktop native host, slice 4 — HTML preview origin.** Spike on a sandboxed frame from a custom scheme (Linux measured); workbench `HostPreview` seam; Rust document store, scheme handler, `preview_mount` / `preview_release`, `frame-src`; the host member; live isolation checks. | 5 |
+| 106 | `sprint-106-desktop-native-host-close` | desktop + docs: **Desktop native host, slice 5 — close.** Linux acceptance run, `desktop/docs/platform-checks.md`, automated checks on macOS and Windows CI runners, the manual macOS and Windows run (needs a person with those machines), documents and spec close. | 4 |
+| 107 | `sprint-107-desktop-registry-model` | desktop (Rust crates, CLI): **Desktop daemon registry, slice 1 — the registry.** Registry document, rules and secret-free views in the `model` crate; private (0600) files in `store`; the registry in the engine `Session` with a real current entry; `daemon.list` / `.switch` / `.add` / `.update` / `.remove`; `ui.inspect` gains the registry view; a guard test that no answer or log line holds a secret. | 5 |
+| 108 | `sprint-108-desktop-local-daemon` | desktop (Rust) + cli: **Desktop daemon registry, slice 2 — the local daemon.** Pure reading of the `pi-studio --json` answers; shell environment, CLI lookup and a time-limited process runner behind hooks; `daemon.local.start` / `.stop` / `.restart` / `.refresh` as queued requests; the supervisor and "what do I dial"; contract tests in `packages/cli` for the output the app reads. | 5 |
+| 109 | `sprint-109-desktop-registry-wiring` | workbench + desktop (app + frontend): **Desktop daemon registry, slice 3 — wiring.** `HostDaemons` contract + in-memory registry for tests; registry and first probe at launch, boot snapshot `daemons` + `minDaemonVersion`, page commands and events; the switch (confirm, flush, reload); the native "Daemons" menu; the frontend's `daemons` member; live checks with the real CLI. | 6 |
+| 110 | `sprint-110-workbench-daemons-ui` | workbench: **Desktop daemon registry, slice 4 — the workbench surfaces.** Connection boot through `resolveCurrent`; the connection bar as a switcher; the Daemons screen (entries, local daemon, settings, remove); add and edit forms that never show a secret; reactions to stop, removal, a dead pairing link and the menu; the outdated-daemon notice; live checks in the desktop webview, web client unchanged. | 7 |
+| 111 | `sprint-111-desktop-daemon-registry-close` | desktop + docs: **Desktop daemon registry, slice 5 — close.** Linux acceptance run (also the three native-host criteria that needed a registry), the platform checklist's registry section, automated registry checks on macOS and Windows CI runners, the manual macOS and Windows run (needs a person), documents and spec close: desktop milestone 1 done for Linux. | 4 |
 
-Total: **95 sprints, 502 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15) and by 099–101 (+3/+15, 2026-11-15; the table sums to 95/502). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **105 sprints, 555 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20) and by two CI tasks in 106 and 111 (+0/+2, 2026-11-20; the table sums to 105/555). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -2745,6 +2755,361 @@ sprint-099/t005.
 
 Strictly sequential: t002 cites t001's figures and t003 ticks boxes against the final documents.
 
+### sprint-102-desktop-rust-model
+> **What it ships.** The start of `features/desktop-native-host.md` (specified 2026-11-15 from the
+> grill `grills/desktop-native-shell.md`): § Public contract 5 and § Removing the sample. The Rust
+> side stops modelling a checklist and holds the app's settings and the workbench's stored keys.
+>
+> **Scope of sprints 102–106.** They plan `features/desktop-native-host.md` only. The other half of
+> desktop milestone 1, `features/desktop-daemon-registry.md`, is planned separately as sprints 107–111. What these sprints
+> leave for it: `daemons` and `minDaemonVersion` in the boot snapshot, the `daemons` host member,
+> the outdated-daemon notice, `daemon.*` commands, the native menu, the confirm on a daemon switch,
+> and the page command that runs an engine command. Until then the current daemon entry is the
+> constant `local` (the id the registry spec gives the entry that always exists), read through one
+> function.
+>
+> **Gate.** Desktop tasks run `cargo xtask ci` inside `desktop/` (the root gates skip `desktop/`);
+> tasks that change `packages/workbench` also run the root gates. Live checks use the real Linux
+> webview under WebDriver in the `pi-desktop-xvfb` container (`desktop/docs/development.md`) and run
+> in the orchestrator. Nothing here runs on macOS or Windows before sprint-106/task-002.
+>
+> **Found at planning time.**
+> - The spec's "Services" row puts reading and writing the app's files behind service hooks. The
+>   plan uses a small native-only layer-3 crate (`store`) that the engine calls directly, as the
+>   sample's file commands do today: the app binary and the app's CLI then share one code path,
+>   and wasm32 still builds because the crate is empty there. The plain types are a layer-1 crate
+>   (`model`). Both are new rows in `xtask/src/layers.rs`, which is why t002 follows t001. Process
+>   and clock hooks stay service hooks (they arrive with the registry). s106/t003 records this.
+> - The engine has to build at every step: t003 adds the new model beside the sample and t004
+>   deletes the sample from every consumer in one commit.
+> - The spec gives one cap (4 MiB per stored value). Every other size needs one too; t001 chooses
+>   key ≤ 256 bytes, ≤ 256 keys and ≤ 16 MiB per scope, `cliPath` ≤ 4,096 characters.
+> - No native menu exists yet, so after t004 the menu model generated from the registry is empty.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `model` crate: settings, per-entry state, storage scope rule, caps, codecs | feature | — | desktop-native-host § Storage, § Settings, § Public contract 5 (Model); D1, D20 |
+| task-002 | `store` crate: read with set-aside of a bad file, atomic write, remove | feature | task-001 | desktop-native-host § Files that cannot be read, § Settings (atomic writes); D20 |
+| task-003 | Engine: settings and workbench storage in `Session`, `settings.get` / `settings.set`, notices | feature | task-001, task-002 | desktop-native-host § Storage, § Settings, § Public contract 5 (Engine commands) |
+| task-004 | Remove the checklist sample (engine, shell, three crates, app, CLI) | chore | task-003 | desktop-native-host § Removing the sample, § Public contract 5; D2 |
+| task-005 | Rust-side documents after the sample + `cargo xtask ci` | docs | task-004 | desktop-native-host § Acceptance criteria (documents) |
+
+Strictly sequential: each task builds on the previous one's crates, and t001/t002 share
+`xtask/src/layers.rs` and `desktop/Cargo.toml`.
+
+### sprint-103-desktop-host-boot-storage
+> **What it ships.** `features/desktop-native-host.md` § Public contract 1, § Storage and § Public
+> contract 6: the window boots through Rust, the workbench's stored keys live in Rust-owned files,
+> and the window is locked to the app (one instance, no navigation away, HTML5 drops kept).
+>
+> **Found at planning time.**
+> - `npm run snapshot` and a browser on the dev server have no Tauri. The spec only says a failed
+>   boot shows an error; t003 separates "no Tauri at all" (browser host, as today) from "boot
+>   failed inside the app" (error and Retry). Recorded in the spec by s106/t003.
+> - The page's two existing Tauri commands (`control`, `invoke_command`) and the `view` event served
+>   the sample only. t001 removes them; the control socket is unaffected.
+> - How Tauri 2 restricts app commands to a list was read in its documentation, not tried: t001
+>   confirms it and t004 checks that an unlisted command is refused.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | App: configuration directory, `boot` and `storage_set`, coalesced flush, the page's command list | feature | sprint-102/task-004 | desktop-native-host § Public contract 1, § Storage, § Public contract 5 (Tauri commands, Events), § Public contract 6 (capabilities) |
+| task-002 | Window and security: dropped-file handling off, single instance, navigation rule | feature | task-001 | desktop-native-host § Public contract 6; D6, D21 |
+| task-003 | Frontend: desktop host (`app`, `storage`, `launch`), host selection, boot error, notices | feature | task-001 | desktop-native-host § Public contract 1–2, § Files that cannot be read (notices), § Error handling (boot) |
+| task-004 | Live checks in the Linux webview + documents | test | task-002, task-003 | desktop-native-host § Acceptance criteria (storage, corrupt file, second launch, capabilities), § TODO(verify) (`pagehide`, configuration directory, drops) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 | everything else needs the two commands |
+| 2 | t002 ∥ t003 | t002 = `src-tauri/` + `crates/shell`, t003 = the frontend's `src/`: disjoint |
+| 3 | t004 | needs both; runs in the orchestrator |
+
+### sprint-104-desktop-dialogs-links-save
+> **What it ships.** `features/desktop-native-host.md` § Dialogs, § External links, § Save to disk,
+> § Transfers in flight, and the workbench changes of § Public contract 3–4 except the preview.
+> Two changes are visible in the web client: session rename becomes an in-app dialog, and a web
+> link in a message opens a new tab instead of replacing the app.
+>
+> **Found at planning time.**
+> - The SDK's `downloadTo` sink is synchronous by contract, so "send a chunk to Rust and wait"
+>   cannot happen inside it. t003 downloads in 8 MiB ranges with `ifUnchanged` and awaits the writes
+>   between ranges. 8 MiB is chosen, not measured; t008 records the throughput of a 1 GiB save.
+> - The workbench's public API exposes no file-transfer client, so the desktop frontend cannot run
+>   the download itself. t003 adds `saveTarget` to `createBrowserHost`'s options: the loop stays in
+>   the workbench and the shell supplies only `write` / `finish` / `discard`.
+> - `classifyFileLinkSrc` calls empty and fragment-only hrefs "external". t002 keeps those as plain
+>   in-page anchors; only a URL with a scheme goes to the host.
+> - A native dialog is drawn outside the page, so WebDriver cannot see or answer it: t008 uses
+>   X-display screenshots and keyboard input.
+> - "The folder used last" has nowhere to be stored in the spec's settings file: t005 remembers it
+>   for one run of the app.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Workbench: in-app session rename; `dialogs.prompt` removed from the host contract | feature | — | desktop-native-host § Public contract 3–4 (rename); workbench-host-adapter § Amendment; D9 |
+| task-002 | Workbench: external links in messages and Markdown go through the host | bugfix | — | desktop-native-host § Public contract 4 (external links); workbench-host-adapter § Amendment |
+| task-003 | Workbench: `saveTarget` option, ranged save with awaited writes | feature | task-001 | desktop-native-host § Save to disk, § Error handling (save) |
+| task-004 | Rust: native confirm and alert, scheme-checked `open_external` | feature | sprint-103/task-002 | desktop-native-host § Dialogs, § External links, § Public contract 5 (Services); D9, D26 |
+| task-005 | Rust: save-to-disk backend (save dialog, temporary file, handles, journal) | feature | task-004 | desktop-native-host § Save to disk, § Error handling (save, quit during a save) |
+| task-006 | Frontend: `dialogs` and `links.openExternal` in the desktop host | feature | task-001, task-004, sprint-103/task-003 | desktop-native-host § Public contract 2 (dialogs, links) |
+| task-007 | Save through Rust in the desktop host; transfer count; confirm before closing | feature | task-003, task-005, task-006 | desktop-native-host § Save to disk, § Transfers in flight, § Public contract 2 (files); D25 (close half) |
+| task-008 | Live checks (Linux webview + web client) + documents | test | task-002, task-007 | desktop-native-host § Acceptance criteria (dialogs, rename, links, download, transfers), § TODO(verify) (dialogs, throughput, file input) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t002 ∥ t004 | t001 = sessions + host types, t002 = `timeline/FileLink`, t004 = `desktop/` Rust: disjoint. Workbench docs are shared: edits go in the summaries |
+| 2 | t003 ∥ t005 ∥ t006 | t003 = workbench `host/`, t005 = `desktop/` Rust, t006 = the frontend's `src/host/`: disjoint |
+| 3 | t007 | joins the three |
+| 4 | t008 | orchestrator |
+
+t001–t003 touch only `packages/workbench` and depend on nothing in sprints 102–103, so in a
+multi-sprint run they may start in the first wave.
+
+### sprint-105-desktop-html-preview-origin
+> **What it ships.** `features/desktop-native-host.md` § HTML preview origin: a previewed HTML page
+> runs its scripts in the desktop app, served from an origin of its own, without weakening the
+> sandbox (D7).
+>
+> **Found at planning time.**
+> - Whether a sandboxed frame on a custom scheme runs scripts is the spec's first open check, and
+>   the Rust design depends on it. t001 measures it on Linux before anything is built and writes the
+>   procedure for the other two platforms. If no origin works, t003 and t004 are blocked.
+> - The spec's boot snapshot has no field for it. t003 adds `preview: "origin" | "inert"`: Rust
+>   knows the platform, and a platform that was not measured is `inert`. macOS and Windows therefore
+>   ship `inert` until s106/t002 measures them.
+> - The workbench seam (t002) does not depend on the spike: the viewer receives a URL whatever the
+>   origin is.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Spike: sandboxed frame on a custom scheme in the Linux webview; notes + probe procedure | test | — | desktop-native-host § HTML preview origin, § TODO(verify) (preview); D7 |
+| task-002 | Workbench: `HostPreview` seam in the HTML viewer | feature | sprint-104/task-003 | desktop-native-host § Public contract 3–4 (preview); workbench-host-adapter § Amendment |
+| task-003 | Rust: document store, scheme handler, `preview_mount` / `preview_release`, `frame-src`, boot `preview` | feature | task-001, sprint-104/task-007 | desktop-native-host § HTML preview origin, § Public contract 6 (policy), § Error handling (preview) |
+| task-004 | Frontend: the `preview` member of the desktop host | feature | task-002, task-003 | desktop-native-host § Public contract 2 (preview) |
+| task-005 | Live checks: scripts run, isolation holds (Linux webview) + documents | test | task-004, sprint-104/task-008 | desktop-native-host § Acceptance criteria (preview), § TODO(verify) (preview) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t002 | a throwaway experiment and `packages/workbench`: disjoint |
+| 2 | t003 | needs the spike's answer |
+| 3 | t004 | needs both sides |
+| 4 | t005 | orchestrator |
+
+t001 depends on nothing, so it may run as early as the first wave of sprint 102.
+
+### sprint-106-desktop-native-host-close
+> **What it ships.** The evidence and the documents for `features/desktop-native-host.md`: one
+> pass over every acceptance criterion on Linux, a checklist a person can run on macOS and Windows,
+> that run, and the spec closed for what was observed.
+>
+> **Found at planning time.** t002 cannot be done from the development machine (Linux, no display):
+> it needs a person with a Mac and a Windows machine, and installers from a manual run of the
+> Desktop release workflow. It is expected to wait in `blocked/`. t003 does not depend on it, so the
+> spec closes for Linux with the macOS and Windows criteria left open. t004 (added 2026-11-20) is a
+> manually started CI workflow on GitHub's macOS and Windows runners that checks what a machine
+> can (the Windows webview through WebDriver, macOS through the control socket), so t002's person
+> checks only the rest. Running it needs the branch pushed: the engineer's decision.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Linux acceptance run + `desktop/docs/platform-checks.md` | test | sprint-104/task-008, sprint-105/task-005 | desktop-native-host § Acceptance criteria (all), § TODO(verify) (clipboard) |
+| task-002 | macOS and Windows: run the platform checklist, set each platform's preview kind | test | task-001 | desktop-native-host § TODO(verify) (macOS and Windows, the three webviews) |
+| task-003 | Documents and spec close (spec, host adapter spec, indexes, desktop and workbench documents) | docs | task-001 | desktop-native-host § Acceptance criteria (documents); workbench-host-adapter § Amendment |
+| task-004 | Automated platform checks on macOS and Windows runners (new `desktop-platform-checks.yml`) | test | task-001 | desktop-native-host § TODO(verify) (macOS and Windows; preview probe on WebView2) |
+
+t001 first, then t004 (both edit `desktop/docs/platform-checks.md`), then t002 and t003 one after
+the other (both may edit the checklist and the spec).
+
+### sprint-107-desktop-registry-model
+> **What it ships.** The start of `features/desktop-daemon-registry.md` (specified 2026-11-15, the
+> second half of desktop milestone 1): § Public contract 1 and the registry half of § 2. The app
+> has a registry file, a real current entry, and stored layout per entry.
+>
+> **Scope of sprints 107–111.** They plan `features/desktop-daemon-registry.md` and close the
+> three criteria of `features/desktop-native-host.md` that needed a registry. They build on sprints
+> 102–106 and cannot start before the tasks named in their `Depends on`. Not in these sprints:
+> sockets in Rust and the OS keychain (milestone 2), and the IPC benchmark that milestone 2 starts
+> with, which no spec holds yet.
+>
+> **Gate.** As for sprints 102–106: `cargo xtask ci` inside `desktop/`; the root gates when
+> `packages/workbench` or `packages/cli` change; live checks in the real Linux webview, run in the
+> orchestrator, always with a scratch `PI_STUDIO_HOME` and a free port, never the developer's own.
+>
+> **Found at planning time.**
+> - The spec's `LocalState` has no value for "the first probe has not finished", but the window,
+>   the menu and `daemon.list` need a state before it has. t001 adds `checking`.
+> - Engine errors are plain text and a control answer carries one string, while the spec's errors
+>   are codes the page branches on. The error text of a `daemon.*` command is the code itself
+>   (t003).
+> - Removing the current entry leaves no current entry (`currentId: null`) until a switch; launch
+>   never opens on "none" (t004).
+> - Files set aside as corrupt may hold old secrets and are kept on purpose; the documents say so
+>   (s111/t003).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | `model` crate: registry document, rules, `EntryView`, `LocalState` (with `checking`) | feature | sprint-102/task-004 | desktop-daemon-registry § Public contract 1–2; D8, D12, D22, D24 |
+| task-002 | `store` crate: files readable by the user only (0600 on Unix) | feature | sprint-102/task-004 | desktop-daemon-registry § Public contract 1 (file mode); D13, D27 |
+| task-003 | Engine: registry in `Session`, current entry, `daemon.list`, `daemon.switch` | feature | task-001, task-002, sprint-103/task-001 | desktop-daemon-registry § Public contract 1–2, § Launch (Rust part); desktop-native-host § Storage (per entry) |
+| task-004 | Engine: `daemon.add`, `daemon.update`, `daemon.remove` | feature | task-003 | desktop-daemon-registry § Public contract 2, § Adding, editing, removing; D22, D23 |
+| task-005 | `ui.inspect` + app CLI over the registry; guard test against leaked secrets | feature | task-004 | desktop-daemon-registry § Public contract 1 (secrets), § Acceptance criteria (control socket, no secret) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t002 | two crates, no shared file |
+| 2 | t003 | needs both |
+| 3 | t004 | same engine files |
+| 4 | t005 | needs every registry command |
+
+### sprint-108-desktop-local-daemon
+> **What it ships.** `features/desktop-daemon-registry.md` § Public contract 7, § Finding and
+> running the CLI, § Local daemon state and the local half of § 2: the app finds an installed
+> `pi-studio`, starts, stops and restarts its daemon through it, and knows what to dial. Still no
+> Tauri: everything is tested with fake hooks and a fake CLI script.
+>
+> **Found at planning time.**
+> - The engine is pure (it builds for wasm32, and its command test runs every command with hostile
+>   input), so a command cannot run the CLI. `daemon.local.*` queue a request; the host carries it
+>   out through the shell crate and hands the outcome back (t003, t004).
+> - For the same reason `daemon.local.refresh` answers `{ accepted: true }`, not the `LocalState`
+>   the spec promises: a probe takes up to 15 s. The state arrives as a change.
+> - The CLI exits non-zero while printing a valid answer (`daemon status --json` when the daemon is
+>   down; `daemon start --json` with `no_keypair` while the daemon is healthy). The app reads the
+>   answer line and ignores the exit code (t001).
+> - `daemon status --json` has no test in `packages/cli`, and nothing pins what `--version` prints
+>   (t005).
+> - Both binaries (the app and the app's CLI) need the process hooks, so their standard-library
+>   implementation lives in the shell crate, native only (t002).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Reading the CLI's answers: answer line, meaning, version, dial address (pure) | feature | sprint-107/task-005 | desktop-daemon-registry § Public contract 7, § Local daemon state |
+| task-002 | Process hooks: shell environment, finding the CLI, running it with a time limit | feature | task-001, sprint-105/task-003 | desktop-daemon-registry § Finding and running the CLI; D10 |
+| task-003 | Engine: local daemon state, `daemon.local.*` as queued requests, the dial answer | feature | sprint-107/task-005 | desktop-daemon-registry § Public contract 2 (local), § Launch (`resolveCurrent`); D3, D11 |
+| task-004 | Supervisor: carry out requests through the CLI; resolve what to dial; app CLI drains them | feature | task-001, task-002, task-003 | desktop-daemon-registry § Local daemon state, § Launch, § Error handling (adoption, failures); D3, D18 |
+| task-005 | `packages/cli`: contract tests for the output the desktop app reads | test | — | desktop-daemon-registry § Public contract 7 |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t003 ∥ t005 | shell crate, engine crate, `packages/cli`: disjoint |
+| 2 | t002 | shares the shell crate with t001 |
+| 3 | t004 | joins the three |
+
+t005 depends on nothing and may run at any time.
+
+### sprint-109-desktop-registry-wiring
+> **What it ships.** `features/desktop-daemon-registry.md` § Public contract 3 and 5, § Launch and
+> § Switching, on the desktop side: the registry reaches the page, a switch reloads the window on
+> another entry, and the native "Daemons" menu works. The workbench does not read the registry
+> yet, so the window still shows the old connection bar after this sprint.
+>
+> **Found at planning time.**
+> - The Daemons screen and the switcher cannot be opened in a browser: the web client has no
+>   registry. So the wiring comes before the workbench surfaces (sprint 110), which are then
+>   exercised in the desktop webview. t001 (the contract and an in-memory registry) is the only
+>   workbench task here.
+> - The spec's `HostDaemons` gives the workbench no way to read or change the two settings its
+>   Daemons screen holds. t001 adds `snapshot().settings` and `setSettings`.
+> - The page may call only listed commands, so the reach is three commands: one that runs an
+>   allow-listed engine command, one that answers what to dial (the only one returning secrets,
+>   and only for the current entry), one that switches. Two events go to the page (t002–t003).
+> - Rust cannot see the page's connection state, so from the native menu the current entry does
+>   nothing; the spec's "unless the connection is down" applies to the workbench switcher (t004).
+> - A custom menu replaces Tauri's default one. macOS relies on the default for the Edit
+>   shortcuts, so the standard menus are kept explicitly (t004; checked in s111).
+> - A menu switch reloads the page without waiting for writes the page had not sent yet: the same
+>   open check as a layout change just before closing (s103/t004). The page's own switch waits.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Workbench: `HostDaemons` contract, `app.minDaemonVersion`, in-memory registry for tests | feature | sprint-105/task-002 | desktop-daemon-registry § Public contract 3; workbench-host-adapter § Amendment |
+| task-002 | App: registry and first probe at launch, boot snapshot, page commands, `daemons_changed` | feature | sprint-108/task-004, sprint-105/task-003 | desktop-daemon-registry § Launch, § Public contract 1 (secrets), § 3; desktop-native-host § Public contract 1, 5 |
+| task-003 | App: the switch (transfer confirm, flush, last used, reload) | feature | task-002 | desktop-daemon-registry § Switching; D16, D25 |
+| task-004 | The native "Daemons" menu (model in the shell crate, built and rebuilt by the app) | feature | task-003 | desktop-daemon-registry § Public contract 5; D14 |
+| task-005 | Frontend: the `daemons` member of the desktop host | feature | task-001, task-003 | desktop-daemon-registry § Public contract 3; desktop-native-host § Public contract 2 (`daemons`) |
+| task-006 | Live checks of the wiring with the real CLI (Linux webview) + documents | test | task-004, task-005 | desktop-daemon-registry § Acceptance criteria (0600, no secret, control socket), § TODO(verify) (90 s) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 ∥ t002 | `packages/workbench` and `desktop/` Rust: disjoint |
+| 2 | t003 | same app files as t002 |
+| 3 | t004 ∥ t005 | Rust and the frontend's `src/`: disjoint |
+| 4 | t006 | orchestrator |
+
+### sprint-110-workbench-daemons-ui
+> **What it ships.** `features/desktop-daemon-registry.md` § Public contract 4 and the workbench
+> half of § Launch and § Adding, editing, removing: in the desktop app the connection bar is a
+> switcher, a Daemons screen manages entries and the local daemon, and nothing is typed at launch.
+> The web client is unchanged.
+>
+> **Found at planning time.**
+> - The connection store keeps only an error message; D23 needs the SDK's reason code
+>   (`wrong_key`). t001 adds it.
+> - A stop can come from the screen, the native menu or the control socket, and the engine command
+>   cannot ask. The confirm is the caller's, and the window reacts to the `stopping` state, so all
+>   three paths end the same way (t005).
+> - The registry file has no field for "pairing link no longer valid": the marker lasts until the
+>   link is replaced or the app restarts (t005).
+> - Whether a rotated key shows up as `wrong_key` or `daemon_offline` was not tried; t007 records
+>   it.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Connection boot through `resolveCurrent`; daemons store, hook and labels; failure reason kept | feature | sprint-109/task-001 | desktop-daemon-registry § Launch (workbench part), § Error handling; D17, D18, D19 |
+| task-002 | The connection bar becomes a switcher | feature | task-001 | desktop-daemon-registry § Public contract 4 (connection bar); D15 |
+| task-003 | The Daemons screen: entries, local daemon, settings, remove | feature | task-001 | desktop-daemon-registry § Public contract 4 (Daemons screen), § 6; D11, D14, D22 |
+| task-004 | Add and edit forms; a stored secret is never shown | feature | task-003 | desktop-daemon-registry § Public contract 4 (edit form), § Adding, editing, removing; D13, D23, D24 |
+| task-005 | Reactions: stop, removal, a dead pairing link, a dropped local connection, the menu | feature | task-002, task-004 | desktop-daemon-registry § Local daemon state (stop), § Adding, editing, removing; D18, D22, D23 |
+| task-006 | The outdated-daemon notice | feature | task-003 | desktop-daemon-registry § Public contract 4 (outdated notice); D5 |
+| task-007 | Live checks in the desktop webview and the web client + documents | test | task-005, task-006, sprint-109/task-006 | desktop-daemon-registry § Acceptance criteria, § Error handling, § TODO(verify) |
+
+Waves:
+
+| Wave | Tasks | Why not wider |
+|---|---|---|
+| 1 | t001 | everything else uses its store and labels |
+| 2 | t002 ∥ t003 | `features/connection/` and new files under `features/daemons/` + the shell mount: disjoint |
+| 3 | t004 ∥ t006 | forms under `features/daemons/` and a notice hook: disjoint; workbench docs go in the summaries |
+| 4 | t005 | needs the switcher and the forms |
+| 5 | t007 | orchestrator |
+
+t001–t006 touch only `packages/workbench` and depend on sprint-109/task-001 alone, so they may run
+while sprints 107–109 are still in progress; only t007 needs the app.
+
+### sprint-111-desktop-daemon-registry-close
+> **What it ships.** The evidence and the documents for `features/desktop-daemon-registry.md`, and
+> with them desktop milestone 1 (native host + registry) closed for Linux.
+>
+> **Found at planning time.** As in sprint 106, t002 needs a person with a Mac and a Windows
+> machine and is expected to wait in `blocked/`; it can be run in the same sitting as s106/t002.
+> t004 (added 2026-11-20) extends s106/t004's CI workflow so that person checks only what a
+> runner cannot.
+> "The CLI is found when the app is started without a terminal" can only be approximated on the
+> development machine (a launch with an emptied environment, t001); the real case is a launch from
+> the macOS dock (t002).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Linux acceptance run for the registry + the checklist's registry section | test | sprint-110/task-007, sprint-106/task-001 | desktop-daemon-registry § Acceptance criteria (all), § TODO(verify) (shell environment); desktop-native-host § Acceptance criteria (the three that need a registry) |
+| task-002 | macOS and Windows: run the registry section of the platform checklist | test | task-001 | desktop-daemon-registry § Acceptance criteria (Windows, version manager), § TODO(verify) (macOS and Windows, WSL2) |
+| task-003 | Documents and spec close for the registry; milestone 1 closed | docs | task-001, sprint-106/task-003 | desktop-daemon-registry § Acceptance criteria (documents); workbench-host-adapter § Amendment (`daemons`, `minDaemonVersion`) |
+| task-004 | Automated platform checks on macOS and Windows runners (registry) | test | task-001, sprint-106/task-004 | desktop-daemon-registry § Acceptance criteria (macOS CLI lookup, 0600, Windows `unsupported`), § TODO(verify) (shell environment) |
+
+t001 first, then t004 (both edit `desktop/docs/platform-checks.md`), then t002 and t003 one after
+the other (both may edit the checklist and the spec).
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -2838,6 +3203,9 @@ splitting them keeps the security-relevant asset-fetch gate in a sprint of its o
 bundled behind a UI change. The spec's browser-platform-constraints section is measured behavior
 (headless Chromium, 2026-08-19), not inference, and is the grounding both sprints' decisions cite.
 
+`features/desktop-daemon-registry.md` (specified 2026-11-15) was left unplanned by sprints 102–106
+and is planned by sprints 107–111; see its row at the end of the table.
+
 | Scope file | Covered by |
 |------------|-----------|
 | features/agent-sessions.md | s002/t003, s005/t001-002, s006/t002,t004, s011/t002, s045/t006 (capability-gated create-time system-prompt composition), s051/t005 (generalized N-capability composition) |
@@ -2907,6 +3275,10 @@ bundled behind a UI change. The spec's browser-platform-constraints section is m
 | features/desktop-client-protocol-followups-2.md | s097/t001-007 (`Begin` fields; daemon download by path + token removal + fixtures v2; validator, tracking, cancel; SDK ranged download; additive fixtures; browser host; docs + live checks), s098/t001-004 (`hello.agentStreams` daemon side; SDK option + fixture; CLI `--json`; docs, spec close + live checks). Non-goals by the spec: upload resume, per-agent stream subscriptions, chunk size, relay multi-client, `WorkbenchHost` changes |
 | features/relay-multi-client.md | s099/t001-006 (control module; legacy park; channel v2; relay server pairing + deletions; flow control + pings; fixtures), s100/t001-006 (`RelayConnection`; per-connection sessions; control socket + cutover; SDK transport + `RelayConnectError`; protocol-1 deletion; cross-package E2E), s101/t001-003 (600 MiB + memory proof; documents; compose and old-version live checks, spec close). Non-goals by the spec: protocol 1 kept alive, Cloudflare relay, CLI over relay, forward secrecy / Noise, any daemon-protocol or pairing change. Deferred by the grill: separate pairing secret, per-device credentials, per-address cap, statistics endpoint, throughput pass mark |
 | architecture/relay-protocol.md | s099/t001 (§ 1–3), s099/t003 (§ 4), s099/t004-005 (§ Behavior — Relay), s100/t001-003 (§ Behavior — Daemon, § 5), s100/t004 (§ Behavior — Client), s099/t006 (fixtures pinning § 1, § 3, § 4), s101/t003 (§ TODO(verify) closed live) |
+| features/desktop-native-host.md | s102/t001-005 (`model` crate; `store` crate; engine settings + storage; sample removed; Rust documents), s103/t001-004 (`boot` + `storage_set` + flush + command list; window and security configuration; frontend host + boot; live checks), s104/t001-008 (in-app rename; external links; `saveTarget` ranged save; native dialogs + `open_external`; save backend; host dialogs + links; host save + transfer count + close confirm; live checks), s105/t001-005 (spike; `HostPreview` seam; Rust preview origin; host member; live checks), s106/t001-004 (Linux acceptance + platform checklist; macOS and Windows run; documents + spec close; automated checks on macOS and Windows runners). Left to the registry by the spec: the `daemons` member, `app.minDaemonVersion`, the confirm on a daemon switch (D25's other half) |
+| features/desktop-native-host.md — criteria that need the registry | s111/t001 (two entries keeping separate layouts while sharing the theme, also s109/t006 and s110/t007; a corrupt `daemons.json`; `ui.inspect` returning the registry view, also s107/t005), ticked in the spec by s111/t003 |
+| features/desktop-daemon-registry.md | s107/t001-005 (registry model; private files; engine registry + list/switch; add/update/remove; `ui.inspect` + secret guard), s108/t001-005 (CLI answers; process hooks + CLI lookup; `daemon.local.*`; supervisor + dial answer; `packages/cli` contract tests), s109/t001-006 (`HostDaemons` contract; app launch + snapshot + page commands; switch; native menu; frontend member; live checks), s110/t001-007 (boot through the registry; switcher; Daemons screen; forms; reactions; outdated notice; live checks), s111/t001-004 (Linux acceptance; macOS and Windows run; documents + spec close; automated registry checks on macOS and Windows runners) |
+| architecture/workbench-host-adapter.md § Amendment (2026-11-15), now § History | s104/t001 (`dialogs.prompt` removed), s104/t002 (external links), s104/t003 (`saveTarget`, added at planning), s105/t002 (`preview`), s106/t003 (built rows folded into the main contract), s109/t001 (`daemons`, `app.minDaemonVersion`, with the settings added at planning), s110/t001-006 (their consumers), s111/t003 (`daemons` and `minDaemonVersion` moved into the main contract; the amendment kept as history) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
@@ -3086,3 +3458,55 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Relay multi-client: the fixtures' `since` assumes the release is 0.0.121 — s099/t006.
 - [ ] Relay multi-client: `fern check` was not run (the fern CLI is not installed here) — s101/t002.
 - [ ] Relay multi-client: relay throughput was measured on loopback only (~143 / ~138 MiB/s) — s101/t001.
+- [ ] Desktop native host: a sandboxed frame on a custom scheme must run scripts and stay isolated
+      in each webview. **Linux: `origin`, measured** (s105/t001, s105/t005). macOS and Windows —
+      s106/t002 (blocked, needs a person); until measured a platform ships `inert` (scripts
+      disabled, a notice shown).
+- [x] Desktop native host: Tauri's app-command list (build-script manifest + `allow-<command>`
+      permissions) — **tried and works** (s103/t001, s103/t004 check 7): an unlisted command is
+      refused with "not allowed", and a test pins the capability list.
+- [ ] Desktop native host: whether a layout change made in the last 250 ms before a close or a
+      reload reaches Rust (`pagehide`) — s103/t004. **Reload: yes. Window close: no**, the change
+      is lost (known gap, still true in s106/t001; fix proposed in the spec, not planned).
+- [x] Desktop native host: the 8 MiB save range and the per-chunk call into Rust are chosen, not
+      measured — **measured (s104/t008, Linux): a 1 GiB save took 6.5 s (~160 MiB/s), SHA-256
+      equal, memory 738 → 854 MiB, flat**; repeated in s110/t007 check 13.
+- [ ] Desktop native host: the caps chosen at planning (key 256 bytes, 256 keys and 16 MiB per
+      scope, `cliPath` 4,096 characters, dialog text 8,192 characters, 16 MiB per save write, 8 open
+      saves, 32 MiB read cap for an app file) are recorded in the spec (s106/t003) and still await
+      the owner's confirmation — s102/t001-002, s104/t004-005.
+- [ ] Desktop native host: the file input opening the system picker and a file dragged from the
+      OS onto the explorer, not verified in the headless container (s104/t008 check 9, s106/t001
+      check 11); the save dialog's start folder; macOS and Windows — platform-checks N3, N4, N6,
+      s106/t002. Answered on Linux: HTML5 drops with Tauri's handling off, the clipboard, native
+      dialogs from an asynchronous call — s103/t004, s104/t008, s106/t001.
+- [ ] Desktop native host: nothing has run on macOS or Windows; s106/t004 automates what a CI
+      runner can check, s106/t002 (a person with those machines) the rest, and waits in
+      `blocked/` until someone runs it. `desktop/docs/platform-checks.md` is the list.
+- [ ] Desktop daemon registry: reading the user's shell environment (login, interactive, 5 s) —
+      **Linux: bash, zsh and fish find the CLI; start-up files that print are harmless; one that
+      takes 8 s gives `cli_missing` after ~5 s without a hang** (s111/t001). A real version manager
+      (nvm, fnm, volta, Homebrew) and a launch from the macOS dock — s111/t002.
+- [ ] Desktop daemon registry: the 90 s limit for `daemon start` against a slow first start — the
+      first start measured 1.2–2.1 s (s109/t006, s110/t007); a slow one was not measured.
+- [x] Desktop daemon registry: whether a rotated daemon key reaches the client as `wrong_key` or
+      `daemon_offline` — **`daemon_offline`** through the relay (s110/t007 check 12). The "pairing
+      link no longer valid" marker could not be reached live; its unit test covers it, and Replace
+      link works. Whether any path yields `wrong_key` is not known.
+- [ ] Desktop daemon registry: `minDaemonVersion` is 0.0.119 as the spec proposes (built, s109/t002;
+      notice seen against a 0.0.100 daemon, s110/t007); confirm when the app is first released.
+- [x] Desktop daemon registry: decisions taken at planning that change the spec's contract —
+      **accepted by the owner 2026-11-20** (all seven): `LocalState` gains `checking`;
+      `daemon.local.*` (refresh included) answer `{ accepted: true }`; `HostDaemons` carries the two
+      settings; the native menu does nothing on the current entry; the stop confirm belongs to the
+      caller; the dead-link marker is kept in memory; a `daemon.*` error text is its code. Recorded
+      in the spec's § Decisions (P1–P7) and folded into its contract sections by s111/t003.
+- [ ] Desktop daemon registry: a daemon started with another `PI_STUDIO_HOME` is invisible to the
+      app unless that variable is in the shell environment (several local daemons are out of
+      scope, D12); `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply); a
+      daemon in WSL2 reached as a `direct` entry was not tried — s111/t002.
+- [ ] Desktop daemon registry: on macOS and Windows only the automated checks have run (s111/t004,
+      green on GitHub runners 2026-11-20); s111/t002 (a person with those machines) covers the
+      rest, and waits in `blocked/` until someone runs it.
+- [ ] Desktop: the IPC benchmark that milestone 2 (the Rust transport) starts with is in no spec
+      and has no task; milestone 2 starts with it (`docs/desktop-client-handoff.md`).

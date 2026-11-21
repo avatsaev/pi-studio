@@ -9,17 +9,13 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use pistudiodesktop_engine::{Session, command_specs};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 static PANICS: AtomicUsize = AtomicUsize::new(0);
 
 fn fresh() -> Session {
-    let mut s = Session::new();
-    s.execute("file.new", json!({"title": "hunt"})).unwrap();
-    s.execute("item.add", json!({"text": "one"})).unwrap();
-    s.execute("item.setDone", json!({"id": 1, "done": true})).unwrap();
-    s
+    Session::new()
 }
 
 /// `None` on a hang, else whether the call finished without any panic in the process.

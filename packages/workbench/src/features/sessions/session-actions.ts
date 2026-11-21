@@ -1,7 +1,8 @@
 /**
- * The sidebar context menus' dialog-gated actions, outside React so they run (and are tested)
- * against whatever host is installed. Each asks through `getHost().dialogs` and only mutates after
- * the user agreed.
+ * The sidebar context menus' session actions, outside React so they run (and are tested)
+ * against whatever host is installed. The delete action asks through `getHost().dialogs` and only
+ * mutates after the user agreed; rename is answered by the workbench's own dialog
+ * (`RenameSessionDialog.tsx`), which hands the chosen title to `applySessionRename`.
  */
 
 import type { PiStudioClient } from "@av-pi-studio/client";
@@ -13,14 +14,12 @@ import { workspaceLabel } from "./workspace-grouping.js";
 type SessionRef = Pick<SessionEntry, "id" | "title" | "agentId">;
 type AgentClient = Pick<PiStudioClient, "agent">;
 
-/** Prompt for a new title; a dismissed or blank answer changes nothing. */
-export async function renameSession(
+/** Apply an already-resolved (trimmed, changed) title: store, tab label, and the daemon. */
+export function applySessionRename(
   session: SessionRef,
+  title: string,
   client: AgentClient | null,
-): Promise<void> {
-  const next = await getHost().dialogs.prompt("Rename:", session.title);
-  if (!next?.trim()) return;
-  const title = next.trim();
+): void {
   useSessionStore.getState().setTitle(session.id, title);
   useTabStore.getState().updateLabel(tabIds.chat(session.id), title);
   if (session.agentId)

@@ -11,19 +11,19 @@ use serde_json::{Value, json};
 
 use crate::{Result, Session};
 
-/// Runs the command. Returns a JSON result; records at most one history step.
+/// Runs the command and returns its JSON result.
 pub type Run = fn(&mut Session, &Value) -> Result<Value>;
 /// `Err(reason)` when the command cannot run now. Shown as the disabled menu item's tooltip.
 pub type Enabled = fn(&Session) -> std::result::Result<(), String>;
 
 /// Metadata and implementation of one command.
 pub struct CommandSpec {
-    /// Stable, dotted, camelCase: `item.setDone`. Never renamed once released.
+    /// Stable, dotted, camelCase: `settings.set`. Never renamed once released.
     pub id: &'static str,
     pub label: &'static str,
-    /// Menu placement, e.g. `["Edit"]`. Empty = not in menus.
+    /// Menu placement, e.g. `["View"]`. Empty = not in menus.
     pub menu: &'static [&'static str],
-    /// Default shortcut (`Cmd+Shift+Z`); `Cmd` is Ctrl on Windows and Linux.
+    /// Default shortcut (`Cmd+Shift+P`); `Cmd` is Ctrl on Windows and Linux.
     pub shortcut: Option<&'static str>,
     /// What agents and scripts read: the params, their types and defaults.
     pub params: &'static str,
@@ -35,10 +35,6 @@ pub fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
 
-pub fn has_doc(s: &Session) -> std::result::Result<(), String> {
-    s.active().map(|_| ()).ok_or_else(|| "no document open".to_string())
-}
-
 struct Registry {
     specs: Vec<CommandSpec>,
     by_id: HashMap<&'static str, usize>,
@@ -46,10 +42,10 @@ struct Registry {
 
 fn build() -> Vec<CommandSpec> {
     let mut v = Vec::new();
-    v.extend(crate::file_cmds::specs());
-    v.extend(crate::edit_cmds::specs());
-    v.extend(crate::item_cmds::specs());
+    v.extend(crate::daemon_cmds::specs());
+    v.extend(crate::local::specs());
     v.extend(crate::query_cmds::specs());
+    v.extend(crate::settings_cmds::specs());
     #[cfg(test)]
     v.extend(tests::specs());
     v

@@ -3,8 +3,8 @@
 //! ```text
 //! {"id": 1, "method": "auth", "params": {"token": "<64 hex>"}}
 //! {"id": 1, "ok": true, "result": {"authenticated": true}}
-//! {"id": 2, "method": "engine.execute", "params": {"command": "item.add", "params": {"text": "milk"}}}
-//! {"id": 2, "ok": true, "result": {"id": 1}}
+//! {"id": 2, "method": "engine.execute", "params": {"command": "settings.get"}}
+//! {"id": 2, "ok": true, "result": {"autoStartLocalDaemon": true, "cliPath": null}}
 //! ```
 //!
 //! Socket threads only parse and forward: each request crosses a channel to the thread that

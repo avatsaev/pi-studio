@@ -124,11 +124,11 @@ describe("upload through the host", () => {
   });
 });
 
-describe("view URLs", () => {
-  function download(url: string): FileDownload & { release: ReturnType<typeof vi.fn> } {
-    return { objectUrl: url, release: vi.fn() };
-  }
+function download(url: string): FileDownload & { release: ReturnType<typeof vi.fn> } {
+  return { objectUrl: url, release: vi.fn() };
+}
 
+describe("view URLs", () => {
   it("releases the previous URL when a new one supersedes it, never the current one", () => {
     const first = download("u1");
     const second = download("u2");
@@ -191,5 +191,129 @@ describe("view URLs", () => {
     expect(anchor.href).toBe("blob:s1");
     expect(anchor.download).toBe("report.pdf");
     expect(anchor.click).toHaveBeenCalledTimes(1);
+  });
+});
+
+const MIB = 8 * 1024 * 1024;
+
+/** A fake daemon file of `size` bytes whose byte i is i % 251; `failAt` rejects that range index. */
+function fake(size: number, opts: { failAt?: number; changedAt?: number } = {}) {
+  const log: string[] = [];
+  let received = 0;
+  let inOrder = true;
+  const requests: { offset?: number; length?: number; ifUnchanged?: unknown }[] = [];
+  const downloadTo = vi.fn(
+    async (
+      _path: string,
+      sink: (chunk: Uint8Array) => void,
+      options: { offset?: number; length?: number; ifUnchanged?: unknown } = {},
+    ) => {
+      const index = requests.length;
+      requests.push(options);
+      log.push(`range${index}`);
+      if (opts.failAt === index) throw new Error("connection lost");
+      if (opts.changedAt === index) throw new Error("changed");
+      const offset = options.offset ?? 0;
+      const length = Math.min(options.length ?? size, size - offset);
+      const bytes = Uint8Array.from({ length }, (_, i) => (offset + i) % 251);
+      // Two chunks per range.
+      const half = Math.floor(length / 2);
+      if (length > 0) {
+        sink(bytes.subarray(0, half));
+        sink(bytes.subarray(half));
+      }
+      return { totalBytes: size, mtimeMs: 7, offset, length };
+    },
+  );
+  const written = {
+    get length() {
+      return received;
+    },
+    get inOrder() {
+      return inOrder;
+    },
+  };
+  const target = {
+    write: vi.fn(async (chunk: Uint8Array) => {
+      log.push("write");
+      await Promise.resolve();
+      for (const b of chunk) inOrder &&= b === received++ % 251;
+    }),
+    finish: vi.fn(async () => void log.push("finish")),
+    discard: vi.fn(async () => void log.push("discard")),
+  };
+  const files = createBrowserFiles(
+    () => ({ downloadTo }) as unknown as FileTransferClient,
+    async () => target,
+  );
+  return { files, target, downloadTo, written, log, requests };
+}
+
+describe("browser host: saving into a target", () => {
+  it("writes the file in order, one awaited range at a time, with ifUnchanged after the first", async () => {
+    const size = MIB * 2 + 5;
+    const { files, target, written, log, requests } = fake(size);
+
+    await files.saveToDisk("/w/big.bin");
+
+    expect(written).toHaveLength(size);
+    expect(written.inOrder).toBe(true);
+    expect(requests.map((r) => r.offset)).toEqual([0, MIB, MIB * 2]);
+    expect(requests[0]?.ifUnchanged).toBeUndefined();
+    expect(requests[1]?.ifUnchanged).toEqual({ size, mtimeMs: 7 });
+    expect(requests[2]?.ifUnchanged).toEqual({ size, mtimeMs: 7 });
+    // A range is requested only after the previous range's writes.
+    expect(log).toEqual([
+      "range0",
+      "write",
+      "write",
+      "range1",
+      "write",
+      "write",
+      "range2",
+      "write",
+      "write",
+      "finish",
+    ]);
+    expect(target.discard).not.toHaveBeenCalled();
+  });
+
+  it("makes no request when the target is cancelled", async () => {
+    const downloadTo = vi.fn();
+    const files = createBrowserFiles(
+      () => ({ downloadTo }) as unknown as FileTransferClient,
+      async () => null,
+    );
+    await files.saveToDisk("/w/a.txt");
+    expect(downloadTo).not.toHaveBeenCalled();
+  });
+
+  it("discards once, never finishes, and rejects with the failure of range 3", async () => {
+    const { files, target } = fake(MIB * 5, { failAt: 2 });
+    await expect(files.saveToDisk("/w/big.bin")).rejects.toThrow("connection lost");
+    expect(target.discard).toHaveBeenCalledTimes(1);
+    expect(target.finish).not.toHaveBeenCalled();
+  });
+
+  it("rejects with `changed` and discards when the file changed between ranges", async () => {
+    const { files, target } = fake(MIB * 2, { changedAt: 1 });
+    await expect(files.saveToDisk("/w/big.bin")).rejects.toThrow("changed");
+    expect(target.discard).toHaveBeenCalledTimes(1);
+    expect(target.finish).not.toHaveBeenCalled();
+  });
+
+  it("discards and rejects when a write rejects", async () => {
+    const { files, target } = fake(10);
+    target.write.mockRejectedValueOnce(new Error("disk full"));
+    await expect(files.saveToDisk("/w/a.txt")).rejects.toThrow("disk full");
+    expect(target.discard).toHaveBeenCalledTimes(1);
+    expect(target.finish).not.toHaveBeenCalled();
+  });
+
+  it("finishes once, without writing, for a zero-byte file", async () => {
+    const { files, target } = fake(0);
+    await files.saveToDisk("/w/empty");
+    expect(target.write).not.toHaveBeenCalled();
+    expect(target.finish).toHaveBeenCalledTimes(1);
   });
 });

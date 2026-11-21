@@ -5,11 +5,22 @@ the workbench (`@av-pi-studio/workbench`, the same UI as the browser client), an
 what a browser does badly: sockets, files on disk, secrets and OS integration. Read
 `docs/architecture.md` next.
 
-**Where it stands.** The window draws the workbench through the workbench's browser host, so the
-webview itself opens the WebSocket to the daemon and keeps its settings in its own storage. The
-Rust crates still hold the template's sample (a checklist engine with undo and a file format): the
-window no longer draws it, and only the CLI and the control socket reach it. It is to be replaced;
-until then rules 3, 4 and 7 describe that engine.
+**Where it stands.** Milestone 1 (the native host and the daemon registry) is built and checked
+live on Linux; on macOS and Windows only the automated checks have run (GitHub runners, 2026-11-20:
+`.github/workflows/desktop-platform-checks.yml`; `docs/platform-checks.md` lists them and what a person
+still runs). The window draws the workbench with a desktop host: at start the page calls `boot` (the
+stored workbench keys, the registry view, the preview kind), and every storage write goes back
+through `storage_set` to the Rust engine, which writes the files in the configuration directory.
+Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and
+the HTML preview is served from an origin of its own. The engine holds the daemon registry
+(`daemons.json`, mode 0600; local, direct and relay entries) and the settings; a supervisor runs
+the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
+the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
+add, edit and remove entries, each with its own stored layout. All of it sits behind a command
+registry that the page, the CLI and the control socket dispatch into. The webview still opens the
+WebSocket to the daemon itself (milestone 2 moves it into Rust, starting with an IPC benchmark).
+Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
+picker and a file dragged from the OS were not verified in the headless container.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -21,11 +32,10 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
 ## Workspace map
 
-    crates/doc              L1  the model: pure data
-    crates/ops              L2  history
-    crates/format           L3  native file format
+    crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
+    crates/store            L3  JSON files: safe reads, atomic writes
     crates/engine           L5  Session + command registry (every action is a command)
-    crates/shell            L6  UI state, generated menus, control protocol (no UI toolkit)
+    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor (no UI toolkit)
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
@@ -51,15 +61,24 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
 5. The workbench owns what the window shows. Colours, sizes and themes come from the design system
    (`@av-pi-studio/ui-library`); this package adds no tokens. Look at a rendered image
    (`npm run snapshot`) before calling a UI change done.
-6. The webview gets the least it needs: no plug-in permissions, no remote content in the main
-   window, and a Content-Security-Policy that lists exactly the sources the workbench uses
-   (`app.security.csp` in `tauri.conf.json`). Add a source only with the feature that needs it;
+6. The webview gets the least it needs: it may call only the commands the build script's app
+   manifest lists and the capability grants (`docs/architecture.md` § The webview boundary); no
+   plug-in permission and no `core:` permission except listening to events (Tauri cannot scope it
+   to names), no remote content in the main window, navigation only within the app origin, and a
+   Content-Security-Policy that lists exactly the sources the workbench uses (`app.security.csp`
+   in `tauri.conf.json`). Add a source or a command only with the feature that needs it;
    `npm run snapshot` fails when the page breaks the policy.
-7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` or behind `Services`.
+7. Never break wasm. File-system code is `cfg(not(target_arch = "wasm32"))` (the engine reads and
+   writes the app's files through the `store` crate, which is empty on wasm32) or behind
+   `Services`.
 8. Tests are the gate. Every change comes with tests.
 9. Permissive licences only, for crates and npm packages alike. Check a dependency's licence
    before adding it; record every bundled asset in `ATTRIBUTION.md`. Known exception, not yet
    decided: the workbench and `@av-pi-studio/ui-library` are AGPL-3.0 and are bundled into the app.
+10. Secrets (a direct entry's password, a relay entry's pairing link) live only in `daemons.json`,
+    mode 0600; the CLI's `pairingUrl` is discarded. They are never logged, never in a control answer, in `boot`
+    or in `ui.inspect`, and reach the page only through `daemon_resolve_current`, for the entry
+    being opened. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 
 ## Conventions
 

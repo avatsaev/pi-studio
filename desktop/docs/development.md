@@ -74,10 +74,16 @@ secrets.
 The CLI:
 
 ```sh
-cargo run -q -p pistudiodesktop-cli -- run --new Groceries --cmd 'item.add {"text":"milk"}' --out list.pistudiodesktop
-cargo run -q -p pistudiodesktop-cli -- info list.pistudiodesktop
-cargo run -q -p pistudiodesktop-cli -- commands --filter undo
+cargo run -q -p pistudiodesktop-cli -- commands --filter settings
+cargo run -q -p pistudiodesktop-cli -- run --cmd settings.get
+cargo run -q -p pistudiodesktop-cli -- run --config-dir ./cfg --cmd 'settings.set {"key":"autoStartLocalDaemon","value":false}' --cmd settings.get
 ```
+
+`commands` lists the registry, one JSON object per line. `run` executes each `--cmd '<id> [json]'`
+in order and prints `{"command": …, "result": …}` per step. With `--config-dir DIR` the session
+reads and writes that configuration directory (`settings.json`, `daemon-state/<entry>.json`);
+nothing is created until a command writes, so the third line leaves `./cfg/settings.json` behind.
+Without it the session lives in memory and writes no file.
 
 Results are JSON lines on standard output; diagnostics go to standard error. Exit status 1 is a
 failed command, 2 a usage error.
@@ -105,12 +111,6 @@ This is how to check a UI change without opening a window. The browser is Playwr
 (or `--browser webkit`), not the platform webview the app runs in: trust it for layout, themes and
 the policy, and check platform behaviour in the running app.
 
-The sample engine's view as JSON, without any browser:
-
-```sh
-cargo run -q -p pistudiodesktop-shell --example view -- --script '[["ui.set", {"theme": "light"}]]'
-```
-
 The running app, driven from outside: see `docs/control-protocol.md`.
 
 ## Environment variables
@@ -120,18 +120,84 @@ The running app, driven from outside: see `docs/control-protocol.md`.
 | `PISTUDIODESKTOP_LOG` | `trace`, `debug`, `warn` or `error`: the level for Pi Studio's own crates (default `info`). Other crates log at `warn` |
 | `PISTUDIODESKTOP_CONTROL_PORT` | Same as `--control <port>` |
 | `PISTUDIODESKTOP_CONTROL_TOKEN_FILE` | Same as `--control-token-file <file>` |
+| `PISTUDIODESKTOP_CONFIG_DIR` | Same as `--config-dir <dir>`: the configuration directory |
 | `CARGO_PROFILE_DEV_DEBUG=true` | Full debug info for one build, to inspect local variables in a debugger |
+
+## Configuration directory
+
+The app keeps its files in `--config-dir <dir>` (or `PISTUDIODESKTOP_CONFIG_DIR`), else the
+platform's app configuration directory — on Linux `~/.config/com.avatsaev.pi-studio`. It holds
+`settings.json` (the app settings, with the workbench's app-wide keys under `workbench`),
+`daemons.json` (the daemon registry: the entries, with a direct entry's password or a relay entry's
+pairing link, and `lastUsedId`; mode 0600, never sent to the page) and `daemon-state/<id>.json`
+(the keys kept per daemon; `local` for this machine, the entry's id for the others). A file that
+cannot be read is renamed to `<name>.corrupt-<time>`, the app starts with defaults and the page
+shows the notice once. Point `--config-dir` at a scratch directory for tests and smoke runs.
+
+### Pointing the app at a scratch CLI and home
+
+The local daemon is run through the `pi-studio` CLI. Set `cliPath` (`settings.set`, or the Daemons
+screen) to a script of your own to choose which CLI runs, for example one that execs the repository's
+build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`). The CLI inherits
+the app's environment, so start the app with `PI_STUDIO_HOME=<scratch dir>` to keep the daemon's state
+out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
+starts a daemon on launch. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply),
+so nothing else may hold that port. A fake CLI for failure cases is
+`crates/shell/tests/fixtures/fake-pi-studio.sh` (modes in its header). Quitting the app leaves the
+daemon it started running: stop it with `pi-studio daemon stop` under the same `PI_STUDIO_HOME`.
 
 ## Without a display
 
 Running the window needs a display: `Xvfb :99 -screen 0 1280x800x24 &` and then
 `DISPLAY=:99 cargo run -p pistudiodesktop`. The snapshot tool and every test need none.
 
+The `pi-desktop-xvfb` Docker image (Xvfb, WebKitGTK and WebKitWebDriver; no `nc`) runs the built
+app with no display of your own. After `cargo build -p pistudiodesktop` (which needs
+`apps/pistudiodesktop/dist`), mount the workspace read-only and talk to the control socket from
+inside the container. Pick a scratch port other than 6767, which a daemon may use:
+
+```sh
+cat > /tmp/pi-smoke.sh <<'EOF'
+cd /work
+xvfb-run -a ./target/debug/pistudiodesktop --control 7979 --control-token-file /tmp/control.token >/tmp/app.log 2>&1 &
+sleep 6
+TOKEN=$(tr -d '\r\n' < /tmp/control.token)
+exec 3<>/dev/tcp/127.0.0.1/7979
+printf '%s\n' "{\"id\":\"auth\",\"method\":\"auth\",\"params\":{\"token\":\"$TOKEN\"}}" \
+  '{"id":1,"method":"ui.inspect","params":{}}' >&3
+for i in 1 2; do read -t 5 -u 3 line; echo "$line"; done
+EOF
+docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-desktop-xvfb bash /tmp/pi-smoke.sh
+```
+
+Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
+`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"cli_missing"},"settings":{"autoStartLocalDaemon":true,"cliPath":null}},"menus":[…],"settings":{…},"ui":{…}}}`
+(the image has no `pi-studio` CLI, hence `cli_missing`).
+This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
+for the webview itself WebKitWebDriver, as below.
+
 To drive the real webview on Linux without a display, run the binary under WebKit's WebDriver
 (`WebKitWebDriver`, Ubuntu package `webkitgtk-webdriver`) with `TAURI_WEBVIEW_AUTOMATION=true` in
 its environment, and open a session with the capabilities `{"browserName": "wry",
-"webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>"}}`. Scripts, clicks and
-screenshots then go through the WebDriver protocol.
+"webkitgtk:browserOptions": {"binary": "<path to pistudiodesktop>", "args": ["--config-dir",
+"<scratch dir>"]}}`. Scripts, clicks and screenshots then go through the WebDriver protocol; from
+an async script, `window.__TAURI_INTERNALS__.invoke('boot')` shows what the page booted with.
+
+Three things the container does not give you by default:
+
+- **A D-Bus session bus.** Without one the single-instance check never runs and a second launch
+  opens a second window. Start one before WebKitWebDriver:
+  `dbus-daemon --session --fork --print-address=3 3>/tmp/bus` and export
+  `DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/bus)`.
+- **A window manager.** There is none, so focus cannot be observed, and closing the WebDriver
+  session kills the app (no exit flush). To close it like a user, send `WM_DELETE_WINDOW` to the
+  window `xwininfo -root -tree` lists as "Pi Studio" (an `XSendEvent` `ClientMessage`).
+- **One app at a time.** The single-instance lock is per app identifier, not per configuration
+  directory: two sessions at once collide.
+
+## Platform checks on macOS and Windows runners
+
+`apps/pistudiodesktop/scripts/platform-checks.mjs` (helpers in `scripts/platform-checks/`, run by `.github/workflows/desktop-platform-checks.yml`) checks on a runner what a machine can check; `docs/platform-checks.md` says which items it covers. Modes: `macos` (the control socket only), `windows` (WebDriver through `tauri-driver` and `msedgedriver`) and `rehearse-webdriver`, which runs the Windows checks on Linux against a `WebKitWebDriver` already listening (the container of § Without a display), so the script can be tried without a Windows machine. It writes `summary.md` and `results.json`, appends the summary to `GITHUB_STEP_SUMMARY` and exits 1 when a check fails. Its unit tests run with the app's `npm test`.
 
 ## Debugging the frontend
 

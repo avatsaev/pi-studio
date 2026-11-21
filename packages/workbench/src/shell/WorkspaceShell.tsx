@@ -10,6 +10,9 @@
  */
 
 import { ConnectionBar } from "../features/connection/ConnectionBar.js";
+import { useOutdatedDaemonNotice } from "../features/connection/use-outdated-daemon-notice.js";
+import { DaemonsScreen } from "../features/daemons/DaemonsScreen.js";
+import { useDaemonLifecycle } from "../features/daemons/use-daemon-lifecycle.js";
 import { SessionList } from "../features/sessions/SessionList.js";
 // No TabStrip here since sprint-049: strips are per pane and live inside TabPanelHost, positioned
 // across the top of each pane's rect (features/workspace/pane-layout-view.ts).
@@ -28,6 +31,8 @@ export function WorkspaceShell() {
   const rightSidebarWidth = useUiStore((s) => s.rightSidebarWidth);
   const resizeLeftSidebar = useUiStore((s) => s.resizeLeftSidebar);
   const resizeRightSidebar = useUiStore((s) => s.resizeRightSidebar);
+  useOutdatedDaemonNotice();
+  useDaemonLifecycle();
 
   return (
     <div className={styles.shell}>
@@ -55,6 +60,7 @@ export function WorkspaceShell() {
       </div>
       <StatusBar />
       <OpenWorkspaceDialog />
+      <DaemonsScreen />
       <ToastViewport />
       <Announcer />
     </div>

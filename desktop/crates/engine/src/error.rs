@@ -12,15 +12,3 @@ pub enum EngineError {
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
-
-impl From<pistudiodesktop_doc::Invalid> for EngineError {
-    fn from(e: pistudiodesktop_doc::Invalid) -> Self {
-        EngineError::BadParams(e.to_string())
-    }
-}
-
-impl From<pistudiodesktop_format::FormatError> for EngineError {
-    fn from(e: pistudiodesktop_format::FormatError) -> Self {
-        EngineError::Other(e.to_string())
-    }
-}
