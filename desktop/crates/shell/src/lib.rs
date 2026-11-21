@@ -28,6 +28,8 @@ pub mod cli_answers;
 pub mod cli_find;
 pub mod control;
 pub mod daemons;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod deferred;
 pub mod dialogs;
 pub mod links;
 pub mod menus;
@@ -71,11 +73,23 @@ pub struct AppShell {
     /// is written as it unloads). Such a key would land in the entry switched to, so from the switch
     /// until the next `boot`, stored keys are dropped.
     pub awaiting_boot: bool,
+    /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) deferred: deferred::Deferred,
 }
 
 impl AppShell {
     pub fn new(session: Session, services: Services) -> Self {
-        Self { session, ui: UiState::default(), services, info: AppInfo::default(), notices: Vec::new(), awaiting_boot: false }
+        Self {
+            session,
+            ui: UiState::default(),
+            services,
+            info: AppInfo::default(),
+            notices: Vec::new(),
+            awaiting_boot: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            deferred: deferred::Deferred::default(),
+        }
     }
 
     /// Run a command by id. Every control request ends here. The outcome goes to the status bar as

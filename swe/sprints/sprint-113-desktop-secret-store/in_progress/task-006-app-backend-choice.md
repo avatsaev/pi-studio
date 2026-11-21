@@ -1,7 +1,7 @@
 # Task 006 — App and CLI binaries: backend choice at launch, `--secret-store`, `secretStore` in the views
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri, desktop/apps/pistudiodesktop-cli, desktop/crates/shell
 - **Priority:** P1

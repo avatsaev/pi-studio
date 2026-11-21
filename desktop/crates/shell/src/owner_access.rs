@@ -243,4 +243,57 @@ mod tests {
         assert!(took >= Duration::from_millis(2900), "the read really blocked: {took:?}");
         assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "10.0.0.2:8080", "password": "pw", "connect": true}));
     }
+
+    #[test]
+    fn add_update_and_remove_wait_for_a_slow_store_off_the_owner_thread() {
+        use std::sync::atomic::Ordering::SeqCst;
+        use std::time::Instant;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SlowStore::default());
+        let (session, _) = Session::with_config_dir(dir.path(), store.clone());
+        let (access, _worker) = running_owner(AppShell::new(session, Services::default()));
+        let entries = |access: &OwnerAccess| access.execute("daemon.list", Value::Null).unwrap()["entries"].as_array().map(Vec::len).unwrap();
+        store.wait_ms.store(600, SeqCst);
+
+        // Add: the owner answers while the store call runs, the answer waits for it, the entry appears after.
+        let adder = std::thread::spawn({
+            let access = access.clone();
+            move || {
+                let started = Instant::now();
+                (access.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "MARK-pw"})), started.elapsed())
+            }
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        let begun = Instant::now();
+        access.call(Request::StorageSet { key: "pi-studio-appearance".into(), value: "dark".into() }).unwrap();
+        assert_eq!(entries(&access), 1, "no entry before its secret is stored");
+        assert!(begun.elapsed() < Duration::from_millis(100), "answered in {:?}", begun.elapsed());
+        let (added, took) = adder.join().unwrap();
+        let added = added.unwrap();
+        assert!(took >= Duration::from_millis(550), "the store call really blocked: {took:?}");
+        assert_eq!((added["hasPassword"].as_bool(), entries(&access)), (Some(true), 2));
+
+        // Update through the page's request, clearing the password.
+        let id = added["id"].clone();
+        let (envelope, reply) = Envelope::new(Request::Engine { id: "daemon.update".into(), params: json!({"id": id, "password": null}) });
+        access.requests.send(envelope).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        let listed = access.execute("daemon.list", Value::Null).unwrap();
+        assert_eq!(listed["entries"][1]["hasPassword"], true, "still claimed while the item is being deleted");
+        let updated = reply.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!((updated["ok"].as_bool(), updated["result"]["hasPassword"].as_bool()), (Some(true), Some(false)), "{updated}");
+
+        // Remove: the entry is gone at once (the file is written first), the answer follows the deletes.
+        access.execute("daemon.update", json!({"id": id, "password": "MARK-again"})).unwrap();
+        let remover = std::thread::spawn({
+            let access = access.clone();
+            let id = id.clone();
+            move || access.execute("daemon.remove", json!({"id": id}))
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(entries(&access), 1);
+        assert_eq!(remover.join().unwrap().unwrap(), json!({"removed": true}));
+        assert!(!std::fs::read_to_string(dir.path().join("daemons.json")).unwrap().contains("MARK"));
+    }
 }

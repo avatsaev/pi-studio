@@ -350,11 +350,83 @@ fn a_store_that_refuses_fails_add_and_update_and_writes_nothing() {
 }
 
 #[test]
-fn a_secret_that_cannot_be_deleted_on_remove_does_not_keep_the_entry() {
+fn a_secret_that_cannot_be_deleted_on_remove_does_not_keep_the_entry_and_is_reported_once() {
     let dir = tempfile::tempdir().unwrap();
     let (mut s, _, store) = open(dir.path());
     let id = add_direct(&mut s, "W", Some("pw"))["id"].as_str().unwrap().to_owned();
     store.fail_delete.store(true, Ordering::SeqCst);
-    assert_eq!(s.execute("daemon.remove", json!({"id": id})).unwrap(), json!({"removed": true}));
+    let answer = s.execute("daemon.remove", json!({"id": id})).unwrap();
+    assert_eq!(answer, json!({"removed": true, "notices": [{"kind": "secret_not_removed", "entry": id}]}));
     assert!(read_registry(dir.path()).get(&id).is_none());
+    // Once: the entry is gone, so a second remove is `not_found`, with no notice.
+    assert_eq!(err(s.execute("daemon.remove", json!({"id": id}))), "not_found");
+    // A delete that works reports nothing.
+    store.fail_delete.store(false, Ordering::SeqCst);
+    let other = add_direct(&mut s, "V", Some("pw"))["id"].as_str().unwrap().to_owned();
+    assert_eq!(s.execute("daemon.remove", json!({"id": other})).unwrap(), json!({"removed": true}));
+}
+
+#[test]
+fn split_commands_hold_no_session_borrow_across_the_store_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    seed(dir.path(), None);
+    let (mut s, _, store) = open(dir.path());
+    assert!(s.plan_secret_command("settings.get", &json!({})).is_none());
+    // Plan an add and an update, then change the registry before either is stored or committed.
+    let add = json!({"kind": "direct", "name": "N", "address": "a:1", "password": "MARK-add"});
+    let mut add_job = s.plan_secret_command("daemon.add", &add).unwrap().unwrap();
+    let mut update_job = s.plan_secret_command("daemon.update", &json!({"id": B, "password": "MARK-upd"})).unwrap().unwrap();
+    let mut remove_job = s.plan_secret_command("daemon.remove", &json!({"id": B})).unwrap().unwrap();
+    assert!(store.all().is_empty(), "planning stores nothing");
+    assert!(s.execute("settings.get", json!({})).is_ok(), "the session answers between the steps");
+    add_job.store().unwrap();
+    update_job.store().unwrap();
+    assert_eq!(store.all().len(), 2);
+    // The remove commits first: the update, planned before, now finds no entry and takes its secret back.
+    let removed = s.commit_secret_job(&mut remove_job);
+    assert_eq!(remove_job.finish(removed).unwrap(), json!({"removed": true}));
+    let updated = s.commit_secret_job(&mut update_job);
+    assert_eq!(updated, Err("not_found"));
+    assert_eq!(err(update_job.finish(updated)), "not_found");
+    let added = s.commit_secret_job(&mut add_job);
+    let view = add_job.finish(added).unwrap();
+    assert_eq!(view["hasPassword"], true);
+    assert_eq!(store.all(), [item(view["id"].as_str().unwrap(), "password")]);
+    assert!(!std::fs::read_to_string(dir.path().join("daemons.json")).unwrap().contains("MARK"));
+}
+
+#[test]
+fn a_split_add_whose_file_will_not_write_takes_its_secret_back_and_a_failed_store_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    seed(dir.path(), None);
+    let (mut s, _, store) = open(dir.path());
+    let relay = json!({"kind": "relay", "name": "R", "pairingLink": "pi://MARK-link"});
+    let job = s.plan_secret_command("daemon.add", &relay).unwrap().unwrap();
+    store.fail_set.store(true, Ordering::SeqCst);
+    assert_eq!(err(job.store().map(|()| json!(null))), "secret_store_failed");
+    store.fail_set.store(false, Ordering::SeqCst);
+    let mut job = s.plan_secret_command("daemon.add", &relay).unwrap().unwrap();
+    job.store().unwrap();
+    assert_eq!(store.all().len(), 1);
+    std::fs::remove_file(dir.path().join("daemons.json")).unwrap();
+    std::fs::create_dir_all(dir.path().join("daemons.json/keep")).unwrap();
+    let committed = s.commit_secret_job(&mut job);
+    assert_eq!(committed, Err("write_failed"));
+    assert!(job.has_finish_step(&committed));
+    assert_eq!(err(job.finish(committed)), "write_failed");
+    assert!(store.all().is_empty());
+}
+
+#[test]
+fn execute_unlocked_runs_the_same_commands_on_a_shared_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, _, store) = open(dir.path());
+    let s = std::sync::Mutex::new(s);
+    let added = crate::execute_unlocked(&s, "daemon.add", json!({"kind": "direct", "name": "U", "address": "a:1", "password": "MARK-u"})).unwrap();
+    let id = added["id"].as_str().unwrap().to_owned();
+    assert_eq!(store.all(), [item(&id, "password")]);
+    crate::execute_unlocked(&s, "daemon.update", json!({"id": id, "password": null})).unwrap();
+    assert!(store.all().is_empty());
+    assert!(crate::execute_unlocked(&s, "daemon.list", json!({})).is_ok());
+    assert_eq!(err(crate::execute_unlocked(&s, "daemon.remove", json!({"id": "nope"}))), "not_found");
 }

@@ -1,7 +1,7 @@
 # Task 006 — Workflow: run the benchmark on a macOS and a Windows runner
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** chore
 - **Area:** .github/workflows, desktop/apps/ipc-bench
 - **Priority:** P1

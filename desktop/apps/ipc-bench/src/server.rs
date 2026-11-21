@@ -5,6 +5,8 @@
 //! | `/echo` | sends back every text or binary message it receives, at once |
 //! | `/flood?frames=N&size=S&kind=binary\|text` | waits for the text `go`, sends N frames of S bytes (the format of [`crate::frame`]), then `{"type":"done","frames":N,"bytes":B,"hash":"…"}` |
 //! | `/sink` | checks every frame it receives; on the text `end` answers `{"type":"report",…}` ([`Report`]) |
+//! | `/mixed?frames=N&size=S` | `/flood` (binary) that also echoes every binary or text message it receives, on the same socket, until the page closes (row B7: B1's echo while B4's download runs) |
+//! | `/paced?rate=R&seconds=T&size=S` | waits for the text `go`, sends `R` binary frames of `S` bytes per second for `T` seconds (10 ms ticks; a tick that runs late sends what is due), then the closing message of a flood (row B8) |
 //!
 //! The switches (`--corrupt`, `--swap`) damage one frame of each stream, to prove that the page's
 //! check (B6) notices: `corrupt` changes a byte of the frame with that counter (in `/echo` and
@@ -16,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use futures_util::{SinkExt as _, StreamExt as _};
+use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
@@ -32,6 +34,12 @@ const MAX_FRAMES: u64 = 10_000_000;
 const MAX_STREAM_BYTES: u64 = 8 << 30;
 /// A flood flushes after this many frames, so a frame never waits long in the write buffer.
 const FLUSH_EVERY: u32 = 64;
+/// A paced stream's tick (row B8: 1,000 frames a second is 10 frames a tick).
+const PACE_TICK: Duration = Duration::from_millis(10);
+const TICKS_PER_SECOND: u64 = 100;
+/// The bounds of a paced stream: input is hostile even on loopback.
+const MAX_RATE: u32 = 100_000;
+const MAX_SECONDS: u32 = 3600;
 /// How long a finished stream waits for the page to close before the server drops it.
 const LINGER: Duration = Duration::from_secs(30);
 
@@ -59,9 +67,19 @@ pub struct FloodSpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PacedSpec {
+    pub rate: u32,
+    pub seconds: u32,
+    pub size: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
     Echo,
     Flood(FloodSpec),
+    /// A binary flood that also echoes.
+    Mixed(FloodSpec),
+    Paced(PacedSpec),
     Sink,
 }
 
@@ -71,8 +89,36 @@ pub fn parse_route(path: &str, query: Option<&str>) -> Result<Route> {
         "/echo" => Ok(Route::Echo),
         "/sink" => Ok(Route::Sink),
         "/flood" => parse_flood(query.unwrap_or("")).map(Route::Flood),
-        other => Err(format!("no such path: {other} (known: /echo, /flood, /sink)")),
+        "/mixed" => match parse_flood(query.unwrap_or("")) {
+            Ok(spec) if spec.kind == Kind::Binary => Ok(Route::Mixed(spec)),
+            Ok(_) => Err("/mixed floods binary frames only".into()),
+            Err(e) => Err(e),
+        },
+        "/paced" => parse_paced(query.unwrap_or("")).map(Route::Paced),
+        other => Err(format!("no such path: {other} (known: /echo, /flood, /mixed, /paced, /sink)")),
     }
+}
+
+fn parse_paced(query: &str) -> Result<PacedSpec> {
+    let (mut rate, mut seconds, mut size) = (None, None, None);
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "rate" => rate = value.parse::<u32>().ok(),
+            "seconds" => seconds = value.parse::<u32>().ok(),
+            "size" => size = value.parse::<usize>().ok(),
+            other => return Err(format!("unknown parameter {other:?}")),
+        }
+    }
+    let rate = rate.filter(|r| (1..=MAX_RATE).contains(r)).ok_or_else(|| format!("rate=<frames per second, 1 to {MAX_RATE}> is required"))?;
+    let seconds = seconds.filter(|s| (1..=MAX_SECONDS).contains(s)).ok_or_else(|| format!("seconds=<1 to {MAX_SECONDS}> is required"))?;
+    let size = size.ok_or("size=<bytes> is required")?;
+    frame::check_size(size, false)?;
+    let frames = u64::from(rate) * u64::from(seconds);
+    if frames > MAX_FRAMES || frames * size as u64 > MAX_STREAM_BYTES {
+        return Err(format!("a paced stream is at most {MAX_FRAMES} frames and {MAX_STREAM_BYTES} bytes"));
+    }
+    Ok(PacedSpec { rate, seconds, size })
 }
 
 fn parse_flood(query: &str) -> Result<FloodSpec> {
@@ -150,7 +196,9 @@ async fn connection(stream: TcpStream, switches: Switches, fed: Fed) -> Result<(
     let mut ws = accept_hdr_async_with_config(stream, callback, Some(config)).await.map_err(|e| format!("handshake: {e}"))?;
     match route {
         Some(Route::Echo) => echo(&mut ws, switches).await,
-        Some(Route::Flood(spec)) => flood(&mut ws, spec, switches, &fed).await,
+        Some(Route::Flood(spec)) => flood(&mut ws, spec, switches, &fed, false).await,
+        Some(Route::Mixed(spec)) => flood(&mut ws, spec, switches, &fed, true).await,
+        Some(Route::Paced(spec)) => paced(&mut ws, spec, switches, &fed).await,
         Some(Route::Sink) => sink(&mut ws, switches).await,
         None => Err("the handshake passed without a route".into()),
     }
@@ -160,70 +208,175 @@ fn send_err(e: impl std::fmt::Display) -> String {
     format!("send: {e}")
 }
 
+/// Answers one message of an echo: the same message back, damaged when the switches ask for it at
+/// this `position`. `false` when the page is closing.
+async fn echo_one(ws: &mut Ws, message: Message, position: &mut u64, switches: Switches) -> Result<bool> {
+    let damage = switches.corrupt.is_some_and(|k| u64::from(k) == *position);
+    let reply = match message {
+        Message::Binary(bytes) if damage => {
+            let mut copy = bytes.to_vec();
+            frame::corrupt(&mut copy, false);
+            Message::binary(copy)
+        }
+        Message::Text(text) if damage => {
+            let mut copy = text.as_bytes().to_vec();
+            frame::corrupt(&mut copy, true);
+            Message::text(String::from_utf8(copy).map_err(|e| format!("corrupted text: {e}"))?)
+        }
+        m @ (Message::Binary(_) | Message::Text(_)) => m,
+        Message::Close(_) => return Ok(false),
+        _ => return Ok(true),
+    };
+    *position += 1;
+    ws.send(reply).await.map_err(send_err)?;
+    Ok(true)
+}
+
 async fn echo(ws: &mut Ws, switches: Switches) -> Result<()> {
     let mut position: u64 = 0;
     while let Some(message) = ws.next().await {
-        let message = message.map_err(|e| format!("receive: {e}"))?;
-        let damage = switches.corrupt.is_some_and(|k| u64::from(k) == position);
-        let reply = match message {
-            Message::Binary(bytes) if damage => {
-                let mut copy = bytes.to_vec();
-                frame::corrupt(&mut copy, false);
-                Message::binary(copy)
-            }
-            Message::Text(text) if damage => {
-                let mut copy = text.as_bytes().to_vec();
-                frame::corrupt(&mut copy, true);
-                Message::text(String::from_utf8(copy).map_err(|e| format!("corrupted text: {e}"))?)
-            }
-            m @ (Message::Binary(_) | Message::Text(_)) => m,
-            Message::Close(_) => break,
-            _ => continue,
-        };
-        position += 1;
-        ws.send(reply).await.map_err(send_err)?;
+        if !echo_one(ws, message.map_err(|e| format!("receive: {e}"))?, &mut position, switches).await? {
+            break;
+        }
     }
     Ok(())
 }
 
-async fn flood(ws: &mut Ws, spec: FloodSpec, switches: Switches, fed: &AtomicU64) -> Result<()> {
-    // The page says when to start, so that it is listening and its clock is running.
-    match ws.next().await {
-        Some(Ok(Message::Text(t))) if t.as_str() == "go" => {}
-        other => return Err(format!("a flood starts on the text `go`, got {other:?}")),
+/// Answers every message that has already arrived, without waiting for another. `false` when the
+/// page is closing.
+async fn echo_ready(ws: &mut Ws, position: &mut u64, switches: Switches) -> Result<bool> {
+    while let Some(next) = ws.next().now_or_never() {
+        match next {
+            Some(message) => {
+                if !echo_one(ws, message.map_err(|e| format!("receive: {e}"))?, position, switches).await? {
+                    return Ok(false);
+                }
+            }
+            None => return Ok(false),
+        }
     }
-    let text = spec.kind == Kind::Text;
-    let template = if text { frame::text_template(spec.size)? } else { frame::binary_template(spec.size)? };
-    let mut chain = BASIS;
-    let mut bytes: u64 = 0;
-    let mut held: Option<Message> = None;
-    for counter in 0..spec.frames {
-        let (mut data, sum) = if text { frame::text_frame(&template, counter) } else { frame::binary_frame(&template, counter) };
+    Ok(true)
+}
+
+/// Echoes until the page closes (or [`LINGER`] passes): the answer of a request sent just before the
+/// stream's end must still come.
+async fn echo_until_closed(ws: &mut Ws, position: &mut u64, switches: Switches) -> Result<()> {
+    let echoing = async {
+        while let Some(message) = ws.next().await {
+            if !echo_one(ws, message.map_err(|e| format!("receive: {e}"))?, position, switches).await? {
+                break;
+            }
+        }
+        Ok(())
+    };
+    tokio::time::timeout(LINGER, echoing).await.unwrap_or(Ok(()))
+}
+
+/// The page says when a stream starts (the text `go`), so that it is listening and its clock is running.
+async fn wait_for_go(ws: &mut Ws, what: &str) -> Result<()> {
+    match ws.next().await {
+        Some(Ok(Message::Text(t))) if t.as_str() == "go" => Ok(()),
+        other => Err(format!("{what} starts on the text `go`, got {other:?}")),
+    }
+}
+
+/// Makes the frames of one stream, with what the switches do to them, and its closing message.
+struct Maker {
+    text: bool,
+    template: Vec<u8>,
+    total: u32,
+    chain: u32,
+    bytes: u64,
+    held: Option<Message>,
+    switches: Switches,
+}
+
+impl Maker {
+    fn new(kind: Kind, size: usize, total: u32, switches: Switches) -> Result<Self> {
+        let text = kind == Kind::Text;
+        let template = if text { frame::text_template(size)? } else { frame::binary_template(size)? };
+        Ok(Self { text, template, total, chain: BASIS, bytes: 0, held: None, switches })
+    }
+
+    /// Frame `counter`: what to send now. Nothing when the frame waits behind the next one (`swap`),
+    /// and two messages when it brings the one it was swapped with.
+    fn frame(&mut self, counter: u32) -> Result<[Option<Message>; 2]> {
+        let (mut data, sum) = if self.text { frame::text_frame(&self.template, counter) } else { frame::binary_frame(&self.template, counter) };
         // The hash is of the frames as they should be: the page must find what the switches did.
-        chain = frame::mix(chain, sum);
-        bytes += data.len() as u64;
-        if switches.corrupt == Some(counter) {
-            frame::corrupt(&mut data, text);
+        self.chain = frame::mix(self.chain, sum);
+        self.bytes += data.len() as u64;
+        if self.switches.corrupt == Some(counter) {
+            frame::corrupt(&mut data, self.text);
         }
-        let len = data.len() as u64;
-        let message = if text { Message::Text(Utf8Bytes::try_from(data).map_err(|e| format!("text frame: {e}"))?) } else { Message::binary(data) };
-        if switches.swap == Some(counter) && counter + 1 < spec.frames {
-            held = Some(message);
-            continue;
+        let message = if self.text { Message::Text(Utf8Bytes::try_from(data).map_err(|e| format!("text frame: {e}"))?) } else { Message::binary(data) };
+        if self.switches.swap == Some(counter) && counter + 1 < self.total {
+            self.held = Some(message);
+            return Ok([None, None]);
         }
+        Ok([Some(message), self.held.take()])
+    }
+
+    fn closing(&self) -> Message {
+        let done = serde_json::json!({ "type": "done", "frames": self.total, "bytes": self.bytes, "hash": format!("{:08x}", self.chain) });
+        Message::text(done.to_string())
+    }
+}
+
+/// Hands `messages` to the socket (not flushed) and counts their bytes in `fed`.
+async fn feed_all(ws: &mut Ws, messages: [Option<Message>; 2], fed: &AtomicU64) -> Result<()> {
+    for message in messages.into_iter().flatten() {
+        let len = message.len() as u64;
         ws.feed(message).await.map_err(send_err)?;
         fed.fetch_add(len, Ordering::Relaxed);
-        if let Some(earlier) = held.take() {
-            let earlier_len = earlier.len() as u64;
-            ws.feed(earlier).await.map_err(send_err)?;
-            fed.fetch_add(earlier_len, Ordering::Relaxed);
-        }
+    }
+    Ok(())
+}
+
+/// A flood. With `echoing` (the `/mixed` route) it also answers, between two frames, every message
+/// the page has sent, and goes on answering after the closing message until the page closes.
+async fn flood(ws: &mut Ws, spec: FloodSpec, switches: Switches, fed: &AtomicU64, echoing: bool) -> Result<()> {
+    wait_for_go(ws, "a flood").await?;
+    let mut maker = Maker::new(spec.kind, spec.size, spec.frames, switches)?;
+    let mut position: u64 = 0;
+    for counter in 0..spec.frames {
+        let messages = maker.frame(counter)?;
+        feed_all(ws, messages, fed).await?;
         if counter % FLUSH_EVERY == FLUSH_EVERY - 1 {
             ws.flush().await.map_err(send_err)?;
         }
+        if echoing && !echo_ready(ws, &mut position, switches).await? {
+            return Ok(());
+        }
     }
-    let done = serde_json::json!({ "type": "done", "frames": spec.frames, "bytes": bytes, "hash": format!("{chain:08x}") });
-    ws.send(Message::text(done.to_string())).await.map_err(send_err)?;
+    ws.send(maker.closing()).await.map_err(send_err)?;
+    if echoing {
+        return echo_until_closed(ws, &mut position, switches).await;
+    }
+    linger(ws).await;
+    Ok(())
+}
+
+/// A paced stream: every [`PACE_TICK`] the frames due by then, `rate` a second, for `seconds`. A tick
+/// that runs late (or a write that blocks because the reader does not read) is made up for at the next.
+async fn paced(ws: &mut Ws, spec: PacedSpec, switches: Switches, fed: &AtomicU64) -> Result<()> {
+    wait_for_go(ws, "a paced stream").await?;
+    let total = spec.rate * spec.seconds;
+    let mut maker = Maker::new(Kind::Binary, spec.size, total, switches)?;
+    let mut tick = tokio::time::interval(PACE_TICK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Burst);
+    let (mut ticks, mut sent) = (0u64, 0u32);
+    while sent < total {
+        tick.tick().await;
+        ticks += 1;
+        let due = u32::try_from((u64::from(spec.rate) * ticks / TICKS_PER_SECOND).min(u64::from(total))).unwrap_or(total);
+        while sent < due {
+            let messages = maker.frame(sent)?;
+            feed_all(ws, messages, fed).await?;
+            sent += 1;
+        }
+        ws.flush().await.map_err(send_err)?;
+    }
+    ws.send(maker.closing()).await.map_err(send_err)?;
     linger(ws).await;
     Ok(())
 }
@@ -489,6 +642,113 @@ mod tests {
             let port = start(Switches::default()).await;
             let refused = connect_async(format!("ws://127.0.0.1:{port}/nope")).await;
             assert!(refused.is_err());
+        });
+    }
+
+    #[test]
+    fn mixed_and_paced_routes_are_parsed_and_bounded() {
+        assert_eq!(parse_route("/mixed", Some("frames=10&size=4096")), Ok(Route::Mixed(FloodSpec { frames: 10, size: 4096, kind: Kind::Binary })));
+        assert_eq!(parse_route("/paced", Some("rate=1000&seconds=30&size=4096")), Ok(Route::Paced(PacedSpec { rate: 1000, seconds: 30, size: 4096 })));
+        for bad in [
+            ("/mixed", Some("frames=10&size=4096&kind=text")),
+            ("/mixed", None),
+            ("/paced", None),
+            ("/paced", Some("rate=0&seconds=3&size=64")),
+            ("/paced", Some("rate=100001&seconds=3&size=64")),
+            ("/paced", Some("rate=10&seconds=0&size=64")),
+            ("/paced", Some("rate=10&seconds=3601&size=64")),
+            ("/paced", Some("rate=10&seconds=3")),
+            ("/paced", Some("rate=10&seconds=3&size=63")),
+            ("/paced", Some("rate=100000&seconds=3600&size=64")),
+            ("/paced", Some("rate=10&seconds=3&size=64&kind=text")),
+        ] {
+            assert!(parse_route(bad.0, bad.1).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_stream_floods_and_echoes_on_one_socket() {
+        runtime().block_on(async {
+            let port = start(Switches::default()).await;
+            let mut ws = dial(port, "/mixed?frames=300&size=4096").await;
+            ws.send(Message::text("go")).await.unwrap();
+            let echo_template = frame::binary_template(32).unwrap();
+            let mut sent_echo = StreamCheck::default();
+            for i in 0..20 {
+                let (data, _) = frame::binary_frame(&echo_template, i);
+                sent_echo.accept_binary(&data);
+                ws.send(Message::binary(data)).await.unwrap();
+            }
+            let (mut flood, mut echoed) = (StreamCheck::default(), StreamCheck::default());
+            let done = loop {
+                match ws.next().await.unwrap().unwrap() {
+                    Message::Binary(b) if b.len() == 32 => echoed.accept_binary(&b),
+                    Message::Binary(b) => flood.accept_binary(&b),
+                    Message::Text(t) => break serde_json::from_str::<serde_json::Value>(t.as_str()).unwrap(),
+                    _ => {}
+                }
+            };
+            // A request sent after the flood is over is still answered; the first twenty may come
+            // before the flood's end or after it (the flood is quick), the last one comes after.
+            let (data, _) = frame::binary_frame(&echo_template, 20);
+            ws.send(Message::binary(data)).await.unwrap();
+            while echoed.report().frames < 21 {
+                match ws.next().await.unwrap().unwrap() {
+                    Message::Binary(b) if b.len() == 32 => echoed.accept_binary(&b),
+                    other => panic!("not an echo: {other:?}"),
+                }
+            }
+            let (flood, echoed) = (flood.report(), echoed.report());
+            assert_eq!((flood.error_count, flood.frames), (0, 300));
+            assert_eq!(done["hash"], flood.hash.as_str());
+            assert_eq!((echoed.error_count, echoed.frames), (0, 21));
+        });
+    }
+
+    #[test]
+    fn a_paced_stream_arrives_whole_at_its_rate() {
+        runtime().block_on(async {
+            let port = start(Switches::default()).await;
+            let mut ws = dial(port, "/paced?rate=500&seconds=1&size=128").await;
+            ws.send(Message::text("go")).await.unwrap();
+            let started = std::time::Instant::now();
+            let mut check = StreamCheck::default();
+            let done = loop {
+                match ws.next().await.unwrap().unwrap() {
+                    Message::Binary(b) => check.accept_binary(&b),
+                    Message::Text(t) => break serde_json::from_str::<serde_json::Value>(t.as_str()).unwrap(),
+                    _ => {}
+                }
+            };
+            let report = check.report();
+            assert_eq!((report.error_count, report.frames), (0, 500));
+            assert_eq!(done["frames"], 500);
+            assert_eq!(done["hash"], report.hash.as_str());
+            // 500 frames a second for one second: not all at once, not much later.
+            let elapsed = started.elapsed();
+            assert!(elapsed >= Duration::from_millis(900) && elapsed < Duration::from_secs(5), "{elapsed:?}");
+        });
+    }
+
+    #[test]
+    fn a_paced_stream_with_a_corrupted_or_swapped_frame_is_caught() {
+        runtime().block_on(async {
+            for (switches, expected) in [(Switches { corrupt: Some(5), swap: None }, vec![5]), (Switches { corrupt: None, swap: Some(8) }, vec![8, 9])] {
+                let port = start(switches).await;
+                let mut ws = dial(port, "/paced?rate=100&seconds=1&size=64").await;
+                ws.send(Message::text("go")).await.unwrap();
+                let mut check = StreamCheck::default();
+                let done = loop {
+                    match ws.next().await.unwrap().unwrap() {
+                        Message::Binary(b) => check.accept_binary(&b),
+                        Message::Text(t) => break serde_json::from_str::<serde_json::Value>(t.as_str()).unwrap(),
+                        _ => {}
+                    }
+                };
+                let report = check.report();
+                assert_eq!(report.errors.iter().map(|e| e.frame).collect::<Vec<_>>(), expected);
+                assert_ne!(done["hash"], report.hash.as_str());
+            }
         });
     }
 }

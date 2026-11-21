@@ -51,7 +51,8 @@ enum Command {
 }
 
 fn execute(session: &Mutex<Session>, id: &str, params: Value) -> Result<Value, String> {
-    session.lock().unwrap_or_else(|e| e.into_inner()).execute(id, params).map_err(|e| e.to_string())
+    // The store calls of `daemon.add/update/remove` run outside the lock: the supervisor shares it.
+    pistudiodesktop_engine::execute_unlocked(session, id, params).map_err(|e| e.to_string())
 }
 
 /// `settings.set {"key":"cliPath","value":null}` to (`settings.set`, params).

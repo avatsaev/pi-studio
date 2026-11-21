@@ -2,10 +2,11 @@
 //! remove entries. The error text of
 //! a `daemon.*` command is its code (`not_found`, ...), so callers match on it.
 
-use pistudiodesktop_model::{EntryView, NewEntry, Secret};
+use pistudiodesktop_model::{NewEntry, Secret};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always};
+use crate::secret_job::SecretJob;
 use crate::session::EntryChange;
 use crate::{EngineError, Result, Session, params};
 
@@ -53,11 +54,21 @@ fn code(code: &'static str) -> EngineError {
     EngineError::Other(code.to_owned())
 }
 
-fn view_json(view: &EntryView) -> Result<Value> {
-    serde_json::to_value(view).map_err(|_| code("write_failed"))
+/// Whether `id` keeps a secret in the store, so that it is run as a [`SecretJob`].
+pub(crate) fn splits(id: &str) -> bool {
+    matches!(id, "daemon.add" | "daemon.update" | "daemon.remove")
 }
 
-fn add(s: &mut Session, p: &Value) -> Result<Value> {
+/// Plan one of the three commands for which [`splits`] is true; `params` is an object.
+pub(crate) fn plan(s: &Session, id: &str, p: &Value) -> Result<SecretJob> {
+    match id {
+        "daemon.add" => plan_add(s, p),
+        "daemon.update" => plan_update(s, p),
+        _ => plan_remove(s, p),
+    }
+}
+
+fn plan_add(s: &Session, p: &Value) -> Result<SecretJob> {
     let name = params::req_str(p, "name")?.to_owned();
     let (new, secret) = match params::req_str(p, "kind")? {
         "direct" => {
@@ -67,10 +78,10 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
         "relay" => (NewEntry::Relay { name }, Some(Secret::new(params::req_str(p, "pairingLink")?))),
         other => return Err(EngineError::BadParams(format!("`kind` must be `direct` or `relay`, got `{}`", other.chars().take(32).collect::<String>()))),
     };
-    view_json(&s.add_entry(new, secret).map_err(code)?)
+    s.plan_add_job(new, secret).map_err(code)
 }
 
-fn update(s: &mut Session, p: &Value) -> Result<Value> {
+fn plan_update(s: &Session, p: &Value) -> Result<SecretJob> {
     let id = params::req_str(p, "id")?;
     // `password: null` clears; an absent field leaves it.
     let password = match p.get("password") {
@@ -84,13 +95,25 @@ fn update(s: &mut Session, p: &Value) -> Result<Value> {
         password,
         pairing_link: params::str_param(p, "pairingLink")?.map(Secret::new),
     };
-    view_json(&s.update_entry(id, change).map_err(code)?)
+    s.plan_update_job(id, change).map_err(code)
+}
+
+fn plan_remove(s: &Session, p: &Value) -> Result<SecretJob> {
+    s.plan_remove_job(params::req_str(p, "id")?).map_err(code)
+}
+
+// The commands below run the job in one go, which blocks on the store: for a caller that owns its
+// thread. A caller that must stay responsive uses `Session::plan_secret_command`.
+fn add(s: &mut Session, p: &Value) -> Result<Value> {
+    plan_add(s, p)?.run_inline(s)
+}
+
+fn update(s: &mut Session, p: &Value) -> Result<Value> {
+    plan_update(s, p)?.run_inline(s)
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = params::req_str(p, "id")?;
-    s.remove_entry(id).map_err(code)?;
-    Ok(json!({"removed": true}))
+    plan_remove(s, p)?.run_inline(s)
 }
 
 #[cfg(test)]

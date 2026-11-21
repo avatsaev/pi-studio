@@ -1,7 +1,7 @@
 # Task 005 — Engine commands: add, update and remove entries with their secrets in the store
 
 - **Sprint:** sprint-113-desktop-secret-store
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1

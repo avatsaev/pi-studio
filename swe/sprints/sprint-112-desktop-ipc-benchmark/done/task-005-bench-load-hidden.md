@@ -1,7 +1,7 @@
 # Task 005 — Benchmark: echo under load, a hidden window, worker timers (B7, B8) and memory
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/ipc-bench
 - **Priority:** P1

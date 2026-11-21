@@ -1,10 +1,11 @@
 //! No control-protocol answer and no log line contains a registry secret. The secrets are
 //! distinctive strings, so a plain search is reliable. One test: the logger is process-wide.
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use pistudiodesktop_engine::{LocalRequest, Session};
 use pistudiodesktop_model::EntryId;
-use pistudiodesktop_secrets::{MemoryStore, SecretKey, SecretKind, SecretStore};
+use pistudiodesktop_secrets::{MemoryStore, Secret, SecretError, SecretKey, SecretKind, SecretStore, StoreKind};
 use pistudiodesktop_shell::daemons::LocalOp;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
@@ -36,6 +37,28 @@ impl log::Log for Capture {
         }
     }
     fn flush(&self) {}
+}
+
+/// A memory store whose deletes can be made to fail.
+#[derive(Default)]
+struct Flaky {
+    inner: MemoryStore,
+    fail_delete: AtomicBool,
+}
+
+impl SecretStore for Flaky {
+    fn kind(&self) -> StoreKind {
+        self.inner.kind()
+    }
+    fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretError> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &SecretKey, secret: &Secret) -> Result<(), SecretError> {
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &SecretKey) -> Result<(), SecretError> {
+        if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) { Err(SecretError::Unavailable("down".into())) } else { self.inner.delete(key) }
+    }
 }
 
 fn logged() -> Vec<String> {
@@ -104,7 +127,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
         .to_string(),
     )
     .expect("write the version 1 file");
-    let store = Arc::new(MemoryStore::new());
+    let store = Arc::new(Flaky::default());
     let (session, notices) = Session::with_config_dir(dir.path(), store.clone());
     assert!(notices.is_empty(), "{notices:?}");
     let mut app = AppShell::new(session, Services::default());
@@ -154,7 +177,13 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     execute(&mut app, &mut seen, "settings.set", json!({"key": "autoStartLocalDaemon", "value": false}));
     control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
     execute(&mut app, &mut seen, "daemon.remove", json!({"id": relay_id}));
-    execute(&mut app, &mut seen, "daemon.remove", json!({"id": direct_id}));
+    // A store that cannot delete: the entry is removed all the same, one notice names it, and the
+    // log line has the entry id and no secret.
+    store.fail_delete.store(true, std::sync::atomic::Ordering::SeqCst);
+    let removed = execute(&mut app, &mut seen, "daemon.remove", json!({"id": direct_id}));
+    assert_eq!(removed["result"], json!({"removed": true, "notices": [{"kind": "secret_not_removed", "entry": direct_id}]}), "{removed}");
+    assert!(logged().iter().any(|l| l.contains(&direct_id) && l.contains("could not remove")), "{:?}", logged());
+    store.fail_delete.store(false, std::sync::atomic::Ordering::SeqCst);
     control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
 
     // The page's requests too.

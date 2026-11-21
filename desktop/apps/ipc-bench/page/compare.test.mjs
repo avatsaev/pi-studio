@@ -73,3 +73,43 @@ test("a missing number is a failure, and the baseline is never judged", () => {
   assert.equal(find(rows, "B2/4KiB", "MiB/s").pass, false);
   assert.ok(rows.every((r) => r.transport === "bridge-x"));
 });
+
+test("B7 is reported against the baseline and judged on nothing; B8 judges loss and held bytes and only reports the timers", () => {
+  const find = (rows, workload, metric) => rows.find((r) => r.transport === "bridge-x" && r.workload === workload && r.metric.startsWith(metric));
+  const b8 = (variant, worst) => summary("B8", variant, worst);
+  const timers = { "workerTimer.maxDelayMs": 12, "pageTimer.maxDelayMs": 3400, "rustTick.maxDelayMs": 4, catchUpMs: 250 };
+  const candidate = [
+    summary("B7", "", { p99Ms: 2, meanMs: 0.4, downloadMibPerS: 300 }),
+    b8("hide", { lostFrames: 0, heldBytes: 4096, ...timers }),
+    b8("minimise", { lostFrames: 0, heldBytes: 8 * 1024 * 1024 + 4096, ...timers }),
+  ];
+  const base = [summary("B7", "", { p99Ms: 1, meanMs: 0.2, downloadMibPerS: 1500 }), b8("hide", { lostFrames: 0, ...timers })];
+  const rows = compare(results(candidate, base));
+  const b7 = find(rows, "B7", "p99Ms");
+  assert.deepEqual([b7.value, b7.baseline, b7.pass], [2, 1, null]);
+  assert.equal(find(rows, "B8/hide", "frames lost").pass, true);
+  assert.equal(find(rows, "B8/hide", "bytes Rust held").pass, true);
+  assert.equal(find(rows, "B8/minimise", "bytes Rust held").pass, true, "the window and a frame is within the bound");
+  assert.equal(find(rows, "B8/hide", "worker timer").value, 12);
+  assert.equal(find(rows, "B8/hide", "worker timer").pass, null);
+  assert.equal(find(rows, "B8/hide", "page timer").value, 3400);
+  assert.equal(find(rows, "B8/hide", "Rust 2 s tick").value, 4);
+  // The baseline's own B8 rows are in the reading (timers are the same webview's), without a held-bytes row.
+  const baselineRows = rows.filter((r) => r.transport === "websocket");
+  assert.ok(baselineRows.some((r) => r.workload === "B8/hide" && r.metric.startsWith("worker timer")));
+  assert.ok(baselineRows.every((r) => r.workload.startsWith("B7") || r.workload.startsWith("B8")));
+  assert.ok(!baselineRows.some((r) => r.metric.startsWith("bytes Rust held")));
+});
+
+test("B8 fails on a lost frame, on too many held bytes and on a run that produced no number", () => {
+  const find = (rows, workload, metric) => rows.find((r) => r.transport === "bridge-x" && r.workload === workload && r.metric.startsWith(metric));
+  const rows = compare(
+    results(
+      [summary("B8", "hide", { lostFrames: 3, heldBytes: 9 * 1024 * 1024 }), summary("B8", "minimise", {}, 3, 0)],
+      baseline,
+    ),
+  );
+  assert.equal(find(rows, "B8/hide", "frames lost").pass, false);
+  assert.equal(find(rows, "B8/hide", "bytes Rust held").pass, false);
+  assert.equal(find(rows, "B8/minimise", "frames lost").pass, false, "no number is not a pass");
+});

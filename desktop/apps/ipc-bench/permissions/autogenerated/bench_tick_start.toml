@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bench-tick-start"
+description = "Enables the bench_tick_start command without any pre-configured scope."
+commands.allow = ["bench_tick_start"]
+
+[[permission]]
+identifier = "deny-bench-tick-start"
+description = "Denies the bench_tick_start command without any pre-configured scope."
+commands.deny = ["bench_tick_start"]

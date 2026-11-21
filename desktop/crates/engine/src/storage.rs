@@ -42,14 +42,22 @@ pub enum Notice {
     /// A version 1 `daemons.json` has secrets that the secret store would not take. The file is
     /// as it was and the secrets work for this run; the next launch tries again.
     SecretsNotMoved,
+    /// An entry was removed but the secret store would not delete one of its items, which stays
+    /// behind (the log has the entry id and the store's code, no secret).
+    SecretNotRemoved {
+        /// The removed entry's id.
+        entry: String,
+    },
 }
 
 impl Notice {
-    /// `{ kind: "file_reset", file, keptAs }` or `{ kind: "secrets_not_moved" }`.
+    /// `{ kind: "file_reset", file, keptAs }`, `{ kind: "secrets_not_moved" }` or
+    /// `{ kind: "secret_not_removed", entry }`.
     pub fn to_json(&self) -> Value {
         match self {
             Notice::FileReset { file, kept_as } => serde_json::json!({"kind": "file_reset", "file": file, "keptAs": kept_as}),
             Notice::SecretsNotMoved => serde_json::json!({"kind": "secrets_not_moved"}),
+            Notice::SecretNotRemoved { entry } => serde_json::json!({"kind": "secret_not_removed", "entry": entry}),
         }
     }
 }

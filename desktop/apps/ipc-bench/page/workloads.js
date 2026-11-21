@@ -8,12 +8,14 @@
 //   B4  download: 1 GiB inbound as 32 KiB binary frames, with the memory of the app's processes
 //   B5  upload: 256 MiB outbound as 32 KiB binary frames, paced on bufferedAmount at 1 MiB
 //   W1  (candidates only) the page never acknowledges: Rust must stop reading at the window
+//
+// Rows B7 and B8 are in `load.js`, written on the helpers exported here.
 
 import { BASIS, StreamCheck, binaryFrame, binaryTemplate, hex, mix } from "./frame.js";
 import { round, summarize } from "./stats.js";
 
-const MIB = 1024 * 1024;
-const GIB = 1024 * MIB;
+export const MIB = 1024 * 1024;
+export const GIB = 1024 * MIB;
 /** The pacing the SDK's upload uses (`UPLOAD_POLL_MS` in file-transfer-client.ts), and the spec's 1 MiB. */
 const UPLOAD_HIGH_WATER = 1 * MIB;
 const UPLOAD_POLL_MS = 10;
@@ -21,8 +23,8 @@ const UPLOAD_POLL_MS = 10;
 const UPLOAD_SETTLE_MS = 2000;
 const MEMORY_SAMPLE_MS = 250;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const scaled = (count, scale) => Math.max(1, Math.round(count * scale));
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const scaled = (count, scale) => Math.max(1, Math.round(count * scale));
 
 /**
  * A run's deadline and failure channel. `await run.wait(promise)` settles with the promise, or
@@ -50,7 +52,7 @@ function newRun(timeoutMs) {
 }
 
 /** A transport, connected to `path`, closed again at the end; a close before the end fails the run. */
-async function withTransport(ctx, path, body, options = {}) {
+export async function withTransport(ctx, path, body, options = {}) {
   const run = newRun(ctx.runTimeoutMs);
   const transport = ctx.transport.create(options);
   transport.onClose = (code, reason) => {
@@ -76,7 +78,7 @@ async function withTransport(ctx, path, body, options = {}) {
  * other end says it made: its frames, bytes and running hash. Anything that differs is an error,
  * and so is every error the checker found (each names its frame).
  */
-function integrity(counted, sent) {
+export function integrity(counted, sent) {
   const problems = counted.errors.map((e) => ({ frame: e.frame, problem: e.problem }));
   const note = (problem) => problems.push({ frame: null, problem });
   if (counted.frames !== sent.frames) note(`${sent.frames} frames were sent and ${counted.frames} were counted`);
@@ -92,7 +94,7 @@ function integrity(counted, sent) {
   };
 }
 
-const mibPerS = (bytes, ms) => bytes / MIB / (ms / 1000);
+export const mibPerS = (bytes, ms) => bytes / MIB / (ms / 1000);
 
 // ---------------------------------------------------------------------------------------- B1
 
@@ -191,7 +193,7 @@ async function flood(ctx, { kind, size, frames, memory }) {
  * Samples the resident memory of the app's processes (Rust: `bench_rss`) before, every
  * `MEMORY_SAMPLE_MS` during and after a run. Growth is the peak minus the start.
  */
-async function startMemorySampler(ctx) {
+export async function startMemorySampler(ctx) {
   const first = await ctx.rss();
   const samples = [{ atMs: 0, totalKiB: first.totalKib, processes: first.processes.length }];
   const t0 = performance.now();
@@ -314,7 +316,7 @@ async function waitForStall(transport, run) {
 }
 
 /** An integrity verdict plus a problem of the window test. */
-function addProblem(verdict, problem) {
+export function addProblem(verdict, problem) {
   verdict.ok = false;
   verdict.errorCount++;
   verdict.errors.push({ frame: null, problem });

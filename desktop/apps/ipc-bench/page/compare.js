@@ -12,6 +12,8 @@ const B3_FRAMES_PER_S_FLOOR = 5000;
 const B4_GROWTH_LIMIT_KIB = (8 + 64) * 1024;
 /** WebKit's timer steps by 1 ms: below this resolution the median and 99th percentile are usable, above it only the mean. */
 const COARSE_TIMER_MS = 0.5;
+/** The spec's inbound window (§ 3): 8 MiB, and the frame (4 KiB in row B8) Rust may read past it. */
+const WINDOW_HELD_LIMIT_BYTES = 8 * 1024 * 1024 + 2 * 4096;
 
 const find = (entry, id, variant) => entry.summary.find((s) => s.id === id && s.variant === variant);
 
@@ -33,14 +35,42 @@ function b1(transport, base, cand, coarse) {
   return rows;
 }
 
+/** Row B7: reported only (the spec: one socket is shared, as today). */
+function b7(transport, summary, baseline) {
+  const reported = "reported only (one socket is shared)";
+  const at = (key) => (typeof summary.worst[key] === "number" ? summary.worst[key] : null);
+  return [
+    row(transport, "B7", "", "p99Ms of the echo while the download runs", at("p99Ms"), reported, null, baseline?.worst.p99Ms ?? null),
+    row(transport, "B7", "", "meanMs of the echo while the download runs", at("meanMs"), reported, null, baseline?.worst.meanMs ?? null),
+    row(transport, "B7", "", "download MiB/s while the echo runs", at("downloadMibPerS"), reported, null, baseline?.worst.downloadMibPerS ?? null),
+  ];
+}
+
+/** Row B8, one window mode (`hide`, `minimise`): no loss and held bytes within the window pass or fail; the timers are reported (they decide P7). */
+function b8(transport, summary) {
+  const at = (key) => (typeof summary.worst[key] === "number" ? summary.worst[key] : null);
+  const name = `B8/${summary.variant}`;
+  const rows = [row(transport, name, "", "frames lost", at("lostFrames"), "none", at("lostFrames") === 0)];
+  const held = at("heldBytes");
+  if (held !== null) rows.push(row(transport, name, "", "bytes Rust held", held, `at most ${WINDOW_HELD_LIMIT_BYTES} (the window and a frame)`, held <= WINDOW_HELD_LIMIT_BYTES));
+  const reported = "reported (decides P7)";
+  rows.push(row(transport, name, "", "worker timer, latest fire ms", at("workerTimer.maxDelayMs"), reported, null));
+  rows.push(row(transport, name, "", "page timer, latest fire ms", at("pageTimer.maxDelayMs"), reported, null));
+  rows.push(row(transport, name, "", "Rust 2 s tick, latest tick ms", at("rustTick.maxDelayMs"), reported, null));
+  rows.push(row(transport, name, "", "page catches up after the show, ms", at("catchUpMs"), reported, null));
+  return rows;
+}
+
 /** The rows of the reading for every candidate. */
 export function compare(results) {
   const rows = [];
   const base = results.transports.websocket;
   const coarse = typeof results.timerResolutionMs === "number" && results.timerResolutionMs >= COARSE_TIMER_MS;
   for (const [id, entry] of Object.entries(results.transports)) {
-    if (id === "websocket") continue;
+    // The baseline has no pass marks of the candidates' kind: it is read for B7 and B8, which are reports.
+    const baselineOnly = id === "websocket";
     for (const summary of entry.summary) {
+      if (baselineOnly && summary.id !== "B7" && summary.id !== "B8") continue;
       const baseline = base ? find(base, summary.id, summary.variant) : undefined;
       const worst = summary.worst;
       const at = (key) => (typeof worst[key] === "number" ? worst[key] : null);
@@ -71,11 +101,18 @@ export function compare(results) {
         case "W1":
           rows.push(row(id, "W1", "", "bytes Rust holds without acknowledgements", at("heldBytes"), "just past 8 MiB; the server's sends stall", summary.okRuns === summary.runs));
           break;
+        case "B7":
+          rows.push(...b7(id, summary, id === "websocket" ? undefined : baseline));
+          break;
+        case "B8":
+          rows.push(...b8(id, summary));
+          break;
         default:
           break;
       }
     }
     // B6 is every run of every workload: none may have a reordered, lost or changed frame.
+    if (baselineOnly) continue;
     const damaged = entry.summary.filter((s) => s.okRuns !== s.runs);
     rows.push(row(id, "B6", "", "workloads with a damaged run", damaged.length, "none", damaged.length === 0));
   }

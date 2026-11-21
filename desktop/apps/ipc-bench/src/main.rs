@@ -19,6 +19,7 @@ mod commands;
 mod frame;
 mod procs;
 mod server;
+mod tick;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -27,8 +28,9 @@ use clap::Parser;
 use commands::{Config, Shared};
 
 /// The workload rows this build has. `--only` takes a comma-separated subset. `window` is the
-/// no-acknowledgement test of the bridge candidates (the baseline has no window).
-const ROWS: &[&str] = &["b1", "b2", "b3", "b4", "b5", "window"];
+/// no-acknowledgement test of the bridge candidates (the baseline has no window). `b7` is the echo
+/// under a download, `b8` the hidden-window runs.
+const ROWS: &[&str] = &["b1", "b2", "b3", "b4", "b5", "window", "b7", "b8"];
 
 #[derive(Parser, Debug)]
 #[command(name = "ipc-bench", version, about = "Pi Studio desktop: the IPC benchmark")]
@@ -39,7 +41,7 @@ struct Args {
     /// How many times each workload runs.
     #[arg(long, value_name = "N", default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
     runs: u32,
-    /// Only these rows, comma-separated (b1, b2, b3, b4, b5, window). Default: all.
+    /// Only these rows, comma-separated (b1, b2, b3, b4, b5, window, b7, b8). Default: all.
     #[arg(long, value_name = "ROWS", value_delimiter = ',', value_parser = parse_row)]
     only: Vec<String>,
     /// Shrink the byte and frame counts to this fraction (above 0, at most 1), for a quick run.
@@ -113,6 +115,7 @@ fn main() {
     let built = tauri::Builder::default()
         .manage(shared)
         .manage(bridge)
+        .manage(tick::Ticker::default())
         .setup(move |_| {
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = server::serve(listener, switches, fed).await {
@@ -126,6 +129,9 @@ fn main() {
             commands::bench_rss,
             commands::bench_progress,
             commands::bench_finish,
+            commands::bench_window_hold,
+            commands::bench_tick_start,
+            commands::bench_tick_stop,
             bridge_commands::bridge_open,
             bridge_commands::bridge_send_text,
             bridge_commands::bridge_send_binary,

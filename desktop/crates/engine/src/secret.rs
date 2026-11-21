@@ -5,10 +5,9 @@
 //! nothing the thread that owns a session runs in answer to a page or control request may wait on
 //! one. The rule that keeps it so is in `docs/architecture.md` § Decisions: the session only
 //! *plans* a read (`DialPlan` in `local.rs`) and hands out its store ([`Session::secret_store`]),
-//! and the caller does the blocking step on a thread of its own. The calls in this module are the
-//! ones that still run where the command runs: at launch (migration, before any window or owner
-//! thread exists) and in `daemon.add`, `daemon.update` and `daemon.remove` until they move to the
-//! same split.
+//! and the caller does the blocking step on a thread of its own. `daemon.add`, `.update` and
+//! `.remove` are split the same way (`SecretJob` in `secret_job.rs`). The one call that still runs
+//! where the session lives is at launch: migration, before any window or owner thread exists.
 //!
 //! The browser build has no store: reads are not planned there, and a command that must store a
 //! secret fails with `secret_store_failed`.
@@ -64,6 +63,7 @@ mod native {
     }
 
     /// A session's secret store.
+    #[derive(Clone)]
     pub(crate) struct Vault {
         pub(crate) store: Arc<dyn SecretStore>,
     }
@@ -109,7 +109,7 @@ use pistudiodesktop_model::{EntryId, Secret};
 
 /// The browser build holds no secret.
 #[cfg(target_arch = "wasm32")]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Vault;
 
 #[cfg(target_arch = "wasm32")]

@@ -43,7 +43,7 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
     apps/pistudiodesktop-cli              headless CLI
-    apps/ipc-bench                        the IPC benchmark: baseline and two candidate bridges (exempt from the layers; uses `net`; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
+    apps/ipc-bench                        the IPC benchmark: baseline and two candidate bridges, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net`; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci
 
 Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src/layers.rs`.
@@ -84,7 +84,8 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
     discarded. They are never logged, never in a control answer, in `boot` or in `ui.inspect`, and
     reach the page only through `daemon_resolve_current`, for the entry being opened. A store call
     may block: the session never makes one on the owner thread (it plans a dial, `DialPlan`, and the
-    caller reads the store), except at launch, where a version 1 file's secrets are moved.
+    caller reads the store; `daemon.add/update/remove` are a `SecretJob` whose store steps run on
+    worker threads, `deferred.rs`), except at launch, where a version 1 file's secrets are moved.
     A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 
 ## Conventions

@@ -6,7 +6,11 @@ import { BASIS, hashWords } from "./frame.js";
 import { compare, describe } from "./compare.js";
 import { median, round, timerResolutionMs } from "./stats.js";
 import { TRANSPORTS } from "./transport.js";
-import { WORKLOADS } from "./workloads.js";
+import { WORKLOADS as BASE_WORKLOADS } from "./workloads.js";
+import { LOAD_WORKLOADS } from "./load.js";
+
+/** Every workload, in the order it runs: B1 to B5 and W1, then B7 and B8. */
+const WORKLOADS = [...BASE_WORKLOADS, ...LOAD_WORKLOADS];
 
 const { invoke } = window.__TAURI__.core;
 
@@ -66,7 +70,7 @@ async function main() {
     pageErrors: pageErrors,
     ok: false,
   };
-  const ctxBase = { scale: config.scale, runTimeoutMs: RUN_TIMEOUT_MS, rss: () => invoke("bench_rss") };
+  const ctxBase = { scale: config.scale, runTimeoutMs: RUN_TIMEOUT_MS, rss: () => invoke("bench_rss"), invoke };
   await progress(`page ready: ${navigator.userAgent}; timer step ${results.timerResolutionMs} ms; page hashes ${results.pageHash.mibPerS} MiB/s`);
 
   for (const transport of TRANSPORTS) {
@@ -117,6 +121,15 @@ async function main() {
 function headline(record) {
   if (record.error) return record.error;
   const path = record.ipc ? `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order` : "";
+  if (record.lostFrames !== undefined) {
+    const held = record.heldBytes === null ? "Rust holds nothing (no bridge)" : `Rust held at most ${record.heldBytes} bytes`;
+    const worker = record.workerTimer.maxDelayMs === null ? "no worker timer due" : `worker timer ${round(record.workerTimer.maxDelayMs, 0)} ms late at most`;
+    const hidden = record.window.pageSawHidden ? "page saw hidden" : record.window.systemHidIt ? "page did not see hidden" : "the window system did not hide it";
+    return `${record.lostFrames} frames lost, ${held}, caught up ${record.catchUpMs} ms after the show, ${worker}, page timer ${round(record.pageTimer.maxDelayMs, 0)} ms late at most, Rust tick ${round(record.rustTick.maxDelayMs, 0)} ms late at most (${hidden})${path}`;
+  }
+  if (record.medianMs !== undefined && record.downloadMibPerS !== undefined) {
+    return `echo median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms over ${record.trips} trips while the download ran at ${record.downloadMibPerS} MiB/s${path}`;
+  }
   if (record.medianMs !== undefined) return `median ${record.medianMs} ms, p99 ${record.p99Ms} ms, mean ${record.meanMs} ms${path}`;
   if (record.heldBytes !== undefined) {
     return `Rust held ${record.heldBytes} bytes (window ${record.windowHighBytes}), the server sent ${record.serverFedMiB} of ${record.serverFloodBytes / 1048576} MiB while it stalled${path}`;

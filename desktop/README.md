@@ -41,7 +41,7 @@ with hot reload. `npm run bundle` builds installers.
 | `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
 | `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, dialogs, the control server |
 | `apps/pistudiodesktop-cli` | The headless CLI |
-| `apps/ipc-bench` | The IPC benchmark: a small Tauri app that measures the webview's WebSocket (the baseline) and two candidate transport bridges (per-frame and batched) and writes `results.json`. Never bundled or released |
+| `apps/ipc-bench` | The IPC benchmark: a small Tauri app that measures the webview's WebSocket (the baseline) and two candidate transport bridges (per-frame and batched) on throughput, echo latency (alone and under a download), a hidden window and memory, and writes `results.json`. Never bundled or released |
 | `xtask` | `cargo xtask layers \| web \| wasm \| test \| ci` |
 
 Read [AGENTS.md](AGENTS.md) for the rules and [docs/architecture.md](docs/architecture.md) for the
