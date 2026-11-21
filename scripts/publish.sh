@@ -122,8 +122,9 @@ npm test
 # raw.githubusercontent equivalents; the current GFM-API rendering does not, and
 # `repository.directory` only improves the source link (npm RFC #10), not image URLs.
 #
-# raw.githubusercontent is NOT usable here: this repo is PRIVATE, so those URLs 404 for the
-# anonymous visitors reading the package page. Instead the images ship inside the tarball (each
+# raw.githubusercontent was not usable when this was written: the repo was private then, so those
+# URLs 404ed for the anonymous visitors reading the package page (it is public now; this stays
+# because the URLs below are pinned to a version). The images ship inside the tarball (each
 # such package lists "assets" in its "files") and the registry README points at jsDelivr, which
 # mirrors published npm packages publicly and needs no auth:
 #   https://cdn.jsdelivr.net/npm/@av-pi-studio/<pkg>@<version>/assets/...

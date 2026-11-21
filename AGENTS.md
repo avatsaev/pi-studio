@@ -228,8 +228,9 @@ runnable (and this is what `release.sh` calls under the hood).
 **The desktop client is released separately.** It has its own version (`[workspace.package] version`
 in `desktop/Cargo.toml`), is in none of the three steps below, and is built by
 `.github/workflows/desktop-release.yml`: pushing a tag `desktop-v<version>` builds the installers on
-Linux (deb, rpm, AppImage), macOS (one universal dmg) and Windows (msi, nsis) and creates a **draft**
-GitHub Release that a person publishes; a manual run, or a pull request that changes that file, builds
+Linux (deb, rpm, AppImage), macOS (one universal dmg) and Windows (msi, nsis) and **publishes** a
+GitHub Release holding them (public at once, with fixed notes; no draft, so try a manual run's
+installers before tagging); a manual run, or a pull request that changes that file, builds
 them as workflow artifacts only. The installers are not signed with a real identity. Runbook:
 `desktop/docs/development.md` § Releasing.
 
@@ -266,8 +267,9 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    that package's "files" omits "assets" (the images would 404 on the CDN). npmjs.com renders
 #    READMEs through GitHub's GFM API, which has no repo context, so a relative image path renders
 #    broken there even though it works on github.com; `repository.directory` (on packages/cli) only
-#    fixes the source link, not image URLs. raw.githubusercontent is NOT an option — this repo is
-#    private, so those URLs 404 for anonymous package-page visitors. jsDelivr mirrors published npm
+#    fixes the source link, not image URLs. raw.githubusercontent was not an option when this was
+#    built — the repo was private then, so those URLs 404ed for anonymous package-page visitors (it
+#    is public now; jsDelivr stays because its URLs are pinned to the published version). jsDelivr mirrors published npm
 #    packages publicly, so the screenshots ship in the cli tarball (`assets`, ~470 KB of webp) and
 #    are served from there. Screenshots are webp at 2x their README display width: PNG at this size
 #    was 1.9 MB for the same four images.
