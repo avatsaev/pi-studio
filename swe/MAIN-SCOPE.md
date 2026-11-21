@@ -216,7 +216,7 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
 | GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
 | Relay       | Remote access                               | WebSocket + NaCl box   | Self-hosted (`packages/relay`, Node)                                                         |
-| SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | Electron-only; daemon remains bound to remote `127.0.0.1:6767`; see `architecture/ssh-gateway-connections.md` |
+| SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | **Not built.** Desktop app only (the Tauri client, desktop milestone 4; the owner's decisions of 2026-11-21 are at the top of `architecture/ssh-gateway-connections.md`, whose body was written for the Electron plan); daemon remains bound to remote `127.0.0.1:6767` |
 | MCP clients | Agent-to-agent control                      | Model Context Protocol | **Not implemented.** `agent/mcp-server.ts` holds a tool registry (17 tools) but nothing serves `/mcp/agents`, no `McpBackend` is implemented, no `daemon.mcp` config exists, and no spawned agent receives `--mcp-config` — so agents cannot reach it and `features/subagents.md` orchestration has never run |
 
 ### Configuration surface (selected env vars)

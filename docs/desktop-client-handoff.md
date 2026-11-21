@@ -594,12 +594,24 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    explored first. Relay entries keep the webview's socket until milestone 4.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
-4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the
-   relay fixtures. Check: a paired remote daemon works with the same behaviour as direct.
+4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
+   (`swe/architecture/relay-protocol.md`) and pass the relay fixtures. Check: a paired remote
+   daemon works with the same behaviour as direct. **Added by the owner (2026-11-21): a daemon
+   entry of kind SSH**, so a user with an SSH account on the daemon's host needs neither the relay
+   nor an open daemon port: Rust opens an SSH connection and runs the daemon connection over a
+   `direct-tcpip` channel to the host's `127.0.0.1:6767`. Decided: SSH is built into the app with a
+   Rust library (`russh`), not the machine's `ssh` program; the first version logs in with a key
+   file (optional passphrase), an SSH agent or a password, and reads `~/.ssh/config`; when the
+   daemon is not running on the host, a Start button runs `pi-studio daemon start` there over the
+   same SSH connection. Not specified yet: the record is the note at the top of
+   `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
+   machine is used through SSH with the same behaviour as direct.
 5. **Native shell features.** Menus, notifications, updates, signing. Bundling the daemon (Node
    runtime as a sidecar, macOS and Linux only, roughly 1–2 sprints) is deferred until the app ships
    to people without Node; a native Windows daemon (about 50 POSIX assumptions in the server, no
    Windows CI) only if Windows users need a local one.
+
+**The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 
 ## Open questions
 
