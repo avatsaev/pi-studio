@@ -54,11 +54,14 @@ developer's machine. The desktop client has its own version, `[workspace.package
 
 1. Set the version in `Cargo.toml`, run `cargo xtask ci` (it refreshes `Cargo.lock`), merge to `main`
    and wait for the Desktop CI run of that commit to pass.
-2. Tag that commit `desktop-v<version>` and push the tag. A tag that does not match the version
+2. Try the installers before tagging: run the workflow by hand (see below) and install what it
+   attaches. Nothing checks them after the tag.
+3. Tag that commit `desktop-v<version>` and push the tag. A tag that does not match the version
    fails the run before anything is built.
-3. The workflow builds on three runners and creates a **draft** GitHub Release with the installers:
+4. The workflow builds on three runners and **publishes** a GitHub Release with the installers:
    `.deb`, `.rpm` and `.AppImage` (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64).
-4. Download and try each installer, write the notes, then publish the draft on GitHub.
+   It is public at once, with fixed notes (the unsigned-build warnings and the CLI the local daemon
+   needs); edit the notes on GitHub afterwards. If a bundle job fails, no release is created.
 
 To build the installers without releasing, run the workflow by hand (Actions → Desktop release → Run
 workflow): they are attached to the run as artifacts. A pull request that changes the workflow file

@@ -2,8 +2,8 @@ name: Desktop release
 
 # Builds the desktop client's installers (`desktop/`) on Linux, macOS and Windows.
 #
-#   a pushed tag `desktop-v<version>`   builds, then creates a DRAFT GitHub Release holding the
-#                                       installers; a person reviews and publishes it
+#   a pushed tag `desktop-v<version>`   builds, then PUBLISHES a GitHub Release holding the
+#                                       installers (public at once: nobody reviews it first)
 #   a manual run (workflow_dispatch)    builds only; the installers are artifacts of the run
 #   a pull request changing this file   builds only: how a change to this workflow is tested
 #
@@ -124,7 +124,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Draft release
+    name: Release
     if: github.ref_type == 'tag'
     needs: bundle
     runs-on: ubuntu-24.04
@@ -136,16 +136,27 @@ jobs:
         with:
           path: bundles
           merge-multiple: true
-      # A draft: nothing is public until someone publishes it on GitHub.
-      - name: Create the draft release
+      # Published at once, not a draft, and only when every bundle job passed (`needs: bundle`).
+      # The notes are fixed: what a person downloading an unsigned build has to know.
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          cat > notes.md <<'EOF'
+          Installers for Linux (x64), macOS (Apple Silicon and Intel) and Windows (x64).
+
+          The builds are not signed with a real identity, so the system warns before opening them:
+
+          - **macOS:** the first open is blocked. Allow the app in System Settings → Privacy & Security.
+          - **Windows:** SmartScreen shows a warning. Choose "More info", then "Run anyway".
+
+          To run a daemon on this machine the app uses an installed `pi-studio` CLI
+          (`npm install -g @av-pi-studio/cli`). Windows has no local daemon: connect to a remote one.
+          EOF
           mapfile -t files < <(find bundles -type f | sort)
           gh release create "$TAG" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --draft \
             --verify-tag \
             --title "Pi Studio Desktop ${TAG#desktop-v}" \
-            --notes "Unsigned builds: macOS and Windows warn before opening them."
+            --notes-file notes.md
