@@ -24,7 +24,7 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
 | Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **Milestone 1 is done for Linux** (sprints 102–111, checked live on Linux 2026-11-20; on macOS and Windows only the automated platform checks have run, 2026-11-20). `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases; the webview still opens the WebSocket itself. **Storage is in Rust:** the page calls `boot` (stored workbench keys, registry view, preview kind) and `storage_set` for every write; the engine writes `settings.json` (with the app-wide keys such as the theme), `daemons.json` and `daemon-state/<entry>.json` (one layout per daemon entry) in the configuration directory (`--config-dir`). **Dialogs, links and save are native:** confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. **The HTML preview has its own origin** (`pi-preview://localhost/<id>`): its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). **Daemon registry and local daemon:** Rust owns `daemons.json` (mode 0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status\|start\|restart\|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a secret is never read back to the page), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`): connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in the same section. **Open:** macOS and Windows (the list is `desktop/docs/platform-checks.md`; sprint-106/task-002 and sprint-111/task-002 wait for a person with those machines); on Linux, the Upload picker and a file dragged from the OS (not verifiable in the headless container), a real Node version manager finding the CLI, a relay link whose daemon key was rotated (it reports `daemon_offline`, not `wrong_key`, so the entry is not marked; Replace link works), and the close-time layout flush (a change in the last ~250 ms before closing the window is lost). Its gate is `cargo xtask ci`, run inside `desktop/` |
-| `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
+| `pi-studio-dashboard` | A throwaway test application (owner, 2026-11-21). Nothing is taken from it or shared with it; ignore the mentions of it below |
 
 ## Plan and progress
 
@@ -293,10 +293,9 @@ Rules the bridge must honour:
 What this buys: no dependency on webview timer throttling, TCP keepalive, sleep/wake awareness,
 native TLS and certificate handling, and the password out of the webview.
 
-Start from `pi-studio-dashboard`'s `crates/protocol` (frames, handshake, lenient decoding, about
-1.9k lines) and `crates/client` (tokio-tungstenite, backoff, liveness, TLS, secrets, about 2.6k
-lines). Share them between the two repositories instead of copying. Whether they already handle
-binary frames and the relay was **not verified**.
+The Rust code for this is written in `desktop/crates` (decision T2 of
+`swe/features/desktop-transport-bridge.md`). An earlier version of this section said to start from
+`pi-studio-dashboard`'s crates: that application was a throwaway test and is not a source.
 
 Moving the session itself (handshake, reconnect, resubscription) into Rust is a possible later
 step. It needs SDK changes and should wait for a measured reason.
@@ -587,10 +586,12 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    in the workbench (an empty link href reloaded the app).
    Not in milestone 1 after all: a native upload picker and native drops with file paths (both
    wait for the transfer engine). **Milestone 2 starts with the IPC benchmark** (is ordered,
-   low-overhead binary delivery over Tauri IPC fast enough for terminal traffic); it is in no
-   spec yet.
+   low-overhead binary delivery over Tauri IPC fast enough for terminal traffic).
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
+   *State (2026-11-21): specified in `swe/features/desktop-transport-bridge.md`, not planned, not
+   built. The benchmark is a gate: if it fails, another bridge design is explored first. Relay
+   entries keep the webview's socket until milestone 4.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
 4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the
@@ -605,7 +606,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 - ~~Does the desktop app bundle a daemon, or only connect to existing ones?~~ Answered
   (2026-11-15): neither alone. It supervises an installed `pi-studio` CLI's daemon (milestone 1);
   bundling is deferred (milestone 5).
-- Do the dashboard's Rust crates move to a shared repository or a published crate?
+- ~~Do the dashboard's Rust crates move to a shared repository or a published crate?~~ Answered
+  (2026-11-21): no. The dashboard was a throwaway test application.
 - ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
   (relay protocol 2, 0.0.121): yes. A relay pairs one client socket with one daemon data socket per
   connection, up to 32 per daemon, each with its own channel and daemon session, so a second
@@ -632,4 +634,4 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 | SDK | `packages/client/AGENTS.md` |
 | Design system | `packages/ui-library/README.md`, `packages/ui-library/DESIGN_SYSTEM.md` |
 | Current web UI invariants | `packages/web-client/AGENTS.md` |
-| Sibling Rust client | `pi-studio-dashboard`: `docs/architecture.md`, `crates/protocol`, `crates/client` |
+| Milestone 2 (transport bridge) | `swe/features/desktop-transport-bridge.md` |
