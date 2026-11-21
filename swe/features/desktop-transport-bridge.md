@@ -156,6 +156,15 @@ what `onMessage` has returned from (`transport_ack`, every 256 KiB or 50 ms, whi
 While more than 8 MiB is unacknowledged Rust stops reading the socket, so TCP slows the daemon,
 which already paces a download on its send buffer. It reads again below 4 MiB.
 
+**A socket that ends while the page is behind (found by the first runner run, 2026-11-21).** Rust
+reads ahead of the page by up to the window, so a socket can end while the page still holds
+unprocessed messages. Rust then forgets the handle at once, so a later `transport_ack` or send
+answers `unknown_handle`, and `closed` is the last message on the channel, sent after everything
+the channel owes. The TypeScript transport swallows `unknown_handle` on `transport_ack`; reports it
+on a send, after letting `closed` explain it (up to 250 ms); calls `onClose` only when `closed`
+arrives, after every earlier frame reached `onMessage`; and relies on no other command after the
+end (`transport_close` ignores an unknown handle).
+
 **Outbound order.** `seq` starts at 0 for each connection and rises by one per send. Rust writes
 frames to the socket in `seq` order: one that arrives early waits (at most 64 messages); a gap
 that lasts 5 s closes the connection with the error `send_order`, and so does a `seq` that was
@@ -227,7 +236,7 @@ and reported as a notice, and the entry is still removed.
 | Signal | Detection | Limits |
 |---|---|---|
 | `wake` | A tick every 2 s compares both the wall clock and a steady clock with the time expected; 10 s or more unaccounted for in either is a wake (a system sleep moves only the wall clock, a stopped process moves both) | A backward clock is not a wake. Also fires after the process was stopped and continued, or the clock was set forward: harmless |
-| `network` | The set of non-loopback interface addresses is read every 5 s; a change that leaves at least one address fires after 1 s without another change | — |
+| `network` | The non-loopback, non-link-local addresses of interfaces that are up are read every 5 s (every 1 s while a change settles); a change that leaves at least one address fires after 1 s without another change | A signal the 5 s limit refuses is kept pending (one per reason) and goes out when the limit allows; it is never dropped |
 
 At most one `connection_resume` every 5 s. Rust closes no socket on a signal: the workbench probes
 with a 5 s ping and reconnects when that fails, as it does today for a tab that became visible.
@@ -413,7 +422,7 @@ Gates and documents:
 - **How the engine reaches the store without blocking the owner thread (answered, sprint-113/task-004 and 005).** A pure `plan` on the owner thread and a `finish` or `SecretJob` step on a worker thread; see `desktop/docs/architecture.md` § Decisions and § Threads.
 - **macOS and an unsigned build**: whether the keychain prompts after every update, and whether a GitHub runner can use a keychain unattended.
 - **The TLS crates' licences** (`rustls` with `ring`, the platform certificate verifier) against the permissive-only rule, and whether `ring` builds on all three runners without extra tools.
-- **The interface-address crate** (`if-addrs` 0.15.0, MIT OR BSD-3-Clause, not read) and the cost of reading the addresses every 5 s.
+- **The interface-address crate (answered, 2026-11-21).** `if-addrs` 0.15.0 (MIT OR BSD-3-Clause; read), 16 µs per reading on Linux (median of 200). Its macOS and Windows builds are not seen yet (the runners will show them).
 - **Largest frame either side sends (answered, 2026-11-21).** Largest daemon text frame seen: 5,243,061 bytes (a 5 MiB `file_read_request`); largest binary: 553,220 bytes (a terminal `Output` frame); the client's largest: 32,770 bytes (an upload chunk). 128 MiB leaves ample room. Measured with the mock provider's small rows only: a session with large tool outputs was not measured.
 - **Whether the app's 2 s tick runs while macOS naps a hidden app.** A stalled tick looks like a wake; the 5 s rate limit bounds the cost.
 - **The control socket on Windows.** It is a TCP listener on `127.0.0.1` (read in `control_server.rs`), so it should work there; the Windows checks have only driven the page through WebDriver so far.

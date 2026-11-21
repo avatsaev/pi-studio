@@ -48,3 +48,28 @@ All five met.
 - B4: both candidates miss "at least half the baseline" on this machine but exceed the 40 MiB/s floor about ten times over; the baseline is a loopback with no real network. The memory-growth bound (window plus 64 MiB) fails for the baseline too (its growth is the webview's). Whether either rule needs rewording is the owner's decision at task-007, with all three platforms in hand. No pass mark was changed here.
 - The 5 s order-gap timer and the 16 MiB byte cap are not part of the benchmark (s115/t002).
 - Task-005: `compare()` ignores B7 and B8 rows.
+
+## Addendum (2026-11-21): the first runner run, and a fix
+The first run on the macOS and Windows runners (pull request 60, quick: `--runs 1 --scale 0.1`, run 44916778278) ran to the end on both. macOS exit 0; Windows exit 1 because of one damaged run: `bridge-frame B3 run 1: socket error: no such connection` (not on macOS, not on Linux; `bridge-batch` B3 passed on Windows).
+- **Cause (partly proven):** `no such connection` is `bridge.rs`'s `unknown_handle`, which only a command arriving after Rust removed the handle can get. The page's late `bridge_ack` rejection went to `fail()` and hid `closed.error`, which names the real reason and arrives later on the channel. Why the Windows socket ended is not proven: the log shows `connection ended: send: IO error 10054` from the benchmark server (the Rust client dropped the socket while the server was sending). Consistent with a slow page (Rust reads ahead by up to the 8 MiB window while WebView2 works through about 20k evaluated scripts; the server's linger was 30 s), or another read error on Windows. Not reproducible on Linux.
+- **Fix (`desktop/apps/ipc-bench/`):** an ack answering `unknown_handle` is ignored; a send answering it is still an error, reported after up to 250 ms (`CLOSED_GRACE_MS`) so that `closed` can explain it; a connection that ends on its own logs one line (code, reason, error, frames and bytes sent, unacknowledged) so the next Windows run shows the real reason; `bridge_stats` still answers after the end (the last 16 connections are kept); the server's `LINGER` went from 30 s to 600 s. B6 is not weakened (a close before `done` still fails the run). Four page tests and a stats assertion were added.
+- **Design point for the real bridge (s115/t004 and s115/t002):** Rust reads ahead of the page by up to the window, so a socket can end while the page still holds unprocessed messages; after that Rust has forgotten the handle, so acks and sends answer `unknown_handle`, and `closed` is the last message on the channel. The TypeScript transport must swallow `unknown_handle` on `transport_ack`, still report it on a send (after letting `closed` explain it), call `onClose` only when `closed` arrives after all earlier frames were delivered, and not rely on any other command after the end (`transport_close` already ignores an unknown handle). Rust must treat a late ack as `unknown_handle` and send `closed` after everything the channel owes. Spec section 3 now says this.
+- Gates: clippy clean; `cargo test -p pistudiodesktop-ipc-bench` 44 passed; `node --test page/*.test.mjs` 45 passed; Linux `--only b3 --scale 0.1 --runs 3` 9/9 ok.
+
+Quick runs (1 run, scale 0.1; not for verdicts; macOS aarch64 GitHub runner with WKWebView, Windows x86_64 with WebView2 157):
+
+| Row | macOS websocket | macOS bridge-frame | macOS bridge-batch | Windows websocket | Windows bridge-frame | Windows bridge-batch |
+|---|---|---|---|---|---|---|
+| B1 median / p99 / mean (ms) | 1 / 2 / 0.52 | 1 / 3 / 1.27 | 1 / 8 / 1.05 | 0.1 / 1 / 0.14 | 0.9 / 1.9 / 0.95 | 0.9 / 1.2 / 0.88 |
+| B2 4 KiB (MiB/s) | 32.9 | 10.3 | 154.2 | 336.9 | 6.9 | 63.7 |
+| B2 64 KiB | 241.7 | 89.0 | 119.7 | 65.9 | 72.3 | 76.4 |
+| B2 256 KiB | 472.2 | 178.3 | 240.6 | 763.5 | 129.1 | 136.0 |
+| B3 (frames/s) | 11.1k | 30.5k | 274k | 132k | failed | 206k |
+| B4 (MiB/s) | 208.1 | 91.0 | 139.3 | 503.7 | 41.9 | 64.0 |
+| B4 memory growth (MiB) | 0 | 1 | 4 | 18 | 79 | 0 |
+| B5 (MiB/s) | 72.1 | 51.2 | 80.0 | 92.8 | 49.1 | 44.2 |
+| B5 `bufferedAmountEnd` | 0 | 0 | 0 | 0 | 0 | 0 |
+| IPC path | n/a | custom protocol (raw bytes) | custom protocol (raw bytes) | n/a | custom protocol (raw bytes) | custom protocol (raw bytes) |
+| Sends out of `seq` order | n/a | 508 | 0 | n/a | 133 | 0 |
+
+The timer step is 1 ms on macOS WebKit and 0.1 ms on Windows. The `OrderBuffer` is needed on both (at most 27 frames waiting). The baseline websocket is faster than both bridges on B4 on all three platforms.

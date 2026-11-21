@@ -33,18 +33,31 @@ fn wall_ms() -> Option<i64> {
     }
 }
 
-/// Tell the page, unless a signal went less than 5 s ago (whatever its reason). Returns whether an
-/// event was sent. A failed emit is logged; it does not count as sent.
+/// Tell the page, unless a signal went less than 5 s ago (whatever its reason): then the signal
+/// stays pending and [`flush`] sends it when the limit allows. Returns whether an event was sent
+/// now. A failed emit is logged; it does not count as sent.
 pub fn emit<R: Runtime>(handle: &AppHandle<R>, signals: &ResumeSignals, reason: Reason, now_ms: u64) -> bool {
     if !signals.signal(reason, now_ms) {
-        log::debug!("resume signal `{}` dropped: one was sent less than 5 s ago", reason.as_str());
+        log::debug!("resume signal `{}` deferred: one was sent less than 5 s ago", reason.as_str());
         return false;
     }
+    send(handle, reason);
+    true
+}
+
+/// Send a signal that was deferred, if the limit now allows one. Both threads call it on each
+/// tick, so a deferred signal goes out at most a tick after the limit opens.
+pub fn flush<R: Runtime>(handle: &AppHandle<R>, signals: &ResumeSignals, now_ms: u64) {
+    if let Some(reason) = signals.take_pending(now_ms) {
+        send(handle, reason);
+    }
+}
+
+fn send<R: Runtime>(handle: &AppHandle<R>, reason: Reason) {
     log::info!("resume signal: {}", reason.as_str());
     if let Err(e) = handle.emit(EVENT, json!({ "reason": reason.as_str() })) {
         log::warn!("the `{EVENT}` event was not sent: {e}");
     }
-    true
 }
 
 /// One tick: a wake when the detector says so and the rate limit lets it through. The clocks are
@@ -91,6 +104,7 @@ pub fn start<R: Runtime>(handle: AppHandle<R>, signals: Arc<ResumeSignals>) -> T
             tick(&mut detector, wall_ms(), steady_ms(), |reason, now| {
                 emit(&handle, &signals, reason, now);
             });
+            flush(&handle, &signals, steady_ms());
         });
         log::debug!("the resume ticker stopped");
     });

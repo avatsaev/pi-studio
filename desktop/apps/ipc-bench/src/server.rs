@@ -40,8 +40,9 @@ const TICKS_PER_SECOND: u64 = 100;
 /// The bounds of a paced stream: input is hostile even on loopback.
 const MAX_RATE: u32 = 100_000;
 const MAX_SECONDS: u32 = 3600;
-/// How long a finished stream waits for the page to close before the server drops it.
-const LINGER: Duration = Duration::from_secs(30);
+/// How long a finished stream waits for the page to close before the server drops it. The page may still be
+/// working through what Rust sent it (a slow webview): this is the page's own run timeout (10 minutes).
+const LINGER: Duration = Duration::from_secs(600);
 
 type Ws = WebSocketStream<TcpStream>;
 type Result<T, E = String> = std::result::Result<T, E>;
@@ -468,7 +469,7 @@ async fn sink(ws: &mut Ws, switches: Switches) -> Result<()> {
 /// Reads until the page closes (or [`LINGER`] passes): closing first would cut what the page has
 /// not read yet.
 async fn linger(ws: &mut Ws) {
-    let _ = tokio::time::timeout(LINGER, async {
+    let waited = tokio::time::timeout(LINGER, async {
         while let Some(Ok(m)) = ws.next().await {
             if m.is_close() {
                 break;
@@ -476,6 +477,9 @@ async fn linger(ws: &mut Ws) {
         }
     })
     .await;
+    if waited.is_err() {
+        eprintln!("ipc-bench: the server dropped a finished stream after {} s: the page had not closed it", LINGER.as_secs());
+    }
 }
 
 #[cfg(test)]

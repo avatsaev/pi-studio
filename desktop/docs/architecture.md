@@ -227,11 +227,22 @@ so it compiles for wasm32): when the larger of the two elapsed times exceeds the
 or more, that is a wake. A wall clock that went backwards is not one; a clock set forward, or a
 process that was stopped and continued, is one, which is harmless: the page probes and finds the
 connection alive. `shell::resume::ResumeSignals` is one rate limit shared by every reason (at most
-one signal per 5 s; a dropped signal is not counted) and the counts, reported as
-`connection.resumeSignals: { wake, network }` in `ui.inspect` (`network` stays 0 until the network
-watcher exists). The event is `connection_resume` with `{ "reason": "wake" | "network" }`; the host's
-`connection.onResume` listens to it, and the workbench probes with a 5 s ping and reconnects. Rust
-closes and probes no socket on a signal.
+one signal let through per 5 s). A refused signal is deferred, not dropped: it stays pending (two
+refused signals of one reason are one) and both threads send it as soon as the limit allows (the
+network thread shortens its wait to the limit's remaining time). Only emitted events are counted, reported as
+`connection.resumeSignals: { wake, network }` in `ui.inspect`. The event is `connection_resume` with
+`{ "reason": "wake" | "network" }`; the host's `connection.onResume` listens to it, and the
+workbench probes with a 5 s ping and reconnects. Rust closes and probes no socket on a signal.
+
+The network reason comes from a second thread (`src-tauri/src/network.rs`): every 5 s it reads the
+addresses of the interfaces that are up, without loopback and link-local ones (`if-addrs`, MIT OR
+BSD-3-Clause, native only; one reading takes about 16 µs on Linux). The pure
+`shell::resume::NetworkWatcher` takes the readings: a change (an added, removed or replaced
+address) is reported once the set has stayed the same for 1 s (the thread then reads every 1 s
+instead of every 5 s) and still holds an address. Losing every address is not reported, but the
+first address to return is. A reading that fails is skipped and logged once until one works. The log
+says that the set changed and how many addresses there are, never which. It emits through the same
+rate limit as the wake ticker, so a change within 5 s of another signal goes out when the limit opens.
 
 ## Threads
 
@@ -245,7 +256,8 @@ closes and probes no socket on a signal.
   dial and a worker reads the store; `daemon.add`, `.update` and `.remove` store on a worker and
   commit on the owner thread (§ Decisions, "Where a secret-store call runs").
 - A ticker thread (`src-tauri/src/resume.rs`) wakes every 2 s, reads the wall and a steady clock and
-  emits `connection_resume`; it ends with the app (§ Resume signals).
+  emits `connection_resume`; a watcher thread (`src-tauri/src/network.rs`) reads the interface
+  addresses every 5 s and emits it too. Both end with the app (§ Resume signals).
 
 ## What stays out of the core
 

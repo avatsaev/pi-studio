@@ -21,6 +21,7 @@ mod crash_guard;
 mod daemons;
 mod logging;
 mod menu;
+mod network;
 mod preview_scheme;
 mod resume;
 mod services;
@@ -180,12 +181,15 @@ fn main() {
     };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
     // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
-    app.manage(resume::start(app.handle().clone(), resume_signals));
+    app.manage(resume::start(app.handle().clone(), Arc::clone(&resume_signals)));
+    // The network watcher tells the page when the machine's addresses change; it ends with the app.
+    app.manage(network::start(app.handle().clone(), resume_signals));
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
     app.run(|handle, event| {
         bridge::on_run_event(handle, &event);
         resume::on_run_event(handle, &event);
+        network::on_run_event(handle, &event);
     });
 }

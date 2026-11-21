@@ -22,8 +22,12 @@ export const ACK_BYTES = 256 * 1024;
 export const ACK_MS = 50;
 /** A batch of outbound frames is sent at once when this many bytes are queued. */
 export const OUTBOUND_BATCH_BYTES = 4 * 1024 * 1024;
+/** How long a send that found its connection gone waits for the `closed` message before it reports itself. */
+export const CLOSED_GRACE_MS = 250;
 
 const messageOf = (error) => (error && error.message ? error.message : typeof error === "string" ? error : JSON.stringify(error));
+/** What Rust answers for a handle it does not have (the spec's `unknown_handle`). */
+const isUnknownHandle = (error) => Boolean(error) && error.code === "unknown_handle";
 
 /**
  * @param {{ inbound: "frame" | "batch", outbound: "frame" | "batch", ack?: boolean }} options
@@ -123,6 +127,21 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     if (transport.onError) transport.onError(error instanceof Error ? error : new Error(messageOf(error)));
   }
 
+  /**
+   * A send was refused. A send on a connection Rust no longer has is still an error (the frame did not go),
+   * but when Rust forgot the connection because its socket ended, the `closed` message that says why is on its
+   * way: give it a moment, so that the error the transport reports is the cause and not the symptom.
+   */
+  function sendFailed(error) {
+    const failure = new Error(messageOf(error));
+    if (!isUnknownHandle(error) || closedSeen) fail(failure);
+    else {
+      setTimeout(() => {
+        if (!closedSeen) fail(failure);
+      }, CLOSED_GRACE_MS);
+    }
+  }
+
   // ---------------------------------------------------------------------------- outbound
 
   /** `bytes` count in `bufferedAmount` until the answer of the send (written to the socket) arrives. */
@@ -136,7 +155,7 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
       },
       (error) => {
         buffered -= bytes;
-        fail(new Error(messageOf(error)));
+        sendFailed(error);
       },
     );
   }
@@ -178,7 +197,7 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
       },
       (error) => {
         buffered -= bytes;
-        fail(new Error(messageOf(error)));
+        sendFailed(error);
       },
     );
   }
@@ -253,7 +272,11 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     unacked = 0;
     page.acksSent++;
     page.ackedBytes += bytes;
-    return invoke("bridge_ack", { handle, bytes }).catch((error) => fail(new Error(messageOf(error))));
+    // An acknowledgement that finds its connection gone (the socket ended while the page was still working
+    // through what Rust had sent) is harmless: the `closed` message says what happened. Anything else is an error.
+    return invoke("bridge_ack", { handle, bytes }).catch((error) => {
+      if (!isUnknownHandle(error)) fail(new Error(messageOf(error)));
+    });
   }
 
   return transport;

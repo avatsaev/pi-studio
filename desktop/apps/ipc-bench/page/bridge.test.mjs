@@ -2,7 +2,7 @@
 // for `window.__TAURI__.core`: what it invokes, in which order, and what it hands to `onMessage`.
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { ACK_BYTES, ACK_MS, createBridgeTransport, ipcPathOf } from "./bridge.js";
+import { ACK_BYTES, ACK_MS, CLOSED_GRACE_MS, createBridgeTransport, ipcPathOf } from "./bridge.js";
 import { KIND_BINARY, KIND_TEXT, encodeBatch, forEachItem } from "./batch.js";
 
 /** A stand-in for Tauri's core API: records invokes, answers `bridge_open` at once, the others when told. */
@@ -252,4 +252,85 @@ test("the report carries Rust's counters and the IPC path the raw bodies took", 
   assert.equal(report.ipcPath, "custom protocol (raw bytes)");
   assert.equal(report.outOfOrder, 1);
   assert.equal(report.page.inbound, "batch");
+});
+
+const unknownHandle = { code: "unknown_handle", message: "no such connection" };
+
+test("the socket ends while the page is still working through the flood: late acknowledgements are ignored, every frame is delivered, the report still works", async () => {
+  const { transport, tauri } = await connected({ inbound: "frame", outbound: "frame" });
+  const got = [];
+  const events = [];
+  transport.onMessage = (m) => got.push(m);
+  transport.onError = (e) => events.push(["error", e.message]);
+  transport.onClose = (code, reason) => events.push(["close", code, reason]);
+  // 256 KiB delivered: an acknowledgement goes out at once and is still in flight when the socket ends.
+  tauri.deliver(bytes(ACK_BYTES).buffer);
+  tauri.deliver("last frame");
+  const inFlight = tauri.of("bridge_ack");
+  assert.equal(inFlight.length, 1);
+  // The channel keeps the order: the frames, then `closed`, then (below) the answers to what the page sent meanwhile.
+  tauri.deliver({ closed: { code: 1006, reason: "" } });
+  inFlight[0].reject(unknownHandle);
+  await tick();
+  assert.equal(got.length, 2, "everything Rust sent before the end was delivered");
+  assert.equal(got[1], "last frame");
+  assert.deepEqual(events, [["close", 1006, ""]], "the late acknowledgement is not an error");
+  // The report after the end: Rust still answers with the counters it had.
+  const pending = transport.report();
+  tauri.of("bridge_stats")[0].resolve({ rawBodies: 0, jsonArrayBodies: 0, outOfOrder: 0, framesIn: 2 });
+  assert.equal((await pending).framesIn, 2);
+  assert.deepEqual(events, [["close", 1006, ""]]);
+});
+
+test("an acknowledgement refused for another reason is still an error", async () => {
+  const { transport, tauri } = await connected({ inbound: "frame", outbound: "frame" });
+  const errors = [];
+  transport.onMessage = () => {};
+  transport.onError = (e) => errors.push(e.message);
+  tauri.deliver(bytes(ACK_BYTES).buffer);
+  tauri.of("bridge_ack")[0].reject({ code: "bad_ack", message: "the page acknowledged 9 bytes but only 0 are outstanding" });
+  await tick();
+  assert.deepEqual(errors, ["the page acknowledged 9 bytes but only 0 are outstanding"]);
+});
+
+test("a send that finds the connection gone is an error, after the closed message had its moment to explain", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { transport, tauri } = await connected({ inbound: "frame", outbound: "frame" });
+  const events = [];
+  transport.onError = (e) => events.push(["error", e.message]);
+  transport.onClose = (code) => events.push(["close", code]);
+  // Rust has forgotten the connection: the send is refused, and nothing says why yet.
+  transport.sendBinary(bytes(10));
+  tauri.of("bridge_send_binary")[0].reject(unknownHandle);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, [], "it waits for the closed message");
+  assert.equal(transport.bufferedAmount, 0);
+  t.mock.timers.tick(CLOSED_GRACE_MS);
+  assert.deepEqual(events, [["error", "no such connection"]], "no closed message came: the refusal is the error");
+
+  // The closed message arrives within the moment: it is the cause, and the refusal adds nothing.
+  const second = await connected({ inbound: "frame", outbound: "batch" });
+  const seen = [];
+  second.transport.onError = (e) => seen.push(["error", e.message]);
+  second.transport.onClose = (code) => seen.push(["close", code]);
+  second.transport.sendText("x");
+  await Promise.resolve();
+  second.tauri.of("bridge_send_batch")[0].reject(unknownHandle);
+  await Promise.resolve();
+  await Promise.resolve();
+  second.tauri.deliver({ closed: { code: 1006, reason: "", error: { code: "read_failed", message: "the server reset the connection" } } });
+  t.mock.timers.tick(CLOSED_GRACE_MS);
+  assert.deepEqual(seen, [["error", "read_failed: the server reset the connection"], ["close", 1006]]);
+});
+
+test("a send after the closed message is refused at once, as an error", async () => {
+  const { transport, tauri } = await connected({ inbound: "frame", outbound: "frame" });
+  const errors = [];
+  transport.onError = (e) => errors.push(e.message);
+  tauri.deliver({ closed: { code: 1006, reason: "" } });
+  transport.sendBinary(bytes(1));
+  transport.sendText("x");
+  assert.deepEqual(errors, ["the connection is not open", "the connection is not open"]);
+  assert.equal(tauri.of("bridge_send_binary").length + tauri.of("bridge_send_text").length, 0, "nothing was invoked");
 });

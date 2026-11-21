@@ -29,6 +29,7 @@ The SDK's `DaemonClient` is unchanged (T4), so every difference from a browser s
 - `onMessage` is called once per WebSocket message, in order, within the channel's callback: a string for text, an `ArrayBuffer` for binary.
 - Acknowledgements: `transport_ack` every 256 KiB delivered or 50 ms, whichever comes first.
 - `closed`: with an error, `onError` then `onClose(1006, "")`; else `onClose(code, reason)`. Once per connection. `isOpen` as the spec's table says.
+- **Added at wave 6 (2026-11-21, from the first runner run; spec section 3 "A socket that ends while the page is behind"):** swallow an `unknown_handle` answer to `transport_ack`; report an `unknown_handle` answer to a send, after waiting up to 250 ms for `closed` to explain it; call `onClose` only when `closed` arrives, after every earlier frame reached `onMessage`; rely on no other command after the end. Test the order: frames, `closed`, a late ack rejected, a send rejected. The benchmark's `desktop/apps/ipc-bench/page/bridge.js` has a working version.
 
 ## Out of scope
 - Choosing it in `createTransport` (sprint 116).

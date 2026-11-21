@@ -25,7 +25,7 @@
 //!
 //! The socket is plain and local: this is a measuring instrument, not the shipped bridge.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::BuildHasher as _;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -62,6 +62,9 @@ type Ws = WebSocketStream<TcpStream>;
 type Sink = SplitSink<Ws, Message>;
 type Done = oneshot::Sender<Result<(), BridgeError>>;
 type Registry = Arc<Mutex<HashMap<String, Arc<Conn>>>>;
+type Finished = Arc<Mutex<VecDeque<(String, Stats)>>>;
+/// How many ended connections keep their counters.
+const FINISHED_KEPT: usize = 16;
 
 /// An error the page sees: a code to match on and a message to read.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -307,13 +310,15 @@ pub struct Bridge {
     port: u16,
     fed: Fed,
     registry: Registry,
+    /// The final counters of the last connections that ended on their own.
+    finished: Finished,
     serial: AtomicU64,
 }
 
 impl Bridge {
     /// A bridge that dials only the benchmark's server on `127.0.0.1:port`.
     pub fn new(port: u16, fed: Fed) -> Self {
-        Self { port, fed, registry: Arc::default(), serial: AtomicU64::new(0) }
+        Self { port, fed, registry: Arc::default(), finished: Arc::default(), serial: AtomicU64::new(0) }
     }
 
     /// A random 128-bit handle in hexadecimal. The standard library's hasher is seeded by the
@@ -359,7 +364,8 @@ impl Bridge {
         let handle = self.new_handle();
         lock(&self.registry).insert(handle.clone(), conn.clone());
         tokio::spawn(write_loop(sink, from_commands, conn.clone()));
-        tokio::spawn(read_loop(stream, conn, channel, inbound, self.registry.clone(), handle.clone()));
+        let ended = Ended { registry: self.registry.clone(), finished: self.finished.clone(), fed: self.fed.clone(), handle: handle.clone() };
+        tokio::spawn(read_loop(stream, conn, channel, inbound, ended));
         Ok(handle)
     }
 
@@ -408,8 +414,12 @@ impl Bridge {
         Some(conn.stats(self.fed.load(Relaxed)))
     }
 
+    /// The counters of a connection: live, or (for one that ended) as they were when it ended.
     pub fn stats(&self, handle: &str) -> Result<Stats, BridgeError> {
-        Ok(self.conn(handle)?.stats(self.fed.load(Relaxed)))
+        if let Ok(conn) = self.conn(handle) {
+            return Ok(conn.stats(self.fed.load(Relaxed)));
+        }
+        lock(&self.finished).iter().find(|(h, _)| h == handle).map(|(_, stats)| stats.clone()).ok_or_else(|| err("unknown_handle", "no such connection"))
     }
 }
 
@@ -636,18 +646,46 @@ async fn read_messages(stream: &mut SplitStream<Ws>, conn: &Conn, channel: &Chan
     }
 }
 
-async fn read_loop(mut stream: SplitStream<Ws>, conn: Arc<Conn>, channel: Channel<InvokeResponseBody>, mode: Inbound, registry: Registry, handle: String) {
+/// What the read task needs to tidy up when its connection ends.
+struct Ended {
+    registry: Registry,
+    finished: Finished,
+    fed: Fed,
+    handle: String,
+}
+
+async fn read_loop(mut stream: SplitStream<Ws>, conn: Arc<Conn>, channel: Channel<InvokeResponseBody>, mode: Inbound, ended: Ended) {
     let mut closed = tokio::select! {
         result = read_messages(&mut stream, &conn, &channel, mode) => result.unwrap_or_else(|error| Closed { code: 1006, reason: String::new(), error: Some(error) }),
         () = conn.abort.notified() => Closed { code: 1006, reason: String::new(), error: None },
     };
     // A close the page asked for wins over what the server did in answer (a reset, its own close frame).
-    if let Some((code, reason)) = lock(&conn.local_close).take() {
+    let asked_for = lock(&conn.local_close).take();
+    // `Bridge::close` removed the handle before the close frame went out: that is the page's doing too.
+    let by_page = asked_for.is_some() || !lock(&ended.registry).contains_key(&ended.handle);
+    if let Some((code, reason)) = asked_for {
         (closed.code, closed.reason) = (code, reason);
     }
-    lock(&registry).remove(&handle);
-    let _ = conn.to_writer.send(WriterMsg::Close { code: 1000, reason: String::new() });
     let error = closed.error.or_else(|| lock(&conn.failure).clone());
+    let stats = conn.stats(ended.fed.load(Relaxed));
+    if !by_page {
+        // The connection ended on its own: the page may still be working through what Rust sent it, and its late
+        // acknowledgements will find the handle gone. Say why it ended, in the log, whatever the page makes of it.
+        eprintln!(
+            "ipc-bench: bridge connection ended by itself: code {}, reason {:?}, error {:?}; {} frames and {} bytes were sent to the page, {} bytes unacknowledged",
+            closed.code, closed.reason, error, stats.frames_in, stats.bytes_in, stats.outstanding
+        );
+    }
+    {
+        // The counters outlive the connection: a run asks for them after the socket ended.
+        let mut finished = lock(&ended.finished);
+        if finished.len() >= FINISHED_KEPT {
+            finished.pop_front();
+        }
+        finished.push_back((ended.handle.clone(), stats));
+    }
+    lock(&ended.registry).remove(&ended.handle);
+    let _ = conn.to_writer.send(WriterMsg::Close { code: 1000, reason: String::new() });
     let message = serde_json::json!({ "closed": { "code": closed.code, "reason": closed.reason, "error": error } });
     let _ = channel.send(InvokeResponseBody::Json(message.to_string()));
 }
@@ -971,6 +1009,10 @@ mod tests {
         let closed: serde_json::Value = serde_json::from_str(&closed).unwrap();
         assert_eq!((closed["closed"]["code"].as_u64(), closed["closed"]["reason"].as_str()), (Some(4001), Some("bye")));
         assert_eq!(h.bridge.send_text(&handle, 1, "x".into()).await.unwrap_err().code, "unknown_handle");
+        // The counters outlive the connection: a run that asks after the socket ended still gets them.
+        let after = h.bridge.stats(&handle).unwrap();
+        assert_eq!((after.frames_out, after.frames_in), (1, 1));
+        assert_eq!(h.bridge.stats("never existed").unwrap_err().code, "unknown_handle");
     }
 
     #[tokio::test]

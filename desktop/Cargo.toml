@@ -26,6 +26,8 @@ clap = { version = "4", features = ["derive", "env"] }
 # `std`: the app installs its own boxed logger.
 log = { version = "0.4", features = ["std"] }
 getrandom = "0.3"
+# The machine's interface addresses, read by the app binary's network watcher (MIT OR BSD-3-Clause; native only).
+if-addrs = "0.15"
 tempfile = "3"
 # The Tauri family moves together: keep `tauri`, `tauri-build` and every `tauri-plugin-*` on the
 # same major version, and `@tauri-apps/api` in apps/pistudiodesktop/package.json on the same minor as `tauri`.

@@ -8,7 +8,7 @@ name: Desktop IPC benchmark
 #
 #   a manual run (workflow_dispatch)   Actions -> Desktop IPC benchmark -> Run workflow
 #                                      (inputs: runs per workload, scale of the workloads)
-#   a pull request changing this file  how a change to this workflow is tested (a quick run)
+#   a pull request changing this file  the full run (3 runs, scale 1): the way to run it from a branch
 #
 # A workflow file that exists only on a branch cannot be started by hand: the first run needs a
 # pull request that changes this file, or this file on main. It never runs on a push to main,
@@ -46,9 +46,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # A pull request (inputs are empty) gets a quick run.
-  BENCH_RUNS: ${{ inputs.runs || '1' }}
-  BENCH_SCALE: ${{ inputs.scale || '0.1' }}
+  # A pull request (inputs are empty) gets the full run: the workflow file can only be started by
+  # hand once it is on main, so the pull request is the way to get real numbers. Start a quick
+  # run by hand with runs=1 and scale=0.1.
+  BENCH_RUNS: ${{ inputs.runs || '3' }}
+  BENCH_SCALE: ${{ inputs.scale || '1' }}
 
 defaults:
   run:
