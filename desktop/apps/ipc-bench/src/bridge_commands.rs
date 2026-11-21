@@ -12,8 +12,11 @@ use tauri::ipc::{Channel, InvokeResponseBody, Request};
 use crate::bridge::{Bridge, BridgeError, Inbound, Stats};
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Opened {
     pub handle: String,
+    /// The message bound of the connection: the page acknowledges before it is reached.
+    pub max_messages: u64,
 }
 
 /// The header of a raw send: `handle` as text, `seq` as a decimal number.
@@ -33,7 +36,7 @@ fn raw_send_args<'a>(request: &'a Request<'_>) -> Result<(&'a str, u64), BridgeE
 #[tauri::command]
 pub async fn bridge_open(bridge: State<'_, Bridge>, url: String, inbound: String, on_message: Channel<InvokeResponseBody>) -> Result<Opened, BridgeError> {
     let handle = bridge.open(&url, Inbound::parse(&inbound)?, on_message).await?;
-    Ok(Opened { handle })
+    Ok(Opened { handle, max_messages: bridge.max_messages() })
 }
 
 #[tauri::command]
@@ -55,9 +58,10 @@ pub async fn bridge_send_batch(bridge: State<'_, Bridge>, request: Request<'_>) 
     bridge.send_batch(handle, seq, request.body()).await
 }
 
+/// The page has finished with `bytes` of payload in `messages` channel messages.
 #[tauri::command]
-pub async fn bridge_ack(bridge: State<'_, Bridge>, handle: String, bytes: u64) -> Result<(), BridgeError> {
-    bridge.ack(&handle, bytes)
+pub async fn bridge_ack(bridge: State<'_, Bridge>, handle: String, bytes: u64, messages: u64) -> Result<(), BridgeError> {
+    bridge.ack(&handle, bytes, messages)
 }
 
 /// Closes the connection; answers its final counters (nothing for an unknown handle).

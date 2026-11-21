@@ -53,6 +53,8 @@ const WRITE_FLUSH_BYTES: usize = 1024 * 1024;
 /// The spec's limit of bridged sockets.
 const MAX_SOCKETS: usize = 4;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// The default bound on unacknowledged channel messages (`--max-inflight-messages`).
+pub const DEFAULT_MAX_INFLIGHT_MESSAGES: u64 = 512;
 /// Tauri 2.12.5 (`ipc/channel.rs`) evaluates a raw channel message under this many bytes into the page...
 const TAURI_DIRECT_RAW_BYTES: usize = 1024;
 /// ...and a JSON one under this many; a larger one is fetched by the page.
@@ -121,6 +123,8 @@ struct Counters {
     max_waiting: AtomicU64,
     max_outstanding: AtomicU64,
     pauses: AtomicU64,
+    message_pauses: AtomicU64,
+    max_messages_in_flight: AtomicU64,
     acks: AtomicU64,
     acked_bytes: AtomicU64,
 }
@@ -153,8 +157,18 @@ pub struct Stats {
     pub outstanding: u64,
     /// The most that were ever outstanding.
     pub max_outstanding: u64,
-    /// Whether the read task may read the socket now.
+    /// Whether the read task may read the socket now (neither window says stop).
     pub may_read: bool,
+    /// Channel messages sent to the page and not acknowledged, now.
+    pub messages_outstanding: u64,
+    /// The most that were ever outstanding: what the webview had queued at the worst moment.
+    pub max_messages_in_flight: u64,
+    /// The message bound the connection was opened with.
+    pub window_max_messages: u64,
+    /// How many times the message bound stopped the reading.
+    pub message_pauses: u64,
+    /// Why the connection ended, once it has.
+    pub ended: Option<EndNote>,
     /// How many times the window stopped the reading.
     pub pauses: u64,
     pub acks: u64,
@@ -180,7 +194,7 @@ enum WriterMsg {
 struct Conn {
     order: Mutex<OrderBuffer<Outgoing>>,
     to_writer: mpsc::UnboundedSender<WriterMsg>,
-    window: Mutex<InboundWindow>,
+    window: Mutex<Window>,
     /// A permit is stored when an acknowledgement arrives, so a read task that is about to wait
     /// cannot miss it.
     wake: Notify,
@@ -191,6 +205,67 @@ struct Conn {
     failure: Mutex<Option<BridgeError>>,
     /// The code and reason of a close the page asked for.
     local_close: Mutex<Option<(u16, String)>>,
+}
+
+/// How a connection ended, as the page can ask for it after the fact.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EndNote {
+    /// The page closed it (as against the socket or the channel ending it).
+    pub by_page: bool,
+    pub code: u16,
+    pub reason: String,
+    pub error: Option<BridgeError>,
+}
+
+/// The inbound window of one connection: the `net` crate's byte window and, beside it, the same idea
+/// counted in channel messages. A webview takes a channel message as a script to evaluate: a flood of
+/// small messages queues many of them though few bytes, so the byte window alone does not bound the
+/// queue. Reading stops while either says so; the message count resumes below half the bound.
+struct Window {
+    bytes: InboundWindow,
+    max_messages: u64,
+    sent_messages: u64,
+    acked_messages: u64,
+    messages_paused: bool,
+}
+
+impl Window {
+    fn new(max_messages: u64) -> Self {
+        Self { bytes: InboundWindow::new(), max_messages, sent_messages: 0, acked_messages: 0, messages_paused: false }
+    }
+
+    fn may_read(&self) -> bool {
+        self.bytes.may_read() && !self.messages_paused
+    }
+
+    fn outstanding_messages(&self) -> u64 {
+        self.sent_messages.saturating_sub(self.acked_messages)
+    }
+
+    /// One channel message with `bytes` of payload went to the page.
+    fn on_sent(&mut self, bytes: u64) {
+        self.bytes.on_sent(bytes);
+        self.sent_messages = self.sent_messages.saturating_add(1);
+        if self.outstanding_messages() > self.max_messages {
+            self.messages_paused = true;
+        }
+    }
+
+    /// The page finished with `bytes` in `messages`. More than was sent is an error, and changes nothing.
+    fn on_ack(&mut self, bytes: u64, messages: u64) -> Result<(), BridgeError> {
+        let outstanding = self.outstanding_messages();
+        if messages > outstanding {
+            return Err(err("bad_ack", format!("the page acknowledged {messages} messages but only {outstanding} are outstanding")));
+        }
+        self.bytes.on_ack(bytes).map_err(|e| err("bad_ack", e.to_string()))?;
+        // `messages <= sent - acked`, so the sum cannot pass `sent`.
+        self.acked_messages += messages;
+        if self.outstanding_messages() < self.max_messages.div_ceil(2) {
+            self.messages_paused = false;
+        }
+        Ok(())
+    }
 }
 
 impl Conn {
@@ -252,11 +327,11 @@ impl Conn {
     /// Sends one message to the page: `frames` WebSocket messages with `bytes` of payload. The window
     /// counts the bytes first, so that a reply cannot be acknowledged before it is counted.
     fn send_to_page(&self, channel: &Channel<InvokeResponseBody>, frames: u64, bytes: u64, body: InvokeResponseBody) -> Result<(), BridgeError> {
-        let (outstanding, was_reading, reading) = {
+        let (outstanding, messages_outstanding, bytes_paused, messages_paused) = {
             let mut window = lock(&self.window);
-            let was_reading = window.may_read();
+            let (bytes_was, messages_was) = (window.bytes.may_read(), !window.messages_paused);
             window.on_sent(bytes);
-            (window.outstanding(), was_reading, window.may_read())
+            (window.bytes.outstanding(), window.outstanding_messages(), bytes_was && !window.bytes.may_read(), messages_was && window.messages_paused)
         };
         let c = &self.counters;
         c.frames_in.fetch_add(frames, Relaxed);
@@ -269,17 +344,21 @@ impl Conn {
         };
         if direct { &c.direct_messages } else { &c.fetched_messages }.fetch_add(1, Relaxed);
         c.max_outstanding.fetch_max(outstanding, Relaxed);
-        if was_reading && !reading {
+        c.max_messages_in_flight.fetch_max(messages_outstanding, Relaxed);
+        if bytes_paused {
             c.pauses.fetch_add(1, Relaxed);
+        }
+        if messages_paused {
+            c.message_pauses.fetch_add(1, Relaxed);
         }
         channel.send(body).map_err(channel_error)
     }
 
     fn stats(&self, server_fed_bytes: u64) -> Stats {
         let c = &self.counters;
-        let (outstanding, may_read) = {
+        let (outstanding, messages_outstanding, may_read, max_messages) = {
             let window = lock(&self.window);
-            (window.outstanding(), window.may_read())
+            (window.bytes.outstanding(), window.outstanding_messages(), window.may_read(), window.max_messages)
         };
         Stats {
             frames_in: c.frames_in.load(Relaxed),
@@ -296,6 +375,11 @@ impl Conn {
             outstanding,
             max_outstanding: c.max_outstanding.load(Relaxed),
             may_read,
+            messages_outstanding,
+            max_messages_in_flight: c.max_messages_in_flight.load(Relaxed),
+            window_max_messages: max_messages,
+            message_pauses: c.message_pauses.load(Relaxed),
+            ended: None,
             pauses: c.pauses.load(Relaxed),
             acks: c.acks.load(Relaxed),
             acked_bytes: c.acked_bytes.load(Relaxed),
@@ -309,6 +393,7 @@ impl Conn {
 pub struct Bridge {
     port: u16,
     fed: Fed,
+    max_messages: u64,
     registry: Registry,
     /// The final counters of the last connections that ended on their own.
     finished: Finished,
@@ -316,9 +401,15 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    /// A bridge that dials only the benchmark's server on `127.0.0.1:port`.
-    pub fn new(port: u16, fed: Fed) -> Self {
-        Self { port, fed, registry: Arc::default(), finished: Arc::default(), serial: AtomicU64::new(0) }
+    /// A bridge that dials only the benchmark's server on `127.0.0.1:port`. Reading stops while more than
+    /// `max_messages` channel messages (or the window's 8 MiB) are unacknowledged.
+    pub fn new(port: u16, fed: Fed, max_messages: u64) -> Self {
+        Self { port, fed, max_messages, registry: Arc::default(), finished: Arc::default(), serial: AtomicU64::new(0) }
+    }
+
+    /// The message bound connections are opened with.
+    pub fn max_messages(&self) -> u64 {
+        self.max_messages
     }
 
     /// A random 128-bit handle in hexadecimal. The standard library's hasher is seeded by the
@@ -354,7 +445,7 @@ impl Bridge {
         let conn = Arc::new(Conn {
             order: Mutex::new(OrderBuffer::new()),
             to_writer,
-            window: Mutex::new(InboundWindow::new()),
+            window: Mutex::new(Window::new(self.max_messages)),
             wake: Notify::new(),
             abort: Notify::new(),
             counters: Counters::default(),
@@ -397,9 +488,10 @@ impl Bridge {
         conn.submit(seq, messages).await
     }
 
-    pub fn ack(&self, handle: &str, bytes: u64) -> Result<(), BridgeError> {
+    /// The page has finished with `bytes` of payload in `messages` channel messages.
+    pub fn ack(&self, handle: &str, bytes: u64, messages: u64) -> Result<(), BridgeError> {
         let conn = self.conn(handle)?;
-        lock(&conn.window).on_ack(bytes).map_err(|e| err("bad_ack", e.to_string()))?;
+        lock(&conn.window).on_ack(bytes, messages)?;
         conn.counters.acks.fetch_add(1, Relaxed);
         conn.counters.acked_bytes.fetch_add(bytes, Relaxed);
         conn.wake.notify_one();
@@ -667,13 +759,23 @@ async fn read_loop(mut stream: SplitStream<Ws>, conn: Arc<Conn>, channel: Channe
         (closed.code, closed.reason) = (code, reason);
     }
     let error = closed.error.or_else(|| lock(&conn.failure).clone());
-    let stats = conn.stats(ended.fed.load(Relaxed));
+    let mut stats = conn.stats(ended.fed.load(Relaxed));
+    stats.ended = Some(EndNote { by_page, code: closed.code, reason: closed.reason.clone(), error: error.clone() });
     if !by_page {
         // The connection ended on its own: the page may still be working through what Rust sent it, and its late
         // acknowledgements will find the handle gone. Say why it ended, in the log, whatever the page makes of it.
         eprintln!(
-            "ipc-bench: bridge connection ended by itself: code {}, reason {:?}, error {:?}; {} frames and {} bytes were sent to the page, {} bytes unacknowledged",
-            closed.code, closed.reason, error, stats.frames_in, stats.bytes_in, stats.outstanding
+            "ipc-bench: bridge connection ended by itself: code {}, reason {:?}, error {:?}; {} frames and {} bytes were sent to the page in {} messages; {} bytes and {} messages unacknowledged; peak {} messages and {} bytes in flight",
+            closed.code,
+            closed.reason,
+            error,
+            stats.frames_in,
+            stats.bytes_in,
+            stats.channel_messages,
+            stats.outstanding,
+            stats.messages_outstanding,
+            stats.max_messages_in_flight,
+            stats.max_outstanding
         );
     }
     {
@@ -703,11 +805,15 @@ mod tests {
     }
 
     async fn harness() -> Harness {
+        harness_with(DEFAULT_MAX_INFLIGHT_MESSAGES).await
+    }
+
+    async fn harness_with(max_messages: u64) -> Harness {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let fed = Fed::default();
         tokio::spawn(server::serve(listener, Switches::default(), fed.clone()));
-        Harness { bridge: Bridge::new(port, fed.clone()), fed, port }
+        Harness { bridge: Bridge::new(port, fed.clone(), max_messages), fed, port }
     }
 
     fn collector() -> (Channel<InvokeResponseBody>, mpsc::UnboundedReceiver<InvokeResponseBody>) {
@@ -799,7 +905,7 @@ mod tests {
             let body = rx.recv().await.unwrap();
             let payload = page.take(body, mode);
             if payload > 0 {
-                h.bridge.ack(&handle, payload).unwrap();
+                h.bridge.ack(&handle, payload, 1).unwrap();
             }
         }
         let stats = h.bridge.stats(&handle).unwrap();
@@ -812,7 +918,7 @@ mod tests {
         assert_eq!(Inbound::parse("frame"), Ok(Inbound::Frame));
         assert_eq!(Inbound::parse("batch"), Ok(Inbound::Batch));
         assert_eq!(Inbound::parse("both").unwrap_err().code, "invalid_mode");
-        let bridge = Bridge::new(4000, Fed::default());
+        let bridge = Bridge::new(4000, Fed::default(), DEFAULT_MAX_INFLIGHT_MESSAGES);
         assert!(bridge.check_url("ws://127.0.0.1:4000/echo").is_ok());
         for bad in
             ["ws://127.0.0.1:4001/echo", "ws://127.0.0.1:4000", "wss://127.0.0.1:4000/echo", "ws://example.com:4000/echo", "ws://127.0.0.1:40001/echo", ""]
@@ -887,12 +993,13 @@ mod tests {
         assert!(stats.server_fed_bytes < (frames * frame) as u64, "the server stalled: {} of {} bytes sent", stats.server_fed_bytes, frames * frame);
         assert!(page.done.is_none());
         // Acknowledge what the page has: the flood resumes and arrives whole.
-        let mut owed = stats.outstanding;
+        let (mut owed, mut owed_messages) = (stats.outstanding, stats.messages_outstanding);
         while page.done.is_none() {
-            h.bridge.ack(&handle, owed).unwrap();
-            owed = 0;
+            h.bridge.ack(&handle, owed, owed_messages).unwrap();
+            (owed, owed_messages) = (0, 0);
             let body = rx.recv().await.unwrap();
             owed += page.take(body, mode);
+            owed_messages += 1;
         }
         assert_eq!(page.check.report().error_count, 0);
         assert_eq!(page.done.unwrap()["hash"], page.check.report().hash.as_str());
@@ -908,11 +1015,112 @@ mod tests {
         window_stops_the_reading(Inbound::Batch, 64 * 1024).await;
     }
 
+    /// Takes what has arrived on the channel until nothing has changed for 400 ms, remembering the payload of
+    /// each unacknowledged channel message.
+    async fn drain(h: &Harness, handle: &str, rx: &mut mpsc::UnboundedReceiver<InvokeResponseBody>, page: &mut Page, mode: Inbound, owed: &mut VecDeque<u64>) {
+        let (mut stable, mut last) = (0, 0);
+        while stable < 4 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            while let Ok(body) = rx.try_recv() {
+                owed.push_back(page.take(body, mode));
+            }
+            let now = h.bridge.stats(handle).unwrap().channel_messages;
+            stable = if now == last { stable + 1 } else { 0 };
+            last = now;
+        }
+    }
+
+    /// Acknowledges the `n` oldest unacknowledged messages.
+    fn ack_oldest(h: &Harness, handle: &str, owed: &mut VecDeque<u64>, n: usize) {
+        let bytes: u64 = owed.drain(..n).sum();
+        h.bridge.ack(handle, bytes, n as u64).unwrap();
+    }
+
+    /// The message bound, not the byte window, stops a flood of small messages: Rust holds the bound plus
+    /// the message that crossed it, reads on only once the page has acknowledged down below half the bound,
+    /// and the flood still arrives whole.
+    async fn message_bound_stops_the_reading(mode: Inbound, bound: u64) {
+        let h = harness_with(bound).await;
+        let (handle, mut rx) = h.open("/flood?frames=3000&size=200&kind=text", mode).await;
+        h.bridge.send_text(&handle, 0, "go".into()).await.unwrap();
+        let (mut page, mut owed) = (Page::new(), VecDeque::new());
+        drain(&h, &handle, &mut rx, &mut page, mode, &mut owed).await;
+        let stats = h.bridge.stats(&handle).unwrap();
+        assert_eq!((stats.messages_outstanding, stats.max_messages_in_flight, stats.window_max_messages), (bound + 1, bound + 1, bound), "{mode:?}");
+        assert!(!stats.may_read);
+        assert_eq!((stats.message_pauses, stats.pauses), (1, 0), "the message bound stopped it, not the byte window");
+        assert!(stats.outstanding < 1024 * 1024, "{} bytes are far below the byte window", stats.outstanding);
+        // Down to half the bound is not below it: still stopped.
+        let before = stats.channel_messages;
+        let half = bound.div_ceil(2);
+        ack_oldest(&h, &handle, &mut owed, (bound + 1 - half) as usize);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(h.bridge.stats(&handle).unwrap().channel_messages, before, "{half} outstanding is not below half of {bound}");
+        ack_oldest(&h, &handle, &mut owed, 1);
+        let resumed = tokio::time::timeout(Duration::from_secs(5), async {
+            while h.bridge.stats(&handle).unwrap().channel_messages == before {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(resumed.is_ok(), "{mode:?}: reading did not resume below half the bound");
+        // Keep acknowledging: the whole flood arrives, in order.
+        while page.done.is_none() {
+            let n = owed.len();
+            ack_oldest(&h, &handle, &mut owed, n);
+            let body = rx.recv().await.unwrap();
+            owed.push_back(page.take(body, mode));
+        }
+        assert_eq!(page.check.report().error_count, 0);
+        assert_eq!(page.done.unwrap()["hash"], page.check.report().hash.as_str());
+        assert_eq!(h.bridge.stats(&handle).unwrap().max_messages_in_flight, bound + 1, "never more than one past the bound");
+    }
+
+    #[tokio::test]
+    async fn the_message_bound_stops_a_flood_of_small_messages_per_frame() {
+        message_bound_stops_the_reading(Inbound::Frame, 64).await;
+    }
+
+    #[tokio::test]
+    async fn the_message_bound_stops_a_flood_of_small_messages_in_batches() {
+        // 600 KB in batches of at most 64 KiB is about ten messages: a bound of 3 is reached.
+        message_bound_stops_the_reading(Inbound::Batch, 3).await;
+    }
+
+    #[test]
+    fn the_window_counts_messages_and_refuses_what_was_not_sent() {
+        let mut window = Window::new(4);
+        for _ in 0..4 {
+            window.on_sent(10);
+        }
+        assert!(window.may_read(), "exactly the bound is still allowed");
+        window.on_sent(10);
+        assert!(!window.may_read());
+        assert_eq!(window.on_ack(0, 6).unwrap_err().code, "bad_ack");
+        assert_eq!(window.on_ack(51, 1).unwrap_err().code, "bad_ack");
+        assert_eq!(window.outstanding_messages(), 5, "a refused acknowledgement changes nothing");
+        window.on_ack(30, 3).unwrap();
+        assert!(!window.may_read(), "2 outstanding is not below half of 4");
+        window.on_ack(10, 1).unwrap();
+        assert!(window.may_read(), "1 outstanding is below half of 4");
+        // The byte window still says stop by itself.
+        window.on_sent(WINDOW_HIGH_BYTES + 1);
+        assert!(!window.may_read());
+        // A bound of 1 still resumes (half rounds up).
+        let mut one = Window::new(1);
+        one.on_sent(0);
+        one.on_sent(0);
+        assert!(!one.may_read());
+        one.on_ack(0, 2).unwrap();
+        assert!(one.may_read());
+    }
+
     #[tokio::test]
     async fn an_acknowledgement_of_more_than_was_sent_is_refused() {
         let h = harness().await;
         let (handle, _rx) = h.open("/echo", Inbound::Frame).await;
-        assert_eq!(h.bridge.ack(&handle, 1).unwrap_err().code, "bad_ack");
+        assert_eq!(h.bridge.ack(&handle, 1, 0).unwrap_err().code, "bad_ack");
+        assert_eq!(h.bridge.ack(&handle, 0, 1).unwrap_err().code, "bad_ack");
         h.bridge.close(&handle, None, None);
     }
 

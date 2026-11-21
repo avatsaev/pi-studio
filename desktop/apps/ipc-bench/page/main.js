@@ -16,7 +16,10 @@ const { invoke } = window.__TAURI__.core;
 
 /** A run that takes longer than this is a failure (the slowest, B4 at 1 GiB, takes under a minute on a working path). */
 const RUN_TIMEOUT_MS = 10 * 60 * 1000;
-
+/** A run that sees no frame and no end for this long has stalled: it fails with the transport's counters, at once. */
+const STALL_MS = 30 * 1000;
+/** Rust's byte window (`WINDOW_HIGH_BYTES` of the `net` crate): the other bound next to the message count. */
+const WINDOW_MAX_BYTES = 8 * 1024 * 1024;
 
 // Anything the page throws that no workload caught fails the run.
 const pageErrors = [];
@@ -62,6 +65,8 @@ async function main() {
     startedAt: new Date().toISOString(),
     app: { name: "ipc-bench", tauri: config.tauriVersion, os: config.os, arch: config.arch, userAgent: navigator.userAgent, navigatorPlatform: navigator.platform },
     options: { runs: config.runs, only: config.only, scale: config.scale, corrupt: config.corrupt, swap: config.swap },
+    // The two bounds on what the bridge candidates' Rust side holds unacknowledged (reading stops above either).
+    bridge: { window: { maxBytes: WINDOW_MAX_BYTES, maxMessages: config.maxInflightMessages } },
     timerResolutionMs: round(timerResolutionMs(), 4),
     crossOriginIsolated: window.crossOriginIsolated === true,
     pageHash: hashSpeed(),
@@ -70,7 +75,24 @@ async function main() {
     pageErrors: pageErrors,
     ok: false,
   };
-  const ctxBase = { scale: config.scale, runTimeoutMs: RUN_TIMEOUT_MS, rss: () => invoke("bench_rss"), invoke };
+  // The harness commands a workload has running (a window it holds for 30 s): the stall watchdog does not call that a stall.
+  let commandsRunning = 0;
+  const invokeCounted = async (...args) => {
+    commandsRunning++;
+    try {
+      return await invoke(...args);
+    } finally {
+      commandsRunning--;
+    }
+  };
+  const ctxBase = {
+    scale: config.scale,
+    runTimeoutMs: RUN_TIMEOUT_MS,
+    stallMs: STALL_MS,
+    busy: () => commandsRunning > 0,
+    rss: () => invoke("bench_rss"),
+    invoke: invokeCounted,
+  };
   await progress(`page ready: ${navigator.userAgent}; timer step ${results.timerResolutionMs} ms; page hashes ${results.pageHash.mibPerS} MiB/s`);
 
   for (const transport of TRANSPORTS) {
@@ -120,7 +142,9 @@ async function main() {
 
 function headline(record) {
   if (record.error) return record.error;
-  const path = record.ipc ? `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order` : "";
+  const path = record.ipc
+    ? `; ipc ${record.ipc.ipcPath}, ${record.ipc.outOfOrder} out of order, peak ${record.ipc.maxMessagesInFlight} messages and ${record.ipc.maxOutstanding} bytes in flight`
+    : "";
   if (record.lostFrames !== undefined) {
     const held = record.heldBytes === null ? "Rust holds nothing (no bridge)" : `Rust held at most ${record.heldBytes} bytes`;
     const worker = record.workerTimer.maxDelayMs === null ? "no worker timer due" : `worker timer ${round(record.workerTimer.maxDelayMs, 0)} ms late at most`;
@@ -156,6 +180,8 @@ function summarizeIpc(runs) {
     channelMessagesEvaluated: sum("directMessages"),
     channelMessagesFetched: sum("fetchedMessages"),
     maxOutstandingBytes: max("maxOutstanding"),
+    maxMessagesInFlight: max("maxMessagesInFlight"),
+    messagePauses: sum("messagePauses"),
   };
 }
 

@@ -34,6 +34,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/desktop-ipc-benchmark.yml"
+      - "desktop/apps/ipc-bench/**"
 
 permissions:
   contents: read

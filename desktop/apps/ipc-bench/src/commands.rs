@@ -28,6 +28,8 @@ pub struct Config {
     pub os: &'static str,
     pub arch: &'static str,
     pub pid: u32,
+    /// The bridge candidates' message bound (`--max-inflight-messages`), for the results.
+    pub max_inflight_messages: u64,
 }
 
 /// Managed by Tauri: the run's settings and where `results.json` goes.

@@ -57,6 +57,11 @@ struct Args {
     /// Give up, exit 1, when the run is not over after this many seconds.
     #[arg(long, value_name = "SECONDS", default_value_t = 3600)]
     timeout: u64,
+    /// The bridge candidates stop reading the socket while more than this many channel messages are
+    /// unacknowledged (and, as always, while more than 8 MiB are); they resume below half of it. A webview
+    /// takes a channel message as a script to evaluate, so a flood of small messages needs its own bound.
+    #[arg(long, value_name = "N", default_value_t = bridge::DEFAULT_MAX_INFLIGHT_MESSAGES, value_parser = clap::value_parser!(u64).range(1..=1_000_000))]
+    max_inflight_messages: u64,
 }
 
 fn parse_row(s: &str) -> Result<String, String> {
@@ -95,6 +100,7 @@ fn main() {
             os: std::env::consts::OS,
             arch: std::env::consts::ARCH,
             pid: std::process::id(),
+            max_inflight_messages: args.max_inflight_messages,
         },
         out: args.out,
     };
@@ -111,7 +117,7 @@ fn main() {
     );
 
     let fed = server::Fed::default();
-    let bridge = bridge::Bridge::new(port, fed.clone());
+    let bridge = bridge::Bridge::new(port, fed.clone(), args.max_inflight_messages);
     let built = tauri::Builder::default()
         .manage(shared)
         .manage(bridge)
@@ -155,8 +161,18 @@ mod tests {
         assert!(Args::try_parse_from(["ipc-bench"]).is_ok());
         let a = Args::try_parse_from(["ipc-bench", "--only", "B1,b3", "--scale", "0.1", "--runs", "2", "--corrupt", "5"]).unwrap();
         assert_eq!((a.only, a.scale, a.runs, a.corrupt), (vec!["b1".to_string(), "b3".to_string()], 0.1, 2, Some(5)));
-        for bad in [["--only", "b9"], ["--scale", "0"], ["--scale", "1.5"], ["--runs", "0"], ["--swap", "x"]] {
+        for bad in [
+            ["--only", "b9"],
+            ["--scale", "0"],
+            ["--scale", "1.5"],
+            ["--runs", "0"],
+            ["--swap", "x"],
+            ["--max-inflight-messages", "0"],
+            ["--max-inflight-messages", "x"],
+        ] {
             assert!(Args::try_parse_from(["ipc-bench", bad[0], bad[1]]).is_err(), "{bad:?}");
         }
+        assert_eq!(Args::try_parse_from(["ipc-bench"]).unwrap().max_inflight_messages, 512);
+        assert_eq!(Args::try_parse_from(["ipc-bench", "--max-inflight-messages", "64"]).unwrap().max_inflight_messages, 64);
     }
 }

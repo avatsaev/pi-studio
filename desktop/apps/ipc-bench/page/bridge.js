@@ -24,6 +24,8 @@ export const ACK_MS = 50;
 export const OUTBOUND_BATCH_BYTES = 4 * 1024 * 1024;
 /** How long a send that found its connection gone waits for the `closed` message before it reports itself. */
 export const CLOSED_GRACE_MS = 250;
+/** Rust's default bound on unacknowledged channel messages, for an `open` answer that does not name one. */
+export const DEFAULT_MAX_MESSAGES = 512;
 
 const messageOf = (error) => (error && error.message ? error.message : typeof error === "string" ? error : JSON.stringify(error));
 /** What Rust answers for a handle it does not have (the spec's `unknown_handle`). */
@@ -42,11 +44,23 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
   let buffered = 0;
   let acking = ack;
   let unacked = 0;
+  let messagesUnacked = 0;
+  let ackMessages = Math.floor(DEFAULT_MAX_MESSAGES / 4);
   let ackTimer = null;
   let queue = [];
   let queuedBytes = 0;
   let flushScheduled = false;
-  const page = { channelMessages: 0, framesDelivered: 0, bytesDelivered: 0, acksSent: 0, ackedBytes: 0, sendsInvoked: 0, maxBufferedAmount: 0 };
+  const page = {
+    channelMessages: 0,
+    messagesDelivered: 0,
+    framesDelivered: 0,
+    bytesDelivered: 0,
+    acksSent: 0,
+    ackedBytes: 0,
+    ackedMessages: 0,
+    sendsInvoked: 0,
+    maxBufferedAmount: 0,
+  };
 
   const transport = {
     bridge: true,
@@ -70,6 +84,8 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
       try {
         const answer = await invoke("bridge_open", { url, inbound, onMessage: channel });
         handle = answer.handle;
+        // Acknowledge well before Rust's bound is reached: a quarter of it, so that Rust resumes (below half) in time.
+        ackMessages = Math.max(1, Math.floor((answer.maxMessages ?? DEFAULT_MAX_MESSAGES) / 4));
       } catch (error) {
         throw new Error(messageOf(error));
       }
@@ -108,6 +124,15 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     async stats() {
       const rust = await invoke("bridge_stats", { handle });
       return { ...rust, page: { ...page, inbound, outbound, ack: acking } };
+    },
+
+    /** For a run that stalled: where the connection stands, in one line. */
+    async describe() {
+      try {
+        return describeStats(await transport.stats());
+      } catch (error) {
+        return `the connection's counters are not available: ${messageOf(error)}`;
+      }
     },
 
     /** The record of a run: `stats()`, and the IPC path the outbound bodies took. */
@@ -212,17 +237,26 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
     } finally {
       page.bytesDelivered += bytes;
       unacked += bytes;
-      if (acking) scheduleAck();
     }
   }
 
+  /**
+   * One channel message: the frames it holds go to `onMessage`, and then it counts, with its bytes, toward the
+   * next acknowledgement. Rust bounds the messages it has sent and not had acknowledged next to the bytes: a
+   * webview takes each as a script to evaluate, and a flood of small ones queues too many.
+   */
   function onChannelMessage(message) {
     page.channelMessages++;
-    if (message instanceof ArrayBuffer) {
-      if (inbound === "batch") deliverBatch(message);
-      else deliver(message, message.byteLength);
-    } else if (typeof message === "string") {
-      deliver(message, utf8Length(message));
+    if (message instanceof ArrayBuffer || typeof message === "string") {
+      try {
+        if (typeof message === "string") deliver(message, utf8Length(message));
+        else if (inbound === "batch") deliverBatch(message);
+        else deliver(message, message.byteLength);
+      } finally {
+        page.messagesDelivered++;
+        messagesUnacked++;
+        if (acking) scheduleAck();
+      }
     } else if (message && message.closed) {
       closedMessage(message.closed);
     } else {
@@ -256,8 +290,8 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
   // ---------------------------------------------------------------------------- acknowledgements
 
   function scheduleAck() {
-    if (unacked >= ACK_BYTES) sendAck();
-    else if (ackTimer === null && unacked > 0) ackTimer = setTimeout(sendAck, ACK_MS);
+    if (unacked >= ACK_BYTES || messagesUnacked >= ackMessages) sendAck();
+    else if (ackTimer === null && (unacked > 0 || messagesUnacked > 0)) ackTimer = setTimeout(sendAck, ACK_MS);
   }
 
   function stopAckTimer() {
@@ -267,14 +301,17 @@ export function createBridgeTransport({ inbound, outbound, ack = true }, tauri =
 
   function sendAck() {
     stopAckTimer();
-    if (!open || unacked === 0) return Promise.resolve();
+    if (!open || (unacked === 0 && messagesUnacked === 0)) return Promise.resolve();
     const bytes = unacked;
+    const messages = messagesUnacked;
     unacked = 0;
+    messagesUnacked = 0;
     page.acksSent++;
     page.ackedBytes += bytes;
+    page.ackedMessages += messages;
     // An acknowledgement that finds its connection gone (the socket ended while the page was still working
     // through what Rust had sent) is harmless: the `closed` message says what happened. Anything else is an error.
-    return invoke("bridge_ack", { handle, bytes }).catch((error) => {
+    return invoke("bridge_ack", { handle, bytes, messages }).catch((error) => {
       if (!isUnknownHandle(error)) fail(new Error(messageOf(error)));
     });
   }
@@ -288,4 +325,23 @@ export function ipcPathOf(stats) {
   if (stats.jsonArrayBodies > 0) return "postMessage (JSON array)";
   if (stats.rawBodies > 0) return "custom protocol (raw bytes)";
   return "no raw body sent";
+}
+
+/**
+ * One line that says where a connection stands, for the error of a run that stalled: what Rust sent, what the
+ * page took, what is unacknowledged against the two bounds, and whether and why the connection ended.
+ */
+export function describeStats(stats) {
+  const page = stats.page || {};
+  const end = stats.ended
+    ? `ended ${stats.ended.byPage ? "by the page" : "by itself"}: code ${stats.ended.code}${stats.ended.reason ? ` (${stats.ended.reason})` : ""}${
+        stats.ended.error ? `, ${stats.ended.error.code}: ${stats.ended.error.message}` : ""
+      }`
+    : "the connection is still open";
+  return (
+    `Rust sent ${stats.framesIn} frames (${stats.bytesIn} bytes) in ${stats.channelMessages} channel messages, the page delivered ${page.framesDelivered ?? "?"} frames ` +
+    `in ${page.channelMessages ?? "?"} messages; ${stats.outstanding} bytes and ${stats.messagesOutstanding} messages unacknowledged ` +
+    `(peak ${stats.maxOutstanding} bytes of ${stats.windowHighBytes}, ${stats.maxMessagesInFlight} messages of ${stats.windowMaxMessages}); ` +
+    `reading is ${stats.mayRead ? "allowed" : "stopped"}; ${end}`
+  );
 }

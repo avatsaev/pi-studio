@@ -40,9 +40,10 @@ const TICKS_PER_SECOND: u64 = 100;
 /// The bounds of a paced stream: input is hostile even on loopback.
 const MAX_RATE: u32 = 100_000;
 const MAX_SECONDS: u32 = 3600;
-/// How long a finished stream waits for the page to close before the server drops it. The page may still be
-/// working through what Rust sent it (a slow webview): this is the page's own run timeout (10 minutes).
-const LINGER: Duration = Duration::from_secs(600);
+/// How long a finished stream waits for the page to close before the server drops it, so that a page that never
+/// closes cannot hold a server for long: a page that has not finished a stream in this long has stalled
+/// (the page's own watchdog fails a run after 30 s without a frame).
+const LINGER: Duration = Duration::from_secs(60);
 
 type Ws = WebSocketStream<TcpStream>;
 type Result<T, E = String> = std::result::Result<T, E>;

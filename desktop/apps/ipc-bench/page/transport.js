@@ -50,6 +50,10 @@ export function createWebSocketTransport() {
     close(code = 1000, reason = "") {
       if (ws !== null && ws.readyState < 2) ws.close(code, reason);
     },
+    /** For a run that stalled: where the socket stands. */
+    describe() {
+      return ws === null ? "the socket was never created" : `the WebSocket is in readyState ${ws.readyState}, bufferedAmount ${ws.bufferedAmount}`;
+    },
   };
   return transport;
 }

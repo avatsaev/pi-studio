@@ -2,11 +2,11 @@
 // for `window.__TAURI__.core`: what it invokes, in which order, and what it hands to `onMessage`.
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { ACK_BYTES, ACK_MS, CLOSED_GRACE_MS, createBridgeTransport, ipcPathOf } from "./bridge.js";
+import { ACK_BYTES, ACK_MS, CLOSED_GRACE_MS, createBridgeTransport, describeStats, ipcPathOf } from "./bridge.js";
 import { KIND_BINARY, KIND_TEXT, encodeBatch, forEachItem } from "./batch.js";
 
 /** A stand-in for Tauri's core API: records invokes, answers `bridge_open` at once, the others when told. */
-function fakeTauri() {
+function fakeTauri({ maxMessages = 512 } = {}) {
   const calls = [];
   const fake = {
     calls,
@@ -19,7 +19,7 @@ function fakeTauri() {
     invoke(cmd, args, options) {
       const call = { cmd, args, options };
       calls.push(call);
-      if (cmd === "bridge_open") return Promise.resolve({ handle: "h1" });
+      if (cmd === "bridge_open") return Promise.resolve({ handle: "h1", ...(maxMessages === undefined ? {} : { maxMessages }) });
       return new Promise((resolve, reject) => Object.assign(call, { resolve, reject }));
     },
     /** The calls to `cmd` so far. */
@@ -182,12 +182,78 @@ test("the page acknowledges every 256 KiB, or 50 ms after the first byte it owes
   t.mock.timers.tick(ACK_MS - 1);
   assert.equal(tauri.of("bridge_ack").length, 0);
   t.mock.timers.tick(1);
-  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 1000 });
+  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 1000, messages: 1 });
   // Enough bytes: at once, without waiting for the timer.
   tauri.deliver(bytes(ACK_BYTES - 1).buffer);
   assert.equal(tauri.of("bridge_ack").length, 1);
   tauri.deliver(bytes(1).buffer);
-  assert.deepEqual(tauri.of("bridge_ack")[1].args, { handle: "h1", bytes: ACK_BYTES });
+  assert.deepEqual(tauri.of("bridge_ack")[1].args, { handle: "h1", bytes: ACK_BYTES, messages: 2 });
+});
+
+test("the page acknowledges before Rust's message bound: at a quarter of it, whatever the bytes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const tauri = fakeTauri({ maxMessages: 8 });
+  const { transport } = await connected({ inbound: "batch", outbound: "frame" }, tauri);
+  transport.onMessage = () => {};
+  tauri.deliver("a");
+  assert.equal(tauri.of("bridge_ack").length, 0, "one message of two is not enough");
+  tauri.deliver("bb");
+  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 3, messages: 2 }, "two messages are a quarter of 8");
+  // A batch is one message, however many frames it holds.
+  tauri.deliver(
+    encodeBatch([
+      { kind: KIND_TEXT, data: "x" },
+      { kind: KIND_TEXT, data: "y" },
+      { kind: KIND_TEXT, data: "z" },
+    ]).buffer,
+  );
+  assert.equal(tauri.of("bridge_ack").length, 1);
+  const stats = transport.stats();
+  tauri.of("bridge_stats")[0].resolve({});
+  assert.equal((await stats).page.messagesDelivered, 3);
+});
+
+test("without a bound in the open answer, the default one (512) is assumed", async () => {
+  const tauri = fakeTauri({ maxMessages: undefined });
+  const { transport } = await connected({ inbound: "frame", outbound: "frame" }, tauri);
+  transport.onMessage = () => {};
+  for (let i = 0; i < 127; i++) tauri.deliver("a");
+  assert.equal(tauri.of("bridge_ack").length, 0);
+  tauri.deliver("a");
+  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 128, messages: 128 });
+});
+
+test("describeStats says what stalled: counters, bounds, and why the connection ended", () => {
+  const stats = {
+    framesIn: 12130,
+    bytesIn: 388160,
+    channelMessages: 12130,
+    outstanding: 100,
+    messagesOutstanding: 12,
+    maxOutstanding: 400,
+    maxMessagesInFlight: 513,
+    windowHighBytes: 8388608,
+    windowMaxMessages: 512,
+    mayRead: true,
+    page: { framesDelivered: 12118, channelMessages: 12118 },
+    ended: { byPage: false, code: 1006, reason: "", error: { code: "channel_failed", message: "failed to send message to the webview" } },
+  };
+  const text = describeStats(stats);
+  assert.match(text, /Rust sent 12130 frames \(388160 bytes\) in 12130 channel messages, the page delivered 12118 frames in 12118 messages/);
+  assert.match(text, /12 messages unacknowledged \(peak 400 bytes of 8388608, 513 messages of 512\)/);
+  assert.match(text, /ended by itself: code 1006, channel_failed: failed to send message to the webview/);
+  assert.match(describeStats({ ...stats, ended: null }), /the connection is still open/);
+  assert.match(describeStats({ ...stats, ended: { byPage: true, code: 1000, reason: "done", error: null } }), /ended by the page: code 1000 \(done\)/);
+});
+
+test("describe answers with the counters, or says they are not available", async () => {
+  const { transport, tauri } = await connected({ inbound: "frame", outbound: "frame" });
+  const pending = transport.describe();
+  tauri.of("bridge_stats")[0].resolve({ framesIn: 1, bytesIn: 2, channelMessages: 1, outstanding: 0, messagesOutstanding: 0, mayRead: true, ended: null });
+  assert.match(await pending, /Rust sent 1 frames/);
+  const failing = transport.describe();
+  tauri.of("bridge_stats")[1].reject({ code: "unknown_handle", message: "no such connection" });
+  assert.match(await failing, /counters are not available: no such connection/);
 });
 
 test("what onMessage returned from is acknowledged, even when it threw", async (t) => {
@@ -198,7 +264,7 @@ test("what onMessage returned from is acknowledged, even when it threw", async (
   };
   assert.throws(() => tauri.deliver("abc"), /the handler failed/);
   t.mock.timers.tick(ACK_MS);
-  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 3 });
+  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: 3, messages: 1 });
 });
 
 test("the no-acknowledgement mode never acknowledges until enableAck, which acknowledges what is owed", async (t) => {
@@ -209,7 +275,7 @@ test("the no-acknowledgement mode never acknowledges until enableAck, which ackn
   t.mock.timers.tick(ACK_MS * 10);
   assert.equal(tauri.of("bridge_ack").length, 0);
   transport.enableAck();
-  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: ACK_BYTES * 2 });
+  assert.deepEqual(tauri.of("bridge_ack")[0].args, { handle: "h1", bytes: ACK_BYTES * 2, messages: 1 });
   tauri.deliver(bytes(ACK_BYTES).buffer);
   assert.equal(tauri.of("bridge_ack").length, 2, "from then on it acknowledges as usual");
 });

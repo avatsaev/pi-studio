@@ -12,6 +12,7 @@
 // Rows B7 and B8 are in `load.js`, written on the helpers exported here.
 
 import { BASIS, StreamCheck, binaryFrame, binaryTemplate, hex, mix } from "./frame.js";
+import { newRun, watchFrames } from "./run.js";
 import { round, summarize } from "./stats.js";
 
 export const MIB = 1024 * 1024;
@@ -27,34 +28,19 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const scaled = (count, scale) => Math.max(1, Math.round(count * scale));
 
 /**
- * A run's deadline and failure channel. `await run.wait(promise)` settles with the promise, or
- * rejects when the run times out or the socket closes before the run is over.
+ * A transport, connected to `path`, closed again at the end; a close before the end fails the run, and so does
+ * a stall: `ctx.stallMs` (30 s) without a frame (the run's `fingerprint` is the transport's `bufferedAmount`)
+ * and without a harness command running (`ctx.busy`). The error carries the transport's own account.
  */
-function newRun(timeoutMs) {
-  let fail;
-  const failed = new Promise((_, reject) => {
-    fail = reject;
-  });
-  failed.catch(() => {});
-  const timer = setTimeout(() => fail(new Error(`no end after ${timeoutMs / 1000} s`)), timeoutMs);
-  let over = false;
-  return {
-    fail,
-    wait: (promise) => Promise.race([promise, failed]),
-    get over() {
-      return over;
-    },
-    end() {
-      over = true;
-      clearTimeout(timer);
-    },
-  };
-}
-
-/** A transport, connected to `path`, closed again at the end; a close before the end fails the run. */
 export async function withTransport(ctx, path, body, options = {}) {
-  const run = newRun(ctx.runTimeoutMs);
   const transport = ctx.transport.create(options);
+  const run = newRun(ctx.runTimeoutMs, {
+    stallMs: ctx.stallMs,
+    fingerprint: () => transport.bufferedAmount,
+    busy: ctx.busy,
+    explain: () => (transport.describe ? transport.describe() : ""),
+  });
+  watchFrames(transport, run);
   transport.onClose = (code, reason) => {
     if (!run.over) run.fail(new Error(`the socket closed before the end (code ${code}${reason ? `, ${reason}` : ""})`));
   };

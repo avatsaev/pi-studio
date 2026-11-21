@@ -156,6 +156,20 @@ what `onMessage` has returned from (`transport_ack`, every 256 KiB or 50 ms, whi
 While more than 8 MiB is unacknowledged Rust stops reading the socket, so TCP slows the daemon,
 which already paces a download on its send buffer. It reads again below 4 MiB.
 
+**The window also counts messages (found by the second runner run, 2026-11-21).** On Windows
+(WebView2) the per-frame candidate's `Channel::send` failed ("failed to send message to the
+webview") after about 12,100 small frames, because Tauri delivers a channel message by evaluating
+a script and the webview would not take that many at once; a byte-only window of 8 MiB allows
+about 260,000 32-byte messages in flight. So Rust stops reading the socket while more than 8 MiB
+**or** more than 512 channel messages (a batch counts as one) are unacknowledged, and reads again
+below half of each; `transport_ack` carries bytes and messages, and the page acknowledges at a
+quarter of the message bound. The bound is a constant that the benchmark can tune
+(`--max-inflight-messages`). On Linux it cost the per-frame candidate about 7% on B3; its effect on
+Windows is TODO(verify) (the third runner run). **`closed` is best effort when the channel itself
+fails**, since it travels over the same channel: Rust ends the connection on `channel_failed` and
+logs it, and the TypeScript transport detects a dead channel by itself (no frame for a set time
+while the connection is believed open, or a heartbeat) and fails the connection with the counters.
+
 **A socket that ends while the page is behind (found by the first runner run, 2026-11-21).** Rust
 reads ahead of the page by up to the window, so a socket can end while the page still holds
 unprocessed messages. Rust then forgets the handle at once, so a later `transport_ack` or send
