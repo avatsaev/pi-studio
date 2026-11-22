@@ -22,6 +22,9 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
   app takes the keychain when it answers (within 2 s, and takes a throwaway test item) and the file
   `secrets.json` otherwise. `keychain` with no usable keychain fails the launch with a message that
   names the option. Scripts and live runs pass `file`, so they never write to a person's keychain.
+- `--transfers <engine|page>`: which path file transfers take. `engine` (the default) is the app's own
+  transfer engine; `page` is the page's own path. Any other value fails the launch with a message that
+  names the option. The mode is fixed for the launch and is `transfers` in the `boot` answer.
 
 The wire format is JSON lines over TCP: one request per line, one reply per line.
 

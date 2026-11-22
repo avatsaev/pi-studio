@@ -544,13 +544,16 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 
 - [ ] The values of S3 are chosen, not measured. The check's run should report how often the
   liveness limit and the 1 MiB hold were reached.
-- [ ] R4 stops reading a session's socket. On the browser's one connection that also delays its
-  other requests while the disk is behind: measure how long in the 600 MiB browser upload. Over a
-  relay the socket is the daemon's data socket for that client: confirm that stopping it slows
-  the client and not the other clients.
-- [ ] R3's temporary file is visible in the explorer while an upload runs (the listing shows
-  dotfiles), and a daemon that dies leaves it. Decide whether the listing hides the pattern and
-  whether the daemon removes old ones at start.
+- [x] R4 stops reading a session's socket. Measured in sprint-118/task-003 with the daemon's
+  writes slowed to about 28 MiB/s: another request on the same connection waits about 0.15 s in
+  the median and 0.25 s at most (0.5 s over a relay), and a second client over the same relay is
+  not slowed (0.25 ms in the median, as when idle). On a disk faster than the sender, reading
+  stopped 3 times in 600 MiB. Left as it is: the engine's uploads run on their own connection,
+  so only the browser client's one connection sees the delay.
+- [ ] R3's temporary file is visible in the explorer while an upload runs (seen in
+  sprint-118/task-003: the listing shows `.pistudio-upload-<hex>.part` and drops it when the
+  upload ends), and a daemon that dies leaves it. Decide whether the listing hides the pattern
+  and whether the daemon removes old ones at start.
 - [ ] A command that stays unanswered for hours (a transfer that waits overnight, D12): confirm on
   the three webviews that its answer still arrives after a sleep. If it does not, the settlement
   moves into `transfer_progress` and the commands answer at once.

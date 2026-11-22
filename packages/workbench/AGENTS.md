@@ -344,7 +344,9 @@ src/
                            activity; `isAbortError` tells a cancel from a failure) and
                            transfer-activity-text (pure: `activityText` — `<label>… P%`, no
                            percentage when unknown, `waiting for the connection` for `waiting`,
-                           `waiting` for `queued` — and `percentOf`) (+ tests)
+                           `waiting` for `queued` — `percentOf`, the four-line cap
+                           `visibleActivities` with `hiddenActivitiesText` (`and N more`), and
+                           `cancelActivityName` (`Cancel: <label>`)) (+ tests)
   viewer-plugins/          Viewer settings — the per-viewer enable/disable store
                            (docs/MOLVIEWER_DECOUPLING.md § 5 phase 0 step 1). New in sprint-073;
                            phase 1 of the decoupling plan fills this directory with the plugin
@@ -784,6 +786,12 @@ src/
                             AGENTS.md § Invariants "Files tree root row"; the workspace cwd is
                             the tree's own first row, collapsible, with children at depth 1;
                             upload button targets the workspace root;
+                            `ActivityLines` (sprint-119) draws the transfer-activity-store's
+                            activities under the header, one line each with a `Cancel: <label>`
+                            button, at most four and then `and N more`; the explorer's one
+                            transient status also shows the store's `lastResult` (then clears
+                            it); the row menu, `SaveFileButton` and `PdfViewer` stay silent for
+                            an `AbortError`;
                             dragging files in from the OS uploads into the hovered row's
                             directory (or the root when dropped on empty space) — restored after
                             an earlier removal (it briefly made the whole panel an ambiguous drop

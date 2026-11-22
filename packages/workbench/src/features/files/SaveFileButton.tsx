@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Spinner } from "@av-pi-studio/ui-library";
 import { useFileTransfer } from "../../hooks/use-file-transfer.js";
+import { isAbortError } from "../../stores/transfer-activity-store.js";
 
 export function SaveFileButton({ path }: { path: string }) {
   const { saveToDisk } = useFileTransfer();
@@ -26,7 +27,9 @@ export function SaveFileButton({ path }: { path: string }) {
     try {
       await saveToDisk(path);
     } catch (err) {
-      if (mountedRef.current) setError(err instanceof Error ? err.message : "download failed");
+      if (mountedRef.current && !isAbortError(err)) {
+        setError(err instanceof Error ? err.message : "download failed");
+      }
     } finally {
       if (mountedRef.current) setSaving(false);
     }

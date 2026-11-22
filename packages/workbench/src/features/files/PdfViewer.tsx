@@ -17,6 +17,7 @@ import { Button, EmptyState, Spinner } from "@av-pi-studio/ui-library";
 import { getHost } from "../../host/install.js";
 import { useFileDownload } from "../../hooks/use-file-download.js";
 import { useFileTransfer } from "../../hooks/use-file-transfer.js";
+import { isAbortError } from "../../stores/transfer-activity-store.js";
 import { loadPdfjs, PdfUnavailableError } from "./pdfjs-runtime.js";
 import {
   canvasPixelRatio,
@@ -187,9 +188,11 @@ export function PdfViewer({ path }: ViewerProps) {
   // link cannot save, and saves to disk itself. Failures are reported like the explorer's.
   const download = () =>
     void saveToDisk(path).catch((err: unknown) =>
-      getHost().dialogs.alert(
-        `Failed to download: ${err instanceof Error ? err.message : String(err)}`,
-      ),
+      isAbortError(err)
+        ? undefined
+        : getHost().dialogs.alert(
+            `Failed to download: ${err instanceof Error ? err.message : String(err)}`,
+          ),
     );
 
   if (query.isError) {

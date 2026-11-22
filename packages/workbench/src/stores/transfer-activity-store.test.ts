@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isAbortError, useTransferActivityStore } from "./transfer-activity-store.js";
-import { activityText, percentOf } from "./transfer-activity-text.js";
+import {
+  activityText,
+  cancelActivityName,
+  hiddenActivitiesText,
+  percentOf,
+  visibleActivities,
+} from "./transfer-activity-text.js";
 
 const store = () => useTransferActivityStore.getState();
 
@@ -135,5 +141,28 @@ describe("transfer activity store", () => {
     expect(store().lastResult?.seq).toBe(second);
     store().clearResult(second);
     expect(store().lastResult).toBeNull();
+  });
+});
+
+const lines = (n: number): number[] => Array.from({ length: n }, (_, i) => i);
+
+describe("visibleActivities", () => {
+  it("draws every activity up to four, oldest first", () => {
+    expect(visibleActivities(lines(3))).toEqual({ shown: [0, 1, 2], hidden: 0 });
+    expect(visibleActivities(lines(4))).toEqual({ shown: [0, 1, 2, 3], hidden: 0 });
+    expect(visibleActivities([])).toEqual({ shown: [], hidden: 0 });
+  });
+
+  it("keeps the oldest four and counts the rest", () => {
+    expect(visibleActivities(lines(6))).toEqual({ shown: [0, 1, 2, 3], hidden: 2 });
+    expect(hiddenActivitiesText(2)).toBe("and 2 more");
+  });
+});
+
+describe("cancelActivityName", () => {
+  it("names the button after the label, not the moving text", () => {
+    const label = "Downloading report.pdf";
+    expect(cancelActivityName({ label })).toBe("Cancel: Downloading report.pdf");
+    expect(cancelActivityName({ label })).toBe(cancelActivityName({ label }));
   });
 });

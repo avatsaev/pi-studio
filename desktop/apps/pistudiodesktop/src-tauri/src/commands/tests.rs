@@ -13,6 +13,7 @@ use pistudiodesktop_shell::owner::Quiet;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use pistudiodesktop_shell::{AppInfo, Services};
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
@@ -44,7 +45,11 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
-    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() })
+    built_app_telling(
+        config_dir,
+        services,
+        Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine },
+    )
 }
 
 /// The same, with the owner thread told what `launch` says.
@@ -149,6 +154,7 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     let first = invoke(&window, "boot", json!({})).unwrap();
     assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
+    assert_eq!(first["transfers"], "engine");
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
     assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
     assert_eq!(first["daemons"]["secretStore"], "memory");
@@ -167,12 +173,25 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
 }
 
 #[test]
+fn boot_names_the_transfers_mode_the_launch_was_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let app = built_app_telling(dir.path(), Services::default(), launch);
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+    assert_eq!(invoke(&window, "boot", json!({})).unwrap()["transfers"], "page");
+}
+
+#[test]
 fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once() {
     let dir = tempfile::tempdir().unwrap();
     // A damaged registry file gives a notice of the session's own.
     std::fs::write(dir.path().join("daemons.json"), "{ not json").unwrap();
     let notices = vec![Notice::SecretStoreFallback { reason: "unavailable".into() }, Notice::FileReset { file: "secrets.json".into(), kept_as: None }];
-    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default() });
+    let app = built_app_telling(
+        dir.path(),
+        Services::default(),
+        Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default(), transfers: TransfersMode::Engine },
+    );
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
     let first = invoke(&window, "boot", json!({})).unwrap();
     let kinds: Vec<&str> = first["notices"].as_array().unwrap().iter().map(|n| n["kind"].as_str().unwrap()).collect();
@@ -709,6 +728,7 @@ fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
         local_supported: false,
         notices: Vec::new(),
         resume: Arc::default(),
+        transfers: TransfersMode::Engine,
     }
 }
 

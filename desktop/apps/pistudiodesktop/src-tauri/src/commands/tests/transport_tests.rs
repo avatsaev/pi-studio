@@ -11,6 +11,7 @@ use pistudiodesktop_secrets::{MemoryStore, SecretKey, SecretKind, SecretStore};
 use pistudiodesktop_shell::Request;
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::owner::Quiet;
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use serde_json::{Value, json};
 use tauri::test::MockRuntime;
 use tauri::{App, Manager as _, RunEvent, WebviewWindow, WebviewWindowBuilder};
@@ -197,7 +198,7 @@ impl Fixture {
         capture_logs();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(MemoryStore::new());
-        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() };
+        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
         let as_store: Arc<dyn SecretStore> = Arc::clone(&store) as Arc<dyn SecretStore>;
         let app = built_app_stored(dir.path(), Services::default(), launch, as_store);
         let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();
@@ -456,7 +457,7 @@ fn a_declined_switch_leaves_the_connections_open() {
 fn closing_the_last_window_closes_every_proxied_connection_with_1001_as_the_app_exits() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
-    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() };
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
     let app = built_app_stored(dir.path(), Services::default(), launch, Arc::new(MemoryStore::new()));
     let daemon = Daemon::start(None);
     let running = daemon.clone();

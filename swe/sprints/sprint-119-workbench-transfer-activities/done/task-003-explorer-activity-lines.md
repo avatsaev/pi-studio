@@ -1,7 +1,7 @@
 # Task 003 — Explorer: the activity lines with Cancel; the other save triggers stay silent on a cancel
 
 - **Sprint:** sprint-119-workbench-transfer-activities
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/features/files
 - **Priority:** P1

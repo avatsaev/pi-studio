@@ -31,6 +31,7 @@ import { type UploadSource } from "../../host/types.js";
 import { uploadSources } from "./upload-sources.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useExplorerStore } from "../../stores/explorer-store.js";
+import { useTransferActivityStore } from "../../stores/transfer-activity-store.js";
 import { useExplorerTree } from "../../hooks/use-explorer-tree.js";
 import { useExplorerWatch } from "../../hooks/use-explorer-watch.js";
 import { useFileTransfer } from "../../hooks/use-file-transfer.js";
@@ -47,6 +48,7 @@ import { moveEntry } from "./move-entry.js";
 import { withClosedDiffs } from "./move-status.js";
 import { flattenTree, joinPath, rowKey } from "./file-tree.js";
 import { buildGitStatusLookup, buildIgnoredMatcher } from "./git-status-index.js";
+import { ActivityLines } from "./ActivityLines.js";
 import { TreeNode } from "./TreeNode.js";
 import { FileContextMenu } from "./FileContextMenu.js";
 import { createEntry } from "./create-entry.js";
@@ -92,6 +94,13 @@ export function FileExplorer() {
   const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
+  // The outcome of a finished transfer joins the one transient status line, then leaves the store.
+  const lastResult = useTransferActivityStore((s) => s.lastResult);
+  useEffect(() => {
+    if (!lastResult) return;
+    setStatus({ text: lastResult.text, error: lastResult.error });
+    useTransferActivityStore.getState().clearResult(lastResult.seq);
+  }, [lastResult]);
   // The row currently highlighted as the drop target.
   const [dropTargetRowPath, setDropTargetRowPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -406,6 +415,7 @@ export function FileExplorer() {
         />
       </div>
 
+      <ActivityLines />
       {status && (
         <div className={status.error ? styles.statusError : styles.status}>{status.text}</div>
       )}

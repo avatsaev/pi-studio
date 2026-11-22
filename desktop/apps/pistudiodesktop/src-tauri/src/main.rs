@@ -42,6 +42,7 @@ use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use tauri::Manager as _;
 
 #[derive(Parser)]
@@ -63,6 +64,10 @@ struct Args {
     /// live runs pass `file`, so that they never write to a person's keychain.
     #[arg(long, value_name = "keychain|file")]
     secret_store: Option<secret_choice::Preference>,
+    /// Which path file transfers take: `engine` (the app's own transfer engine) or `page` (the
+    /// page's own path). Default: `engine`.
+    #[arg(long, value_name = "engine|page", default_value = "engine")]
+    transfers: TransfersMode,
 }
 
 /// A startup error: say what, and leave.
@@ -186,6 +191,7 @@ fn main() {
         local_supported: daemons::LOCAL_SUPPORTED,
         notices: chosen.notices,
         resume: Arc::clone(&resume_signals),
+        transfers: args.transfers,
     };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
     // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
@@ -201,4 +207,21 @@ fn main() {
         network::on_run_event(handle, &event);
         transport::on_run_event(handle, &event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfers_defaults_to_the_engine_and_takes_page() {
+        assert_eq!(Args::try_parse_from(["pistudiodesktop"]).unwrap().transfers, TransfersMode::Engine);
+        assert_eq!(Args::try_parse_from(["pistudiodesktop", "--transfers", "page"]).unwrap().transfers, TransfersMode::Page);
+    }
+
+    #[test]
+    fn an_unknown_transfers_mode_names_the_option() {
+        let message = Args::try_parse_from(["pistudiodesktop", "--transfers", "fast"]).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(message.contains("--transfers"), "{message}");
+    }
 }

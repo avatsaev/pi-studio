@@ -29,6 +29,8 @@ export interface BootSnapshot {
   notices: BootNotice[];
   /** Whether the HTML viewer can load from the preview origin on this platform. */
   preview: "origin" | "inert";
+  /** Which path file transfers take in this launch (`--transfers`): the engine's or the page's own. */
+  transfers: "engine" | "page";
   /** The daemon registry at boot: entries, the current one, the local daemon's state, settings. */
   daemons: DaemonsView;
 }
@@ -47,7 +49,7 @@ function isNotice(value: unknown): value is BootNotice {
 /** The snapshot, or `null` when it is not the expected shape. */
 export function parseBootSnapshot(value: unknown): BootSnapshot | null {
   if (!isRecord(value)) return null;
-  const { app, storage, notices, preview } = value;
+  const { app, storage, notices, preview, transfers } = value;
   if (
     !isRecord(app) ||
     typeof app.title !== "string" ||
@@ -63,6 +65,7 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
   }
   if (!Array.isArray(notices) || !notices.every(isNotice)) return null;
   if (preview !== "origin" && preview !== "inert") return null;
+  if (transfers !== "engine" && transfers !== "page") return null;
   const daemons = parseDaemonsView(value.daemons);
   if (!daemons) return null;
   return {
@@ -70,6 +73,7 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
     storage: storage as Record<string, string>,
     notices,
     preview,
+    transfers,
     daemons,
   };
 }

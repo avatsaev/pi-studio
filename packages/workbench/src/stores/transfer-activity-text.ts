@@ -23,3 +23,30 @@ export function activityText(
   if (activity.state === "queued") return `${head} waiting`;
   return activity.percent === null ? head : `${head} ${activity.percent}%`;
 }
+
+/** The most activity lines the explorer draws; the rest are counted. */
+export const MAX_ACTIVITY_LINES = 4;
+
+/**
+ * The lines to draw out of `activities` (oldest first): the first `MAX_ACTIVITY_LINES`, and how many
+ * further ones are left out.
+ */
+export function visibleActivities<T>(activities: readonly T[]): {
+  shown: readonly T[];
+  hidden: number;
+} {
+  return {
+    shown: activities.slice(0, MAX_ACTIVITY_LINES),
+    hidden: Math.max(0, activities.length - MAX_ACTIVITY_LINES),
+  };
+}
+
+/** The line that counts the activities left out of the list. */
+export function hiddenActivitiesText(hidden: number): string {
+  return `and ${hidden} more`;
+}
+
+/** The accessible name of a line's Cancel button: stable while the percentage moves. */
+export function cancelActivityName(activity: Pick<TransferActivity, "label">): string {
+  return `Cancel: ${activity.label}`;
+}

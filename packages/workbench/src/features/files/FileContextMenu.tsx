@@ -28,6 +28,7 @@ import { MenuCursorTrigger, MenuContent, MenuItem, MenuSeparator } from "@av-pi-
 import { useUiStore } from "../../stores/ui-store.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useExplorerStore } from "../../stores/explorer-store.js";
+import { isAbortError } from "../../stores/transfer-activity-store.js";
 import { useTabStore } from "../../stores/tab-store.js";
 import { useFileTransfer } from "../../hooks/use-file-transfer.js";
 import { getHost } from "../../host/install.js";
@@ -107,6 +108,7 @@ export function FileContextMenu() {
     try {
       await saveToDisk(menu.path);
     } catch (err) {
+      if (isAbortError(err)) return;
       await getHost().dialogs.alert(
         `Failed to download: ${err instanceof Error ? err.message : String(err)}`,
       );

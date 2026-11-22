@@ -1,7 +1,7 @@
 # Task 004 — Live check of the activity lines in the web client, and the documents
 
 - **Sprint:** sprint-119-workbench-transfer-activities
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/workbench, packages/web-client, docs
 - **Priority:** P1

@@ -15,6 +15,7 @@ use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::owner::{self, Notify};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::resume::ResumeSignals;
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use pistudiodesktop_shell::{AppInfo, AppShell, Envelope, Request, Services};
 use serde_json::Value;
 use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
@@ -96,6 +97,8 @@ pub struct Launch {
     pub notices: Vec<Notice>,
     /// The resume signals the tickers let through; the shell reports their counts in `ui.inspect`.
     pub resume: Arc<ResumeSignals>,
+    /// Which path file transfers take (`--transfers`); `boot` reports it.
+    pub transfers: TransfersMode,
 }
 
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
@@ -132,6 +135,7 @@ pub fn spawn_owner(
         let _ = session.take_registry_changed();
         let mut app = AppShell::new(session, services);
         app.info = info;
+        app.transfers = launch.transfers;
         app.resume = Arc::clone(&launch.resume);
         // What the launch's store choice told (a keychain that was not used, an unreadable
         // `secrets.json`) comes before what the files said.

@@ -67,6 +67,7 @@ pub mod state;
 pub mod supervisor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod switch;
+pub mod transfer_mode;
 pub mod transports;
 
 use pistudiodesktop_engine::{Notice, Session};
@@ -93,6 +94,8 @@ pub struct AppShell {
     /// The resume signals the app's ticker threads have let through (`connection.resumeSignals`
     /// in `ui.inspect`). The app replaces it with the one its tickers hold.
     pub resume: Arc<resume::ResumeSignals>,
+    /// Which path file transfers take in this launch (`--transfers`); fixed for the launch.
+    pub transfers: transfer_mode::TransfersMode,
     /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) deferred: deferred::Deferred,
@@ -108,6 +111,7 @@ impl AppShell {
             notices: Vec::new(),
             awaiting_boot: false,
             resume: Arc::default(),
+            transfers: transfer_mode::TransfersMode::default(),
             #[cfg(not(target_arch = "wasm32"))]
             deferred: deferred::Deferred::default(),
         }

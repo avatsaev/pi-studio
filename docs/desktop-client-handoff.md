@@ -389,6 +389,22 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Upload streams belong to the session that opened them.** A frame from another session is ignored
   (so a client holding two connections must send an upload's frames on the connection that sent its
   `file_upload_request`), and a closed session releases its streams and file handles.
+- **Upload pacing (daemon, sprint 118).** The daemon stops reading a session's socket while more
+  than 1 MiB of an upload is not yet written and reads again under 256 KiB (direct sessions and a
+  relay session's data socket). A sender that awaits its writes, or paces on `bufferedAmount`, is
+  slowed through TCP; the daemon's memory does not grow with the file.
+- **Measured (sprint 118, loopback, isolated production daemon, 600 MiB random file).** SDK upload
+  onto `tmpfs`: 86 MiB/s, SHA-256 equal, daemon resident memory 59 MiB before, at the peak and
+  after, reading stopped 3 times. With every daemon write delayed 1 ms (a stand-in for a slow
+  disk): 28 MiB/s, memory still 59–60 MiB, reading stopped 736 times, and a `ping` on the same
+  connection took 157 ms in the median (244 ms at most) instead of under 1 ms. The same upload
+  from the web client in headless Chromium: 29 MiB/s, hash equal, daemon memory 186 MiB before,
+  221 MiB at the peak, 191 MiB after; the explorer listed `.pistudio-upload-<hex>.part` while it
+  ran and not afterwards. An upload aborted near 200 MiB, and one whose client process was
+  killed, left no file and no temporary file; onto an existing file both left it unchanged.
+  Through a local relay (200 MiB, slowed writes): reading stopped 364 times, the uploading
+  client's own `ping` took 523 ms in the median, and a second client's took 0.25 ms in the median
+  (120 ms at most), the same as idle.
 - **Download pacing (daemon, shipped).** The daemon pauses reading the file while the socket has more
   than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for direct
   connections and, since relay protocol 2, for relay connections too: a relay session reports its

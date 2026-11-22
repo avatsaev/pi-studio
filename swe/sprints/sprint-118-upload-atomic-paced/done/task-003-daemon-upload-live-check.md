@@ -1,7 +1,7 @@
 # Task 003 — Live check of the daemon's upload changes with the browser client and the SDK
 
 - **Sprint:** sprint-118-upload-atomic-paced
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server, docs
 - **Priority:** P1

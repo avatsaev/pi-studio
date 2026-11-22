@@ -34,7 +34,8 @@ impl Default for AppInfo {
 ///   storage: { [key]: string },                       the global keys and the current entry's
 ///   notices: [ { kind: "file_reset", file, keptAs: string | null } | { kind: "secrets_not_moved" }
 ///            | { kind: "secret_store_fallback", reason: "unavailable" | "denied" | "failed" } ],
-///   preview: "origin" | "inert" }                     whether a previewed document's scripts can run
+///   preview: "origin" | "inert",                      whether a previewed document's scripts can run
+///   transfers: "engine" | "page" }                    the launch's `--transfers`
 /// ```
 ///
 /// The notices are handed out once: this call clears them, so a page reload does not show them
@@ -48,6 +49,7 @@ pub fn boot(app: &mut AppShell) -> Value {
         "storage": app.session.storage_snapshot(),
         "notices": notices,
         "preview": preview::kind().as_str(),
+        "transfers": app.transfers.as_str(),
     })
 }
 
@@ -141,6 +143,9 @@ mod tests {
         let snapshot = boot(&mut app);
         assert_eq!(snapshot["app"], json!({"title": "Pi Studio", "version": "1.2.3", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
         assert_eq!((&snapshot["storage"], &snapshot["notices"], &snapshot["preview"]), (&json!({}), &json!([]), &json!(expected_preview)));
+        assert_eq!(snapshot["transfers"], "engine");
+        app.transfers = crate::transfer_mode::TransfersMode::Page;
+        assert_eq!(boot(&mut app)["transfers"], "page");
         assert_eq!(snapshot["daemons"], daemons::view(&mut app), "the boot snapshot and ui.inspect hold one view");
     }
 

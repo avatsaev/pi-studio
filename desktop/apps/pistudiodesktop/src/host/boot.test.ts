@@ -18,12 +18,17 @@ const good = {
   storage: { k: "v" },
   notices: [{ kind: "file_reset", file: "settings.json", keptAs: "settings.json.bad" }],
   preview: "origin",
+  transfers: "engine",
   daemons,
 };
 
 describe("parseBootSnapshot", () => {
   it("accepts the expected shape", () => {
     expect(parseBootSnapshot(good)?.storage).toEqual({ k: "v" });
+  });
+  it("carries the transfers mode", () => {
+    expect(parseBootSnapshot(good)?.transfers).toBe("engine");
+    expect(parseBootSnapshot({ ...good, transfers: "page" })?.transfers).toBe("page");
   });
   it("carries the daemon view and the minimum daemon version", () => {
     const parsed = parseBootSnapshot(good);
@@ -40,6 +45,8 @@ describe("parseBootSnapshot", () => {
     ["notices not an array", { ...good, notices: {} }],
     ["preview missing", { ...good, preview: undefined }],
     ["preview unknown", { ...good, preview: "other" }],
+    ["transfers missing", { ...good, transfers: undefined }],
+    ["transfers unknown", { ...good, transfers: "fast" }],
     ["no minDaemonVersion", { ...good, app: { ...good.app, minDaemonVersion: undefined } }],
     ["empty minDaemonVersion", { ...good, app: { ...good.app, minDaemonVersion: "" } }],
     ["no daemons", { ...good, daemons: undefined }],
