@@ -1,7 +1,7 @@
 # Task 002 — Wire: the envelopes and the file-transfer frames, tested against the published fixtures (D20)
 
 - **Sprint:** sprint-120-desktop-transfer-wire
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src/wire
 - **Priority:** P1

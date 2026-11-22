@@ -11,7 +11,7 @@ import {
   truncate,
   writeFile,
 } from "node:fs/promises";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -1143,5 +1143,166 @@ describe("FileTransferService atomic upload", () => {
     expect(completes(b.text)[0]!.message).toMatchObject({ ok: true });
     expect(["AAAA", "BBBBBB"]).toContain(await readFile(a.target, "utf8"));
     expect(partFiles(dir)).toEqual([]);
+  });
+});
+
+/** A session whose socket records `pause()` / `resume()`; `paused` is true between them. */
+function pausableSession(id = "s1") {
+  const log: Array<"pause" | "resume"> = [];
+  const state = { paused: false };
+  const socket = {
+    send: () => {},
+    close: () => {},
+    pause: () => {
+      state.paused = true;
+      log.push("pause");
+    },
+    resume: () => {
+      state.paused = false;
+      log.push("resume");
+    },
+  };
+  const session = new Session({
+    id,
+    clientId: "c1",
+    clientType: "cli",
+    capabilities: {},
+    socket: socket as never,
+  });
+  return { session, state, log };
+}
+
+describe("FileTransferService paced upload", () => {
+  const MIB = 1024 * 1024;
+  const FRAME = 32 * 1024;
+
+  async function openPaced(svc: FileTransferService, session: Session, name: string, id: string) {
+    const registry = new HandlerRegistry();
+    svc.registerHandlers(registry);
+    const resp = (await registry.get("file_upload_request")!({
+      session,
+      message: { type: "file_upload_request", path: join(dir, name), transferId: id },
+      requestId: "r",
+    })) as { stream: number };
+    return resp.stream;
+  }
+
+  it("stops reading above 1 MiB and reads again, keeping unwritten bytes bounded", async () => {
+    const svc = new FileTransferService({
+      writeChunk: async (handle, data) => {
+        await new Promise((r) => setTimeout(r, 0));
+        await handle.write(data);
+      },
+    });
+    const { session, state, log } = pausableSession();
+    const stream = await openPaced(svc, session, "big.bin", "t");
+    const handler = svc.binaryHandler();
+    const push = (f: FileTransferFrame) => handler(session, encodeFileTransferFrame(f));
+    push({ opcode: "Begin", stream, meta: { transferId: "t" } });
+    const total = 64 * MIB;
+    const data = new Uint8Array(FRAME).fill(7);
+    let sent = 0;
+    let peakWhileRead = 0;
+    // The sender obeys the socket: it sends only while the daemon reads it.
+    while (sent < total) {
+      if (state.paused) {
+        await new Promise((r) => setTimeout(r, 1));
+        continue;
+      }
+      push({ opcode: "Chunk", stream, data });
+      sent += FRAME;
+      const internal = (
+        svc as unknown as { uploads: Map<number, { unwrittenBytes: number }> }
+      ).uploads.get(stream)!;
+      peakWhileRead = Math.max(peakWhileRead, internal.unwrittenBytes);
+      if (sent % (8 * MIB) === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+    push({ opcode: "End", stream, ok: true });
+    await waitUntil(
+      () => statSync(join(dir, "big.bin"), { throwIfNoEntry: false })?.size === total,
+    );
+    expect(peakWhileRead).toBeLessThanOrEqual(MIB + FRAME);
+    expect(log.filter((e) => e === "pause").length).toBeGreaterThan(0);
+    expect(log.filter((e) => e === "resume").length).toBeGreaterThan(0);
+    expect(state.paused).toBe(false);
+  }, 60_000);
+
+  it("reads again only when both uploads of a session are under the low mark", async () => {
+    const release: Array<() => void> = [];
+    let slowHandle: unknown;
+    const svc = new FileTransferService({
+      writeChunk: async (handle, data) => {
+        if (slowHandle === undefined) slowHandle = handle; // the first upload to write is the slow one
+        if (handle === slowHandle) await new Promise<void>((r) => release.push(r));
+        await handle.write(data);
+      },
+    });
+    const { session, state } = pausableSession();
+    const a = await openPaced(svc, session, "a.bin", "a");
+    const b = await openPaced(svc, session, "b.bin", "b");
+    const handler = svc.binaryHandler();
+    const push = (f: FileTransferFrame) => handler(session, encodeFileTransferFrame(f));
+    push({ opcode: "Begin", stream: a, meta: { transferId: "a" } });
+    push({ opcode: "Begin", stream: b, meta: { transferId: "b" } });
+    const data = new Uint8Array(FRAME).fill(1);
+    push({ opcode: "Chunk", stream: a, data });
+    await waitUntil(() => release.length === 1); // `a` is stuck in its first write
+    for (let i = 0; i < 40; i++) push({ opcode: "Chunk", stream: a, data }); // 1.25 MiB behind
+    expect(state.paused).toBe(true);
+    for (let i = 0; i < 4; i++) push({ opcode: "Chunk", stream: b, data });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(state.paused).toBe(true); // `b` is written; `a` still holds the session
+    // Let `a` drain: release every pending write until it is empty.
+    while (state.paused) {
+      release.shift()?.();
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    push({ opcode: "End", stream: b, ok: true });
+    push({ opcode: "End", stream: a, ok: true });
+    while (statSync(join(dir, "a.bin"), { throwIfNoEntry: false }) === undefined) {
+      release.shift()?.();
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    await waitUntil(
+      () => statSync(join(dir, "b.bin"), { throwIfNoEntry: false })?.size === 4 * FRAME,
+    );
+    expect(statSync(join(dir, "a.bin")).size).toBe(41 * FRAME);
+  });
+
+  it("releases uploads and temporary files when the session closes while stopped", async () => {
+    const release: Array<() => void> = [];
+    const svc = new FileTransferService({
+      writeChunk: async (handle, data) => {
+        await new Promise<void>((r) => release.push(r));
+        await handle.write(data);
+      },
+    });
+    const { session, state } = pausableSession();
+    const stream = await openPaced(svc, session, "gone.bin", "g");
+    const handler = svc.binaryHandler();
+    const push = (f: FileTransferFrame) => handler(session, encodeFileTransferFrame(f));
+    push({ opcode: "Begin", stream, meta: { transferId: "g" } });
+    const data = new Uint8Array(FRAME);
+    for (let i = 0; i < 40; i++) push({ opcode: "Chunk", stream, data });
+    await waitUntil(() => release.length === 1);
+    expect(state.paused).toBe(true);
+    svc.disposeSession(session);
+    expect(state.paused).toBe(false);
+    while (partFiles(dir).length > 0) {
+      release.shift()?.();
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(partFiles(dir)).toEqual([]);
+    await expect(stat(join(dir, "gone.bin"))).rejects.toThrow();
+  });
+
+  it("uploads work on a socket without pause", async () => {
+    const rig = await openUpload(dir, "plain.txt");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    for (let i = 0; i < 40; i++) {
+      rig.push({ opcode: "Chunk", stream: rig.stream, data: new Uint8Array(FRAME) });
+    }
+    rig.push({ opcode: "End", stream: rig.stream, ok: true });
+    await waitUntil(() => statSync(rig.target, { throwIfNoEntry: false })?.size === 40 * FRAME);
   });
 });

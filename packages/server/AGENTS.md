@@ -1587,6 +1587,14 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
     target is untouched until then. A failed write/close/rename, a client `Error` frame and
     `disposeSession` close the handle and remove the temporary file (a failed removal is ignored).
     The explorer's watcher sees the `.part` file appear and disappear; it is not hidden.
+  - *Upload pacing.* Each upload counts the `Chunk` bytes received and not yet written. While any
+    upload of a session is above `UPLOAD_HIGH_WATER_BYTES` (1 MiB) the service calls
+    `session.pauseReading()` (`ws` `pause()`; a relay session pauses its data socket through
+    `RelayConnection.pause()`; a stand-in socket without it: no-op), and it calls
+    `session.resumeReading()` once every upload of the session is under `UPLOAD_LOW_WATER_BYTES`
+    (256 KiB). An upload that ends (success, failure, client `Error`) or `disposeSession` stops
+    counting; dispose always resumes. A stopped socket also delays the client's other requests on
+    that connection. `deps.writeChunk` is the injectable write (tests slow it).
 - File downloads happen over the WebSocket via binary frames, not HTTP.
 - Unbounded file size (no inline ceiling like `file_read_request`).
 

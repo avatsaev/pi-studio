@@ -59,7 +59,12 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   live connection only through `lib/connection/live-file-transfer.ts`'s `currentFileTransfer()`.
   Every viewer, `lib/inline-image-cache.ts` and every "Download" action (`features/files/
   SaveFileButton.tsx`, the explorer menu, the PDF toolbar) go through it; the explorer's upload
-  flow is `features/files/upload-sources.ts`. Only in-memory *byte reads* (HTML preview assets)
+  flow is `features/files/upload-sources.ts`. Both register as activities in
+  `stores/transfer-activity-store.ts` (see the stores entry): `uploadSources` registers one
+  activity per picked batch after the overwrite question, owns one `AbortController` (Cancel aborts
+  the file being sent and starts none of the rest) and ends with `Uploaded N files` / `Upload
+  cancelled` / `Upload failed: <message>`; it has no status dep — the outcome is the store's
+  `lastResult`. Only in-memory *byte reads* (HTML preview assets)
   still call `FileTransferClient.download` directly. With `createBrowserHost({ saveTarget })`
   (sprint-104), save goes through `saveIntoTarget` instead: 8 MiB ranges via `downloadTo`
   (`ifUnchanged` after the first), each range's chunks awaited through `SaveTarget.write` before
@@ -329,7 +334,17 @@ src/
                            dialog's target state: a verified `{entryId, text}` match opening the
                            confirm step directly, or a `forkMessages()` list opening the picker
                            instead — set by `features/chat/use-fork-action.ts`'s click handler,
-                           rendered by task-003's dialog/picker)
+                           rendered by task-003's dialog/picker), transfer-activity-store (the
+                           running uploads and saves, oldest first — `{ id, kind, label, percent,
+                           state, cancel }` — with `add`/`update`/`remove`; `update` ignores a
+                           patch that changes nothing; `remove(id, outcome)` also records the
+                           outcome as `lastResult` (`{ text, error, seq }`), the explorer's
+                           transient status, kept in the store so it survives the explorer not
+                           being mounted; `report` records one for a transfer that never had an
+                           activity; `isAbortError` tells a cancel from a failure) and
+                           transfer-activity-text (pure: `activityText` — `<label>… P%`, no
+                           percentage when unknown, `waiting for the connection` for `waiting`,
+                           `waiting` for `queued` — and `percentOf`) (+ tests)
   viewer-plugins/          Viewer settings — the per-viewer enable/disable store
                            (docs/MOLVIEWER_DECOUPLING.md § 5 phase 0 step 1). New in sprint-073;
                            phase 1 of the decoupling plan fills this directory with the plugin
@@ -431,7 +446,12 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download
                            (download = host `files.openForView`, URL released when superseded and
                            on unmount), use-file-transfer (upload + save-to-disk through the host's
-                           `files`; uploadAndRefresh refreshes the explorer), use-checkout-status,
+                           `files`; uploadAndRefresh refreshes the explorer; `saveToDiskActivity`
+                           gives the host a signal and both callbacks, registers one activity at
+                           the host's first `onProgress`/`onStateChange`, removes it when the call
+                           settles with `Downloaded <name>` / `Download cancelled` / `Download
+                           failed: <message>`, and rethrows — a cancel as the host's `AbortError`;
+                           a call that settles with no callback leaves no result) (+ test), use-checkout-status,
                            use-file-watch (ref-counted, resolved-path-aware `file_changed`
                            subscription shared by the molecule viewer's reload gate and
                            use-file-live-refresh below), use-explorer-watch (live file-tree

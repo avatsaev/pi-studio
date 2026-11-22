@@ -1,7 +1,7 @@
 # Task 003 — `Saves`: the engine's sink, and one save per destination (S1, D15)
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell/src/saves.rs
 - **Priority:** P1

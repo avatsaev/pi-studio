@@ -1,7 +1,7 @@
 # Task 002 — Activities: the store, and uploads and saves that register in it (D8, D11, S8)
 
 - **Sprint:** sprint-119-workbench-transfer-activities
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/stores, src/features/files, src/hooks
 - **Priority:** P1

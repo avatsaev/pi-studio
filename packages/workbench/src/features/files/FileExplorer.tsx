@@ -297,7 +297,6 @@ export function FileExplorer() {
       existing: new Set(listing?.entries.map((e) => e.name) ?? []),
       confirm: (message) => getHost().dialogs.confirm(message),
       upload,
-      setStatus,
     });
   }
 

@@ -1,7 +1,7 @@
 # Task 002 — Daemon: an upload is paced by not reading the session's socket (R4)
 
 - **Sprint:** sprint-118-upload-atomic-paced
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server/src/files, packages/server/src/ws
 - **Priority:** P1

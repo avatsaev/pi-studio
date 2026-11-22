@@ -12,4 +12,5 @@ workspace = true
 # or `cargo check --target wasm32-unknown-unknown` would still build them.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pistudiodesktop-net = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }

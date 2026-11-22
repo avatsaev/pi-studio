@@ -7,6 +7,7 @@
 //! * [`limits`]: every time, size and count the engine works within, named, and a [`Limits`] that a
 //!   test can shorten.
 //! * [`error`]: the one error type.
+//! * [`wire`]: the frames the daemon and the engine exchange, built and read, with no socket.
 //!
 //! Every input here is hostile (what the daemon sends, what the page asks): sizes are capped
 //! before they are used, and nothing panics.
@@ -16,6 +17,7 @@
 
 pub mod error;
 pub mod limits;
+pub mod wire;
 
 pub use error::Error;
 pub use limits::Limits;

@@ -3,18 +3,31 @@ import { type FileTransferClient } from "@av-pi-studio/client";
 import { createBrowserFiles } from "./browser-files.js";
 import { installHost, resetHostForTests } from "./install.js";
 import { type SaveTarget, type TransferOptions, type UploadSource } from "./types.js";
-import {
-  batchPercent,
-  uploadSources,
-  type UploadStatus,
-} from "../features/files/upload-sources.js";
+import { batchPercent, uploadSources } from "../features/files/upload-sources.js";
 import { type FileDownload, supersedeDownload } from "../hooks/use-file-download.js";
 import { uploadAndRefresh } from "../hooks/use-file-transfer.js";
+import { useTransferActivityStore } from "../stores/transfer-activity-store.js";
+import { activityText } from "../stores/transfer-activity-text.js";
 import { createTestHost } from "../test/test-host.js";
 
 const source = (name: string): UploadSource => ({ name });
 
-beforeEach(() => resetHostForTests());
+beforeEach(() => {
+  resetHostForTests();
+  useTransferActivityStore.setState({ activities: [], lastResult: null });
+});
+
+/** The text of the first activity's line, each time the store changes it. */
+function recordLines(): { lines: string[]; stop(): void } {
+  const lines: string[] = [];
+  const stop = useTransferActivityStore.subscribe((state) => {
+    const activity = state.activities[0];
+    if (!activity) return;
+    const text = activityText(activity);
+    if (lines.at(-1) !== text) lines.push(text);
+  });
+  return { lines, stop };
+}
 afterEach(() => vi.unstubAllGlobals());
 
 describe("upload through the host", () => {
@@ -41,19 +54,21 @@ describe("upload through the host", () => {
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
-  it("reports a rejected upload on the status line", async () => {
-    const statuses: UploadStatus[] = [];
+  it("reports a rejected upload as the last result", async () => {
+    const { lines, stop } = recordLines();
     await uploadSources("/work", [source("a.txt")], {
       existing: new Set(),
       confirm: async () => true,
       upload: async () => Promise.reject(new Error("disk full")),
-      setStatus: (s) => statuses.push(s),
     });
+    stop();
 
-    expect(statuses).toEqual([
-      { text: "Uploading 1 file…", error: false },
-      { text: "Upload failed: disk full", error: true },
-    ]);
+    expect(lines).toEqual(["Uploading 1 file…"]);
+    expect(useTransferActivityStore.getState().activities).toEqual([]);
+    expect(useTransferActivityStore.getState().lastResult).toMatchObject({
+      text: "Upload failed: disk full",
+      error: true,
+    });
   });
 
   it("uploads nothing when an overwrite is declined", async () => {
@@ -63,7 +78,6 @@ describe("upload through the host", () => {
       existing: new Set(["a.txt"]),
       confirm,
       upload,
-      setStatus: () => {},
     });
 
     expect(confirm).toHaveBeenCalledWith("Overwrite this file? a.txt");
@@ -114,8 +128,8 @@ describe("upload through the host", () => {
     expect(onStateChange).not.toHaveBeenCalled(); // the browser host is always running
   });
 
-  it("shows the batch's percentage on the status line, changing it only when the percent changes", async () => {
-    const statuses: UploadStatus[] = [];
+  it("shows the batch's percentage on its activity, changing it only when the percent changes", async () => {
+    const { lines, stop } = recordLines();
     const sources: UploadSource[] = [
       { name: "a.bin", size: 100 },
       { name: "b.bin", size: 300 },
@@ -128,18 +142,21 @@ describe("upload through the host", () => {
         // Many chunk callbacks per percent point.
         for (let sent = 0; sent <= size; sent += size / 40) options?.onProgress?.(sent, size);
       },
-      setStatus: (s) => statuses.push(s),
     });
+    stop();
 
-    const percents = statuses
-      .map((s) => /(\d+)%$/.exec(s.text)?.[1])
+    const percents = lines
+      .map((text) => /(\d+)%$/.exec(text)?.[1])
       .filter((p): p is string => p !== undefined)
       .map(Number);
     expect(percents.at(-1)).toBe(100);
     expect(percents).toEqual(percents.toSorted((a, b) => a - b)); // never goes backwards
     expect(new Set(percents).size).toBe(percents.length); // no repeated status for one percent
     expect(percents).toContain(25); // the first file ends at 100 of 400 bytes
-    expect(statuses.at(-1)).toEqual({ text: "Uploaded 2 files", error: false });
+    expect(useTransferActivityStore.getState().lastResult).toMatchObject({
+      text: "Uploaded 2 files",
+      error: false,
+    });
   });
 
   it("leaves out the percentage when a source's size is unknown", () => {

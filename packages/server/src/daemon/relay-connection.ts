@@ -60,6 +60,10 @@ export interface RelayConnection {
   sendBinary(bytes: Uint8Array): void;
   /** Close the data socket with `code`; the relay forwards it to the client. */
   close(code?: number, reason?: string): void;
+  /** Stop reading the data socket (the client's own frames); the relay and TCP slow the sender. */
+  pause(): void;
+  /** Read the data socket again after {@link RelayConnection.pause}. */
+  resume(): void;
   onText(handler: (text: string) => void): void;
   onBinary(handler: (bytes: Uint8Array) => void): void;
   /** Fires once, with the code the socket closed with. */
@@ -273,6 +277,8 @@ export function openRelayConnection(options: OpenRelayConnectionOptions): RelayC
       closeSocket(socket, code, reason);
       finish(code, reason);
     },
+    pause: () => socket.pause(),
+    resume: () => socket.resume(),
     onText: (handler) => {
       textHandlers.push(handler);
     },
