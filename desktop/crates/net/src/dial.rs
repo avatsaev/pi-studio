@@ -44,6 +44,16 @@ pub async fn dial(url: &str, password: Option<&str>, limit: Duration) -> Result<
     dial_with_roots(url, password, limit, Vec::new()).await
 }
 
+/// Checks `url` as [`dial`] does before any network use: only `ws` and `wss`, no user information,
+/// a host, no fragment. The caller that must refuse a bad address before it takes a place or reads
+/// a secret asks here; [`dial`] checks again.
+///
+/// # Errors
+/// `invalid_address`, whose message never repeats `url`.
+pub fn check_address(url: &str) -> Result<(), DialError> {
+    parse(url).map(|_| ())
+}
+
 /// [`dial`] with extra trust anchors. Private: the crate's tests use it to trust a certificate
 /// authority they made; nothing outside can add a root, let alone skip the verification.
 async fn dial_with_roots(url: &str, password: Option<&str>, limit: Duration, extra_roots: Vec<CertificateDer<'static>>) -> Result<Socket, DialError> {

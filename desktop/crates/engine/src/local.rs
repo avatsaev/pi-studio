@@ -94,6 +94,43 @@ impl DialPlan {
     }
 }
 
+/// Where a bridged connection's password comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BridgePassword {
+    /// The entry has none.
+    None,
+    /// Held in memory (a version 1 file's secret that could not be moved to the store).
+    Held(Secret),
+    /// In the secret store: the caller reads it ([`BridgePlan::read_password`]) where blocking is allowed.
+    Stored,
+}
+
+/// What the transport bridge needs to know about the current entry before it dials: which entry,
+/// the address to dial (the running daemon's for the local entry, the stored one for a direct
+/// entry) and where its password is. Like [`DialPlan`], it never reads the store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BridgePlan {
+    pub entry: EntryId,
+    pub url: String,
+    pub password: BridgePassword,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BridgePlan {
+    /// The entry's password, read from `store` when it lives there. This may block until the user
+    /// answers a system prompt: never call it on the thread that owns the session. `Err` is
+    /// `secret_missing` (the registry says the entry has a password and the store has none) or
+    /// `secret_unavailable` (the store could not be read).
+    pub fn read_password(&self, store: &dyn pistudiodesktop_secrets::SecretStore) -> std::result::Result<Option<Secret>, &'static str> {
+        use crate::secret::{Slot, key, read_code};
+        match &self.password {
+            BridgePassword::None => Ok(None),
+            BridgePassword::Held(password) => Ok(Some(password.clone())),
+            BridgePassword::Stored => Ok(Some(Secret::new(read_code(store.get(&key(&self.entry, Slot::Password)))?.expose()))),
+        }
+    }
+}
+
 impl Session {
     /// Whether a request is waiting for the host to take it.
     pub(crate) fn local_requests_waiting(&self) -> bool {
@@ -170,6 +207,26 @@ impl Session {
                 LocalState::Checking | LocalState::Starting | LocalState::Stopping => Ok(DialPlan::Ready(Dial::Wait)),
             },
         }
+    }
+
+    /// What the transport bridge dials for the current entry, as far as the session can say without
+    /// touching the secret store. `Err` is a code of `transport_open`: `not_bridged` for a relay
+    /// entry (it keeps the page's own socket), `local_not_ready` while the local daemon is stopped
+    /// to be started or changing state, `no_current`, and the codes of [`Session::plan_dial`] for
+    /// a local daemon that cannot be reached at all.
+    pub fn plan_bridge(&self, dial_address: impl Fn(&str, u16) -> String) -> std::result::Result<BridgePlan, &'static str> {
+        let id = self.current_entry_id().ok_or("no_current")?;
+        if self.registry().get(id.as_str()).ok_or("no_current")?.kind == Kind::Relay {
+            return Err("not_bridged");
+        }
+        let (url, password) = match self.plan_dial(dial_address)? {
+            DialPlan::Ready(Dial::Connect { url, password }) => (url, password.map_or(BridgePassword::None, BridgePassword::Held)),
+            DialPlan::Password { url, .. } => (url, BridgePassword::Stored),
+            DialPlan::Ready(Dial::StartNeeded | Dial::Wait) => return Err("local_not_ready"),
+            // A relay entry was refused above; nothing else plans a pairing link.
+            DialPlan::PairingLink { .. } => return Err("not_bridged"),
+        };
+        Ok(BridgePlan { entry: id.clone(), url, password })
     }
 
     /// Connect to `url` as `entry`: with its password when the registry says it has one.
@@ -419,6 +476,52 @@ mod tests {
             let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1"}));
             s.execute("daemon.remove", json!({"id": id})).unwrap();
             assert_eq!(s.plan_dial(url), Err("no_current"));
+        }
+
+        #[test]
+        fn the_bridge_plan_names_the_entry_the_address_and_where_the_password_is() {
+            use super::super::{BridgePassword, BridgePlan};
+            let (mut s, store) = session_with_store();
+            let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
+            let entry = EntryId::parse(&id).unwrap();
+            let calls = store.calls.load(Ordering::SeqCst);
+            let plan = s.plan_bridge(url).unwrap();
+            assert_eq!(plan, BridgePlan { entry: entry.clone(), url: "h:1".into(), password: BridgePassword::Stored });
+            assert_eq!(store.calls.load(Ordering::SeqCst), calls, "planning never calls the store");
+            assert_eq!(plan.read_password(&*s.secret_store()).unwrap().map(|p| p.expose().to_owned()), Some("pw".to_owned()));
+            store.take(&format!("{id}/password"));
+            assert_eq!(plan.read_password(&*s.secret_store()), Err("secret_missing"));
+            store.fail_get.store(true, Ordering::SeqCst);
+            assert_eq!(plan.read_password(&*s.secret_store()), Err("secret_unavailable"));
+
+            with_entry(&mut s, json!({"kind": "direct", "name": "N", "address": "h:2"}));
+            let plain = s.plan_bridge(url).unwrap();
+            assert_eq!((plain.url.as_str(), &plain.password), ("h:2", &BridgePassword::None));
+            assert_eq!(plain.read_password(&*s.secret_store()), Ok(None));
+        }
+
+        #[test]
+        fn a_relay_entry_is_not_bridged_and_the_local_entry_is_planned_by_its_state() {
+            let mut s = Session::new();
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            assert_eq!(s.plan_bridge(url), Err("not_bridged"));
+            s.execute("daemon.switch", json!({"id": "local"})).unwrap();
+            s.set_local_state(LocalState::Running { host: "127.0.0.1".into(), port: 9 });
+            let plan = s.plan_bridge(url).unwrap();
+            assert_eq!((plan.entry.as_str(), plan.url.as_str()), ("local", "ws://127.0.0.1:9"));
+            for (state, code) in [
+                (LocalState::Starting, "local_not_ready"),
+                (LocalState::Checking, "local_not_ready"),
+                (LocalState::Stopped, "local_not_ready"),
+                (LocalState::CliMissing { path: None }, "cli_missing"),
+                (LocalState::Unsupported, "unsupported"),
+            ] {
+                s.set_local_state(state.clone());
+                assert_eq!(s.plan_bridge(url), Err(code), "{state:?}");
+            }
+            s.execute("settings.set", json!({"key": "autoStartLocalDaemon", "value": false})).unwrap();
+            s.set_local_state(LocalState::Stopped);
+            assert_eq!(s.plan_bridge(url), Err("local_stopped"));
         }
 
         #[test]

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use pistudiodesktop_secrets::SecretStore;
 
-use pistudiodesktop_engine::Dial;
-use pistudiodesktop_model::LocalState;
+use pistudiodesktop_engine::{BridgePlan, Dial};
+use pistudiodesktop_model::{LocalState, Secret};
 use serde_json::{Value, json};
 
 use crate::daemons::{self, Batch, LocalOp};
@@ -50,6 +50,21 @@ impl OwnerAccess {
         } else {
             Err(reply["error"].as_str().unwrap_or("internal").to_owned())
         }
+    }
+
+    /// What the transport bridge dials for the current entry (one short question to the owner
+    /// thread; the store is not touched). `Err` is a code of `transport_open`.
+    pub fn bridge_plan(&self) -> Result<BridgePlan, &'static str> {
+        match self.ask(LocalOp::Bridge) {
+            Ok(value) => daemons::bridge_from_json(&value),
+            Err(code) => Err(daemons::static_code(&code)),
+        }
+    }
+
+    /// The password of the planned entry, read from the store on the caller's thread, which may
+    /// block as long as a keychain prompt lasts: never the owner thread's.
+    pub fn bridge_password(&self, plan: &BridgePlan) -> Result<Option<Secret>, &'static str> {
+        plan.read_password(&*self.store)
     }
 
     fn ask(&self, op: LocalOp) -> Result<Value, String> {
@@ -130,6 +145,22 @@ mod tests {
         let supervisor = Supervisor::new(process::native_services(), Limits::default());
         let dial = supervisor.resolve_current(&access).unwrap();
         assert_eq!(daemons::dial_for_page(dial).unwrap(), json!({"url": "10.0.0.2:8080", "password": "pw", "connect": true}));
+    }
+
+    #[test]
+    fn the_bridge_plan_crosses_the_channel_and_its_password_is_read_off_the_owner_thread() {
+        use pistudiodesktop_engine::BridgePassword;
+
+        let mut session = Session::new();
+        let added = session.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "pw"})).unwrap();
+        session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
+        let (access, _worker) = running_owner(AppShell::new(session, process::native_services()));
+        let plan = access.bridge_plan().unwrap();
+        assert_eq!((plan.entry.as_str(), plan.url.as_str(), &plan.password), (added["id"].as_str().unwrap(), "10.0.0.2:8080", &BridgePassword::Stored));
+        assert_eq!(access.bridge_password(&plan).unwrap().map(|p| p.expose().to_owned()), Some("pw".to_owned()));
+        let relay = access.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"})).unwrap();
+        access.execute("daemon.switch", json!({"id": relay["id"]})).unwrap();
+        assert_eq!(access.bridge_plan(), Err("not_bridged"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Task 001 — App binary: `transport_open`, the proxied connections, closing on boot and switch
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

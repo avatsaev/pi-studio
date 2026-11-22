@@ -3090,12 +3090,16 @@ name = "pistudiodesktop"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "futures-util",
  "getrandom 0.3.4",
  "if-addrs",
  "log",
  "pistudiodesktop-engine",
+ "pistudiodesktop-model",
+ "pistudiodesktop-net",
  "pistudiodesktop-secrets",
  "pistudiodesktop-shell",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -3103,6 +3107,8 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tempfile",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

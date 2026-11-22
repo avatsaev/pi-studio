@@ -274,7 +274,11 @@ async fn user_information_and_other_schemes_are_refused_without_a_connection_att
         assert_eq!(e.code, ErrorCode::InvalidAddress, "{url}");
         assert_no_secret(&e);
         assert!(!e.message.contains(&url), "the message repeats the address: {}", e.message);
+        let checked = check_address(&url).unwrap_err();
+        assert_eq!((checked.code, checked.message.contains(&url)), (ErrorCode::InvalidAddress, false), "{url}");
     }
+    assert!(check_address(&format!("ws://127.0.0.1:{port}")).is_ok());
+    assert!(check_address("wss://daemon.example.com").is_ok());
     assert_no_connection(&listener).await;
 }
 

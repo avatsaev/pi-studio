@@ -23,6 +23,8 @@ tauri-build = { workspace = true }
 
 [dependencies]
 pistudiodesktop-engine = { workspace = true }
+pistudiodesktop-model = { workspace = true }
+pistudiodesktop-net = { workspace = true }
 pistudiodesktop-secrets = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
 tauri = { workspace = true }
@@ -31,6 +33,7 @@ tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 getrandom = { workspace = true }
 if-addrs = { workspace = true }
@@ -39,3 +42,7 @@ if-addrs = { workspace = true }
 # `test`: a mock runtime, to run the page's commands through Tauri's permission check without a window.
 tauri = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }
+# The tests' daemon stand-in and page: a local WebSocket server and client.
+tokio = { workspace = true, features = ["net", "time", "sync"] }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }

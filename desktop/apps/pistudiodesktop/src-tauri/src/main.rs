@@ -26,6 +26,7 @@ mod preview_scheme;
 mod resume;
 mod services;
 mod transfers;
+mod transport;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -118,7 +119,11 @@ fn main() {
         // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
         .manage(Previews::default())
         .register_uri_scheme_protocol(preview::SCHEME, preview_scheme::handle)
-        .on_window_event(transfers::on_window_event)
+        .manage(transport::Transport::new())
+        .on_window_event(|window, event| {
+            transfers::on_window_event(window, event);
+            transport::on_window_event(window, event);
+        })
         .on_menu_event(menu::on_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
@@ -135,7 +140,8 @@ fn main() {
             commands::save_discard,
             commands::transfers_set,
             commands::preview_mount,
-            commands::preview_release
+            commands::preview_release,
+            commands::transport_open
         ])
         .build(tauri::generate_context!())
     {
@@ -191,5 +197,6 @@ fn main() {
         bridge::on_run_event(handle, &event);
         resume::on_run_event(handle, &event);
         network::on_run_event(handle, &event);
+        transport::on_run_event(handle, &event);
     });
 }

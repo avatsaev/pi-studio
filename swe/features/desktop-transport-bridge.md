@@ -312,7 +312,7 @@ attempt and `page_timeout` otherwise; `page_refused` is also recorded when the p
 the protocol after getting in (invalid UTF-8, for example); a page that simply leaves (a reload)
 records nothing. The token and `localUrl` are never in this view.
 
-### 8. Where the code lives
+| The page's command, the set of proxied connections, the resume ticker | The app binary (`src-tauri`, `transport.rs`) | Socket tasks run on Tauri's async runtime. Frames never cross the owner thread or Tauri IPC; `transport_open` asks the owner thread once for the current entry (`Session::plan_bridge` → `BridgePlan`, carried by `LocalOp::Bridge`; the secret is read on the blocking pool). `net::check_address` refuses a bad address before a place is reserved |
 
 | Piece | Place | Rule |
 |---|---|---|
@@ -414,6 +414,7 @@ password or the token:
 | `handshake` | Any other answer to the upgrade |
 | `timeout` | 15 s passed |
 | `limit` | 4 proxied connections exist |
+| `local_not_ready` | The current entry is a local one whose daemon is being started or still needs a start (sprint-116/task-001). Other states of a local entry answer the codes of `daemon_resolve_current` (`local_stopped`, `cli_missing`, …) unchanged |
 | `proxy_failed` | Rust could not bind `127.0.0.1` or get random bytes for the token |
 
 One more failure is raised by the host, not by the command: `local_connection`, when the page's

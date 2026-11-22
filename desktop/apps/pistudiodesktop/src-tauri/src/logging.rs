@@ -8,6 +8,9 @@ struct StderrLogger {
 }
 
 impl Log for StderrLogger {
+    // Not a detail: the WebSocket library logs the whole upgrade request at `trace`, and the request
+    // to a daemon carries the password as its subprotocol. Only `warn` and above may come from a
+    // library, whatever level Pi Studio's own targets are raised to.
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() <= if metadata.target().starts_with("pistudiodesktop") { self.own } else { Level::Warn }
     }
@@ -32,5 +35,24 @@ pub fn init() {
     // Fails only if a logger is already set; then that one stays.
     if log::set_boxed_logger(Box::new(StderrLogger { own })).is_ok() {
         log::set_max_level(LevelFilter::Trace);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enabled(own: Level, target: &str, level: Level) -> bool {
+        StderrLogger { own }.enabled(&Metadata::builder().target(target).level(level).build())
+    }
+
+    #[test]
+    fn a_library_is_heard_from_warn_up_only_so_the_upgrade_request_with_the_password_is_never_logged() {
+        for level in [Level::Trace, Level::Debug, Level::Info] {
+            assert!(!enabled(Level::Trace, "tungstenite::handshake::client", level), "{level}");
+        }
+        assert!(enabled(Level::Trace, "tungstenite::handshake::client", Level::Warn));
+        assert!(enabled(Level::Trace, "pistudiodesktop::transport", Level::Trace));
+        assert!(!enabled(Level::Info, "pistudiodesktop::transport", Level::Debug));
     }
 }

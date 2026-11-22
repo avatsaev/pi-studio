@@ -1,10 +1,10 @@
-//! What the webview may call: fifteen commands, and nothing else of the app is reachable from it.
+//! What the webview may call: sixteen commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
-//! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount` and
-//! `allow-preview-release` to the main window, and listening for events (`core:event:allow-listen`
+//! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount`,
+//! `allow-preview-release` and `allow-transport-open` to the main window, and listening for events (`core:event:allow-listen`
 //! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
 //! `daemons_manage` and `connection_resume`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
@@ -26,16 +26,23 @@ use tauri::{Manager as _, State, ipc};
 use crate::bridge::Bridge;
 use crate::daemons as app_daemons;
 use crate::transfers::Transfers;
+use crate::transport::{self, Failure, Opened, Transport};
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
 /// key, the notices about files that were reset (handed out once), and whether previewed documents
 /// can run scripts on this platform (`preview`).
 #[tauri::command]
-pub async fn boot(bridge: State<'_, Bridge>, transfers: State<'_, Transfers>, previews: State<'_, Previews>) -> Result<Value, String> {
+pub async fn boot(
+    bridge: State<'_, Bridge>,
+    transfers: State<'_, Transfers>,
+    previews: State<'_, Previews>,
+    transport: State<'_, Transport>,
+) -> Result<Value, String> {
     // A reloaded page has no transfers running, whatever the old one last said, and holds none of
-    // the preview URLs it was given: the documents do not outlive it.
+    // the preview URLs it was given or the proxied connections it opened: nothing outlives it.
     transfers.set(0);
     previews.clear();
+    transport.close_all().await;
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
 
@@ -57,6 +64,23 @@ pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Optio
 pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
     let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));
     off_thread(move || supervisor.resolve_current(&access).and_then(daemons::dial_for_page)).await?
+}
+
+/// Open a connection to the current entry's daemon and answer `{ localUrl }`: a single-use
+/// `ws://127.0.0.1:<port>/<token>` the page connects its own `WebSocket` to, once Rust's socket to
+/// the daemon is open. `url` is what the page derived from the entry's stored address; it is
+/// checked against the entry, never dialled for its own sake. The password stays in Rust. Errors
+/// are `{ code, message }` ([`Failure`]). Takes the calling webview's origin from the webview.
+#[tauri::command]
+pub async fn transport_open<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+    bridge: State<'_, Bridge>,
+    transport: State<'_, Transport>,
+    url: String,
+) -> Result<Opened, Failure> {
+    let page = webview.url().map_err(|e| Failure { code: "proxy_failed", message: format!("The page's address is not known: {e}.") })?;
+    let origin = transport::origin_of(&page)?;
+    transport.open(&bridge.access(), &origin, &url).await.map(|local_url| Opened { local_url })
 }
 
 /// Switch the window to another daemon entry: ask first when file transfers are running, have the

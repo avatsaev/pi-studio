@@ -23,11 +23,14 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfers_set, unwrap_reply,
+    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
+use crate::transport::{self, Transport};
+
+mod transport_tests;
 
 /// A flush delay that never ends inside a test: only the exit flush can write a file.
 const NEVER: Duration = Duration::from_secs(3600);
@@ -46,8 +49,12 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
 
 /// The same, with the owner thread told what `launch` says.
 fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> App<MockRuntime> {
+    built_app_stored(config_dir, services, launch, Arc::new(MemoryStore::new()))
+}
+
+/// The same, with the session's secret store given (a test that takes a secret away holds it).
+fn built_app_stored(config_dir: &Path, services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
     let (requests, inbox) = channel();
-    let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
@@ -56,6 +63,8 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
+        .manage(Transport::new())
+        .on_window_event(transport::on_window_event)
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
         .invoke_handler(tauri::generate_handler![
@@ -74,6 +83,7 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
             transfers_set,
             preview_mount,
             preview_release,
+            transport_open,
             unlisted
         ])
         .build(tauri::generate_context!())
@@ -392,7 +402,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_fifteen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -413,6 +423,7 @@ fn the_capability_grants_the_fifteen_commands_and_listening_for_events_and_nothi
             "allow-transfers-set",
             "allow-preview-mount",
             "allow-preview-release",
+            "allow-transport-open",
             "core:event:allow-listen",
             "core:event:allow-unlisten"
         ])

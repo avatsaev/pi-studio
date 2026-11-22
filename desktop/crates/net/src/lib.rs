@@ -25,7 +25,7 @@ mod tls;
 #[cfg(test)]
 mod testing;
 
-pub use dial::{DIAL_LIMIT, Socket, dial};
+pub use dial::{DIAL_LIMIT, Socket, check_address, dial};
 pub use error::{DialError, ErrorCode, ProxyError, TlsReason};
 pub use limits::Limits;
 pub use proxy::{ConnectionSnapshot, EndCode, LastError, LocalUrl, Proxies, Reservation, Snapshot, State};

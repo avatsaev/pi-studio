@@ -2,12 +2,13 @@
 //! snapshot and `ui.inspect` hold, the commands the page may run, who is told about a change, and
 //! the local-daemon operations that cross to the thread that owns the session.
 //!
-//! The view never holds a password or a pairing link. The one answer that does, "what to dial",
-//! is [`Request::Local`] with [`LocalOp::Resolve`] and nothing else, and that answer carries the
+//! The view never holds a password or a pairing link. The only answers that do, "what to dial"
+//! and "what to bridge", are [`Request::Local`] with [`LocalOp::Resolve`] or [`LocalOp::Bridge`]
+//! and nothing else, and those answers carry the
 //! name of the secret to read, not the secret: the caller reads the store off the owner thread
 //! (see `docs/architecture.md` § Decisions).
 
-use pistudiodesktop_engine::{Dial, DialPlan, LocalRequest, Session};
+use pistudiodesktop_engine::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, Session};
 use pistudiodesktop_model::{EntryId, FailReason, LocalState, Secret};
 use serde_json::{Value, json};
 
@@ -102,6 +103,9 @@ pub enum LocalOp {
     /// What to dial for the current entry: a [`DialPlan`], which names the secret to read and
     /// never reads it (a store read may block, and the owner thread never waits on one).
     Resolve,
+    /// What the transport bridge dials for the current entry: a [`BridgePlan`] (the entry, the
+    /// address, where the password is), or the code `transport_open` refuses with. Never reads the store.
+    Bridge,
     /// Run the engine command `id` (`daemon.local.refresh` and the like).
     Request(String),
 }
@@ -115,6 +119,7 @@ pub fn local_op(app: &mut AppShell, op: &LocalOp) -> Value {
             Ok(Value::Null)
         }
         LocalOp::Resolve => app.session.plan_dial(cli_answers::dial_address).map(plan_to_json).map_err(str::to_owned),
+        LocalOp::Bridge => app.session.plan_bridge(cli_answers::dial_address).map(bridge_to_json).map_err(str::to_owned),
         LocalOp::Request(id) => app.session.execute(id, Value::Null).map(|_| Value::Null).map_err(|e| e.to_string()),
     })
 }
@@ -191,6 +196,32 @@ pub fn plan_from_json(value: &Value) -> Result<DialPlan, &'static str> {
     }
 }
 
+/// What the owner thread answers [`LocalOp::Bridge`] with: the password is named (`"stored"`) or
+/// held in memory (`password`), never read here.
+fn bridge_to_json(plan: BridgePlan) -> Value {
+    let (source, held) = match &plan.password {
+        BridgePassword::None => ("none", None),
+        BridgePassword::Held(password) => ("held", Some(password.expose())),
+        BridgePassword::Stored => ("stored", None),
+    };
+    json!({"entry": plan.entry.as_str(), "url": plan.url, "password": source, "held": held})
+}
+
+/// The inverse of [`LocalOp::Bridge`]'s answer.
+pub fn bridge_from_json(value: &Value) -> Result<BridgePlan, &'static str> {
+    let password = match value["password"].as_str() {
+        Some("none") => BridgePassword::None,
+        Some("held") => BridgePassword::Held(Secret::new(value["held"].as_str().ok_or("internal")?)),
+        Some("stored") => BridgePassword::Stored,
+        _ => return Err("internal"),
+    };
+    Ok(BridgePlan {
+        entry: value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal")?,
+        url: value["url"].as_str().ok_or("internal")?.to_owned(),
+        password,
+    })
+}
+
 /// The page's answer for a dial: `{ url, password?, connect: true }`. The only place a secret is
 /// written into JSON for the page. Anything but a connection is not an answer here (the
 /// supervisor settles those first).
@@ -209,8 +240,19 @@ pub fn dial_for_page(dial: Dial) -> Result<Value, String> {
 
 /// The code a rejected resolve carries, as a `&'static str` (the supervisor's trait wants one).
 pub fn static_code(code: &str) -> &'static str {
-    const KNOWN: &[&str] =
-        &["no_current", "not_found", "unsupported", "cli_missing", "cli_outdated", "local_stopped", "busy", "secret_missing", "secret_unavailable"];
+    const KNOWN: &[&str] = &[
+        "no_current",
+        "not_found",
+        "unsupported",
+        "cli_missing",
+        "cli_outdated",
+        "local_stopped",
+        "local_not_ready",
+        "not_bridged",
+        "busy",
+        "secret_missing",
+        "secret_unavailable",
+    ];
     const FAILS: [FailReason; 4] = [FailReason::NotHealthy, FailReason::Timeout, FailReason::BadOutput, FailReason::SpawnFailed];
     KNOWN.iter().copied().find(|known| *known == code).or_else(|| FAILS.iter().map(|f| f.code()).find(|known| *known == code)).unwrap_or("internal")
 }
