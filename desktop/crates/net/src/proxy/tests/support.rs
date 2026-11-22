@@ -15,6 +15,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
 use tokio_tungstenite::{WebSocketStream, accept_async_with_config, client_async_with_config};
 
+use crate::limits::MAX_MESSAGE_BYTES;
 use crate::proxy::{LocalUrl, Proxies};
 use crate::stream::Stream;
 use crate::testing::Rng;
@@ -181,7 +182,7 @@ impl Rig {
 
 /// A daemon socket from the real dial.
 pub async fn dial_for(port: u16) -> Socket {
-    dial(&format!("ws://127.0.0.1:{port}"), None, PATIENCE).await.unwrap()
+    dial(&format!("ws://127.0.0.1:{port}"), None, PATIENCE, MAX_MESSAGE_BYTES).await.unwrap()
 }
 
 /// A daemon socket with message limit `cap`.

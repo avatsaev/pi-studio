@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
-import { mkdir, open, realpath, stat } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { mkdir, open, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import {
   encodeFileTransferFrame,
@@ -119,6 +120,8 @@ interface PendingUpload {
   /** `file_upload_request.ack`: send a `file_upload_complete` when the transfer ends. */
   ack: boolean;
   handle: Awaited<ReturnType<typeof open>> | null;
+  /** The `.pistudio-upload-<32 hex>.part` file the bytes go to; null until `Begin` created it. */
+  tempPath: string | null;
   bytesWritten: number;
   /** Serializes frame processing for this stream (Begin must finish before Chunks write). */
   chain: Promise<void>;
@@ -130,6 +133,13 @@ interface PendingUpload {
 function failureText(stage: string, err: unknown): string {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === "string" ? `${stage}_failed (${code})` : `${stage}_failed`;
+}
+
+/** Remove an upload's temporary file. A failed removal is ignored. */
+async function discardTemp(upload: PendingUpload): Promise<void> {
+  const path = upload.tempPath;
+  upload.tempPath = null;
+  if (path) await rm(path, { force: true }).catch(() => {});
 }
 
 export class FileTransferService {
@@ -248,6 +258,7 @@ export class FileTransferService {
         sessionId: ctx.session.id,
         ack: ctx.message.ack === true,
         handle: null,
+        tempPath: null,
         bytesWritten: 0,
         chain: Promise.resolve(),
         done: false,
@@ -533,7 +544,11 @@ export class FileTransferService {
       if (upload.sessionId !== session.id) continue;
       this.uploads.delete(stream);
       upload.done = true;
-      upload.chain = upload.chain.then(() => upload.handle?.close().catch(() => {}));
+      upload.chain = upload.chain.then(async () => {
+        await upload.handle?.close().catch(() => {});
+        upload.handle = null;
+        await discardTemp(upload);
+      });
     }
     const mine = this.downloads.get(session.id);
     if (!mine) return;
@@ -559,7 +574,12 @@ export class FileTransferService {
           stage = "mkdir";
           await mkdir(dirname(upload.targetPath), { recursive: true });
           stage = "open";
-          upload.handle = await open(upload.targetPath, "w");
+          const tempPath = join(
+            dirname(upload.targetPath),
+            `.pistudio-upload-${randomBytes(16).toString("hex")}.part`,
+          );
+          upload.handle = await open(tempPath, "wx");
+          upload.tempPath = tempPath;
           return;
         }
         case "Chunk": {
@@ -569,24 +589,31 @@ export class FileTransferService {
           return;
         }
         case "End": {
-          if (!upload.handle) return this.finishUpload(session, frame.stream, upload, "no_begin");
+          if (!upload.handle || !upload.tempPath) {
+            return this.finishUpload(session, frame.stream, upload, "no_begin");
+          }
           stage = "close";
           const handle = upload.handle;
           upload.handle = null;
           await handle.close();
+          stage = "rename";
+          await rename(upload.tempPath, upload.targetPath);
+          upload.tempPath = null;
           return this.finishUpload(session, frame.stream, upload);
         }
         case "Error": {
-          await upload.handle?.close();
+          await upload.handle?.close().catch(() => {});
           upload.handle = null;
+          await discardTemp(upload);
           return this.finishUpload(session, frame.stream, upload, frame.message || "client_error");
         }
       }
     } catch (err) {
-      // A failed Begin/Chunk/End: report it, free the stream, and leave whatever was written on
-      // disk (deleting a partial file is a separate decision, see the spec).
+      // A failed Begin/Chunk/End: remove the temporary file, report, and free the stream. The
+      // target is never touched before the final rename.
       await upload.handle?.close().catch(() => {});
       upload.handle = null;
+      await discardTemp(upload);
       this.finishUpload(session, frame.stream, upload, failureText(stage, err));
     }
   }

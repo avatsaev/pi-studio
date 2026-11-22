@@ -1,7 +1,7 @@
 # Task 001 — Daemon: an upload is written to a temporary file and renamed when complete (R3)
 
 - **Sprint:** sprint-118-upload-atomic-paced
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server/src/files
 - **Priority:** P1

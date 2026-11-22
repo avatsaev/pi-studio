@@ -235,13 +235,24 @@ export interface ViewableFile {
   release(): void;
 }
 
-/** Optional extras the workbench passes to `files.upload`. A host may ignore them. */
-export interface UploadOptions {
+/** Where a transfer is, as the host reports it. A host that never reports one is `"running"`. */
+export type TransferState = "queued" | "running" | "waiting";
+
+/**
+ * What the workbench passes to `files.upload` and `files.saveToDisk`. A host may ignore every
+ * member, but then its transfers show no progress and cannot be cancelled.
+ */
+export interface TransferOptions {
   /**
-   * Bytes handed to the transport so far, and the source's total when known. Called as the upload
-   * runs (monotonic, possibly many times per second); the explorer turns it into a percentage.
+   * Bytes done so far, and the total when known. Called as the transfer runs (monotonic, possibly
+   * many times per second); the explorer turns it into a percentage. After a `"waiting"` state it
+   * restarts from 0. A save calls it only once the user has chosen a destination.
    */
-  onProgress?(sent: number, total?: number): void;
+  onProgress?(done: number, total?: number): void;
+  /** Where the transfer is. A host that never calls it is `"running"`. */
+  onStateChange?(state: TransferState): void;
+  /** Aborting stops the transfer and rejects it with an error named `AbortError`. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -261,9 +272,13 @@ export interface HostFiles {
    * confirmed the file is written (with a daemon that advertises `fileTransferAck`; an older daemon
    * resolves when the bytes have left the machine). Rejects with the daemon's reason on failure.
    */
-  upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
-  /** Copy the daemon file at `path` to the user's machine (save dialog, downloads folder). */
-  saveToDisk(path: string): Promise<void>;
+  upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
+  /**
+   * Copy the daemon file at `path` to the user's machine (save dialog, downloads folder). Neither
+   * callback of `options` runs before the user has chosen a destination; when the user cancels the
+   * dialog this resolves and neither has run.
+   */
+  saveToDisk(path: string, options?: TransferOptions): Promise<void>;
   /** Make the daemon file at `path` displayable by URL. */
   openForView(path: string): Promise<ViewableFile>;
   /** Optional native picker. Absent: the workbench uses an `<input type="file">`. */

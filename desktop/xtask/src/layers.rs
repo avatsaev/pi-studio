@@ -42,7 +42,8 @@ impl Class {
 /// L4  io, plugins         import/export orchestration
 /// L5  engine              Session + command registry
 /// L6  shell, automation  the shell (what the webview draws), the MCP server
-/// L7  net                 sockets: the dial and the loopback proxy. Only an app binary may use it, and it uses no UI crate
+/// L7  net                 sockets: the dial and the loopback proxy. Only `transfer` and an app binary may use it, and it uses no UI crate
+/// L8  transfer            the transfer engine: the daemon's file-transfer protocol over its own connection. Only an app binary may use it, and it uses no UI crate
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
     ("model", Class::Layer(1)),
@@ -50,8 +51,10 @@ pub const TABLE: &[(&str, Class)] = &[
     ("secrets", Class::Layer(3)),
     ("engine", Class::Layer(5)),
     ("shell", Class::Layer(6)),
-    // Above the shell, so a layered crate (engine, shell) cannot depend on it: only apps may.
+    // Above the shell, so a layered crate (engine, shell) cannot depend on it: only `transfer` and apps may.
     ("net", Class::Layer(7)),
+    // Above `net`, which it dials through, and above the shell, so that neither the shell nor the engine can depend on it: only apps may.
+    ("transfer", Class::Layer(8)),
     ("testkit", Class::Testkit),
     // Apps and tooling.
     ("pistudiodesktop", Class::Exempt),
@@ -69,10 +72,13 @@ pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["store", "secrets"]];
 /// windows and no webviews.
 pub const UI_CRATES: &[&str] = &["tauri*", "wry", "tao", "muda", "webview2*", "webkit2gtk*", "winit", "rfd"];
 
-/// The one layer allowed to use [`UI_CRATES`]. Not "this layer and above": `net` sits above it so that
-/// nothing layered can depend on it, which does not make it a UI crate, and a socket crate must never
-/// be able to pull in a window.
+/// The one layer allowed to use [`UI_CRATES`]. Not "this layer and above": `net` and `transfer` sit above
+/// it so that nothing layered below can depend on them, which does not make them UI crates, and a socket
+/// crate or an engine must never be able to pull in a window.
 pub const UI_LAYER: u8 = 6;
+
+/// The highest layer in [`TABLE`]. Apps (exempt) sit one above it.
+pub const TOP_LAYER: u8 = 8;
 
 pub fn short_name(pkg: &str) -> &str {
     pkg.strip_prefix(PREFIX).unwrap_or(pkg)
@@ -171,7 +177,7 @@ pub fn check(crates: &[Crate]) -> Vec<Violation> {
                 Some(Class::Testkit) => {}
                 Some(dep_class) => {
                     // Apps (exempt) sit above every layer: nothing layered may depend on one.
-                    let to = dep_class.layer().unwrap_or(UI_LAYER + 1);
+                    let to = dep_class.layer().unwrap_or(TOP_LAYER + 1);
                     if to >= layer && !(to == layer && intra_layer_allowed(&c.name, &d.name)) {
                         out.push(Violation::Upward { krate: c.name.clone(), dep: d.name.clone(), from: layer, to });
                     }
@@ -254,7 +260,7 @@ mod tests {
             "pistudiodesktop-model (L1) depends on UI crate tauri",
             "pistudiodesktop-store (L3) depends on UI crate tauri-plugin-dialog",
             "pistudiodesktop-store uses the testkit outside [dev-dependencies]",
-            "pistudiodesktop-engine (L5) depends on pistudiodesktop (L7)",
+            "pistudiodesktop-engine (L5) depends on pistudiodesktop (L9)",
             "pistudiodesktop-new: not in the layering table",
         ] {
             assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
@@ -262,11 +268,12 @@ mod tests {
     }
 
     #[test]
-    fn net_is_usable_by_apps_only() {
+    fn net_is_usable_by_transfer_and_apps_only() {
         let crates = [
             krate("pistudiodesktop-engine", &[("pistudiodesktop-net", DepKind::Normal, true)]),
             krate("pistudiodesktop-shell", &[("pistudiodesktop-net", DepKind::Normal, true)]),
             krate("pistudiodesktop-store", &[("pistudiodesktop-net", DepKind::Dev, true)]),
+            krate("pistudiodesktop-transfer", &[("pistudiodesktop-net", DepKind::Normal, true)]),
             krate("pistudiodesktop", &[("pistudiodesktop-net", DepKind::Normal, true)]),
             krate("pistudiodesktop-net", &[]),
         ];
@@ -278,6 +285,61 @@ mod tests {
             "pistudiodesktop-store (L3) depends on pistudiodesktop-net (L7)",
         ] {
             assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn transfer_is_usable_by_apps_only() {
+        let crates = [
+            krate("pistudiodesktop-engine", &[("pistudiodesktop-transfer", DepKind::Normal, true)]),
+            krate("pistudiodesktop-shell", &[("pistudiodesktop-transfer", DepKind::Normal, true)]),
+            krate("pistudiodesktop-net", &[("pistudiodesktop-transfer", DepKind::Normal, true)]),
+            krate("pistudiodesktop", &[("pistudiodesktop-transfer", DepKind::Normal, true), ("pistudiodesktop-net", DepKind::Normal, true)]),
+            krate("pistudiodesktop-transfer", &[("pistudiodesktop-net", DepKind::Normal, true), ("pistudiodesktop-testkit", DepKind::Dev, true)]),
+            krate("pistudiodesktop-testkit", &[]),
+        ];
+        let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 3, "{found:#?}");
+        for expected in [
+            "pistudiodesktop-engine (L5) depends on pistudiodesktop-transfer (L8)",
+            "pistudiodesktop-shell (L6) depends on pistudiodesktop-transfer (L8)",
+            "pistudiodesktop-net (L7) depends on pistudiodesktop-transfer (L8)",
+        ] {
+            assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn transfer_may_not_use_an_app_or_a_ui_crate() {
+        let crates = [
+            krate(
+                "pistudiodesktop-transfer",
+                &[
+                    ("tauri", DepKind::Normal, false),
+                    ("tauri-plugin-dialog", DepKind::Dev, false),
+                    ("pistudiodesktop", DepKind::Normal, true),
+                    ("tokio", DepKind::Normal, false),
+                ],
+            ),
+            krate("pistudiodesktop", &[]),
+        ];
+        let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 3, "{found:#?}");
+        for expected in [
+            "pistudiodesktop-transfer (L8) depends on UI crate tauri: only L6 may",
+            "pistudiodesktop-transfer (L8) depends on UI crate tauri-plugin-dialog: only L6 may",
+            "pistudiodesktop-transfer (L8) depends on pistudiodesktop (L9)",
+        ] {
+            assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn every_layer_in_the_table_is_at_most_the_top_layer() {
+        for (name, class) in TABLE {
+            if let Some(layer) = class.layer() {
+                assert!(layer <= TOP_LAYER, "{name} is above TOP_LAYER");
+            }
         }
     }
 

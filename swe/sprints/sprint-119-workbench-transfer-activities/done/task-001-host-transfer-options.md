@@ -1,7 +1,7 @@
 # Task 001 — Host contract: `TransferOptions`, and cancel and progress in the browser host (R2, S7)
 
 - **Sprint:** sprint-119-workbench-transfer-activities
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/host
 - **Priority:** P1

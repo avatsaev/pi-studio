@@ -3224,6 +3224,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pistudiodesktop-transfer"
+version = "0.2.0"
+dependencies = [
+ "pistudiodesktop-net",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"

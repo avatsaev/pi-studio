@@ -580,8 +580,9 @@ All communication uses a **single WebSocket connection** per client.
   connections and relay data sockets — both report a real `bufferedAmount`), sends `Error` without a trailing `End`
   on a read error, and ignores upload frames from a session that does not own the stream; an upload
   request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
-  `sessionMessageSchema` member although the rest of `file_*` is schema-less). A partial file is left
-  after a failed upload. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
+  `sessionMessageSchema` member although the rest of `file_*` is schema-less). An upload is written to
+  `.pistudio-upload-<32 hex>.part` beside its target and renamed on `End`; a failed, cancelled or
+  abandoned upload leaves the old target unchanged and no temporary file. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
 - **Download by path, ranged and cancellable (sprint-097, `swe/features/desktop-client-protocol-followups-2.md` § 1).**
   The one deliberate break of the append-only rule (decision D4; `swe/architecture/websocket-protocol.md`).
   `file_download_request { path, stream?, offset?, length?, ifUnchanged? }` replaces the token flow:

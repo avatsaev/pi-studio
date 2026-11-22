@@ -1,6 +1,6 @@
 # Architecture — Workbench Host Adapter
 
-> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Milestone 2 (sprints 112–117, 2026-11-22): the desktop host's `connection.createTransport` picks a Rust-owned proxy for `local` and `direct` entries and `onResume` hears the app's resume event, with no change to this contract; the registry view's `secretStore` was added. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
+> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Milestone 2 (sprints 112–117, 2026-11-22): the desktop host's `connection.createTransport` picks a Rust-owned proxy for `local` and `direct` entries and `onResume` hears the app's resume event, with no change to this contract; the registry view's `secretStore` was added. Milestone 3, sprint 119 (2026-11-22): `files.upload` and `files.saveToDisk` take `TransferOptions` (progress, state, abort; `UploadOptions` is gone) and the browser host honours it. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-package.md](workbench-package.md) (the package this seam belongs to),
@@ -72,8 +72,8 @@ interface WorkbenchHost {
     onResume(listener: () => void): () => void;
   };
   files: {
-    upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
-    saveToDisk(path: string): Promise<void>;
+    upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
+    saveToDisk(path: string, options?: TransferOptions): Promise<void>;
     openForView(path: string): Promise<ViewableFile>;
     pickUploads?(): Promise<UploadSource[]>;
   };
@@ -98,6 +98,14 @@ interface SaveTarget {                          // write per chunk in file order
   write(chunk: Uint8Array): Promise<void>;      // on any failure discard once instead, never finish
   finish(): Promise<void>;
   discard(): Promise<void>;
+}
+
+type TransferState = "queued" | "running" | "waiting";   // a host that never reports one is "running"
+
+interface TransferOptions {                     // of `upload` and `saveToDisk`; a host may ignore all three
+  onProgress?(done: number, total?: number): void;   // restarts from 0 after "waiting"
+  onStateChange?(state: TransferState): void;
+  signal?: AbortSignal;                         // aborting rejects with an AbortError
 }
 ```
 
@@ -167,8 +175,8 @@ Supporting types:
 | `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer`. The desktop host returns a proxied transport (Rust owns the socket to the daemon) for a `local` or `direct` current entry, and the browser host's choice otherwise ([The desktop host](#the-desktop-host)) |
 | `connection.timers` | Passed to `ReconnectionManager`. Must keep firing when the window is hidden |
 | `connection.onResume` | Fires when the host believes a stale connection may need checking: the window became visible, the network came back, the machine woke. The workbench decides what to do (`resolveResumeAction`, unchanged) |
-| `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options.onProgress(sent, total?)` is optional. The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005). The workbench then refreshes the explorer listing |
-| `files.saveToDisk` | Saves a daemon file to the user's machine. Where it lands is the host's business: the browser host builds a `Blob` and clicks an anchor, or, when `saveTarget` is given, streams the file into the `SaveTarget` it returns (`null`: the user cancelled, nothing happens) in 8 MiB ranges, one at a time — the first learns size and modification time, later ones send them as `ifUnchanged` — awaiting each `write` in order, then `finish()`; on any failure `discard()` runs once and the original error is rethrown. Rejects on failure; resolves without saving if the user cancels a native dialog |
+| `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options` is a `TransferOptions`: `onProgress(done, total?)` is the bytes sent so far and the source's size when known; `signal` aborting stops the upload and rejects with an error named `AbortError`; `onStateChange` is for hosts that queue or wait (the browser host never calls it). The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005), with `onProgress` and `signal`. The workbench then refreshes the explorer listing |
+| `files.saveToDisk` | Saves a daemon file to the user's machine. Where it lands is the host's business: the browser host builds a `Blob` and clicks an anchor, or, when `saveTarget` is given, streams the file into the `SaveTarget` it returns (`null`: the user cancelled, nothing happens) in 8 MiB ranges, one at a time — the first learns size and modification time, later ones send them as `ifUnchanged` — awaiting each `write` in order, then `finish()`; on any failure `discard()` runs once and the original error is rethrown. Rejects on failure; resolves without saving if the user cancels a native dialog. `options` is the same `TransferOptions`, and a host calls neither callback before the user has chosen a destination (for the `saveTarget` path: before `saveTarget` has answered). Through the `Blob` path `onProgress` is the SDK's, against the file's size, and `signal` goes to the SDK; an abort that comes after the last chunk still rejects, and the anchor is not clicked. Through a `SaveTarget`, `onProgress(written, totalBytes)` runs after each `write` (once, at `(0, 0)`, for an empty file); an abort is noticed before each range and each write (inside a range by the SDK), `discard()` runs once, `finish()` never, and the rejection is an `AbortError` |
 | `files.openForView` | Returns a URL a media element, `fetch` or pdf.js can read. The workbench calls `release()` when the URL is superseded or the viewer unmounts |
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
 | `pdf` | Optional. `createWorker` returns a pdf.js worker; `assetBaseUrl` is where the pdf.js data directories are served (trailing slash) |
@@ -189,7 +197,7 @@ Supporting types:
 | `connection.createTransport` | Today's branch: relay transport, bearer-subprotocol socket, or `undefined` |
 | `connection.timers` | Worker timers with the plain-timer fallback |
 | `connection.onResume` | `visibilitychange` (hidden to visible only) and `online` |
-| `files` | Today's in-memory paths over `FileTransferClient`; with the `saveTarget` option, `saveToDisk` streams into it |
+| `files` | Today's in-memory paths over `FileTransferClient`; with the `saveTarget` option, `saveToDisk` streams into it. `upload` passes `onProgress` and `signal` to the SDK; `saveToDisk` reports progress and honours `signal` on both of its paths. Never calls `onStateChange` |
 | `pdf` | Not provided by default; `web-client` passes it in `overrides` because only an application can import a `?worker` |
 | `app` | Required override (`title`, `version`) |
 | `preview`, `daemons` | Not provided |
@@ -229,20 +237,21 @@ in the contract above. Kept so the reasons are findable.
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |
 
-### The 2026-11-22 amendment — specified and planned (sprint 119), not built
+### History — the 2026-11-22 amendment
 
 For the desktop transfer engine ([../features/desktop-transfer-engine.md](../features/desktop-transfer-engine.md)
-§ 6, decisions R2 and S7). Nothing above changes until it is built; the rows move into the contract
-with sprint-119/task-001. Compatibility is not kept: every host changes in the same change.
+§ 6, decisions R2 and S7). The first five rows are in the contract above (sprint-119/task-001); the
+last is not built (sprint 122) and is not in the contract. Compatibility was not kept: every host
+changed in the same change.
 
-| Change | Kind |
-|---|---|
-| `TransferOptions { onProgress?, onStateChange?, signal? }`, with `TransferState = "queued" \| "running" \| "waiting"` | Replaces `UploadOptions` (renamed, no alias) |
-| `files.upload(dir, source, options?: TransferOptions)` | `signal` aborts (the promise rejects with an `AbortError`); `onStateChange` is optional for a host |
-| `files.saveToDisk(path, options?: TransferOptions)` | A second argument: progress, state and abort for a save. No callback before the user has chosen a destination |
-| `files.pickUploads` | Unchanged in shape. The desktop host supplies it when Rust serves the page's entry, decided once when the host is built |
-| Browser host | Passes `signal` and progress through to the SDK for uploads and saves; an aborted save discards its `saveTarget` |
-| Desktop host | A picked file is uploaded, and a file saved, by Rust when the engine serves the connection; otherwise the browser host's members |
+| Change | Kind | Where it landed |
+|---|---|---|
+| `TransferOptions { onProgress?, onStateChange?, signal? }`, with `TransferState = "queued" \| "running" \| "waiting"` | Replaces `UploadOptions` (renamed, no alias; the SDK's own upload options type is `UploadSendOptions`) | Sprint-119/task-001 |
+| `files.upload(dir, source, options?: TransferOptions)` | `signal` aborts (the promise rejects with an `AbortError`); `onStateChange` is optional for a host | Sprint-119/task-001 |
+| `files.saveToDisk(path, options?: TransferOptions)` | A second argument: progress, state and abort for a save. No callback before the user has chosen a destination | Sprint-119/task-001 |
+| `files.pickUploads` | Unchanged in shape | — |
+| Browser host | Passes `signal` and progress through to the SDK for uploads and saves; an aborted save discards its `saveTarget` | Sprint-119/task-001 (`browser-files.ts`); the test host records every call's options in `transfers` |
+| Desktop host | A picked file is uploaded, and a file saved, by Rust when the engine serves the connection (`pickUploads` supplied then, decided once when the host is built); otherwise the browser host's members | Not built: sprint 122 |
 
 ## Behavior & algorithms
 
@@ -302,6 +311,7 @@ Storage keys and value formats do not change. Only the backing store becomes hos
 | `host.files.openForView` rejects | The viewer shows its existing download-failed state |
 | `host.files.upload` rejects | The explorer shows the failure in its status line, as it does today |
 | `host.files.saveToDisk` resolves after a user cancel | No message is shown |
+| A `signal` passed to `files.upload` or `files.saveToDisk` aborts | The call rejects with an error named `AbortError`; a save into a `SaveTarget` has discarded it |
 | `host.connection.createTransport` throws | `connect()` fails with that error; the connection bar shows it |
 | `host.launch.initialConnect` returns an intent with `connect: false` | Fields are pre-filled; no connection is attempted |
 | A deep link arrives while disconnected | Stored as pending; applied after restore settles, as today |
@@ -318,7 +328,8 @@ Storage keys and value formats do not change. Only the backing store becomes hos
   become host-supplied.
 - [../features/desktop-client-protocol-followups.md](../features/desktop-client-protocol-followups.md):
   upload backpressure changes what the browser host's `files.upload` does internally; the only
-  contract change is the optional `UploadOptions.onProgress` (sprint-096/task-005).
+  contract change is the optional `onProgress` of `files.upload`'s options (sprint-096/task-005;
+  the options type is `TransferOptions` since sprint-119).
 
 ## Acceptance criteria
 

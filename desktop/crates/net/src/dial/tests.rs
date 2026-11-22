@@ -19,6 +19,7 @@ use tokio_tungstenite::{accept_async, accept_hdr_async};
 
 use super::*;
 use crate::error::TlsReason;
+use crate::limits::MAX_MESSAGE_BYTES;
 
 /// A password nobody would pick: if it appears anywhere it leaked.
 const MARKER: &str = "MARKER-pw-7f3a9c1e";
@@ -117,10 +118,39 @@ fn assert_no_secret(error: &DialError) {
 
 // ---- plain servers
 
+/// The message limit of the bulk connection (the transfer engine's value).
+const SIXTEEN_MIB: usize = 16 * 1024 * 1024;
+
+/// Accepts one upgrade, sends one binary message of `len` bytes and then waits for the client.
+async fn big_message_server(len: usize) -> u16 {
+    let (listener, port) = listener().await;
+    tokio::spawn(async move {
+        use futures_util::SinkExt;
+        let Ok((tcp, _)) = listener.accept().await else { return };
+        let Ok(mut ws) = accept_async(tcp).await else { return };
+        let _ = ws.send(Message::binary(vec![7u8; len])).await;
+        while ws.next().await.is_some() {}
+    });
+    port
+}
+
+#[tokio::test]
+async fn a_socket_dialled_with_16_mib_refuses_a_larger_message_and_takes_one_of_that_size() {
+    let port = big_message_server(SIXTEEN_MIB).await;
+    let mut socket = dial(&url("ws", port), None, LIMIT, SIXTEEN_MIB).await.unwrap();
+    let Message::Binary(body) = socket.next().await.unwrap().unwrap() else { panic!("not a binary message") };
+    assert_eq!(body.len(), SIXTEEN_MIB);
+
+    let port = big_message_server(SIXTEEN_MIB + 1).await;
+    let mut socket = dial(&url("ws", port), None, LIMIT, SIXTEEN_MIB).await.unwrap();
+    let error = socket.next().await.unwrap().unwrap_err();
+    assert!(matches!(error, tungstenite::Error::Capacity(_)), "{error:?}");
+}
+
 #[tokio::test]
 async fn a_plain_server_connects_and_the_socket_carries_frames() {
     let (port, seen) = ws_server().await;
-    let mut socket = dial(&format!("ws://127.0.0.1:{port}/daemon?x=1"), None, LIMIT).await.unwrap();
+    let mut socket = dial(&format!("ws://127.0.0.1:{port}/daemon?x=1"), None, LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
     assert_eq!(socket.next().await.unwrap().unwrap(), Message::text("hi"));
     let seen = seen.await.unwrap();
     assert_eq!(seen.host.as_deref(), Some(format!("127.0.0.1:{port}").as_str()), "Host is the URL's, as a browser sends it");
@@ -130,21 +160,21 @@ async fn a_plain_server_connects_and_the_socket_carries_frames() {
 #[tokio::test]
 async fn without_a_password_no_subprotocol_is_offered() {
     let (port, seen) = ws_server().await;
-    let _socket = dial(&url("ws", port), None, LIMIT).await.unwrap();
+    let _socket = dial(&url("ws", port), None, LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
     assert_eq!(seen.await.unwrap().protocol, None);
 }
 
 #[tokio::test]
 async fn an_empty_password_is_no_password() {
     let (port, seen) = ws_server().await;
-    let _socket = dial(&url("ws", port), Some(""), LIMIT).await.unwrap();
+    let _socket = dial(&url("ws", port), Some(""), LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
     assert_eq!(seen.await.unwrap().protocol, None);
 }
 
 #[tokio::test]
 async fn a_password_is_offered_as_the_bearer_subprotocol() {
     let (port, seen) = ws_server().await;
-    let _socket = dial(&url("ws", port), Some(MARKER), LIMIT).await.unwrap();
+    let _socket = dial(&url("ws", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
     assert_eq!(seen.await.unwrap().protocol, Some(format!("pi-studio.bearer.{MARKER}")));
 }
 
@@ -152,7 +182,7 @@ async fn a_password_is_offered_as_the_bearer_subprotocol() {
 async fn a_password_with_spaces_and_symbols_reaches_the_daemon_whole() {
     let (port, seen) = ws_server().await;
     let password = "p@ss word!#$%&'*+-.^_`|~:;=?/";
-    let _socket = dial(&url("ws", port), Some(password), LIMIT).await.unwrap();
+    let _socket = dial(&url("ws", port), Some(password), LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
     assert_eq!(seen.await.unwrap().protocol, Some(format!("pi-studio.bearer.{password}")));
 }
 
@@ -160,7 +190,7 @@ async fn a_password_with_spaces_and_symbols_reaches_the_daemon_whole() {
 async fn a_password_a_subprotocol_cannot_carry_is_refused_before_any_connection_and_not_repeated() {
     let (listener, port) = listener().await;
     for password in [format!("{MARKER},extra"), format!("{MARKER}\r\nX: y"), format!("{MARKER}é")] {
-        let e = dial(&url("ws", port), Some(&password), LIMIT).await.unwrap_err();
+        let e = dial(&url("ws", port), Some(&password), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
         assert_eq!(e.code, ErrorCode::Handshake);
         assert_no_secret(&e);
     }
@@ -175,7 +205,7 @@ async fn answers_401_403_and_500_give_their_three_codes() {
         ("500 Internal Server Error", ErrorCode::Handshake),
     ] {
         let port = status_server(status).await;
-        let e = dial(&url("ws", port), Some(MARKER), LIMIT).await.unwrap_err();
+        let e = dial(&url("ws", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
         assert_eq!(e.code, code, "{status}: {e}");
         assert!(e.message.contains(&format!("127.0.0.1:{port}")), "the message names host and port: {}", e.message);
         assert_no_secret(&e);
@@ -185,8 +215,8 @@ async fn answers_401_403_and_500_give_their_three_codes() {
 #[tokio::test]
 async fn a_401_says_whether_a_password_was_sent() {
     let port = status_server("401 Unauthorized").await;
-    let without = dial(&url("ws", port), None, LIMIT).await.unwrap_err();
-    let with = dial(&url("ws", port), Some(MARKER), LIMIT).await.unwrap_err();
+    let without = dial(&url("ws", port), None, LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
+    let with = dial(&url("ws", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert!(without.message.contains("needs a password"), "{}", without.message);
     assert!(with.message.contains("refused the password"), "{}", with.message);
 }
@@ -202,7 +232,7 @@ async fn something_that_is_not_a_websocket_server_is_a_handshake_error() {
             let _ = tcp.write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n").await;
         }
     });
-    let e = dial(&url("ws", port), Some(MARKER), LIMIT).await.unwrap_err();
+    let e = dial(&url("ws", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Handshake, "{e}");
     assert_no_secret(&e);
 }
@@ -215,7 +245,7 @@ async fn a_server_that_hangs_up_during_the_upgrade_is_a_handshake_error() {
             drop(tcp);
         }
     });
-    let e = dial(&url("ws", port), None, LIMIT).await.unwrap_err();
+    let e = dial(&url("ws", port), None, LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Handshake, "{e}");
 }
 
@@ -224,7 +254,7 @@ async fn a_server_that_never_answers_gives_timeout_at_the_limit() {
     let port = silent_server().await;
     let limit = Duration::from_millis(400);
     let started = Instant::now();
-    let e = dial(&url("ws", port), Some(MARKER), limit).await.unwrap_err();
+    let e = dial(&url("ws", port), Some(MARKER), limit, MAX_MESSAGE_BYTES).await.unwrap_err();
     let elapsed = started.elapsed();
     assert_eq!(e.code, ErrorCode::Timeout, "{e}");
     assert!(elapsed >= limit, "returned early: {elapsed:?}");
@@ -236,7 +266,7 @@ async fn a_server_that_never_answers_gives_timeout_at_the_limit() {
 #[tokio::test]
 async fn a_closed_port_is_unreachable() {
     let port = closed_port().await;
-    let e = dial(&url("ws", port), Some(MARKER), LIMIT).await.unwrap_err();
+    let e = dial(&url("ws", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Unreachable, "{e}");
     assert!(e.message.contains(&format!("127.0.0.1:{port}")), "{}", e.message);
     assert_no_secret(&e);
@@ -244,7 +274,7 @@ async fn a_closed_port_is_unreachable() {
 
 #[tokio::test]
 async fn a_name_that_does_not_resolve_is_unreachable() {
-    let e = dial("ws://daemon.invalid:6767", Some(MARKER), LIMIT).await.unwrap_err();
+    let e = dial("ws://daemon.invalid:6767", Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Unreachable, "{e}");
     assert!(e.message.contains("daemon.invalid:6767"), "{}", e.message);
     assert_no_secret(&e);
@@ -270,7 +300,7 @@ async fn user_information_and_other_schemes_are_refused_without_a_connection_att
         format!("127.0.0.1:{port}"),
     ];
     for url in refused {
-        let e = dial(&url, Some(MARKER), LIMIT).await.unwrap_err();
+        let e = dial(&url, Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
         assert_eq!(e.code, ErrorCode::InvalidAddress, "{url}");
         assert_no_secret(&e);
         assert!(!e.message.contains(&url), "the message repeats the address: {}", e.message);
@@ -339,7 +369,7 @@ async fn wss_server(leaf: Leaf) -> (u16, oneshot::Receiver<Seen>) {
 }
 
 async fn dial_trusting(url: &str, password: Option<&str>, ca: &Ca) -> Result<Socket, DialError> {
-    dial_with_roots(url, password, LIMIT, vec![ca.issuer.der().clone()]).await
+    dial_with_roots(url, password, LIMIT, MAX_MESSAGE_BYTES, vec![ca.issuer.der().clone()]).await
 }
 
 #[tokio::test]
@@ -356,7 +386,7 @@ async fn an_unknown_issuer_is_a_tls_error_with_that_reason() {
     let ca = ca("test CA");
     let (port, _seen) = wss_server(leaf(&ca, "127.0.0.1", 2020, 2090)).await;
     // The shipped dial: the system's store does not hold the test authority.
-    let e = dial(&url("wss", port), Some(MARKER), LIMIT).await.unwrap_err();
+    let e = dial(&url("wss", port), Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Tls, "{e}");
     assert_eq!(e.tls_reason, Some(TlsReason::UnknownIssuer), "{e}");
     assert!(e.message.contains(&format!("127.0.0.1:{port}")) && e.message.contains("does not trust"), "{}", e.message);
@@ -400,7 +430,7 @@ async fn a_certificate_from_a_second_unknown_authority_is_refused_even_when_anot
 #[tokio::test]
 async fn a_plain_server_on_a_wss_address_is_a_tls_error() {
     let (port, _seen) = ws_server().await;
-    let e = dial(&url("wss", port), Some(MARKER), Duration::from_secs(3)).await.unwrap_err();
+    let e = dial(&url("wss", port), Some(MARKER), Duration::from_secs(3), MAX_MESSAGE_BYTES).await.unwrap_err();
     assert!(matches!(e.code, ErrorCode::Tls | ErrorCode::Timeout), "{e}");
     assert_no_secret(&e);
 }

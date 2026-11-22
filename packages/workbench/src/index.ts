@@ -54,6 +54,8 @@ export type {
   LocalDaemonState,
   NewDaemon,
   SaveTarget,
+  TransferOptions,
+  TransferState,
   UploadSource,
   ViewableFile,
   WorkbenchHost,

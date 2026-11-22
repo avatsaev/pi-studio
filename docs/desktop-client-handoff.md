@@ -374,9 +374,9 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Upload completion (daemon, shipped in this branch).** Send `ack: true` in
   `file_upload_request` when `server_info.features.fileTransferAck` is set, and the daemon pushes
   `{type:"session", message:{type:"file_upload_complete", transferId, stream, ok, bytesWritten, error?}}`
-  after it has closed the file, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
-  `write_failed`/`close_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
-  message. A partial file is left on disk after a failure. Without the flag (an older daemon) nothing
+  after it has renamed the file into place, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
+  `write_failed`/`close_failed`/`rename_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
+  message. The upload is written to a temporary file beside the target and renamed on completion, so a failure leaves the target unchanged. Without the flag (an older daemon) nothing
   is pushed: verify by listing the directory.
 - **SDK upload (shipped in this branch).** `FileTransferClient.upload(path, source, {onProgress?, signal?})`
   takes a `Uint8Array`, a `Blob` or an `AsyncIterable<Uint8Array>`, never reads a `Blob` whole, paces on

@@ -8,11 +8,11 @@
 import { useCallback } from "react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { getHost } from "../host/install.js";
-import { type UploadOptions, type UploadSource } from "../host/types.js";
+import { type TransferOptions, type UploadSource } from "../host/types.js";
 
 export interface FileTransferActions {
   /** Upload one source to `<dir>/<source.name>` on the daemon, then refresh the explorer. */
-  upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
+  upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
   /** Copy `path` from the daemon to the user's machine. */
   saveToDisk(path: string): Promise<void>;
 }
@@ -22,7 +22,7 @@ export async function uploadAndRefresh(
   queryClient: Pick<QueryClient, "invalidateQueries">,
   dir: string,
   source: UploadSource,
-  options?: UploadOptions,
+  options?: TransferOptions,
 ): Promise<void> {
   await getHost().files.upload(dir, source, options);
   // The daemon does not push an explorer update after an upload — invalidate the listing so the
@@ -34,7 +34,7 @@ export function useFileTransfer(): FileTransferActions {
   const queryClient = useQueryClient();
 
   const upload = useCallback(
-    (dir: string, source: UploadSource, options?: UploadOptions) =>
+    (dir: string, source: UploadSource, options?: TransferOptions) =>
       uploadAndRefresh(queryClient, dir, source, options),
     [queryClient],
   );

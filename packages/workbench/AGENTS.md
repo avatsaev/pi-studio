@@ -35,8 +35,11 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`
   (`createTransport(target, {password})` → `Transport | undefined`, called once per `connect()`;
-  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, {onProgress?})`,
-  `saveToDisk(path)`, `openForView(path)` → `ViewableFile {url, mimeType?, fileName?, release()}`,
+  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, options?)`,
+  `saveToDisk(path, options?)` — `options` is a `TransferOptions {onProgress?(done, total?), onStateChange?(state),
+  signal?}` with `TransferState` = `"queued" | "running" | "waiting"`, both exported from the root; a host
+  calls neither callback of a save before the user has chosen a destination and a `signal` that aborts
+  rejects with an error named `AbortError` — `openForView(path)` → `ViewableFile {url, mimeType?, fileName?, release()}`,
   optional `pickUploads()`; `UploadSource` = `{name, size?}`, a `File` satisfies it) and the
   optional `pdf` (`createWorker()`, `assetBaseUrl`; absent → `PdfUnavailableError` → the PDF
   viewer's error state). The browser host takes `pdf` as a `createBrowserHost` option because only
@@ -50,7 +53,7 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
-  paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
+  paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
   both save (anchor click) and view (`Blob` object URL + idempotent revoke)), reaching the
   live connection only through `lib/connection/live-file-transfer.ts`'s `currentFileTransfer()`.
@@ -61,7 +64,14 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   (sprint-104), save goes through `saveIntoTarget` instead: 8 MiB ranges via `downloadTo`
   (`ifUnchanged` after the first), each range's chunks awaited through `SaveTarget.write` before
   the next range is requested (the SDK sink is synchronous, so ranges are the only backpressure),
-  `finish` after the last, `discard` once on any failure; a `null` target is a silent cancel.
+  `finish` after the last, `discard` once on any failure; a `null` target is a silent cancel. A save
+  reports `onProgress(written, totalBytes)` after each `write` (`(0, 0)` once for an empty file) and checks
+  the signal before each range and each write (the SDK checks it inside a range): an abort discards the
+  target once, never finishes it, and rejects with an `AbortError`. The `Blob` path forwards the SDK's
+  `onProgress` and `signal`, and an abort that raced the last chunk rejects before the anchor is clicked.
+  The browser host never calls `onStateChange`. `src/test/test-host.ts` records every upload and save in
+  `transfers` (kind, target, options, plus `progress`, `state`, `finish`, `fail` to drive a call;
+  `holdTransfers: true` keeps calls pending; a signal that aborts rejects the call with an `AbortError`).
 - `browser-connection.ts` — the browser `connection`: relay transport for a relay pairing link,
   `pi-studio.bearer.<pw>` subprotocol socket with a password, else `undefined`; `timers` from
   `browser-worker-timers.ts` (worker-backed, `setTimeout` fallback); `onResume` = `visibilitychange`

@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pistudiodesktop_model::address_matches;
+use pistudiodesktop_net::limits::MAX_MESSAGE_BYTES;
 use pistudiodesktop_net::{DIAL_LIMIT, DialError, Proxies, ProxyError, Snapshot as ProxySnapshot, State, check_address, dial};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::TransportsHook;
@@ -123,7 +124,7 @@ impl Transport {
         })
         .await?
         .map_err(secret_failure)?;
-        let socket = dial(url, password.as_ref().map(pistudiodesktop_model::Secret::expose), DIAL_LIMIT).await?;
+        let socket = dial(url, password.as_ref().map(pistudiodesktop_model::Secret::expose), DIAL_LIMIT, MAX_MESSAGE_BYTES).await?;
         Ok(reservation.open(socket, origin).await?.expose().to_owned())
     }
 

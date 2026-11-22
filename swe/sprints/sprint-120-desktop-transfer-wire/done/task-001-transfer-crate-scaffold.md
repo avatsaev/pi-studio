@@ -1,7 +1,7 @@
 # Task 001 — New crate `pistudiodesktop-transfer` at layer 8; `net::dial` takes a message limit (S2, S3)
 
 - **Sprint:** sprint-120-desktop-transfer-wire
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** desktop/crates/transfer, desktop/crates/net, desktop/xtask
 - **Priority:** P1

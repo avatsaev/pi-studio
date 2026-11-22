@@ -1,6 +1,7 @@
 import {
   appendFile,
   chmod,
+  mkdir,
   mkdtemp,
   open,
   readFile,
@@ -969,12 +970,13 @@ describe("FileTransferService upload ownership", () => {
     const rig = await openUpload(dir, "dropped.txt");
     rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
     rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("kept") });
-    await waitUntil(async () => (await readFile(rig.target, "utf8").catch(() => "")) === "kept");
+    await waitUntil(() => partFiles(dir).length === 1);
 
     rig.svc.disposeSession(rig.session);
     rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("late") });
+    await waitUntil(() => partFiles(dir).length === 0);
     await new Promise((r) => setTimeout(r, 30));
-    expect(await readFile(rig.target, "utf8")).toBe("kept");
+    await expect(readFile(rig.target)).rejects.toThrow();
 
     // The stream id is reusable: a new upload on the same service is not refused.
     const registry = new HandlerRegistry();
@@ -1036,17 +1038,19 @@ describe("FileTransferService upload acknowledgement", () => {
     expect(rig.text).toEqual([]);
   });
 
-  it("reports a failure to open the target with the daemon's reason, and frees the stream", async () => {
-    // The target path is a directory: open(…, "w") fails with EISDIR.
-    const rig = await openUpload(dir, ".", { ack: true });
+  it("reports a target that is a directory as rename_failed, and frees the stream", async () => {
+    // The target path is a directory: the final rename fails with EISDIR.
+    await mkdir(join(dir, "sub"));
+    const rig = await openUpload(dir, "sub", { ack: true });
     rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
     rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("x") });
     rig.push({ opcode: "End", stream: rig.stream, ok: true });
     await waitUntil(() => completes(rig.text).length > 0);
     const [only, ...rest] = completes(rig.text);
     expect(rest).toEqual([]);
-    expect(only!.message).toMatchObject({ ok: false, bytesWritten: 0 });
-    expect(String(only!.message.error)).toMatch(/^open_failed \(EISDIR\)$/);
+    expect(only!.message).toMatchObject({ ok: false, bytesWritten: 1 });
+    expect(String(only!.message.error)).toMatch(/^rename_failed \(EISDIR\)$/);
+    expect(partFiles(dir)).toEqual([]);
   });
 
   it("reports a client-sent Error frame as a failed completion", async () => {
@@ -1063,7 +1067,81 @@ describe("FileTransferService upload acknowledgement", () => {
     // Frames after the failure hit a released stream and change nothing.
     rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("more") });
     await new Promise((r) => setTimeout(r, 30));
-    expect(await readFile(rig.target, "utf8")).toBe("par");
+    expect(partFiles(dir)).toEqual([]);
+    await expect(readFile(rig.target)).rejects.toThrow();
     expect(completes(rig.text)).toHaveLength(1);
+  });
+});
+
+function partFiles(root: string): string[] {
+  return readdirSync(root).filter((n) => /^\.pistudio-upload-[0-9a-f]{32}\.part$/.test(n));
+}
+
+describe("FileTransferService atomic upload", () => {
+  it("creates the target only at End and leaves no temporary file", async () => {
+    const rig = await openUpload(dir, "new.txt", { ack: true });
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("abc") });
+    await waitUntil(() => partFiles(dir).length === 1);
+    await expect(stat(rig.target)).rejects.toThrow();
+    rig.push({ opcode: "End", stream: rig.stream, ok: true });
+    await waitUntil(() => completes(rig.text).length > 0);
+    expect(await readFile(rig.target, "utf8")).toBe("abc");
+    expect(partFiles(dir)).toEqual([]);
+  });
+
+  it("keeps the old file intact when the upload is ended by an Error frame", async () => {
+    const rig = await openUpload(dir, "old.txt", { ack: true });
+    await writeFile(rig.target, "OLD");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("new") });
+    rig.push({ opcode: "Error", stream: rig.stream, message: "aborted" });
+    await waitUntil(() => completes(rig.text).length > 0);
+    expect(await readFile(rig.target, "utf8")).toBe("OLD");
+    expect(partFiles(dir)).toEqual([]);
+  });
+
+  it("keeps the old file intact when the session closes mid-upload", async () => {
+    const rig = await openUpload(dir, "old2.txt");
+    await writeFile(rig.target, "OLD");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("new") });
+    await waitUntil(() => partFiles(dir).length === 1);
+    rig.svc.disposeSession(rig.session);
+    await waitUntil(() => partFiles(dir).length === 0);
+    expect(await readFile(rig.target, "utf8")).toBe("OLD");
+  });
+
+  it("keeps the old file intact when a write fails", async () => {
+    const rig = await openUpload(dir, "old3.txt", { ack: true });
+    await writeFile(rig.target, "OLD");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    await waitUntil(() => partFiles(dir).length === 1);
+    // Removing the temp file under the service makes the final rename fail (ENOENT).
+    await rm(join(dir, partFiles(dir)[0]!));
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("zz") });
+    rig.push({ opcode: "End", stream: rig.stream, ok: true });
+    await waitUntil(() => completes(rig.text).length > 0);
+    expect(completes(rig.text)[0]!.message).toMatchObject({ ok: false });
+    expect(await readFile(rig.target, "utf8")).toBe("OLD");
+    expect(partFiles(dir)).toEqual([]);
+  });
+
+  it("lets two concurrent uploads to one target both finish, leaving one whole file", async () => {
+    const a = await openUpload(dir, "same.txt", { ack: true, transferId: "a" });
+    const b = await openUpload(dir, "same.txt", { ack: true, transferId: "b" });
+    for (const [rig, body] of [
+      [a, "AAAA"],
+      [b, "BBBBBB"],
+    ] as const) {
+      rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+      rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode(body) });
+      rig.push({ opcode: "End", stream: rig.stream, ok: true });
+    }
+    await waitUntil(() => completes(a.text).length > 0 && completes(b.text).length > 0);
+    expect(completes(a.text)[0]!.message).toMatchObject({ ok: true });
+    expect(completes(b.text)[0]!.message).toMatchObject({ ok: true });
+    expect(["AAAA", "BBBBBB"]).toContain(await readFile(a.target, "utf8"));
+    expect(partFiles(dir)).toEqual([]);
   });
 });

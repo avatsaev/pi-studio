@@ -62,11 +62,11 @@ Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client
   this same wire flow; the explorer's status line becomes one line per activity with a percentage
   and Cancel, in both clients (sprint 119). See
   [desktop-transfer-engine.md](desktop-transfer-engine.md) §§ 4, 5, 7.
-- **Uploads on the daemon (planned as sprint 118, not built):** an upload will be written to
-  `.pistudio-upload-<32 hex>.part` beside its target and renamed when `End` arrives; a failed or
-  cancelled upload, or one whose session closes, will leave nothing; the daemon will stop reading
-  a session's socket while more than 1 MiB of an upload is unwritten. Until then a failed upload
-  leaves a partial file and writes are queued without a bound. See
+- **Uploads on the daemon:** an upload is written to `.pistudio-upload-<32 hex>.part` beside its
+  target and renamed when `End` arrives; a failed or cancelled upload, or one whose session
+  closes, leaves the old target unchanged and no temporary file (sprint 118 task 001). Pacing
+  (sprint 118 task 002, not built): the daemon will stop reading a session's socket while more
+  than 1 MiB of an upload is unwritten; until then writes are queued without a bound. See
   [desktop-transfer-engine.md](desktop-transfer-engine.md) § 10.
 
 ## Behavior & Algorithms

@@ -34,7 +34,7 @@ const UPLOAD_POLL_MS = 10;
 /** What `FileTransferClient.upload` can stream from. */
 export type UploadSource = Uint8Array | Blob | AsyncIterable<Uint8Array>;
 
-export interface UploadOptions {
+export interface UploadSendOptions {
   /** Called after each chunk is queued; `sent` is cumulative, `total` is unknown (`undefined`) for an async iterable. */
   onProgress?(sent: number, total?: number): void;
   /** Aborting sends an `Error` frame for the stream and rejects `upload` with an `AbortError`. */
@@ -493,7 +493,7 @@ export class FileTransferClient {
    *   and rejects with an `AbortError`. A dropped connection or {@link stop} rejects too.
    *   Whatever way it ends, no listener or stream is left behind.
    */
-  async upload(path: string, source: UploadSource, options: UploadOptions = {}): Promise<void> {
+  async upload(path: string, source: UploadSource, options: UploadSendOptions = {}): Promise<void> {
     const { onProgress, signal } = options;
     if (signal?.aborted) throw abortError("upload");
 

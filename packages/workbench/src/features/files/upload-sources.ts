@@ -3,7 +3,7 @@
  * and report progress and the outcome on the explorer's status line.
  */
 
-import { type UploadOptions, type UploadSource } from "../../host/types.js";
+import { type TransferOptions, type UploadSource } from "../../host/types.js";
 
 export interface UploadStatus {
   text: string;
@@ -14,7 +14,7 @@ export interface UploadSourcesDeps {
   /** Names already present in the target directory. */
   existing: ReadonlySet<string>;
   confirm(message: string): Promise<boolean>;
-  upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
+  upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
   setStatus(status: UploadStatus): void;
 }
 
