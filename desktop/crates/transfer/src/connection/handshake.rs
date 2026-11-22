@@ -1,12 +1,11 @@
 //! The first thing a connection does: say `hello` and wait for the daemon's `server_info`.
 
 use futures_util::{SinkExt, StreamExt};
+use pistudiodesktop_net::DaemonSocket;
 use tokio::time::timeout;
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
-use super::Transport;
 use super::failure;
 use super::shared::{close_message, pong_message};
 use crate::Error;
@@ -24,17 +23,9 @@ pub struct Hello<'a> {
     pub app_version: &'a str,
 }
 
-/// Whether the socket refuses a message or a frame above `limit` as it reads. The dial sets that, from
-/// the limit the caller passes it; a socket that does not is a bug of the caller's, and the
-/// frames the daemon sends are bounded only by what the library was told.
-pub(super) fn is_bounded<S: Transport>(socket: &WebSocketStream<S>, limit: usize) -> bool {
-    let config = socket.get_config();
-    config.max_message_size.is_some_and(|max| max <= limit) && config.max_frame_size.is_some_and(|max| max <= limit)
-}
-
 /// Sends `hello` and waits for the answer, within the answer time. On any failure the socket is
 /// closed (best effort) before the error is returned.
-pub(super) async fn run<S: Transport>(socket: &mut WebSocketStream<S>, hello: &Hello<'_>, limits: &Limits) -> Result<(), Error> {
+pub(super) async fn run(socket: &mut DaemonSocket, hello: &Hello<'_>, limits: &Limits) -> Result<(), Error> {
     let outcome = timeout(limits.answer_wait, exchange(socket, hello)).await.unwrap_or(Err(Error::Timeout));
     if let Err(error) = &outcome {
         abandon(socket, error, limits).await;
@@ -42,7 +33,7 @@ pub(super) async fn run<S: Transport>(socket: &mut WebSocketStream<S>, hello: &H
     outcome
 }
 
-async fn exchange<S: Transport>(socket: &mut WebSocketStream<S>, hello: &Hello<'_>) -> Result<(), Error> {
+async fn exchange(socket: &mut DaemonSocket, hello: &Hello<'_>) -> Result<(), Error> {
     socket.send(Message::text(outbound::hello(hello.client_id, hello.app_version))).await.map_err(|error| failure::write(&error))?;
     loop {
         match socket.next().await {
@@ -64,7 +55,7 @@ async fn exchange<S: Transport>(socket: &mut WebSocketStream<S>, hello: &Hello<'
 
 /// Closes a socket whose handshake failed: 1002 for the daemon's protocol error, 1000 for any other
 /// reason. A socket that is already gone is left alone.
-async fn abandon<S: Transport>(socket: &mut WebSocketStream<S>, error: &Error, limits: &Limits) {
+async fn abandon(socket: &mut DaemonSocket, error: &Error, limits: &Limits) {
     if matches!(error, Error::Closed(_)) {
         return;
     }

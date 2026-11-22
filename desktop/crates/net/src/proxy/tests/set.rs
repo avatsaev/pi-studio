@@ -7,7 +7,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::support::{PATIENCE, Rig, Seen, dial_for, eventually, next_seen, page, quiet_daemon};
 use crate::proxy::{Proxies, Reservation, State};
-use crate::{ErrorCode, Socket};
+use crate::{DaemonSocket, ErrorCode};
 
 #[tokio::test]
 async fn a_fifth_connection_is_refused_with_limit_and_a_place_is_given_back_when_one_goes() {
@@ -120,7 +120,7 @@ async fn the_snapshot_follows_a_connection_from_connecting_to_open_and_counts_bo
 
 /// The app keeps the set in Tauri's managed state and awaits both calls in async commands: both need to be `Send`.
 #[allow(dead_code)]
-fn what_tauri_needs(proxies: Proxies, reservation: Reservation, daemon: Socket) {
+fn what_tauri_needs(proxies: Proxies, reservation: Reservation, daemon: DaemonSocket) {
     fn managed<T: Send + Sync + 'static>(_: &T) {}
     fn send<T: Send>(_: T) {}
     managed(&proxies);

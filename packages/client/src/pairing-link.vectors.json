@@ -1,0 +1,98 @@
+[
+  {
+    "name": "padded key, host only",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&host=h%3A1",
+    "sdk": { "keyBytes": 32, "host": "h:1", "relay": null },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "direct", "host": "h:1" } }
+  },
+  {
+    "name": "padding absent",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=h%3A1",
+    "sdk": { "keyBytes": 32, "host": "h:1", "relay": null },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "direct", "host": "h:1" } }
+  },
+  {
+    "name": "padding present and not percent-encoded",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=&host=h%3A1",
+    "sdk": { "keyBytes": 32, "host": "h:1", "relay": null },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "direct", "host": "h:1" } }
+  },
+  {
+    "name": "a key of 31 bytes: the SDK accepts it, Rust does not",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg%3D%3D&host=h%3A1",
+    "sdk": { "keyBytes": 31, "host": "h:1", "relay": null },
+    "rust": null
+  },
+  {
+    "name": "a key of 33 bytes: the SDK accepts it, Rust does not",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g&host=h%3A1",
+    "sdk": { "keyBytes": 33, "host": "h:1", "relay": null },
+    "rust": null
+  },
+  {
+    "name": "relay with wss:// and a trailing slash, relayTls=1",
+    "input": "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&relay=wss%3A%2F%2Frelay.example%2F&relayTls=1",
+    "sdk": { "keyBytes": 32, "host": null, "relay": { "endpoint": "wss://relay.example/", "useTls": true } },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "relay", "host": "relay.example", "tls": true } }
+  },
+  {
+    "name": "relay with a port and no relayTls",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&relay=relay.example%3A8443",
+    "sdk": { "keyBytes": 32, "host": null, "relay": { "endpoint": "relay.example:8443", "useTls": false } },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "relay", "host": "relay.example:8443", "tls": false } }
+  },
+  {
+    "name": "relay with https:// and relayTls=0",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&relay=https%3A%2F%2Frelay.example%2F%2F&relayTls=0",
+    "sdk": { "keyBytes": 32, "host": null, "relay": { "endpoint": "https://relay.example//", "useTls": false } },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "relay", "host": "relay.example", "tls": false } }
+  },
+  {
+    "name": "host and relay together: the SDK takes the relay, Rust refuses",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&host=h%3A1&relay=relay.example&relayTls=1",
+    "sdk": { "keyBytes": 32, "host": null, "relay": { "endpoint": "relay.example", "useTls": true } },
+    "rust": null
+  },
+  {
+    "name": "neither host nor relay: the SDK has a key and nothing else, Rust refuses",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D",
+    "sdk": { "keyBytes": 32, "host": null, "relay": null },
+    "rust": null
+  },
+  {
+    "name": "no # at all: the whole text is the parameters",
+    "input": "offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&host=h%3A1",
+    "sdk": { "keyBytes": 32, "host": "h:1", "relay": null },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "direct", "host": "h:1" } }
+  },
+  {
+    "name": "a URL with no # and no parameters",
+    "input": "https://app.pi-studio.sh/",
+    "sdk": null,
+    "rust": null
+  },
+  {
+    "name": "an empty offer",
+    "input": "#offer=&host=h%3A1",
+    "sdk": null,
+    "rust": null
+  },
+  {
+    "name": "a character outside the base64 alphabet",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh%21%3D&host=h%3A1",
+    "sdk": null,
+    "rust": null
+  },
+  {
+    "name": "an agent deep-link key beside the offer is ignored",
+    "input": "#agent=abc&offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&host=h%3A1",
+    "sdk": { "keyBytes": 32, "host": "h:1", "relay": null },
+    "rust": { "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "target": { "kind": "direct", "host": "h:1" } }
+  },
+  {
+    "name": "a relay of only slashes: the SDK keeps it, Rust refuses",
+    "input": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&relay=%2F%2F",
+    "sdk": { "keyBytes": 32, "host": null, "relay": { "endpoint": "//", "useTls": false } },
+    "rust": null
+  }
+]

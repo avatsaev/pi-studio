@@ -5,12 +5,11 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use futures_util::stream::SplitStream;
+use pistudiodesktop_net::DaemonSocket;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message};
 
-use super::Transport;
 use super::download::{Chunk, Delivery, Frame, capacity, charge};
 use super::failure;
 use super::shared::{Shared, ping_message, pong_message, stopped};
@@ -28,7 +27,7 @@ use crate::wire::inbound::Inbound;
 /// Whatever is not for a waiter is ignored: a frame the engine did not ask for, a `ping`'s answer, a
 /// binary frame that is not a running download's. A frame that breaks the protocol ends the
 /// connection, with a close frame (1002) as the last thing sent.
-pub(super) async fn run<S: Transport>(shared: Arc<Shared>, mut frames: SplitStream<WebSocketStream<S>>, mut stop: watch::Receiver<bool>) {
+pub(super) async fn run(shared: Arc<Shared>, mut frames: SplitStream<DaemonSocket>, mut stop: watch::Receiver<bool>) {
     let (ping_after, dropped_after) = (shared.limits.ping_after, shared.limits.dropped_after);
     let mut last_frame = Instant::now();
     let mut pinged = false;

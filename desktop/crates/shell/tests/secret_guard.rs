@@ -13,9 +13,9 @@ use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
 use serde_json::{Value, json};
 
 const PASSWORD: &str = "S3CRET-PASSWORD-7f3a91";
-const LINK: &str = "pi://S3CRET-PAIRING-LINK-b04c52";
+const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=S3CRET-PAIRING-LINK-b04c52";
 const NEW_PASSWORD: &str = "S3CRET-NEW-PASSWORD-1d8e66";
-const NEW_LINK: &str = "pi://S3CRET-NEW-LINK-92aa07";
+const NEW_LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=S3CRET-NEW-LINK-92aa07";
 /// The secrets of the version 1 file the session opens on.
 const OLD_PASSWORD: &str = "S3CRET-OLD-PASSWORD-44b1c8";
 const OLD_LINK: &str = "pi://S3CRET-OLD-LINK-0e6d13";

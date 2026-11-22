@@ -951,7 +951,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
     let dir = tempfile::tempdir().unwrap();
     let (app, window) = app_on(dir.path());
     invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1", "password": "hunter2"}})).unwrap();
-    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "pi://secret-link"}})).unwrap();
+    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=secret-link"}})).unwrap();
     let booted = invoke(&window, "boot", json!({})).unwrap();
     let inspect =
         tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))

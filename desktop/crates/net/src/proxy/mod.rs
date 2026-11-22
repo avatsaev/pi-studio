@@ -41,9 +41,9 @@ use conn::{Conn, Dir};
 use gate::{Gate, mint_token};
 use run::Task;
 
-use crate::dial::Socket;
 use crate::error::{ErrorCode, ProxyError};
 use crate::limits::Limits;
+use crate::socket::DaemonSocket;
 
 /// `ws://127.0.0.1:<port>/<token>`: the page's way in, for [`Limits::page_wait`] and one use. Its
 /// `Debug` shows nothing: the token must not reach a log by accident.
@@ -284,9 +284,8 @@ fn proxy_failed(what: &str) -> ProxyError {
 }
 
 /// Whether `daemon` refuses messages above `limit` as the library reads them.
-fn has_cap(daemon: &Socket, limit: usize) -> bool {
-    let config = daemon.get_config();
-    config.max_message_size.is_some_and(|max| max <= limit) && config.max_frame_size.is_some_and(|max| max <= limit)
+fn has_cap(daemon: &DaemonSocket, limit: usize) -> bool {
+    daemon.max_message_bytes() <= limit
 }
 
 impl Reservation {
@@ -299,7 +298,7 @@ impl Reservation {
     /// # Errors
     /// `proxy_failed` when `127.0.0.1` cannot be bound, the system gives no random bytes, or the
     /// socket has no message limit. The place is given back.
-    pub async fn open(mut self, daemon: Socket, origin: &str) -> Result<LocalUrl, ProxyError> {
+    pub async fn open(mut self, daemon: DaemonSocket, origin: &str) -> Result<LocalUrl, ProxyError> {
         if !has_cap(&daemon, self.shared.limits.max_message_bytes) {
             return Err(proxy_failed("the daemon's socket has no message size limit"));
         }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use pistudiodesktop_net::{Socket, dial};
+use pistudiodesktop_net::{DaemonSocket, dial};
 use serde_json::{Value, json};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::{JoinHandle, JoinSet};
@@ -611,7 +611,7 @@ impl Drop for Hostile {
 struct ToHostile(String);
 
 impl Connector for ToHostile {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+    async fn connect(&self) -> std::result::Result<DaemonSocket, ConnectError> {
         Ok(dial(&self.0, None, Duration::from_secs(5), MAX_MESSAGE_BYTES).await?)
     }
 }

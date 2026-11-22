@@ -1,7 +1,7 @@
 //! Where the engine gets its socket: from the caller, so that the crate knows nothing of the registry,
 //! the address or the secret store.
 
-use pistudiodesktop_net::{DialError, ErrorCode, Socket};
+use pistudiodesktop_net::{DaemonSocket, DialError, ErrorCode};
 
 /// Gives the engine an open WebSocket to the daemon of the current entry, whenever it asks.
 ///
@@ -11,7 +11,7 @@ use pistudiodesktop_net::{DialError, ErrorCode, Socket};
 /// does not carry it). A test implements it over the address of the stand-in daemon.
 pub trait Connector: Send + Sync + 'static {
     /// Opens a socket, or says why it could not, and whether trying again can help.
-    fn connect(&self) -> impl Future<Output = Result<Socket, ConnectError>> + Send;
+    fn connect(&self) -> impl Future<Output = Result<DaemonSocket, ConnectError>> + Send;
 }
 
 /// The codes that fail every transfer at once, whatever a connector says about retrying: the password,

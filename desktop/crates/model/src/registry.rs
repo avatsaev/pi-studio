@@ -148,9 +148,10 @@ pub fn check_password(password: &str) -> Result<(), RegistryError> {
     if chars_in(password, MAX_PASSWORD_CHARS) { Ok(()) } else { Err(RegistryError::InvalidPassword) }
 }
 
-/// Whether `link` is a pairing link the registry accepts (1 to 4,096 characters).
+/// Whether `link` is a pairing link the registry accepts: 1 to 4,096 characters that
+/// [`crate::pairing::parse`] reads.
 pub fn check_link(link: &str) -> Result<(), RegistryError> {
-    if chars_in(link, MAX_LINK_CHARS) { Ok(()) } else { Err(RegistryError::InvalidLink) }
+    if chars_in(link, MAX_LINK_CHARS) { crate::pairing::parse(link).map(drop) } else { Err(RegistryError::InvalidLink) }
 }
 
 fn check_address(a: &str) -> Result<(), RegistryError> {
@@ -568,9 +569,14 @@ mod tests {
         assert_eq!(check_password(""), Err(RegistryError::InvalidPassword));
         assert_eq!(check_password(&"p".repeat(1025)), Err(RegistryError::InvalidPassword));
         assert!(check_password(&"p".repeat(1024)).is_ok());
-        assert_eq!(check_link(&"l".repeat(4097)), Err(RegistryError::InvalidLink));
+        let link = |len: usize| {
+            let head = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=";
+            format!("{head}{}", "h".repeat(len - head.len()))
+        };
+        assert_eq!(check_link(&link(4097)), Err(RegistryError::InvalidLink));
         assert_eq!(check_link(""), Err(RegistryError::InvalidLink));
-        assert!(check_link(&"l".repeat(4096)).is_ok());
+        assert_eq!(check_link(&"l".repeat(4096)), Err(RegistryError::InvalidLink));
+        assert!(check_link(&link(4096)).is_ok());
         let mut full = r;
         for i in 1..MAX_ENTRIES {
             full = full.add(id(&format!("123e4567-e89b-12d3-a456-{i:012x}")), direct(&format!("e{i}"))).unwrap();

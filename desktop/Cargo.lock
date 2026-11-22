@@ -3752,6 +3752,7 @@ dependencies = [
 name = "pistudiodesktop-model"
 version = "0.2.0"
 dependencies = [
+ "form_urlencoded",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant as RealInstant};
 
-use pistudiodesktop_net::{Socket, dial};
+use pistudiodesktop_net::{DaemonSocket, dial};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -103,7 +103,7 @@ impl Dialer {
 }
 
 impl Connector for Dialer {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+    async fn connect(&self) -> std::result::Result<DaemonSocket, ConnectError> {
         Ok(dial(&self.url, None, Duration::from_secs(5), self.max_message_bytes).await?)
     }
 }
@@ -121,7 +121,7 @@ impl HeldConnector {
 }
 
 impl Connector for HeldConnector {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+    async fn connect(&self) -> std::result::Result<DaemonSocket, ConnectError> {
         self.gate.acquire().await.map_err(|_| ConnectError::new("internal", "the gate closed", false))?.forget();
         self.dialer.connect().await
     }
@@ -131,7 +131,7 @@ impl Connector for HeldConnector {
 pub struct Failing(pub ConnectError);
 
 impl Connector for Failing {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+    async fn connect(&self) -> std::result::Result<DaemonSocket, ConnectError> {
         Err(self.0.clone())
     }
 }
@@ -398,7 +398,7 @@ impl Control {
 }
 
 impl Connector for Scripted {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+    async fn connect(&self) -> std::result::Result<DaemonSocket, ConnectError> {
         let inner = &self.0;
         locked(&inner.times).push(Instant::now());
         if let Some(error) = locked(&inner.refusal).clone() {

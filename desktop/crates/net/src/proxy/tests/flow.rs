@@ -9,8 +9,8 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::support::{Digest, Mix, PATIENCE, Rig, Seen, daemon, echo_daemon, eventually, next_seen, page, raw_masked_text, raw_unmasked_text, write_raw};
-use crate::Limits;
 use crate::proxy::{EndCode, State};
+use crate::{Limits, dial_over};
 
 #[tokio::test]
 async fn text_and_binary_are_echoed_as_they_are() {
@@ -329,4 +329,29 @@ async fn shutting_down_works_while_the_page_reads_nothing_and_the_daemon_floods(
     tokio::time::timeout(Duration::from_secs(10), rig.proxies.close_all()).await.expect("close_all returned");
     assert!(rig.proxies.snapshot().connections.is_empty());
     assert!(matches!(next_seen(&mut seen).await, Seen::Close(Some((1001, _)))));
+}
+
+/// A daemon socket opened with `dial_over` on a pipe, not a network socket, is pumped as any other.
+#[tokio::test]
+async fn a_socket_opened_over_a_pipe_is_pumped_in_order() {
+    let (near, far) = tokio::io::duplex(64 * 1024);
+    let server = tokio::spawn(async move {
+        let mut ws = tokio_tungstenite::accept_async(far).await.unwrap();
+        while let Some(Ok(message)) = ws.next().await {
+            if matches!(message, Message::Text(_) | Message::Binary(_)) && ws.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+    let daemon = dial_over(near, "ws://daemon.test:9", None, PATIENCE, crate::limits::MAX_MESSAGE_BYTES).await.unwrap();
+    let rig = Rig::new();
+    let url = rig.proxies.reserve("entry").unwrap().open(daemon, super::support::ORIGIN).await.unwrap();
+    let mut client = page(&url).await;
+    for index in 0..50u8 {
+        let message = if index % 2 == 0 { Message::text(format!("m{index}")) } else { Message::binary(vec![index; 1000]) };
+        client.send(message.clone()).await.unwrap();
+        assert_eq!(client.next().await.unwrap().unwrap(), message);
+    }
+    rig.proxies.close_all().await;
+    server.abort();
 }

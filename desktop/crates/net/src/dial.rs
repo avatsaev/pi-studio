@@ -1,19 +1,21 @@
 //! Opening a WebSocket to a daemon: resolve, connect, TLS for `wss`, the upgrade, all within one
 //! time limit, and a precise reason when it fails.
 //!
-//! What the caller gets is an open [`Socket`]; reading and writing it is the pump's business.
+//! What the caller gets is an open [`DaemonSocket`]; reading and writing it is the pump's business.
 
 use std::time::Duration;
 
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::timeout;
 use tokio_rustls::rustls::pki_types::CertificateDer;
+use tokio_tungstenite::client_async_with_config;
 use tokio_tungstenite::tungstenite::handshake::client::{Request, generate_key};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{self, http::StatusCode};
-use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
 use crate::address::{Target, parse};
 use crate::error::{DialError, ErrorCode};
+use crate::socket::DaemonSocket;
 use crate::stream::{ConnectError, Stream, connect_tcp};
 use crate::tls;
 
@@ -22,9 +24,6 @@ pub const DIAL_LIMIT: Duration = Duration::from_secs(15);
 
 /// The subprotocol a password is offered in: the daemon reads `pi-studio.bearer.<password>`.
 const BEARER_PREFIX: &str = "pi-studio.bearer.";
-
-/// An open WebSocket to the daemon.
-pub type Socket = WebSocketStream<Stream>;
 
 /// Opens a WebSocket to `url` (`ws` or `wss`) within `limit`.
 ///
@@ -40,7 +39,7 @@ pub type Socket = WebSocketStream<Stream>;
 /// # Errors
 /// A [`DialError`], whose message names the host and port and never holds the password. An
 /// address that is not `ws`/`wss`, or that has user information, fails before any network use.
-pub async fn dial(url: &str, password: Option<&str>, limit: Duration, max_message_bytes: usize) -> Result<Socket, DialError> {
+pub async fn dial(url: &str, password: Option<&str>, limit: Duration, max_message_bytes: usize) -> Result<DaemonSocket, DialError> {
     dial_with_roots(url, password, limit, max_message_bytes, Vec::new()).await
 }
 
@@ -62,17 +61,14 @@ async fn dial_with_roots(
     limit: Duration,
     max_message_bytes: usize,
     extra_roots: Vec<CertificateDer<'static>>,
-) -> Result<Socket, DialError> {
+) -> Result<DaemonSocket, DialError> {
     let target = parse(url)?;
     let password = password.filter(|p| !p.is_empty());
     let request = build_request(&target, password)?;
     let display = target.display();
     match timeout(limit, open(&target, request, password.is_some(), max_message_bytes, extra_roots)).await {
         Ok(result) => result,
-        Err(_) => Err(DialError::new(
-            ErrorCode::Timeout,
-            format!("{display} did not answer within {} s. Is the daemon running, and is the address right?", limit.as_secs().max(1)),
-        )),
+        Err(_) => Err(timed_out(&display, limit)),
     }
 }
 
@@ -82,15 +78,51 @@ async fn open(
     has_password: bool,
     max_message_bytes: usize,
     extra_roots: Vec<CertificateDer<'static>>,
-) -> Result<Socket, DialError> {
+) -> Result<DaemonSocket, DialError> {
     let display = target.display();
     let tcp = connect_tcp(&target.host, target.port).await.map_err(|e| unreachable(&e, &display))?;
     let stream = if target.secure { Stream::Tls(Box::new(tls::connect(tcp, &target.host, &display, extra_roots).await?)) } else { Stream::Plain(tcp) };
+    upgrade(stream, request, has_password, max_message_bytes, &display).await
+}
+
+/// Runs the WebSocket upgrade on `stream`, refusing a message above `max_message_bytes` as it reads.
+async fn upgrade<T>(stream: T, request: Request, has_password: bool, max_message_bytes: usize, display: &str) -> Result<DaemonSocket, DialError>
+where
+    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
     let config = WebSocketConfig::default().max_message_size(Some(max_message_bytes)).max_frame_size(Some(max_message_bytes));
     match client_async_with_config(request, stream, Some(config)).await {
-        Ok((socket, _response)) => Ok(socket),
-        Err(e) => Err(upgrade_error(&e, &display, has_password)),
+        Ok((socket, _response)) => Ok(DaemonSocket::new(socket)),
+        Err(e) => Err(upgrade_error(&e, display, has_password)),
     }
+}
+
+/// [`dial`] over a stream the caller opened (an SSH channel, say): the same request (`Host` from
+/// `url`, the bearer subprotocol for a non-empty `password`), the same limits and the same errors,
+/// with `limit` bounding the upgrade. The stream is not connected or secured here; `url` only
+/// names the daemon in the request and in messages.
+///
+/// # Errors
+/// As [`dial`], except that none is `unreachable` or `tls`: the caller owns the stream.
+pub async fn dial_over<T>(stream: T, url: &str, password: Option<&str>, limit: Duration, max_message_bytes: usize) -> Result<DaemonSocket, DialError>
+where
+    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+    let target = parse(url)?;
+    let password = password.filter(|p| !p.is_empty());
+    let request = build_request(&target, password)?;
+    let display = target.display();
+    match timeout(limit, upgrade(stream, request, password.is_some(), max_message_bytes, &display)).await {
+        Ok(result) => result,
+        Err(_) => Err(timed_out(&display, limit)),
+    }
+}
+
+fn timed_out(display: &str, limit: Duration) -> DialError {
+    DialError::new(
+        ErrorCode::Timeout,
+        format!("{display} did not answer within {} s. Is the daemon running, and is the address right?", limit.as_secs().max(1)),
+    )
 }
 
 /// The upgrade request, written by hand so that `Host` is what a browser would send.

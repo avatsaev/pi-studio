@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use pistudiodesktop_net::DaemonSocket;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -41,7 +42,7 @@ async fn the_connection_reads_no_faster_than_the_consumer_takes_frames() {
     let limits = limits(64 * 1024);
     // A small pipe, so that what the connection does not read stops the daemon's writes.
     let (socket, mut peer) = pair_with_room(&limits, 64 * 1024).await;
-    let (opened, _) = tokio::join!(Connection::open(socket, &APP, limits), peer.accept());
+    let (opened, _) = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), peer.accept());
     let connection = opened.unwrap();
     let mut download = connection.download().unwrap();
     let stream = download.stream();

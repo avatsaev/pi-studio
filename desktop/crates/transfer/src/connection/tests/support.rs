@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use pistudiodesktop_net::DaemonSocket;
 use serde_json::{Value, json};
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::mpsc;
@@ -251,7 +252,7 @@ fn pong_for(seen: &Seen) -> Option<Message> {
 /// Opens a connection over a pipe with a daemon that answers the handshake.
 pub async fn connect_with(limits: Limits, script: Script) -> (Arc<Connection>, Daemon) {
     let (socket, mut peer) = pair(&limits).await;
-    let (opened, _) = tokio::join!(Connection::open(socket, &APP, limits), peer.accept());
+    let (opened, _) = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), peer.accept());
     let connection = opened.expect("the handshake succeeds");
     let daemon = Daemon::spawn(peer, script);
     (Arc::new(connection), daemon)

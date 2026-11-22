@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use pistudiodesktop_net::DaemonSocket;
 use serde_json::json;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::Message;
@@ -132,7 +133,7 @@ async fn a_write_that_does_not_finish_in_30_seconds_ends_the_connection() {
     let limits = Limits::default();
     // A pipe that holds 1 KiB, and a daemon that never reads but keeps talking: only the write is stuck.
     let (socket, mut peer) = pair_with_room(&limits, 1024).await;
-    let (opened, _) = tokio::join!(Connection::open(socket, &APP, limits), peer.accept());
+    let (opened, _) = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), peer.accept());
     let connection = opened.unwrap();
     tokio::spawn(async move {
         loop {

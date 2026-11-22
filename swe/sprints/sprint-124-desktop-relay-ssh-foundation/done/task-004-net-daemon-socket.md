@@ -1,7 +1,7 @@
 # Task 004 — `net`: `DaemonSocket`, `dial_over`, and the proxy and the engine over it
 
 - **Sprint:** sprint-124-desktop-relay-ssh-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** desktop/crates/net, desktop/crates/transfer, desktop/apps/pistudiodesktop/src-tauri (callers)
 - **Priority:** P1

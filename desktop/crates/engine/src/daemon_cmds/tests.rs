@@ -7,6 +7,11 @@ use serde_json::json;
 use crate::test_store::FakeStore;
 use crate::{EngineError, Notice, Session};
 
+/// A pairing link `model::pairing` reads: a 32-byte key and a direct host.
+fn link(host: &str) -> String {
+    format!("https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%3D&host={host}")
+}
+
 const B: &str = "11111111-1111-4111-8111-111111111111";
 
 fn open(dir: &std::path::Path) -> (Session, Vec<Notice>, Arc<FakeStore>) {
@@ -161,7 +166,7 @@ fn add_stores_the_secret_writes_the_entry_without_it_and_does_not_switch() {
     let text = std::fs::read_to_string(dir.path().join("daemons.json")).unwrap();
     assert!(!text.contains("hunter2") && text.contains("\"hasPassword\": true"), "{text}");
     assert_eq!(s.execute("daemon.list", json!({})).unwrap()["currentId"], "local");
-    let relay = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://x"})).unwrap();
+    let relay = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": link("x")})).unwrap();
     assert_eq!(relay["kind"], "relay");
     assert_eq!(read_registry(dir.path()).entries.len(), 3);
     let rid = relay["id"].as_str().unwrap();
@@ -175,7 +180,7 @@ fn refused_commands_leave_the_file_and_the_store_alone() {
     let dir = tempfile::tempdir().unwrap();
     seed(dir.path(), None);
     let (mut s, _, store) = open(dir.path());
-    let relay = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://x"})).unwrap();
+    let relay = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": link("x")})).unwrap();
     let rid = relay["id"].as_str().unwrap().to_owned();
     let _ = s.take_registry_changed();
     let before = std::fs::read(dir.path().join("daemons.json")).unwrap();
@@ -238,13 +243,28 @@ fn update_changes_only_what_is_given() {
     assert_eq!((v["name"].as_str(), v["hasPassword"].as_bool()), (Some("Mine"), Some(true)));
     assert!(store.has("local/password"));
     // A relay entry keeps its name and id when the link changes, and the new link replaces the old.
-    let r = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://old"})).unwrap();
+    let r = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": link("old")})).unwrap();
     let rid = r["id"].as_str().unwrap();
-    let v = s.execute("daemon.update", json!({"id": rid, "pairingLink": "pi://new"})).unwrap();
+    let v = s.execute("daemon.update", json!({"id": rid, "pairingLink": link("new")})).unwrap();
     assert_eq!((v["id"].as_str(), v["name"].as_str()), (Some(rid), Some("R")));
     let text = std::fs::read_to_string(dir.path().join("daemons.json")).unwrap();
-    assert!(!text.contains("pi://") && !text.contains("\"pw\"") && !text.contains("lp"), "{text}");
-    assert_eq!(store.value(&item(rid, "pairingLink")).as_deref(), Some("pi://new"));
+    assert!(!text.contains("offer") && !text.contains("\"pw\"") && !text.contains("lp"), "{text}");
+    assert_eq!(store.value(&item(rid, "pairingLink")).as_deref(), Some(link("new").as_str()));
+}
+
+#[test]
+fn a_link_that_does_not_parse_is_invalid_link_on_add_and_update() {
+    let dir = tempfile::tempdir().unwrap();
+    seed(dir.path(), None);
+    let (mut s, _, _) = open(dir.path());
+    let relay = s.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": link("x")})).unwrap();
+    let rid = relay["id"].as_str().unwrap().to_owned();
+    // A key of 31 bytes: the SDK reads it, the registry does not.
+    let short = "https://app.pi-studio.sh/#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg%3D%3D&host=h";
+    for bad in ["pi://x", short, "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"] {
+        assert_eq!(err(s.execute("daemon.add", json!({"kind": "relay", "name": "x", "pairingLink": bad}))), "invalid_link", "{bad}");
+        assert_eq!(err(s.execute("daemon.update", json!({"id": rid, "pairingLink": bad}))), "invalid_link", "{bad}");
+    }
 }
 
 #[test]
@@ -320,7 +340,7 @@ fn a_write_failure_fails_the_command_keeps_the_old_registry_and_leaves_no_new_se
     std::fs::write(dir.path().join("daemons.json/keep"), b"k").unwrap();
     let before = s.execute("daemon.list", json!({})).unwrap();
     assert_eq!(err(s.execute("daemon.add", json!({"kind": "direct", "name": "Z", "address": "a:1"}))), "write_failed");
-    assert_eq!(err(s.execute("daemon.add", json!({"kind": "relay", "name": "Y", "pairingLink": "pi://y"}))), "write_failed");
+    assert_eq!(err(s.execute("daemon.add", json!({"kind": "relay", "name": "Y", "pairingLink": link("y")}))), "write_failed");
     assert_eq!(err(s.execute("daemon.update", json!({"id": B, "name": "Z"}))), "write_failed");
     assert_eq!(err(s.execute("daemon.remove", json!({"id": B}))), "write_failed");
     assert_eq!(s.execute("daemon.list", json!({})).unwrap(), before);
@@ -338,7 +358,7 @@ fn a_store_that_refuses_fails_add_and_update_and_writes_nothing() {
     let before = std::fs::read(dir.path().join("daemons.json")).unwrap();
     store.fail_set.store(true, Ordering::SeqCst);
     assert_eq!(err(s.execute("daemon.add", json!({"kind": "direct", "name": "Z", "address": "a:1", "password": "pw"}))), "secret_store_failed");
-    assert_eq!(err(s.execute("daemon.add", json!({"kind": "relay", "name": "Y", "pairingLink": "pi://y"}))), "secret_store_failed");
+    assert_eq!(err(s.execute("daemon.add", json!({"kind": "relay", "name": "Y", "pairingLink": link("y")}))), "secret_store_failed");
     assert_eq!(err(s.execute("daemon.update", json!({"id": B, "password": "pw"}))), "secret_store_failed");
     store.fail_set.store(false, Ordering::SeqCst);
     store.fail_delete.store(true, Ordering::SeqCst);
@@ -400,7 +420,7 @@ fn a_split_add_whose_file_will_not_write_takes_its_secret_back_and_a_failed_stor
     let dir = tempfile::tempdir().unwrap();
     seed(dir.path(), None);
     let (mut s, _, store) = open(dir.path());
-    let relay = json!({"kind": "relay", "name": "R", "pairingLink": "pi://MARK-link"});
+    let relay = json!({"kind": "relay", "name": "R", "pairingLink": link("MARK-link")});
     let job = s.plan_secret_command("daemon.add", &relay).unwrap().unwrap();
     store.fail_set.store(true, Ordering::SeqCst);
     assert_eq!(err(job.store().map(|()| json!(null))), "secret_store_failed");

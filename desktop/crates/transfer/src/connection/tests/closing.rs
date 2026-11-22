@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use pistudiodesktop_net::DaemonSocket;
 use tokio::time::{Instant, timeout};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -63,7 +64,7 @@ async fn going_away_is_1001() {
 async fn a_daemon_that_does_not_answer_the_close_is_given_the_close_wait_and_no_more() {
     let limits = Limits::default();
     let (socket, mut peer) = pair(&limits).await;
-    let (opened, _) = tokio::join!(Connection::open(socket, &APP, limits), peer.accept());
+    let (opened, _) = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), peer.accept());
     let connection = opened.unwrap();
     let upload = connection.expect_upload("t-1").unwrap();
 

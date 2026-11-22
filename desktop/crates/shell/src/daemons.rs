@@ -278,7 +278,12 @@ mod tests {
     fn the_view_holds_entries_local_state_and_settings_and_no_secret() {
         let mut app = app();
         page_command(&mut app, "daemon.add", json!({"kind": "direct", "name": "B", "address": "h:1", "password": "hunter2"})).unwrap();
-        page_command(&mut app, "daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://secret-link"})).unwrap();
+        page_command(
+            &mut app,
+            "daemon.add",
+            json!({"kind": "relay", "name": "R", "pairingLink": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=secret-link"}),
+        )
+        .unwrap();
         let view = view(&mut app);
         let text = view.to_string();
         assert!(!text.contains("hunter2") && !text.contains("secret-link"), "{text}");

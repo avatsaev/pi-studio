@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use pistudiodesktop_net::DaemonSocket;
 use serde_json::json;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
@@ -21,7 +22,7 @@ fn close_code(message: Option<Message>) -> Option<u16> {
 async fn open_against(script: impl AsyncFnOnce(&mut Peer)) -> (Result<Connection, Error>, Peer) {
     let limits = Limits::default();
     let (socket, mut peer) = pair(&limits).await;
-    let (opened, ()) = tokio::join!(Connection::open(socket, &APP, limits), script(&mut peer));
+    let (opened, ()) = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), script(&mut peer));
     (opened, peer)
 }
 
@@ -167,7 +168,7 @@ async fn a_close_before_server_info_names_the_daemons_code() {
 async fn a_pipe_that_ends_before_server_info_is_a_failed_socket() {
     let limits = Limits::default();
     let (socket, mut peer) = pair(&limits).await;
-    let opened = tokio::join!(Connection::open(socket, &APP, limits), async {
+    let opened = tokio::join!(Connection::open(DaemonSocket::new(socket), &APP, limits), async {
         peer.text().await;
         drop(peer);
     })
@@ -180,5 +181,5 @@ async fn a_socket_that_does_not_refuse_a_larger_message_is_not_accepted() {
     let limits = Limits::default();
     // The socket was made for a larger limit than the connection is told it has.
     let (socket, _peer) = pair(&Limits { max_message_bytes: limits.max_message_bytes * 2, ..limits }).await;
-    assert!(matches!(Connection::open(socket, &APP, limits).await.unwrap_err(), Error::Internal(_)));
+    assert!(matches!(Connection::open(DaemonSocket::new(socket), &APP, limits).await.unwrap_err(), Error::Internal(_)));
 }

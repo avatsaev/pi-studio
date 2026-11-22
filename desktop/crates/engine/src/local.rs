@@ -381,6 +381,9 @@ mod tests {
         use crate::DialPlan;
         use crate::test_store::FakeStore;
 
+        /// A pairing link `model::pairing` reads.
+        const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=l";
+
         /// What a caller that may block gets: the plan, then the store read.
         fn resolve(s: &Session) -> std::result::Result<Dial, &'static str> {
             s.plan_dial(url)?.finish(&*s.secret_store())
@@ -414,8 +417,8 @@ mod tests {
             assert_eq!(expect_url(resolve(&s).unwrap()), "h:1");
             with_entry(&mut s, json!({"kind": "direct", "name": "N", "address": "h:2"}));
             assert_eq!(expect_url(resolve(&s).unwrap()), "h:2");
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), LINK);
         }
 
         #[test]
@@ -423,7 +426,7 @@ mod tests {
             use super::super::{BridgePassword, BridgePlan};
             let (mut s, store) = session_with_store();
             let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
-            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
             let calls = store.calls.load(Ordering::SeqCst);
             assert_eq!(s.plan_dial(url), Ok(DialPlan::PairingLink { entry: EntryId::parse(&rid).unwrap() }));
             s.execute("daemon.switch", json!({"id": id})).unwrap();
@@ -452,8 +455,8 @@ mod tests {
         #[test]
         fn a_relay_link_deleted_behind_the_apps_back_is_secret_missing() {
             let (mut s, store) = session_with_store();
-            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
+            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), LINK);
             store.take(&format!("{rid}/pairingLink"));
             assert_eq!(resolve(&s), Err("secret_missing"));
         }
@@ -461,7 +464,7 @@ mod tests {
         #[test]
         fn a_store_that_cannot_be_read_is_secret_unavailable() {
             let (mut s, store) = session_with_store();
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
             store.fail_get.store(true, Ordering::SeqCst);
             assert_eq!(resolve(&s), Err("secret_unavailable"));
             store.fail_get.store(false, Ordering::SeqCst);
@@ -501,7 +504,7 @@ mod tests {
         #[test]
         fn a_relay_entry_is_not_bridged_and_the_local_entry_is_planned_by_its_state() {
             let mut s = Session::new();
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
             assert_eq!(s.plan_bridge(url), Err("not_bridged"));
             s.execute("daemon.switch", json!({"id": "local"})).unwrap();
             s.set_local_state(LocalState::Running { host: "127.0.0.1".into(), port: 9 });

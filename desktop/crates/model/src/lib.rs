@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod address_rule;
+pub mod pairing;
 mod registry;
 
 pub use address_rule::{address_matches, normalize_daemon_url};

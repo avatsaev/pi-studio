@@ -114,6 +114,9 @@ mod tests {
     use crate::supervisor::{Limits, Supervisor};
     use crate::{AppShell, Services, process};
 
+    /// A pairing link `model::pairing` reads.
+    const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=l";
+
     fn running_owner(mut app: AppShell) -> (OwnerAccess, std::thread::JoinHandle<()>) {
         let (tx, rx) = channel();
         let store = app.session.secret_store();
@@ -158,7 +161,7 @@ mod tests {
         let plan = access.bridge_plan().unwrap();
         assert_eq!((plan.entry.as_str(), plan.url.as_str(), &plan.password), (added["id"].as_str().unwrap(), "10.0.0.2:8080", &BridgePassword::Stored));
         assert_eq!(access.bridge_password(&plan).unwrap().map(|p| p.expose().to_owned()), Some("pw".to_owned()));
-        let relay = access.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"})).unwrap();
+        let relay = access.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": LINK})).unwrap();
         access.execute("daemon.switch", json!({"id": relay["id"]})).unwrap();
         assert_eq!(access.bridge_plan(), Err("not_bridged"));
     }
@@ -252,7 +255,7 @@ mod tests {
         let store = Arc::new(SlowStore::default());
         let (mut session, _) = Session::with_config_dir(dir.path(), store.clone());
         // A relay entry: its pairing link is the one item a dial still reads from the store.
-        let added = session.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"})).unwrap();
+        let added = session.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": LINK})).unwrap();
         session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
         // From here on every store call takes 3 s.
         store.wait_ms.store(3000, std::sync::atomic::Ordering::SeqCst);
@@ -273,7 +276,7 @@ mod tests {
         assert_eq!(listed["entries"].as_array().map(Vec::len), Some(2));
         let (dial, took) = resolver.join().unwrap();
         assert!(took >= Duration::from_millis(2900), "the read really blocked: {took:?}");
-        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "pi://l", "connect": true}));
+        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": LINK, "connect": true}));
     }
 
     #[test]

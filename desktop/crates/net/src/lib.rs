@@ -19,14 +19,16 @@ pub mod dial;
 pub mod error;
 pub mod limits;
 pub mod proxy;
+mod socket;
 mod stream;
 mod tls;
 
 #[cfg(test)]
 mod testing;
 
-pub use dial::{DIAL_LIMIT, Socket, check_address, dial};
+pub use dial::{DIAL_LIMIT, check_address, dial, dial_over};
 pub use error::{DialError, ErrorCode, ProxyError, TlsReason};
 pub use limits::Limits;
 pub use proxy::{ConnectionSnapshot, EndCode, LastError, LocalUrl, Proxies, Reservation, Snapshot, State};
+pub use socket::{DaemonSocket, Wire};
 pub use stream::{KEEPALIVE_IDLE, KEEPALIVE_INTERVAL, KEEPALIVE_PROBES, Stream};

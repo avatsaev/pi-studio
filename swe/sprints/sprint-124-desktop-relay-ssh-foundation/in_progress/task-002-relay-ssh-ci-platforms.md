@@ -1,7 +1,7 @@
 # Task 002 — The new dependencies build on the macOS and Windows runners
 
 - **Sprint:** sprint-124-desktop-relay-ssh-foundation
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** test
 - **Area:** .github/workflows/desktop-ci.yml (read only), the branch
 - **Priority:** P1

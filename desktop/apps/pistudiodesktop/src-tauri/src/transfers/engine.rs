@@ -16,7 +16,7 @@ use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use pistudiodesktop_model::{Secret, normalize_daemon_url};
-use pistudiodesktop_net::{DIAL_LIMIT, Socket, dial};
+use pistudiodesktop_net::{DIAL_LIMIT, DaemonSocket, dial};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::TransfersHook;
 use pistudiodesktop_shell::transfers_view::{ActiveState, ActiveView, BulkState, BulkView, Snapshot, Totals, TransferKind};
@@ -71,7 +71,7 @@ pub struct AppConnector {
 }
 
 impl Connector for AppConnector {
-    async fn connect(&self) -> Result<Socket, ConnectError> {
+    async fn connect(&self) -> Result<DaemonSocket, ConnectError> {
         let plan = blocking({
             let access = self.access.clone();
             move || access.bridge_plan()

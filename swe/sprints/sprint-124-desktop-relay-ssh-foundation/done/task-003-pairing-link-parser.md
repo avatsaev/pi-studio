@@ -1,7 +1,7 @@
 # Task 003 — The pairing-link parser in `model`, with vectors shared with the SDK
 
 - **Sprint:** sprint-124-desktop-relay-ssh-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model, packages/client/src/pairing.ts (tests only), engine `daemon.add`/`daemon.update`
 - **Priority:** P1
