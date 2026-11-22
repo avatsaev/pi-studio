@@ -11,6 +11,7 @@ use pistudiodesktop_secrets::{MemoryStore, SecretKey, SecretKind, SecretStore};
 use pistudiodesktop_shell::Request;
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::owner::Quiet;
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use serde_json::{Value, json};
 use tauri::test::MockRuntime;
 use tauri::{App, Manager as _, RunEvent, WebviewWindow, WebviewWindowBuilder};
@@ -29,7 +30,7 @@ use crate::transport::{self, origin_of};
 
 /// A password nobody would pick: if it appears anywhere but the daemon's upgrade it leaked.
 const MARKER: &str = "MARKER-pw-0b6e4d2a";
-const PATIENCE: Duration = Duration::from_secs(10);
+pub(super) const PATIENCE: Duration = Duration::from_secs(10);
 
 // ---- the log: every line of the test binary, to look for a secret in
 
@@ -56,7 +57,7 @@ impl log::Log for Capture {
 }
 
 /// Every record the app's logger would print goes to [`LINES`] from here on. Nothing else in the tests sets a logger.
-fn capture_logs() {
+pub(super) fn capture_logs() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         assert!(log::set_logger(&Capture).is_ok(), "another logger is set");
@@ -64,7 +65,7 @@ fn capture_logs() {
     });
 }
 
-fn logged() -> String {
+pub(super) fn logged() -> String {
     LINES.lock().map(|lines| lines.join("\n")).unwrap_or_default()
 }
 
@@ -154,7 +155,7 @@ impl Daemon {
     }
 }
 
-fn wait_until(what: &str, condition: impl Fn() -> bool) {
+pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + PATIENCE;
     while !condition() {
         assert!(Instant::now() < deadline, "never happened: {what}");
@@ -197,7 +198,7 @@ impl Fixture {
         capture_logs();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(MemoryStore::new());
-        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() };
+        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
         let as_store: Arc<dyn SecretStore> = Arc::clone(&store) as Arc<dyn SecretStore>;
         let app = built_app_stored(dir.path(), Services::default(), launch, as_store);
         let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();
@@ -456,7 +457,7 @@ fn a_declined_switch_leaves_the_connections_open() {
 fn closing_the_last_window_closes_every_proxied_connection_with_1001_as_the_app_exits() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
-    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() };
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
     let app = built_app_stored(dir.path(), Services::default(), launch, Arc::new(MemoryStore::new()));
     let daemon = Daemon::start(None);
     let running = daemon.clone();

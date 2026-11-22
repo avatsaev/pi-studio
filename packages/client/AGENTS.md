@@ -561,7 +561,7 @@ const { bytes, fileName, mimeType, totalBytes, mtimeMs, offset } = await files.d
 await files.downloadTo(path, (chunk) => write(chunk), { offset, length, ifUnchanged, signal, onProgress });
 // streams each Chunk to a synchronous sink in wire order, keeping none; resolves with
 // { fileName?, mimeType?, totalBytes, mtimeMs, offset, length } after End
-await files.upload(path, source, { onProgress, signal });
+await files.upload(path, source, { onProgress, signal }); // options: `UploadSendOptions` (downloads: `DownloadOptions`)
 // source: Uint8Array | Blob | AsyncIterable<Uint8Array>. Requests an upload stream (server keys it
 // by a fresh transferId), then pushes Begin → Chunk* → End frames the server writes to `path`
 // (creates parent dirs, overwrites any existing file — no confirmation server-side; callers must

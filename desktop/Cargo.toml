@@ -16,6 +16,7 @@ pistudiodesktop-secrets = { path = "crates/secrets" }
 pistudiodesktop-engine = { path = "crates/engine" }
 pistudiodesktop-shell = { path = "crates/shell" }
 pistudiodesktop-net = { path = "crates/net" }
+pistudiodesktop-transfer = { path = "crates/transfer" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
 
 # external: versions live here only

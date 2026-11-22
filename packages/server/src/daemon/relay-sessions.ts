@@ -48,6 +48,8 @@ function socketFacade(conn: RelayConnection): WebSocket {
       else conn.sendBinary(data);
     },
     close: (code?: number, reason?: string): void => conn.close(code, reason),
+    pause: (): void => conn.pause(),
+    resume: (): void => conn.resume(),
     get bufferedAmount(): number {
       return conn.bufferedAmount;
     },

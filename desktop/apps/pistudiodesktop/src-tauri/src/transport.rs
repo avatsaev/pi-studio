@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pistudiodesktop_model::address_matches;
+use pistudiodesktop_net::limits::MAX_MESSAGE_BYTES;
 use pistudiodesktop_net::{DIAL_LIMIT, DialError, Proxies, ProxyError, Snapshot as ProxySnapshot, State, check_address, dial};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::TransportsHook;
@@ -34,7 +35,7 @@ pub struct Failure {
 }
 
 impl Failure {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self { code, message: message.into() }
     }
 }
@@ -123,7 +124,7 @@ impl Transport {
         })
         .await?
         .map_err(secret_failure)?;
-        let socket = dial(url, password.as_ref().map(pistudiodesktop_model::Secret::expose), DIAL_LIMIT).await?;
+        let socket = dial(url, password.as_ref().map(pistudiodesktop_model::Secret::expose), DIAL_LIMIT, MAX_MESSAGE_BYTES).await?;
         Ok(reservation.open(socket, origin).await?.expose().to_owned())
     }
 
@@ -182,13 +183,13 @@ fn inspect(proxies: &ProxySnapshot, refused: Option<ConnectionError>) -> Snapsho
 }
 
 /// Run `work` on the blocking pool: the owner thread's answer and a keychain read both wait.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| Failure::new("internal", format!("The app failed inside: {e}.")))
 }
 
 /// What a refusal of the owner thread's plan says. The codes of the local daemon are those of
 /// `daemon_resolve_current`; `local_not_ready` is a local daemon that is being started or has to be.
-fn plan_failure(code: &'static str) -> Failure {
+pub(crate) fn plan_failure(code: &'static str) -> Failure {
     let message = match code {
         "not_bridged" => "This daemon is reached through the relay, not through the app's own connection.".to_owned(),
         "no_current" => "No daemon is selected.".to_owned(),
@@ -200,7 +201,7 @@ fn plan_failure(code: &'static str) -> Failure {
     Failure::new(code, message)
 }
 
-fn secret_failure(code: &'static str) -> Failure {
+pub(crate) fn secret_failure(code: &'static str) -> Failure {
     match code {
         "secret_missing" => Failure::new(code, "The password for this daemon is not in the secret store. Enter it again in Daemons."),
         _ => Failure::new(code, "The secret store could not be read: it may be locked, or access was refused. Try again."),

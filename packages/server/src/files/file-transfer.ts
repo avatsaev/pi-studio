@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
-import { mkdir, open, realpath, stat } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { mkdir, open, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import {
   encodeFileTransferFrame,
@@ -15,6 +16,7 @@ import type { Session } from "../ws/session.js";
 import type { BinaryHandler, HandlerRegistry } from "../ws/router.js";
 import { mimeHintForFile } from "./file-explorer.js";
 import { expandHome } from "./resolve-path.js";
+import type { UploadJournal } from "./upload-journal.js";
 
 /**
  * Chunked file download (by path, optionally a byte range) + upload over the file-transfer binary
@@ -35,6 +37,14 @@ const DEFAULT_CHUNK_BYTES = 32 * 1024;
  */
 export const DOWNLOAD_HIGH_WATER_BYTES = 1024 * 1024;
 export const DOWNLOAD_LOW_WATER_BYTES = 256 * 1024;
+
+/**
+ * An upload is paced by not reading its session's socket: while any upload of the session has more
+ * than this many `Chunk` bytes received and not yet written, the session is not read.
+ */
+export const UPLOAD_HIGH_WATER_BYTES = 1024 * 1024;
+/** Reading resumes once every upload of the session is under this many unwritten bytes. */
+export const UPLOAD_LOW_WATER_BYTES = 256 * 1024;
 const DEFAULT_DRAIN_POLL_MS = 10;
 
 export interface FileTransferDeps {
@@ -43,6 +53,10 @@ export interface FileTransferDeps {
   lowWaterBytes?: number;
   /** How often a paused download re-reads the socket's queue. */
   drainPollMs?: number;
+  /** Writes one upload chunk to its temporary file. Tests inject a slow disk here. */
+  writeChunk?: (handle: FileHandle, data: Uint8Array) => Promise<void>;
+  /** Lists upload temporary files so a daemon that died mid-upload has them removed at the next start. */
+  uploadJournal?: UploadJournal;
 }
 
 /** One download a session has accepted and not finished. Tracked from the moment it is accepted. */
@@ -119,7 +133,11 @@ interface PendingUpload {
   /** `file_upload_request.ack`: send a `file_upload_complete` when the transfer ends. */
   ack: boolean;
   handle: Awaited<ReturnType<typeof open>> | null;
+  /** The `.pistudio-upload-<32 hex>.part` file the bytes go to; null until `Begin` created it. */
+  tempPath: string | null;
   bytesWritten: number;
+  /** `Chunk` bytes received and not yet written (or dropped); drives the session's read pacing. */
+  unwrittenBytes: number;
   /** Serializes frame processing for this stream (Begin must finish before Chunks write). */
   chain: Promise<void>;
   /** Set once the stream is released (ended, failed or its session closed); later frames no-op. */
@@ -132,25 +150,41 @@ function failureText(stage: string, err: unknown): string {
   return typeof code === "string" ? `${stage}_failed (${code})` : `${stage}_failed`;
 }
 
+/** Remove an upload's temporary file and drop it from the journal. A failed removal is ignored. */
+async function discardTemp(upload: PendingUpload, journal: UploadJournal | null): Promise<void> {
+  const path = upload.tempPath;
+  upload.tempPath = null;
+  if (!path) return;
+  await rm(path, { force: true }).catch(() => {});
+  void journal?.remove(path);
+}
+
 export class FileTransferService {
   private readonly chunkBytes: number;
   private readonly highWaterBytes: number;
   private readonly lowWaterBytes: number;
   private readonly drainPollMs: number;
   /** Pending uploads keyed by stream id. */
+  private readonly writeChunk: (handle: FileHandle, data: Uint8Array) => Promise<void>;
   private readonly uploads = new Map<number, PendingUpload>();
+  /** Ids of the sessions whose socket this service has stopped reading (uploads behind the disk). */
+  private readonly pausedSessions = new Set<string>();
   /** Rotating hand-out point in the one-byte stream id space (see `nextFreeSlot`). */
   private streamCursor = 1;
   /** Accepted downloads by session id, then stream id: download ids are scoped to the session. */
   private readonly downloads = new Map<string, Map<number, ActiveDownload>>();
   /** Rotating hand-out point for a download the client did not number itself. */
   private downloadCursor = 1;
+  private readonly journal: UploadJournal | null;
 
   constructor(deps: FileTransferDeps = {}) {
     this.chunkBytes = deps.chunkBytes ?? DEFAULT_CHUNK_BYTES;
     this.highWaterBytes = deps.highWaterBytes ?? DOWNLOAD_HIGH_WATER_BYTES;
     this.lowWaterBytes = deps.lowWaterBytes ?? DOWNLOAD_LOW_WATER_BYTES;
     this.drainPollMs = deps.drainPollMs ?? DEFAULT_DRAIN_POLL_MS;
+    this.writeChunk =
+      deps.writeChunk ?? (async (handle, data) => void (await handle.write(Buffer.from(data))));
+    this.journal = deps.uploadJournal ?? null;
   }
 
   /**
@@ -248,7 +282,9 @@ export class FileTransferService {
         sessionId: ctx.session.id,
         ack: ctx.message.ack === true,
         handle: null,
+        tempPath: null,
         bytesWritten: 0,
+        unwrittenBytes: 0,
         chain: Promise.resolve(),
         done: false,
       });
@@ -519,8 +555,39 @@ export class FileTransferService {
       const upload = this.uploads.get(frame.stream);
       if (!upload) return; // unknown/closed stream
       if (upload.sessionId !== session.id) return; // not this session's stream
-      upload.chain = upload.chain.then(() => this.handleUploadFrame(session, upload, frame));
+      const chunkBytes = frame.opcode === "Chunk" ? frame.data.length : 0;
+      if (chunkBytes > 0) {
+        upload.unwrittenBytes += chunkBytes;
+        this.updateReading(session);
+      }
+      upload.chain = upload.chain.then(async () => {
+        try {
+          await this.handleUploadFrame(session, upload, frame);
+        } finally {
+          upload.unwrittenBytes -= chunkBytes;
+          this.updateReading(session);
+        }
+      });
     };
+  }
+
+  /**
+   * Stop reading `session` while any of its uploads is above the high mark; read again once all are
+   * under the low mark. Released uploads are not in `uploads`, so they never hold a session stopped.
+   */
+  private updateReading(session: Session): void {
+    let most = 0;
+    for (const upload of this.uploads.values()) {
+      if (upload.sessionId === session.id) most = Math.max(most, upload.unwrittenBytes);
+    }
+    const paused = this.pausedSessions.has(session.id);
+    if (!paused && most > UPLOAD_HIGH_WATER_BYTES) {
+      this.pausedSessions.add(session.id);
+      session.pauseReading();
+    } else if (paused && most < UPLOAD_LOW_WATER_BYTES) {
+      this.pausedSessions.delete(session.id);
+      session.resumeReading();
+    }
   }
 
   /**
@@ -533,8 +600,13 @@ export class FileTransferService {
       if (upload.sessionId !== session.id) continue;
       this.uploads.delete(stream);
       upload.done = true;
-      upload.chain = upload.chain.then(() => upload.handle?.close().catch(() => {}));
+      upload.chain = upload.chain.then(async () => {
+        await upload.handle?.close().catch(() => {});
+        upload.handle = null;
+        await discardTemp(upload, this.journal);
+      });
     }
+    if (this.pausedSessions.delete(session.id)) session.resumeReading();
     const mine = this.downloads.get(session.id);
     if (!mine) return;
     this.downloads.delete(session.id);
@@ -559,34 +631,54 @@ export class FileTransferService {
           stage = "mkdir";
           await mkdir(dirname(upload.targetPath), { recursive: true });
           stage = "open";
-          upload.handle = await open(upload.targetPath, "w");
+          const tempPath = join(
+            dirname(upload.targetPath),
+            `.pistudio-upload-${randomBytes(16).toString("hex")}.part`,
+          );
+          // Listed before it exists, so a daemon killed from here on leaves nothing for good.
+          await this.journal?.add(tempPath);
+          try {
+            upload.handle = await open(tempPath, "wx");
+          } catch (err) {
+            void this.journal?.remove(tempPath);
+            throw err;
+          }
+          upload.tempPath = tempPath;
           return;
         }
         case "Chunk": {
           if (!upload.handle) return;
-          await upload.handle.write(Buffer.from(frame.data));
+          await this.writeChunk(upload.handle, frame.data);
           upload.bytesWritten += frame.data.length;
           return;
         }
         case "End": {
-          if (!upload.handle) return this.finishUpload(session, frame.stream, upload, "no_begin");
+          if (!upload.handle || !upload.tempPath) {
+            return this.finishUpload(session, frame.stream, upload, "no_begin");
+          }
           stage = "close";
           const handle = upload.handle;
           upload.handle = null;
           await handle.close();
+          stage = "rename";
+          await rename(upload.tempPath, upload.targetPath);
+          void this.journal?.remove(upload.tempPath);
+          upload.tempPath = null;
           return this.finishUpload(session, frame.stream, upload);
         }
         case "Error": {
-          await upload.handle?.close();
+          await upload.handle?.close().catch(() => {});
           upload.handle = null;
+          await discardTemp(upload, this.journal);
           return this.finishUpload(session, frame.stream, upload, frame.message || "client_error");
         }
       }
     } catch (err) {
-      // A failed Begin/Chunk/End: report it, free the stream, and leave whatever was written on
-      // disk (deleting a partial file is a separate decision, see the spec).
+      // A failed Begin/Chunk/End: remove the temporary file, report, and free the stream. The
+      // target is never touched before the final rename.
       await upload.handle?.close().catch(() => {});
       upload.handle = null;
+      await discardTemp(upload, this.journal);
       this.finishUpload(session, frame.stream, upload, failureText(stage, err));
     }
   }
@@ -601,6 +693,7 @@ export class FileTransferService {
     if (upload.done) return;
     upload.done = true;
     if (this.uploads.get(stream) === upload) this.uploads.delete(stream);
+    this.updateReading(session);
     if (!upload.ack || !session.isOpen) return;
     const message: FileUploadComplete = {
       type: "file_upload_complete",

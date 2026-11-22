@@ -14,7 +14,6 @@ use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
 use crate::address::{Target, parse};
 use crate::error::{DialError, ErrorCode};
-use crate::limits::MAX_MESSAGE_BYTES;
 use crate::stream::{ConnectError, Stream, connect_tcp};
 use crate::tls;
 
@@ -31,8 +30,9 @@ pub type Socket = WebSocketStream<Stream>;
 ///
 /// With a non-empty `password` the upgrade offers the subprotocol `pi-studio.bearer.<password>`;
 /// without one it offers none. The `Host` header is the URL's, as a browser would send it (the
-/// daemon checks it, not `Origin`). A message is at most [`MAX_MESSAGE_BYTES`], the largest the
-/// bridge carries; a longer one fails the socket.
+/// daemon checks it, not `Origin`). A message is at most `max_message_bytes` (the proxy passes
+/// [`MAX_MESSAGE_BYTES`](crate::limits::MAX_MESSAGE_BYTES), the largest the bridge carries); the
+/// library refuses a longer one while it reads, from the frame's length field, and the socket fails.
 ///
 /// A `wss` certificate must be trusted by the operating system's store: there is no way to accept
 /// another.
@@ -40,8 +40,8 @@ pub type Socket = WebSocketStream<Stream>;
 /// # Errors
 /// A [`DialError`], whose message names the host and port and never holds the password. An
 /// address that is not `ws`/`wss`, or that has user information, fails before any network use.
-pub async fn dial(url: &str, password: Option<&str>, limit: Duration) -> Result<Socket, DialError> {
-    dial_with_roots(url, password, limit, Vec::new()).await
+pub async fn dial(url: &str, password: Option<&str>, limit: Duration, max_message_bytes: usize) -> Result<Socket, DialError> {
+    dial_with_roots(url, password, limit, max_message_bytes, Vec::new()).await
 }
 
 /// Checks `url` as [`dial`] does before any network use: only `ws` and `wss`, no user information,
@@ -56,12 +56,18 @@ pub fn check_address(url: &str) -> Result<(), DialError> {
 
 /// [`dial`] with extra trust anchors. Private: the crate's tests use it to trust a certificate
 /// authority they made; nothing outside can add a root, let alone skip the verification.
-async fn dial_with_roots(url: &str, password: Option<&str>, limit: Duration, extra_roots: Vec<CertificateDer<'static>>) -> Result<Socket, DialError> {
+async fn dial_with_roots(
+    url: &str,
+    password: Option<&str>,
+    limit: Duration,
+    max_message_bytes: usize,
+    extra_roots: Vec<CertificateDer<'static>>,
+) -> Result<Socket, DialError> {
     let target = parse(url)?;
     let password = password.filter(|p| !p.is_empty());
     let request = build_request(&target, password)?;
     let display = target.display();
-    match timeout(limit, open(&target, request, password.is_some(), extra_roots)).await {
+    match timeout(limit, open(&target, request, password.is_some(), max_message_bytes, extra_roots)).await {
         Ok(result) => result,
         Err(_) => Err(DialError::new(
             ErrorCode::Timeout,
@@ -70,11 +76,17 @@ async fn dial_with_roots(url: &str, password: Option<&str>, limit: Duration, ext
     }
 }
 
-async fn open(target: &Target, request: Request, has_password: bool, extra_roots: Vec<CertificateDer<'static>>) -> Result<Socket, DialError> {
+async fn open(
+    target: &Target,
+    request: Request,
+    has_password: bool,
+    max_message_bytes: usize,
+    extra_roots: Vec<CertificateDer<'static>>,
+) -> Result<Socket, DialError> {
     let display = target.display();
     let tcp = connect_tcp(&target.host, target.port).await.map_err(|e| unreachable(&e, &display))?;
     let stream = if target.secure { Stream::Tls(Box::new(tls::connect(tcp, &target.host, &display, extra_roots).await?)) } else { Stream::Plain(tcp) };
-    let config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_BYTES)).max_frame_size(Some(MAX_MESSAGE_BYTES));
+    let config = WebSocketConfig::default().max_message_size(Some(max_message_bytes)).max_frame_size(Some(max_message_bytes));
     match client_async_with_config(request, stream, Some(config)).await {
         Ok((socket, _response)) => Ok(socket),
         Err(e) => Err(upgrade_error(&e, &display, has_password)),

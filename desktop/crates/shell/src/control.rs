@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }` and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }`, `transfers` and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -80,9 +80,12 @@ fn execute(app: &mut AppShell, params: &Value) -> Result<Value, String> {
 /// connections now (`transports`: entry id, state and four counters plus the peak bytes held in
 /// each direction, from the app's [`crate::Services::transports`] hook; empty without one) and the
 /// last connection error (`lastError: { code, atMs }` or null); and the counts of resume signals
-/// sent since launch (`resumeSignals: { wake, network }`). No address, token or message is in it.
+/// sent since launch (`resumeSignals: { wake, network }`). `transfers` is the transfer engine's view (the launch
+/// mode, the bulk connection, the active transfers, counts and the peak bytes held, from
+/// [`crate::Services::transfers`]; empty without a hook). No address, token, path, handle or message is in it.
 pub fn view(app: &mut AppShell) -> Value {
     let proxied = app.services.transports.as_ref().map(|hook| hook()).unwrap_or_default();
+    let transfers = crate::transfers_view::TransfersView::new(app.transfers, app.services.transfers.as_ref().map(|hook| hook()).unwrap_or_default());
     json!({
         "ui": app.ui,
         "settings": app.session.execute("settings.get", Value::Null).ok(),
@@ -93,6 +96,7 @@ pub fn view(app: &mut AppShell) -> Value {
             "lastError": proxied.last_error,
             "resumeSignals": app.resume.counts(),
         },
+        "transfers": transfers,
         "menus": menus::model(app),
     })
 }

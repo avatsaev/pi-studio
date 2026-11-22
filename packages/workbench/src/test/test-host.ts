@@ -9,6 +9,8 @@ import {
   type HostConnection,
   type HostDaemons,
   type HostPreview,
+  type TransferOptions,
+  type TransferState,
   type WorkbenchHost,
 } from "../host/types.js";
 
@@ -34,6 +36,11 @@ export interface TestHostOptions {
   /** `files.saveToDisk` resolves only when this does. */
   saveToDisk?: Promise<void>;
   /**
+   * Every upload and save stays pending until the test calls `finish` or `fail` on its entry in
+   * `transfers` (or aborts its signal). Overrides `uploadFails` and `saveToDisk`.
+   */
+  holdTransfers?: boolean;
+  /**
    * The host's `preview`: `"inert"`, `"origin"` (mounts and releases are recorded), or
    * `{ mountFails }` (an `origin` whose `mount` rejects with that message).
    */
@@ -44,8 +51,26 @@ export interface TestHostOptions {
   minDaemonVersion?: string;
 }
 
+/** One `files.upload` or `files.saveToDisk` call, with the options it was given. */
+export interface TestTransfer {
+  kind: "upload" | "save";
+  /** `<dir>/<name>` of an upload; the path of a save. */
+  target: string;
+  options: TransferOptions | undefined;
+  /** Call the call's `onProgress`. */
+  progress(done: number, total?: number): void;
+  /** Call the call's `onStateChange`. */
+  state(state: TransferState): void;
+  /** Resolve the call (with `holdTransfers`). */
+  finish(): void;
+  /** Reject the call (with `holdTransfers`). */
+  fail(error: Error): void;
+}
+
 export interface TestHost extends WorkbenchHost {
   calls: TestHostCall[];
+  /** Every upload and save, in call order. A call whose signal aborts rejects with an `AbortError`. */
+  transfers: TestTransfer[];
   data: Map<string, string>;
   /** Deliver a deep-link request to every `agentDeepLink.subscribe` listener. */
   emitAgentDeepLink(agentId: string): void;
@@ -54,11 +79,45 @@ export interface TestHost extends WorkbenchHost {
   resumeListenerCount(): number;
 }
 
+/** `work`, rejected with an `AbortError` as soon as `signal` aborts. */
+function untilAborted(signal: AbortSignal | undefined, work: Promise<void>): Promise<void> {
+  if (!signal) return work;
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const abort = (): void => reject(new DOMException("The transfer was aborted", "AbortError"));
+  if (signal.aborted) {
+    abort();
+    return promise;
+  }
+  signal.addEventListener("abort", abort, { once: true });
+  work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  return promise;
+}
+
 export function createTestHost(options: TestHostOptions = {}): TestHost {
   const calls: TestHostCall[] = [];
+  const transfers: TestTransfer[] = [];
   const data = new Map(Object.entries(options.storage ?? {}));
   const confirms = [...(options.confirms ?? [])];
   const record = (member: string, ...args: unknown[]): void => void calls.push({ member, args });
+  const startTransfer = (
+    kind: TestTransfer["kind"],
+    target: string,
+    transferOptions: TransferOptions | undefined,
+    scripted: () => Promise<void>,
+  ): Promise<void> => {
+    const held = Promise.withResolvers<void>();
+    held.promise.catch(() => {}); // a `fail` nobody awaits is not an unhandled rejection
+    transfers.push({
+      kind,
+      target,
+      options: transferOptions,
+      progress: (done, total) => transferOptions?.onProgress?.(done, total),
+      state: (state) => transferOptions?.onStateChange?.(state),
+      finish: held.resolve,
+      fail: held.reject,
+    });
+    return untilAborted(transferOptions?.signal, options.holdTransfers ? held.promise : scripted());
+  };
   const deepLinkListeners = new Set<(agentId: string) => void>();
   let pendingDeepLink = options.agentDeepLink ?? null;
   const resumeListeners = new Set<() => void>();
@@ -86,6 +145,7 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
 
   return {
     calls,
+    transfers,
     data,
     emitAgentDeepLink: (agentId) => {
       for (const listener of deepLinkListeners) listener(agentId);
@@ -148,13 +208,17 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
       },
     },
     files: {
-      upload: async (dir, source) => {
+      upload: (dir, source, transferOptions) => {
         record("files.upload", dir, source.name);
-        if (options.uploadFails) throw new Error(options.uploadFails);
+        return startTransfer("upload", `${dir}/${source.name}`, transferOptions, async () => {
+          if (options.uploadFails) throw new Error(options.uploadFails);
+        });
       },
-      saveToDisk: async (path) => {
+      saveToDisk: (path, transferOptions) => {
         record("files.saveToDisk", path);
-        if (options.saveToDisk) await options.saveToDisk;
+        return startTransfer("save", path, transferOptions, async () => {
+          if (options.saveToDisk) await options.saveToDisk;
+        });
       },
       openForView: async (path) => {
         const url = `test-view:${path}#${++viewCount}`;

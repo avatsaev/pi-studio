@@ -10,9 +10,12 @@ use std::time::{Duration, Instant};
 use pistudiodesktop_engine::Notice;
 use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
+use pistudiodesktop_shell::owner_access::OwnerAccess;
+use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use pistudiodesktop_shell::{AppInfo, Services};
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
@@ -23,13 +26,16 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply,
+    save_discard, save_finish, save_write, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open, unwrap_reply,
+    upload_pick,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
+use crate::transfers::TransferEngine;
 use crate::transport::{self, Transport};
 
+mod transfer_tests;
 mod transport_tests;
 
 /// A flush delay that never ends inside a test: only the exit flush can write a file.
@@ -44,7 +50,11 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
-    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() })
+    built_app_telling(
+        config_dir,
+        services,
+        Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine },
+    )
 }
 
 /// The same, with the owner thread told what `launch` says.
@@ -61,15 +71,19 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
-        .manage(Bridge::new(requests, Arc::clone(&store)))
-        .manage(services.clone())
+        .manage(Bridge::new(requests.clone(), Arc::clone(&store)))
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
         .manage(transport)
-        .on_window_event(transport::on_window_event)
+        .on_window_event(|window, event| {
+            transport::on_window_event(window, event);
+            crate::transfers::on_destroyed(window, event);
+        })
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
+        .manage(Arc::new(Picked::default()))
+        .manage(launch.transfers)
         .invoke_handler(tauri::generate_handler![
             boot,
             engine_command,
@@ -84,6 +98,10 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
             save_finish,
             save_discard,
             transfers_set,
+            upload_pick,
+            transfer_upload,
+            transfer_save,
+            transfer_cancel,
             preview_mount,
             preview_release,
             transport_open,
@@ -91,6 +109,11 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
         ])
         .build(tauri::generate_context!())
         .unwrap();
+    // As `main` does: the engine's snapshot is what `ui.inspect` shows as `transfers`.
+    let engine = TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests, Arc::clone(&store)), "9.9.9").unwrap();
+    services.transfers = Some(engine.inspector());
+    app.manage(engine);
+    app.manage(services.clone());
     spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, store, inbox, NEVER, launch);
     app
 }
@@ -147,8 +170,9 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     let (app, window) = app_on(dir.path());
 
     let first = invoke(&window, "boot", json!({})).unwrap();
-    assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
+    assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.127"}));
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
+    assert_eq!(first["transfers"], "engine");
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
     assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
     assert_eq!(first["daemons"]["secretStore"], "memory");
@@ -167,12 +191,25 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
 }
 
 #[test]
+fn boot_names_the_transfers_mode_the_launch_was_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let app = built_app_telling(dir.path(), Services::default(), launch);
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+    assert_eq!(invoke(&window, "boot", json!({})).unwrap()["transfers"], "page");
+}
+
+#[test]
 fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once() {
     let dir = tempfile::tempdir().unwrap();
     // A damaged registry file gives a notice of the session's own.
     std::fs::write(dir.path().join("daemons.json"), "{ not json").unwrap();
     let notices = vec![Notice::SecretStoreFallback { reason: "unavailable".into() }, Notice::FileReset { file: "secrets.json".into(), kept_as: None }];
-    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default() });
+    let app = built_app_telling(
+        dir.path(),
+        Services::default(),
+        Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default(), transfers: TransfersMode::Engine },
+    );
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
     let first = invoke(&window, "boot", json!({})).unwrap();
     let kinds: Vec<&str> = first["notices"].as_array().unwrap().iter().map(|n| n["kind"].as_str().unwrap()).collect();
@@ -405,7 +442,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_twenty_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -423,6 +460,10 @@ fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothi
             "allow-save-write",
             "allow-save-finish",
             "allow-save-discard",
+            "allow-upload-pick",
+            "allow-transfer-upload",
+            "allow-transfer-save",
+            "allow-transfer-cancel",
             "allow-transfers-set",
             "allow-preview-mount",
             "allow-preview-release",
@@ -509,6 +550,108 @@ fn a_cancelled_save_dialog_answers_null_and_writes_nothing_and_without_a_dialog_
     let other = tempfile::tempdir().unwrap();
     let (_bare, window) = app_on(other.path());
     assert!(invoke(&window, "save_begin", json!({"suggestedName": "a.txt"})).is_err());
+}
+
+/// Services whose open dialog answers `chosen` and records the folder it was shown with.
+fn picking(chosen: Vec<PathBuf>) -> (Services, Arc<Mutex<Vec<Option<PathBuf>>>>) {
+    let shown = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&shown);
+    let services = Services {
+        pick_files: Some(Arc::new(move |folder: Option<&Path>| {
+            log.lock().unwrap().push(folder.map(Path::to_path_buf));
+            chosen.clone()
+        })),
+        ..Services::default()
+    };
+    (services, shown)
+}
+
+#[test]
+fn the_page_picks_three_files_and_gets_handles_names_and_sizes_and_never_a_path() {
+    let (config, files) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let paths: Vec<PathBuf> = [("a.txt", &b"abc"[..]), ("b.bin", b""), ("c.md", b"0123456789")]
+        .into_iter()
+        .map(|(name, bytes)| {
+            let path = files.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        })
+        .collect();
+    let (services, shown) = picking(paths.clone());
+    let (app, window) = app_with(config.path(), services);
+
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+
+    let entries = answer.as_array().unwrap();
+    assert_eq!(entries.len(), 3, "{answer}");
+    for (entry, (name, size)) in entries.iter().zip([("a.txt", 3), ("b.bin", 0), ("c.md", 10)]) {
+        assert_eq!(entry["name"], name);
+        assert_eq!(entry["size"], size);
+        let handle = entry["handle"].as_str().unwrap();
+        assert!(handle.len() == 32 && handle.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{handle}");
+        let mut keys: Vec<&String> = entry.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["handle", "name", "size"]);
+    }
+    assert!(!answer.to_string().contains(files.path().to_str().unwrap()), "no answer holds a path: {answer}");
+    assert_eq!(shown.lock().unwrap().clone(), [None]);
+
+    // What a later task takes by handle: the path, once.
+    let picked = app.state::<Arc<Picked>>();
+    let handle = entries[1]["handle"].as_str().unwrap();
+    assert_eq!(picked.take(handle), Some(paths[1].clone()));
+    assert_eq!(picked.take(handle), None);
+}
+
+#[test]
+fn a_file_whose_size_cannot_be_read_is_answered_without_a_size_and_a_cancelled_dialog_answers_an_empty_list() {
+    let config = tempfile::tempdir().unwrap();
+    let (services, _) = picking(vec![PathBuf::from("/no/such/dir/gone.txt")]);
+    let (_app, window) = app_with(config.path(), services);
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+    assert_eq!(answer[0]["name"], "gone.txt");
+    assert_eq!(answer[0].as_object().unwrap().len(), 2, "no size member: {answer}");
+
+    let (cancelled, shown) = picking(Vec::new());
+    let other = tempfile::tempdir().unwrap();
+    let (_app, window) = app_with(other.path(), cancelled);
+    assert_eq!(invoke(&window, "upload_pick", json!({})).unwrap(), json!([]));
+    assert_eq!(shown.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn under_transfers_page_the_pick_answers_engine_off_and_no_dialog_is_shown() {
+    let config = tempfile::tempdir().unwrap();
+    let (services, shown) = picking(vec![PathBuf::from("/some/file.txt")]);
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let app = built_app_telling(config.path(), services, launch);
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+
+    let refused = invoke(&window, "upload_pick", json!({})).unwrap_err();
+
+    assert_eq!(refused["code"], "engine_off", "{refused}");
+    assert!(refused["message"].is_string());
+    assert!(shown.lock().unwrap().is_empty(), "no dialog was shown");
+}
+
+#[test]
+fn without_an_open_dialog_the_pick_is_an_error_and_boot_drops_the_picked_files() {
+    let config = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(config.path());
+    assert_eq!(invoke(&window, "upload_pick", json!({})).unwrap_err()["code"], "unavailable");
+
+    let other = tempfile::tempdir().unwrap();
+    let (services, shown) = picking(vec![PathBuf::from("/pick/one/a.txt"), PathBuf::from("/pick/one/b.txt")]);
+    let (app, window) = app_with(other.path(), services);
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+    let handles: Vec<String> = answer.as_array().unwrap().iter().map(|entry| entry["handle"].as_str().unwrap().to_string()).collect();
+    invoke(&window, "boot", json!({})).unwrap();
+    let picked = app.state::<Arc<Picked>>();
+    assert!(handles.iter().all(|handle| picked.take(handle).is_none()), "boot dropped every entry");
+
+    // The dialog still starts in the folder used last in this run.
+    invoke(&window, "upload_pick", json!({})).unwrap();
+    assert_eq!(shown.lock().unwrap().clone(), [None, Some(PathBuf::from("/pick/one"))]);
 }
 
 #[test]
@@ -709,6 +852,7 @@ fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
         local_supported: false,
         notices: Vec::new(),
         resume: Arc::default(),
+        transfers: TransfersMode::Engine,
     }
 }
 

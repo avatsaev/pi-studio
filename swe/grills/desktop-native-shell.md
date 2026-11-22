@@ -182,7 +182,7 @@ and, from "ok fold in A":
 ## Deferred
 - Native file drops with real paths: milestone 3, with the transfer engine (D6).
 - The OS keychain for secrets: milestone 2, with the transport (D13).
-- Bundling a daemon; a native Windows daemon (`docs/desktop-client-handoff.md` milestone 5).
+- Bundling a daemon; a native Windows daemon (`docs/desktop-client-handoff.md` milestone 6).
 
 ## Open questions — TODO(verify)
 Resolved at scope (2026-11-15):

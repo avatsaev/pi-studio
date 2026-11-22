@@ -25,6 +25,11 @@ pub type OpenUrlHook = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 /// Blocks like [`ConfirmHook`].
 pub type PickSavePathHook = Arc<dyn Fn(&str, Option<&Path>) -> Option<PathBuf> + Send + Sync>;
 
+/// Show a native open dialog for one or more files, starting in the folder given when there is one,
+/// and wait for the user. The paths the user chose; empty when the dialog was cancelled, could not
+/// be shown, or answered with something that is not a file path. Blocks like [`ConfirmHook`].
+pub type PickFilesHook = Arc<dyn Fn(Option<&Path>) -> Vec<PathBuf> + Send + Sync>;
+
 /// A program to run, for [`RunHook`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunSpec {
@@ -65,8 +70,12 @@ pub type ListDirHook = Arc<dyn Fn(&Path) -> Vec<PathBuf> + Send + Sync>;
 /// it must only read counters, never wait on a socket or a lock held across an await.
 pub type TransportsHook = Arc<dyn Fn() -> crate::transports::Snapshot + Send + Sync>;
 
+/// What the transfer engine is doing now, for `ui.inspect` (`transfers`). Runs on the thread that
+/// owns the session: it must only read counters, never wait on a socket or a lock held across an await.
+pub type TransfersHook = Arc<dyn Fn() -> crate::transfers_view::Snapshot + Send + Sync>;
+
 /// Every hook is optional: where one is missing (tests, a platform without it), what needs it is
-/// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk is refused.
+/// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk and picking files are refused.
 ///
 /// Cheap to clone (the hooks are shared), so the thread that owns the session and the page's
 /// commands each hold one.
@@ -76,10 +85,12 @@ pub struct Services {
     pub alert: Option<AlertHook>,
     pub open_url: Option<OpenUrlHook>,
     pub pick_save_path: Option<PickSavePathHook>,
+    pub pick_files: Option<PickFilesHook>,
     pub run: Option<RunHook>,
     pub is_executable: Option<IsExecutableHook>,
     pub env: Option<EnvHook>,
     pub home_dir: Option<HomeDirHook>,
     pub list_dir: Option<ListDirHook>,
     pub transports: Option<TransportsHook>,
+    pub transfers: Option<TransfersHook>,
 }

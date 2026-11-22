@@ -3,7 +3,8 @@
 //! event. The shell crate holds the detection, the rate limit (one signal per 5 s for every
 //! reason) and the counts `ui.inspect` reports; this file only reads the clocks and emits.
 //!
-//! The thread closes no socket and probes none: the page's workbench does that on the event.
+//! The thread closes no socket and probes none: the page's workbench does that on the event. It tells the
+//! file transfer engine too (`TransferEngine::wake`), which ends its wait before the next attempt to open its connection.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, LazyLock};
@@ -13,6 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use pistudiodesktop_shell::resume::{Reason, ResumeSignals, TICK_MS, WakeDetector};
 use serde_json::json;
 use tauri::{AppHandle, Emitter as _, Manager as _, RunEvent, Runtime};
+
+use crate::transfers::TransferEngine;
 
 /// The event the page listens to: payload `{ "reason": "wake" | "network" }`.
 pub const EVENT: &str = "connection_resume";
@@ -57,6 +60,11 @@ fn send<R: Runtime>(handle: &AppHandle<R>, reason: Reason) {
     log::info!("resume signal: {}", reason.as_str());
     if let Err(e) = handle.emit(EVENT, json!({ "reason": reason.as_str() })) {
         log::warn!("the `{EVENT}` event was not sent: {e}");
+    }
+    // The file transfer engine may be waiting to try its connection again; the machine woke or the
+    // network changed, so it tries now.
+    if let Some(engine) = handle.try_state::<TransferEngine>() {
+        engine.wake();
     }
 }
 

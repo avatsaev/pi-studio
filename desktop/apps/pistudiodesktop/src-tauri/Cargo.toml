@@ -27,6 +27,7 @@ pistudiodesktop-model = { workspace = true }
 pistudiodesktop-net = { workspace = true }
 pistudiodesktop-secrets = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
+pistudiodesktop-transfer = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
@@ -42,6 +43,8 @@ if-addrs = { workspace = true }
 # `test`: a mock runtime, to run the page's commands through Tauri's permission check without a window.
 tauri = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }
+# The transfer engine's stand-in daemon (a WebSocket server in the test's own process): tests only, so that no release build compiles it.
+pistudiodesktop-transfer = { workspace = true, features = ["testing"] }
 # The tests' daemon stand-in and page: a local WebSocket server and client.
 tokio = { workspace = true, features = ["net", "time", "sync"] }
 tokio-tungstenite = { workspace = true }

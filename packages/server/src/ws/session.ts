@@ -99,6 +99,16 @@ export class Session {
     return typeof state !== "number" || state === WS_OPEN;
   }
 
+  /** Stop reading the socket (TCP back-pressure on the sender). A stand-in socket without it: no-op. */
+  pauseReading(): void {
+    (this.socket as { pause?: () => void }).pause?.();
+  }
+
+  /** Read the socket again after {@link pauseReading}. A stand-in socket without it: no-op. */
+  resumeReading(): void {
+    (this.socket as { resume?: () => void }).resume?.();
+  }
+
   close(code?: number, reason?: string): void {
     this.socket.close(code, reason);
   }

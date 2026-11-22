@@ -6,8 +6,9 @@
 //! (`capabilities/default.json`); it reaches these hooks only through the app's own commands,
 //! which check what the page sent before a hook runs (`commands.rs`).
 //!
-//! The save dialog is one of those hooks: it only picks a path. Creating the file, and everything
-//! after, is `pistudiodesktop_shell::saves`.
+//! The save dialog and the open dialog are two of those hooks: they only pick paths. Creating the
+//! file, and everything after, is `pistudiodesktop_shell::saves`; keeping the picked paths is
+//! `pistudiodesktop_shell::picked`.
 //!
 //! A hook may block until the user has answered. The commands call it on a thread of the blocking
 //! pool, so neither the thread that owns the session nor the main thread waits for a dialog:
@@ -111,6 +112,39 @@ impl<R: Runtime> Native<R> {
         }
     }
 
+    /// Show the open dialog on the main window for one or more files, starting in `folder`, and
+    /// return the paths the user chose. Empty when the dialog was cancelled or could not be shown;
+    /// an answer that is not a file path is left out.
+    fn pick_files(&self, folder: Option<&Path>) -> Vec<PathBuf> {
+        // One dialog at a time, as for the message dialogs.
+        let _open = self.one_at_a_time.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(dialog) = self.app.try_state::<Dialog<R>>() else {
+            log::warn!("no dialog plug-in: the open dialog is not shown");
+            return Vec::new();
+        };
+        bring_forward(&self.app);
+        let mut builder = dialog.file();
+        if let Some(folder) = folder {
+            builder = builder.set_directory(folder);
+        }
+        if let Some(window) = self.app.get_webview_window(MAIN_WINDOW) {
+            builder = builder.set_parent(&window);
+        }
+        // `pick_files`, not `blocking_pick_files`, for the reason given in `ask`.
+        let (answer, received) = channel();
+        builder.pick_files(move |chosen| {
+            let _ = answer.send(chosen);
+        });
+        received
+            .recv()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|chosen| chosen.into_path().inspect_err(|e| log::warn!("the open dialog answered with something that is not a file path: {e}")).ok())
+            .collect()
+    }
+
     fn open(&self, url: &str) -> Result<(), String> {
         let opener = self.app.try_state::<Opener<R>>().ok_or("no opener plug-in")?;
         opener.open_url(url, None::<&str>).map_err(|e| e.to_string())
@@ -122,7 +156,7 @@ impl<R: Runtime> Native<R> {
 /// declined, a message is dropped and a link is not opened, each with a log line.
 pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
     let native = Arc::new(Native { app: app.clone(), title, one_at_a_time: Mutex::new(()) });
-    let (for_confirm, for_alert, for_open, for_save) = (Arc::clone(&native), Arc::clone(&native), Arc::clone(&native), native);
+    let (for_confirm, for_alert, for_open, for_save, for_pick) = (Arc::clone(&native), Arc::clone(&native), Arc::clone(&native), Arc::clone(&native), native);
     Services {
         confirm: Some(Arc::new(move |message: &str| for_confirm.ask(message, MessageDialogButtons::OkCancel))),
         alert: Some(Arc::new(move |message: &str| {
@@ -130,6 +164,7 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         })),
         open_url: Some(Arc::new(move |url: &str| for_open.open(url))),
         pick_save_path: Some(Arc::new(move |name: &str, folder: Option<&Path>| for_save.pick_save_path(name, folder))),
+        pick_files: Some(Arc::new(move |folder: Option<&Path>| for_pick.pick_files(folder))),
         run: Some(Arc::new(process::run)),
         is_executable: Some(Arc::new(process::is_executable)),
         env: Some(Arc::new(process::process_env)),
@@ -137,6 +172,7 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         list_dir: Some(Arc::new(process::list_dir)),
         // Filled by `main` once the transport state exists (`Transport::inspector`).
         transports: None,
+        transfers: None,
     }
 }
 
@@ -151,11 +187,12 @@ mod tests {
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
         let services = native::<MockRuntime>(app.handle(), "Pi Studio".into());
         let (confirm, alert, open_url) = (services.confirm.unwrap(), services.alert.unwrap(), services.open_url.unwrap());
-        let pick_save_path = services.pick_save_path.unwrap();
+        let (pick_save_path, pick_files) = (services.pick_save_path.unwrap(), services.pick_files.unwrap());
         assert!(!confirm("Delete it?"));
         alert("Saved.");
         assert_eq!(open_url("https://example.com"), Err("no opener plug-in".to_string()));
         assert_eq!(pick_save_path("a.txt", None), None);
+        assert_eq!(pick_files(None), Vec::<PathBuf>::new());
     }
 
     #[test]

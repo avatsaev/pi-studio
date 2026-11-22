@@ -24,6 +24,7 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
 | Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **Milestone 1 is done for Linux** (sprints 102–111, checked live on Linux 2026-11-20; on macOS and Windows only the automated platform checks have run, 2026-11-20). **Milestone 2 is built and checked** (sprints 112–117, 2026-11-22; branch `feat/desktop-transport-bridge`, PR 60, not merged): for a `local` or `direct` entry the socket to the daemon is Rust's (the page asks `transport_open` and connects to a single-use loopback address; the password never reaches the page), secrets are in the OS keychain (or a user-only file), and Rust signals wake and network changes; a `relay` entry still uses the webview's own socket until milestone 4. `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases. **Storage is in Rust:** the page calls `boot` (stored workbench keys, registry view, preview kind) and `storage_set` for every write; the engine writes `settings.json` (with the app-wide keys such as the theme), `daemons.json` (no secrets since version 2) and `daemon-state/<entry>.json` (one layout per daemon entry) in the configuration directory (`--config-dir`). **Dialogs, links and save are native:** confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. **The HTML preview has its own origin** (`pi-preview://localhost/<id>`): its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). **Daemon registry and local daemon:** Rust owns `daemons.json` (mode 0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status\|start\|restart\|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a password is never read back to the page; a relay entry's pairing link still reaches it until milestone 4), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`): connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in the same section. **Open:** macOS and Windows by hand (the list is `desktop/docs/platform-checks.md`, with a milestone 2 section; sprint-106/task-002, sprint-111/task-002 and sprint-117/task-003 wait for a person with those machines); on Linux, the Upload picker and a file dragged from the OS (not verifiable in the headless container), a real Node version manager finding the CLI, a relay link whose daemon key was rotated (it reports `daemon_offline`, not `wrong_key`, so the entry is not marked; Replace link works), and the close-time layout flush (a change in the last ~250 ms before closing the window is lost). Its gate is `cargo xtask ci`, run inside `desktop/` |
+| Desktop transfer engine (milestone 3) | **Built and checked on Linux 2026-11-22** (sprints 118–123; branch `feat/desktop-transfer-engine`, not merged): uploads from a native picker and saves to disk run in Rust on a second connection, for `local` and `direct` entries; the daemon writes an upload to a temporary file and paces it; the app's `minDaemonVersion` is 0.0.126 (to re-check against the published release). 5 GiB both ways with flat memory; one mark missed (the daemon grew 94 MiB against 64 MiB on a fresh daemon's first upload), open for the owner. macOS and Windows not checked (owner, 2026-11-22). Detail: § Suggested milestones item 3, spec `swe/features/desktop-transfer-engine.md` |
 | `pi-studio-dashboard` | A throwaway test application (owner, 2026-11-21). Nothing is taken from it or shared with it; ignore the mentions of it below |
 
 ## Plan and progress
@@ -374,9 +375,9 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Upload completion (daemon, shipped in this branch).** Send `ack: true` in
   `file_upload_request` when `server_info.features.fileTransferAck` is set, and the daemon pushes
   `{type:"session", message:{type:"file_upload_complete", transferId, stream, ok, bytesWritten, error?}}`
-  after it has closed the file, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
-  `write_failed`/`close_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
-  message. A partial file is left on disk after a failure. Without the flag (an older daemon) nothing
+  after it has renamed the file into place, or failed. Failures it reports: `mkdir_failed`/`open_failed`/
+  `write_failed`/`close_failed`/`rename_failed` with the errno in parentheses, `no_begin`, or the client's own `Error`
+  message. The upload is written to a temporary file beside the target and renamed on completion, so a failure leaves the target unchanged. Without the flag (an older daemon) nothing
   is pushed: verify by listing the directory.
 - **SDK upload (shipped in this branch).** `FileTransferClient.upload(path, source, {onProgress?, signal?})`
   takes a `Uint8Array`, a `Blob` or an `AsyncIterable<Uint8Array>`, never reads a `Blob` whole, paces on
@@ -389,6 +390,22 @@ The wire flow (`swe/features/file-explorer-transfer.md`,
 - **Upload streams belong to the session that opened them.** A frame from another session is ignored
   (so a client holding two connections must send an upload's frames on the connection that sent its
   `file_upload_request`), and a closed session releases its streams and file handles.
+- **Upload pacing (daemon, sprint 118).** The daemon stops reading a session's socket while more
+  than 1 MiB of an upload is not yet written and reads again under 256 KiB (direct sessions and a
+  relay session's data socket). A sender that awaits its writes, or paces on `bufferedAmount`, is
+  slowed through TCP; the daemon's memory does not grow with the file.
+- **Measured (sprint 118, loopback, isolated production daemon, 600 MiB random file).** SDK upload
+  onto `tmpfs`: 86 MiB/s, SHA-256 equal, daemon resident memory 59 MiB before, at the peak and
+  after, reading stopped 3 times. With every daemon write delayed 1 ms (a stand-in for a slow
+  disk): 28 MiB/s, memory still 59–60 MiB, reading stopped 736 times, and a `ping` on the same
+  connection took 157 ms in the median (244 ms at most) instead of under 1 ms. The same upload
+  from the web client in headless Chromium: 29 MiB/s, hash equal, daemon memory 186 MiB before,
+  221 MiB at the peak, 191 MiB after; the explorer listed `.pistudio-upload-<hex>.part` while it
+  ran and not afterwards. An upload aborted near 200 MiB, and one whose client process was
+  killed, left no file and no temporary file; onto an existing file both left it unchanged.
+  Through a local relay (200 MiB, slowed writes): reading stopped 364 times, the uploading
+  client's own `ping` took 523 ms in the median, and a second client's took 0.25 ms in the median
+  (120 ms at most), the same as idle.
 - **Download pacing (daemon, shipped).** The daemon pauses reading the file while the socket has more
   than 1 MiB queued and resumes below 256 KiB (chosen, not measured). This holds for direct
   connections and, since relay protocol 2, for relay connections too: a relay session reports its
@@ -457,8 +474,9 @@ protocol-2 client sees `daemon_outdated`.
 ### 4. Native shell
 
 - **Local daemon.** `pi-studio daemon start` (npm `@av-pi-studio/cli`, Node ≥ 22.20) starts a
-  daemon or finds the running one through a PID lock. Whether the desktop app bundles Node or
-  expects an installed CLI is an open product decision. See `packages/cli/AGENTS.md`.
+  daemon or finds the running one through a PID lock. The desktop app expects an installed CLI
+  today. A single-executable daemon the app downloads on first use was explored on 2026-11-22 and
+  is not built: `swe/architecture/single-binary-daemon.md`. See `packages/cli/AGENTS.md`.
 - **Daemon supervision output.** `pi-studio --json daemon start|restart|pair|stop` (the global flag
   precedes the subcommand) prints exactly one JSON line on stdout, no QR or prose. `start` and
   `restart`: `{up: true, started, host, port, pairingUrl, relay}` (`relay` is the endpoint string or
@@ -631,6 +649,46 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    of a TCP socket; the pump today takes the `net` crate's WebSocket stream.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
+   *State (2026-11-22): **built and checked on Linux** (sprints 118–123; grill
+   `swe/grills/desktop-transfer-engine.md`, decisions D1–D20; spec
+   `swe/features/desktop-transfer-engine.md`; branch `feat/desktop-transfer-engine`, not merged).
+   Uploads from a native picker and saves to disk run in Rust on a second connection opened on
+   demand (`agentStreams: "none"`, closed 30 s after the last transfer), up to three at once and
+   the rest queued, for `local` and `direct` entries. A save is written to a temporary file and
+   resumes from its bytes after a dropped connection (`ifUnchanged` guards it); an upload starts
+   again. The engine waits for the connection with a backoff of 1 s doubling to 30 s and no limit
+   in time, and a wake or network signal ends a wait. The explorer shows a line per activity with
+   a percentage and Cancel, in the browser client too. `--transfers page` forces the old path; a
+   relay entry, a dropped file and a `Blob` keep it. The daemon changed too (R1–R4): an upload is
+   written to `.pistudio-upload-<hex>.part` and renamed on `End`, the daemon stops reading a
+   session's socket while more than 1 MiB of an upload is unwritten, and the app's
+   `minDaemonVersion` is 0.0.127 (the release this branch's merge publishes; `main` published
+   0.0.126 from older code meanwhile). The wire is unchanged. Built: the crate `pistudiodesktop-transfer` above
+   `net` (the wire code tested against the published fixtures, the bulk connection, `upload`,
+   `save`, the engine, a stand-in daemon for tests), four page commands (`upload_pick`,
+   `transfer_upload`, `transfer_save`, `transfer_cancel`) and the `transfer_progress` event, and
+   the desktop host's `files` through them. **Measured (Linux, loopback, real WebKitGTK webview,
+   5 GiB both ways, three runs each):** hashes equal; `peakHeld` 32 KiB for an upload and 1 MiB
+   for a save; the app's Rust process grew at most 12 MiB, the web process at most 25 MiB; the
+   rate was 490 MiB/s up and 930 to 1140 MiB/s down, against 160 MiB/s each way with
+   `--transfers page` (whose upload grew the web process by 5.7 to 7.7 GiB); a key typed in a
+   terminal echoed at a median of 4 to 5 ms and a 99th percentile of 6 to 9 ms, the same as with
+   no transfer. **Open for the owner:** the daemon grew 94 MiB on the first 5 GiB upload into a
+   fresh daemon (64 MiB allowed), then 45 and 34 MiB on the next two; the page's path grew the
+   daemon 74 MiB on its first upload too, so the cause looks like the first large write, not the engine, and was not investigated. A
+   `kill -9`ed daemon's `.pistudio-upload-<hex>.part` is removed when the daemon starts again
+   (`$PI_STUDIO_HOME/pending-uploads.json`). Also open: a command left pending for hours across a
+   sleep (631 s was tried); a sleep during a transfer; macOS and Windows, which the owner removed
+   from the checks on 2026-11-22, so nothing is checked there; a file dragged from the OS file
+   manager (the drop was dispatched as an event). Not in it: viewers served by Rust, relay
+   entries (milestone 4), native file drops. **What milestone 4 can use:** the engine is generic
+   over a `Connector` (`engine::Connector::connect` returns the `net` crate's `Socket`, or a
+   `ConnectError { code, message, retry }`); a relay or an SSH `direct-tcpip` stream plugs in
+   there, and the engine's handshake, queue, resume and recovery stay unchanged. `Connector::connect` returns
+   the concrete `Socket`, so a relay or SSH stream has to be wrapped as one, or the return type
+   widened to `Transport`, which `Connection::open` already takes. The app's connector is in
+   `src-tauri/src/transfers/engine.rs`; it dials the current entry with `net::dial`, and a relay
+   entry is where milestone 4 changes it.*
 4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
    (`swe/architecture/relay-protocol.md`) and pass the relay fixtures. Check: a paired remote
    daemon works with the same behaviour as direct. **Added by the owner (2026-11-21): a daemon
@@ -643,10 +701,13 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    same SSH connection. Not specified yet: the record is the note at the top of
    `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
    machine is used through SSH with the same behaviour as direct.
-5. **Native shell features.** Menus, notifications, updates, signing. Bundling the daemon (Node
-   runtime as a sidecar, macOS and Linux only, roughly 1–2 sprints) is deferred until the app ships
-   to people without Node; a native Windows daemon (about 50 POSIX assumptions in the server, no
-   Windows CI) only if Windows users need a local one.
+5. **Native shell features.** Menus, notifications, updates, signing.
+6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
+   binary, downloaded on first use, plus app self-update through the Tauri updater
+   (`swe/architecture/single-binary-daemon.md`, exploration of 2026-11-22; replaces the
+   Node-sidecar idea; not scheduled). Depends on milestone 5's signing and updater. A native
+   Windows daemon (about 50 POSIX assumptions in the server, no Windows CI) only if Windows users
+   need a local one.
 
 **The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 
@@ -654,7 +715,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 
 - ~~Does the desktop app bundle a daemon, or only connect to existing ones?~~ Answered
   (2026-11-15): neither alone. It supervises an installed `pi-studio` CLI's daemon (milestone 1);
-  bundling is deferred (milestone 5).
+  bundling is deferred (milestone 6).
 - ~~Do the dashboard's Rust crates move to a shared repository or a published crate?~~ Answered
   (2026-11-21): no. The dashboard was a throwaway test application.
 - ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
@@ -668,6 +729,10 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   IPC is fast enough for terminal traffic on Linux and macOS when frames are batched, and not on
   Windows (about 30 MiB/s on a runner, a keystroke round trip of about 200 ms while a download
   runs). The owner chose a loopback WebSocket proxy owned by Rust instead.
+- **Open for the owner (2026-11-22, milestone 3):** does the 64 MiB mark for the daemon's growth stand?
+  The daemon grew 94 MiB on the first 5 GiB upload into a fresh daemon, with the engine and with the
+  page's path alike. Re-check `minDaemonVersion` (0.0.127) against the published release before the
+  app ships.
 
 ## Where to read next
 
@@ -687,3 +752,4 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 | Design system | `packages/ui-library/README.md`, `packages/ui-library/DESIGN_SYSTEM.md` |
 | Current web UI invariants | `packages/web-client/AGENTS.md` |
 | Milestone 2 (transport bridge) | `swe/features/desktop-transport-bridge.md` |
+| Milestone 3 (transfer engine) | `swe/features/desktop-transfer-engine.md`, grill `swe/grills/desktop-transfer-engine.md` |

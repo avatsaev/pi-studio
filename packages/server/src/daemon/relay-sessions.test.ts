@@ -34,6 +34,8 @@ function fakeConn(connectionId: string): FakeConn {
     sendText: (t) => void conn.texts.push(t),
     sendBinary: (b) => void conn.binaries.push(b),
     close: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
     onText: (h) => void (onText = h as typeof noop),
     onBinary: (h) => void (onBinary = h as typeof noop),
     onClose: (h) => void (onClose = h as typeof noop),
@@ -148,6 +150,17 @@ describe("attachRelaySession", () => {
     // Binary records after hello reach the shared binary handler; before hello they are dropped.
     conn.emitBinary(bytes);
     expect(binary).toEqual([{ session, bytes }]);
+  });
+
+  it("pauses and resumes the data socket through the session", () => {
+    const { attach, opened } = setup();
+    const conn = fakeConn("c1");
+    attach(conn);
+    conn.emitText(hello("a"));
+    opened[0]!.pauseReading();
+    expect(conn.pause).toHaveBeenCalledTimes(1);
+    opened[0]!.resumeReading();
+    expect(conn.resume).toHaveBeenCalledTimes(1);
   });
 
   it("drops binary records that arrive before hello", () => {

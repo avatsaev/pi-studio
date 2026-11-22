@@ -142,3 +142,55 @@ describe("daemons through the host", () => {
     expect(host.app.minDaemonVersion).toBe("0.0.119");
   });
 });
+
+describe("transfers through the test host", () => {
+  it("records the options of an upload and of a save, and runs them as before", async () => {
+    const host = createTestHost();
+    const options = { onProgress: vi.fn(), onStateChange: vi.fn() };
+
+    await host.files.upload("/work", { name: "a.txt" }, options);
+    await host.files.saveToDisk("/work/a.txt", options);
+    await host.files.saveToDisk("/work/b.txt");
+
+    expect(host.transfers.map((t) => [t.kind, t.target, t.options])).toEqual([
+      ["upload", "/work/a.txt", options],
+      ["save", "/work/a.txt", options],
+      ["save", "/work/b.txt", undefined],
+    ]);
+    expect(host.calls.map((c) => c.member)).toEqual([
+      "files.upload",
+      "files.saveToDisk",
+      "files.saveToDisk",
+    ]);
+  });
+
+  it("calls the callbacks of a held transfer on request, and settles it on finish or fail", async () => {
+    const host = createTestHost({ holdTransfers: true });
+    const onProgress = vi.fn();
+    const onStateChange = vi.fn();
+
+    const save = host.files.saveToDisk("/work/a.txt", { onProgress, onStateChange });
+    const upload = host.files.upload("/work", { name: "b.txt" });
+    const [saveCall, uploadCall] = host.transfers;
+    saveCall!.state("waiting");
+    saveCall!.progress(5, 10);
+    saveCall!.finish();
+    uploadCall!.fail(new Error("disk full"));
+
+    await expect(save).resolves.toBeUndefined();
+    await expect(upload).rejects.toThrow("disk full");
+    expect(onStateChange).toHaveBeenCalledWith("waiting");
+    expect(onProgress).toHaveBeenCalledWith(5, 10);
+  });
+
+  it("rejects a held transfer with an AbortError when its signal aborts", async () => {
+    const host = createTestHost({ holdTransfers: true });
+    const controller = new AbortController();
+    const upload = host.files.upload("/work", { name: "a.txt" }, { signal: controller.signal });
+
+    controller.abort();
+
+    await expect(upload).rejects.toMatchObject({ name: "AbortError" });
+    host.transfers[0]!.finish(); // too late: nothing to settle, nothing unhandled
+  });
+});

@@ -1,21 +1,17 @@
 /**
- * The Files sidebar's upload flow, outside React: confirm overwrites, upload one source at a time,
- * and report progress and the outcome on the explorer's status line.
+ * The Files sidebar's upload flow, outside React: confirm overwrites, then upload one source at a
+ * time as one activity of the transfer-activity store (one percentage, one Cancel — D11). The
+ * outcome lands in the store as its last result.
  */
 
-import { type UploadOptions, type UploadSource } from "../../host/types.js";
-
-export interface UploadStatus {
-  text: string;
-  error: boolean;
-}
+import { type TransferOptions, type UploadSource } from "../../host/types.js";
+import { isAbortError, useTransferActivityStore } from "../../stores/transfer-activity-store.js";
 
 export interface UploadSourcesDeps {
   /** Names already present in the target directory. */
   existing: ReadonlySet<string>;
   confirm(message: string): Promise<boolean>;
-  upload(dir: string, source: UploadSource, options?: UploadOptions): Promise<void>;
-  setStatus(status: UploadStatus): void;
+  upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
 }
 
 const plural = (n: number): string => `${n} file${n > 1 ? "s" : ""}`;
@@ -52,26 +48,40 @@ export async function uploadSources(
     if (!overwrite) return;
   }
 
-  const uploading = `Uploading ${plural(sources.length)}…`;
-  deps.setStatus({ text: uploading, error: false });
-  // The SDK reports every chunk; the status line only changes when the percentage does.
-  let shown = -1;
+  const store = useTransferActivityStore.getState();
+  // One controller for the batch: Cancel aborts the file being sent, and the loop starts no more.
+  const controller = new AbortController();
+  const id = store.add({
+    kind: "upload",
+    label: `Uploading ${plural(sources.length)}`,
+    cancel: () => controller.abort(),
+  });
+  let filesSent = 0;
   try {
     for (const [index, source] of sources.entries()) {
+      if (controller.signal.aborted) break;
       await deps.upload(dir, source, {
-        onProgress: (sent) => {
-          const percent = batchPercent(sources, index, sent);
-          if (percent === null || percent === shown) return;
-          shown = percent;
-          deps.setStatus({ text: `${uploading} ${percent}%`, error: false });
-        },
+        signal: controller.signal,
+        // A progress call means the file is moving: it ends a "waiting" after a restart.
+        onProgress: (sent) =>
+          store.update(id, { percent: batchPercent(sources, index, sent), state: "running" }),
+        onStateChange: (state) => store.update(id, { state }),
       });
+      filesSent++;
     }
-    deps.setStatus({ text: `Uploaded ${plural(sources.length)}`, error: false });
+    // A Cancel that lands after the last file settled changes nothing: the batch is complete.
+    store.remove(
+      id,
+      filesSent < sources.length
+        ? { text: "Upload cancelled", error: false }
+        : { text: `Uploaded ${plural(sources.length)}`, error: false },
+    );
   } catch (e) {
-    deps.setStatus({
-      text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`,
-      error: true,
-    });
+    store.remove(
+      id,
+      controller.signal.aborted || isAbortError(e)
+        ? { text: "Upload cancelled", error: false }
+        : { text: `Upload failed: ${e instanceof Error ? e.message : "unknown"}`, error: true },
+    );
   }
 }

@@ -9,6 +9,10 @@
 //! listed in [`JOURNAL`] in the configuration directory; [`Saves::open`] removes what the journal
 //! lists at the next launch.
 //!
+//! The engine (the download in the `transfer` crate) writes into a save too: [`Saves::claim`] hands
+//! an open save to it as a [`ClaimedSave`]. The page's commands then refuse that handle. The save
+//! keeps its temporary file, its place among the open saves and its line in the journal.
+//!
 //! The calls here write files, so the app runs them off the thread that owns the session.
 
 use std::collections::HashMap;
@@ -16,6 +20,7 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use pistudiodesktop_store::{Loaded, remove, write_atomic};
@@ -62,6 +67,8 @@ pub enum SaveError {
     Unavailable,
     /// The destination cannot be written beside: it has no file name or folder, or its path is not text.
     BadDestination,
+    /// Another claimed save is writing to the same destination. The save that was claimed is discarded.
+    DestinationBusy,
     /// The file system refused; carries its reason.
     Io(String),
 }
@@ -74,6 +81,7 @@ impl fmt::Display for SaveError {
             Self::TooLarge(len) => write!(f, "a write of {len} bytes is over the limit of {MAX_WRITE_BYTES} bytes: send smaller chunks"),
             Self::Unavailable => f.write_str("saving to disk is not available on this platform"),
             Self::BadDestination => f.write_str("the chosen destination cannot be saved to"),
+            Self::DestinationBusy => f.write_str("another save is writing to the same destination"),
             Self::Io(reason) => write!(f, "cannot write the file: {reason}"),
         }
     }
@@ -83,6 +91,12 @@ impl From<std::io::Error> for SaveError {
     fn from(e: std::io::Error) -> Self {
         // Logged in full by the caller; the page gets the kind's wording, which holds no path.
         Self::Io(e.kind().to_string())
+    }
+}
+
+impl From<getrandom::Error> for SaveError {
+    fn from(e: getrandom::Error) -> Self {
+        Self::Io(format!("no random source ({e})"))
     }
 }
 
@@ -148,6 +162,8 @@ impl Drop for Save {
 #[derive(Default)]
 struct State {
     open: HashMap<String, Arc<Save>>,
+    /// The handles that the engine has claimed, each with the key of its destination.
+    claimed: HashMap<String, PathBuf>,
     /// The folder of the destination chosen last in this run.
     last_folder: Option<PathBuf>,
 }
@@ -161,10 +177,10 @@ pub struct Saves {
     downloads: Option<PathBuf>,
 }
 
-/// `len` random bytes as lowercase hex.
-fn random_hex(len: usize) -> Result<String, SaveError> {
+/// `len` random bytes as lowercase hex. Also the handles of [`crate::picked`].
+pub(crate) fn random_hex(len: usize) -> Result<String, getrandom::Error> {
     let mut bytes = vec![0_u8; len];
-    getrandom::fill(&mut bytes).map_err(|e| SaveError::Io(format!("no random source ({e})")))?;
+    getrandom::fill(&mut bytes)?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -263,15 +279,47 @@ impl Saves {
         Ok(handle)
     }
 
+    /// The save of `handle` for one of the page's commands: a claimed save is the engine's, so it is
+    /// as unknown to the page as a finished one.
     fn get(&self, handle: &str) -> Result<Arc<Save>, SaveError> {
-        locked(&self.state).open.get(handle).cloned().ok_or(SaveError::UnknownHandle)
+        let state = locked(&self.state);
+        if state.claimed.contains_key(handle) {
+            return Err(SaveError::UnknownHandle);
+        }
+        state.open.get(handle).cloned().ok_or(SaveError::UnknownHandle)
     }
 
     /// Forget a save that is over and update the journal.
     fn forget(&self, handle: &str) {
         let mut state = locked(&self.state);
         state.open.remove(handle);
+        state.claimed.remove(handle);
         self.write_journal_or_log(&Self::temps(&state, None));
+    }
+
+    /// Hand the open save of `handle` to the engine. From here the page's `write`, `finish` and
+    /// `discard` answer [`SaveError::UnknownHandle`] for it; the engine writes through the returned
+    /// [`ClaimedSave`]. The save keeps counting against [`MAX_OPEN`] and stays in the journal.
+    ///
+    /// When another claimed save is writing to the same destination, the save of `handle` is
+    /// discarded and the answer is [`SaveError::DestinationBusy`]. The destination is not touched.
+    pub fn claim(self: &Arc<Self>, handle: &str) -> Result<ClaimedSave, SaveError> {
+        let mut state = locked(&self.state);
+        if state.claimed.contains_key(handle) {
+            return Err(SaveError::UnknownHandle);
+        }
+        let save = state.open.get(handle).cloned().ok_or(SaveError::UnknownHandle)?;
+        let key = destination_key(&save.destination);
+        if state.claimed.values().any(|claimed| *claimed == key) {
+            if let Err(e) = save.abandon() {
+                log::warn!("cannot discard a save into a busy destination: {e}");
+            }
+            state.open.remove(handle);
+            self.write_journal_or_log(&Self::temps(&state, None));
+            return Err(SaveError::DestinationBusy);
+        }
+        state.claimed.insert(handle.to_string(), key);
+        Ok(ClaimedSave { saves: Arc::clone(self), handle: handle.to_string(), save, written: AtomicU64::new(0), settled: false })
     }
 
     /// Append `bytes` to the save, after what was written before. At most [`MAX_WRITE_BYTES`].
@@ -319,6 +367,83 @@ impl Saves {
             Some(destination) => self.begin(&destination).map(Some),
             None => Ok(None),
         }
+    }
+}
+
+/// What two saves into one file share: the folder with its links resolved, and the file name. The
+/// folder exists (the temporary file is in it); when it cannot be resolved the path as given is used.
+fn destination_key(destination: &Path) -> PathBuf {
+    match (destination.parent().and_then(|folder| std::fs::canonicalize(folder).ok()), destination.file_name()) {
+        (Some(folder), Some(name)) => folder.join(name),
+        _ => destination.to_path_buf(),
+    }
+}
+
+/// An open save that the engine writes, from [`Saves::claim`]. It ends by [`Self::finish`] or
+/// [`Self::discard`]; dropped before that, it is discarded.
+pub struct ClaimedSave {
+    saves: Arc<Saves>,
+    handle: String,
+    save: Arc<Save>,
+    /// The bytes that [`Self::write`] has taken.
+    written: AtomicU64,
+    /// Whether the save has ended, so that the drop has nothing left to do.
+    settled: bool,
+}
+
+impl ClaimedSave {
+    /// Append `bytes` after what was written before. Not limited by [`MAX_WRITE_BYTES`]: that limit
+    /// keeps the page from sending a chunk that Rust must hold, and the engine holds its own.
+    pub fn write(&self, bytes: &[u8]) -> Result<(), SaveError> {
+        let mut file = locked(&self.save.file);
+        let file = file.as_mut().ok_or(SaveError::UnknownHandle)?;
+        file.write_all(bytes).map_err(|e| {
+            log::warn!("save failed on write: {e}");
+            SaveError::from(e)
+        })?;
+        self.written.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// The bytes written so far.
+    pub fn written(&self) -> u64 {
+        self.written.load(Ordering::Relaxed)
+    }
+
+    /// The file the save will end up as, for the app's own log: it is a local path, so it never
+    /// goes to the page, in an answer, an event or an error.
+    pub fn destination(&self) -> &Path {
+        &self.save.destination
+    }
+
+    /// End the save: flush the temporary file to disk, then rename it over the destination. The save
+    /// is over either way; a failure removes the temporary file.
+    pub fn finish(mut self) -> Result<(), SaveError> {
+        self.settled = true;
+        let result = self.save.commit();
+        // After the rename: until then the journal must keep listing the temporary file.
+        self.saves.forget(&self.handle);
+        result
+    }
+
+    /// Abandon the save: the temporary file is removed and the destination is as it was.
+    pub fn discard(mut self) -> Result<(), SaveError> {
+        self.settled = true;
+        let result = self.save.abandon();
+        self.saves.forget(&self.handle);
+        result
+    }
+}
+
+impl Drop for ClaimedSave {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        if let Err(e) = self.save.abandon() {
+            log::warn!("cannot remove the temporary file of a dropped save: {e}");
+        }
+        self.saves.forget(&self.handle);
     }
 }
 

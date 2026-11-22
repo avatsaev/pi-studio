@@ -57,6 +57,23 @@ Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client
 - **SDK:** `FileTransferClient.downloadTo(path, sink, options)` / `download(path, options)`
   (`offset`, `length`, `ifUnchanged`, `signal`, `onProgress`); both reject when the daemon lacks
   `fileDownloadRanges`. The browser host builds Blobs from the `downloadTo` chunks.
+- **Activity lines (sprint 119, both clients):** under the explorer's header there is one line per
+  running batch of uploads and per running save, oldest first, at most four and then `and N more`.
+  A line reads `Uploading N files… P%` or `Downloading <name>… P%` and has a Cancel button. A
+  cancelled batch stops the file being sent and starts none of the rest. The one status line
+  below shows the last result: `Uploaded N files`, `Upload cancelled`, `Upload failed: …`,
+  `Downloaded <name>`, `Download cancelled`, `Download failed: …`. A save started from a row's
+  menu or a viewer's Download button shows its line here too, and a cancel shows no error there.
+- **Desktop app (planned as sprints 120–123, not built):** for a local or direct entry the desktop
+  app runs uploads from its native picker and saves to disk in Rust, on a second connection, with
+  this same wire flow. See [desktop-transfer-engine.md](desktop-transfer-engine.md) §§ 4, 5, 7.
+- **Uploads on the daemon:** an upload is written to `.pistudio-upload-<32 hex>.part` beside its
+  target and renamed when `End` arrives; a failed or cancelled upload, or one whose session
+  closes, leaves the old target unchanged and no temporary file (sprint 118 task 001). Pacing
+  (sprint 118 task 002): the daemon stops reading a session's socket while more than 1 MiB of an
+  upload is unwritten and reads again once every upload of the session is under 256 KiB. A relay
+  session is paced the same way, on its data socket. The wire is unchanged. See
+  [desktop-transfer-engine.md](desktop-transfer-engine.md) § 10.
 
 ## Behavior & Algorithms
 

@@ -3099,6 +3099,7 @@ dependencies = [
  "pistudiodesktop-net",
  "pistudiodesktop-secrets",
  "pistudiodesktop-shell",
+ "pistudiodesktop-transfer",
  "serde",
  "serde_json",
  "tauri",
@@ -3221,6 +3222,19 @@ name = "pistudiodesktop-testkit"
 version = "0.2.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "pistudiodesktop-transfer"
+version = "0.2.0"
+dependencies = [
+ "futures-util",
+ "pistudiodesktop-net",
+ "serde_json",
+ "socket2",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

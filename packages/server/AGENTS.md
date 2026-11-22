@@ -1575,14 +1575,31 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   - *Read error.* One `Error` frame (`read_failed`), no `End`; the response was already sent.
   - *Owned streams.* Each pending upload records the opening session's id; binary frames from any
     other session are ignored, and `disposeSession(session)` (the one closure in `bootstrap.ts`
-    that both direct and relay session closes run) frees the stream and closes the handle. Frames carry the `PendingUpload`
+    that both direct and relay session closes run) frees the stream, closes the handle and removes the temporary file. Frames carry the `PendingUpload`
     they were queued for, so a frame still in flight can never land on a recycled stream id.
   - *`fileTransferAck`.* `file_upload_request.ack === true` makes the daemon push
     `file_upload_complete` (`{transferId, stream, ok, bytesWritten, error?}`) to the uploading
-    session once the file is closed or the upload failed: mkdir/open/write/close failure
+    session once the file is renamed into place or the upload failed: mkdir/open/write/close/rename failure
     (`<stage>_failed (<errno>)`), a client `Error` frame (its message), or an `End` with no `Begin`
-    (`no_begin`). No push without `ack`, and none when the session is gone. **A partial file is left on
-    disk after a failure** (decided; unchanged from before).
+    (`no_begin`). No push without `ack`, and none when the session is gone.
+  - *Atomic upload.* `Begin` creates `.pistudio-upload-<32 hex>.part` (exclusive create) in the
+    target's directory; `Chunk` appends to it; `End` closes it and renames it over the target. The
+    target is untouched until then. A failed write/close/rename, a client `Error` frame and
+    `disposeSession` close the handle and remove the temporary file (a failed removal is ignored).
+    The explorer's watcher sees the `.part` file appear and disappear; it is not hidden.
+    `deps.uploadJournal` (`files/upload-journal.ts`, `$PI_STUDIO_HOME/pending-uploads.json` in the
+    production bootstrap, none in the dev daemon) lists each temporary file before `Begin` creates
+    it and drops it after the rename or removal; at start it removes every listed file whose name
+    matches `UPLOAD_TEMP_NAME`, then the journal, so a killed daemon's `.part` files go at the
+    next start. A journal that cannot be written or read only loses that cleanup.
+  - *Upload pacing.* Each upload counts the `Chunk` bytes received and not yet written. While any
+    upload of a session is above `UPLOAD_HIGH_WATER_BYTES` (1 MiB) the service calls
+    `session.pauseReading()` (`ws` `pause()`; a relay session pauses its data socket through
+    `RelayConnection.pause()`; a stand-in socket without it: no-op), and it calls
+    `session.resumeReading()` once every upload of the session is under `UPLOAD_LOW_WATER_BYTES`
+    (256 KiB). An upload that ends (success, failure, client `Error`) or `disposeSession` stops
+    counting; dispose always resumes. A stopped socket also delays the client's other requests on
+    that connection. `deps.writeChunk` is the injectable write (tests slow it).
 - File downloads happen over the WebSocket via binary frames, not HTTP.
 - Unbounded file size (no inline ceiling like `file_read_request`).
 

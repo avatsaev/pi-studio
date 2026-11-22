@@ -35,8 +35,11 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`
   (`createTransport(target, {password})` → `Transport | undefined`, called once per `connect()`;
-  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, {onProgress?})`,
-  `saveToDisk(path)`, `openForView(path)` → `ViewableFile {url, mimeType?, fileName?, release()}`,
+  `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, options?)`,
+  `saveToDisk(path, options?)` — `options` is a `TransferOptions {onProgress?(done, total?), onStateChange?(state),
+  signal?}` with `TransferState` = `"queued" | "running" | "waiting"`, both exported from the root; a host
+  calls neither callback of a save before the user has chosen a destination and a `signal` that aborts
+  rejects with an error named `AbortError` — `openForView(path)` → `ViewableFile {url, mimeType?, fileName?, release()}`,
   optional `pickUploads()`; `UploadSource` = `{name, size?}`, a `File` satisfies it) and the
   optional `pdf` (`createWorker()`, `assetBaseUrl`; absent → `PdfUnavailableError` → the PDF
   viewer's error state). The browser host takes `pdf` as a `createBrowserHost` option because only
@@ -50,18 +53,30 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
-  paces it, so nothing is held in memory; `UploadOptions.onProgress` feeds the explorer's percentage;
+  paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
   both save (anchor click) and view (`Blob` object URL + idempotent revoke)), reaching the
   live connection only through `lib/connection/live-file-transfer.ts`'s `currentFileTransfer()`.
   Every viewer, `lib/inline-image-cache.ts` and every "Download" action (`features/files/
   SaveFileButton.tsx`, the explorer menu, the PDF toolbar) go through it; the explorer's upload
-  flow is `features/files/upload-sources.ts`. Only in-memory *byte reads* (HTML preview assets)
+  flow is `features/files/upload-sources.ts`. Both register as activities in
+  `stores/transfer-activity-store.ts` (see the stores entry): `uploadSources` registers one
+  activity per picked batch after the overwrite question, owns one `AbortController` (Cancel aborts
+  the file being sent and starts none of the rest) and ends with `Uploaded N files` / `Upload
+  cancelled` / `Upload failed: <message>`; it has no status dep — the outcome is the store's
+  `lastResult`. Only in-memory *byte reads* (HTML preview assets)
   still call `FileTransferClient.download` directly. With `createBrowserHost({ saveTarget })`
   (sprint-104), save goes through `saveIntoTarget` instead: 8 MiB ranges via `downloadTo`
   (`ifUnchanged` after the first), each range's chunks awaited through `SaveTarget.write` before
   the next range is requested (the SDK sink is synchronous, so ranges are the only backpressure),
-  `finish` after the last, `discard` once on any failure; a `null` target is a silent cancel.
+  `finish` after the last, `discard` once on any failure; a `null` target is a silent cancel. A save
+  reports `onProgress(written, totalBytes)` after each `write` (`(0, 0)` once for an empty file) and checks
+  the signal before each range and each write (the SDK checks it inside a range): an abort discards the
+  target once, never finishes it, and rejects with an `AbortError`. The `Blob` path forwards the SDK's
+  `onProgress` and `signal`, and an abort that raced the last chunk rejects before the anchor is clicked.
+  The browser host never calls `onStateChange`. `src/test/test-host.ts` records every upload and save in
+  `transfers` (kind, target, options, plus `progress`, `state`, `finish`, `fail` to drive a call;
+  `holdTransfers: true` keeps calls pending; a signal that aborts rejects the call with an `AbortError`).
 - `browser-connection.ts` — the browser `connection`: relay transport for a relay pairing link,
   `pi-studio.bearer.<pw>` subprotocol socket with a password, else `undefined`; `timers` from
   `browser-worker-timers.ts` (worker-backed, `setTimeout` fallback); `onResume` = `visibilitychange`
@@ -319,7 +334,19 @@ src/
                            dialog's target state: a verified `{entryId, text}` match opening the
                            confirm step directly, or a `forkMessages()` list opening the picker
                            instead — set by `features/chat/use-fork-action.ts`'s click handler,
-                           rendered by task-003's dialog/picker)
+                           rendered by task-003's dialog/picker), transfer-activity-store (the
+                           running uploads and saves, oldest first — `{ id, kind, label, percent,
+                           state, cancel }` — with `add`/`update`/`remove`; `update` ignores a
+                           patch that changes nothing; `remove(id, outcome)` also records the
+                           outcome as `lastResult` (`{ text, error, seq }`), the explorer's
+                           transient status, kept in the store so it survives the explorer not
+                           being mounted; `report` records one for a transfer that never had an
+                           activity; `isAbortError` tells a cancel from a failure) and
+                           transfer-activity-text (pure: `activityText` — `<label>… P%`, no
+                           percentage when unknown, `waiting for the connection` for `waiting`,
+                           `waiting` for `queued` — `percentOf`, the four-line cap
+                           `visibleActivities` with `hiddenActivitiesText` (`and N more`), and
+                           `cancelActivityName` (`Cancel: <label>`)) (+ tests)
   viewer-plugins/          Viewer settings — the per-viewer enable/disable store
                            (docs/MOLVIEWER_DECOUPLING.md § 5 phase 0 step 1). New in sprint-073;
                            phase 1 of the decoupling plan fills this directory with the plugin
@@ -421,7 +448,12 @@ src/
                            feeds FileExplorer's flattened row list), use-file-read/-diff/-download
                            (download = host `files.openForView`, URL released when superseded and
                            on unmount), use-file-transfer (upload + save-to-disk through the host's
-                           `files`; uploadAndRefresh refreshes the explorer), use-checkout-status,
+                           `files`; uploadAndRefresh refreshes the explorer; `saveToDiskActivity`
+                           gives the host a signal and both callbacks, registers one activity at
+                           the host's first `onProgress`/`onStateChange`, removes it when the call
+                           settles with `Downloaded <name>` / `Download cancelled` / `Download
+                           failed: <message>`, and rethrows — a cancel as the host's `AbortError`;
+                           a call that settles with no callback leaves no result) (+ test), use-checkout-status,
                            use-file-watch (ref-counted, resolved-path-aware `file_changed`
                            subscription shared by the molecule viewer's reload gate and
                            use-file-live-refresh below), use-explorer-watch (live file-tree
@@ -754,6 +786,12 @@ src/
                             AGENTS.md § Invariants "Files tree root row"; the workspace cwd is
                             the tree's own first row, collapsible, with children at depth 1;
                             upload button targets the workspace root;
+                            `ActivityLines` (sprint-119) draws the transfer-activity-store's
+                            activities under the header, one line each with a `Cancel: <label>`
+                            button, at most four and then `and N more`; the explorer's one
+                            transient status also shows the store's `lastResult` (then clears
+                            it); the row menu, `SaveFileButton` and `PdfViewer` stay silent for
+                            an `AbortError`;
                             dragging files in from the OS uploads into the hovered row's
                             directory (or the root when dropped on empty space) — restored after
                             an earlier removal (it briefly made the whole panel an ambiguous drop

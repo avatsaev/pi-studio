@@ -1,0 +1,33 @@
+[package]
+name = "pistudiodesktop-transfer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The stand-in daemon (`testing`): a WebSocket server in the caller's process, for tests only. A release
+# build never turns this on (the app lists it in its `[dev-dependencies]` only), so the server and
+# its dependencies are not compiled into the app.
+testing = ["tokio/net", "dep:socket2"]
+
+# The engine opens its connection through `net`, which has no code on wasm32, so on wasm32 this
+# crate is empty and takes no dependency: every dependency is behind `cfg(not(target_arch = "wasm32"))`,
+# or `cargo check --target wasm32-unknown-unknown` would still build them.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pistudiodesktop-net = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# The bulk connection's tasks, timers and channels, and the WebSocket frames it reads and writes.
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tokio-tungstenite = { workspace = true }
+# Only with the `testing` feature (and in this crate's own tests, below).
+socket2 = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# `test-util` pauses the clock, so that no test waits real seconds.
+tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "sync", "macros", "test-util"] }
+socket2 = { workspace = true }

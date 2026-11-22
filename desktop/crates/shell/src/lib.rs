@@ -16,6 +16,9 @@
 //! Saving a file to disk ([`saves`]) is the one thing here that writes the user's files: Rust owns the
 //! destination and the page holds only a handle.
 //!
+//! Uploading a file works the same way ([`picked`]): Rust shows the open dialog, keeps the paths and
+//! the page holds only a handle, a name and a size for each file.
+//!
 //! The local daemon ([`supervisor`]) is driven through the `pi-studio` CLI: the engine queues what was
 //! asked, the supervisor runs it off the session's thread and hands back the state reached.
 //!
@@ -33,6 +36,9 @@
 //! The proxied daemon connections and the last connection error ([`transports`]) are plain data the
 //! app's hook ([`Services::transports`]) answers; they are `connection.transports` and
 //! `connection.lastError` in `ui.inspect`. The shell holds no socket type.
+//!
+//! The transfer engine's state ([`transfers_view`]) is the same kind of plain data, answered by
+//! [`Services::transfers`] and shown as `transfers` in `ui.inspect`.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -50,6 +56,8 @@ pub mod owner;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod owner_access;
 pub mod page;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod picked;
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod process;
@@ -67,6 +75,8 @@ pub mod state;
 pub mod supervisor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod switch;
+pub mod transfer_mode;
+pub mod transfers_view;
 pub mod transports;
 
 use pistudiodesktop_engine::{Notice, Session};
@@ -93,6 +103,8 @@ pub struct AppShell {
     /// The resume signals the app's ticker threads have let through (`connection.resumeSignals`
     /// in `ui.inspect`). The app replaces it with the one its tickers hold.
     pub resume: Arc<resume::ResumeSignals>,
+    /// Which path file transfers take in this launch (`--transfers`); fixed for the launch.
+    pub transfers: transfer_mode::TransfersMode,
     /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) deferred: deferred::Deferred,
@@ -108,6 +120,7 @@ impl AppShell {
             notices: Vec::new(),
             awaiting_boot: false,
             resume: Arc::default(),
+            transfers: transfer_mode::TransfersMode::default(),
             #[cfg(not(target_arch = "wasm32"))]
             deferred: deferred::Deferred::default(),
         }

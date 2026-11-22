@@ -138,3 +138,57 @@ fn requests_from_a_channel_are_answered_in_order() {
     let refused = fourth_reply.try_recv().unwrap();
     assert_eq!((refused["ok"].clone(), refused["error"].is_string()), (json!(false), true));
 }
+
+#[test]
+fn transfers_without_a_hook_is_the_launch_mode_and_zeros() {
+    let mut app = app();
+    app.transfers = crate::transfer_mode::TransfersMode::Page;
+    let seen = call(&mut app, "ui.inspect", Value::Null);
+    assert_eq!(
+        seen["result"]["transfers"],
+        json!({
+            "mode": "page",
+            "connection": {"state": "closed", "entryId": null, "opens": 0},
+            "active": [],
+            "queued": 0,
+            "totals": {"done": 0, "failed": 0, "cancelled": 0},
+            "peakHeld": 0,
+            "lastError": null
+        })
+    );
+}
+
+#[test]
+fn transfers_with_a_hook_show_what_it_answers_and_not_what_it_holds() {
+    use crate::transfers_view::{ActiveState, ActiveView, BulkState, BulkView, Snapshot, Totals, TransferKind};
+    let held = "/home/marker/secret-file.bin".to_owned();
+    let snapshot = Snapshot {
+        connection: BulkView { state: BulkState::Open, entry_id: Some("e1".into()), opens: 1 },
+        active: vec![ActiveView {
+            id: "t1".into(),
+            kind: TransferKind::Upload,
+            state: ActiveState::Running,
+            bytes_done: 10,
+            bytes_total: Some(20),
+            restarts: 0,
+        }],
+        queued: 2,
+        totals: Totals { done: 1, failed: 0, cancelled: 0 },
+        peak_held: 4096,
+        last_error: None,
+    };
+    let services = Services {
+        transfers: Some(std::sync::Arc::new(move || {
+            let _held = &held;
+            snapshot.clone()
+        })),
+        ..Services::default()
+    };
+    let mut app = AppShell::new(Session::new(), services);
+    let seen = call(&mut app, "ui.inspect", Value::Null);
+    assert_eq!(seen["result"]["transfers"]["mode"], "engine");
+    assert_eq!(seen["result"]["transfers"]["connection"], json!({"state": "open", "entryId": "e1", "opens": 1}));
+    assert_eq!(seen["result"]["transfers"]["peakHeld"], 4096);
+    assert_eq!(seen["result"]["transfers"]["active"][0]["bytesTotal"], 20);
+    assert!(!seen.to_string().contains("marker"), "{seen}");
+}
