@@ -13,9 +13,10 @@ pistudiodesktop-model = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# File access is native only; the browser build has no file system.
+# File access and the secret store are native only; the browser build has neither.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pistudiodesktop-store = { workspace = true }
+pistudiodesktop-secrets = { workspace = true }
 getrandom = { workspace = true }
 log = { workspace = true }
 

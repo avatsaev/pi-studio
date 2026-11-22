@@ -1,14 +1,17 @@
 //! The desktop app's own data as plain, validated types with JSON codecs: the settings, one
-//! daemon entry's stored state, and the rule that says where a workbench storage key lives.
+//! daemon entry's stored state, the rule that says where a workbench storage key lives, and the
+//! address rule (a stored address to the URL the workbench opens).
 //! Pure data: no file access, no clock, no randomness.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod address_rule;
 mod registry;
 
+pub use address_rule::{address_matches, normalize_daemon_url};
 pub use registry::{
-    Entry, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, NewEntry, Registry,
-    RegistryError, Secret, Update, decode_registry, encode_registry,
+    EntryV2, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MigratedSecret,
+    NewEntry, REGISTRY_V2, RegistryError, RegistryV2, Secret, Update, check_link, check_password, decode_registry_any, decode_registry_v2, encode_registry_v2,
 };
 
 use std::collections::BTreeMap;
@@ -201,10 +204,14 @@ impl EntryState {
 }
 
 fn decode<T: DeserializeOwned>(bytes: &[u8], valid: fn(&T) -> bool) -> Result<T, DecodeError> {
+    decode_at(bytes, VERSION, valid)
+}
+
+fn decode_at<T: DeserializeOwned>(bytes: &[u8], version: u32, valid: fn(&T) -> bool) -> Result<T, DecodeError> {
     let json: Value = serde_json::from_slice(bytes).map_err(|_| DecodeError::NotJson)?;
     let Value::Object(object) = &json else { return Err(DecodeError::WrongShape) };
     match object.get("version") {
-        Some(v) if v.as_u64() == Some(u64::from(VERSION)) => {}
+        Some(v) if v.as_u64() == Some(u64::from(version)) => {}
         Some(v) if v.is_u64() || v.is_i64() => return Err(DecodeError::UnknownVersion),
         _ => return Err(DecodeError::WrongShape),
     }

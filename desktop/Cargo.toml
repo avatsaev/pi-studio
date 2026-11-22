@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "xtask"]
+members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "apps/ipc-bench", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,8 +12,10 @@ rust-version = "1.95"
 # internal: one line per crate, so members write `pistudiodesktop-model = { workspace = true }`
 pistudiodesktop-model = { path = "crates/model" }
 pistudiodesktop-store = { path = "crates/store" }
+pistudiodesktop-secrets = { path = "crates/secrets" }
 pistudiodesktop-engine = { path = "crates/engine" }
 pistudiodesktop-shell = { path = "crates/shell" }
+pistudiodesktop-net = { path = "crates/net" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
 
 # external: versions live here only
@@ -24,6 +26,8 @@ clap = { version = "4", features = ["derive", "env"] }
 # `std`: the app installs its own boxed logger.
 log = { version = "0.4", features = ["std"] }
 getrandom = "0.3"
+# The machine's interface addresses, read by the app binary's network watcher (MIT OR BSD-3-Clause; native only).
+if-addrs = "0.15"
 tempfile = "3"
 # The Tauri family moves together: keep `tauri`, `tauri-build` and every `tauri-plugin-*` on the
 # same major version, and `@tauri-apps/api` in apps/pistudiodesktop/package.json on the same minor as `tauri`.
@@ -32,6 +36,23 @@ tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+# WebSocket server of the IPC benchmark (apps/ipc-bench); features are chosen by the member.
+tokio = "1"
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# The `net` crate's TLS to the daemon (MIT OR Apache-2.0, ISC and Apache-2.0 for `ring`; native only): rustls with the
+# `ring` provider (no aws-lc-rs: it needs cmake or NASM on Windows), certificates judged by the operating system's
+# verifier. `socket2` sets the keepalive; `rcgen` makes the test servers' certificates (dev only).
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-platform-verifier = "0.7"
+socket2 = { version = "0.6", features = ["all"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+# The OS keychain (`secrets`): keyring-core's API and one store crate per platform, chosen by `cfg` in
+# the member (the `keyring` wrapper crate would pull the same three and a global default store).
+keyring-core = "1"
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+windows-native-keyring-store = "1"
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

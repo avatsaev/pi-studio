@@ -3,8 +3,14 @@ use std::process::Command;
 
 use serde_json::Value;
 
+/// Runs the CLI; a run on a configuration directory keeps its secrets in the file, so that no test
+/// writes to a person's keychain.
 fn cli(args: &[&str]) -> (bool, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli")).args(args).output().unwrap();
+    let mut all: Vec<&str> = args.to_vec();
+    if args.contains(&"--config-dir") {
+        all.extend(["--secret-store", "file"]);
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli")).args(all).output().unwrap();
     (out.status.success(), String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
 }
 
@@ -130,7 +136,19 @@ fn local_daemon_commands_run_the_cli_set_in_cli_path() {
         .env("PATH", "/usr/bin:/bin")
         .env("SHELL", &shell)
         .env("FAKE_PI_DIR", &state)
-        .args(["run", "--config-dir", config.to_str().unwrap(), "--cmd", &set_cli, "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
+        .args([
+            "run",
+            "--config-dir",
+            config.to_str().unwrap(),
+            "--secret-store",
+            "file",
+            "--cmd",
+            &set_cli,
+            "--cmd",
+            "daemon.local.start",
+            "--cmd",
+            "daemon.list",
+        ])
         .output()
         .unwrap();
     let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
@@ -139,4 +157,47 @@ fn local_daemon_commands_run_the_cli_set_in_cli_path() {
     assert_eq!(lines[1]["result"], serde_json::json!({"accepted": true}));
     assert_eq!(lines[2]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
     assert!(!stdout.contains("S3CRET") && !stderr.contains("S3CRET"));
+}
+
+#[test]
+fn the_file_backend_keeps_secrets_in_secrets_json_and_out_of_the_registry() {
+    const PASSWORD: &str = "S3CRET-PASSWORD-7f3a91";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_str().unwrap();
+    let (ok, _, err) = cli(&["run", "--config-dir", path, "--cmd", "settings.get"]);
+    assert!(ok, "{err}");
+    assert!(!dir.path().join("secrets.json").exists(), "no secret saved yet, no file");
+    let add = format!(r#"daemon.add {{"kind":"direct","name":"Work","address":"10.0.0.9:8080","password":"{PASSWORD}"}}"#);
+    let (ok, out, err) = cli(&["run", "--config-dir", path, "--cmd", &add]);
+    assert!(ok, "{err}");
+    assert!(!out.contains(PASSWORD) && !err.contains(PASSWORD), "{out}{err}");
+    let secrets = std::fs::read_to_string(dir.path().join("secrets.json")).unwrap();
+    assert!(secrets.contains(PASSWORD), "the file backend keeps the secret: {secrets}");
+    let registry = std::fs::read_to_string(dir.path().join("daemons.json")).unwrap();
+    assert!(!registry.contains(PASSWORD) && registry.contains("\"hasPassword\": true"), "{registry}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(dir.path().join("secrets.json")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "secrets.json is readable by this user only");
+    }
+    // A later run still knows the entry has its secret.
+    let (ok, out, err) = cli(&["run", "--config-dir", path, "--cmd", "daemon.list"]);
+    assert!(ok && out.contains("\"hasPassword\":true"), "{out}{err}");
+}
+
+#[test]
+fn a_bad_secret_store_option_is_a_usage_error() {
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli")).args(["run", "--secret-store", "file", "--cmd", "settings.get"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(err.contains("--config-dir"), "without a directory the session keeps no secret: {err}");
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+        .args(["run", "--config-dir", dir.path().to_str().unwrap(), "--secret-store", "memory", "--cmd", "settings.get"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(err.contains("keychain") && err.contains("file"), "{err}");
 }

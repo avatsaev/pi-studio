@@ -12,7 +12,7 @@ import { createBrowserHost, Workbench, type WorkbenchHost } from "@av-pi-studio/
 import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 
 import { BootError } from "./BootError.js";
-import { errorReason, noticeText, runBoot, type FileResetNotice } from "./host/boot.js";
+import { errorReason, noticeText, runBoot, type BootNotice } from "./host/boot.js";
 import { createDesktopHost } from "./host/desktop-host.js";
 import { tauriIpc, tauriPresent } from "./host/ipc.js";
 import { selectHostKind } from "./host/select.js";
@@ -27,13 +27,18 @@ const pdf = {
   assetBaseUrl: `${import.meta.env.BASE_URL}pdfjs/`,
 };
 
-function mount(host: WorkbenchHost, notices: FileResetNotice[]): void {
+/** A message the person reads once: a toast that stays ten seconds. */
+function toast(text: string): void {
+  useToastStore.getState().show(text, { durationMs: 10000 });
+}
+
+function mount(host: WorkbenchHost, notices: BootNotice[]): void {
   reactRoot.render(
     <StrictMode>
       <Workbench host={host} />
     </StrictMode>,
   );
-  for (const notice of notices) useToastStore.getState().show(noticeText(notice), { durationMs: 10000 });
+  for (const notice of notices) toast(noticeText(notice));
 }
 
 // Chosen once: the Tauri webview boots the desktop host; the snapshot tool and a plain browser
@@ -51,7 +56,7 @@ async function start(): Promise<void> {
   }
   try {
     const snapshot = await runBoot((command) => tauriIpc.invoke(command));
-    mount(createDesktopHost(snapshot, tauriIpc, pdf), snapshot.notices);
+    mount(createDesktopHost(snapshot, tauriIpc, pdf, toast), snapshot.notices);
   } catch (error) {
     reactRoot.render(<BootError reason={errorReason(error)} onRetry={() => void start()} />);
   }

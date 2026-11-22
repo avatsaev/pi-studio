@@ -12,40 +12,64 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_arch = "wasm32"))]
+use pistudiodesktop_model::decode_registry_any;
 use pistudiodesktop_model::{
-    Entry, EntryId, EntryState, EntryView, LimitError, MAX_KEY_BYTES, NewEntry, Registry, Scope, Settings, Update, check_put, encode_entry_state,
-    encode_registry, encode_settings, scope_of,
+    EntryId, EntryState, LimitError, MAX_KEY_BYTES, MigratedSecret, NewEntry, RegistryV2, Scope, Secret, Settings, Update, check_put, encode_entry_state,
+    encode_registry_v2, encode_settings, scope_of,
 };
 use serde_json::Value;
 
+use crate::secret::STORE_FAILED;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::secret::Vault;
 use crate::{EngineError, Result};
 
 const SETTINGS_FILE: &str = "settings.json";
 const REGISTRY_FILE: &str = "daemons.json";
 const ENTRY_DIR: &str = "daemon-state";
 
-/// Something the user should be told once: a file could not be used and was set aside.
+/// Something the user should be told once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
+    /// A file could not be used and was set aside.
     FileReset {
         /// The file that was reset, relative to the configuration directory.
         file: String,
         /// The set-aside file's new name, in the same directory. `None` when it could not be renamed.
         kept_as: Option<String>,
     },
+    /// A version 1 `daemons.json` has secrets that the secret store would not take. The file is
+    /// as it was and the secrets work for this run; the next launch tries again.
+    SecretsNotMoved,
+    /// An entry was removed but the secret store would not delete one of its items, which stays
+    /// behind (the log has the entry id and the store's code, no secret).
+    SecretNotRemoved {
+        /// The removed entry's id.
+        entry: String,
+    },
+    /// The keychain could not be used at launch and no `--secret-store` was given, so the secrets
+    /// are kept in `secrets.json` (mode 0600). `reason` is the store's error code: `unavailable`
+    /// (no keychain, or no answer in time), `denied` (locked, or refused) or `failed`.
+    SecretStoreFallback { reason: String },
 }
 
 impl Notice {
-    /// `{ kind: "file_reset", file, keptAs }`.
+    /// `{ kind: "file_reset", file, keptAs }` (`keptAs` is `null` when the file could not be
+    /// renamed), `{ kind: "secrets_not_moved" }`, `{ kind: "secret_not_removed", entry }` or
+    /// `{ kind: "secret_store_fallback", reason }`.
     pub fn to_json(&self) -> Value {
         match self {
             Notice::FileReset { file, kept_as } => serde_json::json!({"kind": "file_reset", "file": file, "keptAs": kept_as}),
+            Notice::SecretsNotMoved => serde_json::json!({"kind": "secrets_not_moved"}),
+            Notice::SecretNotRemoved { entry } => serde_json::json!({"kind": "secret_not_removed", "entry": entry}),
+            Notice::SecretStoreFallback { reason } => serde_json::json!({"kind": "secret_store_fallback", "reason": reason}),
         }
     }
 }
 
 /// The entry whose keys are in use: `lastUsedId` when that entry exists, else `local`.
-fn current_of(registry: &Registry) -> EntryId {
+fn current_of(registry: &RegistryV2) -> EntryId {
     registry.last_used_id.as_ref().filter(|id| registry.get(id.as_str()).is_some()).cloned().unwrap_or_else(EntryId::local)
 }
 
@@ -75,7 +99,10 @@ pub(crate) struct Storage {
     settings: Settings,
     /// The settings file has changes that are not on disk.
     settings_unwritten: bool,
-    registry: Registry,
+    registry: RegistryV2,
+    /// The secrets of a version 1 file that could not be moved to the store: empty unless
+    /// [`Notice::SecretsNotMoved`] was returned at open.
+    held: Vec<MigratedSecret>,
     /// `None` after the current entry was removed, until a switch.
     entry: Option<EntryId>,
     entry_state: EntryState,
@@ -86,13 +113,14 @@ pub(crate) struct Storage {
 
 impl Default for Storage {
     fn default() -> Self {
-        let registry = Registry::default();
+        let registry = RegistryV2::default();
         Storage {
             dir: None,
             settings: Settings::default(),
             settings_unwritten: false,
             entry: Some(current_of(&registry)),
             registry,
+            held: Vec::new(),
             entry_state: EntryState::default(),
             entry_unwritten: false,
             left: BTreeMap::new(),
@@ -102,8 +130,13 @@ impl Default for Storage {
 
 impl Storage {
     /// Read the files in `dir`. Nothing is created: a missing file or directory means defaults.
+    ///
+    /// A version 1 `daemons.json` held its secrets: each is stored in `vault`, and when all were
+    /// stored the file is rewritten as version 2 without them. When one could not be stored the
+    /// file is left as it is (it still has every secret), the secrets read are held in memory
+    /// for this run, and one [`Notice::SecretsNotMoved`] is returned; the next launch tries again.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn open(dir: PathBuf) -> (Storage, Vec<Notice>) {
+    pub(crate) fn open(dir: PathBuf, vault: &Vault) -> (Storage, Vec<Notice>) {
         use pistudiodesktop_store::Loaded;
         let mut notices = Vec::new();
         let mut storage = Storage::default();
@@ -111,11 +144,13 @@ impl Storage {
             storage.settings = settings;
         }
         // The registry is the one file written at open: when missing, or when reading it changed
-        // it (normalising), so the file on disk always has a `local` entry.
-        let rewrite = std::cell::Cell::new(true);
+        // it (normalising, or version 1 to 2), so the file on disk always has a `local` entry.
+        let mut rewrite = true;
+        let mut secrets = Vec::new();
         let decode = |bytes: &[u8]| {
-            let registry = pistudiodesktop_model::decode_registry(bytes).ok()?;
-            rewrite.set(encode_registry(&registry) != bytes);
+            let (registry, found) = decode_registry_any(bytes).ok()?;
+            rewrite = encode_registry_v2(&registry) != bytes;
+            secrets = found;
             Some(registry)
         };
         match pistudiodesktop_store::read(&dir.join(REGISTRY_FILE), decode) {
@@ -123,9 +158,13 @@ impl Storage {
             Loaded::Value(registry) => storage.registry = registry,
             Loaded::Reset { kept_as } => notices.push(Notice::FileReset { file: REGISTRY_FILE.to_owned(), kept_as }),
         }
-        if rewrite.get()
-            && let Err(e) = write_private_file(&dir, REGISTRY_FILE, &encode_registry(&storage.registry))
-        {
+        if !secrets.is_empty() && !vault.migrate(&secrets) {
+            log::warn!("some secrets of {REGISTRY_FILE} could not be moved to the secret store: the file is left as it is");
+            notices.push(Notice::SecretsNotMoved);
+            rewrite = false;
+            storage.held = secrets;
+        }
+        if rewrite && let Err(e) = write_private_file(&dir, REGISTRY_FILE, &encode_registry_v2(&storage.registry)) {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
         }
         let entry = current_of(&storage.registry);
@@ -137,7 +176,7 @@ impl Storage {
         (storage, notices)
     }
 
-    pub(crate) fn registry(&self) -> &Registry {
+    pub(crate) fn registry(&self) -> &RegistryV2 {
         &self.registry
     }
 
@@ -146,10 +185,15 @@ impl Storage {
     }
 
     /// Replace the registry by `next`, which is on disk before this returns. When it cannot be
-    /// written nothing has changed. The error is a wire code.
-    fn commit(&mut self, next: Registry) -> std::result::Result<(), &'static str> {
+    /// written nothing has changed. The error is a wire code. While secrets are held back (see
+    /// [`Storage::open`]) nothing is written: a version 2 file would claim secrets that only this
+    /// run has.
+    pub(crate) fn commit(&mut self, next: RegistryV2) -> std::result::Result<(), &'static str> {
+        if self.unmigrated() {
+            return Err(STORE_FAILED);
+        }
         if let Some(dir) = &self.dir
-            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry(&next))
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v2(&next))
         {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
             return Err("write_failed");
@@ -158,26 +202,35 @@ impl Storage {
         Ok(())
     }
 
-    /// Add an entry under a fresh id; it is not made current.
-    pub(crate) fn add_entry(&mut self, new: NewEntry) -> std::result::Result<EntryView, &'static str> {
+    /// Some secrets of a version 1 file could not be moved to the store at open: they are served
+    /// from memory for this run, and the file is as it was.
+    pub(crate) fn unmigrated(&self) -> bool {
+        !self.held.is_empty()
+    }
+
+    /// The secret a version 1 file held for `id`, kept in memory when it could not be moved.
+    pub(crate) fn held(&self, id: &EntryId) -> Option<&Secret> {
+        self.held.iter().find(|m| m.id == *id).map(|m| &m.secret)
+    }
+
+    /// A fresh id and the registry with `new` added under it, validated; nothing changes yet.
+    pub(crate) fn plan_add(&self, new: NewEntry) -> std::result::Result<(EntryId, RegistryV2), &'static str> {
         let id = fresh_id().ok_or("write_failed")?;
-        let view_id = id.as_str().to_owned();
-        let next = self.registry.add(id, new).map_err(|e| e.code())?;
-        self.commit(next)?;
-        self.registry.get(&view_id).map(Entry::view).ok_or("not_found")
+        let next = self.registry.add(id.clone(), new).map_err(|e| e.code())?;
+        Ok((id, next))
     }
 
-    pub(crate) fn update_entry(&mut self, id: &str, update: Update) -> std::result::Result<EntryView, &'static str> {
-        let next = self.registry.update(id, update).map_err(|e| e.code())?;
-        self.commit(next)?;
-        self.registry.get(id).map(Entry::view).ok_or("not_found")
+    pub(crate) fn plan_update(&self, id: &str, update: Update) -> std::result::Result<RegistryV2, &'static str> {
+        self.registry.update(id, update).map_err(|e| e.code())
     }
 
-    /// Remove an entry and its stored-state file. When it was current, the session has no current
-    /// entry until a switch.
-    pub(crate) fn remove_entry(&mut self, id: &str) -> std::result::Result<(), &'static str> {
-        let next = self.registry.remove(id).map_err(|e| e.code())?;
-        self.commit(next)?;
+    pub(crate) fn plan_remove(&self, id: &str) -> std::result::Result<RegistryV2, &'static str> {
+        self.registry.remove(id).map_err(|e| e.code())
+    }
+
+    /// What goes with a removed entry: its stored-state file, and, when it was current, the
+    /// session's current entry and keys. Call after [`Storage::commit`] of [`Storage::plan_remove`].
+    pub(crate) fn forget_entry(&mut self, id: &str) {
         if self.entry.as_ref().is_some_and(|e| e.as_str() == id) {
             self.entry = None;
             self.entry_state = EntryState::default();
@@ -191,7 +244,6 @@ impl Storage {
         {
             log::warn!("cannot delete the stored state of a removed entry: {e}");
         }
-        Ok(())
     }
 
     /// Make `id` the current entry: write the keys of the entry being left, record `lastUsedId`,
@@ -206,8 +258,11 @@ impl Storage {
         if self.entry_unwritten && self.write(Scope::Entry).is_err() {
             return Err("write_failed");
         }
-        if let Some(dir) = &self.dir
-            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry(&next))
+        if self.unmigrated() {
+            // Only `lastUsedId` is lost, and only if the app is closed before the next launch.
+            log::warn!("{REGISTRY_FILE} is not rewritten while its secrets are not in the secret store");
+        } else if let Some(dir) = &self.dir
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v2(&next))
         {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
             return Err("write_failed");
@@ -230,8 +285,10 @@ impl Storage {
         if let Some(dir) = &self.dir {
             let mut notices = Vec::new();
             let state = load(dir, &entry_file(id), |bytes| pistudiodesktop_model::decode_entry_state(bytes).ok(), &mut notices);
-            for Notice::FileReset { file, .. } in notices {
-                log::warn!("{file} could not be read and was set aside");
+            for notice in notices {
+                if let Notice::FileReset { file, .. } = notice {
+                    log::warn!("{file} could not be read and was set aside");
+                }
             }
             return state.unwrap_or_default();
         }
@@ -410,7 +467,7 @@ mod tests {
     }
 
     fn open(dir: &std::path::Path) -> (Session, Vec<Notice>) {
-        Session::with_config_dir(dir)
+        Session::with_config_dir(dir, std::sync::Arc::new(pistudiodesktop_secrets::MemoryStore::new()))
     }
 
     #[test]

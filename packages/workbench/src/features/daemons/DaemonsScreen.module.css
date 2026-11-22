@@ -290,3 +290,9 @@
   justify-content: space-between;
   gap: var(--pi-spacing-8);
 }
+
+.secretStoreNote {
+  margin: 0;
+  font-size: var(--pi-font-size-xs);
+  color: var(--pi-color-foregroundMuted);
+}

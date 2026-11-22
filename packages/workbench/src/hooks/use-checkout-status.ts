@@ -4,11 +4,12 @@
  * On `cwd` change: unsubscribes the previous cwd (`checkout_status_unsubscribe`), subscribes the
  * new one (`checkout_status_subscribe`), and routes pushed `checkout_status_update` session
  * messages into `git-store`. Cleans up both the RPC subscription and the message handler on
- * unmount/cwd-change — the POC leaked subscriptions on cwd change (§4.7).
+ * unmount/cwd-change — the POC leaked subscriptions on cwd change (§4.7). The subscription follows
+ * the open connection (`useOpenClient`), so it is made again after a reconnect.
  */
 
 import { useEffect, useRef } from "react";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
+import { useOpenClient } from "../lib/connection/connection-store.js";
 import { useGitStore, type CheckoutStatusProjection } from "../stores/git-store.js";
 
 interface CheckoutStatusUpdateMessage {
@@ -36,7 +37,7 @@ export interface UseCheckoutStatusResult {
 }
 
 export function useCheckoutStatus(cwd: string): UseCheckoutStatusResult {
-  const client = useConnectionStore((s) => s.client);
+  const client = useOpenClient();
   const applyProjection = useGitStore((s) => s.applyProjection);
   const setSubscribedCwd = useGitStore((s) => s.setSubscribedCwd);
   const clientRef = useRef(client);

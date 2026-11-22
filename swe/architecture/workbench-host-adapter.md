@@ -1,6 +1,6 @@
 # Architecture — Workbench Host Adapter
 
-> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
+> **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Milestone 2 (sprints 112–117, 2026-11-22): the desktop host's `connection.createTransport` picks a Rust-owned proxy for `local` and `direct` entries and `onResume` hears the app's resume event, with no change to this contract; the registry view's `secretStore` was added. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-package.md](workbench-package.md) (the package this seam belongs to),
@@ -122,12 +122,14 @@ interface DaemonSettings { autoStartLocalDaemon: boolean; cliPath: string | null
 
 type DaemonErrorCode = "invalid_name" | "name_taken" | "invalid_address" | "invalid_link" | "too_many"
   | "not_found" | "wrong_kind" | "local_not_removable" | "unsupported" | "cli_missing" | "cli_outdated"
-  | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed";
+  | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed"
+  | "secret_missing" | "secret_unavailable" | "secret_store_failed";   // the last three: the secret store (sprint 113)
 interface DaemonError extends Error { readonly code: DaemonErrorCode }   // message is the code; a type only
 
 interface HostDaemons {
   snapshot(): { currentId: string | null; entries: DaemonEntryView[]; local: LocalDaemonState;
-                settings: DaemonSettings };                             // synchronous, in memory
+                settings: DaemonSettings;
+                secretStore?: "keychain" | "file" };                    // synchronous, in memory
   subscribe(listener: () => void): () => void;
   resolveCurrent(): Promise<ConnectIntent>;                             // rejects with a DaemonError
   add(input: NewDaemon): Promise<DaemonEntryView>;
@@ -144,7 +146,7 @@ Supporting types:
 
 | Type | Meaning |
 |---|---|
-| `ConnectIntent` | `{ url?: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link; every field pre-fills the connection bar |
+| `ConnectIntent` | `{ url?: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link; every field pre-fills the connection bar. The desktop host's `resolveCurrent` leaves `password` out for a `local` or `direct` entry: Rust reads it |
 | `ConnectTarget` | The result of today's `resolveConnectTarget`: `{ mode: "direct"; url } \| { mode: "relay"; url; daemonPublicKey: Uint8Array }` |
 | `UploadSource` | `{ name: string; readonly size?: number }` plus host-private data. The browser host wraps a `File`; a native host may accept its own kind. Opaque to the workbench, which reads only `name` and `size`; every host must accept a `Blob`, because the workbench makes `File`s itself |
 | `ViewableFile` | `{ url: string; mimeType?: string; fileName?: string; release(): void }` |
@@ -162,7 +164,7 @@ Supporting types:
 | `launch.agentDeepLink.current` | The pending agent id at boot, or `null` |
 | `launch.agentDeepLink.subscribe` | Fires for each later deep-link request while the app is open |
 | `launch.agentDeepLink.consume` | Called after a target is applied or rejected, so it is not applied again. The browser host strips `agent=` from the URL fragment |
-| `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer` |
+| `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer`. The desktop host returns a proxied transport (Rust owns the socket to the daemon) for a `local` or `direct` current entry, and the browser host's choice otherwise ([The desktop host](#the-desktop-host)) |
 | `connection.timers` | Passed to `ReconnectionManager`. Must keep firing when the window is hidden |
 | `connection.onResume` | Fires when the host believes a stale connection may need checking: the window became visible, the network came back, the machine woke. The workbench decides what to do (`resolveResumeAction`, unchanged) |
 | `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options.onProgress(sent, total?)` is optional. The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005). The workbench then refreshes the explorer listing |
@@ -171,7 +173,7 @@ Supporting types:
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
 | `pdf` | Optional. `createWorker` returns a pdf.js worker; `assetBaseUrl` is where the pdf.js data directories are served (trailing slash) |
 | `preview` | Optional. Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled document to `mount` and loads its frame from the returned `url` (same sandbox tokens, never `allow-same-origin`) instead of `srcdoc`; it calls `release` once a newer document replaces it and on unmount; a `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this host; the viewer keeps `srcdoc` and says so. Absent: `srcdoc`, unchanged |
-| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
+| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; its optional `secretStore` (`"keychain" \| "file"`) says where the host keeps them: with `file` the Daemons screen shows one line (kept in a file only this user can read, because no keychain is available), with `keychain` or when absent it shows nothing; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
 
 ### Browser host
 
@@ -200,6 +202,18 @@ members (`apps/pistudiodesktop/src/host/desktop-host.ts`): `storage`, `dialogs`,
 transfers. Which member comes from where: [../features/desktop-native-host.md](../features/desktop-native-host.md)
 § Public contract 2. Outside Tauri the desktop frontend uses the plain browser host.
 
+`connection` is the browser host's with two changes (`src/host/connection.ts`; built in milestone 2,
+[../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 4):
+`createTransport` returns, when the registry's current entry is of kind `local` or `direct` (the
+entry's kind decides, not the target's shape), the SDK's WebSocket transport whose `connect(url)`
+first calls the app's `transport_open` and connects to the single-use loopback address it answers,
+so Rust holds the socket to the daemon and the password (`options.password` is ignored); for a
+`relay` entry, or with no current entry, it returns what the browser host returns. `onResume` adds
+the app's `connection_resume` event (wake, network change) to the browser triggers. `timers` is
+unchanged. The registry view the host reads carries `secretStore` (`"keychain"` or `"file"`; absent
+when the app's store is in memory) and the host's `resolveCurrent` answers no password for a
+`local` or `direct` entry.
+
 ### History — the 2026-11-15 amendment, built
 
 Specified for the desktop native shell on 2026-11-15 and built in sprints 103–110; every row is now
@@ -210,6 +224,7 @@ in the contract above. Kept so the reasons are findable.
 | `dialogs.prompt` | Removed | Sprint-104: session rename became the in-app `RenameSessionDialog` in both clients |
 | `app.minDaemonVersion?: string` | Added, optional | Sprint-109 (the app sets it to `0.0.119`); the notice, sprint-110 |
 | `daemons?: HostDaemons` | Added, optional | Types and an in-memory test registry sprint-109; consumed by the connection bar, the Daemons screen and connection boot in sprint-110 |
+| `HostDaemons.snapshot().secretStore?` | Added, optional | Sprint-113 (task-007): the desktop host reads it from the app's registry view; the Daemons screen draws one line for `file` ([../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 5) |
 | `preview?: HostPreview` | Added, optional | Sprint-105 |
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |

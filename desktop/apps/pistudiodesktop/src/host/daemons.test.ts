@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { HostDaemonError, createDesktopDaemons } from "./daemons.js";
+import { HostDaemonError, SECRET_NOT_REMOVED_TEXT, createDesktopDaemons } from "./daemons.js";
 import { type DaemonsView } from "./daemons-view.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 import { createDesktopStorage } from "./storage.js";
@@ -39,11 +39,13 @@ function harness(handler: Handler = () => undefined, view: DaemonsView = BOOT) {
   };
   const log = vi.fn<(message: string, error: unknown) => void>();
   let settled: () => Promise<void> = async () => undefined;
-  const daemons = createDesktopDaemons(view, ipc, () => settled(), log);
+  const tell = vi.fn<(text: string) => void>();
+  const daemons = createDesktopDaemons(view, ipc, () => settled(), log, tell);
   return {
     daemons,
     calls,
     log,
+    tell,
     emit: (event: string, payload?: unknown) => listeners.get(event)?.(payload),
     setSettled: (next: () => Promise<void>) => (settled = next),
     engineCalls: () => calls.filter((c) => c.command === "engine_command" && !String(c.args?.id).match(/^(daemon\.list|settings\.get)$/)),
@@ -114,6 +116,7 @@ describe("snapshot and subscribe", () => {
       },
       async () => undefined,
       moved.log,
+      () => undefined,
     );
     const onStale = vi.fn<() => void>();
     stale.subscribe(onStale);
@@ -139,12 +142,32 @@ describe("snapshot and subscribe", () => {
       },
       async () => undefined,
       () => undefined,
+      () => undefined,
     );
     await flush();
     listeners.get("daemons_changed")?.(NEXT);
     answer?.();
     await flush();
     expect(daemons.snapshot()).toEqual(NEXT);
+  });
+
+  it("keeps the boot's secret store when the read after the listener answers without one", async () => {
+    const booted: DaemonsView = { ...BOOT, secretStore: "file" };
+    const daemons = createDesktopDaemons(
+      booted,
+      {
+        invoke: async (_command, args) =>
+          (args as Record<string, unknown>).id === "settings.get"
+            ? NEXT.settings
+            : { currentId: "d1", entries: NEXT.entries, local: NEXT.local },
+        listen: async () => () => undefined,
+      },
+      async () => undefined,
+      () => undefined,
+      () => undefined,
+    );
+    await flush();
+    expect(daemons.snapshot()).toEqual({ ...NEXT, secretStore: "file" });
   });
 });
 
@@ -183,6 +206,32 @@ describe("registry commands", () => {
     const other = await rejection(harness(() => Promise.reject("invalid_password")).daemons.remove("d1"));
     expect(other).not.toBeInstanceOf(HostDaemonError);
     expect(other).toBeInstanceOf(Error);
+  });
+
+  it("knows the three codes of the secret store", async () => {
+    for (const code of ["secret_missing", "secret_unavailable", "secret_store_failed"]) {
+      const error = await rejection(harness(() => Promise.reject(code)).daemons.update("d1", { password: "x" }));
+      expect(error).toBeInstanceOf(HostDaemonError);
+      expect(error).toMatchObject({ code });
+    }
+  });
+
+  it("tells the person when a removed entry's secret stayed in the store", async () => {
+    const stayed = harness(() => ({ removed: true, notices: [{ kind: "secret_not_removed", entry: "d1" }] }));
+    await stayed.daemons.remove("d1");
+    expect(stayed.tell).toHaveBeenCalledExactlyOnceWith(SECRET_NOT_REMOVED_TEXT);
+    expect(SECRET_NOT_REMOVED_TEXT).toMatch(/removed, but .*could not be deleted from the secret store/);
+    expect(JSON.stringify(stayed.tell.mock.calls)).not.toContain("d1");
+
+    const clean = harness(() => ({ removed: true }));
+    await clean.daemons.remove("d1");
+    const odd = harness(() => ({ removed: true, notices: ["x", null, { kind: "other" }, { kind: "secret_not_removed" }] }));
+    await odd.daemons.remove("d1");
+    expect(clean.tell).not.toHaveBeenCalled();
+    expect(odd.tell).toHaveBeenCalledTimes(1);
+    const plain = harness(() => undefined);
+    await plain.daemons.remove("d1");
+    expect(plain.tell).not.toHaveBeenCalled();
   });
 
   it("an answer that is not an entry rejects", async () => {
@@ -231,7 +280,7 @@ describe("local daemon", () => {
 
 describe("resolveCurrent", () => {
   it("returns the intent unchanged", async () => {
-    const intent = { url: "ws://127.0.0.1:6767", password: "pw", connect: true };
+    const intent = { url: "ws://127.0.0.1:6767", connect: true };
     const h = harness(() => intent);
     expect(await h.daemons.resolveCurrent()).toBe(intent);
     expect(h.calls.filter((c) => c.command === "daemon_resolve_current")).toEqual([{ command: "daemon_resolve_current", args: undefined }]);
@@ -250,7 +299,7 @@ describe("resolveCurrent", () => {
   });
 
   it("logs nothing of the intent", async () => {
-    const h = harness(() => ({ url: "ws://secret-host", password: "secret-pw", connect: true }));
+    const h = harness(() => ({ url: "pi://secret-link", connect: true }));
     await h.daemons.resolveCurrent();
     expect(JSON.stringify(h.log.mock.calls)).not.toContain("secret");
   });

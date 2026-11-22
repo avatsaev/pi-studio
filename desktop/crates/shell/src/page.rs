@@ -29,9 +29,11 @@ impl Default for AppInfo {
 ///
 /// ```text
 /// { app: { title, version, platform: "desktop", minDaemonVersion },
-///   daemons: { currentId, entries, local, settings },  the registry view: no password, no pairing link
+///   daemons: { currentId, entries, local, settings, secretStore },  the registry view: no password, no pairing link;
+///                                                     secretStore is "keychain" | "file" | "memory"
 ///   storage: { [key]: string },                       the global keys and the current entry's
-///   notices: [ { kind: "file_reset", file, keptAs } ],
+///   notices: [ { kind: "file_reset", file, keptAs: string | null } | { kind: "secrets_not_moved" }
+///            | { kind: "secret_store_fallback", reason: "unavailable" | "denied" | "failed" } ],
 ///   preview: "origin" | "inert" }                     whether a previewed document's scripts can run
 /// ```
 ///
@@ -178,7 +180,7 @@ mod tests {
     fn a_reset_file_gives_one_notice_through_a_real_open_and_a_refused_write_leaves_the_files_alone() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("settings.json"), b"{ not json").unwrap();
-        let (session, notices) = Session::with_config_dir(dir.path());
+        let (session, notices) = Session::with_config_dir(dir.path(), std::sync::Arc::new(pistudiodesktop_secrets::MemoryStore::new()));
         let mut app = AppShell::new(session, Services::default());
         app.notices = notices;
 

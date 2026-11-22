@@ -5,6 +5,37 @@
 > [daemon-bootstrap.md](daemon-bootstrap.md), [relay-e2ee.md](relay-e2ee.md),
 > [../features/desktop-app.md](../features/desktop-app.md)
 
+> **Status (2026-11-21): not built; planned for desktop milestone 4.** The body of this document
+> was written for the Electron plan. The desktop client is now the Tauri application in `desktop/`,
+> and the owner decided the following on 2026-11-21. A feature specification is written when
+> milestone 4 is specified; until then this note is the record, and where it differs from the body,
+> the note wins.
+>
+> - **Milestone.** Part of desktop milestone 4 (with the relay in Rust), after milestones 2 (the
+>   transport bridge) and 3 (the transfer engine). `docs/desktop-client-handoff.md` § Suggested
+>   milestones.
+> - **How.** SSH is built into the app with a Rust library (`russh`, Apache-2.0), not the machine's
+>   `ssh` program. TODO(verify) before planning: the licences of its cryptography dependencies
+>   against the permissive-only rule (`desktop/AGENTS.md` rule 9), and that it builds on the three
+>   platforms.
+> - **Logins in the first version.** A key file with an optional passphrase, an SSH agent, a
+>   password, and reading `~/.ssh/config` (host alias, user, port, identity file, jump host).
+> - **A daemon that is not running.** The app offers a Start button that runs
+>   `pi-studio daemon start` on the host over the same SSH connection (the CLI must be installed
+>   there). This needs a command channel, so the forwarding-only account of § Recommended SSH
+>   server hardening can connect but cannot start a daemon.
+> - **What changes from the body.** No forwarded local port: Rust runs the WebSocket to the daemon
+>   itself over the `direct-tcpip` channel. The page reaches Rust as for any other entry of
+>   milestone 2, through the loopback proxy the owner chose on 2026-11-22
+>   (`swe/features/desktop-transport-bridge.md` § 3): a listener on `127.0.0.1` that exists until
+>   the page has connected (at most 10 s) and takes one client with a single-use token. So the row
+>   "Malicious local process" is answered by that token and the origin check, and no tunnel port
+>   stays open while the session lasts. Secrets (password,
+>   passphrase) go to the desktop secret store (the OS keychain, or the user-only file;
+>   `swe/features/desktop-transport-bridge.md` § 5). The entry is a new kind in the Rust-owned
+>   daemon registry (`swe/features/desktop-daemon-registry.md`), not a `HostProfile`. The Electron
+>   bridge API below becomes engine commands. Known hosts are the app's own file.
+
 ## Purpose
 
 SSH gateway connections let the Electron desktop app connect to a Pi-Studio daemon running on a

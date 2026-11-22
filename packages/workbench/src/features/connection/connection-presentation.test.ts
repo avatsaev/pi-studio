@@ -131,6 +131,35 @@ describe("shortConnectionReason", () => {
     expect(shortConnectionReason("unauthorized")).toBe("auth failed");
   });
 
+  it("labels the desktop app's messages by their cause, not by the word 'refused' (116/t005)", () => {
+    expect(
+      shortConnectionReason(
+        "The daemon at 127.0.0.1:6880 refused the password (401). Enter the password again in Daemons.",
+      ),
+    ).toBe("auth failed");
+    expect(
+      shortConnectionReason(
+        "The daemon at 127.0.0.1:6880 needs a password (401). Enter it in Daemons.",
+      ),
+    ).toBe("auth failed");
+    expect(
+      shortConnectionReason(
+        "Cannot connect to 127.0.0.1:6880: connection refused. Is the daemon running, and is the address right?",
+      ),
+    ).toBe("connection refused");
+    expect(
+      shortConnectionReason(
+        "The certificate of 127.0.0.1:6883 was issued by an authority this system does not trust. Check the daemon's certificate.",
+      ),
+    ).toBe("certificate rejected");
+    expect(
+      shortConnectionReason(
+        "The daemon at blocked.test:6880 does not accept this host name (403). Add it to PI_STUDIO_HOSTNAMES on the daemon.",
+      ),
+    ).toBe("host not allowed");
+    expect(shortConnectionReason("connect ECONNREFUSED 127.0.0.1:401")).toBe("connection refused");
+  });
+
   it("falls back to the first line, length-capped", () => {
     expect(shortConnectionReason("something odd broke\nstack frame\nstack frame")).toBe(
       "something odd broke",

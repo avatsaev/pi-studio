@@ -15,8 +15,9 @@
  * `onData`/`onResize`) mounts as soon as the container exists, independent of the slot, so
  * `onResize` is attached before the first `fitAddon.fit()` ever runs — closing the window where
  * xterm's one size-changing fit of the panel's life used to fire with no listener. The stream
- * subscription is keyed on `[client, slot]` instead, so a reconnect (new `client`) re-subscribes
- * without tearing down and rebuilding the emulator, preserving scrollback across it.
+ * subscription is keyed on `[openClient, slot]` instead, so a reconnect (the same client with a new
+ * daemon session, or a new client) re-subscribes without tearing down and rebuilding the emulator,
+ * preserving scrollback across it.
  *
  * PTY sizing (`terminals.md` § PTY size ownership) is a single seam, `claimSize`, behind two
  * independent gates: `isSizeAuthority` (permission — is this panel the visible renderer, in the
@@ -35,7 +36,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DaemonClient } from "@av-pi-studio/client";
 import { TerminalStreamRouter } from "@av-pi-studio/client";
-import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useConnectionStore, useOpenClient } from "../../lib/connection/connection-store.js";
 import { useIsTabVisible, useTabStore } from "../../stores/tab-store.js";
 import type { Tab, TerminalTabData } from "../../stores/tab-store.js";
 import { isPaneActiveTab, useLayoutStore } from "../../stores/layout-store.js";
@@ -130,6 +131,8 @@ function isSizeAuthority(tabId: string): boolean {
 export function TerminalPanel({ tab }: TerminalPanelProps) {
   const data = tab.data as TerminalTabData;
   const client = useConnectionStore((s) => s.client);
+  // `null` while the connection is not open: the stream subscription below follows this one.
+  const openClient = useOpenClient();
   // Per-pane, not `=== activeTabId`: with splits this terminal can be on screen in one pane while
   // another pane holds the workspace-active tab, and it must refit when it appears either way.
   const isVisible = useIsTabVisible(tab.id);
@@ -553,15 +556,17 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Stream subscription: keyed on [client, slot], independent of the emulator ─────────────
-  // Split from the emulator mount so a reconnect (new `client`) re-subscribes without tearing
-  // down and rebuilding xterm, which used to lose all scrollback on every reconnect.
+  // ─── Stream subscription: keyed on [openClient, slot], independent of the emulator ─────────
+  // Split from the emulator mount so a reconnect re-subscribes without tearing down and
+  // rebuilding xterm, which used to lose all scrollback on every reconnect. `openClient`, not
+  // `client`: the SDK reconnects in place, and the new daemon session has no stream for this slot
+  // until it subscribes again (keys typed meanwhile wait in `pendingInputRef`).
   useEffect(() => {
-    if (!client || slot === null) return;
+    if (!openClient || slot === null) return;
 
     setStatus({ isAttaching: true, error: null });
 
-    const router = routerFor(client.connection);
+    const router = routerFor(openClient.connection);
     routerRef.current = router;
 
     // `reset()`, not `clear()`: `clear()` only empties the viewport/scrollback, leaving the
@@ -592,7 +597,7 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
     const attachProposal = fitAddonRef.current?.proposeDimensions();
     const attachGrid: Grid | null =
       isMeasurable(attachProposal) && isSizeAuthority(tab.id) ? attachProposal : null;
-    void client.connection
+    void openClient.connection
       .request<SubscribeTerminalResponse>("subscribe_terminal_request", {
         slot,
         // The exact wire literal terminal-rpc.ts negotiates on (sprint-053/task-004/005) — any
@@ -634,10 +639,10 @@ export function TerminalPanel({ tab }: TerminalPanelProps) {
       cancelled = true;
       unsubscribeSlot();
       routerRef.current = null;
-      void client.connection.request("unsubscribe_terminal_request", { slot }).catch(() => {});
+      void openClient.connection.request("unsubscribe_terminal_request", { slot }).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, slot]);
+  }, [openClient, slot]);
 
   // ─── Re-fit whenever this tab becomes visible ─────────────────────────────────────────────
   // The `ResizeObserver` above catches divider drags and window resizes on its own (it observes

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bench-window-hold"
+description = "Enables the bench_window_hold command without any pre-configured scope."
+commands.allow = ["bench_window_hold"]
+
+[[permission]]
+identifier = "deny-bench-window-hold"
+description = "Denies the bench_window_hold command without any pre-configured scope."
+commands.deny = ["bench_window_hold"]

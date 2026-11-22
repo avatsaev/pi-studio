@@ -1,6 +1,7 @@
 import { createBrowserHost, type BrowserHostOptions, type WorkbenchHost } from "@av-pi-studio/workbench";
 
 import { type BootSnapshot } from "./boot.js";
+import { createDesktopConnection } from "./connection.js";
 import { createDesktopDaemons } from "./daemons.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 import { createSaveTarget, countTransfers } from "./transfers.js";
@@ -19,6 +20,8 @@ export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
   pdf: BrowserHostOptions["pdf"],
+  /** Shows a message to the person, once (the app's toast). */
+  tell: (text: string) => void,
 ): WorkbenchHost {
   const log = (message: string, error: unknown): void => console.error(message, error);
   const storage = createDesktopStorage(
@@ -27,6 +30,7 @@ export function createDesktopHost(
     log,
   );
   const base = createBrowserHost({ app: snapshot.app, pdf, saveTarget: createSaveTarget(ipc) });
+  const daemons = createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log, tell);
   return {
     ...base,
     files: countTransfers(base.files, (count) => {
@@ -36,7 +40,8 @@ export function createDesktopHost(
     dialogs: createNativeDialogs(ipc, log),
     links: createNativeLinks(ipc, log),
     preview: createDesktopPreview(snapshot.preview, ipc, log),
+    connection: createDesktopConnection(base.connection, ipc, daemons, log),
     launch: NO_LAUNCH,
-    daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log),
+    daemons,
   };
 }

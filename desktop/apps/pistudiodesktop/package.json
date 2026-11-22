@@ -19,6 +19,7 @@
     "snapshot:install": "playwright install chromium"
   },
   "dependencies": {
+    "@av-pi-studio/client": "*",
     "@av-pi-studio/ui-library": "*",
     "@av-pi-studio/workbench": "*",
     "@tauri-apps/api": "^2.12.4",

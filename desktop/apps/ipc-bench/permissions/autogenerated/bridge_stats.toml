@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bridge-stats"
+description = "Enables the bridge_stats command without any pre-configured scope."
+commands.allow = ["bridge_stats"]
+
+[[permission]]
+identifier = "deny-bridge-stats"
+description = "Denies the bridge_stats command without any pre-configured scope."
+commands.deny = ["bridge_stats"]

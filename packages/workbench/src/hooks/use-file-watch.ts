@@ -12,6 +12,8 @@
  * `use-file-watch.test.ts` exercises directly with a fake client rather than mounting the hook.
  *
  * A `null` path (an empty "+"-menu molecule tab, or the absence of a client) subscribes nothing.
+ * The hook follows the open connection (`useOpenClient`), so a watch is made again after a
+ * reconnect.
  *
  * `watchFile` ref-counts subscriptions per `(client, path)` in a module-level registry (mirrors
  * `file-transfer-instance.ts`'s `WeakMap<DaemonClient, …>` shared-instance convention): more than
@@ -25,7 +27,7 @@
 
 import { useEffect, useState } from "react";
 import type { PiStudioClient } from "@av-pi-studio/client";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
+import { useOpenClient } from "../lib/connection/connection-store.js";
 
 interface FileChangedMessage {
   type: "file_changed";
@@ -138,7 +140,7 @@ export interface UseFileWatchResult {
 }
 
 export function useFileWatch(path: string | null): UseFileWatchResult {
-  const client = useConnectionStore((s) => s.client);
+  const client = useOpenClient();
   const [changedAt, setChangedAt] = useState<number | null>(null);
 
   useEffect(() => {

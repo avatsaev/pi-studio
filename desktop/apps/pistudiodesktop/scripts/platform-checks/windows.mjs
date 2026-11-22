@@ -6,6 +6,8 @@
 // HTML preview probe, a second launch.
 // Daemon registry (sprint-111/task-004): the local daemon is `unsupported`, switching between two
 // entries, where daemons.json is.
+// Milestone 2 (sprint-117/task-002, `windows-bridge.mjs`): the page's connection through Rust to a
+// stand-in daemon, the resume signal, and the Credential Manager.
 //
 // The same checks run on Linux in `rehearse-webdriver` mode against WebKitWebDriver, to try the
 // script without a Windows machine; there the local daemon is `cli_missing` and the process
@@ -30,6 +32,7 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync }
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { SECRET_STORE_ARG } from "./app-process.mjs";
 import { bodyText, chooseInSwitcher, closeDialogs, dialogButtonTexts, showDaemonsScreen } from "./page-ui.mjs";
 import { interpretProbe, PROBE_HTML, RUN_PROBE_SCRIPT } from "./probe.mjs";
 import { countProcesses, killProcesses } from "./processes.mjs";
@@ -37,6 +40,7 @@ import { Skip } from "./report.mjs";
 import { sleep, waitFor } from "./wait.mjs";
 import { ready, Session, tauriCapabilities, webkitCapabilities } from "./webdriver.mjs";
 import { diagnoseWebView2 } from "./webview2-diagnostics.mjs";
+import { bridgeChecks, keychainCheck } from "./windows-bridge.mjs";
 
 const KEY = "platform-check-key";
 const LAYOUT_KEY = "platform-check-layout";
@@ -114,12 +118,12 @@ export class WindowsRun {
     this.report.fact("WebView2 without msedgedriver (no session could be made)", ...lines);
   }
 
-  /** The app in a new WebDriver session on `configDir`, once its page has booted. */
-  async openApp(configDir) {
+  /** The app in a new WebDriver session on `configDir`, once its page has booted. `args`: more arguments, each one `--flag=value` (see below). */
+  async openApp(configDir, { args = [] } = {}) {
     // One `--flag=value` argument: msedgedriver turns every `args` entry into a browser switch (it
     // strips leading dashes and puts `--` back), so a separate value became `--c:\...` and the app
     // exited at once (first run on a runner, 2026-11-20).
-    const spec = { application: this.app, args: [`--config-dir=${configDir}`] };
+    const spec = { application: this.app, args: [`--config-dir=${configDir}`, SECRET_STORE_ARG, ...args] };
     const capabilities = this.flavor === "windows" ? tauriCapabilities(spec) : webkitCapabilities(spec);
     let session;
     try {
@@ -278,7 +282,7 @@ async function secondLaunchCheck(run, configDir) {
     if (run.flavor !== "windows") throw new Skip("the app runs in a container in the rehearsal, out of reach of a process count");
     const before = await countProcesses(run.imageName);
     if (before !== 1) throw new Error(`${before} ${run.imageName} processes before the second launch, expected 1`);
-    const second = spawn(run.app, ["--config-dir", configDir], { stdio: "ignore" });
+    const second = spawn(run.app, ["--config-dir", configDir, SECRET_STORE_ARG], { stdio: "ignore" });
     const ended = await Promise.race([new Promise((resolve) => second.once("exit", (code) => resolve(`exited with code ${code}`))), sleep(15_000).then(() => null)]);
     if (ended === null) second.kill();
     await sleep(1000);
@@ -473,6 +477,8 @@ export async function runWindowsChecks(run) {
     await run.startDriver();
     await nativeHostChecks(run);
     await switchingChecks(run);
+    await bridgeChecks(run);
+    await keychainCheck(run);
   } finally {
     await run.cleanup();
   }

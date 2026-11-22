@@ -6,12 +6,15 @@
 //! automation request can never race.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use pistudiodesktop_engine::Session;
+use pistudiodesktop_engine::{Notice, Session};
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::owner::{self, Notify};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
+use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::{AppInfo, AppShell, Envelope, Request, Services};
 use serde_json::Value;
 use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
@@ -23,16 +26,18 @@ const EXIT_FLUSH_DEADLINE: Duration = Duration::from_secs(5);
 /// The webview's way to the owner thread. Managed by Tauri.
 pub struct Bridge {
     requests: Sender<Envelope>,
+    /// The session's secret store, for the dial's read (see [`OwnerAccess`]).
+    store: Arc<dyn SecretStore>,
 }
 
 impl Bridge {
-    pub fn new(requests: Sender<Envelope>) -> Self {
-        Self { requests }
+    pub fn new(requests: Sender<Envelope>, store: Arc<dyn SecretStore>) -> Self {
+        Self { requests, store }
     }
 
     /// The supervisor's way to the session, for the page's `daemon_resolve_current`.
     pub fn access(&self) -> OwnerAccess {
-        OwnerAccess::new(self.requests.clone())
+        OwnerAccess::new(self.requests.clone(), Arc::clone(&self.store))
     }
 
     /// Send a request and wait for its answer.
@@ -87,6 +92,10 @@ pub struct Launch {
     /// Whether this platform can run a local daemon. When it can, a first probe is queued at
     /// start; the window does not wait for it.
     pub local_supported: bool,
+    /// What the choice of the secret store has to tell the user ([`pistudiodesktop_shell::secret_choice`]).
+    pub notices: Vec<Notice>,
+    /// The resume signals the tickers let through; the shell reports their counts in `ui.inspect`.
+    pub resume: Arc<ResumeSignals>,
 }
 
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
@@ -94,11 +103,21 @@ pub struct Launch {
 /// (`flush_delay` after the first unwritten change; the app passes `owner::FLUSH_DELAY`).
 /// `services` are the platform hooks the shell holds; the page's dialog and link commands call
 /// their own copy of them on other threads, never this one.
-pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox: Receiver<Envelope>, flush_delay: Duration, mut launch: Launch) {
+pub fn spawn_owner(
+    info: AppInfo,
+    config_dir: PathBuf,
+    services: Services,
+    store: Arc<dyn SecretStore>,
+    inbox: Receiver<Envelope>,
+    flush_delay: Duration,
+    mut launch: Launch,
+) {
     std::thread::spawn(move || {
         log::info!("configuration directory: {}", config_dir.display());
-        let (mut session, notices) = Session::with_config_dir(config_dir);
-        for notice in &notices {
+        // The one place the owner thread calls the store: at launch, before it has answered
+        // anything (a version 1 `daemons.json` is migrated here). Requests wait in the inbox.
+        let (mut session, session_notices) = Session::with_config_dir(config_dir, store);
+        for notice in &session_notices {
             log::warn!("{}", notice.to_json());
         }
         session.set_local_supported(launch.local_supported);
@@ -113,6 +132,11 @@ pub fn spawn_owner(info: AppInfo, config_dir: PathBuf, services: Services, inbox
         let _ = session.take_registry_changed();
         let mut app = AppShell::new(session, services);
         app.info = info;
+        app.resume = Arc::clone(&launch.resume);
+        // What the launch's store choice told (a keychain that was not used, an unreadable
+        // `secrets.json`) comes before what the files said.
+        let mut notices = std::mem::take(&mut launch.notices);
+        notices.extend(session_notices);
         app.notices = notices;
         owner::serve_notifying(&mut app, &inbox, flush_delay, launch.notify.as_mut());
     });

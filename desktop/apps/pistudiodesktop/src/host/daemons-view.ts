@@ -6,6 +6,8 @@ export interface DaemonsView {
   entries: DaemonEntryView[];
   local: LocalDaemonState;
   settings: DaemonSettings;
+  /** Absent when the app does not say, or says something else. */
+  secretStore?: "keychain" | "file";
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -77,7 +79,7 @@ function parseSettings(value: unknown): DaemonSettings | null {
   return { autoStartLocalDaemon, cliPath };
 }
 
-/** The view `{ currentId, entries, local, settings }`, or `null` when it is not the expected shape. */
+/** The view `{ currentId, entries, local, settings, secretStore? }`, or `null` when it is not the expected shape. */
 export function parseDaemonsView(value: unknown): DaemonsView | null {
   if (!isRecord(value)) return null;
   const { currentId, entries: rawEntries } = value;
@@ -92,5 +94,9 @@ export function parseDaemonsView(value: unknown): DaemonsView | null {
   const local = parseLocalState(value.local);
   const settings = parseSettings(value.settings);
   if (!local || !settings) return null;
-  return { currentId, entries, local, settings };
+  // Any other value, and an absent field, are dropped: the page then says nothing.
+  const { secretStore } = value;
+  return secretStore === "keychain" || secretStore === "file"
+    ? { currentId, entries, local, settings, secretStore }
+    : { currentId, entries, local, settings };
 }

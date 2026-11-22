@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::Envelope;
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::daemons::CHANGED_EVENT;
@@ -20,6 +21,7 @@ use tauri::{AppHandle, Emitter as _, Manager as _, Runtime, WebviewWindow};
 
 use crate::bridge::Bridge;
 use crate::transfers::Transfers;
+use crate::transport::Transport;
 
 /// Whether this platform can run a local daemon: the daemon is POSIX-only, so Windows has none.
 pub const LOCAL_SUPPORTED: bool = cfg!(not(windows));
@@ -67,19 +69,25 @@ impl Notify for Events {
 /// `daemon_switch` and the native menu. `Some("cancelled")` when the user declined the question
 /// about running transfers. Blocks on the confirm: call it off the session's thread and the event loop.
 pub fn switch_window<R: Runtime>(handle: &AppHandle<R>, window: &WebviewWindow<R>, id: &str) -> Result<Option<&'static str>, String> {
-    let (Some(bridge), Some(transfers), Some(services)) = (handle.try_state::<Bridge>(), handle.try_state::<Transfers>(), handle.try_state::<Services>())
+    let (Some(bridge), Some(transfers), Some(services), Some(transport)) =
+        (handle.try_state::<Bridge>(), handle.try_state::<Transfers>(), handle.try_state::<Services>(), handle.try_state::<Transport>())
     else {
         return Err("the app is not ready".into());
     };
-    match switch::switch_to(&services, &bridge.access(), transfers.get(), id, || window.reload().map_err(|e| format!("could not reload the page: {e}")))? {
+    let reload = || {
+        // The old page's connections go with it: every daemon is told 1001 before the new page boots.
+        transport.close_all_blocking();
+        window.reload().map_err(|e| format!("could not reload the page: {e}"))
+    };
+    match switch::switch_to(&services, &bridge.access(), transfers.get(), id, reload)? {
         Switched::Done => Ok(None),
         Switched::Cancelled => Ok(Some("cancelled")),
     }
 }
 
-pub fn start_runner(requests: Sender<Envelope>, supervisor: Arc<Supervisor>) -> Sender<()> {
+pub fn start_runner(requests: Sender<Envelope>, store: Arc<dyn SecretStore>, supervisor: Arc<Supervisor>) -> Sender<()> {
     let (wake, woken) = channel();
-    std::thread::spawn(move || run(&OwnerAccess::new(requests), &supervisor, &woken));
+    std::thread::spawn(move || run(&OwnerAccess::new(requests, store), &supervisor, &woken));
     wake
 }
 

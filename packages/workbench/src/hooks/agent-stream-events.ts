@@ -14,6 +14,11 @@ import { applyCompactionEstimate } from "../stores/stats-store.js";
 import { toolMutatesFiles, toolFilePath } from "../timeline/tool-mapping.js";
 import { invalidateAfterToolCompletion } from "../lib/connection/files-changed.js";
 
+/** The SDK's stream-meta timestamp (ISO-8601 or epoch millis) as the ISO string a row carries. */
+export function streamTimestamp(timestamp: string | number | undefined): string | undefined {
+  return typeof timestamp === "number" ? new Date(timestamp).toISOString() : timestamp;
+}
+
 export interface ApplyAgentStreamEventArgs {
   sessionId: string;
   event: AgentStreamEvent;

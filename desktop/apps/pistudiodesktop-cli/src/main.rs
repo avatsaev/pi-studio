@@ -17,6 +17,7 @@ use std::sync::Mutex;
 use clap::{Parser, Subcommand};
 use pistudiodesktop_engine::Session;
 use pistudiodesktop_shell::process::native_services;
+use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use serde_json::{Value, json};
 
@@ -41,6 +42,12 @@ enum Command {
         /// command writes). Without it the session lives in memory and writes no file.
         #[arg(long, value_name = "DIR")]
         config_dir: Option<PathBuf>,
+        /// Where secrets are kept: `keychain` or `file` (`secrets.json` in the configuration directory).
+        /// Default: the keychain when it answers, else the file. Tests and scripts pass `file`, so
+        /// that they never write to a person's keychain. Needs `--config-dir`: without one the
+        /// session keeps no secret.
+        #[arg(long, value_name = "keychain|file", requires = "config_dir")]
+        secret_store: Option<secret_choice::Preference>,
         /// A command id, optionally followed by its JSON params: --cmd 'settings.set {"key":"cliPath","value":"/x"}'.
         /// Arguments show in the process list and the shell history: a password or pairing link passed
         /// here is visible there; that is the caller's choice.
@@ -50,7 +57,8 @@ enum Command {
 }
 
 fn execute(session: &Mutex<Session>, id: &str, params: Value) -> Result<Value, String> {
-    session.lock().unwrap_or_else(|e| e.into_inner()).execute(id, params).map_err(|e| e.to_string())
+    // The store calls of `daemon.add/update/remove` run outside the lock: the supervisor shares it.
+    pistudiodesktop_engine::execute_unlocked(session, id, params).map_err(|e| e.to_string())
 }
 
 /// `settings.set {"key":"cliPath","value":null}` to (`settings.set`, params).
@@ -70,13 +78,22 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("{entry}");
             }
         }
-        Command::Run { config_dir, cmds } => {
+        Command::Run { config_dir, secret_store, cmds } => {
             // Parse every step before running any: a typo in the last one must not leave the
             // first ones applied.
             let steps = cmds.iter().map(|step| parse_step(step)).collect::<Result<Vec<_>, _>>()?;
             let mut session = match config_dir {
                 Some(dir) => {
-                    let (session, notices) = Session::with_config_dir(dir);
+                    // The same choice the app makes (the keychain when it answers, else `secrets.json` in the
+                    // directory): a memory store would lose, at exit, every secret a version 1 `daemons.json`
+                    // gives up here. The keychain's items are scoped by the directory as given, so the app
+                    // and this CLI see each other's secrets only when they name the directory alike
+                    // (`docs/development.md`).
+                    let chosen = secret_choice::choose(secret_store, secret_choice::scope_for(Some(&dir)), &dir)?;
+                    for notice in &chosen.notices {
+                        eprintln!("note: {}", notice.to_json());
+                    }
+                    let (session, notices) = Session::with_config_dir(dir, chosen.store);
                     for notice in notices {
                         eprintln!("note: {}", notice.to_json());
                     }

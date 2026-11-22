@@ -13,12 +13,23 @@ stored workbench keys, the registry view, the preview kind), and every storage w
 through `storage_set` to the Rust engine, which writes the files in the configuration directory.
 Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and
 the HTML preview is served from an origin of its own. The engine holds the daemon registry
-(`daemons.json`, mode 0600; local, direct and relay entries) and the settings; a supervisor runs
+(`daemons.json`, version 2, mode 0600, no secret in it; local, direct and relay entries; the secrets
+are in a store the engine is given: the keychain when it answers, else `secrets.json`; `--secret-store`
+forces one) and the settings; a supervisor runs
 the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
 the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
 add, edit and remove entries, each with its own stored layout. All of it sits behind a command
-registry that the page, the CLI and the control socket dispatch into. The webview still opens the
-WebSocket to the daemon itself (milestone 2 moves it into Rust, starting with an IPC benchmark).
+registry that the page, the CLI and the control socket dispatch into. The socket to a local or direct
+entry's daemon is Rust's (milestone 2): the host's `connection.createTransport` (`src/host/connection.ts`) returns, for
+a current entry of kind `local` or `direct`, the SDK's WebSocket transport pointed at the single-use loopback
+address that the page's command `transport_open` answers after Rust dialled the daemon (`src/host/proxied-transport.ts`,
+`src-tauri/src/transport.rs`); a relay entry, or no current entry, keeps the webview's own socket. A
+refused `transport_open` is reported to the SDK as a close (1006) after the rejection, as the SDK's own
+transport does for a failed connect: the daemon client leaves "connecting" only on a close, so without
+it the connection bar never shows the message or Retry. Checked live on Linux (2026-11-22,
+`docs/development.md` § The transport proxy in the real webview). The runner workflow also checks it
+on macOS (the local daemon's transport, the wake signal, the login keychain) and on Windows (a stand-in
+daemon, the wake signal, the Credential Manager); those checks are written and tested on Linux and wait for their first run.
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
 picker and a file dragged from the OS were not verified in the headless container.
 
@@ -32,14 +43,17 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
 ## Workspace map
 
-    crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
+    crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data; the address rule (`address_rule.rs`: `normalize_daemon_url`, `address_matches`, the Rust twin of the workbench's `normalizeDaemonUrl`, tested over the same `packages/workbench/src/lib/connection/normalize-url.vectors.json`)
     crates/store            L3  JSON files: safe reads, atomic writes
+    crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; the choice between them is the shell's
     crates/engine           L5  Session + command registry (every action is a command)
-    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor (no UI toolkit)
+    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`), resume signals (`resume`: the pure wake and network-change detectors, the rate limit that defers a refused signal instead of dropping it, the counts; the app's threads are `src-tauri/src/resume.rs` and `network.rs`, the latter reading addresses with `if-addrs`), the proxied connections as `ui.inspect` shows them (`transports`: plain data and serde only; the app fills `Services::transports` with a hook, so the crate holds no socket type) (no UI toolkit)
+    crates/net              L7  sockets (the only crate with one); native only, empty and dependency-free on wasm32; only an app binary may use it, and it may use no UI crate. `dial`: TCP, TLS trusting only the OS store, the WebSocket upgrade with the bearer subprotocol, error codes; `check_address` is its address check alone. `proxy`: the loopback WebSocket proxy (`Proxies::reserve` before the dial, `Reservation::open(daemon_socket, origin)` after it answers `ws://127.0.0.1:<port>/<token>`; the gate, the two-direction pump with a bounded hold, the close table, a set of at most four connections, `close_all`, `snapshot`). `limits.rs` holds every limit and `Limits` lets a test shorten one; the crate has no log (the app gives the proxy a function for its lines)
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
-    apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server
+    apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server, the proxied daemon connections (`transport.rs`: `transport_open`, closing them on `boot`, a switch and exit, and the `Services::transports` hook behind `connection.transports` / `connection.lastError` in `ui.inspect`: the proxy's snapshot plus the last refused open, the newer error wins)
     apps/pistudiodesktop-cli              headless CLI
+    apps/ipc-bench                        the IPC benchmark: baseline, two candidate bridges and a loopback WebSocket proxy, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net` for its message limit and holds the channel candidates' codec, window and order buffer; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci
 
 Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src/layers.rs`.
@@ -75,10 +89,29 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
 9. Permissive licences only, for crates and npm packages alike. Check a dependency's licence
    before adding it; record every bundled asset in `ATTRIBUTION.md`. Known exception, not yet
    decided: the workbench and `@av-pi-studio/ui-library` are AGPL-3.0 and are bundled into the app.
-10. Secrets (a direct entry's password, a relay entry's pairing link) live only in `daemons.json`,
-    mode 0600; the CLI's `pairingUrl` is discarded. They are never logged, never in a control answer, in `boot`
-    or in `ui.inspect`, and reach the page only through `daemon_resolve_current`, for the entry
-    being opened. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
+10. Secrets (a direct entry's password, a relay entry's pairing link) live only in the secret store
+    (`crates/secrets`), never in `daemons.json` (version 2: `hasPassword`); the CLI's `pairingUrl` is
+    discarded. They are never logged, never in a control answer, in `boot` or in `ui.inspect`. A
+    password never reaches the page: `daemon_resolve_current` answers `{url, connect: true}` for a
+    local or direct entry, and `transport_open` reads the password itself, in Rust, for its dial and
+    answers none (`Dial::Connect` has no password field; `tests/secret_guard.rs` fails if an answer
+    gets one back). The one secret a command still returns is a relay entry's pairing link, as the `url`
+    of `daemon_resolve_current`, because a relay entry keeps the webview's own socket until
+    milestone 4. A store call
+    may block: the session never makes one on the owner thread (it plans a dial, `DialPlan`, and the
+    caller reads the store; `daemon.add/update/remove` are a `SecretJob` whose store steps run on
+    worker threads, `deferred.rs`), except at launch, where a version 1 file's secrets are moved.
+    Which store a launch uses is chosen once, by `shell/src/secret_choice.rs` (shared by the app and
+    its CLI): `--secret-store keychain|file`, else the keychain when a check (open, read a missing
+    item, write and delete a throwaway one; 2 s in all, on its own thread) passes, else `secrets.json`
+    with a notice; the app never opens a real configuration directory before that. Every automated
+    or live run passes `--secret-store file`, so that none writes to a developer's keychain; the two
+    exceptions are the runner workflow's keychain checks (`macos-keychain.mjs`, `windows-bridge.mjs`
+    in `apps/pistudiodesktop/scripts/platform-checks`: `--secret-store keychain`, a scratch
+    `--config-dir`, on GitHub's throwaway machines, deleting what they wrote; a unit test pins that no
+    other script names the option). The kind
+    is `secretStore` in the registry view and `connection.secretStore` in `ui.inspect`; nothing else
+    of the store is shown. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 
 ## Conventions
 

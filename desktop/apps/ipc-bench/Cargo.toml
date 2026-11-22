@@ -1,0 +1,43 @@
+[package]
+name = "pistudiodesktop-ipc-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Pi Studio desktop: the IPC benchmark (a measuring instrument, never bundled or released)"
+
+[[bin]]
+name = "ipc-bench"
+path = "src/main.rs"
+
+# The workspace lints, with `unsafe_code` at "deny" instead of "forbid": this crate writes no
+# unsafe code, but Tauri's macros generate the app context here and must be able to allow it.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+wildcard_imports = "deny"
+dbg_macro = "warn"
+todo = "warn"
+
+[features]
+# On, like in an installed app (`tauri build` turns it on): the page is served from the embedded
+# assets by the production protocol. A debug build to try things may turn it off.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+pistudiodesktop-net = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+getrandom = { workspace = true }

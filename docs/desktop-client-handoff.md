@@ -23,8 +23,8 @@ Changes from 096 are marked "0.0.118" and from 097 and 098 "0.0.119": the first 
 | `@av-pi-studio/ui-library` (tokens, themes, primitives) | Published on npm since `0.0.117` |
 | Workbench package `@av-pi-studio/workbench` | **Built on `feat/workbench`; first npm release when that branch merges to `main`** (sprints 091–095). Contract: `packages/workbench/README.md` (trust it over this document), specified in `swe/architecture/workbench-package.md` and `swe/architecture/workbench-host-adapter.md`. Until the release you can consume it from a packed tarball (`packages/workbench/scripts/pack-smoke.sh` shows how) |
 | Protocol follow-ups for this client | **Done on `feat/desktop-protocol-followups`** (sprint 096; stacked on `feat/workbench`, so merge that first; first carried by `0.0.118`): `hello.platform`; daemon-side download pacing, session-owned upload streams, `Error` without `End`; `fileTransferAck` + `file_upload_complete`; SDK paced upload with progress/abort; the browser host's streaming upload; JSON and binary fixtures for file transfer and terminals; the dev daemon serves file transfer and terminals. Spec: `swe/features/desktop-client-protocol-followups.md`. **Second round, download half, done on `feat/desktop-protocol-followups-2`** (sprint 097; first carried by `0.0.119`): download by path with ranges, `ifUnchanged`, cancel and per-session stream ids; the token flow removed; fixtures `formatVersion` 2. **Second round, rest, done on the same branch** (sprint 098; first carried by `0.0.119`): `hello.agentStreams` (`all`/`none`) and `--json` for `pi-studio daemon start|restart|pair|stop`. Spec: `swe/features/desktop-client-protocol-followups-2.md` |
-| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **Milestone 1 is done for Linux** (sprints 102–111, checked live on Linux 2026-11-20; on macOS and Windows only the automated platform checks have run, 2026-11-20). `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases; the webview still opens the WebSocket itself. **Storage is in Rust:** the page calls `boot` (stored workbench keys, registry view, preview kind) and `storage_set` for every write; the engine writes `settings.json` (with the app-wide keys such as the theme), `daemons.json` and `daemon-state/<entry>.json` (one layout per daemon entry) in the configuration directory (`--config-dir`). **Dialogs, links and save are native:** confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. **The HTML preview has its own origin** (`pi-preview://localhost/<id>`): its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). **Daemon registry and local daemon:** Rust owns `daemons.json` (mode 0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status\|start\|restart\|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a secret is never read back to the page), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`): connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in the same section. **Open:** macOS and Windows (the list is `desktop/docs/platform-checks.md`; sprint-106/task-002 and sprint-111/task-002 wait for a person with those machines); on Linux, the Upload picker and a file dragged from the OS (not verifiable in the headless container), a real Node version manager finding the CLI, a relay link whose daemon key was rotated (it reports `daemon_offline`, not `wrong_key`, so the entry is not marked; Replace link works), and the close-time layout flush (a change in the last ~250 ms before closing the window is lost). Its gate is `cargo xtask ci`, run inside `desktop/` |
-| `pi-studio-dashboard` | A sibling Tauri app (read-only monitor). Its Rust `protocol` and `client` crates already speak the daemon protocol |
+| Desktop client (`desktop/`) | In this repository since 2026-11-15 (branch `feat/desktop-client`). **Milestone 1 is done for Linux** (sprints 102–111, checked live on Linux 2026-11-20; on macOS and Windows only the automated platform checks have run, 2026-11-20). **Milestone 2 is built and checked** (sprints 112–117, 2026-11-22; branch `feat/desktop-transport-bridge`, PR 60, not merged): for a `local` or `direct` entry the socket to the daemon is Rust's (the page asks `transport_open` and connects to a single-use loopback address; the password never reaches the page), secrets are in the OS keychain (or a user-only file), and Rust signals wake and network changes; a `relay` entry still uses the webview's own socket until milestone 4. `desktop/apps/pistudiodesktop` mounts `<Workbench>` with a desktop host (`platform: "desktop"`), consuming the monorepo packages from source through Vite aliases. **Storage is in Rust:** the page calls `boot` (stored workbench keys, registry view, preview kind) and `storage_set` for every write; the engine writes `settings.json` (with the app-wide keys such as the theme), `daemons.json` (no secrets since version 2) and `daemon-state/<entry>.json` (one layout per daemon entry) in the configuration directory (`--config-dir`). **Dialogs, links and save are native:** confirm/alert are native dialogs, links go to the system opener after a Rust check (http, https, mailto), and save-to-disk asks with the native save dialog and streams 8 MiB ranges into a temporary file beside the destination (1 GiB in 6.5 s, memory flat); closing the window during a transfer asks first. **The HTML preview has its own origin** (`pi-preview://localhost/<id>`): its scripts run and it cannot reach the app (Linux `origin`; macOS and Windows `inert` until measured). **Daemon registry and local daemon:** Rust owns `daemons.json` (mode 0600) and a supervisor that runs the installed `pi-studio` CLI (`daemon status\|start\|restart\|stop`; first start measured at 1.2–2.1 s); the window opens on the last-used entry, a native Daemons menu and the workbench's switcher and Daemons screen switch, add, edit and remove entries (a password is never read back to the page; a relay entry's pairing link still reaches it until milestone 4), per-entry layouts do not mix, and quitting leaves the daemon and its agents running. The page can call only the commands in `desktop/docs/architecture.md` § The webview boundary (no plug-in permission), cannot navigate off the app origin, and a second launch focuses the first window. Checked on Linux in the real webview (WebKitGTK, origin `tauri://localhost`): connect, chat, terminal, code, image, video, PDF and molecule views. The Content-Security-Policy and the reason for each source are in the same section. **Open:** macOS and Windows by hand (the list is `desktop/docs/platform-checks.md`, with a milestone 2 section; sprint-106/task-002, sprint-111/task-002 and sprint-117/task-003 wait for a person with those machines); on Linux, the Upload picker and a file dragged from the OS (not verifiable in the headless container), a real Node version manager finding the CLI, a relay link whose daemon key was rotated (it reports `daemon_offline`, not `wrong_key`, so the entry is not marked; Replace link works), and the close-time layout flush (a change in the last ~250 ms before closing the window is lost). Its gate is `cargo xtask ci`, run inside `desktop/` |
+| `pi-studio-dashboard` | A throwaway test application (owner, 2026-11-21). Nothing is taken from it or shared with it; ignore the mentions of it below |
 
 ## Plan and progress
 
@@ -234,8 +234,13 @@ export interface Transport {
 }
 ```
 
-Implement this in the webview as a thin wrapper over Tauri IPC, with Rust holding the real socket.
-The relay transport already uses the same seam, so nothing above it changes.
+Rust holds the real socket. The first plan, a thin wrapper over Tauri IPC, was measured and failed
+its gate (about 30 MiB/s on a Windows runner; `swe/notes/desktop-ipc-benchmark.md`). The owner
+chose a loopback proxy on 2026-11-22: the page asks Rust for a connection (`transport_open`), Rust
+dials the daemon and answers a single-use `ws://127.0.0.1:<port>/<token>` address, and the page
+connects to that with the SDK's ordinary WebSocket transport
+(`swe/features/desktop-transport-bridge.md` §§ 2–3). The relay transport already uses the same
+seam, so nothing above it changes.
 
 What stays in TypeScript at this level: the `hello` handshake, RPC correlation, JSON `ping`/`pong`
 liveness and `ReconnectionManager`. Rust owns the TCP and TLS connection only. That is deliberate
@@ -293,10 +298,9 @@ Rules the bridge must honour:
 What this buys: no dependency on webview timer throttling, TCP keepalive, sleep/wake awareness,
 native TLS and certificate handling, and the password out of the webview.
 
-Start from `pi-studio-dashboard`'s `crates/protocol` (frames, handshake, lenient decoding, about
-1.9k lines) and `crates/client` (tokio-tungstenite, backoff, liveness, TLS, secrets, about 2.6k
-lines). Share them between the two repositories instead of copying. Whether they already handle
-binary frames and the relay was **not verified**.
+The Rust code for this is written in `desktop/crates` (decision T2 of
+`swe/features/desktop-transport-bridge.md`). An earlier version of this section said to start from
+`pi-studio-dashboard`'s crates: that application was a throwaway test and is not a source.
 
 Moving the session itself (handshake, reconnect, resubscription) into Rust is a possible later
 step. It needs SDK changes and should wait for a measured reason.
@@ -515,10 +519,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   example: the terminal uses xterm.js's DOM renderer, with no canvas or WebGL addon loaded
   (`features/terminal/TerminalPanel.tsx`).
 - **The daemon is still Node.** Agent, git and file operations are bounded by it.
-- **Measure the IPC bridge.** Terminal output and token streams will cross Tauri IPC. Send binary
-  payloads as raw bytes, not JSON arrays, and benchmark a busy terminal before committing to the
-  bridge for all traffic. A direct WebSocket from the webview is the fallback for interactive
-  traffic if the bridge is too slow.
+- **The IPC bridge was measured and rejected.** Terminal output over a Tauri channel met its marks
+  on Linux and macOS when frames were batched, but carried only about 30 MiB/s on a Windows runner
+  and delayed a keystroke by about 200 ms during a download. Frames therefore do not cross Tauri
+  IPC: the page keeps a WebSocket, to a loopback proxy that Rust owns, which ran within about 10 to
+  20 % of the direct rate on all three platforms.
 
 ## Compatibility rules
 
@@ -587,25 +592,71 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    in the workbench (an empty link href reloaded the app).
    Not in milestone 1 after all: a native upload picker and native drops with file paths (both
    wait for the transfer engine). **Milestone 2 starts with the IPC benchmark** (is ordered,
-   low-overhead binary delivery over Tauri IPC fast enough for terminal traffic); it is in no
-   spec yet.
+   low-overhead binary delivery over Tauri IPC fast enough for terminal traffic).
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
+   *State (2026-11-22): **built and checked on Linux, on the macOS and Windows runners and by
+   the automated suites; one step waits for a person** (spec `swe/features/desktop-transport-bridge.md`,
+   sprints 112–117). The IPC benchmark gate failed for a bridge over Tauri's channel (about
+   30 MiB/s on a Windows runner) and the owner chose a loopback WebSocket proxy owned by Rust
+   (decision T5; numbers in `swe/notes/desktop-ipc-benchmark.md`). Built: the secret store (OS
+   keychain or a user-only file; `daemons.json` version 2 holds no secret); the wake and network
+   signals; in the `net` crate the dial (TCP, TLS on the operating system's certificates, the
+   bearer password, error classes) and the loopback proxy (one listener per connection, a
+   single-use token, `Origin` and `Host` checks, a pump that holds at most a write batch and a
+   message per direction, close codes both ways, a 128 MiB cap, at most 4 connections); the one new
+   command `transport_open`; `ui.inspect`'s `connection` (transports, last error, wake and network
+   counts); the host's `createTransport`, which picks the proxy for `local` and `direct` entries,
+   so the password never reaches the page. Live results on Linux: a 100 MiB terminal flood in order
+   with a key echoed in 25 ms median meanwhile; 1 GiB down and up at 155–166 MiB/s with identical
+   hashes and Rust holding at most 262,160 bytes; a recovery through a frozen daemon within the
+   5 s probe; the password absent from the page's memory. On the runners (run 44979817186): the
+   page connects through Rust, a 15 s stop raises the wake count, and the keychain works unattended
+   on macOS and Windows. Relay entries keep the webview's socket until milestone 4.
+   **Not run, accepted by the owner as working (2026-11-22):** the five-minute sleep on Windows,
+   macOS x64, a Linux desktop and with a relay entry, an unsigned macOS build's keychain prompts
+   after an update, a firewall or security-software prompt, and the pause of an upload on
+   `bufferedAmount` on Windows (WebKitGTK does not show it); they stay open rows in the milestone 2
+   section of `desktop/docs/platform-checks.md` (sprint-117/task-003 closed as waived).
+   **First real sleep (macOS arm64, 2026-11-22):** the connection came back by itself, but an open
+   terminal took no input and the chat did not show what ran meanwhile. The cause was in the
+   workbench, not the proxy, and the browser client had it too: the SDK reconnects in place and the
+   workbench neither subscribed again nor fetched what it missed. Fixed in `packages/workbench`
+   (`useOpenClient`, `use-session-resync.ts`, commit `e1ebf23`); the Mac passed the sleep with the
+   fixed build (run 45008686113). **What the next milestones can use:** milestone 3's bulk connection can call
+   `net::dial` directly (a Rust socket with the password and the error classes); a 1 GiB upload
+   grows the page by about 2 GiB on WebKitGTK either way, which is a reason to move uploads to
+   Rust. Milestone 4 (inference, not designed): a relay socket would need the encrypted channel
+   in front of the same pump, and an SSH entry would give the pump a `direct-tcpip` stream instead
+   of a TCP socket; the pump today takes the `net` crate's WebSocket stream.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
-4. **Relay in Rust.** Implement protocol 2 (`swe/architecture/relay-protocol.md`) and pass the
-   relay fixtures. Check: a paired remote daemon works with the same behaviour as direct.
+4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
+   (`swe/architecture/relay-protocol.md`) and pass the relay fixtures. Check: a paired remote
+   daemon works with the same behaviour as direct. **Added by the owner (2026-11-21): a daemon
+   entry of kind SSH**, so a user with an SSH account on the daemon's host needs neither the relay
+   nor an open daemon port: Rust opens an SSH connection and runs the daemon connection over a
+   `direct-tcpip` channel to the host's `127.0.0.1:6767`. Decided: SSH is built into the app with a
+   Rust library (`russh`), not the machine's `ssh` program; the first version logs in with a key
+   file (optional passphrase), an SSH agent or a password, and reads `~/.ssh/config`; when the
+   daemon is not running on the host, a Start button runs `pi-studio daemon start` there over the
+   same SSH connection. Not specified yet: the record is the note at the top of
+   `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
+   machine is used through SSH with the same behaviour as direct.
 5. **Native shell features.** Menus, notifications, updates, signing. Bundling the daemon (Node
    runtime as a sidecar, macOS and Linux only, roughly 1–2 sprints) is deferred until the app ships
    to people without Node; a native Windows daemon (about 50 POSIX assumptions in the server, no
    Windows CI) only if Windows users need a local one.
+
+**The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 
 ## Open questions
 
 - ~~Does the desktop app bundle a daemon, or only connect to existing ones?~~ Answered
   (2026-11-15): neither alone. It supervises an installed `pi-studio` CLI's daemon (milestone 1);
   bundling is deferred (milestone 5).
-- Do the dashboard's Rust crates move to a shared repository or a published crate?
+- ~~Do the dashboard's Rust crates move to a shared repository or a published crate?~~ Answered
+  (2026-11-21): no. The dashboard was a throwaway test application.
 - ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
   (relay protocol 2, 0.0.121): yes. A relay pairs one client socket with one daemon data socket per
   connection, up to 32 per daemon, each with its own channel and daemon session, so a second
@@ -613,7 +664,10 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   one client socket paused, a second client kept getting answers (p50 0.84 ms, max 9.75 ms).
 - Should the protocol gain upload resume and a larger chunk size? Download resume shipped in sprint
   097; upload resume and the chunk size are out of scope for the follow-ups spec.
-- Is ordered, low-overhead binary delivery over Tauri IPC fast enough for terminal traffic?
+- Answered 2026-11-22 (`swe/notes/desktop-ipc-benchmark.md`): ordered binary delivery over Tauri
+  IPC is fast enough for terminal traffic on Linux and macOS when frames are batched, and not on
+  Windows (about 30 MiB/s on a runner, a keystroke round trip of about 200 ms while a download
+  runs). The owner chose a loopback WebSocket proxy owned by Rust instead.
 
 ## Where to read next
 
@@ -632,4 +686,4 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 | SDK | `packages/client/AGENTS.md` |
 | Design system | `packages/ui-library/README.md`, `packages/ui-library/DESIGN_SYSTEM.md` |
 | Current web UI invariants | `packages/web-client/AGENTS.md` |
-| Sibling Rust client | `pi-studio-dashboard`: `docs/architecture.md`, `crates/protocol`, `crates/client` |
+| Milestone 2 (transport bridge) | `swe/features/desktop-transport-bridge.md` |

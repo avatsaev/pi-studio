@@ -153,9 +153,21 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
   },
 }));
 
-/** Convenience selector: the live `PiStudioClient`, or `null` when disconnected. */
+/** Convenience selector: the current `PiStudioClient`, or `null` before any connect. */
 export function useClient(): PiStudioClient | null {
   return useConnectionStore((s) => s.client);
+}
+
+/**
+ * The current client while its connection is open, else `null`.
+ *
+ * For anything the daemon keeps per connection (terminal streams, git status and file watch
+ * subscriptions). The SDK reconnects in place: the same client object gets a new daemon session
+ * that has none of the old subscriptions. An effect keyed on this value is torn down when the
+ * connection drops and runs again when it re-opens, which is what subscribes again.
+ */
+export function useOpenClient(): PiStudioClient | null {
+  return useConnectionStore((s) => (s.status === "open" ? s.client : null));
 }
 
 /** Convenience selector: current connection lifecycle state. */

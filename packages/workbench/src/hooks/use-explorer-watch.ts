@@ -27,7 +27,7 @@
 
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useConnectionStore } from "../lib/connection/connection-store.js";
+import { useOpenClient } from "../lib/connection/connection-store.js";
 import { rpcKeys } from "../lib/connection/rpc-keys.js";
 import type { PiStudioClient } from "@av-pi-studio/client";
 
@@ -107,7 +107,7 @@ export function createExplorerWatcher(
 }
 
 export function useExplorerWatch(expanded: Set<string>): void {
-  const client = useConnectionStore((s) => s.client);
+  const client = useOpenClient();
   const queryClient = useQueryClient();
   const watcherRef = useRef<ExplorerWatcher | null>(null);
   const clientRef = useRef<Pick<PiStudioClient, "connection"> | null>(null);
@@ -115,14 +115,16 @@ export function useExplorerWatch(expanded: Set<string>): void {
   const sortedKey = Array.from(expanded).toSorted().join("\0");
 
   useEffect(() => {
-    if (!client) return;
     if (clientRef.current !== client) {
-      // A reconnect swapped in a new client instance — the old socket (and everything it had
-      // subscribed) is already gone; dispose the old watcher and start fresh on the new one.
+      // The connection dropped (`null`) or re-opened, on the same client or a new one. Either way
+      // the daemon session that held the subscriptions is gone: dispose the old watcher and, once
+      // the connection is open again, start a fresh one.
       watcherRef.current?.dispose();
-      watcherRef.current = createExplorerWatcher(client, (path) => {
-        void queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(path) });
-      });
+      watcherRef.current = client
+        ? createExplorerWatcher(client, (path) => {
+            void queryClient.invalidateQueries({ queryKey: rpcKeys.explorer(path) });
+          })
+        : null;
       clientRef.current = client;
     }
     watcherRef.current?.sync(new Set(sortedKey ? sortedKey.split("\0") : []));

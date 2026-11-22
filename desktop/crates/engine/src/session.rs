@@ -2,17 +2,44 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
-use pistudiodesktop_model::{EntryId, EntryView, LimitError, LocalState, NewEntry, Registry, Settings, Update};
+#[cfg(not(target_arch = "wasm32"))]
+use pistudiodesktop_secrets::SecretStore;
+
+use pistudiodesktop_model::{EntryId, EntryV2, Kind, LimitError, LocalState, NewEntry, RegistryV2, Secret, Settings, Update, check_link, check_password};
 use serde_json::{Map, Value};
 
 use crate::local::LocalQueue;
+use crate::secret::{STORE_FAILED, Slot, Vault};
+use crate::secret_job::{Op, SecretJob, Work};
 use crate::storage::Storage;
 use crate::{EngineError, Result, commands, params};
+
+/// What `daemon.update` changes. `None` leaves a field as it is.
+#[derive(Default)]
+pub(crate) struct EntryChange {
+    pub(crate) name: Option<String>,
+    pub(crate) address: Option<String>,
+    /// `Some(None)` clears the password.
+    pub(crate) password: Option<Option<Secret>>,
+    pub(crate) pairing_link: Option<Secret>,
+}
+
+/// Refuse what the registry has always refused: a secret outside 1 to its cap.
+fn check_secret(slot: Slot, secret: &Secret) -> std::result::Result<(), &'static str> {
+    match slot {
+        Slot::Password => check_password(secret.expose()),
+        Slot::PairingLink => check_link(secret.expose()),
+    }
+    .map_err(|e| e.code())
+}
 
 /// One user's working state: the settings and the workbench's stored keys.
 pub struct Session {
     storage: Storage,
+    vault: Vault,
     local: LocalState,
     pub(crate) local_queue: LocalQueue,
     changed: bool,
@@ -20,23 +47,28 @@ pub struct Session {
 
 impl Default for Session {
     fn default() -> Self {
-        Session { storage: Storage::default(), local: LocalState::Checking, local_queue: LocalQueue::default(), changed: false }
+        Session { storage: Storage::default(), vault: Vault::default(), local: LocalState::Checking, local_queue: LocalQueue::default(), changed: false }
     }
 }
 
 impl Session {
-    /// A session with default settings that reads and writes no files (tests, the browser).
+    /// A session with default settings that reads and writes no files and keeps its secrets in
+    /// memory (tests, the browser).
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A session whose settings and workbench keys live in `dir`. Nothing is created: a missing
-    /// file or directory means defaults, and files appear when something is written. The notices
-    /// say which files could not be used and were set aside; the session starts either way.
+    /// A session whose settings and workbench keys live in `dir`, and whose secrets are in `store`.
+    /// Nothing is created: a missing file or directory means defaults, and files appear when
+    /// something is written. A version 1 `daemons.json` is migrated here: its secrets go to
+    /// `store` (which may block: call this before the window and the owner thread exist) and the
+    /// file becomes version 2. The notices say which files could not be used and were set aside,
+    /// and whether secrets could not be moved; the session starts either way.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_config_dir(dir: impl Into<PathBuf>) -> (Self, Vec<crate::Notice>) {
-        let (storage, notices) = Storage::open(dir.into());
-        (Session { storage, ..Session::default() }, notices)
+    pub fn with_config_dir(dir: impl Into<PathBuf>, store: Arc<dyn SecretStore>) -> (Self, Vec<crate::Notice>) {
+        let vault = Vault::with(store);
+        let (storage, notices) = Storage::open(dir.into(), &vault);
+        (Session { storage, vault, ..Session::default() }, notices)
     }
 
     /// Say whether this platform can run a local daemon. When it cannot, the local state is
@@ -64,9 +96,23 @@ impl Session {
         }
     }
 
-    /// The registry. Secrets are in it: callers send only `Entry::view`s out.
-    pub fn registry(&self) -> &Registry {
+    /// The registry: the version 2 document, with no secret in it.
+    pub fn registry(&self) -> &RegistryV2 {
         self.storage.registry()
+    }
+
+    /// The secret store this session uses, for a caller that must read a secret: a read may block
+    /// (a system prompt), so it is never done by the session itself on the thread that owns it
+    /// (see [`DialPlan`](crate::DialPlan)).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        Arc::clone(&self.vault.store)
+    }
+
+    /// A secret of a version 1 file that could not be moved to the store at launch, held in memory
+    /// for this run (see `Storage::open`).
+    pub(crate) fn held_secret(&self, id: &EntryId) -> Option<&Secret> {
+        self.storage.held(id)
     }
 
     /// The entry whose stored keys are loaded: `lastUsedId` when that entry exists, else `local`.
@@ -96,23 +142,110 @@ impl Session {
         Ok(changed)
     }
 
-    /// Add an entry (see `daemon.add`); the registry is on disk before this returns.
-    pub(crate) fn add_entry(&mut self, new: NewEntry) -> std::result::Result<EntryView, &'static str> {
-        let view = self.storage.add_entry(new)?;
-        self.changed = true;
-        Ok(view)
+    /// Plan `daemon.add` (see [`SecretJob`]). `secret` is a direct entry's password, if it has
+    /// one, or a relay entry's pairing link; it is stored first and the registry written after,
+    /// so a refused store writes nothing and the registry never says `hasPassword` for a password
+    /// that is not stored. Pure: nothing is stored or written until the job runs.
+    pub(crate) fn plan_add_job(&self, new: NewEntry, secret: Option<Secret>) -> std::result::Result<SecretJob, &'static str> {
+        self.refuse_while_unmigrated()?;
+        let slot = Slot::of(if matches!(new, NewEntry::Relay { .. }) { Kind::Relay } else { Kind::Direct });
+        let (id, _) = self.storage.plan_add(new.clone())?;
+        let mut before = Vec::new();
+        if let Some(secret) = secret {
+            check_secret(slot, &secret)?;
+            before.push(Op { entry: id.clone(), slot, secret: Some(secret) });
+        }
+        Ok(SecretJob { vault: self.vault.clone(), entry: id.clone(), work: Work::Add { id, new: Some(new) }, before, after: Vec::new() })
     }
 
-    pub(crate) fn update_entry(&mut self, id: &str, update: Update) -> std::result::Result<EntryView, &'static str> {
-        let view = self.storage.update_entry(id, update)?;
-        self.changed = true;
-        Ok(view)
+    /// Plan `daemon.update`: a secret is stored (or, for a cleared password, removed) before the
+    /// registry is written, so a refused store leaves the file as it was.
+    pub(crate) fn plan_update_job(&self, id: &str, change: EntryChange) -> std::result::Result<SecretJob, &'static str> {
+        self.refuse_while_unmigrated()?;
+        let update = Update {
+            name: change.name,
+            address: change.address,
+            has_password: change.password.as_ref().map(Option::is_some),
+            new_link: change.pairing_link.is_some(),
+        };
+        self.storage.plan_update(id, update.clone())?;
+        let entry = self.storage.registry().get(id).map(|e| e.id.clone()).ok_or("not_found")?;
+        let mut before = Vec::new();
+        match change.password {
+            Some(Some(password)) => {
+                check_secret(Slot::Password, &password)?;
+                before.push(Op { entry: entry.clone(), slot: Slot::Password, secret: Some(password) });
+            }
+            Some(None) => before.push(Op { entry: entry.clone(), slot: Slot::Password, secret: None }),
+            None => {}
+        }
+        if let Some(link) = change.pairing_link {
+            check_secret(Slot::PairingLink, &link)?;
+            before.push(Op { entry: entry.clone(), slot: Slot::PairingLink, secret: Some(link) });
+        }
+        Ok(SecretJob { vault: self.vault.clone(), entry, work: Work::Update { id: id.to_owned(), update: Some(update) }, before, after: Vec::new() })
     }
 
-    pub(crate) fn remove_entry(&mut self, id: &str) -> std::result::Result<(), &'static str> {
-        self.storage.remove_entry(id)?;
+    /// Plan `daemon.remove`: the registry first, then the entry's secrets. A secret that cannot be
+    /// removed is logged with the entry id and reported as a notice; the entry is gone all the same.
+    pub(crate) fn plan_remove_job(&self, id: &str) -> std::result::Result<SecretJob, &'static str> {
+        self.refuse_while_unmigrated()?;
+        self.storage.plan_remove(id)?;
+        let entry = self.storage.registry().get(id).map(|e| e.id.clone()).ok_or("not_found")?;
+        let after = [Slot::Password, Slot::PairingLink].map(|slot| Op { entry: entry.clone(), slot, secret: None }).into();
+        Ok(SecretJob { vault: self.vault.clone(), entry, work: Work::Remove { id: id.to_owned() }, before: Vec::new(), after })
+    }
+
+    /// The step of a [`SecretJob`] that changes the registry: planned again against the registry as
+    /// it is now (it may have changed since the plan), written, and answered like the command.
+    pub fn commit_secret_job(&mut self, job: &mut SecretJob) -> std::result::Result<Value, &'static str> {
+        let view = |s: &Session, id: &str| -> std::result::Result<Value, &'static str> {
+            let entry = s.storage.registry().get(id).ok_or("not_found")?;
+            serde_json::to_value(EntryV2::view(entry)).map_err(|_| "write_failed")
+        };
+        let answer = match &mut job.work {
+            Work::Add { id, new } => {
+                let next = self.storage.registry().add(id.clone(), new.take().ok_or("write_failed")?).map_err(|e| e.code())?;
+                self.storage.commit(next)?;
+                view(self, id.as_str())?
+            }
+            Work::Update { id, update } => {
+                let next = self.storage.plan_update(id, update.take().ok_or("write_failed")?)?;
+                self.storage.commit(next)?;
+                view(self, id)?
+            }
+            Work::Remove { id } => {
+                let next = self.storage.plan_remove(id)?;
+                self.storage.commit(next)?;
+                self.storage.forget_entry(id);
+                serde_json::json!({"removed": true})
+            }
+        };
         self.changed = true;
-        Ok(())
+        Ok(answer)
+    }
+
+    /// Plan the command `id` if it keeps a secret in the store (`daemon.add`, `daemon.update`,
+    /// `daemon.remove`), else `None`: run it with [`SecretJob::store`] (which may block, so not
+    /// on the thread that owns the session), [`Session::commit_secret_job`] and
+    /// [`SecretJob::finish`], or let [`execute_unlocked`](crate::execute_unlocked) do all three.
+    /// [`Session::execute`] runs the same steps in one go, blocking.
+    pub fn plan_secret_command(&self, id: &str, params: &Value) -> Option<Result<SecretJob>> {
+        crate::daemon_cmds::splits(id).then(|| {
+            let empty = Value::Object(Map::new());
+            match params {
+                Value::Null => crate::daemon_cmds::plan(self, id, &empty),
+                Value::Object(_) => crate::daemon_cmds::plan(self, id, params),
+                other => Err(EngineError::BadParams(format!("`{id}` takes a JSON object, got {}", params::kind(other)))),
+            }
+        })
+    }
+
+    /// While a version 1 file's secrets are held in memory (see `Storage::open`) the registry is
+    /// not rewritten, so nothing that changes it or the store may run: the file would be left
+    /// out of step with the store.
+    fn refuse_while_unmigrated(&self) -> std::result::Result<(), &'static str> {
+        if self.storage.unmigrated() { Err(STORE_FAILED) } else { Ok(()) }
     }
 
     pub fn settings(&self) -> &Settings {

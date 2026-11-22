@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the benchmark's page may ask of the app: its commands (listed in build.rs) and nothing else.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-bench-config",
+    "allow-bench-rss",
+    "allow-bench-progress",
+    "allow-bench-finish",
+    "allow-bench-window-hold",
+    "allow-bench-tick-start",
+    "allow-bench-tick-stop",
+    "allow-bridge-open",
+    "allow-bridge-send-text",
+    "allow-bridge-send-binary",
+    "allow-bridge-send-batch",
+    "allow-bridge-ack",
+    "allow-bridge-close",
+    "allow-bridge-stats",
+    "allow-proxy-open",
+    "allow-proxy-stats"
+  ]
+}

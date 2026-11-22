@@ -201,13 +201,8 @@ fn resolve_starts_a_stopped_daemon_when_auto_start_is_on() {
     Supervisor::probe_now(&session).unwrap();
     sup.pump(&session);
     let dial = sup.resolve_current(&session).unwrap();
-    match dial {
-        Dial::Connect { url, password } => {
-            assert_eq!(url, "ws://127.0.0.1:6767");
-            assert_eq!(password.as_ref().map(|p| p.expose()), Some("pw"));
-        }
-        other => panic!("{other:?}"),
-    }
+    // The local entry has a stored password; the page is told the address alone.
+    assert_eq!(dial, Dial::Connect { url: "ws://127.0.0.1:6767".into() });
     assert_eq!(f.log("starts"), ["start"]);
 }
 

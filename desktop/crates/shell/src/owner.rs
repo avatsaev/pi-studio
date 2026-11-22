@@ -73,6 +73,46 @@ impl Notify for Quiet {
     fn local_work(&mut self) {}
 }
 
+/// How often the loop looks for a finished secret-store step while one is outstanding.
+#[cfg(not(target_arch = "wasm32"))]
+const STORE_POLL: Duration = crate::deferred::POLL;
+#[cfg(target_arch = "wasm32")]
+const STORE_POLL: Duration = Duration::from_millis(20);
+
+/// See [`crate::deferred::defer`]. The browser build has no threads: every command runs in place.
+#[cfg(not(target_arch = "wasm32"))]
+fn defer(app: &mut AppShell, envelope: &Envelope) -> bool {
+    crate::deferred::defer(app, envelope)
+}
+#[cfg(target_arch = "wasm32")]
+fn defer(_: &mut AppShell, _: &Envelope) -> bool {
+    false
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn settle(app: &mut AppShell) {
+    crate::deferred::settle(app);
+}
+#[cfg(target_arch = "wasm32")]
+fn settle(_: &mut AppShell) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn store_step_outstanding(app: &AppShell) -> bool {
+    app.deferred.waiting()
+}
+#[cfg(target_arch = "wasm32")]
+fn store_step_outstanding(_: &AppShell) -> bool {
+    false
+}
+
+/// Wait for the secret-store steps still outstanding once every sender is gone.
+#[cfg(not(target_arch = "wasm32"))]
+fn drain(app: &mut AppShell) {
+    crate::deferred::drain(app, crate::deferred::DRAIN);
+}
+#[cfg(target_arch = "wasm32")]
+fn drain(_: &mut AppShell) {}
+
 /// [`serve_notifying`] that tells nobody.
 pub fn serve(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Duration) {
     serve_notifying(app, inbox, delay, &mut Quiet);
@@ -84,25 +124,44 @@ pub fn serve(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Duration) {
 /// registry view and of local work waiting.
 pub fn serve_notifying(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Duration, notify: &mut dyn Notify) {
     let mut timer = FlushTimer::new(delay);
+    let mut closed = false;
     loop {
-        let received = match timer.wait(Instant::now()) {
+        let wait = match (timer.wait(Instant::now()), store_step_outstanding(app)) {
+            (Some(wait), true) => Some(wait.min(STORE_POLL)),
+            (None, true) => Some(STORE_POLL),
+            (wait, false) => wait,
+        };
+        let received = match wait {
             Some(wait) => inbox.recv_timeout(wait),
             None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
+        let mut answered = false;
         match received {
             Ok(envelope) => {
-                let reply = app.answer(&envelope.request);
-                // The asker may have gone away (the page does not wait for a stored key).
-                let _ = envelope.reply.send(reply);
-                if let Some(view) = daemons::take_change(app) {
-                    notify.changed(&view);
-                }
-                if app.session.has_local_requests() {
-                    notify.local_work();
+                answered = true;
+                // `daemon.add/update/remove` are answered later, by their own worker threads.
+                if !defer(app, &envelope) {
+                    let reply = app.answer(&envelope.request);
+                    // The asker may have gone away (the page does not wait for a stored key).
+                    let _ = envelope.reply.send(reply);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => {
+                // An `add` still waiting for its store step is committed before the loop ends.
+                drain(app);
+                closed = true;
+            }
+        }
+        settle(app);
+        if let Some(view) = daemons::take_change(app) {
+            notify.changed(&view);
+        }
+        if answered && app.session.has_local_requests() {
+            notify.local_work();
+        }
+        if closed {
+            break;
         }
         timer.observe(app.session.storage_unwritten(), Instant::now());
         if timer.take_due(Instant::now()) {
@@ -215,9 +274,12 @@ mod tests {
 
         use super::*;
         use crate::{Request, Services};
+        fn memory_store() -> std::sync::Arc<dyn pistudiodesktop_secrets::SecretStore> {
+            std::sync::Arc::new(pistudiodesktop_secrets::MemoryStore::new())
+        }
 
         fn app_on(dir: &std::path::Path) -> AppShell {
-            let (session, notices) = Session::with_config_dir(dir);
+            let (session, notices) = Session::with_config_dir(dir, memory_store());
             let mut app = AppShell::new(session, Services::default());
             app.notices = notices;
             app
@@ -279,7 +341,7 @@ mod tests {
             drop(tx);
             serve(&mut app, &rx, Duration::from_secs(3600));
             assert!(layout_file(dir.path()).is_file());
-            let (again, _) = Session::with_config_dir(dir.path());
+            let (again, _) = Session::with_config_dir(dir.path(), memory_store());
             assert_eq!(again.storage_snapshot().get("pi-studio-pane-layout").map(String::as_str), Some("last"));
         }
 

@@ -1,5 +1,17 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { normalizeDaemonUrl } from "./normalize-url.js";
+
+interface Vector {
+  input: string;
+  expected: string;
+}
+
+// The desktop app's Rust model crate (`address_rule.rs`) runs the same file: change a vector on one
+// side only and the other side's test fails.
+const VECTORS: Vector[] = JSON.parse(
+  readFileSync(new URL("./normalize-url.vectors.json", import.meta.url), "utf8"),
+);
 
 describe("normalizeDaemonUrl", () => {
   it("maps http:// to ws:// and https:// to wss://", () => {
@@ -38,5 +50,12 @@ describe("normalizeDaemonUrl", () => {
 
   it("leaves an unknown scheme untouched for the transport to reject", () => {
     expect(normalizeDaemonUrl("ftp://host:6767")).toBe("ftp://host:6767");
+  });
+
+  it("matches every shared vector (the desktop's Rust rule runs the same file)", () => {
+    expect(VECTORS.length).toBeGreaterThan(0);
+    for (const { input, expected } of VECTORS) {
+      expect(normalizeDaemonUrl(input), JSON.stringify(input)).toBe(expected);
+    }
   });
 });

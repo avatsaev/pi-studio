@@ -1,0 +1,24 @@
+[package]
+name = "pistudiodesktop-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# The browser build has no sockets, so on wasm32 the crate is empty and takes no dependency: every
+# dependency is behind `cfg(not(target_arch = "wasm32"))`, or `cargo check --target wasm32-unknown-unknown`
+# would still build them. Licences are in the workspace `Cargo.toml` and in `docs/architecture.md`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "net", "time", "sync", "macros", "io-util"] }
+tokio-tungstenite = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+socket2 = { workspace = true }
+futures-util = { workspace = true }
+getrandom = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "io-util", "rt", "net", "time", "sync"] }
+rcgen = { workspace = true }

@@ -16,7 +16,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "../lib/connection/connection-store.js";
 import { useSessionStore } from "../stores/session-store.js";
-import { applyAgentStreamEvent } from "./agent-stream-events.js";
+import { applyAgentStreamEvent, streamTimestamp } from "./agent-stream-events.js";
 
 export function useAgentStream(sessionId: string): void {
   const client = useConnectionStore((s) => s.client);
@@ -27,10 +27,7 @@ export function useAgentStream(sessionId: string): void {
     if (!client || !agentId) return;
 
     const unsubscribe = client.agent(agentId).timeline.subscribe((event, meta) => {
-      const timestamp =
-        typeof meta.timestamp === "number"
-          ? new Date(meta.timestamp).toISOString()
-          : meta.timestamp;
+      const timestamp = streamTimestamp(meta.timestamp);
       applyAgentStreamEvent({ sessionId, event, timestamp, client, queryClient });
     });
 

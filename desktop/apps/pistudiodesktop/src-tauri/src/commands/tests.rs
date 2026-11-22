@@ -7,6 +7,8 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pistudiodesktop_engine::Notice;
+use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
@@ -21,11 +23,14 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfers_set, unwrap_reply,
+    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
+use crate::transport::{self, Transport};
+
+mod transport_tests;
 
 /// A flush delay that never ends inside a test: only the exit flush can write a file.
 const NEVER: Duration = Duration::from_secs(3600);
@@ -39,20 +44,30 @@ fn unlisted() -> &'static str {
 /// The app as `main` builds it, on a mock runtime, with the owner thread on `config_dir`. The
 /// window the configuration declares is created when the app runs, not here.
 fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
-    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false })
+    built_app_telling(config_dir, services, Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default() })
 }
 
 /// The same, with the owner thread told what `launch` says.
 fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> App<MockRuntime> {
+    built_app_stored(config_dir, services, launch, Arc::new(MemoryStore::new()))
+}
+
+/// The same, with the session's secret store given (a test that takes a secret away holds it).
+fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
+    let transport = Transport::new();
+    // As `main` does: `ui.inspect` reads the proxied connections through the hook.
+    services.transports = Some(transport.inspector());
     let (requests, inbox) = channel();
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
-        .manage(Bridge::new(requests))
+        .manage(Bridge::new(requests, Arc::clone(&store)))
         .manage(services.clone())
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
+        .manage(transport)
+        .on_window_event(transport::on_window_event)
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
         .invoke_handler(tauri::generate_handler![
@@ -71,11 +86,12 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
             transfers_set,
             preview_mount,
             preview_release,
+            transport_open,
             unlisted
         ])
         .build(tauri::generate_context!())
         .unwrap();
-    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, inbox, NEVER, launch);
+    spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, store, inbox, NEVER, launch);
     app
 }
 
@@ -135,6 +151,7 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
     assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
+    assert_eq!(first["daemons"]["secretStore"], "memory");
 
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "{\"a\":1}"})).unwrap(), Value::Null);
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-appearance", "value": "dark"})).unwrap(), Value::Null);
@@ -147,6 +164,23 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     assert_eq!(layout["keys"], json!({"pi-studio-pane-layout": "{\"a\":1}"}));
     let settings: Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["workbench"], json!({"pi-studio-appearance": "dark"}));
+}
+
+#[test]
+fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once() {
+    let dir = tempfile::tempdir().unwrap();
+    // A damaged registry file gives a notice of the session's own.
+    std::fs::write(dir.path().join("daemons.json"), "{ not json").unwrap();
+    let notices = vec![Notice::SecretStoreFallback { reason: "unavailable".into() }, Notice::FileReset { file: "secrets.json".into(), kept_as: None }];
+    let app = built_app_telling(dir.path(), Services::default(), Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default() });
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+    let first = invoke(&window, "boot", json!({})).unwrap();
+    let kinds: Vec<&str> = first["notices"].as_array().unwrap().iter().map(|n| n["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["secret_store_fallback", "file_reset", "file_reset"], "{first}");
+    assert_eq!(first["notices"][0]["reason"], "unavailable");
+    assert_eq!(first["notices"][1], json!({"kind": "file_reset", "file": "secrets.json", "keptAs": null}));
+    assert_eq!(first["notices"][2]["file"], "daemons.json");
+    assert_eq!(invoke(&window, "boot", json!({})).unwrap()["notices"], json!([]), "a reload does not show them again");
 }
 
 #[test]
@@ -371,7 +405,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_fifteen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -392,6 +426,7 @@ fn the_capability_grants_the_fifteen_commands_and_listening_for_events_and_nothi
             "allow-transfers-set",
             "allow-preview-mount",
             "allow-preview-release",
+            "allow-transport-open",
             "core:event:allow-listen",
             "core:event:allow-unlisten"
         ])
@@ -669,7 +704,12 @@ fn the_reply_of_the_shell_becomes_a_result() {
 fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
     let sent = Arc::clone(sent);
     let (wake, _woken) = channel();
-    Launch { notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)), local_supported: false }
+    Launch {
+        notify: Box::new(Events::new(move |view| sent.lock().unwrap().push(view.clone()), wake)),
+        local_supported: false,
+        notices: Vec::new(),
+        resume: Arc::default(),
+    }
 }
 
 #[test]
@@ -758,6 +798,7 @@ fn one_add_is_one_event_with_the_view_and_no_secret() {
     let sent = sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["entries"].as_array().map(Vec::len), Some(2));
+    assert_eq!(sent[0]["secretStore"], "memory", "the event carries the kind too: a view without it would drop the Daemons screen's line");
     assert!(!sent[0].to_string().contains("hunter2"));
 }
 
@@ -772,13 +813,18 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
         tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))
             .unwrap();
     assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
+    assert_eq!(
+        inspect["result"]["connection"],
+        json!({"secretStore": "memory", "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        "the test harness gives the session a memory store"
+    );
     for text in [booted.to_string(), inspect.to_string()] {
         assert!(!text.contains("hunter2") && !text.contains("secret-link"), "{text}");
     }
 }
 
 #[test]
-fn resolving_the_current_entry_answers_the_address_and_password_to_the_page_only() {
+fn resolving_the_current_entry_answers_the_address_and_no_password_to_the_page() {
     let dir = tempfile::tempdir().unwrap();
     let (app, window) = app_on(dir.path());
     let added = invoke(
@@ -790,7 +836,9 @@ fn resolving_the_current_entry_answers_the_address_and_password_to_the_page_only
     let switch =
         pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.switch", "params": {"id": added["id"]}}) };
     assert_eq!(tauri::async_runtime::block_on(app.state::<Bridge>().ask(switch)).unwrap()["ok"], true);
-    assert_eq!(invoke(&window, "daemon_resolve_current", json!({})).unwrap(), json!({"url": "10.0.0.2:8080", "password": "hunter2", "connect": true}));
+    let answer = invoke(&window, "daemon_resolve_current", json!({})).unwrap();
+    assert_eq!(answer, json!({"url": "10.0.0.2:8080", "connect": true}));
+    assert!(!answer.to_string().contains("hunter2"), "{answer}");
     // It takes no id: a page cannot ask for another entry's secret.
     assert_eq!(invoke(&window, "daemon_resolve_current", json!({"id": "local"})).unwrap()["url"], "10.0.0.2:8080");
 }

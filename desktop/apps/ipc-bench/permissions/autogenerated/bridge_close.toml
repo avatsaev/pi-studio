@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bridge-close"
+description = "Enables the bridge_close command without any pre-configured scope."
+commands.allow = ["bridge_close"]
+
+[[permission]]
+identifier = "deny-bridge-close"
+description = "Denies the bridge_close command without any pre-configured scope."
+commands.deny = ["bridge_close"]

@@ -21,20 +21,26 @@ mod crash_guard;
 mod daemons;
 mod logging;
 mod menu;
+mod network;
 mod preview_scheme;
+mod resume;
 mod services;
 mod transfers;
+mod transport;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use clap::Parser;
+use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
 use pistudiodesktop_shell::preview::{self, Previews};
+use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::saves::Saves;
+use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use tauri::Manager as _;
 
@@ -51,6 +57,12 @@ struct Args {
     /// configuration directory for the app (`com.avatsaev.pi-studio`).
     #[arg(long, env = "PISTUDIODESKTOP_CONFIG_DIR", value_name = "DIR")]
     config_dir: Option<PathBuf>,
+    /// Where the daemon passwords and pairing links are kept: `keychain` (the operating system's) or
+    /// `file` (`secrets.json` in the configuration directory, readable by this user only). Default:
+    /// the keychain when it answers within 2 s and takes a test item, else the file. Automated and
+    /// live runs pass `file`, so that they never write to a person's keychain.
+    #[arg(long, value_name = "keychain|file")]
+    secret_store: Option<secret_choice::Preference>,
 }
 
 /// A startup error: say what, and leave.
@@ -88,6 +100,10 @@ fn main() {
     // one thread that owns the session.
     let (requests, inbox) = channel();
     let runner_requests = requests.clone();
+    // The secret store is chosen once per launch (keychain, else file; `--secret-store` forces one).
+    // The keychain check runs on a thread of its own from here, while the window is built: the
+    // keychain's scope depends on the arguments only, the file store's directory on the builder.
+    let secret_check = secret_choice::start(args.secret_store, secret_choice::scope_for(args.config_dir.as_deref()));
     if let Some((listener, token)) = control {
         control_server::start(listener, token, requests.clone());
     }
@@ -98,13 +114,16 @@ fn main() {
         .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
-        .manage(bridge::Bridge::new(requests))
         .manage(transfers::Transfers::default())
         // The preview origin: documents the page mounts are served from this scheme, and the
         // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
         .manage(Previews::default())
         .register_uri_scheme_protocol(preview::SCHEME, preview_scheme::handle)
-        .on_window_event(transfers::on_window_event)
+        .manage(transport::Transport::new())
+        .on_window_event(|window, event| {
+            transfers::on_window_event(window, event);
+            transport::on_window_event(window, event);
+        })
         .on_menu_event(menu::on_event)
         .invoke_handler(tauri::generate_handler![
             commands::boot,
@@ -121,22 +140,33 @@ fn main() {
             commands::save_discard,
             commands::transfers_set,
             commands::preview_mount,
-            commands::preview_release
+            commands::preview_release,
+            commands::transport_open
         ])
         .build(tauri::generate_context!())
     {
         Ok(app) => app,
         Err(e) => fail(1, e),
     };
-    let config_dir = match args.config_dir.map_or_else(|| app.path().app_config_dir(), Ok) {
+    let config_dir = match args.config_dir.clone().map_or_else(|| app.path().app_config_dir(), Ok) {
         Ok(dir) => dir,
         Err(e) => fail(2, format!("cannot find the configuration directory ({e}); pass --config-dir <DIR>")),
     };
+    // The keychain check began before the window was built; this waits for what is left of its 2 s
+    // and opens `secrets.json` when the keychain is not used. Nothing opens a real directory with
+    // the session before this: a version 1 `daemons.json` is migrated into the chosen store.
+    let chosen = match secret_check.finish(&config_dir) {
+        Ok(chosen) => chosen,
+        Err(e) => fail(2, e),
+    };
+    let store: Arc<dyn SecretStore> = chosen.store;
     let package = app.package_info();
     let title = app.config().product_name.clone().unwrap_or_else(|| package.name.clone());
     // The page's dialog and link commands take their hooks from the managed state; the owner
     // thread holds the same ones.
-    let services = services::native(app.handle(), title.clone());
+    let mut services = services::native(app.handle(), title.clone());
+    // `ui.inspect` reads the proxied connections and the last connection error through this.
+    services.transports = Some(app.state::<transport::Transport>().inspector());
     app.manage(services.clone());
     // Opening the saves removes the temporary files a run that ended mid-save left behind. The
     // dialog starts in the user's Downloads folder until a save has been made.
@@ -145,11 +175,30 @@ fn main() {
     // session's thread; the page's `daemon_resolve_current` uses the same supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
-    let wake = daemons::start_runner(runner_requests, supervisor);
-    let launch = bridge::Launch { notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)), local_supported: daemons::LOCAL_SUPPORTED };
-    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, inbox, FLUSH_DELAY, launch);
+    // The store reaches the page's dial (`Bridge`), the runner and the owner thread; it is only now
+    // known, because the file backend needs the configuration directory.
+    app.manage(bridge::Bridge::new(requests, Arc::clone(&store)));
+    let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor);
+    // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
+    let resume_signals = Arc::new(ResumeSignals::new());
+    let launch = bridge::Launch {
+        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)),
+        local_supported: daemons::LOCAL_SUPPORTED,
+        notices: chosen.notices,
+        resume: Arc::clone(&resume_signals),
+    };
+    bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
+    // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
+    app.manage(resume::start(app.handle().clone(), Arc::clone(&resume_signals)));
+    // The network watcher tells the page when the machine's addresses change; it ends with the app.
+    app.manage(network::start(app.handle().clone(), resume_signals));
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
-    app.run(|handle, event| bridge::on_run_event(handle, &event));
+    app.run(|handle, event| {
+        bridge::on_run_event(handle, &event);
+        resume::on_run_event(handle, &event);
+        network::on_run_event(handle, &event);
+        transport::on_run_event(handle, &event);
+    });
 }

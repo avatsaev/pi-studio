@@ -7,6 +7,7 @@ import {
   cliPathChanged,
   cliPathFromField,
   cliPathToField,
+  FILE_SECRET_STORE_NOTE,
   LINK_INVALID_LABEL,
   settingsFailureText,
 } from "./daemons-screen-view.js";
@@ -239,5 +240,28 @@ describe("buildDaemonsScreenView pairing link marker", () => {
     expect(plain.rows.every((row) => !row.linkInvalid)).toBe(true);
     expect(wrong.rows.every((row) => !row.linkInvalid)).toBe(true);
     expect(plain.rows.find((row) => row.id === "c")?.actions).toEqual(["open", "edit", "remove"]);
+  });
+});
+
+describe("the secret store line", () => {
+  const stopped: LocalDaemonState = { state: "stopped" };
+
+  it("says secrets are in a file when the host keeps them there", () => {
+    const view = buildDaemonsScreenView({ ...snapshot(stopped, "b"), secretStore: "file" }, null);
+    expect(view.secretStoreNote).toBe(FILE_SECRET_STORE_NOTE);
+    expect(FILE_SECRET_STORE_NOTE).toMatch(/file only this user can read/);
+    expect(FILE_SECRET_STORE_NOTE).toMatch(/no keychain is available/);
+  });
+
+  it("says nothing for the keychain", () => {
+    const view = buildDaemonsScreenView(
+      { ...snapshot(stopped, "b"), secretStore: "keychain" },
+      null,
+    );
+    expect(view.secretStoreNote).toBeNull();
+  });
+
+  it("says nothing when the host does not report it", () => {
+    expect(buildDaemonsScreenView(snapshot(stopped, "b"), null).secretStoreNote).toBeNull();
   });
 });

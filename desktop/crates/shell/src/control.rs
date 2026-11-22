@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret) and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }` and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -75,12 +75,24 @@ fn execute(app: &mut AppShell, params: &Value) -> Result<Value, String> {
 }
 
 /// Everything the frontend draws, and everything `ui.inspect` returns: what a person sees is
-/// what an agent reads.
+/// what an agent reads. `connection` is what an agent reads about how the app reaches daemons:
+/// the kind of secret store (`keychain`, `file` or `memory`), never a secret; the proxied
+/// connections now (`transports`: entry id, state and four counters plus the peak bytes held in
+/// each direction, from the app's [`crate::Services::transports`] hook; empty without one) and the
+/// last connection error (`lastError: { code, atMs }` or null); and the counts of resume signals
+/// sent since launch (`resumeSignals: { wake, network }`). No address, token or message is in it.
 pub fn view(app: &mut AppShell) -> Value {
+    let proxied = app.services.transports.as_ref().map(|hook| hook()).unwrap_or_default();
     json!({
         "ui": app.ui,
         "settings": app.session.execute("settings.get", Value::Null).ok(),
         "daemons": daemons::view(app),
+        "connection": {
+            "secretStore": daemons::secret_store_kind(app),
+            "transports": proxied.transports,
+            "lastError": proxied.last_error,
+            "resumeSignals": app.resume.counts(),
+        },
         "menus": menus::model(app),
     })
 }

@@ -58,11 +58,12 @@ mod tests {
 
     /// An owner thread on `dir`, and the id of a direct entry B added to its registry.
     fn running(dir: &std::path::Path) -> (OwnerAccess, String) {
-        let (session, _) = Session::with_config_dir(dir);
+        let (session, _) = Session::with_config_dir(dir, Arc::new(pistudiodesktop_secrets::MemoryStore::new()));
+        let store = session.secret_store();
         let mut app = AppShell::new(session, Services::default());
         let (tx, rx) = channel();
         std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
-        let access = OwnerAccess::new(tx);
+        let access = OwnerAccess::new(tx, store);
         let added = access.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080"})).unwrap();
         (access, added["id"].as_str().unwrap().to_owned())
     }

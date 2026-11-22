@@ -73,7 +73,10 @@ export type DaemonErrorCode =
   | "not_healthy"
   | "timeout"
   | "bad_output"
-  | "spawn_failed";
+  | "spawn_failed"
+  | "secret_missing"
+  | "secret_unavailable"
+  | "secret_store_failed";
 
 /**
  * What a `HostDaemons` call rejects with: an `Error` whose `code` says why and whose message is the
@@ -101,6 +104,12 @@ export interface HostDaemons {
     entries: DaemonEntryView[];
     local: LocalDaemonState;
     settings: DaemonSettings;
+    /**
+     * Optional. Where the host keeps passwords and pairing links: `file` is a file only this user
+     * can read (no keychain is available), and the Daemons screen says so. `keychain` or absent:
+     * nothing is said.
+     */
+    secretStore?: "keychain" | "file";
   };
   /** Fires after any change to the registry, the settings or the local daemon's state. */
   subscribe(listener: () => void): () => void;

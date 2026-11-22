@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bridge-send-binary"
+description = "Enables the bridge_send_binary command without any pre-configured scope."
+commands.allow = ["bridge_send_binary"]
+
+[[permission]]
+identifier = "deny-bridge-send-binary"
+description = "Denies the bridge_send_binary command without any pre-configured scope."
+commands.deny = ["bridge_send_binary"]

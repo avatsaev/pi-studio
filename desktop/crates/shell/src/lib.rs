@@ -21,6 +21,18 @@
 //!
 //! The HTML documents the page previews ([`preview`]) are held in memory and served to the webview
 //! from a custom scheme of the app, so their scripts can run in a frame isolated from the page.
+//!
+//! Which secret store a launch uses (the keychain when it answers, else `secrets.json`, or what
+//! `--secret-store` says) is chosen by [`secret_choice`]; the kind chosen is `secretStore` in the
+//! registry view and in `ui.inspect`.
+//!
+//! Resume signals ([`resume`]) are the app telling the page that a socket may have died while nothing
+//! said so. The detection of a wake and the rate limit are pure; the app's ticker thread passes the
+//! times in. The counts are `connection.resumeSignals` in `ui.inspect`.
+//!
+//! The proxied daemon connections and the last connection error ([`transports`]) are plain data the
+//! app's hook ([`Services::transports`]) answers; they are `connection.transports` and
+//! `connection.lastError` in `ui.inspect`. The shell holds no socket type.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -28,6 +40,8 @@ pub mod cli_answers;
 pub mod cli_find;
 pub mod control;
 pub mod daemons;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod deferred;
 pub mod dialogs;
 pub mod links;
 pub mod menus;
@@ -39,8 +53,11 @@ pub mod page;
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod process;
+pub mod resume;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod saves;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod secret_choice;
 pub mod services;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shell_env;
@@ -50,9 +67,11 @@ pub mod state;
 pub mod supervisor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod switch;
+pub mod transports;
 
 use pistudiodesktop_engine::{Notice, Session};
 use serde_json::Value;
+use std::sync::Arc;
 
 pub use control::{Envelope, Request};
 pub use page::AppInfo;
@@ -71,11 +90,27 @@ pub struct AppShell {
     /// is written as it unloads). Such a key would land in the entry switched to, so from the switch
     /// until the next `boot`, stored keys are dropped.
     pub awaiting_boot: bool,
+    /// The resume signals the app's ticker threads have let through (`connection.resumeSignals`
+    /// in `ui.inspect`). The app replaces it with the one its tickers hold.
+    pub resume: Arc<resume::ResumeSignals>,
+    /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) deferred: deferred::Deferred,
 }
 
 impl AppShell {
     pub fn new(session: Session, services: Services) -> Self {
-        Self { session, ui: UiState::default(), services, info: AppInfo::default(), notices: Vec::new(), awaiting_boot: false }
+        Self {
+            session,
+            ui: UiState::default(),
+            services,
+            info: AppInfo::default(),
+            notices: Vec::new(),
+            awaiting_boot: false,
+            resume: Arc::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            deferred: deferred::Deferred::default(),
+        }
     }
 
     /// Run a command by id. Every control request ends here. The outcome goes to the status bar as

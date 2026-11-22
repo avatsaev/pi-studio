@@ -60,6 +60,11 @@ pub type HomeDirHook = Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>;
 /// The entries of a directory (full paths); empty when it cannot be read.
 pub type ListDirHook = Arc<dyn Fn(&Path) -> Vec<PathBuf> + Send + Sync>;
 
+/// What the app's proxied daemon connections look like now, for `ui.inspect`
+/// (`connection.transports`, `connection.lastError`). Runs on the thread that owns the session:
+/// it must only read counters, never wait on a socket or a lock held across an await.
+pub type TransportsHook = Arc<dyn Fn() -> crate::transports::Snapshot + Send + Sync>;
+
 /// Every hook is optional: where one is missing (tests, a platform without it), what needs it is
 /// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk is refused.
 ///
@@ -76,4 +81,5 @@ pub struct Services {
     pub env: Option<EnvHook>,
     pub home_dir: Option<HomeDirHook>,
     pub list_dir: Option<ListDirHook>,
+    pub transports: Option<TransportsHook>,
 }

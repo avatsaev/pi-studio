@@ -26,7 +26,8 @@ installed `pi-studio` CLI and starts, stops and restarts its daemon through it.
 Before this feature the address and password were typed into the connection bar after every launch
 (nothing saved them), and the app knew nothing about a daemon on the same machine.
 
-Not in this feature: sockets in Rust and the OS keychain (milestone 2), several windows or several
+Not in this feature: sockets in Rust and the OS keychain (milestone 2, built; see
+`desktop-transport-bridge.md`), several windows or several
 daemons connected at once (D16), a bundled daemon, a daemon on Windows, more than one local daemon.
 
 ## Decisions
@@ -34,7 +35,7 @@ daemons connected at once (D16), a bundled daemon, a daemon on Windows, more tha
 | # | Decision |
 |---|---|
 | D8, D12 | A registry owned by Rust. Three kinds of entry: `local` (this machine, through the CLI), `direct` (address, optional password), `relay` (pairing link) |
-| D13, D27 | Passwords and pairing links are stored in the registry file, readable by the user only. The OS keychain replaces this in milestone 2 |
+| D13, D27 | Passwords and pairing links were stored in the registry file, readable by the user only (milestone 1, `daemons.json` version 1). Carried out in milestone 2 (sprint 113): they are in the OS keychain, or in `secrets.json` when no keychain answers, and the file is version 2 without them. § 1 shows version 2; the store is in `swe/features/desktop-transport-bridge.md` § 5 |
 | D14, D15 | Entries are managed in a Daemons screen drawn by the workbench when the host has a registry. The connection bar becomes a switcher. The web client has no registry and is unchanged |
 | D16 | One window, one daemon at a time. Each entry has its own stored layout |
 | D17, D19 | Launch opens the entry used last, even when it is unreachable. First run opens the local entry |
@@ -67,16 +68,22 @@ Accepted by the owner on 2026-11-20, at planning (sprints 107–111). The contra
 
 `daemons.json` in the app's configuration directory (the platform's per-user directory for
 `com.avatsaev.pi-studio`). Mode 0600 on macOS and Linux; default profile permissions on Windows.
-Written atomically (temporary file, then rename).
+Written atomically (temporary file, then rename). **Version 2** (since milestone 2) holds no
+secret: a password or pairing link is in the secret store, keyed by entry id and kind
+(`swe/features/desktop-transport-bridge.md` § 5), and the entry says `hasPassword`. A version 1
+file (milestone 1: `password` on `local` and `direct` entries, `pairingLink` on `relay` ones) is
+read once, its secrets moved to the store, and rewritten as version 2 (that spec's § Launch and
+migration (P5)); a version above 2 is refused like any unknown version. The text below describes
+the rules as milestone 1 set them; `password` and `pairingLink` now name the stored secrets.
 
 ```
 {
-  version: 1,
+  version: 2,
   lastUsedId: string | null,
   entries: [
-    { id: "local", kind: "local",  name: string, password?: string },
-    { id: uuid,    kind: "direct", name: string, address: string, password?: string },
-    { id: uuid,    kind: "relay",  name: string, pairingLink: string }
+    { id: "local", kind: "local",  name: string, hasPassword?: boolean },
+    { id: uuid,    kind: "direct", name: string, address: string, hasPassword?: boolean },
+    { id: uuid,    kind: "relay",  name: string }
   ]
 }
 ```
@@ -92,8 +99,10 @@ Written atomically (temporary file, then rename).
 | Unknown fields | Kept on rewrite |
 | `lastUsedId` | Set when an entry is opened (at switch time, not on a successful connection) |
 
-Secrets are `password` and `pairingLink`. They are never logged, never returned by a control
-method, and reach the webview only through `resolveCurrent` (§ 3), for the entry being opened.
+Secrets are `password` and `pairingLink`, now in the secret store, not in this file. They are never
+logged and never returned by a control method. A password never reaches the webview (Rust reads it
+for its own dial); a relay entry's pairing link reaches it only through `resolveCurrent` (§ 3), for
+the entry being opened, until milestone 4.
 
 ### 2. Engine commands
 
@@ -164,8 +173,9 @@ the one constant the CLI check also uses); the browser host does not. The types 
 How the page reaches Rust (`desktop/docs/architecture.md` § The webview boundary): one allow-listed
 command, `engine_command { id, params? }`, runs ten engine ids (`daemon.list`, `.add`, `.update`,
 `.remove`, `daemon.local.start`, `.stop`, `.restart`, `.refresh`, `settings.get`, `settings.set`);
-anything else, `daemon.switch` and `command.list` included, is refused. The dial answer, which
-holds a secret, has a command of its own, `daemon_resolve_current`, and a switch another,
+anything else, `daemon.switch` and `command.list` included, is refused. The dial answer has a
+command of its own, `daemon_resolve_current` (no password; for a relay entry the pairing link), the
+connection to a local or direct daemon another, `transport_open`, and a switch another,
 `daemon_switch` (the transfer confirm, `daemon.switch`, then the reload). Two events come back:
 `daemons_changed` (the registry view, after any change to the registry, the local state or a
 setting) and `daemons_manage` (the native menu asked for the Daemons screen).
@@ -301,17 +311,24 @@ The window appears before the local daemon has started; the switcher shows "star
 ```
 resolveCurrent():
     no current entry                      -> reject no_current
-    direct                                -> { url: address, password, connect: true }
+    direct                                -> { url: address, connect: true }      (no password: Rust reads it for the dial)
     relay                                 -> { url: pairingLink, connect: true }
     local:
         unsupported | cli_missing | cli_outdated -> reject with that code
-        running                           -> { url: ws://host:port, password, connect: true }
+        running                           -> { url: ws://host:port, connect: true }
         stopped and autoStartLocalDaemon  -> start(); running ? intent : reject with the failure
         stopped otherwise                 -> reject local_stopped
 ```
 
 No reachability check is made for `direct` and `relay` entries: the workbench connects and, when
 that fails, shows its normal connecting and error states with the switcher still usable (D19).
+
+Since milestone 2 the answer for a `local` or `direct` entry carries no `password`: the socket to
+that daemon is Rust's (`transport_open`, `desktop-transport-bridge.md` §§ 2–4), which reads the
+password from the secret store itself. A `relay` entry's answer still carries the pairing link as
+`url`, the one secret a command returns, until the relay leg moves to Rust (milestone 4). A
+missing or unreadable password shows at `transport_open` (`secret_missing`, `secret_unavailable`),
+not here.
 
 ### Switching (D16)
 
@@ -354,7 +371,8 @@ same steps.
 
 | Data | Where | Lifecycle |
 |---|---|---|
-| Registry, including secrets | `daemons.json`, app configuration directory | Created on first launch; rewritten on every change |
+| Registry (no secrets since version 2) | `daemons.json`, app configuration directory | Created on first launch; rewritten on every change |
+| Secrets | The OS keychain, or `secrets.json` in the configuration directory | One item per secret; removed with the entry (`desktop-transport-bridge.md` § 5) |
 | Stored state per entry | [desktop-native-host.md](desktop-native-host.md) § Storage | Deleted with the entry |
 | Shell environment, CLI location, local state | Memory | Per app run |
 | Daemon's own state | The daemon's `PI_STUDIO_HOME`, untouched by the app | The app only runs the CLI |

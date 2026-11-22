@@ -1,0 +1,147 @@
+name: Desktop IPC benchmark
+
+# Runs the transport bridge's benchmark application (`desktop/apps/ipc-bench`, see
+# `desktop/docs/development.md` § The IPC benchmark) on GitHub's macOS and Windows runners, so the
+# gate of `swe/features/desktop-transport-bridge.md` § 1 is measured on WKWebView and WebView2.
+# The application needs no WebDriver and no display setup: it starts its own window, runs every
+# workload, writes `results.json` and exits.
+#
+#   a manual run (workflow_dispatch)   Actions -> Desktop IPC benchmark -> Run workflow
+#                                      (inputs: runs per workload, scale of the workloads)
+#   a pull request changing this file  the full run (3 runs, scale 1): the way to run it from a branch
+#
+# A workflow file that exists only on a branch cannot be started by hand: the first run needs a
+# pull request that changes this file, or this file on main. It never runs on a push to main,
+# publishes nothing, and does not touch release.yml (which ignores `desktop/**` and
+# `.github/workflows/desktop-*.yml`) or desktop-release.yml.
+#
+# A job fails only when the application exits non-zero (a run did not finish, or a frame was
+# damaged). It does not judge the thresholds: the PASS/FAIL lines are in the log and the job
+# summary, and the numbers are read from the artifact. The runner's CPU, core count and webview
+# version are printed in the job summary. Memory (B4) is read by the application itself (`ps` on
+# macOS, PowerShell on Windows).
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Runs of each workload"
+        type: string
+        default: "3"
+      scale:
+        description: "Scale of every count and byte total (above 0, at most 1)"
+        type: string
+        default: "1"
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-ipc-benchmark.yml"
+      - "desktop/apps/ipc-bench/**"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run.
+concurrency:
+  group: desktop-ipc-benchmark-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # A pull request (inputs are empty) gets the full run: the workflow file can only be started by
+  # hand once it is on main, so the pull request is the way to get real numbers. Start a quick
+  # run by hand with runs=1 and scale=0.1.
+  BENCH_RUNS: ${{ inputs.runs || '3' }}
+  BENCH_SCALE: ${{ inputs.scale || '1' }}
+
+defaults:
+  run:
+    # Also on Windows (Git Bash).
+    shell: bash
+
+jobs:
+  benchmark:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (WKWebView)
+            os: macos-15
+            platform: macos
+            exe: ipc-bench
+          - name: Windows (WebView2)
+            os: windows-latest
+            platform: windows
+            exe: ipc-bench.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # The measured build: release profile. The page is plain ES modules embedded by Tauri; there
+      # is no npm install and no frontend build.
+      - name: Build the benchmark
+        working-directory: desktop
+        run: cargo build --release -p pistudiodesktop-ipc-bench
+      - name: Runner
+        run: |
+          mkdir -p bench-out
+          {
+            echo "## IPC benchmark on ${{ matrix.name }}"
+            echo
+            echo "Runs: \`$BENCH_RUNS\`, scale: \`$BENCH_SCALE\`"
+            echo
+            echo '```'
+            if [ "${{ matrix.platform }}" = macos ]; then
+              echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
+              echo "Cores: $(sysctl -n hw.ncpu)"
+              echo "OS: $(sw_vers -productName) $(sw_vers -productVersion)"
+              echo "WebKit: $(defaults read /System/Library/Frameworks/WebKit.framework/Resources/Info CFBundleShortVersionString 2>/dev/null || echo unknown) ($(defaults read /System/Library/Frameworks/WebKit.framework/Resources/Info CFBundleVersion 2>/dev/null || echo unknown))"
+            else
+              powershell -NoProfile -Command "\$c = Get-CimInstance Win32_Processor | Select-Object -First 1; 'CPU: ' + \$c.Name; 'Cores: ' + \$c.NumberOfCores + ' physical, ' + \$env:NUMBER_OF_PROCESSORS + ' logical'; 'OS: ' + (Get-CimInstance Win32_OperatingSystem).Caption; 'WebView2: ' + (Get-ItemProperty 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue).pv"
+            fi
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # The step fails only on the application's exit code (pipefail keeps it through `tee`).
+      - name: Run the benchmark
+        run: |
+          set -o pipefail
+          desktop/target/release/${{ matrix.exe }} --out bench-out/results.json \
+            --runs "$BENCH_RUNS" --scale "$BENCH_SCALE" 2>&1 | tee bench-out/bench.log
+      - name: Job summary
+        if: always()
+        run: |
+          # shellcheck disable=SC2016
+          {
+            echo
+            if [ -f bench-out/results.json ]; then
+              node -e '
+                const r = JSON.parse(require("fs").readFileSync("bench-out/results.json", "utf8"));
+                console.log("Webview user agent: `" + r.app.userAgent + "`  ");
+                console.log("Tauri " + r.app.tauri + ", " + r.app.os + " " + r.app.arch + ", timer step " + r.timerResolutionMs + " ms, ok: " + r.ok + "\n");
+                console.log("| transport | row | runs ok | median run | worst run |\n|---|---|---|---|---|");
+                for (const [t, v] of Object.entries(r.transports))
+                  for (const s of v.summary)
+                    console.log("| " + t + " | " + s.id + (s.variant ? "/" + s.variant : "") + " " + s.title + " | " + s.okRuns + "/" + s.runs + " | `" + JSON.stringify(s.median) + "` | `" + JSON.stringify(s.worst) + "` |");
+                console.log("\n| transport | row | metric | value | baseline | rule | pass |\n|---|---|---|---|---|---|---|");
+                for (const c of r.comparison)
+                  console.log("| " + c.transport + " | " + c.workload + " | " + c.metric + " | " + c.value + " | " + c.baseline + " | " + c.rule + " | " + (c.pass === null ? "reported" : c.pass) + " |");
+                if (r.problems.length) console.log("\nProblems:\n\n```\n" + r.problems.join("\n") + "\n```");
+              '
+            else
+              echo "No results.json: the application did not finish."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ipc-benchmark-${{ matrix.platform }}
+          path: bench-out
+          if-no-files-found: warn

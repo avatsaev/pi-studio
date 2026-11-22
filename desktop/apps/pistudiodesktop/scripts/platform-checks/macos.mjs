@@ -5,6 +5,9 @@
 // Native host (sprint-106/task-004):  config dir default, ui.inspect, settings.set, clean quit.
 // Daemon registry (sprint-111/task-004): the CLI found through the login shell (zsh and bash),
 // start, quit leaves the daemon, stop, a direct entry's password, an outdated CLI.
+// Milestone 2 (sprint-117/task-002): after the local daemon starts, one open transport with frames in
+// (a window and its page exist); the app's process stopped 15 s and continued, `resumeSignals.wake`
+// rises (inside `lifecycleChecks`); and `macos-keychain.mjs`, the one launch that uses the login keychain.
 //
 // Every daemon runs in a scratch `PI_STUDIO_HOME` on a free port, and is stopped in the `finally`
 // of the run, also when a check failed.
@@ -29,11 +32,14 @@ import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { launch, waitForControlPort, waitForExit } from "./app-process.mjs";
+import { launch, SECRET_STORE_ARG, waitForControlPort, waitForExit } from "./app-process.mjs";
+import { stopAndContinue, waitForOpenTransport } from "./bridge.mjs";
 import { ControlClient, parseConfigDir } from "./control-client.mjs";
+import { keychainCheck } from "./macos-keychain.mjs";
 import { freePort, healthStatus } from "./net.mjs";
 import { Skip } from "./report.mjs";
 import { cliWrapperText, displayVariables, dockEnvironment, profileText, SHELLS } from "./shell-profile.mjs";
+import { continuePosix, stopPosix } from "./suspend.mjs";
 import { Abort, sleep, waitFor } from "./wait.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -122,7 +128,7 @@ export class MacosRun {
   async start(name, { env, configDir }) {
     const dir = this.scratch("control", name);
     const tokenFile = path.join(dir, "token");
-    const args = ["--control", "0", "--control-token-file", tokenFile, ...(configDir ? ["--config-dir", configDir] : [])];
+    const args = ["--control", "0", "--control-token-file", tokenFile, SECRET_STORE_ARG, ...(configDir ? ["--config-dir", configDir] : [])];
     const app = launch(this.app, args, { ...displayVariables(process.env), ...env }, path.join(this.outDir, `app-${name}.log`));
     this.apps.push(app);
     const port = await waitForControlPort(app);
@@ -330,12 +336,54 @@ async function foundCheck(run, world) {
   return found ? session : null;
 }
 
+/** The checks of the connection through Rust, in the order they run after the local daemon started. */
+const BRIDGE_CHECKS = [
+  { id: "bridge.macos.transport-open", title: "after the local daemon starts, ui.inspect shows one open transport with frames in (so a window and its page exist)" },
+  { id: "bridge.macos.wake", title: "the app's process stopped for 15 s and continued: resumeSignals.wake rises and the transport is open again" },
+];
+
+/** How long the app's process is stopped, as a machine's sleep stops it (a wake is 10 s or more unaccounted for). */
+const STOP_MS = 15_000;
+
+/**
+ * With the local daemon running and the window connected to it by the workbench itself (it
+ * connects when a daemon that was started comes up while it is connected to nothing): the page's
+ * connection is through Rust, and the app's wake signal works on this machine.
+ */
+async function bridgeChecks(run, session) {
+  const { control } = session;
+  const [opened, wake] = BRIDGE_CHECKS;
+  const connected = await run.report.run(opened.id, opened.title, async ({ note }) => {
+    const began = Date.now();
+    const connection = await waitForOpenTransport(control, { entryId: "local", timeoutMs: 60_000 });
+    const [transport] = connection.transports;
+    note(`open after ${((Date.now() - began) / 1000).toFixed(1)} s: framesIn ${transport.framesIn}, framesOut ${transport.framesOut}; secretStore ${connection.secretStore}; lastError ${connection.lastError?.code ?? "none"}`);
+    run.report.fact("The page's connection to the local daemon through Rust (macOS, WKWebView)", `transport ${transport.state} for ${transport.entryId}: framesIn ${transport.framesIn}, bytesIn ${transport.bytesIn}, framesOut ${transport.framesOut}, bytesOut ${transport.bytesOut}, peakHeldIn ${transport.peakHeldIn}, peakHeldOut ${transport.peakHeldOut}`);
+  });
+  if (!connected) {
+    run.report.skipAll([wake], "no transport opened");
+    return;
+  }
+  await run.report.run(wake.id, wake.title, async ({ note }) => {
+    const pid = session.app.pid;
+    const [before] = (await control.inspect()).connection.transports;
+    const result = await stopAndContinue({ control, stop: () => stopPosix(pid), resume: () => continuePosix(pid), holdMs: STOP_MS });
+    const connection = await waitForOpenTransport(control, { entryId: "local", timeoutMs: 20_000 });
+    const [after] = connection.transports;
+    // The page asks the daemon with a ping when it is told of a resume: framesIn rises with the answer.
+    const probed = await waitFor("the page's probe to be answered", async () => ((await control.inspect()).connection.transports[0]?.framesIn > before.framesIn ? true : null), { timeoutMs: 12_000, intervalMs: 500 }).catch(() => false);
+    note(`stopped ${(result.heldMs / 1000).toFixed(1)} s; wake ${result.before} -> ${result.after}, counted ${(result.countedAfterMs / 1000).toFixed(1)} s after the continue; transport ${after.state}, framesIn ${before.framesIn} -> ${after.framesIn}${probed ? " (the page's probe was answered)" : " (no frame came after the continue)"}`);
+    run.report.fact("Resume signal (macOS, the app's process stopped 15 s)", `resumeSignals.wake ${result.before} -> ${result.after} (${(result.countedAfterMs / 1000).toFixed(1)} s after the continue)`, `transport open again, same entry; the page's probe answered: ${probed ? "yes" : "no"}`);
+  });
+}
+
 async function lifecycleChecks(run, world, session) {
   const { port } = world;
   const rest = [
     { id: "registry.macos.daemon-health", title: "the daemon answers its health check" },
     { id: "registry.macos.quit-leaves-daemon", title: "quitting the app leaves the daemon running" },
     { id: "registry.macos.daemon-stop", title: "daemon.local.stop stops it" },
+    ...BRIDGE_CHECKS,
   ];
   const started = await run.report.run("registry.macos.daemon-start", "daemon.local.start: running", async ({ note }) => {
     const began = Date.now();
@@ -364,6 +412,7 @@ async function lifecycleChecks(run, world, session) {
     const status = await waitFor("the health endpoint", async () => ((await healthStatus(port)) === 200 ? 200 : null), { timeoutMs: 15_000, intervalMs: 500 });
     if (status !== 200) throw new Error("unreachable");
   });
+  await bridgeChecks(run, session);
   await run.report.run("registry.macos.quit-leaves-daemon", "quitting the app leaves the daemon running", async ({ note }) => {
     await run.quitApp(session);
     await sleep(2000);
@@ -396,6 +445,7 @@ async function shellChecks(run, shell, withLifecycle) {
           { id: "registry.macos.daemon-health", title: "the daemon answers its health check" },
           { id: "registry.macos.quit-leaves-daemon", title: "quitting the app leaves the daemon running" },
           { id: "registry.macos.daemon-stop", title: "daemon.local.stop stops it" },
+          ...BRIDGE_CHECKS,
         ],
         `the CLI was not found under ${shell}`,
       );
@@ -430,6 +480,7 @@ export async function runMacosChecks(run) {
     await controlChecks(run);
     await cliOutdatedCheck(run);
     for (const [index, shell] of run.shells.entries()) await shellChecks(run, shell, index === 0);
+    await keychainCheck(run);
   } finally {
     await run.cleanup();
   }
