@@ -8,6 +8,7 @@ mod faults;
 mod handshake;
 mod pinned;
 mod stream_faults;
+mod streams;
 mod uploads;
 
 use std::time::{Duration, Instant};

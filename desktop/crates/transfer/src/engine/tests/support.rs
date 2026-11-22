@@ -1,14 +1,16 @@
 //! What the engine's tests share: a connector to the stand-in daemon, an event collector, a frozen
 //! clock, and sources and sinks that a test can hold still and let go.
 
+use std::collections::VecDeque;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant as RealInstant};
 
 use pistudiodesktop_net::{Socket, dial};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::Limits;
 use crate::download::Sink;
@@ -322,4 +324,105 @@ impl Sink for ProbeSink {
     async fn discard(&mut self) {
         self.probe.discarded.store(true, Ordering::SeqCst);
     }
+}
+
+// ---- a connector that a test steers ----
+
+/// What one attempt to open does.
+pub enum Step {
+    /// Dials the stand-in with the password.
+    Dial,
+    /// Dials the stand-in without the password.
+    Bare,
+    /// Dials this address, with no password.
+    Url(String),
+    /// Fails with this error.
+    Refuse(ConnectError),
+    /// Runs this, then dials the stand-in with the password.
+    Before(Box<dyn FnOnce() + Send>),
+    /// Waits for a permit of this gate (the engine is connecting meanwhile), then dials the stand-in with the password.
+    Held(Arc<Semaphore>),
+}
+
+struct Inner {
+    url: String,
+    password: Option<String>,
+    steps: Mutex<VecDeque<Step>>,
+    refusal: Mutex<Option<ConnectError>>,
+    times: Mutex<Vec<Instant>>,
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// What a test holds of its connector: the attempts so far and how the next ones go.
+#[derive(Clone)]
+pub struct Control(Arc<Inner>);
+
+/// Dials the stand-in as the steps say, then as `Step::Dial`; fails while a standing refusal is set.
+pub struct Scripted(Arc<Inner>);
+
+pub fn scripted(daemon: &StandInDaemon, password: Option<&str>) -> (Scripted, Control) {
+    let inner = Arc::new(Inner {
+        url: daemon.url(),
+        password: password.map(str::to_owned),
+        steps: Mutex::default(),
+        refusal: Mutex::default(),
+        times: Mutex::default(),
+    });
+    (Scripted(Arc::clone(&inner)), Control(inner))
+}
+
+impl Control {
+    pub fn push(&self, step: Step) {
+        locked(&self.0.steps).push_back(step);
+    }
+
+    pub fn refuse(&self, error: ConnectError) {
+        *locked(&self.0.refusal) = Some(error);
+    }
+
+    pub fn allow(&self) {
+        *locked(&self.0.refusal) = None;
+    }
+
+    pub fn attempts(&self) -> usize {
+        locked(&self.0.times).len()
+    }
+
+    /// The time between each attempt and the one before it.
+    pub fn gaps(&self) -> Vec<Duration> {
+        locked(&self.0.times).windows(2).map(|pair| pair[1].saturating_duration_since(pair[0])).collect()
+    }
+}
+
+impl Connector for Scripted {
+    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
+        let inner = &self.0;
+        locked(&inner.times).push(Instant::now());
+        if let Some(error) = locked(&inner.refusal).clone() {
+            return Err(error);
+        }
+        let step = locked(&inner.steps).pop_front().unwrap_or(Step::Dial);
+        let (url, password) = match step {
+            Step::Refuse(error) => return Err(error),
+            Step::Dial => (inner.url.clone(), inner.password.clone()),
+            Step::Bare => (inner.url.clone(), None),
+            Step::Url(url) => (url, None),
+            Step::Before(action) => {
+                action();
+                (inner.url.clone(), inner.password.clone())
+            }
+            Step::Held(gate) => {
+                gate.acquire().await.map_err(|_| ConnectError::new("internal", "the gate closed", false))?.forget();
+                (inner.url.clone(), inner.password.clone())
+            }
+        };
+        Ok(dial(&url, password.as_deref(), Duration::from_secs(5), Limits::default().max_message_bytes).await?)
+    }
+}
+
+pub fn unreachable() -> ConnectError {
+    ConnectError::new("unreachable", "The daemon cannot be reached.", true)
 }

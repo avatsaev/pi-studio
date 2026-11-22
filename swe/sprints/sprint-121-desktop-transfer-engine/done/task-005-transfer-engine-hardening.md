@@ -1,7 +1,7 @@
 # Task 005 — Hardening: a drop and a cancel at every stage, a hostile daemon, nothing leaks
 
 - **Sprint:** sprint-121-desktop-transfer-engine
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/crates/transfer
 - **Priority:** P1

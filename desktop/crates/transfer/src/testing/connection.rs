@@ -10,7 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value};
 use socket2::SockRef;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -68,8 +68,11 @@ struct Upload {
     transfer_id: String,
     path: String,
     ack: bool,
-    /// `None` until a `Begin` with the right `transferId` arrived; then what the `Chunk`s brought.
+    /// `None` until a `Begin` with the right `transferId` arrived; then what the `Chunk`s brought (nothing
+    /// when the daemon does not keep uploads).
     data: Option<Vec<u8>>,
+    /// The file bytes that arrived in `Chunk`s after the `Begin`.
+    received: u64,
 }
 
 /// How an upload ended.
@@ -94,6 +97,8 @@ pub(super) struct Connection {
     frames_rx: mpsc::Receiver<Vec<u8>>,
     counters: Counters,
     reading: bool,
+    /// Changes when a test calls `StandInDaemon::resume_reading`.
+    resumed: watch::Receiver<u64>,
     answering: bool,
     handshaken: bool,
     uploads: HashMap<u8, Upload>,
@@ -103,23 +108,35 @@ pub(super) struct Connection {
     download_seq: u64,
 }
 
+impl Drop for Connection {
+    /// The streams of a connection that ended are free: the daemon's count of streams in use forgets its
+    /// uploads and its downloads, including a download whose task never started because a fault ended the
+    /// connection as the answer went out.
+    fn drop(&mut self) {
+        let open = self.uploads.len();
+        self.shared.with(|state| state.reserved = state.reserved.saturating_sub(open));
+        self.downloads.clear();
+    }
+}
+
 impl Connection {
     pub fn new(ws: WebSocketStream<TcpStream>, shared: Arc<Shared>) -> Self {
         let (frames_tx, frames_rx) = mpsc::channel(QUEUED_FRAMES);
         Self {
             ws,
-            shared,
             frames_tx,
             frames_rx,
             counters: Counters::default(),
             reading: true,
+            resumed: shared.resume.subscribe(),
             answering: true,
             handshaken: false,
             uploads: HashMap::new(),
             upload_cursor: 1,
-            downloads: Arc::new(Downloads::default()),
+            downloads: Arc::new(Downloads::new(Arc::clone(&shared))),
             download_cursor: 1,
             download_seq: 0,
+            shared,
         }
     }
 
@@ -138,6 +155,10 @@ impl Connection {
                     Some(frame) => self.send_binary(frame).await,
                     None => Flow::Break(()),
                 },
+                Ok(()) = self.resumed.changed(), if !self.reading => {
+                    self.reading = true;
+                    Flow::Continue(())
+                }
             };
             if flow.is_break() {
                 return;
@@ -227,7 +248,11 @@ impl Connection {
                     self.reset();
                     return Flow::Break(());
                 }
-                Some(Fault::StopReading { .. }) => self.reading = false,
+                Some(Fault::StopReading { .. }) => {
+                    self.reading = false;
+                    // Only a `resume_reading` from now on starts it again.
+                    drop(self.resumed.borrow_and_update());
+                }
                 Some(Fault::StopAnswering { .. }) => self.answering = false,
                 Some(_) => {}
             }
@@ -372,7 +397,8 @@ impl Connection {
         };
         self.upload_cursor = (usize::from(stream) + 1) % slots;
         let ack = message.get("ack") == Some(&Value::Bool(true));
-        self.uploads.insert(stream, Upload { transfer_id: transfer_id.to_owned(), path: path.to_owned(), ack, data: None });
+        self.uploads.insert(stream, Upload { transfer_id: transfer_id.to_owned(), path: path.to_owned(), ack, data: None, received: 0 });
+        self.shared.with(|state| state.reserved += 1);
         self.reply(frames::upload_accepted(stream), request_id).await
     }
 
@@ -433,7 +459,7 @@ impl Connection {
         let Some(file) = self.shared.with(|state| state.files.get(path).cloned()) else {
             return Err(refuse("not_found", Some(stream), None));
         };
-        let size = file.bytes.len() as u64;
+        let size = file.content.len();
         let offset = offset.unwrap_or(0);
         if offset > size {
             return Err(refuse("range_not_satisfiable", Some(stream), None));
@@ -454,7 +480,7 @@ impl Connection {
             mtime_ms: file.mtime_ms,
             offset,
             length: requested_length.unwrap_or(available).min(available),
-            data: file.bytes,
+            content: file.content,
             fault: self.take_stream_fault(),
             chunk_bytes: self.shared.config.chunk_bytes,
             chunk_delay: self.shared.config.chunk_delay,
@@ -486,7 +512,10 @@ impl Connection {
             }
             FileFrame::Chunk { data, .. } => {
                 if let Some(held) = &mut upload.data {
-                    held.extend_from_slice(data);
+                    upload.received = upload.received.saturating_add(data.len() as u64);
+                    if self.shared.config.store_uploads {
+                        held.extend_from_slice(data);
+                    }
                 }
                 Flow::Continue(())
             }
@@ -499,7 +528,8 @@ impl Connection {
     /// Like the real daemon, the `End`'s `ok` byte is not read.
     async fn finish_upload(&mut self, stream: u8, ending: Ending) -> Flow {
         let Some(upload) = self.uploads.remove(&stream) else { return Flow::Continue(()) };
-        let received = upload.data.as_ref().map_or(0, Vec::len) as u64;
+        self.shared.with(|state| state.reserved = state.reserved.saturating_sub(1));
+        let received = upload.received;
         let (data, mut error) = match (ending, upload.data) {
             (Ending::End, Some(data)) => (Some(data), None),
             (Ending::End, None) => (None, Some("no_begin".to_owned())),
@@ -514,8 +544,11 @@ impl Connection {
             error = Some(text);
         }
         let reported = if let Some(Fault::WrongBytesWritten { reported }) = reported { reported } else { received };
+        let keep = self.shared.config.store_uploads;
         self.shared.with(|state| {
-            if let (Some(data), None) = (data, &error) {
+            if let (Some(data), None) = (data, &error)
+                && keep
+            {
                 state.store(&upload.path, data);
             }
             state.uploads.push(super::state::UploadRecord {

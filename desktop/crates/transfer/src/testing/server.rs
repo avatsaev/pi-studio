@@ -14,7 +14,7 @@ use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 
 use super::connection::Connection;
 use super::fault::Fault;
-use super::state::{FileInfo, Shared, UploadRecord};
+use super::state::{Content, FileInfo, Shared, UploadRecord};
 
 /// The subprotocol a password is offered in: `pi-studio.bearer.<password>`.
 const BEARER_PREFIX: &str = "pi-studio.bearer.";
@@ -52,11 +52,15 @@ pub struct Config {
     /// The size of the stream id space (the real daemon's is 256). A test that wants the real
     /// `no_free_stream` sets it small, and keeps uploads open.
     pub stream_slots: usize,
+    /// Whether an upload that ended with `End` is kept at its path. Off, the upload is counted and
+    /// acknowledged and its bytes are dropped as they arrive, so that a file of any size needs no
+    /// memory; [`UploadRecord::bytes_received`] still has the count, and `file` has nothing.
+    pub store_uploads: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { password: None, features: Features::default(), chunk_bytes: 32 * 1024, chunk_delay: Duration::ZERO, stream_slots: 256 }
+        Self { password: None, features: Features::default(), chunk_bytes: 32 * 1024, chunk_delay: Duration::ZERO, stream_slots: 256, store_uploads: true }
     }
 }
 
@@ -118,21 +122,48 @@ impl StandInDaemon {
         self.shared.with(|state| state.store_at(path, bytes, mtime_ms))
     }
 
+    /// Puts a file of `size` bytes on the daemon that the daemon does not hold: a download of it sends
+    /// `size` zero bytes, made as they go out, so that a file of any size needs no memory. For a test of
+    /// counters past 4 GiB. [`file`](Self::file) answers `None` for it; [`file_info`](Self::file_info) has its size.
+    pub fn put_counted_file(&self, path: &str, size: u64) -> FileInfo {
+        self.shared.with(|state| state.store_zeros(path, size))
+    }
+
     /// Removes a file; true when there was one.
     pub fn remove_file(&self, path: &str) -> bool {
         self.shared.with(|state| state.files.remove(path).is_some())
     }
 
-    /// What the daemon holds at `path`: a file put there or an upload that ended with `End`.
+    /// What the daemon holds at `path`: a file put there or an upload that ended with `End`. `None` for
+    /// a file that is not held ([`put_counted_file`](Self::put_counted_file)).
     #[must_use]
     pub fn file(&self, path: &str) -> Option<Vec<u8>> {
-        self.shared.with(|state| state.files.get(path).map(|file| file.bytes.as_ref().clone()))
+        self.shared.with(|state| {
+            state.files.get(path).and_then(|file| match &file.content {
+                Content::Bytes(bytes) => Some(bytes.as_ref().clone()),
+                Content::Zeros(_) => None,
+            })
+        })
     }
 
     /// The size and modification time of the file at `path`.
     #[must_use]
     pub fn file_info(&self, path: &str) -> Option<FileInfo> {
-        self.shared.with(|state| state.files.get(path).map(|file| FileInfo { size: file.bytes.len() as u64, mtime_ms: file.mtime_ms }))
+        self.shared.with(|state| state.files.get(path).map(|file| FileInfo { size: file.content.len(), mtime_ms: file.mtime_ms }))
+    }
+
+    /// The streams in use now, on every connection: uploads that were accepted and have not ended, and
+    /// downloads that have not sent their last frame. A connection that ended has none. A test that
+    /// cancels or drops a transfer at some stage asks for 0 afterwards.
+    #[must_use]
+    pub fn streams_in_use(&self) -> usize {
+        self.shared.with(|state| state.reserved)
+    }
+
+    /// Makes every connection that stopped reading ([`Fault::StopReading`]) read again, from the next
+    /// frame in its socket. A connection that is not stopped is not affected, now or later.
+    pub fn resume_reading(&self) {
+        self.shared.resume.send_modify(|calls| *calls = calls.wrapping_add(1));
     }
 
     /// Queues a fault; it is used once.

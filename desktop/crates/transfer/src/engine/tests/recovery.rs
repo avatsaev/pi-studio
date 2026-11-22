@@ -4,12 +4,10 @@
 //! The waits run on a frozen clock (`support::Frozen`) that a test moves by hand, so an hour of refusals
 //! costs a second of real time.
 
-use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use pistudiodesktop_net::{Socket, dial};
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -17,107 +15,12 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
-use super::support::{Frozen, ProbeSink, Result, engine_with, eventually, pattern, save, upload};
+use super::support::{Control, Frozen, ProbeSink, Result, Step, engine_with, eventually, pattern, save, scripted, unreachable, upload};
 use crate::Limits;
 use crate::engine::TransferState::{Running, Waiting};
 use crate::engine::{ConnectError, ConnectionState, Connector, Engine, FINAL_CODES, Failure};
 use crate::testing::{After, Config, Direction, Fault, Features, StandInDaemon};
 use crate::upload::{MemorySource, UploadSource};
-
-// ---- a connector that a test steers ----
-
-/// What one attempt to open does.
-enum Step {
-    /// Dials the stand-in with the password.
-    Dial,
-    /// Dials the stand-in without the password.
-    Bare,
-    /// Dials this address, with no password.
-    Url(String),
-    /// Fails with this error.
-    Refuse(ConnectError),
-    /// Runs this, then dials the stand-in with the password.
-    Before(Box<dyn FnOnce() + Send>),
-}
-
-struct Inner {
-    url: String,
-    password: Option<String>,
-    steps: Mutex<VecDeque<Step>>,
-    refusal: Mutex<Option<ConnectError>>,
-    times: Mutex<Vec<Instant>>,
-}
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// What a test holds of its connector: the attempts so far and how the next ones go.
-#[derive(Clone)]
-struct Control(Arc<Inner>);
-
-/// Dials the stand-in as the steps say, then as `Step::Dial`; fails while a standing refusal is set.
-struct Scripted(Arc<Inner>);
-
-fn scripted(daemon: &StandInDaemon, password: Option<&str>) -> (Scripted, Control) {
-    let inner = Arc::new(Inner {
-        url: daemon.url(),
-        password: password.map(str::to_owned),
-        steps: Mutex::default(),
-        refusal: Mutex::default(),
-        times: Mutex::default(),
-    });
-    (Scripted(Arc::clone(&inner)), Control(inner))
-}
-
-impl Control {
-    fn push(&self, step: Step) {
-        locked(&self.0.steps).push_back(step);
-    }
-
-    fn refuse(&self, error: ConnectError) {
-        *locked(&self.0.refusal) = Some(error);
-    }
-
-    fn allow(&self) {
-        *locked(&self.0.refusal) = None;
-    }
-
-    fn attempts(&self) -> usize {
-        locked(&self.0.times).len()
-    }
-
-    /// The time between each attempt and the one before it.
-    fn gaps(&self) -> Vec<Duration> {
-        locked(&self.0.times).windows(2).map(|pair| pair[1].saturating_duration_since(pair[0])).collect()
-    }
-}
-
-impl Connector for Scripted {
-    async fn connect(&self) -> std::result::Result<Socket, ConnectError> {
-        let inner = &self.0;
-        locked(&inner.times).push(Instant::now());
-        if let Some(error) = locked(&inner.refusal).clone() {
-            return Err(error);
-        }
-        let step = locked(&inner.steps).pop_front().unwrap_or(Step::Dial);
-        let (url, password) = match step {
-            Step::Refuse(error) => return Err(error),
-            Step::Dial => (inner.url.clone(), inner.password.clone()),
-            Step::Bare => (inner.url.clone(), None),
-            Step::Url(url) => (url, None),
-            Step::Before(action) => {
-                action();
-                (inner.url.clone(), inner.password.clone())
-            }
-        };
-        Ok(dial(&url, password.as_deref(), Duration::from_secs(5), Limits::default().max_message_bytes).await?)
-    }
-}
-
-fn unreachable() -> ConnectError {
-    ConnectError::new("unreachable", "The daemon cannot be reached.", true)
-}
 
 /// A server that answers every upgrade 502, as a reverse proxy does while its daemon restarts.
 async fn bad_gateway() -> (String, JoinHandle<()>) {

@@ -10,6 +10,7 @@ use tokio::sync::{Notify, mpsc};
 
 use super::fault::{Disorder, StreamFault};
 use super::frames::{self, Meta};
+use super::state::{Content, Shared};
 
 /// The filler of the bytes a download sends past its range ([`StreamFault::ExtraBytes`]).
 const FILLER: u8 = 0xEE;
@@ -45,12 +46,19 @@ impl DownloadCtl {
 }
 
 /// The downloads of one connection by stream, from accepted to finished.
-#[derive(Default)]
-pub(super) struct Downloads(Mutex<HashMap<u8, Arc<DownloadCtl>>>);
+pub(super) struct Downloads {
+    active: Mutex<HashMap<u8, Arc<DownloadCtl>>>,
+    /// The daemon's count of streams in use: a download counts from `reserve` to `release`.
+    shared: Arc<Shared>,
+}
 
 impl Downloads {
+    pub fn new(shared: Arc<Shared>) -> Self {
+        Self { active: Mutex::default(), shared }
+    }
+
     fn with<R>(&self, f: impl FnOnce(&mut HashMap<u8, Arc<DownloadCtl>>) -> R) -> R {
-        f(&mut self.0.lock().unwrap_or_else(PoisonError::into_inner))
+        f(&mut self.active.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     pub fn is_active(&self, stream: u8) -> bool {
@@ -63,16 +71,30 @@ impl Downloads {
 
     pub fn reserve(&self, stream: u8) -> Arc<DownloadCtl> {
         let ctl = Arc::new(DownloadCtl::default());
-        self.with(|map| map.insert(stream, Arc::clone(&ctl)));
+        if self.with(|map| map.insert(stream, Arc::clone(&ctl))).is_none() {
+            self.shared.with(|state| state.reserved += 1);
+        }
         ctl
     }
 
-    fn release(&self, stream: u8, ctl: &Arc<DownloadCtl>) {
-        self.with(|map| {
-            if map.get(&stream).is_some_and(|current| Arc::ptr_eq(current, ctl)) {
-                map.remove(&stream);
-            }
+    /// The connection ended: every download it had is over, whether or not its task has noticed.
+    pub fn clear(&self) {
+        let cleared = self.with(|map| {
+            let count = map.len();
+            map.clear();
+            count
         });
+        self.shared.with(|state| state.reserved = state.reserved.saturating_sub(cleared));
+    }
+
+    fn release(&self, stream: u8, ctl: &Arc<DownloadCtl>) {
+        let released = self.with(|map| {
+            let current = map.get(&stream).is_some_and(|current| Arc::ptr_eq(current, ctl));
+            current && map.remove(&stream).is_some()
+        });
+        if released {
+            self.shared.with(|state| state.reserved = state.reserved.saturating_sub(1));
+        }
     }
 }
 
@@ -86,7 +108,7 @@ pub(super) struct Plan {
     pub mtime_ms: u64,
     pub offset: u64,
     pub length: u64,
-    pub data: Arc<Vec<u8>>,
+    pub content: Content,
     pub fault: Option<StreamFault>,
     pub chunk_bytes: usize,
     pub chunk_delay: Duration,
@@ -105,20 +127,34 @@ impl Plan {
         }
     }
 
-    /// The bytes of the range, as far as the file has them.
+    /// The bytes of the range of a held file, as far as the file has them.
     fn range(&self) -> &[u8] {
+        let Content::Bytes(data) = &self.content else { return &[] };
         let start = usize::try_from(self.offset).unwrap_or(usize::MAX);
         let end = usize::try_from(self.offset.saturating_add(self.length)).unwrap_or(usize::MAX);
-        self.data.get(start..end).unwrap_or_default()
+        data.get(start..end).unwrap_or_default()
+    }
+
+    /// How many bytes of the range the file has.
+    pub fn have(&self) -> u64 {
+        match &self.content {
+            Content::Bytes(_) => self.range().len() as u64,
+            Content::Zeros(size) => self.offset.saturating_add(self.length).min(*size).saturating_sub(self.offset),
+        }
     }
 
     /// The bytes `from..from + n` of the stream: the range, then filler.
     fn piece(&self, from: u64, n: u64) -> Vec<u8> {
-        let range = self.range();
-        let start = usize::try_from(from).unwrap_or(usize::MAX).min(range.len());
-        let n = usize::try_from(n).unwrap_or(usize::MAX);
-        let mut piece = range[start..range.len().min(start.saturating_add(n))].to_vec();
-        piece.resize(n, FILLER);
+        let mut piece = match &self.content {
+            Content::Bytes(_) => {
+                let range = self.range();
+                let start = usize::try_from(from).unwrap_or(usize::MAX).min(range.len());
+                let n = usize::try_from(n).unwrap_or(usize::MAX);
+                range[start..range.len().min(start.saturating_add(n))].to_vec()
+            }
+            Content::Zeros(_) => vec![0; usize::try_from(self.have().saturating_sub(from).min(n)).unwrap_or(0)],
+        };
+        piece.resize(usize::try_from(n).unwrap_or(usize::MAX), FILLER);
         piece
     }
 }
@@ -154,7 +190,7 @@ async fn stream(plan: &Plan, frames: &mpsc::Sender<Vec<u8>>, ctl: &DownloadCtl) 
     }
 
     let extra = if let Some(StreamFault::ExtraBytes(extra)) = &plan.fault { *extra } else { 0 };
-    let total = plan.length.min(plan.range().len() as u64).saturating_add(extra);
+    let total = plan.length.min(plan.have()).saturating_add(extra);
     let limit = if let Some(StreamFault::ErrorAfter { bytes, .. }) = &plan.fault { total.min(*bytes) } else { total };
     let chunk_bytes = plan.chunk_bytes.max(1) as u64;
     let mut sent = 0;
