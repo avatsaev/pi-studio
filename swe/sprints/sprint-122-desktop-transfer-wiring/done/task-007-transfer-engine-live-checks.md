@@ -1,7 +1,7 @@
 # Task 007 — Linux live checks of the engine in the real webview, and the documents
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop, docs
 - **Priority:** P1

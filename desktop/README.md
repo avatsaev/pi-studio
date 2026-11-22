@@ -11,8 +11,11 @@ through the installed `pi-studio` CLI. Passwords and pairing links are kept in t
 system's keychain when it answers, else in a file only the user can read, never in `daemons.json`.
 The socket to a local or direct daemon is opened by Rust (the page asks `transport_open` and connects to
 the loopback address it answers; a relay entry keeps the webview's own socket). File uploads and saves for a
-local or direct entry run in Rust on a connection of their own (`transfer_upload`, `transfer_save`,
-`transfer_cancel` and the `transfer_progress` event; `--transfers page` turns that off). Built and checked on Linux (the keychain too: a Secret Service, and the file
+local or direct entry run in Rust on a connection of their own: the Upload button opens the platform's file dialog, up
+to three transfers run at once and the rest wait, each shows a percentage and a Cancel button in the Files explorer,
+and one that loses its connection continues by itself (`transfer_upload`, `transfer_save`,
+`transfer_cancel` and the `transfer_progress` event; `--transfers page` turns that off, and a relay entry or a file
+dropped on the window keeps the page's own path). Built and checked on Linux (the keychain too: a Secret Service, and the file
 fallback); on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
 Behind the window, the Rust crates hold an engine with the registry, the settings and the stored
 workbench state, a command registry (every action is a command), generated menus and a control

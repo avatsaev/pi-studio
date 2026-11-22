@@ -544,7 +544,10 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 ## TODO(verify)
 
 - [ ] The values of S3 are chosen, not measured. The check's run should report how often the
-  liveness limit and the 1 MiB hold were reached.
+  liveness limit and the 1 MiB hold were reached. (Live run 2026-11-22, sprint-122/task-007: not
+  answered. Nothing counts either event: `ui.inspect` has no counter for them, and the run never
+  froze a socket, so the 30 s limit was not reached (a stopped daemon and a cut socket both ended
+  the connection at once). The 5 GiB run needs counters or log lines for both.)
 - [x] R4 stops reading a session's socket. Measured in sprint-118/task-003 with the daemon's
   writes slowed to about 28 MiB/s: another request on the same connection waits about 0.15 s in
   the median and 0.25 s at most (0.5 s over a relay), and a second client over the same relay is
@@ -554,21 +557,38 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 - [ ] R3's temporary file is visible in the explorer while an upload runs (seen in
   sprint-118/task-003: the listing shows `.pistudio-upload-<hex>.part` and drops it when the
   upload ends), and a daemon that dies leaves it. Decide whether the listing hides the pattern
-  and whether the daemon removes old ones at start.
+  and whether the daemon removes old ones at start. (Live run 2026-11-22: both halves of the
+  fact seen in the desktop app. A `kill -9` of the daemon during an upload left a 25 624 576 byte
+  `.pistudio-upload-<hex>.part`; it stayed through the daemon's restart and the explorer listed it
+  greyed. A clean cancel, a cut socket and a failure left none. The decision is still open.)
 - [ ] A command that stays unanswered for hours (a transfer that waits overnight, D12): confirm on
   the three webviews that its answer still arrives after a sleep. If it does not, the settlement
-  moves into `transfer_progress` and the commands answer at once.
+  moves into `transfer_progress` and the commands answer at once. (Live run 2026-11-22: on
+  WebKitGTK, a `transfer_save` left pending for 631 s with the daemon stopped answered when the
+  daemon returned, hash equal. Hours, a sleep of the machine, WKWebView and WebView2 are not
+  tried.)
 - [ ] `minDaemonVersion` (R1) names a release that does not exist yet: set it when the daemon
   changes are released, and release them before or with the app.
-- [ ] The native open dialog has never been shown by this app (`platform-checks.md` N3 notes the
-  missing picker). Its behaviour on macOS and Windows is unverified.
+- [x] The native open dialog has never been shown by this app (`platform-checks.md` N3 notes the
+  missing picker). Its behaviour on macOS and Windows is unverified. (Live run 2026-11-22: on
+  Linux the app shows GTK's "Open File" dialog, parented to the main window, for the Upload
+  button; a path typed with `xdotool`, and a directory's files selected with `ctrl+a`, came back
+  as the picked files; Cancel answers `[]` and starts nothing. macOS and Windows: not tried.)
 - [ ] How the 5 GiB check drives the native picker and reads the page's memory in the headless
-  container (milestone 2 drove the save dialog with `xdotool` in `pi-desktop-xvfb`).
+  container (milestone 2 drove the save dialog with `xdotool` in `pi-desktop-xvfb`). (Live run
+  2026-11-22: the picker is driven as the save dialog is, `xdotool` in the container, see
+  `desktop/docs/development.md` § The transfer engine in the real webview. Reading the page's
+  memory is the unchanged recipe of § The transport proxy in the real webview, not run here.)
 - [ ] Whether the runner scripts can run a transfer through the page on macOS (no WebDriver
   there). If not, the runners cover the engine through the Rust tests only.
 - [ ] Where standard error goes when the app is started from the desktop on each system, since the
   log now carries file paths (D19).
-- [ ] `hello.appVersion`: the fixture's form (`pistudiodesktop/<version>`) is used; confirm it is
-  what the page sends, so that `daemon_status` shows the two connections alike.
-- [ ] A saved file gets the time of the save, not the daemon file's `mtimeMs`, as today. Not asked
-  in the grill.
+- [x] `hello.appVersion`: the fixture's form (`pistudiodesktop/<version>`) is used; confirm it is
+  what the page sends, so that `daemon_status` shows the two connections alike. (Live run
+  2026-11-22: it is not. The bulk connection's client shows `appVersion: "pistudiodesktop/0.2.0"`,
+  `platform: "desktop"` and `agentStreams: "none"`; the page's client shows `platform: "desktop"`
+  and no `appVersion`: the workbench never sets the SDK's `appVersion` option. The two do not
+  look alike; passing it from the desktop host would make them.)
+- [x] A saved file gets the time of the save, not the daemon file's `mtimeMs`, as today. Not asked
+  in the grill. (Live run 2026-11-22: confirmed for the engine's save: a file saved at 17:15:58
+  from a daemon file of 16:42:31 has 17:15:58.)

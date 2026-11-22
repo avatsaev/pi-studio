@@ -30,8 +30,19 @@ it the connection bar never shows the message or Retry. Checked live on Linux (2
 `docs/development.md` § The transport proxy in the real webview). The runner workflow also checks it
 on macOS (the local daemon's transport, the wake signal, the login keychain) and on Windows (a stand-in
 daemon, the wake signal, the Credential Manager); those checks are written and tested on Linux and wait for their first run.
-Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
-picker and a file dragged from the OS were not verified in the headless container.
+Milestone 3 (the transfer engine) is built in Rust and wired to the workbench: for a `local` or `direct` entry
+the Upload button opens the native open dialog (`upload_pick`) and an upload or a save runs on a second
+connection of Rust's own (`transfer_upload`, `transfer_save`, `transfer_cancel`, the `transfer_progress` event;
+`--transfers page` turns it off, a relay entry, a dropped file and a `Blob` keep the page's path). Checked live
+on Linux against a production daemon (2026-11-22, sprint-122/task-007; `docs/development.md` § The transfer
+engine in the real webview): the native open and save dialogs driven with `xdotool`, three at once and the
+rest queued, a connection cut or a daemon stopped mid-transfer (a save resumes, an upload starts again), a
+refused password, a changed daemon file, the switch and window-close questions, the page's path, and a
+command left pending for 10 minutes. The 5 GiB check and its pass marks are sprint 123's; macOS and Windows
+run only the automated checks.
+Known gaps: a layout change in the last ~250 ms before the window closes is lost; a file dragged from the OS
+file manager was not tried (the page's drop was dispatched as an event); a `kill -9`ed daemon leaves its
+`.pistudio-upload-<hex>.part` for good, and the explorer lists it.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
