@@ -1,7 +1,7 @@
 # Grill — Desktop relay in Rust and SSH entries (milestone 4)
 
 > Status: grilling
-> Started: 2026-11-22   Last updated: 2026-11-22   Rounds: 1
+> Started: 2026-11-22   Last updated: 2026-11-22   Rounds: 3
 > Engineer: avatsaev   Agent: Claude (omp)
 > Round 1 was recon plus the agent's proposed decisions. The owner asked not to be asked about
 > low-impact points (2026-11-22), so every decision below is the agent's until the owner confirms
@@ -131,6 +131,9 @@ All agent-proposed in round 1, pending the owner's readout.
 | D18 | agent | Agent socket for an app opened from the dock | `SSH_AUTH_SOCK` comes from the login-shell environment the app already reads (`shell_env.rs`). Windows: the OpenSSH pipe, then Pageant | A dock launch does not inherit the shell's agent | 1 |
 | D19 | acceptance | "Same behaviour as direct" for transfers | Correct bytes and bounded memory, measured and recorded; no speed mark | `relay-multi-client.md` D18 already set this for the relay | 1 |
 | D20 | acceptance | Where it is checked | Linux, in the Docker image, with a real relay from the repo and an sshd in the image, each in front of a daemon on loopback | Owner: no manual testing, no macOS/Windows checks | 1 |
+| D21 | scope | Shape of the remote command runner | One general piece: run a command on the host over the SSH connection, with a time limit and its output captured and never logged. Start is its first user | **Owner accepted, 2026-11-22.** The later installer (milestone 6) reuses it | 3 |
+| D22 | scope | `pi-studio` missing on the host | Its own state on the entry's row, `not_installed`, apart from `cli_outdated` and "not running". The row shows the install command with a copy button. The same place takes an Install button later | **Owner accepted, 2026-11-22.** | 3 |
+| D23 | scope | Adding an SSH entry | The Add form lists the hosts of `~/.ssh/config` (the `Host` names without wildcards); choosing one fills the form. Typing a host by hand stays possible | **Owner accepted, 2026-11-22**: first use is a priority | 3 |
 
 ## Data & state
 
@@ -139,8 +142,8 @@ All agent-proposed in round 1, pending the owner's readout.
   to the page and the native menu gives `user@host:port` as the address.
 - Secret kinds added: SSH password, key passphrase. Removing the entry removes all three.
 - `known_hosts` in the app's config directory, OpenSSH format, append-only from the app.
-- Per-entry remote state for the current SSH entry (running, not running, starting, failed), in
-  memory only.
+- Per-entry remote state for the current SSH entry (running, not running, not installed, CLI
+  outdated, starting, failed), in memory only.
 - Relay: nothing new on disk.
 
 ## Integration points
@@ -201,6 +204,14 @@ All agent-proposed in round 1, pending the owner's readout.
 - A runtime prompt for a missing passphrase or password (D12).
 - `ProxyCommand`, `Match`, `%` tokens (D10).
 - Checks on macOS and Windows, including the Windows agent (D20).
+- **Owner, 2026-11-22, for a later milestone:** install and set up the daemon on the host through
+  the SSH connection, and register it as a service that starts with the machine where that is
+  possible, to make first use easy. First-use experience is a high priority for the owner. Not
+  part of milestone 4. **Owner, 2026-11-22: it waits for milestone 6** (the single-file daemon),
+  because today the host needs Node 22 and npm. Milestone 4 leaves room through D21 and D22.
+- Ideas for first use the agent offered and the owner did not take up for milestone 4: a Test
+  connection button with a result per step; a first-run screen with three choices (this machine,
+  SSH, pairing link); a prompt to sign in to a model provider after the first connection.
 
 ## Open questions — TODO(verify)
 
@@ -222,6 +233,9 @@ All agent-proposed in round 1, pending the owner's readout.
   key, the agent, a password, and through a jump host.
 - [ ] An unknown host key shows the dialog; a changed key is refused.
 - [ ] With the daemon stopped, Start brings it up and the entry connects.
+- [ ] On a host without `pi-studio`, the row says it is not installed and shows the install
+  command with a copy button.
+- [ ] The Add form lists the hosts of `~/.ssh/config`; choosing one and saving gives a working entry.
 - [ ] After `kill -STOP`/`-CONT` of the app and after a network change, relay and SSH entries
   reconnect without a reload.
 
@@ -230,6 +244,8 @@ All agent-proposed in round 1, pending the owner's readout.
 | Round | Theme | Summary |
 |-------|-------|---------|
 | 1 | recon + all themes | Three read-only recons (relay wire, desktop transport, SSH). The agent proposed D1–D20 for the owner's readout |
+| 2 | scope (owner's question) | The owner asked whether a later automatic install and boot service over SSH must be accounted for now. The agent answered no, with two small choices to leave room |
+| 3 | scope | The owner accepted: the install waits for milestone 6; the general command runner (D21); the not-installed state with the install command (D22); the host list from `~/.ssh/config` (D23) |
 
 ## Handoff to scope
 
