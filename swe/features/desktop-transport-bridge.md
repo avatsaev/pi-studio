@@ -292,7 +292,8 @@ probes, where the platform allows it). Rust answers WebSocket pings; it sends no
 connection: {
   secretStore: "keychain" | "file" | "memory",
   transports: [ { entryId, state: "connecting" | "open" | "closing",
-                  framesIn, framesOut, bytesIn, bytesOut } ],
+                  framesIn, framesOut, bytesIn, bytesOut,
+                  peakHeldIn, peakHeldOut } ],
   lastError: { code, atMs } | null,
   resumeSignals: { wake: number, network: number }
 }
@@ -302,9 +303,14 @@ No address, no secret, no frame content.
 
 A transport is `connecting` from `transport_open` until the page's upgrade is accepted, `open`
 while the pump runs, and `closing` during a close handshake. `framesIn` and `bytesIn` count what
-went from the daemon to the page. `lastError.code` is an error code of `transport_open`, or one of
+went from the daemon to the page. `peakHeldIn` and `peakHeldOut` are the most bytes Rust held for
+that connection in one direction at any moment (sprint-115/task-002; the Bridge criterion for a
+1 GiB file reads them). `lastError.code` is an error code of `transport_open`, or one of
 `page_refused`, `page_timeout`, `upstream_lost`, `too_large` for a connection that ended
-abnormally. The token and `localUrl` are never in this view.
+abnormally. When no page gets in time it is `page_refused` if the gate refused at least one
+attempt and `page_timeout` otherwise; `page_refused` is also recorded when the page's leg breaks
+the protocol after getting in (invalid UTF-8, for example); a page that simply leaves (a reload)
+records nothing. The token and `localUrl` are never in this view.
 
 ### 8. Where the code lives
 
@@ -330,15 +336,18 @@ transport_open(url):
     refuse not_bridged       when entry.kind is relay
     refuse address_mismatch  when url differs from the entry's stored address after the address rule
     refuse invalid_address   when the scheme is not ws or wss, or the URL has user information
-    refuse limit             when 4 proxied connections exist
+    reservation = Proxies::reserve(entry.id)   refuse limit when 4 proxied connections exist
+                                               (reserved before the dial: a fifth never dials)
     origin = the calling webview's origin
     password = blocking pool: secret store get(entry.id, password), if the registry says it has one
     refuse secret_missing    when the registry says so and the store has none
     within 15 s overall:
         resolve, connect, TLS for wss, WebSocket upgrade with the bearer subprotocol if any
     on failure: the matching error of § Error handling
-    bind 127.0.0.1 on a free port; token = 256 random bits        (proxy_failed)
-    register the connection (entry id, counters, state connecting)
+    reservation.open(daemon socket, origin)    bind 127.0.0.1 on a free port; token = 256 random
+                                               bits (proxy_failed; also refused when the socket's
+                                               message cap exceeds 128 MiB)
+    the connection is registered since reserve (entry id, counters, state connecting)
     in a task:
         accept one upgrade that passes § 3's checks, within 10 s
             accepted -> close the listener; state open; pump both directions until either leg
@@ -480,7 +489,7 @@ Gates and documents:
 - **The keychain crate (answered, 2026-11-21, sprint-113/task-002).** `keyring-core` with one store crate per platform (`zbus-secret-service-keyring-store`, `apple-native-keyring-store`, `windows-native-keyring-store`), all MIT OR Apache-2.0 with their dependencies; the Linux backend needs a D-Bus session bus and a Secret Service, and is pure Rust. The macOS and Windows crates were not compiled or run here.
 - **How the engine reaches the store without blocking the owner thread (answered, sprint-113/task-004 and 005).** A pure `plan` on the owner thread and a `finish` or `SecretJob` step on a worker thread; see `desktop/docs/architecture.md` § Decisions and § Threads.
 - **macOS and an unsigned build**: whether the keychain prompts after every update, and whether a GitHub runner can use a keychain unattended.
-- **The TLS crates' licences** (`rustls` with `ring`, the platform certificate verifier) against the permissive-only rule, and whether `ring` builds on all three runners without extra tools.
+- **The TLS crates' licences (answered, 2026-11-22, sprint-115/task-001).** `rustls` 0.23 (Apache-2.0 OR ISC OR MIT) with `ring` 0.17.14 (Apache-2.0 AND ISC, no OpenSSL or SSLeay text) and `rustls-platform-verifier` 0.7.1 (MIT OR Apache-2.0); all permissive; `ring` needs a C compiler only, read from its `build.rs`. The macOS and Windows builds are not seen yet (the runners will show them), and the expired-certificate reason is not checked on Apple, where the platform verifier may not report it.
 - **The interface-address crate (answered, 2026-11-21).** `if-addrs` 0.15.0 (MIT OR BSD-3-Clause; read), 16 µs per reading on Linux (median of 200). Its macOS and Windows builds are not seen yet (the runners will show them).
 - **Largest frame either side sends (answered, 2026-11-21).** Largest daemon text frame seen: 5,243,061 bytes (a 5 MiB `file_read_request`); largest binary: 553,220 bytes (a terminal `Output` frame); the client's largest: 32,770 bytes (an upload chunk). 128 MiB leaves ample room. Measured with the mock provider's small rows only: a session with large tool outputs was not measured.
 - **Whether the app's 2 s tick runs while macOS naps a hidden app.** A stalled tick looks like a wake; the 5 s rate limit bounds the cost.
@@ -488,5 +497,6 @@ Gates and documents:
 - **A page memory dump** as evidence that the password is absent: how to take one from WebKitGTK. If it cannot be done, the criterion is argued from the code path (the password is never an input or an output of a page command).
 - **Security software and the loopback leg (the proxy, T5).** Whether a firewall or endpoint-security product objects to an application that listens on `127.0.0.1` for a moment, or to a page connecting there. Not tested: the benchmark ran on stock runners. The Windows and macOS manual checks (sprint 117) look for a prompt.
 - **A later webview that restricts loopback.** The page at `tauri://localhost` (or `http://tauri.localhost` on Windows) opened `ws://127.0.0.1:<port>` on WKWebView, WebView2 157 and WebKitGTK in the benchmark. Browsers have been tightening access to local addresses; whether that will reach an application's own page was not looked into. A failure shows as `local_connection`.
-- **Parts of §§ 2–3 the benchmark's proxy did not have:** the bearer subprotocol on the daemon's leg and its echo not being passed back, the `Host` check, TLS on the daemon's leg, the 128 MiB cap, and the 2 s close wait (the benchmark used 5 s). They are read from the SDK, the daemon and this document, not measured.
-- **A close frame's answer.** In the benchmark the answer to a forwarded close is the WebSocket library's echo of that code, not the other side's own answer. No client reads the answer, so this is expected to be harmless; to confirm against the SDK's close handling.
+- **Parts of §§ 2–3 the benchmark's proxy did not have (answered in tests, 2026-11-22, sprint-115/task-001 and 002).** The bearer subprotocol on the daemon's leg, the `Host` check, TLS on the daemon's leg, the 128 MiB cap and the 2 s close wait are now tested in `pistudiodesktop-net` against local servers. Not tested: a failed bind, a failed random read, a half-open socket. The daemon always echoes the bearer subprotocol; tungstenite fails the upgrade if a subprotocol is offered and none is answered, so a middlebox that strips it gives `handshake`.
+- **A close frame's answer.** In the benchmark and in `net` the answer to a forwarded close is the WebSocket library's echo of that code, not the other side's own answer. No client reads the answer, so this is expected to be harmless; to confirm against the SDK's close handling.
+- **The layer check let `net` depend on a UI crate (found and closed, 2026-11-22, sprint-115/task-002).** `UI_MIN_LAYER = 6` allowed every layer at 6 or above, and `net` is layer 7; `xtask/src/layers.rs` now allows `tauri`, `wry` and `tao` at layer 6 only, with a test.

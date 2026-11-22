@@ -2,8 +2,9 @@
 
 use std::fmt;
 
-/// The error codes of `transport_open` that the daemon's leg can produce. [`ErrorCode::as_str`] is
-/// the string the page sees; it never changes once released.
+/// The error codes of `transport_open` that this crate can produce: the daemon's leg (the dial)
+/// and the page's (the proxy). [`ErrorCode::as_str`] is the string the page sees; it never changes
+/// once released.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     /// The address is not a `ws` or `wss` address, has user information or a password that a
@@ -22,6 +23,11 @@ pub enum ErrorCode {
     Handshake,
     /// The time limit passed.
     Timeout,
+    /// The set of connections is full: a fifth was asked for.
+    Limit,
+    /// The proxy could not bind `127.0.0.1` or get random bytes for the token, or was handed a
+    /// socket that does not have the message limit.
+    ProxyFailed,
 }
 
 impl ErrorCode {
@@ -36,6 +42,8 @@ impl ErrorCode {
             Self::HostNotAllowed => "host_not_allowed",
             Self::Handshake => "handshake",
             Self::Timeout => "timeout",
+            Self::Limit => "limit",
+            Self::ProxyFailed => "proxy_failed",
         }
     }
 }
@@ -109,6 +117,34 @@ impl fmt::Display for DialError {
 
 impl std::error::Error for DialError {}
 
+/// A connection the proxy could not set up. `message` is written for a person and never holds the
+/// token, the local address or the password.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProxyError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl ProxyError {
+    pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
+    }
+}
+
+impl fmt::Debug for ProxyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProxyError").field("code", &self.code.as_str()).field("message", &self.message).finish()
+    }
+}
+
+impl fmt::Display for ProxyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code.as_str(), self.message)
+    }
+}
+
+impl std::error::Error for ProxyError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +159,8 @@ mod tests {
             (ErrorCode::HostNotAllowed, "host_not_allowed"),
             (ErrorCode::Handshake, "handshake"),
             (ErrorCode::Timeout, "timeout"),
+            (ErrorCode::Limit, "limit"),
+            (ErrorCode::ProxyFailed, "proxy_failed"),
         ];
         for (code, name) in all {
             assert_eq!(code.as_str(), name);

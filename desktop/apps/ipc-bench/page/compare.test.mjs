@@ -39,7 +39,7 @@ test("each threshold can fail", () => {
     summary("B1", "", { medianMs: 3, p99Ms: 9, meanMs: 1.5 }),
     summary("B2", "256KiB", { mibPerS: 39.9 }),
     summary("B3", "", { framesPerS: 4999 }),
-    summary("B4", "", { mibPerS: 700, "memory.growthKiB": 80 * 1024 }),
+    summary("B4", "", { mibPerS: 700, "memory.growthKiB": 300000 + 64 * 1024 + 1 }),
     summary("B5", "", { mibPerS: 44, bufferedAmountEnd: 5 }),
   ];
   const rows = compare(results(candidate, baseline));
@@ -50,6 +50,24 @@ test("each threshold can fail", () => {
   assert.equal(find(rows, "B4", "memory").pass, false);
   assert.equal(find(rows, "B5", "MiB/s").pass, false, "44 is below half of 90");
   assert.equal(find(rows, "B5", "bufferedAmount").pass, false);
+});
+
+test("B4's memory is judged against the baseline's growth in the same run, plus 64 MiB (P14)", () => {
+  const memory = (candidateKiB, baselineKiB) => {
+    const base = [summary("B4", "", { mibPerS: 1600, ...(baselineKiB === undefined ? {} : { "memory.growthKiB": baselineKiB }) })];
+    const rows = compare(results([summary("B4", "", { mibPerS: 900, "memory.growthKiB": candidateKiB })], base));
+    return find(rows, "B4", "memory");
+  };
+  assert.equal(memory(300000, 300000).pass, true, "the same growth as the baseline");
+  assert.equal(memory(300000 + 64 * 1024, 300000).pass, true, "exactly 64 MiB more");
+  assert.equal(memory(300000 + 64 * 1024 + 1, 300000).pass, false, "one KiB over");
+  assert.equal(memory(80 * 1024, 1000).pass, false, "a small baseline leaves only the 64 MiB: 80 MiB is too much");
+  assert.equal(memory(60 * 1024, 1000).pass, true);
+  const judged = memory(80 * 1024, 1000);
+  assert.equal(judged.baseline, 1000, "the baseline's number is shown beside the candidate's");
+  assert.match(judged.rule, /baseline's 1000/);
+  assert.equal(memory(1000, undefined).pass, false, "no baseline growth in the run: nothing to compare with");
+  assert.equal(compare(results([summary("B4", "", { mibPerS: 900 })], baseline)).find((r) => r.metric.startsWith("memory")).pass, false, "no growth measured");
 });
 
 test("where the timer is fine, the median and the 99th percentile decide B1", () => {

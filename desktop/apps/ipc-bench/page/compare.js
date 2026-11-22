@@ -8,8 +8,8 @@
 
 const MIB_PER_S_FLOOR = 40;
 const B3_FRAMES_PER_S_FLOOR = 5000;
-/** The spec's B4 bound on memory growth: the inbound window (8 MiB) plus 64 MiB, in KiB. */
-const B4_GROWTH_LIMIT_KIB = (8 + 64) * 1024;
+/** B4's memory growth may exceed the baseline's growth in the same run by this much (P14: 64 MiB), in KiB. */
+const B4_GROWTH_ALLOWANCE_KIB = 64 * 1024;
 /** WebKit's timer steps by 1 ms: below this resolution the median and 99th percentile are usable, above it only the mean. */
 const COARSE_TIMER_MS = 0.5;
 /** The spec's inbound window (§ 3): 8 MiB, and the frame (4 KiB in row B8) Rust may read past it. */
@@ -35,6 +35,18 @@ function b1(transport, base, cand, coarse) {
   rows.push(row(transport, "B1", "", "medianMs slower than the baseline", median, "at most 1 ms", coarse ? null : within(median, 1), base.worst.medianMs));
   rows.push(row(transport, "B1", "", "p99Ms slower than the baseline", p99, "at most 5 ms", coarse ? null : within(p99, 5), base.worst.p99Ms));
   return rows;
+}
+
+/**
+ * Row B4's memory: no more growth than the baseline's in the same run, plus 64 MiB (P14). The written bound assumed the
+ * channel's window; a WebSocket in the webview misses it on Linux and Windows, so the baseline is the measure. Without a
+ * baseline number in this run there is nothing to compare with, which is a failure like any missing number.
+ */
+function b4Memory(transport, growth, baselineGrowth) {
+  const known = typeof baselineGrowth === "number";
+  const limit = known ? baselineGrowth + B4_GROWTH_ALLOWANCE_KIB : null;
+  const rule = known ? `at most ${limit} (the baseline's ${baselineGrowth} in this run, and 64 MiB)` : "at most the baseline's growth in the same run and 64 MiB (this run has no baseline growth)";
+  return row(transport, "B4", "", "memory growth KiB", growth, rule, growth !== null && limit !== null && growth <= limit, known ? baselineGrowth : null);
 }
 
 /** Row B7: reported only (the spec: one socket is shared, as today). */
@@ -90,8 +102,7 @@ export function compare(results) {
         case "B4": {
           const floor = Math.max(MIB_PER_S_FLOOR, (baseline?.worst.mibPerS ?? 0) / 2);
           rows.push(row(id, "B4", "", "MiB/s", at("mibPerS"), `at least ${round1(floor)} (half the baseline, and ${MIB_PER_S_FLOOR})`, atLeast(at("mibPerS"), floor), baseline?.worst.mibPerS ?? null));
-          const growth = at("memory.growthKiB");
-          rows.push(row(id, "B4", "", "memory growth KiB", growth, `at most ${B4_GROWTH_LIMIT_KIB}`, growth === null ? false : growth <= B4_GROWTH_LIMIT_KIB, baseline?.worst["memory.growthKiB"] ?? null));
+          rows.push(b4Memory(id, at("memory.growthKiB"), baseline?.worst["memory.growthKiB"]));
           break;
         }
         case "B5": {

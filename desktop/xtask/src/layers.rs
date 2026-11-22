@@ -26,7 +26,7 @@ impl Class {
         match self {
             Class::Layer(l) => Some(l),
             Class::Standalone => Some(0),
-            Class::Testkit => Some(UI_MIN_LAYER),
+            Class::Testkit => Some(UI_LAYER),
             Class::Exempt => None,
         }
     }
@@ -42,7 +42,7 @@ impl Class {
 /// L4  io, plugins         import/export orchestration
 /// L5  engine              Session + command registry
 /// L6  shell, automation  the shell (what the webview draws), the MCP server
-/// L7  net                 sockets and the bridge's pure parts: only an app binary may use it
+/// L7  net                 sockets: the dial and the loopback proxy. Only an app binary may use it, and it uses no UI crate
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
     ("model", Class::Layer(1)),
@@ -69,8 +69,10 @@ pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["store", "secrets"]];
 /// windows and no webviews.
 pub const UI_CRATES: &[&str] = &["tauri*", "wry", "tao", "muda", "webview2*", "webkit2gtk*", "winit", "rfd"];
 
-/// The first layer allowed to use [`UI_CRATES`].
-pub const UI_MIN_LAYER: u8 = 6;
+/// The one layer allowed to use [`UI_CRATES`]. Not "this layer and above": `net` sits above it so that
+/// nothing layered can depend on it, which does not make it a UI crate, and a socket crate must never
+/// be able to pull in a window.
+pub const UI_LAYER: u8 = 6;
 
 pub fn short_name(pkg: &str) -> &str {
     pkg.strip_prefix(PREFIX).unwrap_or(pkg)
@@ -123,7 +125,7 @@ pub enum Violation {
     Upward { krate: String, dep: String, from: u8, to: u8 },
     StandaloneHasWorkspaceDep { krate: String, dep: String },
     TestkitAsNormalDep { krate: String },
-    UiBelowUiLayer { krate: String, dep: String, layer: u8 },
+    UiOutsideUiLayer { krate: String, dep: String, layer: u8 },
 }
 
 impl std::fmt::Display for Violation {
@@ -133,7 +135,7 @@ impl std::fmt::Display for Violation {
             Violation::Upward { krate, dep, from, to } => write!(f, "{krate} (L{from}) depends on {dep} (L{to}): a crate may depend only on lower layers"),
             Violation::StandaloneHasWorkspaceDep { krate, dep } => write!(f, "{krate} is standalone but depends on workspace crate {dep}"),
             Violation::TestkitAsNormalDep { krate } => write!(f, "{krate} uses the testkit outside [dev-dependencies]"),
-            Violation::UiBelowUiLayer { krate, dep, layer } => write!(f, "{krate} (L{layer}) depends on UI crate {dep}: only L{UI_MIN_LAYER} and above may"),
+            Violation::UiOutsideUiLayer { krate, dep, layer } => write!(f, "{krate} (L{layer}) depends on UI crate {dep}: only L{UI_LAYER} may"),
         }
     }
 }
@@ -153,8 +155,8 @@ pub fn check(crates: &[Crate]) -> Vec<Violation> {
                 continue;
             }
             if !d.workspace {
-                if layer < UI_MIN_LAYER && is_ui_crate(&d.name) {
-                    out.push(Violation::UiBelowUiLayer { krate: c.name.clone(), dep: d.name.clone(), layer });
+                if layer != UI_LAYER && is_ui_crate(&d.name) {
+                    out.push(Violation::UiOutsideUiLayer { krate: c.name.clone(), dep: d.name.clone(), layer });
                 }
                 continue;
             }
@@ -169,7 +171,7 @@ pub fn check(crates: &[Crate]) -> Vec<Violation> {
                 Some(Class::Testkit) => {}
                 Some(dep_class) => {
                     // Apps (exempt) sit above every layer: nothing layered may depend on one.
-                    let to = dep_class.layer().unwrap_or(UI_MIN_LAYER + 1);
+                    let to = dep_class.layer().unwrap_or(UI_LAYER + 1);
                     if to >= layer && !(to == layer && intra_layer_allowed(&c.name, &d.name)) {
                         out.push(Violation::Upward { krate: c.name.clone(), dep: d.name.clone(), from: layer, to });
                     }
@@ -276,6 +278,20 @@ mod tests {
             "pistudiodesktop-store (L3) depends on pistudiodesktop-net (L7)",
         ] {
             assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn only_the_ui_layer_may_use_a_ui_crate_so_net_may_not() {
+        let crates = [
+            krate("pistudiodesktop-shell", &[("tauri", DepKind::Normal, false)]),
+            krate("pistudiodesktop-net", &[("tauri", DepKind::Normal, false), ("wry", DepKind::Dev, false), ("tokio", DepKind::Normal, false)]),
+            krate("pistudiodesktop", &[("pistudiodesktop-net", DepKind::Normal, true), ("tauri", DepKind::Normal, false)]),
+        ];
+        let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        for expected in ["pistudiodesktop-net (L7) depends on UI crate tauri: only L6 may", "pistudiodesktop-net (L7) depends on UI crate wry: only L6 may"] {
+            assert!(found.iter().any(|f| f == expected), "missing `{expected}` in {found:#?}");
         }
     }
 

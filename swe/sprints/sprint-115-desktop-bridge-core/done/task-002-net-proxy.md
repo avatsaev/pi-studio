@@ -1,7 +1,7 @@
 # Task 002 — `net` crate: the loopback proxy (the page's leg, the pump, limits, the set of connections)
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/net, desktop/apps/ipc-bench
 - **Priority:** P1

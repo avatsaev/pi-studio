@@ -12,11 +12,11 @@
 //!
 //! **Inbound** has two variants, chosen per connection: [`Inbound::Frame`] sends one channel message
 //! per WebSocket message (raw for binary, JSON for text); [`Inbound::Batch`] sends batches in the
-//! `net` codec's format, flushed when 64 KiB is waiting or the socket has nothing more to give right
-//! now. Either way the `net` crate's [`InboundWindow`] counts the payload bytes sent and not yet
+//! codec's format (`codec.rs`), flushed when 64 KiB is waiting or the socket has nothing more to give right
+//! now. Either way the [`InboundWindow`] counts the payload bytes sent and not yet
 //! acknowledged, and the read task stops reading while it says so.
 //!
-//! **Outbound** frames pass through the `net` crate's [`OrderBuffer`]: a frame whose `seq` is not the
+//! **Outbound** frames pass through the [`OrderBuffer`]: a frame whose `seq` is not the
 //! next waits for the ones before it. The write task writes in order, flushing once per group of
 //! queued frames, and answers each command after the flush.
 //!
@@ -33,8 +33,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
-use pistudiodesktop_net::limits::{MAX_MESSAGE_BYTES, WINDOW_HIGH_BYTES};
-use pistudiodesktop_net::{InboundWindow, Item, OrderBuffer, decode, encode_binary, encode_text};
+use pistudiodesktop_net::limits::MAX_MESSAGE_BYTES;
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody};
 use tokio::net::TcpStream;
@@ -44,7 +43,11 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
 use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
+use crate::codec::{Item, decode, encode_binary, encode_text};
+use crate::limits::WINDOW_HIGH_BYTES;
+use crate::order::OrderBuffer;
 use crate::server::Fed;
+use crate::window::InboundWindow;
 
 /// A batch is sent when this many bytes are waiting.
 const BATCH_FLUSH_BYTES: usize = 64 * 1024;

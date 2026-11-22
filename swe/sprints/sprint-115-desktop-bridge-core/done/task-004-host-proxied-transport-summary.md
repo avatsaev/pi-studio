@@ -25,4 +25,4 @@ New: `src/host/proxied-transport.ts`, `src/host/proxied-transport.test.ts` (5 te
 - [x] The app's gates and the root gates pass (wave gate).
 
 ## Follow-ups / TODO(verify)
-- The new files were not formatted by `oxfmt` (it printed "Expected at least one target file" for them; lint passes) — formatting of the app's files by `npm run fmt:check` is not a gate here; check in the sprint-end run.
+- `desktop/` is in the oxfmt ignore list (`.oxfmtrc.json`), which is why oxfmt reported no target for the new files; lint passes.

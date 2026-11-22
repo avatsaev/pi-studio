@@ -15,13 +15,19 @@
 
 mod bridge;
 mod bridge_commands;
+mod codec;
 mod commands;
 mod frame;
+mod limits;
+mod order;
 mod procs;
 mod proxy;
 mod proxy_commands;
 mod server;
+#[cfg(test)]
+mod testing;
 mod tick;
+mod window;
 
 use std::path::PathBuf;
 use std::time::Duration;

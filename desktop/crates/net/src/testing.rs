@@ -1,5 +1,5 @@
 //! A small deterministic generator for the generated-input tests (no dependency, same inputs on
-//! every run, so a failure reproduces).
+//! every run, so a failure reproduces). The benchmark keeps a copy with a shuffle for its own tests.
 
 /// xorshift64*: good enough to spread test inputs, not for anything else.
 pub struct Rng(u64);
@@ -42,13 +42,5 @@ impl Rng {
             }
         }
         out
-    }
-
-    /// Shuffle in place (Fisher-Yates).
-    pub fn shuffle<T>(&mut self, items: &mut [T]) {
-        for i in (1..items.len()).rev() {
-            let j = self.below(i + 1);
-            items.swap(i, j);
-        }
     }
 }

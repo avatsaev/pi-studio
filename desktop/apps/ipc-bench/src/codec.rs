@@ -4,7 +4,9 @@
 //! is UTF-8 text and kind 2 is binary. [`encode_text`] and [`encode_binary`] append one item to a
 //! buffer; [`decode`] walks a byte slice and yields the items or the first error, then stops.
 
-use crate::limits::{ITEM_HEADER_LEN, KIND_BINARY, KIND_TEXT, MAX_MESSAGE_BYTES};
+use pistudiodesktop_net::limits::MAX_MESSAGE_BYTES;
+
+use crate::limits::{ITEM_HEADER_LEN, KIND_BINARY, KIND_TEXT};
 
 /// One decoded message, borrowing the batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +16,8 @@ pub enum Item<'a> {
 }
 
 impl Item<'_> {
-    /// The length of the payload in bytes.
+    /// The length of the payload in bytes (only the tests read it).
+    #[cfg(test)]
     pub fn payload_len(&self) -> usize {
         match self {
             Item::Text(text) => text.len(),

@@ -100,7 +100,7 @@ impl<T> OrderBuffer<T> {
     }
 
     /// Fail when the open gap is older than [`SEND_ORDER_GAP`] at `now`. For a timer: sleep until
-    /// [`OrderBuffer::deadline`], then call this.
+    /// the gap's deadline, then call this.
     pub fn check_gap(&self, now: Instant) -> Result<(), OrderError> {
         match self.gap_since {
             Some(since) if now.saturating_duration_since(since) > SEND_ORDER_GAP => Err(OrderError::GapTooLong { expected: self.next }),
@@ -108,7 +108,8 @@ impl<T> OrderBuffer<T> {
         }
     }
 
-    /// The instant after which the open gap, if any, is too old.
+    /// The instant after which the open gap, if any, is too old. The benchmark polls [`OrderBuffer::check_gap`]; only the tests read this.
+    #[cfg(test)]
     pub fn deadline(&self) -> Option<Instant> {
         self.gap_since.and_then(|since| since.checked_add(SEND_ORDER_GAP))
     }
@@ -149,9 +150,9 @@ mod tests {
     #[test]
     fn an_early_frame_waits_and_leaves_with_the_ones_behind_a_late_arrival() {
         let (mut buffer, now) = (OrderBuffer::new(), Instant::now());
-        assert_eq!(push(&mut buffer, 2, now).unwrap(), []);
-        assert_eq!(push(&mut buffer, 1, now).unwrap(), []);
-        assert_eq!(push(&mut buffer, 4, now).unwrap(), []);
+        assert_eq!(push(&mut buffer, 2, now).unwrap(), Vec::<u64>::new());
+        assert_eq!(push(&mut buffer, 1, now).unwrap(), Vec::<u64>::new());
+        assert_eq!(push(&mut buffer, 4, now).unwrap(), Vec::<u64>::new());
         assert_eq!(buffer.waiting(), 3);
         assert_eq!(push(&mut buffer, 0, now).unwrap(), [0, 1, 2]);
         assert_eq!(buffer.waiting(), 1);
@@ -173,7 +174,7 @@ mod tests {
     fn the_sixty_fifth_early_frame_is_an_error_and_the_sixty_fourth_is_not() {
         let (mut buffer, now) = (OrderBuffer::new(), Instant::now());
         for seq in 1..=64 {
-            assert_eq!(push(&mut buffer, seq, now).unwrap(), []);
+            assert_eq!(push(&mut buffer, seq, now).unwrap(), Vec::<u64>::new());
         }
         assert_eq!(push(&mut buffer, 65, now), Err(OrderError::TooManyEarly { seq: 65, expected: 0 }));
         // A duplicate is reported as a duplicate even when the buffer is full.
@@ -222,8 +223,8 @@ mod tests {
     #[test]
     fn a_huge_number_waits_like_any_other_and_cannot_wrap_the_counter() {
         let (mut buffer, now) = (OrderBuffer::new(), Instant::now());
-        assert_eq!(push(&mut buffer, u64::MAX, now).unwrap(), []);
-        assert_eq!(push(&mut buffer, u64::MAX - 1, now).unwrap(), []);
+        assert_eq!(push(&mut buffer, u64::MAX, now).unwrap(), Vec::<u64>::new());
+        assert_eq!(push(&mut buffer, u64::MAX - 1, now).unwrap(), Vec::<u64>::new());
         assert_eq!(push(&mut buffer, 0, now).unwrap(), [0]);
         assert_eq!(buffer.expected(), 1);
     }

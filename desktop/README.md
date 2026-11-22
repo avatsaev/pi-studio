@@ -39,6 +39,7 @@ with hot reload. `npm run bundle` builds installers.
 | `crates/secrets` | L3: the secret store, with a keychain backend (macOS Keychain, Windows Credential Manager, the Secret Service), a file backend (`secrets.json`, mode 0600) and a memory backend |
 | `crates/engine` | L5: `Session`, the command registry, the registry, the settings and the stored workbench keys |
 | `crates/shell` | L6: UI state, the generated menu bar (with the Daemons menu), the control protocol, the page's commands and the local-daemon supervisor, with no UI toolkit in it |
+| `crates/net` | L7: sockets, native only: the dial to a daemon (TCP, TLS trusting the operating system's store, the WebSocket upgrade with the bearer subprotocol) and the loopback proxy that answers a single-use local URL the page's own `WebSocket` connects to; used by an app binary only |
 | `crates/testkit` | Test helpers |
 | `apps/pistudiodesktop` | The desktop app's web frontend: a shell that mounts the workbench and gives it a host |
 | `apps/pistudiodesktop/src-tauri` | The desktop app's Rust binary: the Tauri window, dialogs, the control server |
