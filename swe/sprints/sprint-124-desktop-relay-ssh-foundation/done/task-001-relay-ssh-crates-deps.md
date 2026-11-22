@@ -1,12 +1,12 @@
 # Task 001 — Crates `relay` and `ssh` with their dependencies, the layer table and the licences
 
 - **Sprint:** sprint-124-desktop-relay-ssh-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** desktop/Cargo.toml, desktop/crates/relay, desktop/crates/ssh, desktop/xtask/src/layers.rs, desktop/ATTRIBUTION.md
 - **Priority:** P1
 - **Estimated size:** M
-- **Depends on:** —
+- **Depends on:** none
 
 ## Goal
 Two new workspace crates exist and build, with every third-party dependency milestone 4 needs, and no `aws-lc` crate in the lock.

@@ -17,6 +17,8 @@ pistudiodesktop-engine = { path = "crates/engine" }
 pistudiodesktop-shell = { path = "crates/shell" }
 pistudiodesktop-net = { path = "crates/net" }
 pistudiodesktop-transfer = { path = "crates/transfer" }
+pistudiodesktop-relay = { path = "crates/relay" }
+pistudiodesktop-ssh = { path = "crates/ssh" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
 
 # external: versions live here only
@@ -54,6 +56,16 @@ keyring-core = "1"
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
 windows-native-keyring-store = "1"
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+# The relay client (`relay`): the NaCl box of relay protocol 2 (`SalsaBox`, MIT OR Apache-2.0, RustCrypto) and the session
+# id's hash. Checked byte for byte against the relay fixtures.
+crypto_box = { version = "0.9", default-features = false, features = ["salsa20", "alloc"] }
+sha2 = "0.10"
+# The pairing link's query (`model`): Apache-2.0 OR MIT.
+form_urlencoded = "1"
+# The SSH client (`ssh`): russh (Apache-2.0) with the `ring` backend, not its default `aws-lc-rs` (cmake or NASM on Windows),
+# and `ssh2-config` (MIT) to read `~/.ssh/config`.
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+ssh2-config = "0.9"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

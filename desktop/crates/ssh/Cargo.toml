@@ -1,0 +1,16 @@
+[package]
+name = "pistudiodesktop-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Native only, like `net`: on wasm32 the crate is empty and takes no dependency. russh is built with
+# `ring` and without its default `aws-lc-rs` (cmake or NASM on Windows); `xtask` fails on an `aws-lc` package.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pistudiodesktop-net = { workspace = true }
+russh = { workspace = true }
+ssh2-config = { workspace = true }
+thiserror = { workspace = true }
