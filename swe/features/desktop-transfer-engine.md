@@ -537,8 +537,9 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 - [ ] The engine's tests run against a stand-in daemon in the test process: both directions, a
   drop at every stage, a cancel at every stage, and hostile frames; none panics.
 - [ ] `cargo xtask ci` passes, including the layer check with the new crate and the wasm check.
-- [ ] Live on Linux; the automated suites pass on the macOS and Windows runners; the manual steps
-  are rows of a milestone 3 section in `desktop/docs/platform-checks.md` (D17).
+- [ ] Live on Linux, with the steps as rows of a milestone 3 section in
+  `desktop/docs/platform-checks.md` (D17). The macOS and Windows half of D17 (runner checks and a
+  person on real machines) was dropped by the owner on 2026-11-22: nothing is checked there.
 
 ## TODO(verify)
 

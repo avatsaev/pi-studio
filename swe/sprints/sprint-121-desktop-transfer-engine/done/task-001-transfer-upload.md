@@ -1,7 +1,7 @@
 # Task 001 — An upload over the bulk connection (§ 4, S11)
 
 - **Sprint:** sprint-121-desktop-transfer-engine
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src
 - **Priority:** P1

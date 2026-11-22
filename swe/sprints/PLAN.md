@@ -148,10 +148,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 120 | `sprint-120-desktop-transfer-wire` | desktop: **Desktop transfer engine, slice 3 — the protocol in Rust.** New crate `pistudiodesktop-transfer` (layer 8, may use `net`), `net::dial` with a message limit, the envelopes and file-transfer frames tested against the published fixtures, a stand-in daemon for tests, and the bulk connection (handshake with `agentStreams: "none"`, requests, liveness). | 4 |
 | 121 | `sprint-121-desktop-transfer-engine` | desktop: **Desktop transfer engine, slice 4 — the engine.** Upload and save over the connection, the queue (three at once), the connection opened on demand and closed when idle, progress and the snapshot, recovery (reconnect without a limit, resume a save, restart an upload, final errors), and the hardening tests. | 5 |
 | 122 | `sprint-122-desktop-transfer-wiring` | desktop: **Desktop transfer engine, slice 5 — wiring.** `--transfers` and `boot.transfers`, the native open dialog and `upload_pick`, `Saves` as the engine's sink, the `transfers` view in `ui.inspect`, the three transfer commands with the `transfer_progress` event and the leave and wake wiring, the desktop host's engine-backed `files`, and Linux live checks in the real webview. | 7 |
-| 123 | `sprint-123-desktop-transfer-engine-close` | desktop + docs: **Desktop transfer engine, slice 6 — close.** The 5 GiB check with its pass marks, the checklist's milestone 3 section, automated checks on macOS and Windows runners, the native dialogs and a sleep on real machines (needs a person), documents, `minDaemonVersion` and spec close: desktop milestone 3. | 4 |
+| 123 | `sprint-123-desktop-transfer-engine-close` | desktop + docs: **Desktop transfer engine, slice 6 — close.** The 5 GiB check with its pass marks, the checklist's milestone 3 section, documents, `minDaemonVersion` and spec close: desktop milestone 3 (Linux only; the macOS/Windows checks were dropped by the owner). | 2 |
 
-Total: **117 sprints, 615 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22) and by 118–123 (+6/+27, 2026-11-22; the table sums to 117/615). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **117 sprints, 613 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22) and by dropping 123/t002–t003 (+0/−2, 2026-11-22; the table sums to 117/613). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3408,19 +3408,20 @@ sprint 121 and can start while it runs.
 > **What it ships.** The evidence and the documents for `features/desktop-transfer-engine.md`, and
 > with them desktop milestone 3.
 >
-> **Found at planning time.** t001 needs about 20 GiB of free disk. t003 needs a person with a Mac
-> and a Windows machine and is expected to wait in `blocked/`; it does not hold t004. t004 sets the
-> app's `minDaemonVersion` to the release that carries sprint 118, a number that exists only after
-> the branch is merged: the daemon changes are released before, or with, the app.
+> **Found at planning time.** t001 needs about 20 GiB of free disk. t004 sets the app's
+> `minDaemonVersion` to the release that carries sprint 118, a number that exists only after the
+> branch is merged: the daemon changes are released before, or with, the app.
+>
+> **Changed 2026-11-22 by the owner:** t002 (runner checks on macOS and Windows) and t003 (a person
+> on real machines) were removed: the owner will not test manually. Milestone 3 is checked on Linux
+> only; the macOS and Windows behaviour stays unverified.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
 | task-001 | The 5 GiB check, the Linux acceptance run, and the checklist's milestone 3 section (D16) | test | sprint-122/task-007 | desktop-transfer-engine § Acceptance criteria (The check; all) |
-| task-002 | Automated platform checks on the macOS and Windows runners for milestone 3 (D17) | test | task-001 | desktop-transfer-engine § Acceptance criteria (Tests and machines), § TODO(verify) |
-| task-003 | A person: the native dialogs and a sleep during a transfer, on macOS and Windows | test | task-001 | desktop-transfer-engine § TODO(verify) (the open dialog; a command across a sleep) |
-| task-004 | Documents and spec close for milestone 3; `minDaemonVersion` (R1) | docs | task-001, task-002 | desktop-transfer-engine (status, criteria), R1 |
+| task-004 | Documents and spec close for milestone 3; `minDaemonVersion` (R1) | docs | task-001 | desktop-transfer-engine (status, criteria), R1 |
 
-t001 first; then t002 and t003 (both add results to `desktop/docs/platform-checks.md`), then t004.
+t001, then t004. Numbers 002 and 003 are not used (removed).
 
 ## Coverage check
 
@@ -3592,7 +3593,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/desktop-daemon-registry.md | s107/t001-005 (registry model; private files; engine registry + list/switch; add/update/remove; `ui.inspect` + secret guard), s108/t001-005 (CLI answers; process hooks + CLI lookup; `daemon.local.*`; supervisor + dial answer; `packages/cli` contract tests), s109/t001-006 (`HostDaemons` contract; app launch + snapshot + page commands; switch; native menu; frontend member; live checks), s110/t001-007 (boot through the registry; switcher; Daemons screen; forms; reactions; outdated notice; live checks), s111/t001-004 (Linux acceptance; macOS and Windows run; documents + spec close; automated registry checks on macOS and Windows runners) |
 | architecture/workbench-host-adapter.md § Amendment (2026-11-15), now § History | s104/t001 (`dialogs.prompt` removed), s104/t002 (external links), s104/t003 (`saveTarget`, added at planning), s105/t002 (`preview`), s106/t003 (built rows folded into the main contract), s109/t001 (`daemons`, `app.minDaemonVersion`, with the settings added at planning), s110/t001-006 (their consumers), s111/t003 (`daemons` and `minDaemonVersion` moved into the main contract; the amendment kept as history) |
 | features/desktop-transport-bridge.md | s112/t001-007 (daemon frame sizes; benchmark application + baseline; `net` pure parts; bridge candidates; load, hidden window, memory; runner workflow; runs + note + gate), s113/t001-008 (`secrets` crate; keychain backend; registry v2 model; engine store + migration; engine commands; backend choice + `--secret-store`; workbench line; live checks + documents), s114/t001-004 (wake; network; host `onResume`; live check), s115/t001-004 (dial; connection; address rule; bridged `Transport`), s116/t001-005 (commands + channel; `ui.inspect`; `createTransport`; no password in the dial answer; live checks), s117/t001-004 (Linux acceptance + checklist; runner checks; sleep and wake by a person; documents + spec close). **Sprints 115–116 are built only if s112/t007 states the gate as passed.** Non-goals by the spec: relay entries on the bridge (milestone 4), the transfer engine (milestone 3), an HTTP proxy, moving the handshake or reconnect into Rust |
-| features/desktop-transfer-engine.md | s118/t001-003 (daemon: temporary file and rename; pacing; live check), s119/t001-004 (`TransferOptions` and the browser host; activity store; explorer lines; live check), s120/t001-004 (crate + `net` limit; wire against the fixtures; stand-in daemon; bulk connection), s121/t001-005 (upload; save; queue + snapshot; recovery; hardening), s122/t001-007 (`--transfers` + `boot.transfers`; `upload_pick`; `Saves` sink; `ui.inspect`; the commands + wiring; desktop host; Linux live checks), s123/t001-004 (5 GiB check + checklist; runner checks; a person on macOS and Windows; documents + `minDaemonVersion` + spec close). **Planned 2026-11-22, nothing built.** Not turned into tasks, by decision: relay entries and dropped files (D2, D3, stay on the page's path), upload resume, a transfers list, HTTP transfer endpoints |
+| features/desktop-transfer-engine.md | s118/t001-003 (daemon: temporary file and rename; pacing; live check), s119/t001-004 (`TransferOptions` and the browser host; activity store; explorer lines; live check), s120/t001-004 (crate + `net` limit; wire against the fixtures; stand-in daemon; bulk connection), s121/t001-005 (upload; save; queue + snapshot; recovery; hardening), s122/t001-007 (`--transfers` + `boot.transfers`; `upload_pick`; `Saves` sink; `ui.inspect`; the commands + wiring; desktop host; Linux live checks), s123/t001, t004 (5 GiB check + checklist; documents + `minDaemonVersion` + spec close). **Being built 2026-11-22.** Not turned into tasks, by decision: relay entries and dropped files (D2, D3, stay on the page's path), upload resume, a transfers list, HTTP transfer endpoints; dropped by the owner 2026-11-22: runner checks and manual checks on macOS and Windows (D17's macOS/Windows half) |
 | architecture/workbench-host-adapter.md § The 2026-11-22 amendment | s119/t001 (`TransferOptions`, `saveToDisk`'s options, the browser host; the rows move into the contract), s122/t006 (the desktop host's members) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
@@ -3842,9 +3843,8 @@ Carried from the scope; resolve against the live source while implementing the o
       (s118/t002, measured in s118/t003). R3's temporary file shows in the explorer during an
       upload and survives a daemon crash; hiding or sweeping it is undecided (s118/t001).
 - [ ] Desktop transfer engine: the native open dialog has never been shown by the app
-      (s122/t002, seen in s122/t007 on Linux, s123/t003 on macOS and Windows); a command left
-      unanswered across a sleep is unverified on WKWebView and WebView2 (s123/t003) — if its answer
-      is lost, settlement moves into `transfer_progress`.
-- [ ] Desktop transfer engine: whether a runner can start a transfer without a native dialog
-      (s123/t002); `minDaemonVersion` needs a release number that does not exist until the branch
-      merges (s123/t004).
+      (s122/t002, seen in s122/t007 on Linux only); a command left unanswered across a sleep is
+      unverified on WKWebView and WebView2 — the macOS/Windows checks were dropped by the owner
+      (2026-11-22). If an answer is lost, settlement moves into `transfer_progress`.
+- [ ] Desktop transfer engine: `minDaemonVersion` needs a release number that does not exist until
+      the branch merges (s123/t004).

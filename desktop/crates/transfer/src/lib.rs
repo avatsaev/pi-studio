@@ -10,6 +10,10 @@
 //! * [`wire`]: the frames the daemon and the engine exchange, built and read, with no socket.
 //! * [`connection`]: the bulk connection over an open socket: the handshake, requests matched by id,
 //!   liveness, and the frames of an upload and a download routed to whoever runs them.
+//! * [`upload`]: one upload over an open connection: a source of bytes in, a confirmed file out, and
+//!   every way it can end.
+//! * [`download`]: one save over an open connection: a file on the daemon in, a sink out, from any
+//!   offset, and every way it can end.
 //! * `testing` (tests and the `testing` feature only): a daemon in the test's own process that answers,
 //!   stores, serves and misbehaves on request.
 //!
@@ -20,8 +24,10 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 pub mod connection;
+pub mod download;
 pub mod error;
 pub mod limits;
+pub mod upload;
 pub mod wire;
 
 #[cfg(any(test, feature = "testing"))]

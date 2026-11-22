@@ -1,7 +1,7 @@
 # Task 002 — A save over the bulk connection (§ 5, S12)
 
 - **Sprint:** sprint-121-desktop-transfer-engine
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src
 - **Priority:** P1

@@ -6,7 +6,7 @@
 - **Area:** docs, swe, desktop
 - **Priority:** P1
 - **Estimated size:** S
-- **Depends on:** task-001, task-002
+- **Depends on:** task-001
 
 ## Goal
 The documents say what is built, the spec's status and criteria are final, and the app names the oldest daemon it supports.
