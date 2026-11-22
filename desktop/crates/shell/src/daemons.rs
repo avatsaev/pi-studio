@@ -26,6 +26,8 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.local.stop",
     "daemon.local.restart",
     "daemon.local.refresh",
+    "daemon.remote.start",
+    "daemon.remote.refresh",
     "settings.get",
     "settings.set",
 ];

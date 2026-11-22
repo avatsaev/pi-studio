@@ -78,6 +78,8 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "daemon.local.stop",
             "daemon.local.restart",
             "daemon.local.refresh",
+            "daemon.remote.start",
+            "daemon.remote.refresh",
             "command.list",
             "settings.get",
             "settings.set",

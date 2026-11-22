@@ -35,6 +35,7 @@ use crate::services::opener_plugin;
 use crate::transfers::TransferEngine;
 use crate::transport::{self, Transport};
 
+mod relay_tests;
 mod transfer_tests;
 mod transport_tests;
 

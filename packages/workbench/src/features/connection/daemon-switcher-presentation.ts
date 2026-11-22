@@ -34,6 +34,7 @@ const KIND_LABELS: Record<DaemonEntryView["kind"], string> = {
   local: "Local",
   direct: "Direct",
   relay: "Relay",
+  ssh: "SSH",
 };
 
 /** The local state's tone as the connection kind that draws the same dot (`ok` never reaches here). */

@@ -210,8 +210,9 @@ impl Session {
                 Some(link) => DialPlan::Ready(Dial::Connect { url: relay_address(link.expose())? }),
                 None => DialPlan::PairingLink { entry: entry.id.clone() },
             }),
-            // An SSH entry is dialled by the SSH engine task, not here yet.
-            Kind::Ssh => Err("wrong_kind"),
+            // The page and the bridge's address check see the tunnel's far end: the daemon's own
+            // port on the host's loopback, as the host sees it (`ssh_plan` has the rest).
+            Kind::Ssh => Ok(self.plan_open(entry, crate::remote::ssh_address(entry.daemon_port.ok_or("not_found")?))),
             Kind::Local => match self.local_state() {
                 LocalState::Unsupported => Err("unsupported"),
                 LocalState::CliMissing { .. } => Err("cli_missing"),

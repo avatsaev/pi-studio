@@ -1,8 +1,8 @@
 //! The transfer engine as the app runs it: the supplier of its sockets (the current entry's plan,
-//! the password from the secret store, [`dial`]), the event it tells the page, the `ui.inspect`
-//! view, and the one rule the page's commands need that the engine does not have: a cancel that
-//! arrives before its transfer has reached the engine is remembered, so that the start settles
-//! as `cancelled` instead of running on.
+//! its secret from the secret store, opened as `transport_open` opens it: [`Route`]), the event it
+//! tells the page, the `ui.inspect` view, and the one rule the page's commands need that the engine
+//! does not have: a cancel that arrives before its transfer has reached the engine is remembered,
+//! so that the start settles as `cancelled` instead of running on.
 //!
 //! The engine runs on Tauri's async runtime. Nothing here blocks it: the owner thread is asked
 //! once per attempt for the current entry, and the store is read on the blocking pool.
@@ -15,8 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
-use pistudiodesktop_model::{Secret, normalize_daemon_url};
-use pistudiodesktop_net::{DIAL_LIMIT, DaemonSocket, dial};
+use pistudiodesktop_net::DaemonSocket;
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::TransfersHook;
 use pistudiodesktop_shell::transfers_view::{ActiveState, ActiveView, BulkState, BulkView, Snapshot, Totals, TransferKind};
@@ -31,7 +30,7 @@ use pistudiodesktop_transfer::upload::UploadSource;
 use serde_json::json;
 use tauri::{AppHandle, Emitter as _, Runtime};
 
-use crate::transport::{self, Failure as Refusal, blocking};
+use crate::transport::{Failure as Refusal, Route, current_plan};
 
 /// The event the page listens to: payload `{ id, state, done, total }` ([`Event`]).
 pub const EVENT: &str = "transfer_progress";
@@ -48,9 +47,26 @@ const EARLY_CANCEL_MAX: usize = 64;
 /// No transfer has a longer id, so no cancel of a longer one can be early.
 const MAX_ID_BYTES: usize = 64;
 
-/// The codes of a refused plan or secret that another attempt can mend: the local daemon is still
-/// starting, or the owner thread did not answer in time. Every other one waits for the user.
-const RETRIED: [&str; 4] = ["local_not_ready", "local_stopped", "timeout", "busy"];
+/// The codes of a refused open that another attempt can mend (spec § What the engine retries): the
+/// daemon, or the way to it, is not up yet (`unreachable`, `timeout`, `handshake`; the relay's
+/// `relay_unreachable`, `daemon_offline`, `daemon_unresponsive`, `too_many_clients`; an SSH host's
+/// `daemon_not_running`, `ssh_lost`), the local daemon is still starting, or the owner thread did not
+/// answer in time (`busy`). Every other code waits for the user: a wrong password or key, a link or a
+/// config that is not valid, a daemon that must be updated, a host key to trust.
+const RETRIED: [&str; 12] = [
+    "unreachable",
+    "timeout",
+    "handshake",
+    "relay_unreachable",
+    "daemon_offline",
+    "daemon_unresponsive",
+    "too_many_clients",
+    "daemon_not_running",
+    "ssh_lost",
+    "local_not_ready",
+    "local_stopped",
+    "busy",
+];
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     // Nothing under these locks can leave their data half-changed.
@@ -62,8 +78,8 @@ fn connect_error(refusal: Refusal) -> ConnectError {
     ConnectError::new(refusal.code, refusal.message, RETRIED.contains(&refusal.code))
 }
 
-/// The engine's supplier of sockets: the current entry's address and password, as `transport_open`
-/// reads them, dialled with the engine's message limit.
+/// The engine's supplier of sockets: the current entry's daemon, opened as `transport_open` opens
+/// it (a dialled address and password, or the relay) with the engine's message limit.
 pub struct AppConnector {
     access: OwnerAccess,
     /// The entry the last attempt was for, for `ui.inspect`'s `connection.entryId`.
@@ -72,25 +88,10 @@ pub struct AppConnector {
 
 impl Connector for AppConnector {
     async fn connect(&self) -> Result<DaemonSocket, ConnectError> {
-        let plan = blocking({
-            let access = self.access.clone();
-            move || access.bridge_plan()
-        })
-        .await
-        .map_err(connect_error)?
-        .map_err(|code| connect_error(transport::plan_failure(code)))?;
+        let plan = current_plan(&self.access).await.map_err(connect_error)?;
         *locked(&self.entry) = Some(plan.entry.as_str().to_owned());
-        let password = blocking({
-            let access = self.access.clone();
-            let plan = plan.clone();
-            move || access.bridge_password(&plan)
-        })
-        .await
-        .map_err(connect_error)?
-        .map_err(|code| connect_error(transport::secret_failure(code)))?;
-        // The address of a local or direct entry as the page derives it: what `transport_open` dials.
-        let url = normalize_daemon_url(&plan.url);
-        Ok(dial(&url, password.as_ref().map(Secret::expose), DIAL_LIMIT, MAX_MESSAGE_BYTES).await?)
+        let route = Route::resolve(&self.access, plan).await.map_err(connect_error)?;
+        route.connect(&self.access, MAX_MESSAGE_BYTES).await.map_err(connect_error)
     }
 }
 
@@ -298,7 +299,7 @@ fn view(snapshot: &EngineSnapshot, entry: Option<String>) -> Snapshot {
 
 #[cfg(test)]
 mod tests {
-    use pistudiodesktop_transfer::engine::{ActiveTransfer, ConnectionInfo, LastError, Totals as EngineTotals};
+    use pistudiodesktop_transfer::engine::{ActiveTransfer, ConnectionInfo, FINAL_CODES, LastError, Totals as EngineTotals};
 
     use super::*;
 
@@ -329,20 +330,56 @@ mod tests {
         assert!(locked(&early.0).is_empty());
     }
 
+    /// § What the engine retries, whole: the app's table and the engine's `FINAL_CODES` agree with it.
     #[test]
-    fn a_refused_plan_is_retried_only_while_the_local_daemon_may_still_come_up() {
-        for code in ["local_not_ready", "local_stopped", "timeout", "busy"] {
-            assert!(connect_error(transport::plan_failure(code_static(code))).retry, "{code}");
+    fn the_codes_are_retried_or_final_as_the_spec_says() {
+        for code in [
+            "unreachable",
+            "timeout",
+            "handshake",
+            "relay_unreachable",
+            "daemon_offline",
+            "daemon_unresponsive",
+            "too_many_clients",
+            "daemon_not_running",
+            "ssh_lost",
+            "local_not_ready",
+            "local_stopped",
+            "busy",
+        ] {
+            assert!(connect_error(Refusal::new(code, "Try again.")).retry, "{code} is retried");
+            assert!(!FINAL_CODES.contains(&code), "{code} is retried and final");
         }
-        for code in ["not_bridged", "no_current", "unsupported", "internal", "secret_missing", "secret_unavailable"] {
-            assert!(!connect_error(transport::plan_failure(code_static(code))).retry, "{code}");
+        // What no retry mends, from the engine's own list down to the app's: the app never asks to retry any.
+        let by_the_engine = [
+            "wrong_key",
+            "daemon_outdated",
+            "protocol_error",
+            "invalid_link",
+            "auth_failed",
+            "host_key_unknown",
+            "host_key_changed",
+            "passphrase_needed",
+            "key_unreadable",
+            "forwarding_refused",
+            "ssh_config",
+            "unauthorized",
+            "host_not_allowed",
+            "tls",
+            "invalid_address",
+            "secret_missing",
+            "secret_unavailable",
+            "no_current",
+            "unsupported",
+            "unsupported_daemon",
+            "protocol",
+        ];
+        for code in by_the_engine {
+            assert!(FINAL_CODES.contains(&code), "{code} is final");
+            assert!(!connect_error(Refusal::new(code, "No wait mends it.")).retry, "{code} is not retried by the app");
         }
-        let relay = connect_error(transport::plan_failure("not_bridged"));
-        assert_eq!(relay.code, "not_bridged");
-    }
-
-    fn code_static(code: &str) -> &'static str {
-        pistudiodesktop_shell::daemons::static_code(code)
+        assert!(!connect_error(Refusal::new("internal", "The app failed inside.")).retry, "an app fault is not retried");
+        assert!(!FINAL_CODES.contains(&"not_bridged"), "no entry is left unbridged");
     }
 
     #[test]

@@ -5,6 +5,9 @@
 //! the page.
 #![cfg(not(target_arch = "wasm32"))]
 
+pub mod config;
+pub mod known_hosts;
+
 #[cfg(test)]
 mod tests {
     #[test]

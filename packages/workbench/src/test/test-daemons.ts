@@ -14,6 +14,9 @@ import {
   type HostDaemons,
   type LocalDaemonState,
   type NewDaemon,
+  type RemoteDaemonState,
+  type SshEntryView,
+  type SshHostSuggestion,
 } from "../host/types.js";
 
 interface StoredEntry {
@@ -23,6 +26,9 @@ interface StoredEntry {
   address?: string;
   password?: string;
   pairingLink?: string;
+  ssh?: Omit<SshEntryView, "hasSshPassword" | "hasPassphrase">;
+  sshPassword?: string;
+  passphrase?: string;
 }
 
 export interface TestDaemonsOptions {
@@ -35,6 +41,12 @@ export interface TestDaemonsOptions {
   localPassword?: string;
   /** The state a `start` or `restart` ends in (default: running on 127.0.0.1:7777). */
   startOutcome?: LocalDaemonState;
+  /** The state of the current `ssh` entry's daemon (default: `unknown`). */
+  remote?: RemoteDaemonState;
+  /** What `sshHosts()` answers. */
+  sshHosts?: SshHostSuggestion[];
+  /** The state a remote `start` ends in (default: `running`). */
+  remoteStartOutcome?: RemoteDaemonState;
 }
 
 export interface TestDaemons extends HostDaemons {
@@ -42,6 +54,8 @@ export interface TestDaemons extends HostDaemons {
   switches: string[];
   /** Replace the local state and notify. */
   setLocalState(state: LocalDaemonState): void;
+  /** Replace the remote state and notify. */
+  setRemoteState(state: RemoteDaemonState): void;
   /** Fire every `onManageRequest` listener. */
   requestManage(): void;
   /** Resolves when the scripted local action in flight has reached its outcome. */
@@ -63,6 +77,7 @@ export class DaemonError extends Error implements DaemonErrorShape {
 const MAX_ENTRIES = 64;
 const DEFAULT_RUNNING: LocalDaemonState = { state: "running", host: "127.0.0.1", port: 7777 };
 const LOCAL_FAILURES = ["unsupported", "cli_missing", "cli_outdated"] as const;
+const DEFAULT_DAEMON_PORT = 6767;
 
 function view(entry: StoredEntry): DaemonEntryView {
   return {
@@ -70,8 +85,34 @@ function view(entry: StoredEntry): DaemonEntryView {
     kind: entry.kind,
     name: entry.name,
     ...(entry.address === undefined ? {} : { address: entry.address }),
+    ...(entry.ssh === undefined
+      ? {}
+      : {
+          ssh: {
+            ...entry.ssh,
+            hasSshPassword: entry.sshPassword !== undefined,
+            hasPassphrase: entry.passphrase !== undefined,
+          },
+        }),
     hasPassword: entry.password !== undefined,
   };
+}
+
+/** The optional text of an SSH field, trimmed; empty is absent. */
+function optional(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+function validPort(port: number): number {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new DaemonError("invalid_port");
+  return port;
+}
+function validHost(host: string): string {
+  const trimmed = host.trim();
+  if (trimmed.length === 0 || trimmed.length > 255 || /\s/.test(trimmed)) {
+    throw new DaemonError("invalid_host");
+  }
+  return trimmed;
 }
 
 function validAddress(address: string): string {
@@ -96,6 +137,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
   ];
   let currentId: string | null = options.currentId === undefined ? "local" : options.currentId;
   let local: LocalDaemonState = options.local ?? { state: "stopped" };
+  let remote: RemoteDaemonState = options.remote ?? { state: "unknown" };
   let settings: DaemonSettings = {
     autoStartLocalDaemon: true,
     cliPath: null,
@@ -111,6 +153,10 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
   };
   const setLocal = (state: LocalDaemonState): void => {
     local = state;
+    notify();
+  };
+  const setRemote = (state: RemoteDaemonState): void => {
+    remote = state;
     notify();
   };
   const validName = (name: string, exceptId?: string): string => {
@@ -131,21 +177,43 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
   const add = (input: NewDaemon, id?: string): StoredEntry => {
     if (entries.length >= MAX_ENTRIES) throw new DaemonError("too_many");
     const name = validName(input.name);
-    const entry: StoredEntry =
-      input.kind === "direct"
-        ? {
-            id: id ?? `direct-${++nextId}`,
-            kind: "direct",
-            name,
-            address: validAddress(input.address),
-            ...(input.password ? { password: input.password } : {}),
-          }
-        : {
-            id: id ?? `relay-${++nextId}`,
-            kind: "relay",
-            name,
-            pairingLink: validLink(input.pairingLink),
-          };
+    let entry: StoredEntry;
+    if (input.kind === "direct") {
+      entry = {
+        id: id ?? `direct-${++nextId}`,
+        kind: "direct",
+        name,
+        address: validAddress(input.address),
+        ...(input.password ? { password: input.password } : {}),
+      };
+    } else if (input.kind === "relay") {
+      entry = {
+        id: id ?? `relay-${++nextId}`,
+        kind: "relay",
+        name,
+        pairingLink: validLink(input.pairingLink),
+      };
+    } else {
+      const user = optional(input.user);
+      const identityFile = optional(input.identityFile);
+      const jump = optional(input.jump);
+      entry = {
+        id: id ?? `ssh-${++nextId}`,
+        kind: "ssh",
+        name,
+        ssh: {
+          host: validHost(input.host),
+          ...(user === undefined ? {} : { user }),
+          ...(input.port === undefined ? {} : { port: validPort(input.port) }),
+          ...(identityFile === undefined ? {} : { identityFile }),
+          ...(jump === undefined ? {} : { jump }),
+          daemonPort: validPort(input.daemonPort ?? DEFAULT_DAEMON_PORT),
+        },
+        ...(input.password ? { password: input.password } : {}),
+        ...(input.sshPassword ? { sshPassword: input.sshPassword } : {}),
+        ...(input.passphrase ? { passphrase: input.passphrase } : {}),
+      };
+    }
     entries.push(entry);
     return entry;
   };
@@ -188,6 +256,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
   return {
     switches,
     setLocalState: setLocal,
+    setRemoteState: setRemote,
     requestManage: () => {
       for (const listener of manageListeners) listener();
     },
@@ -197,6 +266,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
       currentId,
       entries: entries.map(view),
       local: { ...local },
+      remote: entries.find((e) => e.id === currentId)?.kind === "ssh" ? { ...remote } : null,
       settings: { ...settings },
     }),
     subscribe: (listener) => {
@@ -214,6 +284,13 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
         };
       }
       if (entry.kind === "relay") return { url: entry.pairingLink, connect: true };
+      if (entry.kind === "ssh") {
+        return {
+          url: `ws://127.0.0.1:${entry.ssh.daemonPort}`,
+          ...(entry.password === undefined ? {} : { password: entry.password }),
+          connect: true,
+        };
+      }
       return resolveLocal(entry);
     },
     add: async (input) => {
@@ -223,12 +300,24 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     },
     update: async (id, patch: DaemonPatch) => {
       const entry = find(id);
+      const sshKeys = [
+        "host",
+        "user",
+        "port",
+        "identityFile",
+        "jump",
+        "daemonPort",
+        "sshPassword",
+        "passphrase",
+      ] as const;
+      const hasSsh = sshKeys.some((key) => patch[key] !== undefined);
       const hasAddress = patch.address !== undefined;
       const hasLink = patch.pairingLink !== undefined;
       const hasPassword = patch.password !== undefined;
       if (
         (hasAddress && entry.kind !== "direct") ||
         (hasLink && entry.kind !== "relay") ||
+        (hasSsh && entry.kind !== "ssh") ||
         (hasPassword && entry.kind === "relay")
       ) {
         throw new DaemonError("wrong_kind");
@@ -236,9 +325,32 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
       const name = patch.name === undefined ? undefined : validName(patch.name, id);
       const address = hasAddress ? validAddress(patch.address!) : undefined;
       const link = hasLink ? validLink(patch.pairingLink!) : undefined;
+      const host = patch.host === undefined ? undefined : validHost(patch.host);
+      const port = patch.port ? validPort(patch.port) : undefined;
+      const daemonPort = patch.daemonPort === undefined ? undefined : validPort(patch.daemonPort);
       if (name !== undefined) entry.name = name;
       if (address !== undefined) entry.address = address;
       if (link !== undefined) entry.pairingLink = link;
+      if (entry.ssh) {
+        if (host !== undefined) entry.ssh.host = host;
+        if (daemonPort !== undefined) entry.ssh.daemonPort = daemonPort;
+        for (const key of ["user", "identityFile", "jump"] as const) {
+          if (patch[key] === undefined) continue;
+          const text = optional(patch[key]);
+          if (text === undefined) delete entry.ssh[key];
+          else entry.ssh[key] = text;
+        }
+        if (patch.port !== undefined) {
+          if (port === undefined) delete entry.ssh.port;
+          else entry.ssh.port = port;
+        }
+        for (const key of ["sshPassword", "passphrase"] as const) {
+          const secret = patch[key];
+          if (secret === undefined) continue;
+          if (secret) entry[key] = secret;
+          else delete entry[key];
+        }
+      }
       if (hasPassword) {
         if (patch.password) entry.password = patch.password;
         else delete entry.password;
@@ -280,6 +392,33 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
         notify();
       },
     },
+    remote: {
+      start: async () => {
+        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
+          throw new DaemonError("wrong_kind");
+        }
+        if (remote.state === "starting" || remote.state === "checking") {
+          throw new DaemonError("busy");
+        }
+        if (remote.state === "not_installed") throw new DaemonError("not_installed");
+        if (remote.state === "cli_outdated") throw new DaemonError("cli_outdated");
+        setRemote({ state: "starting" });
+        pending = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          setRemote(options.remoteStartOutcome ?? { state: "running" });
+        })();
+      },
+      refresh: async () => {
+        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
+          throw new DaemonError("wrong_kind");
+        }
+        if (remote.state === "starting" || remote.state === "checking") {
+          throw new DaemonError("busy");
+        }
+        notify();
+      },
+    },
+    sshHosts: async () => (options.sshHosts ?? []).map((host) => ({ ...host })),
     onManageRequest: (listener) => {
       manageListeners.add(listener);
       return () => manageListeners.delete(listener);

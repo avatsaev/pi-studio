@@ -6,6 +6,7 @@ const VIEW = {
   currentId: "local",
   entries: [{ id: "local", kind: "local", name: "This machine", hasPassword: false }],
   local: { state: "stopped" },
+  remote: null,
   settings: { autoStartLocalDaemon: true, cliPath: null },
 };
 

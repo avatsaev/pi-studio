@@ -1,7 +1,7 @@
 # Task 003 — Shell: the remote daemon's supervisor over a command-runner hook
 
 - **Sprint:** sprint-128-desktop-ssh-entry
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell
 - **Priority:** P1

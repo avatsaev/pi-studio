@@ -149,6 +149,20 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
     message: "The password or pairing link could not be saved.",
     detail: "Nothing was changed. Check that your keychain is unlocked, then try again.",
   },
+  invalid_host: { message: "This is not a valid host name or address." },
+  invalid_user: { message: "This is not a valid user name." },
+  invalid_port: { message: "The port must be a number from 1 to 65535." },
+  invalid_path: { message: "This is not a valid file path." },
+  invalid_jump: { message: "This is not a valid jump host." },
+  not_installed: {
+    message: "pi-studio is not installed on this host.",
+    detail: "Install it there, then retry.",
+    command: INSTALL_CLI_COMMAND,
+  },
+  ssh_config: {
+    message: "~/.ssh/config could not be read.",
+    detail: "Fix the file (a ProxyCommand is not supported), then try again.",
+  },
   unexpected: { message: "The daemon could not be opened." },
 };
 

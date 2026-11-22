@@ -79,7 +79,7 @@ describe("engineServes", () => {
   it.each([
     ["engine", "local", true],
     ["engine", "direct", true],
-    ["engine", "relay", false],
+    ["engine", "relay", true],
     ["engine", null, false],
     ["page", "local", false],
     ["page", "direct", false],

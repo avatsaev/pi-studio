@@ -33,7 +33,6 @@ const build = (snapshot: BootSnapshot) => {
 
 describe("desktop host files", () => {
   it.each([
-    ["engine", "relay"],
     ["page", "local"],
     ["page", "direct"],
   ] as const)(
@@ -51,7 +50,7 @@ describe("desktop host files", () => {
     },
   );
 
-  it.each(["local", "direct"] as const)("transfers engine, entry %s: pickUploads is present", (kind) => {
+  it.each(["local", "direct", "relay"] as const)("transfers engine, entry %s: pickUploads is present", (kind) => {
     const { host, listen } = build(snapshotWith("engine", kind));
     expect("pickUploads" in host.files).toBe(true);
     expect(listen.mock.calls.filter(([event]) => event === "transfer_progress")).toHaveLength(1);

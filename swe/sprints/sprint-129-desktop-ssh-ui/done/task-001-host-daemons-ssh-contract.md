@@ -1,7 +1,7 @@
 # Task 001 — Workbench contract: SSH entries, `RemoteDaemonState`, `remote`, `sshHosts`
 
 - **Sprint:** sprint-129-desktop-ssh-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/host/types.ts, test doubles, swe/architecture/workbench-host-adapter.md
 - **Priority:** P1

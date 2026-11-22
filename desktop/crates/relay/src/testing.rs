@@ -17,9 +17,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::{WebSocketStream, accept_async};
+use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
+use tokio_tungstenite::{WebSocketStream, accept_async_with_config};
 
 use crate::channel::{
     CHANNEL_VERSION, CLIENT_TO_DAEMON, DAEMON_TO_CLIENT, HELLO_LENGTH, KEY_LENGTH, KIND_BINARY, KIND_READY, KIND_TEXT, Record, SALT_LENGTH, nonce,
@@ -224,7 +224,9 @@ enum Flow {
 type Socket = WebSocketStream<TcpStream>;
 
 async fn serve(tcp: TcpStream, secret: [u8; KEY_LENGTH], script: Vec<Step>, seen: UnboundedSender<Seen>) {
-    let Ok(mut socket) = accept_async(tcp).await else { return };
+    // No message limit: the tests of large messages are the client's to refuse, not the stand-in's.
+    let config = WebSocketConfig::default().max_message_size(None).max_frame_size(None);
+    let Ok(mut socket) = accept_async_with_config(tcp, Some(config)).await else { return };
     let mut daemon = DaemonHalf::new(secret);
     let mut script = VecDeque::from(script);
     while let Some(step) = script.pop_front() {

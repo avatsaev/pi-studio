@@ -74,6 +74,39 @@ pub type TransportsHook = Arc<dyn Fn() -> crate::transports::Snapshot + Send + S
 /// owns the session: it must only read counters, never wait on a socket or a lock held across an await.
 pub type TransfersHook = Arc<dyn Fn() -> crate::transfers_view::Snapshot + Send + Sync>;
 
+/// What a command run on the SSH host gave.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RemoteOutput {
+    /// The command's exit status, as the host's shell reported it between the markers.
+    pub status: i32,
+    /// What the command printed on standard output, markers removed. May hold a pairing link:
+    /// never logged, never kept.
+    pub stdout: String,
+}
+
+impl std::fmt::Debug for RemoteOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteOutput").field("status", &self.status).finish_non_exhaustive()
+    }
+}
+
+/// Why a command on the SSH host gave no output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteRunFailure {
+    /// The command could not be run: no SSH session, a refused channel, a lost connection.
+    ExecFailed,
+    /// The host's shell printed no marker: the account runs no commands.
+    NoShell,
+    /// The command ran longer than its limit and was killed.
+    TimedOut,
+}
+
+/// Run `command` (given as typed, the hook wraps it for the login shell) on the current SSH
+/// entry's host and give its status and standard output; killed after the limit. Blocks until
+/// then: whoever calls it ([`crate::remote_supervisor`]) must not own the session. The app fills
+/// it over the entry's SSH session; the shell holds no socket.
+pub type RemoteRunHook = Arc<dyn Fn(&str, Duration) -> Result<RemoteOutput, RemoteRunFailure> + Send + Sync>;
+
 /// Every hook is optional: where one is missing (tests, a platform without it), what needs it is
 /// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk and picking files are refused.
 ///
@@ -93,4 +126,5 @@ pub struct Services {
     pub list_dir: Option<ListDirHook>,
     pub transports: Option<TransportsHook>,
     pub transfers: Option<TransfersHook>,
+    pub remote_run: Option<RemoteRunHook>,
 }

@@ -72,6 +72,8 @@ fn commands_lists_the_registry() {
             "daemon.local.stop",
             "daemon.local.restart",
             "daemon.local.refresh",
+            "daemon.remote.start",
+            "daemon.remote.refresh",
             "command.list",
             "settings.get",
             "settings.set",

@@ -1,7 +1,7 @@
 # Task 002 — App binary: `transport_open` and the engine's connector dial a relay entry
 
 - **Sprint:** sprint-126-desktop-relay-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri (transport.rs, transfers/engine.rs), desktop/crates/transfer (codes)
 - **Priority:** P1

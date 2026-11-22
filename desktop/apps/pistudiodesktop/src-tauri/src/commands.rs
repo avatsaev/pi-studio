@@ -80,9 +80,12 @@ pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State
 
 /// Open a connection to the current entry's daemon and answer `{ localUrl }`: a single-use
 /// `ws://127.0.0.1:<port>/<token>` the page connects its own `WebSocket` to, once Rust's socket to
-/// the daemon is open. `url` is what the page derived from the entry's stored address; it is
-/// checked against the entry, never dialled for its own sake. The password stays in Rust. Errors
-/// are `{ code, message }` ([`Failure`]). Takes the calling webview's origin from the webview.
+/// the daemon is open. `url` is what the page derived from the entry (a local or direct entry's
+/// stored address, a relay entry's relay address); it is checked against the entry, never dialled
+/// for its own sake. A relay entry is opened here too, by relay protocol 2 with the key of its
+/// stored pairing link. The password and the link stay in Rust. Errors are `{ code, message }`
+/// ([`Failure`]): a dial's codes, the relay's reasons (`wrong_key`, `daemon_offline`, …) and
+/// `invalid_link`. Takes the calling webview's origin from the webview.
 /// A connection that opened says the daemon is reachable, so a file transfer that waits to try
 /// again does it now (the engine only ever serves the current entry, which is the one just opened).
 #[tauri::command]

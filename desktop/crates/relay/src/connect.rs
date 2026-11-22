@@ -28,6 +28,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use crate::channel::{Channel, KEY_LENGTH, KeyPair};
 use crate::reason::{RelayError, RelayReason};
 use crate::session_id::session_id;
+use crate::socket::sealed_limit;
 
 /// How long a connect may take, in all: the dial, the pairing and the key exchange.
 pub const CONNECT_LIMIT: Duration = Duration::from_secs(15);
@@ -169,7 +170,7 @@ async fn next_event(socket: &mut DaemonSocket) -> Event {
 
 /// Dial the relay at `url` (`ws://` or `wss://`) for the daemon whose public key is `daemon_key`, pair, and
 /// open the channel, within `limit` (at most [`CONNECT_LIMIT`]: a longer one is cut to it).
-/// `max_message_bytes` is the largest frame the socket reads.
+/// `max_message_bytes` is the largest message the socket carries once open (at most 100 MiB sealed).
 ///
 /// # Errors
 /// A [`RelayError`] with the SDK's reason; see the module's rules. The socket is closed when a failure
@@ -177,7 +178,7 @@ async fn next_event(socket: &mut DaemonSocket) -> Event {
 pub async fn connect(url: &str, daemon_key: &[u8; KEY_LENGTH], max_message_bytes: usize, limit: Duration) -> Result<Connected, RelayError> {
     let limit = limit.min(CONNECT_LIMIT);
     let deadline = Instant::now() + limit;
-    let mut socket = dial(url, None, limit, max_message_bytes).await.map_err(dial_failure)?;
+    let mut socket = dial(url, None, limit, sealed_limit(max_message_bytes)).await.map_err(dial_failure)?;
     match timeout_at(deadline, exchange(&mut socket, daemon_key)).await {
         Ok(Ok(channel)) => Ok(Connected { socket, channel }),
         Ok(Err(failure)) => {

@@ -173,6 +173,7 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         // Filled by `main` once the transport state exists (`Transport::inspector`).
         transports: None,
         transfers: None,
+        remote_run: None,
     }
 }
 

@@ -112,8 +112,12 @@ interface TransferOptions {                     // of `upload` and `saveToDisk`;
 `HostDaemons` and its types (optional; the desktop host supplies them, the browser host does not):
 
 ```ts
-interface DaemonEntryView { id: string; kind: "local" | "direct" | "relay"; name: string;
-                            address?: string; hasPassword: boolean }   // never a secret
+interface DaemonEntryView { id: string; kind: "local" | "direct" | "relay" | "ssh"; name: string;
+                            address?: string; ssh?: SshEntryView; hasPassword: boolean }   // never a secret
+interface SshEntryView { host: string; user?: string; port?: number; identityFile?: string; jump?: string;
+                         daemonPort: number; hasSshPassword: boolean; hasPassphrase: boolean }
+interface SshHostSuggestion { alias: string; hostName?: string; user?: string; port?: number;
+                              identityFile?: string; jump?: string }   // a `Host` of ~/.ssh/config
 
 type LocalDaemonState =
   | { state: "checking" } | { state: "unsupported" }
@@ -122,20 +126,33 @@ type LocalDaemonState =
   | { state: "running"; host: string; port: number }
   | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
 
+type RemoteDaemonState =   // the current `ssh` entry's daemon; in memory
+  | { state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting" }
+  | { state: "cli_outdated"; version: string }
+  | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "exec_failed" | "no_shell" };
+
 type NewDaemon =
   | { kind: "direct"; name: string; address: string; password?: string }
-  | { kind: "relay"; name: string; pairingLink: string };
-interface DaemonPatch { name?: string; address?: string; password?: string | null; pairingLink?: string }
+  | { kind: "relay"; name: string; pairingLink: string }
+  | { kind: "ssh"; name: string; host: string; user?: string; port?: number; identityFile?: string;
+      jump?: string; daemonPort?: number; password?: string; sshPassword?: string; passphrase?: string };
+interface DaemonPatch { name?: string; address?: string; password?: string | null; pairingLink?: string;
+                        host?: string; user?: string | null; port?: number | null; identityFile?: string | null;
+                        jump?: string | null; daemonPort?: number; sshPassword?: string | null;
+                        passphrase?: string | null }   // null clears; wrong_kind for a field the kind lacks
 interface DaemonSettings { autoStartLocalDaemon: boolean; cliPath: string | null }
 
 type DaemonErrorCode = "invalid_name" | "name_taken" | "invalid_address" | "invalid_link" | "too_many"
   | "not_found" | "wrong_kind" | "local_not_removable" | "unsupported" | "cli_missing" | "cli_outdated"
   | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed"
-  | "secret_missing" | "secret_unavailable" | "secret_store_failed";   // the last three: the secret store (sprint 113)
+  | "secret_missing" | "secret_unavailable" | "secret_store_failed"   // the last three: the secret store (sprint 113)
+  | "invalid_host" | "invalid_user" | "invalid_port" | "invalid_path" | "invalid_jump"
+  | "not_installed" | "ssh_config";                                   // SSH entries (milestone 4)
 interface DaemonError extends Error { readonly code: DaemonErrorCode }   // message is the code; a type only
 
 interface HostDaemons {
   snapshot(): { currentId: string | null; entries: DaemonEntryView[]; local: LocalDaemonState;
+                remote: RemoteDaemonState | null;                       // non-null only for a current `ssh` entry
                 settings: DaemonSettings;
                 secretStore?: "keychain" | "file" };                    // synchronous, in memory
   subscribe(listener: () => void): () => void;
@@ -146,6 +163,8 @@ interface HostDaemons {
   switchTo(id: string): Promise<void>;                                  // reloads the page; does not resolve on success
   setSettings(patch: Partial<DaemonSettings>): Promise<void>;
   local: { start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; refresh(): Promise<void> };
+  remote: { start(): Promise<void>; refresh(): Promise<void> };         // wrong_kind unless the current entry is `ssh`
+  sshHosts(): Promise<SshHostSuggestion[]>;                             // rejects `ssh_config` when the file does not parse
   onManageRequest(listener: () => void): () => void;
 }
 ```
@@ -233,6 +252,7 @@ in the contract above. Kept so the reasons are findable.
 | `app.minDaemonVersion?: string` | Added, optional | Sprint-109 (the app sets it to `0.0.119`); the notice, sprint-110 |
 | `daemons?: HostDaemons` | Added, optional | Types and an in-memory test registry sprint-109; consumed by the connection bar, the Daemons screen and connection boot in sprint-110 |
 | `HostDaemons.snapshot().secretStore?` | Added, optional | Sprint-113 (task-007): the desktop host reads it from the app's registry view; the Daemons screen draws one line for `file` ([../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 5) |
+| `DaemonEntryView.kind: "ssh"`, `ssh`, `RemoteDaemonState`, `snapshot().remote`, `remote.start/refresh`, `sshHosts()`, SSH variants of `NewDaemon`/`DaemonPatch`, seven new `DaemonErrorCode`s | Added | Milestone 4, sprint-129 (task-001); the desktop host maps them to `daemon.remote.*`, `ssh_config_hosts` and the registry view's `remote` ([../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md) § 9) |
 | `preview?: HostPreview` | Added, optional | Sprint-105 |
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |

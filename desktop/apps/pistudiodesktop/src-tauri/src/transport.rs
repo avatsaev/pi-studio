@@ -1,22 +1,29 @@
 //! The page's way to its daemon: the work behind `transport_open`.
 //!
-//! The page asks for a connection to the current entry's daemon; Rust dials it (TLS, the password
-//! as the bearer subprotocol) and answers a single-use loopback address the page connects its own
-//! `WebSocket` to ([`pistudiodesktop_net::proxy`]). Rust then holds the daemon's socket and passes
-//! messages between the two legs on Tauri's async runtime: frames never cross the owner thread or
-//! Tauri's IPC. The owner thread is asked once, for the current entry (kind, address, where the
-//! password is); the password is read from the secret store on the blocking pool.
+//! The page asks for a connection to the current entry's daemon; Rust opens it and answers a
+//! single-use loopback address the page connects its own `WebSocket` to
+//! ([`pistudiodesktop_net::proxy`]). A local or direct entry is dialled (TLS, the password as the
+//! bearer subprotocol); a relay entry is opened through the relay's protocol 2
+//! ([`pistudiodesktop_relay`]) with the daemon's key from its pairing link, or, for a link with a
+//! host hint, dialled as a direct daemon with no password. Rust then holds the daemon's socket and
+//! passes messages between the two legs on Tauri's async runtime: frames never cross the owner
+//! thread or Tauri's IPC. The owner thread is asked once, for the current entry (kind, address,
+//! where the secret is); the secret (a password, or a relay entry's pairing link) is read from the
+//! secret store on the blocking pool. [`Route`] is that opening, shared with the transfer engine.
 //!
-//! Nothing here logs or returns a password, a token or the page's URL: errors carry a code and a
-//! message written for a person, and `localUrl` is only in the command's answer.
+//! Nothing here logs or returns a password, a pairing link, a token or the page's URL: errors carry
+//! a code and a message written for a person, and `localUrl` is only in the command's answer.
 
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use pistudiodesktop_model::address_matches;
+use pistudiodesktop_engine::{BridgePlan, relay_address};
+use pistudiodesktop_model::pairing::{self, DAEMON_KEY_BYTES, Target};
+use pistudiodesktop_model::{Kind, Secret, address_matches, normalize_daemon_url};
 use pistudiodesktop_net::limits::MAX_MESSAGE_BYTES;
-use pistudiodesktop_net::{DIAL_LIMIT, DialError, Proxies, ProxyError, Snapshot as ProxySnapshot, State, check_address, dial};
+use pistudiodesktop_net::{DIAL_LIMIT, DaemonSocket, DialError, Proxies, ProxyError, Snapshot as ProxySnapshot, State, check_address, dial};
+use pistudiodesktop_relay::{CONNECT_LIMIT, RelayError};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::TransportsHook;
 use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, TransportState, TransportView};
@@ -49,6 +56,13 @@ impl From<DialError> for Failure {
 impl From<ProxyError> for Failure {
     fn from(e: ProxyError) -> Self {
         Self::new(e.code.as_str(), e.message)
+    }
+}
+
+impl From<RelayError> for Failure {
+    /// The SDK's relay reasons are the codes (`wrong_key`, `daemon_offline`, …), with the SDK's texts.
+    fn from(e: RelayError) -> Self {
+        Self::new(e.reason.as_str(), e.message)
     }
 }
 
@@ -103,28 +117,19 @@ impl Transport {
     }
 
     async fn try_open(&self, access: &OwnerAccess, origin: &str, url: &str) -> Result<String, Failure> {
-        let plan = blocking({
-            let access = access.clone();
-            move || access.bridge_plan()
-        })
-        .await?
-        .map_err(plan_failure)?;
+        let plan = current_plan(access).await?;
+        let entry = plan.entry.clone();
+        let route = Route::resolve(access, plan).await?;
         // The page is trusted with the entry it opens and no other: the address is the entry's,
         // not the page's choice.
-        if !address_matches(url, &plan.url) {
+        if !address_matches(url, route.address()) {
             return Err(Failure::new("address_mismatch", "The page asked for an address that is not the current daemon's."));
         }
-        // Before a place is taken or a secret read: only `ws:` and `wss:`, no user information.
+        // Before a place is taken or a password read: only `ws:` and `wss:`, no user information.
         check_address(url)?;
         // The place is taken before the dial, so that a fifth connection never dials.
-        let reservation = self.proxies.reserve(plan.entry.as_str())?;
-        let password = blocking({
-            let access = access.clone();
-            move || access.bridge_password(&plan)
-        })
-        .await?
-        .map_err(secret_failure)?;
-        let socket = dial(url, password.as_ref().map(pistudiodesktop_model::Secret::expose), DIAL_LIMIT, MAX_MESSAGE_BYTES).await?;
+        let reservation = self.proxies.reserve(entry.as_str())?;
+        let socket = route.connect(access, MAX_MESSAGE_BYTES).await?;
         Ok(reservation.open(socket, origin).await?.expose().to_owned())
     }
 
@@ -183,28 +188,130 @@ fn inspect(proxies: &ProxySnapshot, refused: Option<ConnectionError>) -> Snapsho
 }
 
 /// Run `work` on the blocking pool: the owner thread's answer and a keychain read both wait.
-pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| Failure::new("internal", format!("The app failed inside: {e}.")))
+}
+
+/// What the owner thread says about opening the current entry: which entry, of what kind, and where
+/// its secret is. Nothing is read from the secret store.
+pub(crate) async fn current_plan(access: &OwnerAccess) -> Result<BridgePlan, Failure> {
+    blocking({
+        let access = access.clone();
+        move || access.bridge_plan()
+    })
+    .await?
+    .map_err(plan_failure)
 }
 
 /// What a refusal of the owner thread's plan says. The codes of the local daemon are those of
 /// `daemon_resolve_current`; `local_not_ready` is a local daemon that is being started or has to be.
-pub(crate) fn plan_failure(code: &'static str) -> Failure {
+fn plan_failure(code: &'static str) -> Failure {
     let message = match code {
-        "not_bridged" => "This daemon is reached through the relay, not through the app's own connection.".to_owned(),
         "no_current" => "No daemon is selected.".to_owned(),
         "local_not_ready" => "The local daemon is not running yet. Wait for it to start, or start it in Daemons.".to_owned(),
         "local_stopped" => "The local daemon is stopped. Start it in Daemons.".to_owned(),
         "unsupported" => "This system cannot run a local daemon.".to_owned(),
+        "invalid_link" => INVALID_LINK.to_owned(),
         other => format!("The current daemon cannot be opened ({other})."),
     };
     Failure::new(code, message)
 }
 
-pub(crate) fn secret_failure(code: &'static str) -> Failure {
-    match code {
-        "secret_missing" => Failure::new(code, "The password for this daemon is not in the secret store. Enter it again in Daemons."),
+/// What a refusal to read the secret of an entry of `kind` says: its password, or a relay entry's
+/// pairing link.
+fn secret_failure(code: &'static str, kind: Kind) -> Failure {
+    match (code, kind) {
+        ("secret_missing", Kind::Relay) => Failure::new(code, "The pairing link for this daemon is not in the secret store. Replace it in Daemons."),
+        ("secret_missing", _) => Failure::new(code, "The password for this daemon is not in the secret store. Enter it again in Daemons."),
         _ => Failure::new(code, "The secret store could not be read: it may be locked, or access was refused. Try again."),
+    }
+}
+
+/// The stored pairing link does not parse. It is not repeated: it holds the daemon's key.
+const INVALID_LINK: &str = "The pairing link stored for this daemon is not valid. Replace it in Daemons.";
+
+/// How the current entry's daemon is opened, once the owner thread has said which entry it is: the
+/// one branch per kind that `transport_open` and the transfer engine's connector share. It holds a
+/// pairing link's key, so it has no `Debug`.
+pub(crate) struct Route {
+    /// The address the page derives from the entry (what `transport_open`'s `url` must be): the
+    /// stored address of a local or direct entry, the relay's (`ws(s)://<relay host>`) for a relay
+    /// entry, the daemon's own for a pairing link with a host hint.
+    address: String,
+    way: Way,
+}
+
+enum Way {
+    /// A WebSocket with the entry's own password, read from the store when the socket is dialled
+    /// (after the place is taken): a local or direct entry.
+    Password(BridgePlan),
+    /// A pairing link with a host hint: the daemon itself, no password, as a direct entry.
+    Host,
+    /// Through the relay at the address: the encrypted channel to the daemon with this public key.
+    Relay { daemon_key: [u8; DAEMON_KEY_BYTES] },
+}
+
+impl Route {
+    /// The address the page derives from the entry: what a `url` must equal to be this entry's.
+    pub(crate) fn address(&self) -> &str {
+        &self.address
+    }
+
+    /// The route for the entry `plan` is for. A relay entry's pairing link is read here, on the
+    /// blocking pool, because its address comes from it: with the link held in memory the plan
+    /// knows the address already, with the link in the store it does not.
+    pub(crate) async fn resolve(access: &OwnerAccess, plan: BridgePlan) -> Result<Self, Failure> {
+        match plan.kind {
+            Kind::Local | Kind::Direct => Ok(Self { address: normalize_daemon_url(&plan.url), way: Way::Password(plan) }),
+            Kind::Relay => {
+                let link = blocking({
+                    let access = access.clone();
+                    move || access.bridge_password(&plan)
+                })
+                .await?
+                .map_err(|code| secret_failure(code, Kind::Relay))?
+                .ok_or_else(|| secret_failure("secret_missing", Kind::Relay))?;
+                Self::from_link(link.expose())
+            }
+            Kind::Ssh => Err(Failure::new("unsupported", "This version of the app cannot open an SSH daemon yet.")),
+        }
+    }
+
+    /// The route a pairing link gives: through its relay, or straight to the daemon at its host hint.
+    fn from_link(link: &str) -> Result<Self, Failure> {
+        let invalid = || Failure::new("invalid_link", INVALID_LINK);
+        let parsed = pairing::parse(link).map_err(|_| invalid())?;
+        // The address is the engine's own rule, the one the page is told: never derived twice.
+        let address = relay_address(link).map_err(|_| invalid())?;
+        let way = match parsed.target {
+            Target::Relay { .. } => Way::Relay { daemon_key: parsed.daemon_key },
+            Target::Direct { .. } => Way::Host,
+        };
+        Ok(Self { address, way })
+    }
+
+    /// Open the socket to the daemon, with messages of at most `max_message_bytes`. A local or
+    /// direct entry's password is read here, on the blocking pool.
+    pub(crate) async fn connect(self, access: &OwnerAccess, max_message_bytes: usize) -> Result<DaemonSocket, Failure> {
+        match self.way {
+            Way::Password(plan) => {
+                let kind = plan.kind;
+                let password = blocking({
+                    let access = access.clone();
+                    move || access.bridge_password(&plan)
+                })
+                .await?
+                .map_err(|code| secret_failure(code, kind))?;
+                Ok(dial(&self.address, password.as_ref().map(Secret::expose), DIAL_LIMIT, max_message_bytes).await?)
+            }
+            Way::Host => Ok(dial(&self.address, None, DIAL_LIMIT, max_message_bytes).await?),
+            Way::Relay { daemon_key } => {
+                // The relay's connect calls every dial failure but a timeout `relay_unreachable` (S5), which
+                // the engine retries: an address that can never be dialled is refused as such, and is final.
+                check_address(&self.address)?;
+                Ok(pistudiodesktop_relay::connect(&self.address, &daemon_key, max_message_bytes, CONNECT_LIMIT).await?.into_socket())
+            }
+        }
     }
 }
 
@@ -240,7 +347,10 @@ pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pistudiodesktop_engine::BridgePassword;
+    use pistudiodesktop_model::EntryId;
     use pistudiodesktop_net::{ConnectionSnapshot, EndCode, LastError};
+    use pistudiodesktop_secrets::MemoryStore;
 
     fn ended(at_ms: u64) -> Option<LastError> {
         Some(LastError { code: EndCode::UpstreamLost, at_ms })
@@ -281,5 +391,74 @@ mod tests {
             assert_eq!(origin_of(&page.parse().unwrap()).unwrap(), origin, "{page}");
         }
         assert_eq!(origin_of(&"data:text/plain,x".parse().unwrap()).unwrap_err().code, "proxy_failed");
+    }
+
+    /// A key of 32 bytes, 0 to 31, as a link carries it.
+    const KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+
+    fn plan(kind: Kind, url: &str, password: BridgePassword) -> BridgePlan {
+        BridgePlan { entry: EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap(), kind, url: url.to_owned(), password }
+    }
+
+    /// An access whose owner thread is gone: only a plan that reads nothing from the store may use it.
+    fn access() -> OwnerAccess {
+        OwnerAccess::new(channel().0, Arc::new(MemoryStore::new()))
+    }
+
+    #[test]
+    fn a_pairing_link_is_a_route_through_its_relay_or_straight_to_its_host_hint() {
+        let link = format!("#offer={KEY}&relay=https://relay.example:8443/&relayTls=1&note=hunter2-link");
+        let relay = Route::from_link(&link).unwrap();
+        // The address is the one the page is told, from the engine's own rule.
+        assert_eq!(relay.address(), "wss://relay.example:8443");
+        assert_eq!(Ok(relay.address().to_owned()), relay_address(&link).map_err(|_| ()));
+        assert!(matches!(relay.way, Way::Relay { daemon_key } if daemon_key[..4] == [0, 1, 2, 3] && daemon_key[31] == 31));
+        let hint = Route::from_link(&format!("#offer={KEY}&host=daemon.example:6767")).unwrap();
+        assert_eq!(hint.address(), "ws://daemon.example:6767");
+        assert!(matches!(hint.way, Way::Host));
+    }
+
+    #[test]
+    fn a_link_that_does_not_parse_is_invalid_link_and_the_message_does_not_repeat_it() {
+        for link in [
+            "",
+            "hunter2-link",
+            "#offer=AAEC&relay=relay.example",
+            &format!("#offer={KEY}"),
+            &format!("#offer={KEY}&relay=relay.example&host=daemon.example&note=hunter2-link"),
+        ] {
+            let failure = Route::from_link(link).err().unwrap();
+            assert_eq!((failure.code, failure.message.as_str()), ("invalid_link", INVALID_LINK), "{link}");
+            assert!(!failure.message.contains("hunter2") && !failure.message.contains(KEY));
+        }
+    }
+
+    #[test]
+    fn a_local_or_direct_entry_is_dialled_at_its_normalised_address_and_its_password_is_read_later() {
+        for kind in [Kind::Local, Kind::Direct] {
+            let route = tauri::async_runtime::block_on(Route::resolve(&access(), plan(kind, "Daemon.example:6767/", BridgePassword::Stored))).unwrap();
+            assert_eq!(route.address(), "ws://Daemon.example:6767");
+            assert!(matches!(route.way, Way::Password(_)));
+        }
+    }
+
+    #[test]
+    fn a_relay_entrys_link_held_in_memory_is_the_route_and_an_ssh_entry_is_not_one_yet() {
+        let held = BridgePassword::Held(Secret::new(format!("#offer={KEY}&relay=relay.example")));
+        let route = tauri::async_runtime::block_on(Route::resolve(&access(), plan(Kind::Relay, "", held))).unwrap();
+        assert_eq!(route.address(), "ws://relay.example");
+        assert!(matches!(route.way, Way::Relay { .. }));
+        let held = BridgePassword::Held(Secret::new("not a link"));
+        assert_eq!(tauri::async_runtime::block_on(Route::resolve(&access(), plan(Kind::Relay, "", held))).err().unwrap().code, "invalid_link");
+        let refused = tauri::async_runtime::block_on(Route::resolve(&access(), plan(Kind::Ssh, "ws://127.0.0.1:6767", BridgePassword::None))).err().unwrap();
+        assert_eq!(refused.code, "unsupported");
+    }
+
+    #[test]
+    fn a_missing_secret_names_what_is_missing() {
+        assert!(secret_failure("secret_missing", Kind::Relay).message.contains("pairing link"));
+        assert!(secret_failure("secret_missing", Kind::Direct).message.contains("password"));
+        assert_eq!(secret_failure("secret_unavailable", Kind::Relay).code, "secret_unavailable");
+        assert!(secret_failure("secret_unavailable", Kind::Relay).message.contains("secret store"));
     }
 }

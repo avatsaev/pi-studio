@@ -75,6 +75,7 @@ const KIND_LABELS: Record<DaemonEntryView["kind"], string> = {
   local: "This machine",
   direct: "Address",
   relay: "Relay",
+  ssh: "SSH",
 };
 
 const NO_LINKS: ReadonlySet<string> = new Set();

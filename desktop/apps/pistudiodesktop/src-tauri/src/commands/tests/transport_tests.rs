@@ -75,8 +75,8 @@ pub(super) fn logged() -> String {
 /// the order they came) the events `open`, `text`, `binary`, `close:<code>` and `end`, and the
 /// subprotocols the upgrades offered.
 #[derive(Clone)]
-struct Daemon {
-    port: u16,
+pub(super) struct Daemon {
+    pub(super) port: u16,
     events: Arc<Mutex<Vec<String>>>,
     offered: Arc<Mutex<Vec<Option<String>>>>,
     upgrades: Arc<AtomicUsize>,
@@ -84,7 +84,7 @@ struct Daemon {
 
 impl Daemon {
     /// `password`: when set, an upgrade that does not offer `pi-studio.bearer.<password>` is answered 401.
-    fn start(password: Option<&'static str>) -> Daemon {
+    pub(super) fn start(password: Option<&'static str>) -> Daemon {
         let events = Arc::new(Mutex::new(Vec::new()));
         let offered = Arc::new(Mutex::new(Vec::new()));
         let upgrades = Arc::new(AtomicUsize::new(0));
@@ -146,11 +146,11 @@ impl Daemon {
         self.events.lock().is_ok_and(|events| events.iter().any(|e| e == event))
     }
 
-    fn offered(&self) -> Vec<Option<String>> {
+    pub(super) fn offered(&self) -> Vec<Option<String>> {
         self.offered.lock().map(|offered| offered.clone()).unwrap_or_default()
     }
 
-    fn wait_for(&self, event: &str) {
+    pub(super) fn wait_for(&self, event: &str) {
         wait_until(event, || self.saw(event));
     }
 }
@@ -165,11 +165,11 @@ pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
 
 // ---- the page stand-in
 
-type Page = WebSocketStream<TcpStream>;
+pub(super) type Page = WebSocketStream<TcpStream>;
 
 /// The page's `WebSocket` to `local_url`, sending `origin` as its `Origin`. Answers the upgrade
 /// response's `Sec-WebSocket-Protocol` (none is expected) with the socket.
-async fn connect_page(local_url: &str, origin: &str) -> Result<(Page, Option<String>), String> {
+pub(super) async fn connect_page(local_url: &str, origin: &str) -> Result<(Page, Option<String>), String> {
     let mut request = local_url.into_client_request().map_err(|e| e.to_string())?;
     request.headers_mut().insert("origin", HeaderValue::from_str(origin).map_err(|e| e.to_string())?);
     let authority = request.uri().authority().map(|a| a.to_string()).ok_or("no authority")?;

@@ -1,7 +1,7 @@
 # Task 002 — SSH crate: known hosts in `~/.ssh/known_hosts` and the app's file
 
 - **Sprint:** sprint-127-desktop-ssh-client
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/ssh
 - **Priority:** P1

@@ -59,6 +59,12 @@ impl DaemonSocket {
         Self { inner: Box::new(socket), max_message_bytes }
     }
 
+    /// Wraps any [`Wire`] (a relay channel, say) that refuses a message above `max_message_bytes` as it reads.
+    #[must_use]
+    pub fn from_wire(wire: impl Wire + 'static, max_message_bytes: usize) -> Self {
+        Self { inner: Box::new(wire), max_message_bytes }
+    }
+
     /// The largest message the socket accepts while it reads: `usize::MAX` when it has no limit.
     #[must_use]
     pub fn max_message_bytes(&self) -> usize {

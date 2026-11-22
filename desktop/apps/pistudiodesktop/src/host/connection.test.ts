@@ -75,13 +75,14 @@ describe("createDesktopConnection", () => {
       }
     });
 
-    it("gives a relay current entry the browser host's transport, whatever the target", () => {
-      for (const target of [RELAY, { mode: "direct", url: "wss://daemon.example" } as const]) {
+    it("gives a relay current entry the proxied transport, whatever the target", async () => {
+      for (const target of [RELAY, DIRECT]) {
         const { connection, createTransport, browserTransport, invoke } = setup(true, entries, "r");
-        const options = { password: "pw" };
-        expect(connection.createTransport(target, options)).toBe(browserTransport);
-        expect(createTransport).toHaveBeenCalledWith(target, options);
-        expect(invoke).not.toHaveBeenCalled();
+        const transport = connection.createTransport(target, { password: "pw" });
+        expect(transport).not.toBe(browserTransport);
+        expect(createTransport).not.toHaveBeenCalled();
+        await transport?.connect(target.url).catch(() => undefined);
+        expect(invoke).toHaveBeenCalledWith("transport_open", { url: target.url });
       }
     });
 

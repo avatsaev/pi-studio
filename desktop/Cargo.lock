@@ -3691,6 +3691,7 @@ dependencies = [
  "pistudiodesktop-engine",
  "pistudiodesktop-model",
  "pistudiodesktop-net",
+ "pistudiodesktop-relay",
  "pistudiodesktop-secrets",
  "pistudiodesktop-shell",
  "pistudiodesktop-transfer",
@@ -3824,8 +3825,10 @@ name = "pistudiodesktop-ssh"
 version = "0.2.0"
 dependencies = [
  "pistudiodesktop-net",
+ "ring",
  "russh",
  "ssh2-config",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

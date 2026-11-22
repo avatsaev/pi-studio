@@ -10,6 +10,7 @@ pub mod connect;
 pub mod error;
 mod reason;
 mod session_id;
+pub mod socket;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
@@ -18,3 +19,4 @@ pub use connect::{CLOSE_CHANNEL_ERROR, CLOSE_CHANNEL_ERROR_REASON, CONNECT_LIMIT
 pub use error::ChannelError;
 pub use reason::{RelayError, RelayReason};
 pub use session_id::session_id;
+pub use socket::{MAX_SEALED_BYTES, SEAL_OVERHEAD, plain_limit, sealed_limit};

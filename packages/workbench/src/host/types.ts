@@ -17,14 +17,38 @@ export interface AppIdentity {
   minDaemonVersion?: string;
 }
 
-/** A registry entry without its secrets (`password`, `pairingLink`). */
+/** A registry entry without its secrets (`password`, `pairingLink`, `sshPassword`, `passphrase`). */
 export interface DaemonEntryView {
   id: string;
-  kind: "local" | "direct" | "relay";
+  kind: "local" | "direct" | "relay" | "ssh";
   name: string;
   /** `direct` entries only, as typed. */
   address?: string;
+  /** `ssh` entries only. */
+  ssh?: SshEntryView;
   hasPassword: boolean;
+}
+
+/** What an `ssh` entry stores, without its secrets. */
+export interface SshEntryView {
+  host: string;
+  user?: string;
+  port?: number;
+  identityFile?: string;
+  jump?: string;
+  daemonPort: number;
+  hasSshPassword: boolean;
+  hasPassphrase: boolean;
+}
+
+/** A `Host` of `~/.ssh/config` without a wildcard, with what the config says about it. */
+export interface SshHostSuggestion {
+  alias: string;
+  hostName?: string;
+  user?: string;
+  port?: number;
+  identityFile?: string;
+  jump?: string;
 }
 
 /** The local daemon's state, as the host last probed or drove it. */
@@ -43,16 +67,54 @@ export type LocalDaemonState =
   | { state: "running"; host: string; port: number }
   | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
 
+/**
+ * The daemon behind the current `ssh` entry, as the host last probed or drove it. In memory; reset
+ * when another entry is opened.
+ */
+export type RemoteDaemonState =
+  | { state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting" }
+  /** The host's `pi-studio` is older than the minimum the desktop app drives. */
+  | { state: "cli_outdated"; version: string }
+  | {
+      state: "failed";
+      reason: "not_healthy" | "timeout" | "bad_output" | "exec_failed" | "no_shell";
+    };
+
 export type NewDaemon =
   | { kind: "direct"; name: string; address: string; password?: string }
-  | { kind: "relay"; name: string; pairingLink: string };
+  | { kind: "relay"; name: string; pairingLink: string }
+  | {
+      kind: "ssh";
+      name: string;
+      host: string;
+      user?: string;
+      port?: number;
+      identityFile?: string;
+      jump?: string;
+      daemonPort?: number;
+      /** The daemon's own password. */
+      password?: string;
+      sshPassword?: string;
+      passphrase?: string;
+    };
 
-/** Fields to change; an absent field is unchanged. `password: null` clears it. */
+/**
+ * Fields to change; an absent field is unchanged. `null` clears an optional field or a secret.
+ * `wrong_kind` for a field the entry's kind does not have.
+ */
 export interface DaemonPatch {
   name?: string;
   address?: string;
   password?: string | null;
   pairingLink?: string;
+  host?: string;
+  user?: string | null;
+  port?: number | null;
+  identityFile?: string | null;
+  jump?: string | null;
+  daemonPort?: number;
+  sshPassword?: string | null;
+  passphrase?: string | null;
 }
 
 export type DaemonErrorCode =
@@ -76,7 +138,14 @@ export type DaemonErrorCode =
   | "spawn_failed"
   | "secret_missing"
   | "secret_unavailable"
-  | "secret_store_failed";
+  | "secret_store_failed"
+  | "invalid_host"
+  | "invalid_user"
+  | "invalid_port"
+  | "invalid_path"
+  | "invalid_jump"
+  | "not_installed"
+  | "ssh_config";
 
 /**
  * What a `HostDaemons` call rejects with: an `Error` whose `code` says why and whose message is the
@@ -103,6 +172,8 @@ export interface HostDaemons {
     currentId: string | null;
     entries: DaemonEntryView[];
     local: LocalDaemonState;
+    /** The state of the current entry's daemon when that entry is `ssh`; otherwise `null`. */
+    remote: RemoteDaemonState | null;
     settings: DaemonSettings;
     /**
      * Optional. Where the host keeps passwords and pairing links: `file` is a file only this user
@@ -132,6 +203,16 @@ export interface HostDaemons {
     restart(): Promise<void>;
     refresh(): Promise<void>;
   };
+  /**
+   * The current `ssh` entry's daemon. Rejects `wrong_kind` for any other entry, `busy`, and (start)
+   * `not_installed` or `cli_outdated`.
+   */
+  remote: {
+    start(): Promise<void>;
+    refresh(): Promise<void>;
+  };
+  /** The hosts of `~/.ssh/config`. Rejects `ssh_config` when the file does not parse. */
+  sshHosts(): Promise<SshHostSuggestion[]>;
   /** Fires when the native menu asks for the Daemons screen. Returns the unsubscribe. */
   onManageRequest(listener: () => void): () => void;
 }

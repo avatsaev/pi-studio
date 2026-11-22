@@ -1,7 +1,7 @@
 # Task 003 — Desktop host: every kind proxied, the relay reason rethrown, the engine for relay, the CSP
 
 - **Sprint:** sprint-126-desktop-relay-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host, src-tauri/tauri.conf.json, packages/workbench (connect-current if needed)
 - **Priority:** P1

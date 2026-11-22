@@ -120,6 +120,13 @@ describe("daemonErrorView", () => {
         "secret_missing",
         "secret_unavailable",
         "secret_store_failed",
+        "invalid_host",
+        "invalid_user",
+        "invalid_port",
+        "invalid_path",
+        "invalid_jump",
+        "not_installed",
+        "ssh_config",
       ].toSorted(),
     );
   });

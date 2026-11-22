@@ -14,3 +14,8 @@ pistudiodesktop-net = { workspace = true }
 russh = { workspace = true }
 ssh2-config = { workspace = true }
 thiserror = { workspace = true }
+# `ring` is already in the tree through russh; known hosts need its HMAC-SHA1 for hashed entries.
+ring = "0.17"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tempfile = { workspace = true }

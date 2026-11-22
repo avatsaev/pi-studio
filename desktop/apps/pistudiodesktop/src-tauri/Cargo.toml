@@ -25,6 +25,7 @@ tauri-build = { workspace = true }
 pistudiodesktop-engine = { workspace = true }
 pistudiodesktop-model = { workspace = true }
 pistudiodesktop-net = { workspace = true }
+pistudiodesktop-relay = { workspace = true }
 pistudiodesktop-secrets = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
 pistudiodesktop-transfer = { workspace = true }
@@ -45,6 +46,8 @@ tauri = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }
 # The transfer engine's stand-in daemon (a WebSocket server in the test's own process): tests only, so that no release build compiles it.
 pistudiodesktop-transfer = { workspace = true, features = ["testing"] }
+# The relay stand-in (a loopback relay with a daemon half that speaks the channel): tests only, for the same reason.
+pistudiodesktop-relay = { workspace = true, features = ["testing"] }
 # The tests' daemon stand-in and page: a local WebSocket server and client.
 tokio = { workspace = true, features = ["net", "time", "sync"] }
 tokio-tungstenite = { workspace = true }

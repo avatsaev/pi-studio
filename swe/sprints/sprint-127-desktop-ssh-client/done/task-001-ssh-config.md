@@ -1,7 +1,7 @@
 # Task 001 — SSH crate: resolving a host through `~/.ssh/config`, and the host list
 
 - **Sprint:** sprint-127-desktop-ssh-client
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/ssh
 - **Priority:** P1

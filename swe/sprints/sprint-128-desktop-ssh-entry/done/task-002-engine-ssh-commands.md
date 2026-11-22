@@ -1,7 +1,7 @@
 # Task 002 — Engine: SSH add/update/remove, the SSH plan, and `daemon.remote.*`
 
 - **Sprint:** sprint-128-desktop-ssh-entry
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine
 - **Priority:** P1
