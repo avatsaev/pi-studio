@@ -3087,7 +3087,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "futures-util",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "pistudiodesktop-engine",
@@ -3124,7 +3124,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "log",
@@ -3139,7 +3139,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-ipc-bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "futures-util",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-model"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3164,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-net"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "getrandom 0.3.4",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-secrets"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "log",
@@ -3210,7 +3210,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "log",
  "tempfile",
@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "pistudiodesktop-testkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
@@ -5895,7 +5895,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
