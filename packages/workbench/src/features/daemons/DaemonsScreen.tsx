@@ -21,12 +21,14 @@ import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { type DaemonSettings, type HostDaemons } from "../../host/types.js";
 import { type FormMode } from "./daemon-form.js";
-import { type LocalAction } from "./daemon-presentation.js";
+import { type LocalAction, type RemoteAction } from "./daemon-presentation.js";
 import {
+  copyCommand,
   openEntry,
   removeEntry,
   runLocalAction,
   runLocalActionAsking,
+  runRemoteAction,
   stopNeedsConfirm,
   saveAutoStart,
   saveCliPath,
@@ -40,6 +42,7 @@ import {
   LINK_INVALID_LABEL,
   type EntryRowView,
   type LocalRowView,
+  type RemoteRowView,
 } from "./daemons-screen-view.js";
 import { DaemonForm } from "./DaemonForm.js";
 import { useDaemonsStore } from "./daemons-store.js";
@@ -162,6 +165,8 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
                       ),
                     )
                   }
+                  onRemoteAction={(call) => void run(() => runRemoteAction(daemons, call))}
+                  onCopy={(command) => void run(() => copyCommand(getHost().clipboard, command))}
                 />
               ))}
             </ul>
@@ -196,12 +201,16 @@ function EntryRow({
   onEdit,
   onRemove,
   onLocalAction,
+  onRemoteAction,
+  onCopy,
 }: {
   row: EntryRowView;
   onOpen: () => void;
   onEdit: () => void;
   onRemove: () => void;
   onLocalAction: (call: LocalAction["call"]) => void;
+  onRemoteAction: (call: RemoteAction["call"]) => void;
+  onCopy: (command: string) => void;
 }) {
   return (
     <li className={styles.row} data-current={row.current || undefined}>
@@ -223,7 +232,8 @@ function EntryRow({
             {row.address}
           </div>
         )}
-        {row.local && <LocalState local={row.local} />}
+        {row.local && <StateBlock state={row.local} />}
+        {row.remote && <StateBlock state={row.remote} onCopy={onCopy} />}
       </div>
       <div className={styles.rowActions}>
         {row.local?.actions.map((action) => (
@@ -232,6 +242,16 @@ function EntryRow({
             size="xs"
             variant="secondary"
             onClick={() => onLocalAction(action.call)}
+          >
+            {action.label}
+          </Button>
+        ))}
+        {row.remote?.actions.map((action) => (
+          <Button
+            key={action.kind}
+            size="xs"
+            variant="secondary"
+            onClick={() => onRemoteAction(action.call)}
           >
             {action.label}
           </Button>
@@ -261,16 +281,34 @@ function EntryRow({
   );
 }
 
-function LocalState({ local }: { local: LocalRowView }) {
+function StateBlock({
+  state,
+  onCopy,
+}: {
+  state: LocalRowView | RemoteRowView;
+  /** Present when the command in the notice is offered with a Copy button. */
+  onCopy?: (command: string) => void;
+}) {
+  const { notice } = state;
   return (
     <div className={styles.localState}>
-      <div className={styles.stateLabel} data-tone={local.tone} title={local.label}>
-        {local.label}
+      <div className={styles.stateLabel} data-tone={state.tone} title={state.label}>
+        {state.label}
       </div>
-      {local.notice && (
+      {notice && (
         <div className={styles.notice}>
-          <span>{local.notice.text}</span>
-          {local.notice.command && <code className={styles.command}>{local.notice.command}</code>}
+          <span>{notice.text}</span>
+          {notice.command !== undefined &&
+            (onCopy ? (
+              <div className={styles.commandRow}>
+                <code className={styles.command}>{notice.command}</code>
+                <Button size="xs" variant="secondary" onClick={() => onCopy(notice.command ?? "")}>
+                  Copy
+                </Button>
+              </div>
+            ) : (
+              <code className={styles.command}>{notice.command}</code>
+            ))}
         </div>
       )}
     </div>

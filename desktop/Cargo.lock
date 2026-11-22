@@ -3824,12 +3824,15 @@ dependencies = [
 name = "pistudiodesktop-ssh"
 version = "0.2.0"
 dependencies = [
+ "futures-util",
  "pistudiodesktop-net",
  "ring",
  "russh",
  "ssh2-config",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

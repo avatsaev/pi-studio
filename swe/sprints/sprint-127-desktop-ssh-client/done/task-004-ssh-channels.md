@@ -1,7 +1,7 @@
 # Task 004 — SSH crate: the daemon channel, `dial_over`, and remote commands
 
 - **Sprint:** sprint-127-desktop-ssh-client
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/ssh
 - **Priority:** P1

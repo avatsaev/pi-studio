@@ -1,7 +1,7 @@
 # Task 002 — Daemons form: the SSH kind and the hosts of `~/.ssh/config`
 
 - **Sprint:** sprint-129-desktop-ssh-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/features/daemons (daemon-form.ts and its view)
 - **Priority:** P1

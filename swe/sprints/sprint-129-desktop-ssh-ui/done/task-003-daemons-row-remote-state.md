@@ -1,7 +1,7 @@
 # Task 003 — Daemons row and switcher: the SSH entry's state, Start, not installed, and opening by itself
 
 - **Sprint:** sprint-129-desktop-ssh-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench/src/features/daemons (presentation, screen view, switcher)
 - **Priority:** P1

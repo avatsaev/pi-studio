@@ -71,6 +71,18 @@
   user-select: text;
 }
 
+.commandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  min-width: 0;
+}
+
+.commandRow .command {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---- Entries ---- */
 
 .list {

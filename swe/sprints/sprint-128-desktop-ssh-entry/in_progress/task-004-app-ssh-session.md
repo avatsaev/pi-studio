@@ -1,7 +1,7 @@
 # Task 004 — App binary: the shared SSH session, and `transport_open` and the connector for SSH
 
 - **Sprint:** sprint-128-desktop-ssh-entry
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

@@ -6,7 +6,11 @@
  * (`swe/features/desktop-daemon-registry.md` § Error handling & edge cases).
  */
 
-import { type DaemonErrorCode, type LocalDaemonState } from "../../host/types.js";
+import {
+  type DaemonErrorCode,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 
 /** What the user can ask of the local daemon. */
 export type LocalActionKind = "start" | "stop" | "restart" | "retry";
@@ -83,6 +87,84 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
     case "failed":
       return { label: FAILED_LABELS[state.reason], tone: "error", actions: [RETRY_START] };
   }
+}
+
+/** What the user can ask of the current SSH entry's daemon. */
+export interface RemoteAction {
+  kind: "start" | "retry";
+  label: string;
+  /** The `HostDaemons.remote` member to call: Retry probes the host again. */
+  call: "start" | "refresh";
+}
+
+export interface RemoteStateView {
+  label: string;
+  tone: LocalTone;
+  /** In display order. Empty while the state is transient or already running. */
+  actions: RemoteAction[];
+}
+
+const REMOTE_START: RemoteAction = { kind: "start", label: "Start", call: "start" };
+const REMOTE_RETRY: RemoteAction = { kind: "retry", label: "Retry", call: "refresh" };
+
+const REMOTE_FAILED_LABELS: Record<
+  Extract<RemoteDaemonState, { state: "failed" }>["reason"],
+  string
+> = {
+  not_healthy: "Started, but not answering",
+  timeout: "Did not start in time",
+  bad_output: "The pi-studio CLI printed something unexpected",
+  exec_failed: "Could not run a command on the host",
+  no_shell: "The host's login shell could not be used",
+};
+
+/** The oldest `pi-studio` the desktop app drives on an SSH host (the host's `MIN_CLI_VERSION`). */
+export const MIN_REMOTE_CLI_VERSION = "0.0.127";
+
+/** The command that installs (or updates) `pi-studio` on an SSH host. */
+export const REMOTE_INSTALL_COMMAND = "npm install -g @av-pi-studio/cli";
+
+export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
+  switch (state.state) {
+    case "unknown":
+      return { label: "Not checked yet", tone: "neutral", actions: [REMOTE_RETRY] };
+    case "checking":
+      return { label: "Checking…", tone: "busy", actions: [] };
+    case "running":
+      return { label: "Running", tone: "ok", actions: [] };
+    case "stopped":
+      return { label: "Stopped", tone: "neutral", actions: [REMOTE_START] };
+    case "starting":
+      return { label: "Starting…", tone: "busy", actions: [] };
+    case "not_installed":
+      return {
+        label: "pi-studio is not installed on this host",
+        tone: "error",
+        actions: [REMOTE_RETRY],
+      };
+    case "cli_outdated":
+      return {
+        label: `The pi-studio CLI ${state.version} on this host is too old`,
+        tone: "error",
+        actions: [REMOTE_RETRY],
+      };
+    case "failed":
+      return {
+        label: REMOTE_FAILED_LABELS[state.reason],
+        tone: "error",
+        actions: [REMOTE_START, REMOTE_RETRY],
+      };
+  }
+}
+
+/** The states in which the Daemons screen opens by itself (S8): the user has something to do. */
+export function remoteNeedsScreen(state: RemoteDaemonState["state"] | null): boolean {
+  return (
+    state === "stopped" ||
+    state === "not_installed" ||
+    state === "cli_outdated" ||
+    state === "failed"
+  );
 }
 
 /** A code the workbench could not map, e.g. a host that rejected with something else. */

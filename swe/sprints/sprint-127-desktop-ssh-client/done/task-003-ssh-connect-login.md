@@ -1,7 +1,7 @@
 # Task 003 — SSH crate: connect, hops, login and keepalive, against an in-process server
 
 - **Sprint:** sprint-127-desktop-ssh-client
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/ssh
 - **Priority:** P1

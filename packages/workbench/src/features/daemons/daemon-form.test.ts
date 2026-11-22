@@ -6,11 +6,14 @@ import { submitAdd, submitEdit } from "./daemon-form-actions.js";
 import {
   ADDRESS_BLANK,
   ADDRESS_IS_LINK,
+  HOST_BLANK,
   LINK_BLANK,
   NAME_BLANK,
   SAVE_FAILED,
   buildNewDaemon,
   buildPatch,
+  chooseSshHost,
+  sshPlaceholders,
   formView,
   initialAddFields,
   initialEditFields,
@@ -517,5 +520,186 @@ describe("linkReplaced", () => {
   it("is false for an empty link or an entry that has none", () => {
     expect(linkReplaced(relay, initialEditFields(relay))).toBe(false);
     expect(linkReplaced(direct, { ...initialEditFields(direct), pairingLink: "x" })).toBe(false);
+  });
+});
+
+function ssh(): DaemonEntryView {
+  const daemons = createTestDaemons({
+    entries: [
+      {
+        id: "s",
+        kind: "ssh",
+        name: "Box",
+        host: "box",
+        user: "me",
+        port: 2222,
+        identityFile: "/k",
+        jump: "gw",
+        daemonPort: 7000,
+        password: "dp",
+        sshPassword: "sp",
+        passphrase: "pp",
+      },
+    ],
+  });
+  return entryOf(daemons, "s");
+}
+
+describe("ssh form", () => {
+  it("builds a new entry with only what is typed", () => {
+    expect(buildNewDaemon(fields({ kind: "ssh", name: " B ", host: " box " }))).toEqual({
+      ok: true,
+      value: { kind: "ssh", name: "B", host: "box" },
+    });
+    expect(
+      buildNewDaemon(
+        fields({
+          kind: "ssh",
+          name: "B",
+          host: "box",
+          user: "me",
+          port: "2200",
+          identityFile: "/k",
+          jump: "gw",
+          daemonPort: "7000",
+          password: "d",
+          sshPassword: "s",
+          passphrase: "p",
+        }),
+      ),
+    ).toEqual({
+      ok: true,
+      value: {
+        kind: "ssh",
+        name: "B",
+        host: "box",
+        user: "me",
+        port: 2200,
+        identityFile: "/k",
+        jump: "gw",
+        daemonPort: 7000,
+        password: "d",
+        sshPassword: "s",
+        passphrase: "p",
+      },
+    });
+  });
+
+  it("refuses a blank host and bad ports", () => {
+    const result = buildNewDaemon(fields({ kind: "ssh", name: "B", port: "0", daemonPort: "x" }));
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok) return;
+    expect(result.errors.host).toBe("Enter the host.");
+    expect(result.errors.port).toBe(daemonErrorView("invalid_port").message);
+    expect(result.errors.daemonPort).toBe(daemonErrorView("invalid_port").message);
+  });
+
+  it("starts an edit from the saved settings and no secrets", () => {
+    const initial = initialEditFields(ssh());
+    expect(initial).toMatchObject({
+      kind: "ssh",
+      host: "box",
+      user: "me",
+      port: "2222",
+      identityFile: "/k",
+      jump: "gw",
+      daemonPort: "7000",
+      password: "",
+      sshPassword: "",
+      passphrase: "",
+    });
+    expect(JSON.stringify(initial)).not.toMatch(/"dp"|"sp"|"pp"/);
+    const view = formView({ type: "edit", entry: ssh() }, initial);
+    expect(view).toMatchObject({ showSsh: true, showAddress: false, showPassword: true });
+    expect(view.sshPassword.marker).toBe("Saved");
+    expect(view.passphrase.canClear).toBe(true);
+  });
+
+  it("sends nothing for an untouched edit, and only the changed fields otherwise", () => {
+    const entry = ssh();
+    expect(patchOf(entry, {})).toEqual({ ok: true, value: {} });
+    expect(patchOf(entry, { host: "other", port: "22", daemonPort: "7001" })).toEqual({
+      ok: true,
+      value: { host: "other", port: 22, daemonPort: 7001 },
+    });
+  });
+
+  it("clears optional fields and secrets, a typed secret winning", () => {
+    const entry = ssh();
+    expect(
+      patchOf(entry, {
+        user: "",
+        port: "",
+        identityFile: " ",
+        jump: "",
+        daemonPort: "",
+        clearPassword: true,
+        clearSshPassword: true,
+        passphrase: "new",
+        clearPassphrase: true,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        user: null,
+        port: null,
+        identityFile: null,
+        jump: null,
+        daemonPort: 6767,
+        password: null,
+        sshPassword: null,
+        passphrase: "new",
+      },
+    });
+  });
+
+  it("does not clear a secret that is not saved", () => {
+    const bare = entryOf(
+      createTestDaemons({
+        entries: [{ id: "t", kind: "ssh", name: "T", host: "t" }],
+      }),
+      "t",
+    );
+    expect(patchOf(bare, { clearSshPassword: true, clearPassphrase: true })).toEqual({
+      ok: true,
+      value: {},
+    });
+  });
+
+  it("checks a changed host and port", () => {
+    const result = patchOf(ssh(), { host: " ", port: "70000" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toMatchObject({ host: HOST_BLANK });
+    expect(result.errors.port).toBeDefined();
+  });
+
+  it("lands host refusals on their fields and reconnects for any dialing change", () => {
+    expect(refusalErrors("invalid_host")).toEqual({
+      host: daemonErrorView("invalid_host").message,
+    });
+    expect(refusalErrors("invalid_user")).toHaveProperty("user");
+    expect(refusalErrors("invalid_port")).toHaveProperty("port");
+    expect(refusalErrors("invalid_path")).toHaveProperty("identityFile");
+    expect(refusalErrors("invalid_jump")).toHaveProperty("jump");
+    expect(needsReconnect({ id: "s" }, "s", { jump: null })).toBe(true);
+    expect(needsReconnect({ id: "s" }, "s", { name: "X" })).toBe(false);
+  });
+
+  it("fills the form from a config host and shows the config's values as placeholders", () => {
+    const base = fields({ kind: "ssh" });
+    expect(chooseSshHost(base, "box")).toMatchObject({ host: "box", name: "box" });
+    expect(chooseSshHost({ ...base, name: "Mine" }, "box")).toMatchObject({
+      host: "box",
+      name: "Mine",
+    });
+    const hosts = [{ alias: "box", user: "me", port: 2200, identityFile: "/k", jump: "gw" }];
+    expect(sshPlaceholders("box", hosts)).toEqual({
+      user: "me",
+      port: "2200",
+      identityFile: "/k",
+      jump: "gw",
+    });
+    expect(sshPlaceholders("other", hosts).user).toBe("Optional");
   });
 });
