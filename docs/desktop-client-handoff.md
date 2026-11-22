@@ -457,8 +457,9 @@ protocol-2 client sees `daemon_outdated`.
 ### 4. Native shell
 
 - **Local daemon.** `pi-studio daemon start` (npm `@av-pi-studio/cli`, Node ≥ 22.20) starts a
-  daemon or finds the running one through a PID lock. Whether the desktop app bundles Node or
-  expects an installed CLI is an open product decision. See `packages/cli/AGENTS.md`.
+  daemon or finds the running one through a PID lock. The desktop app expects an installed CLI
+  today. A single-executable daemon the app downloads on first use was explored on 2026-11-22 and
+  is not built: `swe/architecture/single-binary-daemon.md`. See `packages/cli/AGENTS.md`.
 - **Daemon supervision output.** `pi-studio --json daemon start|restart|pair|stop` (the global flag
   precedes the subcommand) prints exactly one JSON line on stdout, no QR or prose. `start` and
   `restart`: `{up: true, started, host, port, pairingUrl, relay}` (`relay` is the endpoint string or
@@ -643,10 +644,13 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    same SSH connection. Not specified yet: the record is the note at the top of
    `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
    machine is used through SSH with the same behaviour as direct.
-5. **Native shell features.** Menus, notifications, updates, signing. Bundling the daemon (Node
-   runtime as a sidecar, macOS and Linux only, roughly 1–2 sprints) is deferred until the app ships
-   to people without Node; a native Windows daemon (about 50 POSIX assumptions in the server, no
-   Windows CI) only if Windows users need a local one.
+5. **Native shell features.** Menus, notifications, updates, signing.
+6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
+   binary, downloaded on first use, plus app self-update through the Tauri updater
+   (`swe/architecture/single-binary-daemon.md`, exploration of 2026-11-22; replaces the
+   Node-sidecar idea; not scheduled). Depends on milestone 5's signing and updater. A native
+   Windows daemon (about 50 POSIX assumptions in the server, no Windows CI) only if Windows users
+   need a local one.
 
 **The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 
@@ -654,7 +658,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 
 - ~~Does the desktop app bundle a daemon, or only connect to existing ones?~~ Answered
   (2026-11-15): neither alone. It supervises an installed `pi-studio` CLI's daemon (milestone 1);
-  bundling is deferred (milestone 5).
+  bundling is deferred (milestone 6).
 - ~~Do the dashboard's Rust crates move to a shared repository or a published crate?~~ Answered
   (2026-11-21): no. The dashboard was a throwaway test application.
 - ~~Does the relay accept a second channel from the same client for the bulk connection?~~ Answered
