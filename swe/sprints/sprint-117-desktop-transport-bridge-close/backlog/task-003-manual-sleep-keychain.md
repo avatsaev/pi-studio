@@ -23,6 +23,7 @@ No runner can sleep. The owner has a Linux, a Mac and a Windows machine. This ta
 - Installers from a manual run of the Desktop release workflow on the branch.
 - On each machine: connect to a daemon, sleep for five minutes, wake, and note how long the session takes to recover and whether the page reloaded.
 - On macOS and Windows: the keychain items of the checklist, and on macOS what the system asks after installing a newer build over an older one.
+- **Added 2026-11-22 (the proxy design, T5):** on each machine, with the system's firewall on and whatever security software the machine has: note whether connecting to a direct entry shows a firewall or security prompt (the app listens on `127.0.0.1` for a moment at each connect), and whether the connection bar ever shows the `local_connection` message. On Windows also once after a fresh install.
 - The results go into the checklist's results table.
 
 ## Out of scope

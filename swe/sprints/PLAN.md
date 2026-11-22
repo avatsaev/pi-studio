@@ -137,11 +137,11 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 109 | `sprint-109-desktop-registry-wiring` | workbench + desktop (app + frontend): **Desktop daemon registry, slice 3 — wiring.** `HostDaemons` contract + in-memory registry for tests; registry and first probe at launch, boot snapshot `daemons` + `minDaemonVersion`, page commands and events; the switch (confirm, flush, reload); the native "Daemons" menu; the frontend's `daemons` member; live checks with the real CLI. | 6 |
 | 110 | `sprint-110-workbench-daemons-ui` | workbench: **Desktop daemon registry, slice 4 — the workbench surfaces.** Connection boot through `resolveCurrent`; the connection bar as a switcher; the Daemons screen (entries, local daemon, settings, remove); add and edit forms that never show a secret; reactions to stop, removal, a dead pairing link and the menu; the outdated-daemon notice; live checks in the desktop webview, web client unchanged. | 7 |
 | 111 | `sprint-111-desktop-daemon-registry-close` | desktop + docs: **Desktop daemon registry, slice 5 — close.** Linux acceptance run (also the three native-host criteria that needed a registry), the platform checklist's registry section, automated registry checks on macOS and Windows CI runners, the manual macOS and Windows run (needs a person), documents and spec close: desktop milestone 1 done for Linux. | 4 |
-| 112 | `sprint-112-desktop-ipc-benchmark` | desktop: **Desktop transport bridge, slice 1 — the IPC benchmark (a gate).** What a daemon really sends (frame sizes), a benchmark application with a local WebSocket server and a baseline over the page's own socket, the pure parts of a `net` crate (frame codec, inbound window, outbound order), the bridge candidates over Tauri channels and raw invokes, load and hidden-window rows, a workflow for macOS and Windows runners, then the runs, the note and the verdict. **The gate failed (2026-11-22)**; t008 (the owner's choice of another design) was added and is blocked. | 8 |
+| 112 | `sprint-112-desktop-ipc-benchmark` | desktop: **Desktop transport bridge, slice 1 — the IPC benchmark (a gate).** What a daemon really sends (frame sizes), a benchmark application with a local WebSocket server and a baseline over the page's own socket, the pure parts of a `net` crate (frame codec, inbound window, outbound order), the bridge candidates over Tauri channels and raw invokes, load and hidden-window rows, a workflow for macOS and Windows runners, then the runs, the note and the verdict. **The gate failed for the channel design (2026-11-22)**; in t008 the owner chose a loopback WebSocket proxy owned by Rust, and the spec and sprints 115–116 were rewritten for it. | 8 |
 | 113 | `sprint-113-desktop-secret-store` | desktop + workbench: **Desktop transport bridge, slice 2 — secrets leave `daemons.json`.** A `secrets` crate (memory, file and keychain backends), registry file version 2, migration at launch, engine commands writing secrets to the store, the backend choice and `--secret-store`, the Daemons screen's line for the file backend, Linux live checks and documents. Independent of the gate. | 8 |
 | 114 | `sprint-114-desktop-resume-signals` | desktop: **Desktop transport bridge, slice 3 — wake and network signals.** Wake detected from a clock gap, network changes from polled interface addresses, the `connection_resume` event, a desktop `connection` member whose `onResume` hears it, and a Linux live check by stopping and continuing the app. Independent of the gate. | 4 |
-| 115 | `sprint-115-desktop-bridge-core` | desktop: **Desktop transport bridge, slice 4 — the bridge's parts (only after the gate passed).** Dialling in the `net` crate (TCP, TLS on the system's certificates, the upgrade with the bearer password, error classes), a connection's read and write tasks with limits and handles, the address rule in Rust with vectors shared with the workbench, and the bridged `Transport` in TypeScript. | 4 |
-| 116 | `sprint-116-desktop-bridge-wiring` | desktop: **Desktop transport bridge, slice 5 — wiring.** The five page commands and the channel, `ui.inspect` reporting connections, `createTransport` choosing the bridge for local and direct entries, `daemon_resolve_current` without a password, and Linux live checks (terminal flood, 1 GiB transfers, errors, reload, relay entries unchanged). | 5 |
+| 115 | `sprint-115-desktop-bridge-core` | desktop: **Desktop transport bridge, slice 4 — the proxy's parts.** Dialling in the `net` crate (TCP, TLS on the system's certificates, the upgrade with the bearer password, error classes), the loopback proxy (a per-connection listener with a single-use token and origin and host checks, the pump, limits, the set of connections), the address rule in Rust with vectors shared with the workbench, and the proxied `Transport` in TypeScript. Rewritten 2026-11-22 for the design the owner chose after the gate failed. | 4 |
+| 116 | `sprint-116-desktop-bridge-wiring` | desktop: **Desktop transport bridge, slice 5 — wiring.** The one page command (`transport_open`), `ui.inspect` reporting connections, `createTransport` choosing the proxy for local and direct entries, `daemon_resolve_current` without a password, and Linux live checks (terminal flood, 1 GiB transfers, errors, reload, relay entries unchanged, a stranger at the local port). | 5 |
 | 117 | `sprint-117-desktop-transport-bridge-close` | desktop + docs: **Desktop transport bridge, slice 6 — close.** Linux acceptance run with everything built, the checklist's milestone 2 section, automated checks on macOS and Windows runners, sleep and wake on real machines (needs a person), documents and spec close: desktop milestone 2. | 4 |
 
 Total: **111 sprints, 588 tasks**, recomputed from the table above when sprints 082–087 were added
@@ -3132,7 +3132,9 @@ the other (both may edit the checklist and the spec).
 > in two of three; the per-frame channel missed more and lost a message once. The nine tasks of
 > sprints 115 and 116 are in `blocked/`. A loopback WebSocket proxy owned by Rust was added to the
 > benchmark and met the marks on all three platforms except B4 memory growth, which the baseline
-> misses too. t008 waits for the owner's choice. Numbers: `swe/notes/desktop-ipc-benchmark.md`.
+> misses too. Numbers: `swe/notes/desktop-ipc-benchmark.md`. **On 2026-11-22 the owner chose the
+> loopback proxy on all three platforms (spec decision T5).** t008 rewrote the spec's §§ 2–3 and
+> the nine tasks, which are back in `backlog/`; proposals P11–P16 await the owner's review.
 >
 > **Found at planning time.** Read in Tauri 2.12.5: a channel message under 1,024 raw bytes is
 > delivered by evaluating a script and a larger one through an extra fetch, so per-frame and
@@ -3149,7 +3151,7 @@ the other (both may edit the checklist and the spec).
 | task-005 | Benchmark: echo under load, a hidden window, worker timers (B7, B8) and memory | feature | task-004 | desktop-transport-bridge § 1 (B4, B7, B8), decision P7 |
 | task-006 | Workflow: run the benchmark on a macOS and a Windows runner | chore | task-005 | desktop-transport-bridge § 1 (where it runs) |
 | task-007 | Run the benchmark on three platforms, write the note, state the gate | test | task-001, task-006 | desktop-transport-bridge § 1 (pass marks, outcome), § Acceptance criteria (Benchmark), decisions T3, P1, P2 |
-| task-008 | Choose the bridge design, respecify § 2–3, replan sprints 115 and 116 (blocked: the owner's choice) | design | task-007 | desktop-transport-bridge § 1 (If it fails), § 2, § 3, decision T3 |
+| task-008 | Choose the bridge design, respecify § 2–3, replan sprints 115 and 116 | design | task-007 | desktop-transport-bridge § 1 (If it fails), § 2, § 3, decisions T3, T5, P11–P16 |
 
 t001, t002 and t003 are independent (a script and a note; a new application; a new crate) and run
 in parallel. t004, t005 and t006 follow in order. t002 and t003 both edit `desktop/Cargo.toml`
@@ -3201,27 +3203,26 @@ t001 depends on s113/t006 only because both add to `ui.inspect`'s `connection` o
 TypeScript only and runs beside t001 and t002.
 
 ### sprint-115-desktop-bridge-core
-> **What it ships.** The parts of the bridge, each tested alone: the `net` crate can dial a daemon
-> and carry frames with the window and the order rule; Rust and the workbench agree on what URL a
-> stored address means; the page has a `Transport` that speaks the bridge's commands. Nothing is
-> wired into the app yet.
+> **What it ships.** The parts of the proxy, each tested alone: the `net` crate can dial a daemon
+> and can put a loopback WebSocket in front of that socket that only the app's page can use; Rust
+> and the workbench agree on what URL a stored address means; the page has a `Transport` that asks
+> Rust where to connect. Nothing is wired into the app yet.
 >
-> **Only after the gate passed (T3).** Every task depends on s112/t007. If the gate failed, these
-> tasks are in `blocked/` and are rewritten for the design the owner accepts.
+> **Rewritten on 2026-11-22.** The gate failed for the channel design (sprint 112) and the owner
+> chose a loopback WebSocket proxy owned by Rust (spec decision T5). t001 and t003 carry over;
+> t002 became the proxy (and moves the channel-only modules of `net` into the benchmark, P16);
+> t004 shrank to a wrapper around the SDK's WebSocket transport.
 >
-> **Blocked since 2026-11-22.** The gate failed (sprint 112). All four tasks are in `blocked/`,
-> each with what is expected of it if the owner picks the loopback proxy.
->
-> **Found at planning time.** The channel's encoding (one message per frame, or batches) is the
-> benchmark's result: t002 and t004 read it from the note. t003's vectors file sits under
+> **Found at planning time.** The benchmark's `proxy.rs` is the measured sketch for t002; it has no
+> TLS, no password, no `Host` check and no size cap. t003's vectors file sits under
 > `packages/workbench` unless the implementer chooses `desktop/` to avoid an npm release.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
-| task-001 | `net` crate: dialling (TCP, TLS, the WebSocket upgrade, error classes) | feature | sprint-112/task-003, sprint-112/task-007 | desktop-transport-bridge § 2, § 6 (socket options), § 8 (TLS trust), § Error handling, § TODO(verify) (TLS licences) |
-| task-002 | `net` crate: a connection's tasks, limits and handles | feature | task-001 | desktop-transport-bridge § 2 (limits), § 3, § 7 (counters) |
-| task-003 | The address rule in Rust, with test vectors shared with the workbench | feature | sprint-112/task-007 | desktop-transport-bridge § 2 (the `url` rule), decision P9 |
-| task-004 | Desktop host: the bridged `Transport` in TypeScript | feature | sprint-112/task-007 | desktop-transport-bridge § 2, § 3, § 4 (the bridged `Transport`) |
+| task-001 | `net` crate: dialling (TCP, TLS, the WebSocket upgrade, error classes) | feature | sprint-112/task-003, sprint-112/task-008 | desktop-transport-bridge § 2, § 3 (the daemon's leg), § 6 (socket options), § 8 (TLS trust), § Error handling, § TODO(verify) (TLS licences), decision P12 |
+| task-002 | `net` crate: the loopback proxy (the page's leg, the pump, limits, the set of connections) | feature | task-001 | desktop-transport-bridge § 2 (limits), § 3, § 7 (states, counters), decisions T5, P11, P13, P15, P16 |
+| task-003 | The address rule in Rust, with test vectors shared with the workbench | feature | sprint-112/task-008 | desktop-transport-bridge § 2 (the `url` rule), decision P9 |
+| task-004 | Desktop host: the proxied `Transport` in TypeScript | feature | sprint-112/task-008 | desktop-transport-bridge § 2, § 4 (the proxied `Transport`), § Error handling (`local_connection`) |
 
 t001, t003 and t004 are independent (three different places) and run in parallel.
 
@@ -3229,21 +3230,23 @@ t001, t003 and t004 are independent (three different places) and run in parallel
 > **What it ships.** The window connects to a local or direct entry through Rust, and a daemon's
 > password no longer reaches the page. Relay entries are unchanged (T1).
 >
-> **Blocked since 2026-11-22.** The gate failed (sprint 112). All five tasks are in `blocked/`
-> until s112/t008 rewrites them for the design the owner chooses.
+> **Rewritten on 2026-11-22** for the loopback proxy (spec decision T5): one page command instead
+> of five and a channel. t002, t003 and t004 carry over almost unchanged; t005 gained a run for
+> the local port.
 >
-> **Found at planning time.** The choice between the bridge and the webview's socket follows the
-> kind of the current entry, not the shape of the connect target: a relay entry whose pairing link
-> carries a direct host hint stays on the webview's socket. A download through the bridge crosses
-> IPC twice until milestone 3; t005 reports the rate against sprint 104's (P2 accepts half).
+> **Found at planning time.** The choice between the proxy and the webview's own socket to the
+> outside follows the kind of the current entry, not the shape of the connect target: a relay
+> entry whose pairing link carries a direct host hint stays on the webview's socket. A download
+> still passes through the page until milestone 3; t005 reports the rate against sprint 104's (P2
+> accepts half; the benchmark measured the proxy near the direct rate).
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
-| task-001 | App binary: the five transport commands, the channel, closing on boot and switch | feature | sprint-115/task-002, sprint-115/task-003, sprint-113/task-006 | desktop-transport-bridge § 2, § 3, § Opening a connection, § Error handling, decisions P9, T1 |
-| task-002 | `ui.inspect`: the bridged connections and the last error | feature | task-001 | desktop-transport-bridge § 7, decision P10 |
-| task-003 | Desktop host: `createTransport` picks the bridge for local and direct entries | feature | task-001, sprint-115/task-004, sprint-114/task-003 | desktop-transport-bridge § 4 (`createTransport`), decision T1 |
+| task-001 | App binary: `transport_open`, the proxied connections, closing on boot and switch | feature | sprint-115/task-002, sprint-115/task-003, sprint-113/task-006 | desktop-transport-bridge § 2, § 3, § Opening a connection, § Error handling, decisions T1, T5, P9, P11–P13 |
+| task-002 | `ui.inspect`: the proxied connections and the last error | feature | task-001 | desktop-transport-bridge § 7, decision P10 |
+| task-003 | Desktop host: `createTransport` picks the proxy for local and direct entries | feature | task-001, sprint-115/task-004, sprint-114/task-003 | desktop-transport-bridge § 4 (`createTransport`), decisions T1, T5 |
 | task-004 | `daemon_resolve_current` no longer returns a password | feature | task-003 | desktop-transport-bridge § 4 (last paragraph), § Acceptance criteria (Bridge, first item) |
-| task-005 | Linux live checks for the bridge | test | task-002, task-004 | desktop-transport-bridge § Acceptance criteria (Bridge), § Error handling |
+| task-005 | Linux live checks for the proxy | test | task-002, task-004 | desktop-transport-bridge § Acceptance criteria (Bridge), § Error handling, decisions P14, P15 |
 
 t002 and t003 can run in parallel after t001 (Rust and TypeScript, different files).
 

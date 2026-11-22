@@ -1,7 +1,7 @@
 # Task 008 — Choose the bridge design, respecify § 2–3, replan sprints 115 and 116
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** blocked
+- **Status:** done
 - **Type:** design
 - **Area:** swe/features, swe/sprints
 - **Priority:** P1
@@ -43,4 +43,4 @@ The gate failed (task-007): Tauri's channel is too slow on Windows and can lose 
 - The benchmark application keeps all four transports, so a later run compares them again without new code.
 
 ## Blocker
-Needs the owner's choice of design. The question was put on 2026-11-21 with the numbers; the owner asked for explanations and has not chosen yet. Unblock when the owner names the design.
+Resolved on 2026-11-22: the owner chose the loopback proxy on all three platforms (spec decision T5).

@@ -19,7 +19,8 @@ The earlier live checks ran each part alone; the resume checks ran while the soc
 - `desktop/docs/platform-checks.md`
 
 ## What to build
-- Run every criterion on Linux in the real webview; the resume checks again, now with the bridged socket (stop and continue with a daemon restart: connected within 10 s, no reload).
+- Run every criterion on Linux in the real webview; the resume checks again, now with the proxied connection (stop and continue with a daemon restart: connected within 10 s, no reload).
+- **Added 2026-11-22 (from sprint-114/task-004 and the proxy design):** a daemon that is frozen, not restarted (`kill -STOP` of the daemon while the app is stopped, then continue the app): the page's probe after the wake signal fails within 5 s and the session reconnects once the daemon continues; and the page's reaction to the `network` reason (an address change with the session open: a probe is sent, the session stays connected).
 - `desktop/docs/platform-checks.md` gains a section for milestone 2: sleep the machine for five minutes with a session open and wake it; add, edit and remove an entry and look for the item in Keychain Access or Credential Manager; what an unsigned macOS build asks after an update; a note that a daemon behind an HTTP proxy is not reachable. Each with steps and the result to expect, and marked automated or manual.
 - Each TODO(verify) of the spec that the run answers is answered there.
 

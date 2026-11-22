@@ -24,9 +24,13 @@
 >   `pi-studio daemon start` on the host over the same SSH connection (the CLI must be installed
 >   there). This needs a command channel, so the forwarding-only account of § Recommended SSH
 >   server hardening can connect but cannot start a daemon.
-> - **What changes from the body.** No local listener: with the bridge of milestone 2, Rust runs
->   the WebSocket itself over the `direct-tcpip` channel, so no local port is opened (the rows
->   "Local port bind fails" and "Malicious local process" do not apply). Secrets (password,
+> - **What changes from the body.** No forwarded local port: Rust runs the WebSocket to the daemon
+>   itself over the `direct-tcpip` channel. The page reaches Rust as for any other entry of
+>   milestone 2, through the loopback proxy the owner chose on 2026-11-22
+>   (`swe/features/desktop-transport-bridge.md` § 3): a listener on `127.0.0.1` that exists until
+>   the page has connected (at most 10 s) and takes one client with a single-use token. So the row
+>   "Malicious local process" is answered by that token and the origin check, and no tunnel port
+>   stays open while the session lasts. Secrets (password,
 >   passphrase) go to the desktop secret store (the OS keychain, or the user-only file;
 >   `swe/features/desktop-transport-bridge.md` § 5). The entry is a new kind in the Rust-owned
 >   daemon registry (`swe/features/desktop-daemon-registry.md`), not a `HostProfile`. The Electron

@@ -107,9 +107,10 @@ sentence says so.
 
 ### Verdict
 
-**The gate failed.** No variant of the channel bridge (spec § 2–3) passes every gated row on all
-three platforms. Per the spec's "If it fails" (decision T3), § 2–3 are not built, the tasks of
-sprints 115 and 116 are in `blocked/`, and the owner chooses the design (sprint-112/task-008).
+**The gate failed.** No variant of the channel bridge (the spec's § 2–3 as they were) passes every
+gated row on all three platforms. Per the spec's "If it fails" (decision T3) the channel design was
+not built. **Decided by the owner on 2026-11-22: the loopback proxy on all three platforms**
+(spec decision T5; sprint-112/task-008 rewrote the spec's §§ 2–3 and sprints 115–116 for it).
 
 | Platform | Per-frame channel (`bridge-frame`) | Batched channel (`bridge-batch`) |
 |---|---|---|

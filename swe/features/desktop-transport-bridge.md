@@ -1,11 +1,12 @@
 # Feature — Desktop Transport Bridge
 
-> **Status: specified 2026-11-21, planned as sprints 112–117. Sprints 113 and 114 are built
-> (§§ 5–6, `onResume`). The benchmark gate FAILED on 2026-11-22 (§ 1, Result), so §§ 2–3 are not
-> built and are not current: they describe the channel design that failed. The owner chooses the
-> replacement (sprint-112/task-008).** Milestone 2 of the
-> desktop client. Decisions T1–T4 are the owner's; P1–P10 were proposed here and accepted by the
-> owner on 2026-11-21, with the note that the goal is to reach milestones 2, 3 and 4 in that order.
+> **Status: specified 2026-11-21, planned as sprints 112–117. Sprints 112–114 are built (the
+> benchmark, §§ 5–6, `onResume`). The benchmark gate failed for the channel design on 2026-11-22
+> (§ 1, Result); the owner then chose a loopback WebSocket proxy owned by Rust (T5), and §§ 2–3
+> were rewritten for it on 2026-11-22. The proxy is not built (sprints 115–116).** Milestone 2 of the
+> desktop client. Decisions T1–T5 are the owner's; P1–P10 were proposed here and accepted by the
+> owner on 2026-11-21, with the note that the goal is to reach milestones 2, 3 and 4 in that order;
+> P11–P16 were proposed with the rewrite and await the owner's review.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -21,10 +22,10 @@
 
 In milestone 1 the webview opens the WebSocket to the daemon itself, so the connection depends on
 the webview's timers and network stack, and a daemon's password is handed to the page at every
-connect. This feature moves the socket of a `local` or `direct` entry into Rust, keeps secrets in
-the operating system's keychain, and tells the workbench when the machine woke or the network
-changed. The check for the whole feature: sleep the machine, wake it, and the session recovers
-without a reload.
+connect. This feature moves the socket to the daemon of a `local` or `direct` entry into Rust (the
+page reaches it through a short loopback leg, T5), keeps secrets in the operating system's
+keychain, and tells the workbench when the machine woke or the network changed. The check for the
+whole feature: sleep the machine, wake it, and the session recovers without a reload.
 
 It starts with a benchmark, because nobody has measured whether Tauri's IPC can carry terminal
 traffic. The benchmark is a gate (T3).
@@ -43,6 +44,7 @@ Owner, 2026-11-21:
 | T2 | The Rust code is written in this workspace. `pi-studio-dashboard` was a throwaway test application: nothing is taken from it or shared with it |
 | T3 | The benchmark is a gate. If it fails, another bridge design is explored before anything else of the bridge is built. A socket left in the webview is not the fallback |
 | T4 | The `hello` handshake, request/response matching, JSON `ping`/`pong` and `ReconnectionManager` stay in TypeScript (the handoff's rule). No store and no reducer changes |
+| T5 | **2026-11-22, after the gate failed.** The bridge is a loopback WebSocket proxy owned by Rust, on all three platforms (§§ 2–3): Rust holds the socket to the daemon, and the page reaches Rust with its own `WebSocket` to `127.0.0.1`. This is the design T3's "another bridge design" led to; the loopback leg in the webview is accepted |
 
 Proposed in this document and accepted by the owner on 2026-11-21:
 
@@ -58,6 +60,17 @@ Proposed in this document and accepted by the owner on 2026-11-21:
 | P8 | Wake is detected from a clock gap and a network change by polling the interface addresses. No OS notification API | Portable, no `unsafe`, no per-platform code. A false signal costs one 5 s probe |
 | P9 | The page can open a bridged socket to the current entry only; Rust dials the stored address | The page must not make Rust send a stored password to an address of its choosing |
 | P10 | `ui.inspect` reports the bridged connections (counters, no secret) | The macOS runner has no WebDriver: this is how an automated check sees that the page connected |
+
+Proposed with the rewrite of 2026-11-22, awaiting the owner's review:
+
+| # | Decision | Why |
+|---|---|---|
+| P11 | The page's leg: one listener per connection on `127.0.0.1`, port chosen by the system, closed at the page's upgrade or after 10 s; a single-use 256-bit token in the path; `Origin` must be the app's own page and `Host` the loopback address | Measured this way on all three platforms. The port exists for milliseconds, not for the app's lifetime; the origin stops every browser tab, the token every other local program |
+| P12 | Rust dials the daemon before it answers `transport_open` | A failed dial is the command's error with its real reason (wrong password, certificate, unreachable), which a browser socket cannot report |
+| P13 | The page's leg carries no secret: Rust adds the password on the daemon's leg. The token is the only credential the page handles, for at most 10 s, and it is never logged | The purpose of the feature: the password stays in Rust |
+| P14 | The memory marks change. B4's becomes "no more growth than the baseline in the same run, plus 64 MiB"; the bridge criterion becomes a bound on what Rust holds, with the app's growth reported | The written mark assumed the channel's window, and today's WebSocket misses it on Linux and Windows |
+| P15 | A page that stops reading is not protected: the webview buffers what arrives, as today. Rust's own hold is bounded (a write batch and a frame per direction) | Measured (the proxy's W1). Milestone 3 takes transfers off this connection |
+| P16 | The benchmark keeps its channel candidates, and the channel-only parts of the `net` crate (frame codec, inbound window, order buffer) move into the benchmark application | Nothing else uses them now, and a later run can still compare all four transports |
 
 ## Public contract
 
@@ -82,9 +95,9 @@ run counts.
 | B7 | B1 while B4 runs | 99th-percentile round trip | Reported only: one socket is shared, as today (milestone 3 separates them) |
 | B8 | 1,000 inbound frames/s for 30 s with the window hidden, then shown | Frames lost; bytes Rust held; delay of a 500 ms worker timer while hidden | No loss; held bytes within the window. The timer delay is reported and decides P7 |
 
-The candidates measured are variants of one design (§ 2–3): one channel message per frame, and
-several frames batched into one message; outbound the same two. The benchmark fixes the encoding,
-and the result note records it.
+The candidates first measured were two variants of a design over Tauri's channel (one channel
+message per frame, and several frames batched into one message; outbound the same two). After the
+failure a fourth transport was measured: the loopback proxy that §§ 2–3 now describe.
 
 **Outcome.** The gate passes when every row with a pass column passes on all three platforms with
 one variant. A row that fails only on a virtual runner, within 20 % of its threshold, is measured
@@ -109,8 +122,8 @@ was never delivered, which froze that connection. Per T3, §§ 2–3 are not bui
 sprints 115 and 116 are blocked. The first candidate above was then built into the benchmark
 (`proxy-ws`: one listener per connection, a single-use token, an `Origin` check) and measured on
 all three platforms: it met every mark except B4 memory growth on Windows and Linux, which the
-baseline misses by more. The streamed custom-scheme response was not measured. The owner chooses
-(sprint-112/task-008); no pass mark was changed.
+baseline misses by more. The streamed custom-scheme response was not measured. **The owner chose
+the loopback proxy on 2026-11-22 (T5).** No pass mark was changed; P14 proposes a change.
 
 Facts read in Tauri 2.12.5 on 2026-11-21, which the benchmark exists to put numbers on:
 
@@ -126,87 +139,85 @@ Facts read in Tauri 2.12.5 on 2026-11-21, which the benchmark exists to put numb
 - Already measured (sprint 104, Linux): the page wrote 1 GiB to Rust through raw invokes in 6.5 s
   while also downloading it (about 160 MiB/s for the whole path).
 
-### 2. The page's commands
+### 2. The page's command
 
-Added to the app manifest, the capability and `generate_handler!` (the existing test of the exact
-capability list is extended). The Content-Security-Policy does not change: `ws:` and `wss:` stay for
-relay entries (T1).
+One command is added to the app manifest, the capability and `generate_handler!` (the existing
+test of the exact capability list is extended by one). The Content-Security-Policy does not
+change: `ws:` already allows `ws://127.0.0.1:<port>` and stays for relay entries (T1).
 
 | Command | Input | Answer | Errors (`{code, message}`) |
 |---|---|---|---|
-| `transport_open` | `{ url }` and a `Channel` | `{ handle }` once the WebSocket upgrade succeeded | § Error handling |
-| `transport_send_text` | `{ handle, seq, data }` | Empty, once the frame was written to the socket | `unknown_handle`, `closed`, `too_large` |
-| `transport_send_binary` | A raw body; headers `handle`, `seq` | The same | The same |
-| `transport_ack` | `{ handle, bytes }` | Empty | `unknown_handle` |
-| `transport_close` | `{ handle, code?, reason? }` | Empty | None: an unknown handle is ignored |
+| `transport_open` | `{ url }` | `{ localUrl }`, which is `ws://127.0.0.1:<port>/<token>`, once Rust's WebSocket to the daemon is open (P12) | § Error handling |
 
-- `handle` is a random 128-bit value in hexadecimal, valid for one connection.
 - `url` is what the workbench derived from the current entry's stored address (P9). Rust applies
   the same rule to the stored address (`normalizeDaemonUrl`: `http` becomes `ws`, `https` becomes
   `wss`, a bare host gets `ws://`, trailing slashes are trimmed) and requires the two to be equal;
   shared test vectors keep the two implementations alike. For the local entry the address is the
   running daemon's `ws://<host>:<port>`. Only `ws:` and `wss:` are dialled.
-- Rust reads the entry's password from the secret store and offers the subprotocol
+- Rust reads the entry's password from the secret store and offers the daemon the subprotocol
   `pi-studio.bearer.<password>`; with no password it offers none. The password is never an input
-  of these commands and never part of an answer, an error or a log line.
-- At most 4 bridged sockets are open at a time. `boot` and `daemon_switch` close all of them with
-  code 1001 and forget their handles.
-- A message above 128 MiB is refused in either direction: `too_large` for a send, and inbound the
-  socket is closed with 1009.
+  of the command and never part of an answer, an error or a log line (P13).
+- `localUrl` is a credential for at most 10 s (P11). It is answered to the calling page only and
+  appears in no log line, event, error or `ui.inspect` view.
+- At most 4 proxied connections exist at a time (waiting for the page, or open). `boot` and
+  `daemon_switch` close all of them.
+- A message above 128 MiB in either direction closes the connection with 1009 on both legs.
+- There is no command to send, acknowledge or close: after `transport_open` the page uses its own
+  `WebSocket` to `localUrl`, and frames never cross Tauri IPC.
 
-### 3. The channel
+### 3. The proxy
 
-Every message on the channel given to `transport_open` belongs to that connection, and the channel
-keeps them in the order Rust sent them:
+```
+page (webview) --WebSocket, plain, loopback--> Rust --WebSocket, TLS for wss--> daemon
+```
 
-| Message | Meaning |
+**The page's leg (P11).** For each `transport_open` Rust binds a TCP listener on `127.0.0.1` with a
+port chosen by the system and accepts exactly one WebSocket upgrade:
+
+| Check | Rule |
 |---|---|
-| Frames | One or more whole WebSocket messages in wire order, each marked text or binary |
-| `{ closed: { code, reason, error? } }` | The socket is gone. Last message of the connection. `1006` when it ended without a close frame; `error` (`{code, message}`) says why when Rust knows |
+| Path | `/<token>`: 256 random bits as 64 hexadecimal digits, compared in constant time. It works once; a wrong guess does not use it up |
+| `Origin` | Exactly the calling webview's origin, read from the webview (`tauri://localhost` on Linux and macOS, `http://tauri.localhost` on Windows; seen in the benchmark) |
+| `Host` | `127.0.0.1:<port>` |
+| Subprotocol | The page offers none and none is answered: the bearer subprotocol the daemon echoed is not passed back |
+| Time | The listener is closed when the upgrade is accepted, or after 10 s. With no page in time, the daemon's leg is closed (1001) and the connection forgotten |
+| Refusal | A bare 403 that does not say which check failed; Rust logs the reason without the token. At most 16 upgrade attempts are in progress, each given 2 s |
 
-The encoding of "Frames" is the benchmark's result (one message per frame, or a batch whose items
-are `[kind: 1 byte][length: 4 bytes, little-endian][payload]`). Whatever it is, the transport calls
-`onMessage` once per WebSocket message, synchronously and in order, with a string for text and an
-`ArrayBuffer` for binary.
+After the upgrade no listener remains: the port is closed.
 
-**Inbound window.** Rust counts the payload bytes it sent on the channel and the page acknowledges
-what `onMessage` has returned from (`transport_ack`, every 256 KiB or 50 ms, whichever is first).
-While more than 8 MiB is unacknowledged Rust stops reading the socket, so TCP slows the daemon,
-which already paces a download on its send buffer. It reads again below 4 MiB.
+**The pump.** One task per direction. A WebSocket message passes to the other leg unchanged and in
+order, text as text and binary as binary. Each leg answers its own WebSocket pings; pings and
+pongs are not passed on, and Rust sends none (the liveness check is the SDK's JSON `ping`, which
+passes through like any message).
 
-**The window also counts messages (found by the second runner run, 2026-11-21).** On Windows
-(WebView2) the per-frame candidate's `Channel::send` failed ("failed to send message to the
-webview") after about 12,100 small frames, because Tauri delivers a channel message by evaluating
-a script and the webview would not take that many at once; a byte-only window of 8 MiB allows
-about 260,000 32-byte messages in flight. So Rust stops reading the socket while more than 8 MiB
-**or** more than 512 channel messages (a batch counts as one) are unacknowledged, and reads again
-below half of each; `transport_ack` carries bytes and messages, and the page acknowledges at a
-quarter of the message bound. The bound is a constant that the benchmark can tune
-(`--max-inflight-messages`). On Linux it cost the per-frame candidate about 7% on B3; its effect on
-Windows is TODO(verify) (the third runner run). **`closed` is best effort when the channel itself
-fails**, since it travels over the same channel: Rust ends the connection on `channel_failed` and
-logs it, and the TypeScript transport detects a dead channel by itself (no frame for a set time
-while the connection is believed open, or a heartbeat) and fails the connection with the counters.
+**What Rust holds.** A direction reads its next messages only when the write of the previous ones
+to the other leg has completed, so Rust holds at most a write batch (256 KiB or 64 messages) and
+one message per direction, whatever the flood, and a leg that is not read slows the other through
+TCP. That bounds Rust, not the webview (P15): the webview reads its socket whether or not the
+page's script runs, so a blocked page makes the webview buffer what arrives in its own memory
+(measured: a 128 MiB flood during a 3 s block), exactly as it does today.
 
-**A socket that ends while the page is behind (found by the first runner run, 2026-11-21).** Rust
-reads ahead of the page by up to the window, so a socket can end while the page still holds
-unprocessed messages. Rust then forgets the handle at once, so a later `transport_ack` or send
-answers `unknown_handle`, and `closed` is the last message on the channel, sent after everything
-the channel owes. The TypeScript transport swallows `unknown_handle` on `transport_ack`; reports it
-on a send, after letting `closed` explain it (up to 250 ms); calls `onClose` only when `closed`
-arrives, after every earlier frame reached `onMessage`; and relies on no other command after the
-end (`transport_close` ignores an unknown handle).
+**`bufferedAmount`** is the webview socket's own. It rises when Rust, and so the daemon, takes an
+upload more slowly than the page sends, so uploads stay paced as today (measured: row B5).
 
-**Outbound order.** `seq` starts at 0 for each connection and rises by one per send. Rust writes
-frames to the socket in `seq` order: one that arrives early waits (at most 64 messages); a gap
-that lasts 5 s closes the connection with the error `send_order`, and so does a `seq` that was
-already used or is already waiting, and a 65th early message (the `net` crate's `OrderError`, built
-in s112/t003). The 64-message cap does not bound bytes: the connection task of s115/t002 adds a
-byte cap (16 MiB) for waiting frames.
+**Closing.**
 
-**`bufferedAmount`.** The page adds a frame's byte length when it sends and subtracts it when the
-send's answer arrives. Since an answer means "written to the socket", the number has the meaning
-the SDK expects and uploads stay paced.
+| What happens | The page sees | The daemon sees |
+|---|---|---|
+| The daemon closes with a code and reason | The same code and reason | The answer to its close |
+| The page closes with a code and reason | Its close completed | The same code and reason; Rust waits up to 2 s for the answer, then drops the socket |
+| The daemon's leg ends without a close frame (reset, keepalive, a TLS error) | Its socket dropped without a close frame: code 1006 | Nothing |
+| The page's leg ends without a close frame (reload, crash) | Nothing | Close 1001 |
+| `boot`, `daemon_switch`, the window closing | Its socket dropped | Close 1001 |
+| A message above 128 MiB | Close 1009 | Close 1009 |
+
+The page learns only the close code. Rust records why a connection ended abnormally as
+`lastError` (§ 7) and logs it.
+
+The channel design that failed the gate (five commands, a Tauri channel, an acknowledgement window
+and an order buffer) is no longer part of this document; it is in the benchmark application
+(`desktop/apps/ipc-bench`), in `swe/notes/desktop-ipc-benchmark.md` and in the repository's history
+before 2026-11-22.
 
 ### 4. Host members
 
@@ -214,20 +225,17 @@ The desktop host's `connection`, replacing the browser host's:
 
 | Member | Behaviour |
 |---|---|
-| `createTransport(target, options)` | Current entry `local` or `direct`: a bridged `Transport` (below). Current entry `relay`: what the browser host returns. `options.password` is ignored for a bridged entry |
+| `createTransport(target, options)` | Current entry `local` or `direct`: a proxied `Transport` (below). Current entry `relay`: what the browser host returns. `options.password` is ignored for a proxied entry |
 | `timers` | Unchanged: the browser host's worker timers (P7) |
 | `onResume(listener)` | The browser host's triggers (window visible again, `online`) and the app's `connection_resume` event |
 
-The bridged `Transport` implements the SDK's interface unchanged:
+The proxied `Transport` is the SDK's WebSocket transport (`createWebSocketTransport`) with one
+member replaced, so the desktop package still constructs no socket itself:
 
 | Member | Behaviour |
 |---|---|
-| `connect(url)` | `transport_open` with a new channel. Resolves when it answers; rejects with an `Error` whose message is the error's `message`. May be called again after a close: each call is a new handle, and messages of an older handle are dropped |
-| `sendText`, `sendBinary` | The two send commands, with the next `seq`. A failed send calls `onError`; it does not throw |
-| `close(code = 1000, reason = "")` | `transport_close`. `onClose` is called when the `closed` message arrives, once per connection |
-| `isOpen` | True from the answer of `transport_open` until `closed` or a local `close()` |
-| `bufferedAmount` | § 3 |
-| `onMessage`, `onClose`, `onError` | A `closed` message with `error` calls `onError` first, then `onClose(1006, "")` |
+| `connect(url)` | `transport_open { url }`, then the SDK transport's own `connect(localUrl)`. Rejects with an `Error` whose message is the command error's `message`; when the socket to `localUrl` does not open, rejects with the `local_connection` message (§ Error handling). May be called again after a close: each call is a new `transport_open` |
+| Everything else | The SDK WebSocket transport's, unchanged: messages in wire order, binary as `ArrayBuffer`, `bufferedAmount`, one `onClose(code, reason)` per connection |
 
 Event `connection_resume`, payload `{ reason: "wake" | "network" }`, emitted to the page (it may
 already listen to events; nothing is added to the capability).
@@ -292,14 +300,20 @@ connection: {
 
 No address, no secret, no frame content.
 
+A transport is `connecting` from `transport_open` until the page's upgrade is accepted, `open`
+while the pump runs, and `closing` during a close handshake. `framesIn` and `bytesIn` count what
+went from the daemon to the page. `lastError.code` is an error code of `transport_open`, or one of
+`page_refused`, `page_timeout`, `upstream_lost`, `too_large` for a connection that ended
+abnormally. The token and `localUrl` are never in this view.
+
 ### 8. Where the code lives
 
 | Piece | Place | Rule |
 |---|---|---|
-| Socket, TLS, the frame codec, the inbound window, the outbound order buffer | New crate `pistudiodesktop-net`, no workspace dependency, native only | Only the app binary depends on it; registered in `xtask/src/layers.rs` so that neither `engine` nor `shell` can. The codec, window and order buffer are pure and tested with hostile input |
+| Dialling (TCP, TLS, the upgrade), the loopback listener and its checks, the pump, the limits | Crate `pistudiodesktop-net`, no workspace dependency, native only | Only the app binary depends on it; registered in `xtask/src/layers.rs` so that neither `engine` nor `shell` can. Tested without Tauri, against local servers and with hostile input. The codec, inbound window and order buffer built for the channel design move to the benchmark application (P16) |
 | The secret store and its backends | New crate `pistudiodesktop-secrets`, beside `store` (L3), native only | The engine uses it as it uses `store`; empty on wasm32 |
-| The page's commands, the channel, the resume ticker | The app binary (`src-tauri`) | Socket tasks run on Tauri's async runtime. Frames never cross the owner thread; `transport_open` asks it once for the current entry |
-| The bridged transport, `onResume` | `desktop/apps/pistudiodesktop/src/host/` | The transport needs no change in `packages/workbench` or `packages/client`. One workbench change comes from § 5: the registry view gains `secretStore` and the Daemons screen draws its line, with `workbench-host-adapter.md` amended in the same task |
+| The page's command, the set of proxied connections, the resume ticker | The app binary (`src-tauri`) | Socket tasks run on Tauri's async runtime. Frames never cross the owner thread or Tauri IPC; `transport_open` asks the owner thread once for the current entry |
+| The proxied transport, `onResume` | `desktop/apps/pistudiodesktop/src/host/` | A wrapper around the SDK's WebSocket transport: no change in `packages/workbench` or `packages/client`. One workbench change comes from § 5: the registry view gains `secretStore` and the Daemons screen draws its line, with `workbench-host-adapter.md` amended in the same task |
 | The benchmark application | `desktop/apps/ipc-bench` | § 1 |
 
 `desktop/docs/architecture.md` says no socket exists below the app binary; that sentence becomes
@@ -311,24 +325,28 @@ else: there is no switch to accept an untrusted certificate.
 ### Opening a connection
 
 ```
-transport_open(url, channel):
+transport_open(url):
     entry = owner thread: the current entry (kind, address)
     refuse not_bridged       when entry.kind is relay
     refuse address_mismatch  when url differs from the entry's stored address after the address rule
     refuse invalid_address   when the scheme is not ws or wss, or the URL has user information
-    refuse limit             when 4 sockets are open
+    refuse limit             when 4 proxied connections exist
+    origin = the calling webview's origin
     password = blocking pool: secret store get(entry.id, password), if the registry says it has one
     refuse secret_missing    when the registry says so and the store has none
     within 15 s overall:
         resolve, connect, TLS for wss, WebSocket upgrade with the bearer subprotocol if any
     on failure: the matching error of § Error handling
-    register handle -> (socket, channel, counters); start the read task and the write task
-    answer { handle }
+    bind 127.0.0.1 on a free port; token = 256 random bits        (proxy_failed)
+    register the connection (entry id, counters, state connecting)
+    in a task:
+        accept one upgrade that passes § 3's checks, within 10 s
+            accepted -> close the listener; state open; pump both directions until either leg
+                        ends; end the other leg as § 3's table says
+            none     -> close the daemon's leg with 1001
+        forget the connection; set lastError when it ended abnormally
+    answer { localUrl: "ws://127.0.0.1:<port>/<token>" }
 ```
-
-The read task forwards messages to the channel while the inbound window allows it. When the socket
-ends it sends `closed` and removes the handle. The write task takes sends in `seq` order and
-answers each after its write.
 
 ### Launch and migration (P5)
 
@@ -372,7 +390,7 @@ reconnect: transport.connect(url) again -> a new transport_open
 ## Error handling & edge cases
 
 `transport_open` errors. `message` is written for a person and names the host and port, never a
-password:
+password or the token:
 
 | Code | When |
 |---|---|
@@ -386,15 +404,21 @@ password:
 | `host_not_allowed` | The upgrade was answered 403 (`PI_STUDIO_HOSTNAMES`) |
 | `handshake` | Any other answer to the upgrade |
 | `timeout` | 15 s passed |
-| `limit` | 4 sockets are open |
+| `limit` | 4 proxied connections exist |
+| `proxy_failed` | Rust could not bind `127.0.0.1` or get random bytes for the token |
+
+One more failure is raised by the host, not by the command: `local_connection`, when the page's
+socket to `localUrl` does not open (security software blocks loopback, or more than 10 s passed).
+Its message says that the app could not open its own local connection and that security software
+may be blocking `127.0.0.1`. Rust sets `lastError` to `page_refused` or `page_timeout`.
 
 | Condition | Expected behavior |
 |---|---|
-| The page reloads, or the entry is switched | Every bridged socket is closed (1001); frames for the old page are dropped |
-| The window is hidden or the page is slow | Rust holds at most the inbound window and stops reading; nothing is lost |
-| The page sends on a handle that closed | `closed` error; the transport calls `onError`, and `onClose` has already run |
-| The daemon closes with a code and reason | `closed` carries them unchanged; the workbench's reconnect decides what follows |
-| The network drops without a close | TCP keepalive ends the socket within about a minute; a wake or network signal makes the workbench probe sooner |
+| The page reloads, or the entry is switched | Every proxied connection is closed (1001 to the daemon); the old page's sockets are gone with it |
+| The window is hidden or the page is slow | Rust holds at most a write batch and a message per direction; the webview buffers what the page has not read, as today (P15); nothing is lost |
+| Another program connects to the local port | 403 without the token and the page's origin. The page's own connect still works, because a wrong guess does not use the token up. After the page connected the port is closed |
+| The daemon closes with a code and reason | The page's socket closes with the same code and reason; the workbench's reconnect decides what follows |
+| The network drops without a close | TCP keepalive ends the daemon's leg within about a minute and Rust drops the page's leg (1006); a wake or network signal makes the workbench probe sooner |
 | The keychain asks the user and they refuse | `secret_unavailable`; the connection bar shows the message; Retry asks again |
 | The keychain is unreachable at launch | The `file` backend for this run, and the one line in the Daemons screen |
 | A password changed in Daemons while connected | Stored at once; used at the next connect. The open socket is not touched |
@@ -407,7 +431,7 @@ password:
 
 - `workbench-host-adapter.md` — the `connection` member's contract, which this implements without changing.
 - `desktop-daemon-registry.md` — § 1 (the file), § 3 (`resolveCurrent`) and the Secrets rules are amended by §§ 4–5 here; its decision D13 ("the keychain replaces this in milestone 2") is carried out.
-- `desktop-native-host.md` — the page's command list and the capability test grow by five commands.
+- `desktop-native-host.md` — the page's command list and the capability test grow by one command.
 - `connection-resilience.md` — the probe and the reconnect ladder are used as they are.
 - `file-explorer-transfer.md` — `bufferedAmount` keeps its meaning, so upload pacing is unchanged.
 
@@ -418,22 +442,23 @@ Benchmark:
 - [x] Given the benchmark application, when it runs on Linux, a macOS runner and a Windows runner, then `swe/notes/desktop-ipc-benchmark.md` holds every row of § 1 for each platform, three runs each, with the baseline, the variant chosen and the webview versions. (2026-11-22. Gaps: the Linux result files were lost, so Linux shows the worst of three without the three values, and the WebKitGTK version is not recorded; no variant was chosen because the gate failed.)
 - [x] Given those results, then the gate is stated as passed or failed against P1, and on a failure nothing of §§ 2–3 is built before the owner accepts another design. (2026-11-22: failed; sprints 115 and 116 are blocked.)
 
-Bridge (only after the gate passed):
+Bridge (the loopback proxy, T5):
 
-- [ ] Given a `direct` entry with a password, when the window connects, then the page's own `WebSocket` is never constructed, `ui.inspect` shows one open transport with `framesIn` above zero, and the password appears in no command answer, event, log line or page memory dump.
-- [ ] Given the bridged connection, when a terminal runs a command that prints 100 MiB, then the output is complete and in order, and typing stays responsive.
-- [ ] Given a 1 GiB file, when it is downloaded and uploaded through the bridge, then both copies are byte-identical, the app's memory stays within the window plus 64 MiB, and an upload pauses and resumes on `bufferedAmount`.
-- [ ] Given a `relay` entry, when it is opened, then it connects as in milestone 1 and no bridged transport exists.
+- [ ] Given a `direct` entry with a password, when the window connects, then the page's only `WebSocket` goes to `127.0.0.1`, `ui.inspect` shows one open transport with `framesIn` above zero, and the password appears in no command answer, event, log line or page memory dump.
+- [ ] Given the proxied connection, when a terminal runs a command that prints 100 MiB, then the output is complete and in order, and typing stays responsive.
+- [ ] Given a 1 GiB file, when it is downloaded and uploaded through the proxy, then both copies are byte-identical, Rust never held more than 1 MiB of the connection's messages (a peak counter shows it), the app's memory growth is reported beside the same transfer of milestone 1, and an upload pauses and resumes on `bufferedAmount` (P14).
+- [ ] Given a `relay` entry, when it is opened, then it connects as in milestone 1 and no proxied transport exists.
 - [ ] Given a wrong password, a stopped daemon, an expired certificate and a host the daemon does not allow, when each is opened, then the connection bar shows the matching message and Retry works once the cause is fixed.
-- [ ] Given a page reload or a switch, then every earlier socket is closed and `ui.inspect` lists none of them.
-- [ ] Given the page's command list, then exactly the five commands were added, the capability test pins the list, and a bridged open to an address other than the current entry's is refused.
+- [ ] Given a page reload or a switch, then every earlier connection is closed, the daemon saw 1001, and `ui.inspect` lists none of them.
+- [ ] Given the page's command list, then exactly one command was added, the capability test pins the list, and an open to an address other than the current entry's is refused.
+- [ ] Given an answered `transport_open`, when another client connects to the port without the token, with another origin, or after the page has connected, then it is refused (403, or the port is closed), the page's own connection is unaffected, and the token is in no log line and no `ui.inspect` view.
 
 Secrets:
 
 - [x] Given a version 1 `daemons.json` with a password and a pairing link, when the new app starts, then both are in the secret store, the file is version 2 with neither, and both entries still connect. *(Linux, 2026-11-21, sprint-113/task-008: the real webview in `pi-desktop-xvfb`, scratch `--config-dir`, a password-protected daemon and a local relay on free ports. A version 1 file with a direct entry and a relay entry became version 2, `hasPassword` true for the direct one, no secret in it; `secrets.json` (0600) held both; the direct entry showed `connected`, and the relay entry, chosen in the switcher, showed `connected` too and the relay logged a paired connection.)*
 - [ ] Given the keychain backend, when an entry is added, edited and removed, then its item appears, changes and disappears in the OS keychain (checked with the platform's own tool on macOS, Windows and Linux). *(Open: macOS and Windows. Linux shown 2026-11-21, sprint-113/task-008: in `pi-desktop-keyring`, no option gave `secretStore` `keychain`; `secret-tool search` showed the password item appear on add, change on edit, go on clearing, return, and go on remove, and the link item the same; `daemons.json` held no secret and no `secrets.json` was made.)*
 - [x] Given no keychain (a container without a Secret Service), when the app starts, then `secretStore` is `file`, `secrets.json` is mode 0600, and the Daemons screen shows the line. *(Linux, 2026-11-21, sprint-113/task-008: no option, `pi-desktop-xvfb` without a Secret Service: `boot` said `file`, `secrets.json` was mode 600, and a screenshot of the Daemons screen shows "Passwords and pairing links are kept in a file only this user can read, because no keychain is available." In the same run the page showed a notice that no keychain could be reached.)*
-- [ ] Given the secret guard test, when it runs with marker secrets through every command, the supervisor and a bridged connect, then no answer, event or log line contains a marker.
+- [ ] Given the secret guard test, when it runs with marker secrets (a password and a proxy token) through every command, the supervisor and a proxied connect, then no answer, event or log line contains a password marker, and the token marker is only in the answer of `transport_open`.
 
 Resume:
 
@@ -449,7 +474,7 @@ Gates and documents:
 ## TODO(verify)
 
 - **The numbers of P1 (partly answered, 2026-11-21).** xterm.js's 5–35 MB/s is its documentation's figure, not measured here. A real flood's frame sizes were measured (`swe/notes/desktop-ipc-benchmark.md`, dev daemon with a real PTY, a Node consumer, a fast machine): median about 354 KiB, so B2 gained a 256 KiB size; a slower producer gives smaller frames, which the 4 KiB and 64 KiB sizes cover. The 40 MiB/s and 5,000 frames/s marks are still derived, not measured.
-- **Which IPC path each webview uses (answered, 2026-11-21).** Raw bodies travelled by the custom protocol as raw bytes on all three webviews; none was sent as a JSON array. Invokes do reach Rust out of order with one message per frame (15,844 on macOS and 1,188 on Windows in one run, at most 29 waiting) and never with batches, so `seq` is needed.
+- **Which IPC path each webview uses (answered, 2026-11-21).** Raw bodies travelled by the custom protocol as raw bytes on all three webviews; none was sent as a JSON array. Invokes did reach Rust out of order with one message per frame (15,844 on macOS and 1,188 on Windows in one run, at most 29 waiting) and never with batches. This mattered to the channel design only; with the proxy (T5) frames do not cross Tauri IPC.
 - **Why one channel message was lost on macOS** (run 3 of the benchmark, per-frame variant): not reproduced, cause unproven. Any design that keeps Tauri's channel needs a stall watchdog.
 - **A real Windows machine** was not measured: the Windows figures are a 4-logical-core runner's.
 - **The keychain crate (answered, 2026-11-21, sprint-113/task-002).** `keyring-core` with one store crate per platform (`zbus-secret-service-keyring-store`, `apple-native-keyring-store`, `windows-native-keyring-store`), all MIT OR Apache-2.0 with their dependencies; the Linux backend needs a D-Bus session bus and a Secret Service, and is pure Rust. The macOS and Windows crates were not compiled or run here.
@@ -461,3 +486,7 @@ Gates and documents:
 - **Whether the app's 2 s tick runs while macOS naps a hidden app.** A stalled tick looks like a wake; the 5 s rate limit bounds the cost.
 - **The control socket on Windows.** It is a TCP listener on `127.0.0.1` (read in `control_server.rs`), so it should work there; the Windows checks have only driven the page through WebDriver so far.
 - **A page memory dump** as evidence that the password is absent: how to take one from WebKitGTK. If it cannot be done, the criterion is argued from the code path (the password is never an input or an output of a page command).
+- **Security software and the loopback leg (the proxy, T5).** Whether a firewall or endpoint-security product objects to an application that listens on `127.0.0.1` for a moment, or to a page connecting there. Not tested: the benchmark ran on stock runners. The Windows and macOS manual checks (sprint 117) look for a prompt.
+- **A later webview that restricts loopback.** The page at `tauri://localhost` (or `http://tauri.localhost` on Windows) opened `ws://127.0.0.1:<port>` on WKWebView, WebView2 157 and WebKitGTK in the benchmark. Browsers have been tightening access to local addresses; whether that will reach an application's own page was not looked into. A failure shows as `local_connection`.
+- **Parts of §§ 2–3 the benchmark's proxy did not have:** the bearer subprotocol on the daemon's leg and its echo not being passed back, the `Host` check, TLS on the daemon's leg, the 128 MiB cap, and the 2 s close wait (the benchmark used 5 s). They are read from the SDK, the daemon and this document, not measured.
+- **A close frame's answer.** In the benchmark the answer to a forwarded close is the WebSocket library's echo of that code, not the other side's own answer. No client reads the answer, so this is expected to be harmless; to confirm against the SDK's close handling.

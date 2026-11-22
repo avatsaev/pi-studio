@@ -234,8 +234,13 @@ export interface Transport {
 }
 ```
 
-Implement this in the webview as a thin wrapper over Tauri IPC, with Rust holding the real socket.
-The relay transport already uses the same seam, so nothing above it changes.
+Rust holds the real socket. The first plan, a thin wrapper over Tauri IPC, was measured and failed
+its gate (about 30 MiB/s on a Windows runner; `swe/notes/desktop-ipc-benchmark.md`). The owner
+chose a loopback proxy on 2026-11-22: the page asks Rust for a connection (`transport_open`), Rust
+dials the daemon and answers a single-use `ws://127.0.0.1:<port>/<token>` address, and the page
+connects to that with the SDK's ordinary WebSocket transport
+(`swe/features/desktop-transport-bridge.md` §§ 2–3). The relay transport already uses the same
+seam, so nothing above it changes.
 
 What stays in TypeScript at this level: the `hello` handshake, RPC correlation, JSON `ping`/`pong`
 liveness and `ReconnectionManager`. Rust owns the TCP and TLS connection only. That is deliberate
@@ -514,10 +519,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   example: the terminal uses xterm.js's DOM renderer, with no canvas or WebGL addon loaded
   (`features/terminal/TerminalPanel.tsx`).
 - **The daemon is still Node.** Agent, git and file operations are bounded by it.
-- **Measure the IPC bridge.** Terminal output and token streams will cross Tauri IPC. Send binary
-  payloads as raw bytes, not JSON arrays, and benchmark a busy terminal before committing to the
-  bridge for all traffic. A direct WebSocket from the webview is the fallback for interactive
-  traffic if the bridge is too slow.
+- **The IPC bridge was measured and rejected.** Terminal output over a Tauri channel met its marks
+  on Linux and macOS when frames were batched, but carried only about 30 MiB/s on a Windows runner
+  and delayed a keystroke by about 200 ms during a download. Frames therefore do not cross Tauri
+  IPC: the page keeps a WebSocket, to a loopback proxy that Rust owns, which ran within about 10 to
+  20 % of the direct rate on all three platforms.
 
 ## Compatibility rules
 
@@ -591,12 +597,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
    *State (2026-11-22): specified in `swe/features/desktop-transport-bridge.md`. Built: the IPC
    benchmark, the secret store (keychain or a user-only file; `daemons.json` version 2 holds no
-   secret) and the wake and network signals (sprints 112–114). **The benchmark gate failed**: over
-   Tauri's channel the bridge carried about 30 MiB/s on a Windows runner (the page's own WebSocket
-   did 100 to 470 on the same machine) and missed its marks; a loopback WebSocket proxy owned by
-   Rust met them on all three platforms. The bridge itself (sprints 115–116) waits for the owner's
-   choice of design. Numbers: `swe/notes/desktop-ipc-benchmark.md`. Relay entries keep the
-   webview's socket until milestone 4.*
+   secret) and the wake and network signals (sprints 112–114). The benchmark gate failed for a
+   bridge over Tauri's channel (about 30 MiB/s on a Windows runner), and the owner chose a loopback
+   WebSocket proxy owned by Rust instead, which met the marks on all three platforms. The proxy
+   itself is planned as sprints 115–116 and not built. Numbers:
+   `swe/notes/desktop-ipc-benchmark.md`. Relay entries keep the webview's socket until milestone 4.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
 4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
@@ -635,7 +640,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 - Answered 2026-11-22 (`swe/notes/desktop-ipc-benchmark.md`): ordered binary delivery over Tauri
   IPC is fast enough for terminal traffic on Linux and macOS when frames are batched, and not on
   Windows (about 30 MiB/s on a runner, a keystroke round trip of about 200 ms while a download
-  runs). Open instead: which design replaces the channel (sprint-112/task-008).
+  runs). The owner chose a loopback WebSocket proxy owned by Rust instead.
 
 ## Where to read next
 
