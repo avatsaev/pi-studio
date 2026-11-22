@@ -57,6 +57,10 @@ Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client
 - **SDK:** `FileTransferClient.downloadTo(path, sink, options)` / `download(path, options)`
   (`offset`, `length`, `ifUnchanged`, `signal`, `onProgress`); both reject when the daemon lacks
   `fileDownloadRanges`. The browser host builds Blobs from the `downloadTo` chunks.
+- **Desktop app (specified 2026-11-22, not built):** for a local or direct entry the desktop app
+  runs uploads from its native picker and saves to disk in Rust, on a second connection, with this
+  same wire flow; the explorer's status line becomes one line per activity with a percentage and
+  Cancel, in both clients. See [desktop-transfer-engine.md](desktop-transfer-engine.md) §§ 4, 5, 7.
 
 ## Behavior & Algorithms
 

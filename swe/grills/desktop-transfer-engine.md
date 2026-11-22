@@ -1,7 +1,9 @@
 # Grill — Desktop transfer engine (milestone 3)
 
-> Status: grilling
+> Status: grilled
 > Started: 2026-11-22   Last updated: 2026-11-22   Rounds: 4
+> Confirmed: the engineer answered the readout with "set as gilled and write the spec"
+> (2026-11-22), without changing a decision.
 > Engineer: avatsaev   Agent: Claude (omp)
 
 ## Raw idea
@@ -285,8 +287,7 @@ For a local or direct entry in the desktop app, unless a row says otherwise.
 
 ## Handoff to scope
 
-(Proposed with the readout; final when the engineer confirms and the status becomes `grilled`.
-This repository keeps specs in `swe/features/` and `swe/architecture/`, not in `swe/specs/`.)
+(This repository keeps specs in `swe/features/` and `swe/architecture/`, not in `swe/specs/`.)
 
 | Spec file to produce or update | Fed by brief sections |
 |--------------------------------|-----------------------|

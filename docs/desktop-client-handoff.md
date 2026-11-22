@@ -632,14 +632,17 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    of a TCP socket; the pump today takes the `net` crate's WebSocket stream.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
-   *State (2026-11-22): **grilled in four rounds, waiting for the owner's confirmation; no spec,
-   nothing built** (`swe/grills/desktop-transfer-engine.md`, decisions D1–D20, branch
-   `feat/desktop-transfer-engine`). Decided so far: uploads from a native picker and saves to disk
-   run in Rust on a second connection opened on demand (`agentStreams: "none"`), up to three at
-   once, for local and direct entries; a save is written to `name.part` and continues after a
-   dropped connection, an upload starts again; the explorer shows a percentage and Cancel for
-   both, in the browser client too. Not in it: viewers served by Rust, relay entries (milestone
-   4), native file drops, any change to the daemon's protocol.*
+   *State (2026-11-22): **grilled and specified; proposals S1–S12 of the spec wait for the owner;
+   not planned, nothing built** (grill `swe/grills/desktop-transfer-engine.md`, decisions D1–D20;
+   spec `swe/features/desktop-transfer-engine.md`; branch `feat/desktop-transfer-engine`).
+   Decided: uploads from a native picker and saves to disk run in Rust on a second connection
+   opened on demand (`agentStreams: "none"`), up to three at once, for local and direct entries; a
+   save is written to a temporary file and continues after a dropped connection, an upload starts
+   again; the explorer shows a line per activity with a percentage and Cancel, in the browser
+   client too; `--transfers page` forces the old path. Proposed by the spec: a new crate
+   `pistudiodesktop-transfer` above `net`, four page commands and one event, and the temporary
+   file that saves already use. Not in it: viewers served by Rust, relay entries (milestone 4),
+   native file drops, any change to the daemon's protocol.*
 4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
    (`swe/architecture/relay-protocol.md`) and pass the relay fixtures. Check: a paired remote
    daemon works with the same behaviour as direct. **Added by the owner (2026-11-21): a daemon
@@ -699,3 +702,4 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 | Design system | `packages/ui-library/README.md`, `packages/ui-library/DESIGN_SYSTEM.md` |
 | Current web UI invariants | `packages/web-client/AGENTS.md` |
 | Milestone 2 (transport bridge) | `swe/features/desktop-transport-bridge.md` |
+| Milestone 3 (transfer engine) | `swe/features/desktop-transfer-engine.md`, grill `swe/grills/desktop-transfer-engine.md` |
