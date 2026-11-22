@@ -57,10 +57,17 @@ Advertised as `server_info.features.fileDownloadRanges`. Detail: [desktop-client
 - **SDK:** `FileTransferClient.downloadTo(path, sink, options)` / `download(path, options)`
   (`offset`, `length`, `ifUnchanged`, `signal`, `onProgress`); both reject when the daemon lacks
   `fileDownloadRanges`. The browser host builds Blobs from the `downloadTo` chunks.
-- **Desktop app (specified 2026-11-22, not built):** for a local or direct entry the desktop app
-  runs uploads from its native picker and saves to disk in Rust, on a second connection, with this
-  same wire flow; the explorer's status line becomes one line per activity with a percentage and
-  Cancel, in both clients. See [desktop-transfer-engine.md](desktop-transfer-engine.md) §§ 4, 5, 7.
+- **Desktop app (planned as sprints 120–123, not built):** for a local or direct entry the desktop
+  app runs uploads from its native picker and saves to disk in Rust, on a second connection, with
+  this same wire flow; the explorer's status line becomes one line per activity with a percentage
+  and Cancel, in both clients (sprint 119). See
+  [desktop-transfer-engine.md](desktop-transfer-engine.md) §§ 4, 5, 7.
+- **Uploads on the daemon (planned as sprint 118, not built):** an upload will be written to
+  `.pistudio-upload-<32 hex>.part` beside its target and renamed when `End` arrives; a failed or
+  cancelled upload, or one whose session closes, will leave nothing; the daemon will stop reading
+  a session's socket while more than 1 MiB of an upload is unwritten. Until then a failed upload
+  leaves a partial file and writes are queued without a bound. See
+  [desktop-transfer-engine.md](desktop-transfer-engine.md) § 10.
 
 ## Behavior & Algorithms
 

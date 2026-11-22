@@ -1,10 +1,12 @@
 # Feature — Desktop Transfer Engine
 
-> **Status: specified 2026-11-22. Not planned, nothing built.** Milestone 3 of the desktop client.
-> Decisions D1–D20 are the owner's, from the grill
+> **Status: specified 2026-11-22, revised the same day, planned as sprints 118–123. Nothing
+> built.** Milestone 3 of the desktop client. Decisions D1–D20 are the owner's, from the grill
 > ([../grills/desktop-transfer-engine.md](../grills/desktop-transfer-engine.md), confirmed
-> 2026-11-22). S1–S12 are proposed in this document and **wait for the owner**; S1 and S10 change
-> the wording of a grill decision, because the code already does something else.
+> 2026-11-22). S1–S12 were proposed in this document; the owner asked for the plan without
+> changing one. The owner then said that **compatibility is not a concern** (nobody uses the
+> project yet) and that a better design may break it: R1–R4 follow from that, S6 is withdrawn, and
+> D4, D14, D15 and D20 are changed where the tables say so.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -29,9 +31,10 @@ opens for them. The page asks, shows progress and can cancel; it never holds the
 for the whole feature: a 5 GiB file moves both ways with flat memory while a terminal stays
 responsive (D16).
 
-Not in this feature (D1–D5, D8, D14, D15): viewers served by Rust (`files.openForView` keeps `Blob`
-URLs), transfers of a relay entry (milestone 4), native file drops, any change to the daemon or the
-wire, upload resume, a transfers list, uploading a folder, a transfer that survives quitting.
+Not in this feature (D1–D5, D8, D15): viewers served by Rust (`files.openForView` keeps `Blob`
+URLs), transfers of a relay entry (milestone 4), native file drops, any change to the wire, upload
+resume, a transfers list, uploading a folder, a transfer that survives quitting, and any path for
+a daemon older than the app (R1).
 
 ## Decisions
 
@@ -42,7 +45,7 @@ Owner, 2026-11-22 (the grill; its rationale is in the brief):
 | D1 | Uploads and saves move to Rust. Viewers keep `Blob` URLs |
 | D2 | Only `local` and `direct` entries. A relay entry keeps today's path through the page until milestone 4 |
 | D3 | A native picker for the Upload button. A file dropped on the window keeps today's path through the page |
-| D4 | No change to the daemon or the wire. A failed upload starts again from zero |
+| D4 | No change to the wire. A failed upload starts again from zero. (The grill also said "no change to the daemon"; R3 and R4 change the daemon's behaviour, not its wire) |
 | D5 | After a dropped connection the engine continues by itself while the app runs: a download resumes, an upload restarts. Nothing survives quitting |
 | D6 | The bulk connection is opened by the first transfer and closed after a short idle time. It is a second session, with `agentStreams: "none"` |
 | D7 | Up to 3 transfers at once on the one connection; the rest wait in order |
@@ -52,15 +55,26 @@ Owner, 2026-11-22 (the grill; its rationale is in the brief):
 | D11 | One status line per activity. A picked batch is one activity (its files one after another, one percentage, one Cancel); each save is its own |
 | D12 | The engine retries until the user cancels or the window leaves the entry. An error a retry cannot fix fails at once |
 | D13 | A download that resumes onto a changed file fails; no automatic restart |
-| D14 | A cancelled or failed upload leaves the partial file on the daemon, as today |
-| D15 | Fourteen edge cases, in § Error handling & edge cases |
+| D14 | ~~A cancelled or failed upload leaves the partial file on the daemon, as today~~ Replaced by R3 |
+| D15 | Fourteen edge cases, in § Error handling & edge cases. One is dropped by R1 (an older daemon), one changed by R3 (a changed local file leaves nothing on the daemon) |
 | D16 | The check: a 5 GiB upload and a 5 GiB save on Linux over loopback, with pass marks (§ Acceptance criteria) |
 | D17 | Live on Linux; the automated suites on the macOS and Windows runners; manual macOS and Windows steps as open rows in `desktop/docs/platform-checks.md` |
 | D18 | A launch option forces the page's path. No setting in the UI |
 | D19 | `ui.inspect` gains a transfers section; the app logs the start, end and failure of each transfer with both paths, never a password |
-| D20 | The page names a local file only by a handle Rust issued; Rust connects only to the current entry; what the daemon sends is hostile; the host contract only gains optional members; the Rust protocol code is tested against the published fixtures |
+| D20 | The page names a local file only by a handle Rust issued; Rust connects only to the current entry; what the daemon sends is hostile; the Rust protocol code is tested against the published fixtures. ("The host contract only gains optional members" is replaced by R2) |
 
-Proposed in this document, waiting for the owner:
+Owner, 2026-11-22, after the first version of this document: compatibility with older daemons,
+apps and clients is not a concern, and a better design may break it. What changes:
+
+| # | Change | Why |
+|---|---|---|
+| R1 | **Drops a row of D15 and S6.** There is no path for an older daemon. The engine serves every `local` and `direct` entry; a daemon that lacks a flag the engine needs fails the transfer with `unsupported_daemon`. The app's `minDaemonVersion` becomes the release that carries R3 and R4 | The fallback needed the page to read the daemon's flags off its own socket before the picker opens. Without it the host's choice is fixed for the life of a page |
+| R2 | **Replaces part of D20.** The host contract changes freely: `UploadOptions` is renamed `TransferOptions` with no alias, `saveToDisk` takes it as a second argument, and every host and test host is updated in the same change | One name for one thing; no member kept for an old caller |
+| R3 | **Replaces D14.** The daemon writes an upload to a temporary file beside the target (`.pistudio-upload-<32 hex>.part`) and renames it over the target when the upload is complete. A failed, cancelled or abandoned upload leaves nothing, and a file it would have replaced keeps its old content. Both clients get this | The daemon truncated the target at the first byte, so a failed overwrite destroyed the old file, and an upload that restarts after a drop (D5) left halves behind. The wire is unchanged |
+| R4 | The daemon paces an upload: it stops reading the session's socket while more than 1 MiB of that upload waits to be written to disk, and reads again under 256 KiB (the download's marks) | It queued writes without a bound, so a fast sender and a slow disk grew its memory by the size of the file. The wire is unchanged: the sender is slowed through TCP, which the SDK's `bufferedAmount` pacing and the engine's awaited writes already obey |
+
+Proposed in this document. The owner asked for the plan on 2026-11-22 without changing one, which
+is taken as acceptance; S6 is withdrawn (R1) and S7 is shortened (R2):
 
 | # | Proposal | Why |
 |---|---|---|
@@ -69,8 +83,8 @@ Proposed in this document, waiting for the owner:
 | S3 | Values, chosen and not measured: the bulk connection closes after 30 s idle; it sends a JSON `ping` after 10 s without a frame from the daemon and counts as dropped after 30 s without one; a reconnect waits 1 s, doubling to 30 s; an RPC answer is awaited 30 s; the socket's message limit is 16 MiB; a download holds at most 1 MiB that is not yet on disk | They close the grill's two open values. 30 s without a frame is how "no byte moves for 30 s" (D15) is observed: an upload gets no frame back until it completes, so the ping proves the daemon is there |
 | S4 | The launch option is `--transfers <engine\|page>`, default `engine`; the page learns it from `boot` | The shape of `--secret-store` |
 | S5 | Four new commands for the page (`upload_pick`, `transfer_upload`, `transfer_save`, `transfer_cancel`) and one event (`transfer_progress`). A transfer command answers when the transfer has settled; the event is advisory | A lost event then costs a stale percentage, never a hung transfer. Listening to events is already granted |
-| S6 | The desktop host learns the daemon's feature flags by reading the `status` frame that passes through its proxied transport | D15's "an older daemon takes the page's path" must be decided before the picker opens, synchronously, and the host has no other view of `server_info` |
-| S7 | The host contract's new members: `signal` and `onStateChange` on `upload`'s options, an options argument on `saveToDisk`; `files.pickUploads` may be absent at one moment and present at another, and the workbench reads it at each use (it already does) | D8, D11, D12 |
+| S6 | ~~The desktop host learns the daemon's feature flags by reading the `status` frame that passes through its proxied transport~~ Withdrawn: R1 | |
+| S7 | The host contract's new members: `signal` and `onStateChange` in the options of `upload`, and the same options on `saveToDisk` | D8, D11, D12 |
 | S8 | The workbench keeps activities in a small store, and the explorer draws them. A save started from a viewer's toolbar shows there too. At most 4 lines are drawn, then a count | A save has three triggers, and only one of them is in the explorer |
 | S9 | An upgrade answered with anything but 101, 401 or 403 (`handshake`) is retried | A reverse proxy answers 502 while its daemon restarts |
 | S10 | **Narrows D19.** `ui.inspect` shows no path (as `connection` shows no address). The paths are in the log, and the app's log is standard error: it has no log file (`src-tauri/src/logging.rs`) | The grill's question said "the app's own log file"; there is none |
@@ -85,7 +99,7 @@ Proposed in this document, waiting for the owner:
 environment variable. `page` turns the engine off for the run: the four commands of § 2 answer
 `engine_off`, and the desktop host uses the page's path for everything.
 
-`boot` gains one field: `transfers: "engine" | "page"`. A page that does not find it reads `page`.
+`boot` gains one field: `transfers: "engine" | "page"`.
 
 ### 2. The page's commands
 
@@ -118,7 +132,7 @@ list grows from 16 to 20). The Content-Security-Policy does not change.
 - Rust dials the current entry's stored address and reads its password itself, as `transport_open`
   does. The page sends no address (D20).
 - `save_begin`, `save_write`, `save_finish`, `save_discard` and `transfers_set` are unchanged. The
-  page's path still uses them (a relay entry, `--transfers page`, an older daemon).
+  page's path still uses them (a relay entry, `--transfers page`).
 
 Event `transfer_progress`, emitted to the page:
 
@@ -164,10 +178,12 @@ End    (0x12, stream)  one byte, 1
 ```
 
 Rust reads the local file as it sends, and waits for each write to the socket to complete before
-reading on, so it holds a bounded amount whatever the file's size. The upload has succeeded when
-`file_upload_complete` says `ok: true` and `bytesWritten` equals the bytes sent (S11). To stop an
-upload whose `Begin` was sent, Rust sends `Error` (0x13) with `client_aborted` (a cancel) or
-`client_error` (anything else), and ignores the `file_upload_complete` that follows.
+reading on, so it holds a bounded amount whatever the file's size; the daemon slows it through the
+socket when its disk is behind (R4). The upload has succeeded when `file_upload_complete` says
+`ok: true` and `bytesWritten` equals the bytes sent (S11); only then does the target exist or
+change on the daemon (R3). To stop an upload whose `Begin` was sent, Rust sends `Error` (0x13)
+with `client_aborted` (a cancel) or `client_error` (anything else), and ignores the
+`file_upload_complete` that follows.
 
 ### 5. A save on the wire
 
@@ -188,24 +204,24 @@ An `Error` frame may be a stream's first and only frame.
 
 ### 6. Host members
 
-Changes to `HostFiles` (`packages/workbench/src/host/types.ts`), all optional (D20, S7):
+`HostFiles` (`packages/workbench/src/host/types.ts`) changes; every host and the test host change
+with it (R2, S7):
 
 ```ts
 type TransferState = "queued" | "running" | "waiting";
 
-interface TransferOptions {
-  onProgress?(done: number, total?: number): void;   // as today; restarts from 0 after "waiting"
+interface TransferOptions {                           // replaces UploadOptions
+  onProgress?(done: number, total?: number): void;   // restarts from 0 after "waiting"
   onStateChange?(state: TransferState): void;        // a host that never calls it is "running"
   signal?: AbortSignal;                              // aborting rejects with an AbortError
 }
 
 upload(dir: string, source: UploadSource, options?: TransferOptions): Promise<void>;
 saveToDisk(path: string, options?: TransferOptions): Promise<void>;
-readonly pickUploads?: () => Promise<UploadSource[]>;   // read at each use; may come and go
+pickUploads?(): Promise<UploadSource[]>;             // present or absent for the life of the page
 ```
 
-`UploadOptions` stays as a name for `TransferOptions`. A host calls neither callback of a save
-before the user has chosen a destination.
+A host calls neither callback of a save before the user has chosen a destination.
 
 | Host | `upload` | `saveToDisk` | `pickUploads` |
 |---|---|---|---|
@@ -213,17 +229,12 @@ before the user has chosen a destination.
 | Desktop, engine serves | A picked source: `transfer_upload`. A `Blob` (a dropped file, a file the workbench made): the browser host's | `save_begin`, then `transfer_save` | Present: `upload_pick` |
 | Desktop, engine does not serve | The browser host's | The browser host's (with `saveTarget`) | Absent: the workbench uses its file input |
 
-**The engine serves** when all of these hold, read synchronously (S6):
-
-- `boot` said `transfers: "engine"`;
-- the current entry is of kind `local` or `direct`;
-- the last `status` frame this page received through its proxied transport advertised
-  `fileDownloadRanges`, `fileTransferAck` and `agentStreamsMode`. The proxied transport reads text
-  frames only until that one, once per connection, and passes every frame on unchanged.
+**The engine serves** when `boot` said `transfers: "engine"` and the current entry is of kind
+`local` or `direct`. Both are fixed for the life of a page (a switch reloads it), so the host
+decides once, when it is built (R1).
 
 A picked source is an object the desktop host made, holding the handle where the workbench cannot
-see it. If the engine no longer serves when it is uploaded, the upload rejects and asks the user to
-choose the file again; the host cannot fall back, because the page has no bytes.
+see it.
 
 `countTransfers` keeps wrapping `upload` and `saveToDisk`, so the page's count (`transfers_set`)
 covers engine transfers as well: each is a pending call of the host.
@@ -243,9 +254,9 @@ status line is, one line each, oldest first, at most four and then "and N more":
 - A line changes only when its text does. Its Cancel control is a button with the accessible name
   `Cancel: <the line's label>`.
 - When an activity ends, its line goes, and the explorer's one transient status says what
-  happened: `Uploaded N files`, `Downloaded <name>`, `Upload cancelled: <name> is incomplete on the
-  daemon` (D14), `Download cancelled`, or `Upload failed: <message>` / `Download failed: <message>`
-  as an error.
+  happened: `Uploaded N files`, `Downloaded <name>`, `Upload cancelled`,
+  `Download cancelled`, or `Upload failed: <message>` / `Download failed: <message>`
+  as an error. A cancelled or failed upload leaves nothing on the daemon (R3).
 - A save started outside the explorer (a viewer's toolbar, the PDF toolbar) is an activity too.
   Those places keep their own feedback (the spinner, the alert on failure) but stay silent for a
   cancel.
@@ -284,11 +295,31 @@ password, a handle or file content.
 | The save sink, the refusal of a second save into one destination | `crates/shell/src/saves.rs` | The engine writes through `Saves`: the same temporary file, journal, finish and discard (S1) |
 | The picked files, the transfers view and its hook, the launch choice | `crates/shell` | Plain data; no socket type |
 | The four commands, the event, the wiring to `boot`, a switch, the window, exit and the resume signals | The app binary (`src-tauri/src/transfers.rs`) | Runs on Tauri's async runtime; file and store calls on the blocking pool; nothing on the owner thread but the question for the current entry |
-| The engine-backed `files` members, the flags read from the `status` frame | `desktop/apps/pistudiodesktop/src/host/` (`transfers.ts`, `proxied-transport.ts`) | The package still opens no socket itself |
+| The engine-backed `files` members | `desktop/apps/pistudiodesktop/src/host/` (`transfers.ts`, `desktop-host.ts`) | The package still opens no socket itself |
 | The contract, the browser host's cancel and progress, the activities and their lines | `packages/workbench` | One UI for both clients; `workbench-host-adapter.md` and `file-explorer-transfer.md` are amended in the same tasks |
+| The upload's temporary file and its pacing (§ 10) | `packages/server/src/files/file-transfer.ts`, `packages/server/src/ws/session.ts` | The wire and the fixtures' shapes do not change; the fixtures' notes and the root `AGENTS.md` say "nothing is left" where they said "a partial file is left" |
 
 `desktop/docs/architecture.md`'s sentence "only an app binary may use `net`" becomes "only
 `transfer` and an app binary".
+
+### 10. The daemon (R3, R4)
+
+Two changes of behaviour in `FileTransferService`; no message and no frame changes.
+
+| Step of an upload | Today | With this feature |
+|---|---|---|
+| `Begin` | Creates the target's directory, opens the target with `"w"` (truncating it) | Creates the directory, creates `.pistudio-upload-<32 hex>.part` in it (exclusively) |
+| `Chunk` | Appends to the target | Appends to the temporary file |
+| `End` | Closes; `file_upload_complete { ok: true }` | Closes, renames the temporary file over the target, then `file_upload_complete { ok: true }`. A failed rename is `rename_failed (<errno>)` |
+| `Error` from the client, a failed write, the session closing | Closes; the partial target stays | Closes and removes the temporary file; the target is as it was before the upload |
+
+**Pacing.** Each upload counts the bytes of its `Chunk`s that have arrived and are not yet
+written. While any upload of a session has more than 1 MiB waiting, the daemon does not read that
+session's socket; it reads again when every upload of the session is under 256 KiB. `Session`
+gains the two calls that stop and continue reading its socket. A session that closes while
+stopped is released like any other.
+
+A daemon that dies during an upload leaves the temporary file; nothing removes it (§ TODO).
 
 ## Behavior & algorithms
 
@@ -344,18 +375,17 @@ attempts (D12).
 ### The desktop host's choice
 
 ```
-get files.pickUploads:   engineServes() ? pick : undefined
+built once, with the host:
+    engine serves  -> files.pickUploads = pick; upload and saveToDisk as below
+    otherwise      -> the browser host's files, unchanged (no pickUploads)
 
 pick():                  sources = upload_pick(); remember each source's handle
 
 upload(dir, source, options):
-    source is a picked one:
-        not engineServes() -> reject: "Choose the file again: the connection changed."
-        run(transfer_upload { id, handle, path: dir + "/" + source.name }, options)
-    else: the browser host's upload
+    source is a picked one -> run(transfer_upload { id, handle, path: dir + "/" + source.name }, options)
+    else                   -> the browser host's upload
 
 saveToDisk(path, options):
-    not engineServes() -> the browser host's saveToDisk
     handle = save_begin(the file's name)        # null: the user cancelled; resolve
     run(transfer_save { id, handle, path }, options)
 
@@ -384,7 +414,7 @@ The question itself is unchanged: it reads the page's count, which includes engi
 | `.pistudio-save-<32 hex>.part` beside a destination | As for saves today; now written by the engine. Removed on cancel and on a final failure; kept while a save waits for the connection |
 | `pending-saves.json` | Unchanged: lists open saves so that a launch can remove what a crash left (S1) |
 | `daemons.json`, `settings.json`, the secret store, `daemon-state/*.json` | Unchanged. The password is read, never written |
-| The daemon | No new state. The bulk connection is one more session, shown in `daemon_status` as a `browser` client with `platform: "desktop"` and `agentStreams: "none"` |
+| The daemon | No new stored state. The bulk connection is one more session, shown in `daemon_status` as a `browser` client with `platform: "desktop"` and `agentStreams: "none"`. While an upload runs, `.pistudio-upload-<32 hex>.part` exists in the target's directory (R3) |
 
 ## Error handling & edge cases
 
@@ -401,13 +431,13 @@ handle:
 | `unknown_handle` | No such picked file or open save, or it was used already |
 | `destination_busy` | Another save is writing to the same destination (D15); the second save is discarded |
 | `source_unreadable` | The local file could not be opened or read; the message carries the system's reason (D15) |
-| `source_changed` | The local file's size changed during the upload (D15). The partial file stays on the daemon |
+| `source_changed` | The local file's size changed during the upload (D15). Nothing is left on the daemon (R3) |
 | `disk` | Writing, flushing or renaming failed on this machine; the message carries the system's reason. The temporary file is removed (D15) |
 | `changed` | The daemon answered `changed` to a resume, or sent `Error` `changed`. Message: "The file changed on the daemon." (D13) |
 | `daemon_refused` | The daemon answered `ok: false`, sent an `Error` frame, or reported a failed write in `file_upload_complete`; the message carries its reason (`not_found`, `not_a_file`, `unreadable`, `no_free_stream`, `write_failed (ENOSPC)`, …) |
 | `size_mismatch` | `file_upload_complete` reported another byte count than was sent (S11) |
 | `protocol` | The daemon broke the protocol: a frame out of order, more bytes than announced, a message above 16 MiB, an answer of the wrong shape |
-| `unsupported_daemon` | `server_info` lacks a needed flag (a host bug, or the daemon changed under the page) |
+| `unsupported_daemon` | `server_info` lacks `fileDownloadRanges`, `fileTransferAck` or `agentStreamsMode`: the daemon is older than the app supports (R1) |
 | `unauthorized`, `host_not_allowed`, `tls`, `invalid_address`, `secret_missing`, `secret_unavailable`, `not_bridged`, `no_current`, `unsupported` | As for `transport_open`, when the bulk connection opens or reopens |
 | `internal` | Anything the engine did not expect. Never a panic |
 
@@ -416,17 +446,18 @@ handle:
 | Any size, down to an empty file | Through the engine; no threshold (D15). An empty save is `Begin`, `End` and an empty file |
 | The picker | Files only (D15) |
 | A file dropped on the window; a file the workbench made itself | A `Blob`: the page's path, as today (D3) |
-| A relay entry; `--transfers page`; a daemon without the three flags | The engine does not serve: the file input, the page's upload, the page's save (D2, D15, D18) |
+| A relay entry; `--transfers page` | The engine does not serve: the file input, the page's upload, the page's save (D2, D18) |
+| A daemon older than the app supports | No other path: the transfer fails with `unsupported_daemon`, and the workbench's outdated-daemon notice already names both versions (R1) |
 | More than 3 transfers | The rest are `queued`, in order; the queue has no limit (D7) |
 | The connection drops | `waiting`, then the transfers continue: a save from its bytes on disk, an upload from zero (D5). No limit in time (D12) |
 | The machine wakes, or the network changes | The engine tries at once (D15) |
 | 30 s without a frame from the daemon | Dropped (D15, S3) |
 | Only one of the two connections drops | Independent: the chat reconnecting does not touch a transfer, and the reverse (D15) |
 | Cancel while `queued` or `waiting` | At once; a save's temporary file is removed (D15) |
-| Cancel of a running upload | `Error` `client_aborted` to the daemon; the partial file stays there (D14) |
-| An upload onto an existing file fails or is cancelled | The old content is gone: the daemon truncates at the start (D14) |
+| Cancel of a running upload | `Error` `client_aborted` to the daemon, which removes its temporary file (R3) |
+| An upload onto an existing file fails, is cancelled, or restarts after a drop | The old content stays until an upload completes (R3) |
 | The password is refused when the connection opens or reopens | Every transfer fails at once with `unauthorized` (D12) |
-| The daemon's write queue | Not paced by the daemon: it queues what arrives. The engine sends as fast as the socket takes it, as the SDK does (§ TODO) |
+| The daemon's disk is slower than the sender | The daemon stops reading the session's socket above 1 MiB waiting, so its memory stays bounded and the sender slows down (R4) |
 | A transfer slow on this machine's disk | The engine stops reading the socket, so the other transfers on the connection slow down with it |
 | The page reloads during a transfer | § Leaving: cancelled |
 | The app crashes or is killed during a save | The temporary file is removed at the next launch (S1) |
@@ -434,8 +465,9 @@ handle:
 
 ## Dependencies on other specs
 
-- `workbench-host-adapter.md` — `files` gains the members of § 6; amended with the build.
-- `file-explorer-transfer.md` — the wire is used as it is; the explorer's status line becomes § 7.
+- `workbench-host-adapter.md` — `files` changes as in § 6; amended with the build.
+- `file-explorer-transfer.md` — the wire is used as it is; the explorer's status line becomes § 7;
+  an upload's effect on the daemon's disk becomes § 10.
 - `desktop-transport-bridge.md` — the dial (one new parameter), the plan for the current entry,
   the secret store, `connection_resume`, the `ui.inspect` hook pattern. `transport_open` gains one
   side effect: its success ends the engine's wait.
@@ -453,7 +485,7 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 
 - [ ] A 5 GiB file chosen in the native picker is uploaded: the daemon's copy has the same hash;
   `transfers.peakHeld` stayed under 64 MiB and the app's Rust process grew by at most 64 MiB; the
-  page grew by at most 32 MiB.
+  page grew by at most 32 MiB; the daemon grew by at most 64 MiB (R4).
 - [ ] A 5 GiB file on the daemon is saved to disk, with the same marks.
 - [ ] Neither is slower than the same transfer with `--transfers page` on the same build and
   machine.
@@ -471,8 +503,11 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 - [ ] In the browser client a save shows a percentage and Cancel, and an upload has Cancel (D8).
 - [ ] During a save the destination holds no partial data; when it completes, the temporary file
   is gone and the destination holds the file (D9, S1).
-- [ ] A cancelled save leaves no temporary file. A cancelled upload leaves the partial file on the
-  daemon and the status says so (D9, D14).
+- [ ] A cancelled save leaves no temporary file. A cancelled upload, a failed one and one whose
+  connection was cut leave no file on the daemon, and a file being replaced keeps its old content
+  until an upload completes, in the desktop app and in the browser client (D9, R3).
+- [ ] An upload to a daemon whose disk is slowed (a test double) keeps the daemon's queue for it
+  under 1 MiB plus one chunk, and completes with the right content (R4).
 - [ ] The bulk connection is cut during a save: the save continues from its bytes on disk and the
   hash matches. Cut during an upload: the upload starts again and the hash matches (D5).
 - [ ] The daemon is stopped during a transfer: the line says it is waiting for the connection, and
@@ -483,9 +518,10 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   retried (D12).
 - [ ] With a transfer running, a daemon switch and a window close ask first; "yes" cancels it
   (D10).
-- [ ] A relay entry, a dropped file, `--transfers page`, and a daemon without the three flags each
-  take the page's path and work as before; with the last three the Upload button opens the file
-  input (D2, D3, D15, D18).
+- [ ] A relay entry, a dropped file and `--transfers page` each take the page's path and work as
+  before; with a relay entry and with `--transfers page` the Upload button opens the file input
+  (D2, D3, D18).
+- [ ] A daemon without one of the three flags: the transfer fails with `unsupported_daemon` (R1).
 - [ ] No command takes a local path, and a `transfer_upload` with a handle Rust did not issue is
   refused (D20).
 - [ ] `ui.inspect`'s `transfers` shows a running transfer's bytes and the last error, with no
@@ -506,19 +542,20 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 
 ## TODO(verify)
 
-- [ ] **Owner:** accept or change S1–S12. S1 and S10 replace wording of D9, D15 and D19.
 - [ ] The values of S3 are chosen, not measured. The check's run should report how often the
   liveness limit and the 1 MiB hold were reached.
-- [ ] The daemon does not pace an upload: it queues writes without a bound. With a fast link and a
-  slow disk on the daemon, its memory grows, with the SDK today as with the engine. Measure the
-  daemon's memory in the 5 GiB upload and report it; a fix would be a daemon change (D4 excludes
-  it here).
+- [ ] R4 stops reading a session's socket. On the browser's one connection that also delays its
+  other requests while the disk is behind: measure how long in the 600 MiB browser upload. Over a
+  relay the socket is the daemon's data socket for that client: confirm that stopping it slows
+  the client and not the other clients.
+- [ ] R3's temporary file is visible in the explorer while an upload runs (the listing shows
+  dotfiles), and a daemon that dies leaves it. Decide whether the listing hides the pattern and
+  whether the daemon removes old ones at start.
 - [ ] A command that stays unanswered for hours (a transfer that waits overnight, D12): confirm on
   the three webviews that its answer still arrives after a sleep. If it does not, the settlement
   moves into `transfer_progress` and the commands answer at once.
-- [ ] `files.pickUploads` as a member that comes and goes (S7): confirm that reading it at the
-  click, and opening the file input in the same turn when it is absent, keeps working in WebKitGTK,
-  WKWebView and WebView2.
+- [ ] `minDaemonVersion` (R1) names a release that does not exist yet: set it when the daemon
+  changes are released, and release them before or with the app.
 - [ ] The native open dialog has never been shown by this app (`platform-checks.md` N3 notes the
   missing picker). Its behaviour on macOS and Windows is unverified.
 - [ ] How the 5 GiB check drives the native picker and reads the page's memory in the headless

@@ -229,18 +229,18 @@ in the contract above. Kept so the reasons are findable.
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |
 
-### The 2026-11-22 amendment — specified, not built
+### The 2026-11-22 amendment — specified and planned (sprint 119), not built
 
 For the desktop transfer engine ([../features/desktop-transfer-engine.md](../features/desktop-transfer-engine.md)
-§ 6; its proposal S7 waits for the owner). Nothing above changes until it is built; the rows move
-into the contract with the tasks that build them.
+§ 6, decisions R2 and S7). Nothing above changes until it is built; the rows move into the contract
+with sprint-119/task-001. Compatibility is not kept: every host changes in the same change.
 
 | Change | Kind |
 |---|---|
-| `TransferOptions { onProgress?, onStateChange?, signal? }`, with `TransferState = "queued" \| "running" \| "waiting"`; `UploadOptions` becomes a name for it | Added, optional |
+| `TransferOptions { onProgress?, onStateChange?, signal? }`, with `TransferState = "queued" \| "running" \| "waiting"` | Replaces `UploadOptions` (renamed, no alias) |
 | `files.upload(dir, source, options?: TransferOptions)` | `signal` aborts (the promise rejects with an `AbortError`); `onStateChange` is optional for a host |
-| `files.saveToDisk(path, options?: TransferOptions)` | A second, optional argument: progress, state and abort for a save. No callback before the user has chosen a destination |
-| `files.pickUploads` | May be absent at one moment and present at another on the same host; the workbench reads it at each use |
+| `files.saveToDisk(path, options?: TransferOptions)` | A second argument: progress, state and abort for a save. No callback before the user has chosen a destination |
+| `files.pickUploads` | Unchanged in shape. The desktop host supplies it when Rust serves the page's entry, decided once when the host is built |
 | Browser host | Passes `signal` and progress through to the SDK for uploads and saves; an aborted save discards its `saveTarget` |
 | Desktop host | A picked file is uploaded, and a file saved, by Rust when the engine serves the connection; otherwise the browser host's members |
 
