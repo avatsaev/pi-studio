@@ -46,8 +46,8 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     desktop/apps/pistudiodesktop, is a private npm workspace of this repository (dependencies in
                     the root package-lock.json; never published; not in scripts/publish.sh). The root lint, fmt,
                     test, typecheck and build commands skip desktop/; a push that touches only desktop/ does not
-                    release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
-                    built by desktop-release.yml (see § Release & production deployment). Its window renders
+                    publish npm (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
+                    built and released by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
                     a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview,
                     the daemon registry and, for a local or direct entry, the transport backed by Rust: Rust dials
@@ -228,14 +228,18 @@ packages, build+push Docker images tagged to match, then pin+deploy production o
 Pure orchestration — no logic beyond what the three scripts already do; each remains independently
 runnable (and this is what `release.sh` calls under the hood).
 
-**The desktop client is released separately.** It has its own version (`[workspace.package] version`
-in `desktop/Cargo.toml`), is in none of the three steps below, and is built by
-`.github/workflows/desktop-release.yml`: pushing a tag `desktop-v<version>` builds the installers on
-Linux (deb, rpm, AppImage), macOS (one universal dmg) and Windows (msi, nsis) and **publishes** a
-GitHub Release holding them (public at once, with fixed notes; no draft, so try a manual run's
-installers before tagging); a manual run, or a pull request that changes that file, builds
-them as workflow artifacts only. The installers are not signed with a real identity. Runbook:
-`desktop/docs/development.md` § Releasing.
+**The desktop client is released separately, and also automatically.** It has its own version line
+and is in none of the three steps below. `.github/workflows/desktop-release.yml` runs after every
+Desktop CI run that passes on a push to `main` (so after any merge that changes `desktop/` or a
+package the app builds from: workbench, ui-library, client, relay, protocol, the root manifest or
+lock): it builds the installers on Linux (deb, rpm, AppImage), macOS (one universal dmg) and
+Windows (msi, nsis) from the commit Desktop CI checked and **publishes** a GitHub Release holding
+them, which creates the tag `desktop-v<version>` (public at once, fixed notes, no draft). The
+version is the patch after the highest `desktop-v*` tag, unless `[workspace.package] version` in
+`desktop/Cargo.toml` is higher (raise it in a pull request for a minor or major release); it is
+written into the runners' copy only, nothing is committed back. A manual run, or a pull request
+that changes that file, builds the installers as workflow artifacts only. The installers are not
+signed with a real identity. Runbook: `desktop/docs/development.md` § Releasing.
 
 ```bash
 npm run release                    # full pipeline: publish npm -> publish docker -> deploy

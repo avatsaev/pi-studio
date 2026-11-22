@@ -48,24 +48,29 @@ directory: run `cargo xtask web` (or `npm run build`) first, and again after fro
 
 ## Releasing
 
-Installers are built by `.github/workflows/desktop-release.yml` (at the repository root), not on a
-developer's machine. The desktop client has its own version, `[workspace.package] version` in
-`Cargo.toml`; it does not follow the npm packages' version.
+Installers are built and released by `.github/workflows/desktop-release.yml` (at the repository root),
+not on a developer's machine, and the release is automatic: every push to `main` that Desktop CI
+gates (a change to `desktop/` or to a package the app builds from) and that passes Desktop CI is
+released. A failed Desktop CI run releases nothing.
 
-1. Set the version in `Cargo.toml`, run `cargo xtask ci` (it refreshes `Cargo.lock`), merge to `main`
-   and wait for the Desktop CI run of that commit to pass.
-2. Try the installers before tagging: run the workflow by hand (see below) and install what it
-   attaches. Nothing checks them after the tag.
-3. Tag that commit `desktop-v<version>` and push the tag. A tag that does not match the version
-   fails the run before anything is built.
-4. The workflow builds on three runners and **publishes** a GitHub Release with the installers:
-   `.deb`, `.rpm` and `.AppImage` (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64).
-   It is public at once, with fixed notes (the unsigned-build warnings and the CLI the local daemon
-   needs); edit the notes on GitHub afterwards. If a bundle job fails, no release is created.
-
-To build the installers without releasing, run the workflow by hand (Actions → Desktop release → Run
-workflow): they are attached to the run as artifacts. A pull request that changes the workflow file
-does the same, which is how a change to it is tested.
+- **What is built:** the commit Desktop CI checked, on three runners: `.deb`, `.rpm` and `.AppImage`
+  (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64). The release is **published** at
+  once with fixed notes (the unsigned-build warnings and the CLI the local daemon needs), and it
+  creates the tag `desktop-v<version>` on that commit. If a bundle job fails, no release is created.
+- **The version:** the desktop client has its own version line; it does not follow the npm
+  packages'. Each release is the patch after the highest `desktop-v*` tag, unless
+  `[workspace.package] version` in `Cargo.toml` is higher, which is then used as is. For a minor or
+  major release raise it there in a pull request (run `cargo xtask ci`, which refreshes
+  `Cargo.lock`). The version is written into the runners' copy of `Cargo.toml` before the build;
+  nothing is committed back to `main`, so `Cargo.toml` holds the lowest version the next release
+  can have, not the last one released.
+- **Not released twice:** a commit that already carries a `desktop-v*` tag (a re-run) builds and
+  publishes nothing. Releases run one at a time; when several merges land during one, only the
+  newest waits, and it holds all of them.
+- **To try installers before a merge:** run the workflow by hand on the branch (Actions → Desktop
+  release → Run workflow): it builds and attaches the installers to the run as artifacts, and
+  publishes nothing. A pull request that changes the workflow file does the same, which is how a
+  change to it is tested. The automatic trigger itself only runs from the file on `main`.
 
 The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
 app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.

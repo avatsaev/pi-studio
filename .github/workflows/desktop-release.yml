@@ -2,17 +2,31 @@ name: Desktop release
 
 # Builds the desktop client's installers (`desktop/`) on Linux, macOS and Windows.
 #
-#   a pushed tag `desktop-v<version>`   builds, then PUBLISHES a GitHub Release holding the
-#                                       installers (public at once: nobody reviews it first)
-#   a manual run (workflow_dispatch)    builds only; the installers are artifacts of the run
-#   a pull request changing this file   builds only: how a change to this workflow is tested
+#   Desktop CI passed on a push to main   builds, then PUBLISHES a GitHub Release holding the
+#   (workflow_run)                        installers (public at once: nobody reviews it first)
+#   a manual run (workflow_dispatch)      builds only; the installers are artifacts of the run
+#   a pull request changing this file     builds only: how a change to this workflow is tested
+#
+# Releases are automatic, like release.yml's npm release: every push to main that Desktop CI gates
+# (a change to desktop/ or to a package the app builds from) and that passes it becomes a release.
+# A failed Desktop CI run releases nothing. The commit released is the one Desktop CI checked, not
+# whatever main points at by then.
+#
+# The version: the patch after the highest `desktop-v*` tag, unless `[workspace.package] version` in
+# desktop/Cargo.toml is higher, which is then used as is (that is how a minor or major release is
+# made: raise it in a pull request). The version is written into the runners' copy of Cargo.toml
+# before the build; nothing is committed back to main. The release creates the tag
+# `desktop-v<version>` on the commit. A commit that already has a `desktop-v*` tag (a re-run) is not
+# released again.
 #
 # The installers are not signed with a real identity: macOS gets an ad-hoc signature and Windows
-# none, so both systems warn before opening them. The desktop client has its own version
-# (`[workspace.package] version` in desktop/Cargo.toml) and is not part of release.yml.
+# none, so both systems warn before opening them. The desktop client has its own version and is not
+# part of release.yml.
 on:
-  push:
-    tags: ["desktop-v*"]
+  workflow_run:
+    workflows: ["Desktop CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
   pull_request:
     paths:
@@ -21,9 +35,10 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request cancels its older run; a tag's run always finishes.
+# A newer push to a pull request cancels its older run. Releases run one at a time and always finish
+# (a newer one waits; GitHub keeps only the newest waiting run, which releases everything up to it).
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -37,29 +52,62 @@ defaults:
 
 jobs:
   version:
-    name: Tag matches the version
+    name: Version
+    # A release only from a Desktop CI run that passed on a push (never a pull request's run).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+      build: ${{ steps.version.outputs.build }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
-      # The installers are named after the Cargo version, so a tag that says something else would
-      # publish mislabelled files. Checked before an hour of builds, not after.
-      - name: Tag matches desktop/Cargo.toml
-        if: github.ref_type == 'tag'
+      - name: Next version
+        id: version
         env:
-          TAG: ${{ github.ref_name }}
+          RELEASE: ${{ github.event_name == 'workflow_run' }}
         run: |
-          version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' desktop/Cargo.toml)
-          if [ "$TAG" != "desktop-v$version" ]; then
-            echo "::error::tag $TAG does not match the version in desktop/Cargo.toml ($version): expected desktop-v$version"
+          floor=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' desktop/Cargo.toml)
+          latest=$(git tag -l 'desktop-v*' | sed 's/^desktop-v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          if [ -z "$latest" ] || [ "$(printf '%s\n%s\n' "$latest" "$floor" | sort -V | tail -n 1)" != "$latest" ]; then
+            version=$floor
+          else
+            IFS=. read -r major minor patch <<< "$latest"
+            version="$major.$minor.$((patch + 1))"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version '$version' is not MAJOR.MINOR.PATCH (desktop/Cargo.toml says '$floor')"
             exit 1
           fi
+          build=true
+          publish=$RELEASE
+          tagged=$(git tag --points-at HEAD -l 'desktop-v*')
+          if [ "$RELEASE" = true ] && [ -n "$tagged" ]; then
+            echo "::notice::$(git rev-parse --short HEAD) is already released as $tagged: nothing to do"
+            build=false
+            publish=false
+          fi
+          echo "highest tag: ${latest:-none}, Cargo.toml: $floor -> $version (build $build, publish $publish)"
+          {
+            echo "version=$version"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "build=$build"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
 
   bundle:
     name: Bundle (${{ matrix.name }})
     needs: version
+    if: needs.version.outputs.build == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -83,7 +131,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.version.outputs.sha }}
           persist-credentials: false
+      # The installers are named after the Cargo version. Written into this runner's copy only;
+      # `tauri build` is not `--locked`, so Cargo updates its copy of Cargo.lock to match.
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # `-i.bak`: BSD sed (macOS) needs a suffix argument, GNU sed accepts this form too.
+          sed -i.bak '/^\[workspace\.package\]/,/^\[/s/^version = ".*"/version = "'"$VERSION"'"/' desktop/Cargo.toml
+          rm desktop/Cargo.toml.bak
+          grep -q "^version = \"$VERSION\"" desktop/Cargo.toml
       # What Tauri builds against on Linux: WebKitGTK (the webview), librsvg, libxdo.
       - name: System packages
         if: runner.os == 'Linux'
@@ -125,8 +184,8 @@ jobs:
 
   release:
     name: Release
-    if: github.ref_type == 'tag'
-    needs: bundle
+    needs: [version, bundle]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -137,11 +196,13 @@ jobs:
           path: bundles
           merge-multiple: true
       # Published at once, not a draft, and only when every bundle job passed (`needs: bundle`).
-      # The notes are fixed: what a person downloading an unsigned build has to know.
+      # Creates the tag on the commit Desktop CI checked. The notes are fixed: what a person
+      # downloading an unsigned build has to know.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.sha }}
         run: |
           cat > notes.md <<'EOF'
           Installers for Linux (x64), macOS (Apple Silicon and Intel) and Windows (x64).
@@ -155,8 +216,8 @@ jobs:
           (`npm install -g @av-pi-studio/cli`). Windows has no local daemon: connect to a remote one.
           EOF
           mapfile -t files < <(find bundles -type f | sort)
-          gh release create "$TAG" "${files[@]}" \
+          gh release create "desktop-v$VERSION" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "Pi Studio Desktop ${TAG#desktop-v}" \
+            --target "$SHA" \
+            --title "Pi Studio Desktop $VERSION" \
             --notes-file notes.md
