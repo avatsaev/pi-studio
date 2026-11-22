@@ -1,7 +1,7 @@
 # Task 001 — Linux acceptance run for milestone 2, and the checklist's new items
 
 - **Sprint:** sprint-117-desktop-transport-bridge-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs, swe/features
 - **Priority:** P1
