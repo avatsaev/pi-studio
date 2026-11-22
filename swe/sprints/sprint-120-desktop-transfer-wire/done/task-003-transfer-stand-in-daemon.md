@@ -1,7 +1,7 @@
 # Task 003 — A stand-in daemon for the engine's tests
 
 - **Sprint:** sprint-120-desktop-transfer-wire
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/crates/transfer/src/testing
 - **Priority:** P1

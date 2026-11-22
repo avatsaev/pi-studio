@@ -1,7 +1,7 @@
 # Task 001 — `--transfers <engine|page>` and `boot.transfers` (D18, S4)
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop
 - **Priority:** P1

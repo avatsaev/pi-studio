@@ -8,6 +8,8 @@
 //!   test can shorten.
 //! * [`error`]: the one error type.
 //! * [`wire`]: the frames the daemon and the engine exchange, built and read, with no socket.
+//! * `testing` (tests and the `testing` feature only): a daemon in the test's own process that answers,
+//!   stores, serves and misbehaves on request.
 //!
 //! Every input here is hostile (what the daemon sends, what the page asks): sizes are capped
 //! before they are used, and nothing panics.
@@ -18,6 +20,9 @@
 pub mod error;
 pub mod limits;
 pub mod wire;
+
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 pub use error::Error;
 pub use limits::Limits;
