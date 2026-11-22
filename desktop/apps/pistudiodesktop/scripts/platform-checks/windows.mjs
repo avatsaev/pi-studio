@@ -6,6 +6,8 @@
 // HTML preview probe, a second launch.
 // Daemon registry (sprint-111/task-004): the local daemon is `unsupported`, switching between two
 // entries, where daemons.json is.
+// Milestone 2 (sprint-117/task-002, `windows-bridge.mjs`): the page's connection through Rust to a
+// stand-in daemon, the resume signal, and the Credential Manager.
 //
 // The same checks run on Linux in `rehearse-webdriver` mode against WebKitWebDriver, to try the
 // script without a Windows machine; there the local daemon is `cli_missing` and the process
@@ -38,6 +40,7 @@ import { Skip } from "./report.mjs";
 import { sleep, waitFor } from "./wait.mjs";
 import { ready, Session, tauriCapabilities, webkitCapabilities } from "./webdriver.mjs";
 import { diagnoseWebView2 } from "./webview2-diagnostics.mjs";
+import { bridgeChecks, keychainCheck } from "./windows-bridge.mjs";
 
 const KEY = "platform-check-key";
 const LAYOUT_KEY = "platform-check-layout";
@@ -115,12 +118,12 @@ export class WindowsRun {
     this.report.fact("WebView2 without msedgedriver (no session could be made)", ...lines);
   }
 
-  /** The app in a new WebDriver session on `configDir`, once its page has booted. */
-  async openApp(configDir) {
+  /** The app in a new WebDriver session on `configDir`, once its page has booted. `args`: more arguments, each one `--flag=value` (see below). */
+  async openApp(configDir, { args = [] } = {}) {
     // One `--flag=value` argument: msedgedriver turns every `args` entry into a browser switch (it
     // strips leading dashes and puts `--` back), so a separate value became `--c:\...` and the app
     // exited at once (first run on a runner, 2026-11-20).
-    const spec = { application: this.app, args: [`--config-dir=${configDir}`, SECRET_STORE_ARG] };
+    const spec = { application: this.app, args: [`--config-dir=${configDir}`, SECRET_STORE_ARG, ...args] };
     const capabilities = this.flavor === "windows" ? tauriCapabilities(spec) : webkitCapabilities(spec);
     let session;
     try {
@@ -474,6 +477,8 @@ export async function runWindowsChecks(run) {
     await run.startDriver();
     await nativeHostChecks(run);
     await switchingChecks(run);
+    await bridgeChecks(run);
+    await keychainCheck(run);
   } finally {
     await run.cleanup();
   }

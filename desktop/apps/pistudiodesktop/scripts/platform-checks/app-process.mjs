@@ -14,6 +14,15 @@ import { Abort, waitFor } from "./wait.mjs";
 export const SECRET_STORE_ARG = "--secret-store=file";
 
 /**
+ * The two launches that DO use a keychain, on a runner (GitHub's machines are thrown away after the
+ * run): the macOS login keychain (`macos-keychain.mjs`) and the Windows Credential Manager
+ * (`windows-bridge.mjs`). Each passes a scratch `--config-dir` (the items are named by its hash, so
+ * nothing of a person's is touched), reads no secret value back, and deletes what it wrote, also
+ * when it failed. `app-process.test.mjs` pins which files may name it.
+ */
+export const KEYCHAIN_STORE_ARG = "--secret-store=keychain";
+
+/**
  * Start `command` with exactly `env` (nothing is inherited) and its standard output and error in
  * `logPath`. A launch that fails to start is an `exited` result with `error`, not a throw.
  */

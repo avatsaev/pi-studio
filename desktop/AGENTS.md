@@ -27,7 +27,9 @@ address that the page's command `transport_open` answers after Rust dialled the 
 refused `transport_open` is reported to the SDK as a close (1006) after the rejection, as the SDK's own
 transport does for a failed connect: the daemon client leaves "connecting" only on a close, so without
 it the connection bar never shows the message or Retry. Checked live on Linux (2026-11-22,
-`docs/development.md` § The transport proxy in the real webview).
+`docs/development.md` § The transport proxy in the real webview). The runner workflow also checks it
+on macOS (the local daemon's transport, the wake signal, the login keychain) and on Windows (a stand-in
+daemon, the wake signal, the Credential Manager); those checks are written and tested on Linux and wait for their first run.
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
 picker and a file dragged from the OS were not verified in the headless container.
 
@@ -103,7 +105,11 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
     its CLI): `--secret-store keychain|file`, else the keychain when a check (open, read a missing
     item, write and delete a throwaway one; 2 s in all, on its own thread) passes, else `secrets.json`
     with a notice; the app never opens a real configuration directory before that. Every automated
-    or live run passes `--secret-store file`, so that none writes to a developer's keychain. The kind
+    or live run passes `--secret-store file`, so that none writes to a developer's keychain; the two
+    exceptions are the runner workflow's keychain checks (`macos-keychain.mjs`, `windows-bridge.mjs`
+    in `apps/pistudiodesktop/scripts/platform-checks`: `--secret-store keychain`, a scratch
+    `--config-dir`, on GitHub's throwaway machines, deleting what they wrote; a unit test pins that no
+    other script names the option). The kind
     is `secretStore` in the registry view and `connection.secretStore` in `ui.inspect`; nothing else
     of the store is shown. A `*.corrupt-*` copy of the file keeps its mode and may hold old secrets.
 

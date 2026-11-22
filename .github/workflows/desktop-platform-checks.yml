@@ -5,8 +5,12 @@ name: Desktop platform checks
 # needs a person. The runners have the webviews the Linux development machine does not:
 #
 #   macOS    WKWebView has no WebDriver: the app is started like the dock starts it and driven
-#            through its control socket and its files (native host, daemon registry, the CLI).
-#   Windows  WebView2 has msedgedriver, reached through tauri-driver: the page itself is driven.
+#            through its control socket and its files (native host, daemon registry, the CLI; the
+#            page's connection to the local daemon through Rust, the resume signal, and the login
+#            keychain, which `security` shows).
+#   Windows  WebView2 has msedgedriver, reached through tauri-driver: the page itself is driven
+#            (and, for milestone 2, connected to a small stand-in daemon, with the resume signal
+#            and the Credential Manager, which `cmdkey` shows).
 #
 #   a manual run (workflow_dispatch)   Actions -> Desktop platform checks -> Run workflow
 #   a pull request changing this file  how a change to this workflow is tested

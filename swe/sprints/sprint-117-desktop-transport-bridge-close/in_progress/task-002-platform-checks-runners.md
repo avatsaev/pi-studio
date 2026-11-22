@@ -1,7 +1,7 @@
 # Task 002 — Automated platform checks on macOS and Windows runners for milestone 2
 
 - **Sprint:** sprint-117-desktop-transport-bridge-close
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** test
 - **Area:** desktop/apps/pistudiodesktop/scripts, .github/workflows
 - **Priority:** P1
