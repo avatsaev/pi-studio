@@ -1,6 +1,7 @@
 //! What one transfer does with a connection, behind one interface, so that the queue treats an upload
 //! and a save alike and holds the caller's source or sink without being generic over it.
 
+use std::mem;
 use std::pin::Pin;
 
 use tokio::sync::watch;
@@ -9,7 +10,7 @@ use super::event::Reporter;
 use super::failure::Failure;
 use super::snapshot::Kind;
 use crate::connection::Connection;
-use crate::download::{self, Request, SaveError, Sink};
+use crate::download::{self, Request, SaveError, Sink, Version};
 use crate::held::Held;
 use crate::limits::{CHUNK_BYTES, Limits};
 use crate::upload::{self, Target, UploadError, UploadSource};
@@ -25,8 +26,9 @@ pub(super) enum Ended {
     Cancelled,
     /// It failed for a reason that another attempt would meet again.
     Failed(Failure),
-    /// The connection ended, or the daemon did not answer: a later attempt on another connection can
-    /// succeed. The engine does not make one yet, so this is a failure for now.
+    /// The connection ended, or the daemon did not answer: another attempt on another connection can
+    /// succeed. The work is left ready for it (a save keeps its resume point, an upload is marked to
+    /// rewind), and the engine makes it when the connection is open again.
     Lost(Failure),
 }
 
@@ -61,7 +63,9 @@ pub(super) struct Run<'a> {
 pub(super) trait Work: Send {
     fn kind(&self) -> Kind;
 
-    /// One attempt over `run.connection`, from the start.
+    /// One attempt over `run.connection`: the first from the start, a later one after an
+    /// [`Ended::Lost`] where the transfer left off (a save) or from byte 0 (an upload, which rewinds its
+    /// source and reports no bytes done).
     fn run<'a>(&'a mut self, run: Run<'a>) -> BoxFuture<'a, Ended>;
 
     /// The transfer will not run (again): release what it holds. An upload holds nothing; a save
@@ -71,8 +75,16 @@ pub(super) trait Work: Send {
 }
 
 pub(super) struct UploadWork<S> {
-    pub path: String,
-    pub source: S,
+    path: String,
+    source: S,
+    /// An attempt has run: the next starts from the first byte again, so the source is rewound first.
+    attempted: bool,
+}
+
+impl<S> UploadWork<S> {
+    pub fn new(path: &str, source: S) -> Self {
+        Self { path: path.to_owned(), source, attempted: false }
+    }
 }
 
 impl<S: UploadSource> Work for UploadWork<S> {
@@ -82,6 +94,16 @@ impl<S: UploadSource> Work for UploadWork<S> {
 
     fn run<'a>(&'a mut self, run: Run<'a>) -> BoxFuture<'a, Ended> {
         Box::pin(async move {
+            if mem::replace(&mut self.attempted, true) {
+                let rewound = tokio::select! {
+                    biased;
+                    () = run.cancel.cancelled() => return Ended::Cancelled,
+                    rewound = self.source.rewind() => rewound,
+                };
+                if let Err(error) = rewound {
+                    return Ended::Failed(Failure::from(UploadError::SourceUnreadable { reason: error.to_string() }));
+                }
+            }
             // The upload's read buffer: one chunk, whatever the size of the file.
             let _held = run.held.hold(run.limits.chunk_bytes.clamp(1, CHUNK_BYTES));
             let target = Target { path: &self.path, transfer_id: &run.transfer_id };
@@ -91,7 +113,11 @@ impl<S: UploadSource> Work for UploadWork<S> {
             match outcome {
                 Ok(uploaded) => Ended::Done(uploaded.bytes),
                 Err(UploadError::Cancelled) => Ended::Cancelled,
-                Err(error @ UploadError::ConnectionLost(_)) => Ended::Lost(Failure::from(error)),
+                Err(error @ UploadError::ConnectionLost(_)) => {
+                    // The next attempt starts from byte 0: nothing is done until it sends.
+                    reporter.rewind();
+                    Ended::Lost(Failure::from(error))
+                }
                 Err(error) => Ended::Failed(Failure::from(error)),
             }
         })
@@ -103,8 +129,16 @@ impl<S: UploadSource> Work for UploadWork<S> {
 }
 
 pub(super) struct SaveWork<S> {
-    pub path: String,
-    pub sink: S,
+    path: String,
+    sink: S,
+    /// The file as the daemon's first answer described it: what a resume asks the daemon to still find.
+    version: Option<Version>,
+}
+
+impl<S> SaveWork<S> {
+    pub fn new(path: &str, sink: S) -> Self {
+        Self { path: path.to_owned(), sink, version: None }
+    }
 }
 
 impl<S: Sink> Work for SaveWork<S> {
@@ -114,7 +148,7 @@ impl<S: Sink> Work for SaveWork<S> {
 
     fn run<'a>(&'a mut self, run: Run<'a>) -> BoxFuture<'a, Ended> {
         Box::pin(async move {
-            let request = Request { path: &self.path, resume: None };
+            let request = Request { path: &self.path, resume: self.version };
             let reporter = run.reporter;
             let outcome = download::save(
                 run.connection,
@@ -126,9 +160,13 @@ impl<S: Sink> Work for SaveWork<S> {
             )
             .await;
             match outcome {
-                Ok(saved) => Ended::Done(saved.bytes),
+                // The file's size, not the bytes of this attempt: a resumed save wrote only the rest.
+                Ok(saved) => Ended::Done(saved.version.total_bytes),
                 Err(SaveError::Cancelled) => Ended::Cancelled,
-                Err(error @ SaveError::ConnectionLost { .. }) => Ended::Lost(Failure::from(error)),
+                Err(SaveError::ConnectionLost { reason, version }) => {
+                    self.version = version.or(self.version);
+                    Ended::Lost(Failure::from(SaveError::ConnectionLost { reason, version }))
+                }
                 Err(error) => Ended::Failed(Failure::from(error)),
             }
         })

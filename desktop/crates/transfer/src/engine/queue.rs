@@ -9,18 +9,25 @@
 //! * `active`, `Waiting`: it has a turn and the connection is not open yet;
 //! * `active`, `Running`: a task runs it over the open connection.
 //!
-//! The connection is `Closed`, `Connecting` or `Open`. It is dialled when a transfer gets a turn and
-//! there is none. It ends in three ways: the idle timer (30 s after nothing is active or queued), a
-//! close from the caller, or the connection itself ending. Every change goes through [`Inner::pump`], so
-//! that the rules of the queue (at most `max_transfers` active, first in first out, connection on
-//! demand, idle timer) hold after any of them.
+//! The connection is `Closed`, `Connecting`, `Open` or `Waiting`. It is dialled when a transfer gets a
+//! turn and there is none. It ends in three ways: the idle timer (30 s after nothing is active or
+//! queued), a close from the caller, or the connection itself ending. Every change goes through
+//! [`Inner::pump`], so that the rules of the queue (at most `max_transfers` active, first in first out,
+//! connection on demand, idle timer) hold after any of them.
+//!
+//! **Recovery.** A transfer whose connection was lost goes back to `active`, `Waiting`, with its work
+//! (a save keeps its resume point, an upload will rewind), and the connection is dialled again at once.
+//! A dial that fails for a reason another try can mend leaves the connection `Waiting`: a timer (1 s,
+//! doubling to 30 s, no limit on attempts) or [`Inner::wake`] ends the wait, and the next dial follows.
+//! A dial that fails for good fails every transfer, active and queued. When nothing is active or queued
+//! the engine stops dialling and waiting. A transfer that runs again after a loss counts a restart.
 
 use std::collections::VecDeque;
 use std::mem;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::FutureExt;
 use tokio::runtime::Handle;
@@ -28,7 +35,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
-use super::connector::Connector;
+use super::connector::{Connector, FINAL_CODES};
 use super::event::{Events, Reporter, TransferState};
 use super::failure::Failure;
 use super::snapshot::{ActiveTransfer, ConnectionInfo, ConnectionState, Kind, LastError, Snapshot, Totals};
@@ -59,6 +66,14 @@ struct Transfer {
     cancel: watch::Sender<bool>,
     state: TransferState,
     restarts: u32,
+    /// Its connection was lost: its next run is a restart.
+    lost: bool,
+}
+
+/// A connection that did not open, and whether another try can mend it.
+struct Unopened {
+    failure: Failure,
+    retry: bool,
 }
 
 #[derive(Default)]
@@ -73,6 +88,11 @@ enum Conn {
         generation: u64,
         connection: Arc<Connection>,
     },
+    /// The last dial failed and will be repeated when `task`'s timer ends, or at a wake.
+    Waiting {
+        generation: u64,
+        task: AbortHandle,
+    },
 }
 
 #[derive(Default)]
@@ -86,6 +106,8 @@ struct State {
     /// Counts the starts and stops of the idle timer, so that a timer that has already fired is told it is stale.
     idle_epoch: u64,
     opens: u64,
+    /// The dials in a row that failed for a reason another try can mend: the next wait grows with it.
+    failed_opens: u32,
     totals: Totals,
     last_error: Option<LastError>,
     /// Transfers whose start has not been answered yet.
@@ -177,6 +199,7 @@ impl<C: Connector> Inner<C> {
             cancel: watch::channel(false).0,
             state: TransferState::Queued,
             restarts: 0,
+            lost: false,
         });
         self.pump(&mut st);
         Ok(answer)
@@ -210,7 +233,7 @@ impl<C: Connector> Inner<C> {
         {
             let mut st = self.lock();
             self.cancel_everything(&mut st);
-            self.stop_connecting(&mut st);
+            self.stop_opening(&mut st);
             self.stop_idle(&mut st);
         }
         let _ = self.busy.subscribe().wait_for(|pending| *pending == 0).await;
@@ -228,7 +251,7 @@ impl<C: Connector> Inner<C> {
         let connection = {
             let mut st = self.lock();
             self.cancel_everything(&mut st);
-            self.stop_connecting(&mut st);
+            self.stop_opening(&mut st);
             self.take_open(&mut st)
         };
         if let Some(connection) = connection {
@@ -242,6 +265,7 @@ impl<C: Connector> Inner<C> {
             Conn::Closed => ConnectionState::Closed,
             Conn::Connecting { .. } => ConnectionState::Connecting,
             Conn::Open { .. } => ConnectionState::Open,
+            Conn::Waiting { .. } => ConnectionState::Waiting,
         };
         let active = st
             .active
@@ -273,21 +297,30 @@ impl<C: Connector> Inner<C> {
             let Some(transfer) = st.queue.pop_front() else { break };
             self.activate(st, transfer);
         }
-        if !st.active.is_empty() && matches!(st.conn, Conn::Closed) {
+        self.launch_waiting(st);
+        if matches!(st.conn, Conn::Closed) && st.active.iter().any(|transfer| transfer.work.is_some()) {
             self.open(st);
         }
         self.rest(st);
+    }
+
+    /// Starts every transfer that waits for the connection, when it is open: those that were given a
+    /// turn while it was not, and those that lost the one before.
+    fn launch_waiting(self: &Arc<Self>, st: &mut State) {
+        let Conn::Open { generation, connection } = &st.conn else { return };
+        let (generation, connection) = (*generation, Arc::clone(connection));
+        for transfer in &mut st.active {
+            self.launch(transfer, Arc::clone(&connection), generation);
+        }
     }
 
     /// Gives `transfer` its turn: it runs when the connection is open, and waits for it otherwise.
     fn activate(self: &Arc<Self>, st: &mut State, mut transfer: Transfer) {
         let open = match &st.conn {
             Conn::Open { generation, connection } => Some((*generation, Arc::clone(connection))),
-            Conn::Closed | Conn::Connecting { .. } => None,
+            Conn::Closed | Conn::Connecting { .. } | Conn::Waiting { .. } => None,
         };
         if let Some((generation, connection)) = open {
-            transfer.state = TransferState::Running;
-            transfer.reporter.state_changed(TransferState::Running);
             self.launch(&mut transfer, connection, generation);
         } else {
             transfer.state = TransferState::Waiting;
@@ -296,10 +329,16 @@ impl<C: Connector> Inner<C> {
         st.active.push(transfer);
     }
 
-    /// Runs `transfer`'s work in a task of its own, over `connection`. The task settles the transfer
-    /// when the attempt ends, and a panic in it is a failure, not a hang.
+    /// Runs `transfer`'s work in a task of its own, over `connection`, if the transfer waits for one.
+    /// The task settles the transfer (or sends it back to waiting) when the attempt ends, and a panic
+    /// in it is a failure, not a hang. A transfer that lost its connection before counts a restart.
     fn launch(self: &Arc<Self>, transfer: &mut Transfer, connection: Arc<Connection>, generation: u64) {
         let Some(mut work) = transfer.work.take() else { return };
+        if mem::take(&mut transfer.lost) {
+            transfer.restarts = transfer.restarts.saturating_add(1);
+        }
+        transfer.state = TransferState::Running;
+        transfer.reporter.state_changed(TransferState::Running);
         let inner = Arc::clone(self);
         let id = transfer.id.clone();
         let reporter = Arc::clone(&transfer.reporter);
@@ -320,12 +359,29 @@ impl<C: Connector> Inner<C> {
         let mut st = self.lock();
         let Some(position) = st.active.iter().position(|transfer| transfer.id == id) else { return };
         let transfer = st.active.remove(position);
-        let lost = matches!(ended, Ended::Lost(_));
-        self.conclude(&mut st, transfer, work, ended);
-        if lost {
-            self.forget(&mut st, generation);
+        match ended {
+            Ended::Lost(failure) => self.lost(&mut st, position, transfer, work, &failure, generation),
+            ended => self.conclude(&mut st, transfer, work, ended),
         }
         self.pump(&mut st);
+    }
+
+    /// A transfer's connection was lost: it goes back to waiting, with its work, for the next one, and
+    /// the lost connection is closed so that the next dial makes another. A cancel that came as the
+    /// connection went settles it instead.
+    fn lost(self: &Arc<Self>, st: &mut State, position: usize, mut transfer: Transfer, work: Box<dyn Work>, failure: &Failure, generation: u64) {
+        transfer.work = Some(work);
+        if *transfer.cancel.borrow() {
+            self.cancel_unstarted(st, transfer);
+        } else {
+            st.last_error = Some(LastError { code: failure.code, at_ms: self.now_ms() });
+            transfer.lost = true;
+            transfer.state = TransferState::Waiting;
+            transfer.reporter.state_changed(TransferState::Waiting);
+            let at = position.min(st.active.len());
+            st.active.insert(at, transfer);
+        }
+        self.forget(st, generation);
     }
 
     /// Counts a transfer's end and answers its start.
@@ -345,7 +401,7 @@ impl<C: Connector> Inner<C> {
                 self.answer(st, reply, Err(failure));
             }
             Ended::Lost(failure) => {
-                // The attempt left a save's temporary file for a resume; nothing resumes it yet.
+                // `finish` sends a lost transfer back to waiting: this is the case that cannot come here.
                 self.count_failure(st, &failure);
                 self.retire(st, Some(work), reply, Err(failure));
             }
@@ -415,14 +471,25 @@ impl<C: Connector> Inner<C> {
         st.conn = Conn::Connecting { generation, task: task.abort_handle() };
     }
 
-    async fn dial(&self) -> Result<Connection, Failure> {
-        let socket = self.connector.connect().await.map_err(Failure::from)?;
+    /// Gets a socket from the connector and says `hello`. Whether a failure is retried: a connector's
+    /// error by its `retry` and its code ([`FINAL_CODES`] are never retried); an error of the `hello`
+    /// exchange by its code alone, so that a daemon that answered nothing in time or closed the
+    /// connection is retried and one that lacks a feature (`unsupported_daemon`) or breaks the
+    /// protocol is not. An app fault (`internal`) is not retried either: no wait mends it.
+    async fn dial(&self) -> Result<Connection, Unopened> {
+        let socket = match self.connector.connect().await {
+            Ok(socket) => socket,
+            Err(error) => return Err(Unopened { retry: error.retried(), failure: Failure::from(error) }),
+        };
         let hello = Hello { client_id: &self.client_id, app_version: &self.app_version };
-        Ok(Connection::open_counting(socket, &hello, self.limits, self.held.clone()).await?)
+        Connection::open_counting(socket, &hello, self.limits, self.held.clone()).await.map_err(|error| {
+            let failure = Failure::from(error);
+            Unopened { retry: failure.code != "internal" && !FINAL_CODES.contains(&failure.code), failure }
+        })
     }
 
     /// The dial of `generation` is over.
-    fn opened(self: &Arc<Self>, generation: u64, opened: Result<Connection, Failure>) {
+    fn opened(self: &Arc<Self>, generation: u64, opened: Result<Connection, Unopened>) {
         let mut st = self.lock();
         if !matches!(st.conn, Conn::Connecting { generation: current, .. } if current == generation) {
             return;
@@ -431,28 +498,81 @@ impl<C: Connector> Inner<C> {
             Ok(connection) => {
                 let connection = Arc::new(connection);
                 st.opens = st.opens.saturating_add(1);
+                st.failed_opens = 0;
                 st.conn = Conn::Open { generation, connection: Arc::clone(&connection) };
                 self.watch(&connection, generation);
-                for transfer in &mut st.active {
-                    transfer.state = TransferState::Running;
-                    transfer.reporter.state_changed(TransferState::Running);
-                    self.launch(transfer, Arc::clone(&connection), generation);
-                }
+                self.launch_waiting(&mut st);
                 self.rest(&mut st);
             }
-            Err(failure) => {
+            Err(unopened) if unopened.retry => {
                 st.conn = Conn::Closed;
-                self.fail_all(&mut st, &failure);
+                self.wait_to_retry(&mut st, &unopened.failure);
+            }
+            Err(unopened) => {
+                st.conn = Conn::Closed;
+                st.failed_opens = 0;
+                self.fail_all(&mut st, &unopened.failure);
+                self.rest(&mut st);
             }
         }
     }
 
-    /// The connection cannot open: every transfer that waits for it, or for its turn, fails.
+    /// The connection cannot open, and no wait will mend it: every transfer that waits for it, or for
+    /// its turn, fails. One that still runs on a connection that has ended fails or waits when its
+    /// attempt returns.
     fn fail_all(self: &Arc<Self>, st: &mut State, failure: &Failure) {
-        let transfers: Vec<Transfer> = mem::take(&mut st.active).into_iter().chain(mem::take(&mut st.queue)).collect();
-        for mut transfer in transfers {
+        let (waiting, running): (Vec<Transfer>, Vec<Transfer>) = mem::take(&mut st.active).into_iter().partition(|transfer| transfer.work.is_some());
+        st.active = running;
+        for mut transfer in waiting.into_iter().chain(mem::take(&mut st.queue)) {
             self.count_failure(st, failure);
             self.retire(st, transfer.work.take(), transfer.reply, Err(failure.clone()));
+        }
+    }
+
+    /// The connection could not open, and another try can mend it: wait, then dial again. The wait is
+    /// `backoff_start`, doubles with each failure in a row up to `backoff_max`, and is as long as the
+    /// daemon takes: there is no limit on the attempts.
+    fn wait_to_retry(self: &Arc<Self>, st: &mut State, failure: &Failure) {
+        st.last_error = Some(LastError { code: failure.code, at_ms: self.now_ms() });
+        let delay = self.backoff(st.failed_opens);
+        st.failed_opens = st.failed_opens.saturating_add(1);
+        st.generation = st.generation.saturating_add(1);
+        let generation = st.generation;
+        let inner = Arc::clone(self);
+        // The deadline is fixed here, not when the task first runs, so that the wait is `delay` from now.
+        let deadline = Instant::now() + delay;
+        let task = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline).await;
+            inner.waited(generation);
+        });
+        st.conn = Conn::Waiting { generation, task: task.abort_handle() };
+    }
+
+    /// The wait before failure number `failures + 1`: 1 s, 2 s, 4 s … never more than 30 s.
+    fn backoff(&self, failures: u32) -> Duration {
+        let factor = 1u32.checked_shl(failures).unwrap_or(u32::MAX);
+        self.limits.backoff_start.saturating_mul(factor).min(self.limits.backoff_max)
+    }
+
+    /// The wait of `generation` ran out: dial again.
+    fn waited(self: &Arc<Self>, generation: u64) {
+        let mut st = self.lock();
+        if matches!(st.conn, Conn::Waiting { generation: current, .. } if current == generation) {
+            st.conn = Conn::Closed;
+            self.pump(&mut st);
+        }
+    }
+
+    /// Ends the wait before the next dial at once. Nothing else changes: an open or a connecting
+    /// connection is left alone, and the delays go on growing if the dial fails again.
+    pub fn wake(self: &Arc<Self>) {
+        let mut st = self.lock();
+        match mem::take(&mut st.conn) {
+            Conn::Waiting { task, .. } => {
+                task.abort();
+                self.pump(&mut st);
+            }
+            other => st.conn = other,
         }
     }
 
@@ -497,23 +617,27 @@ impl<C: Connector> Inner<C> {
         }
     }
 
-    fn stop_connecting(&self, st: &mut State) {
-        if let Conn::Connecting { task, .. } = &st.conn {
-            task.abort();
-            st.conn = Conn::Closed;
+    /// Gives up a dial in progress or the wait before one; the next failure in a row starts at 1 s again.
+    fn stop_opening(&self, st: &mut State) {
+        match mem::take(&mut st.conn) {
+            Conn::Connecting { task, .. } | Conn::Waiting { task, .. } => {
+                task.abort();
+                st.failed_opens = 0;
+            }
+            other => st.conn = other,
         }
     }
 
     // ---- the idle timer ----
 
-    /// With nothing active or queued: a connection that is being dialled is not needed, and one that is
-    /// open gets the idle timer.
+    /// With nothing active or queued: a connection that is being dialled, or waited for, is not needed,
+    /// and one that is open gets the idle timer.
     fn rest(self: &Arc<Self>, st: &mut State) {
         if !st.active.is_empty() || !st.queue.is_empty() {
             return;
         }
         match &st.conn {
-            Conn::Connecting { .. } => self.stop_connecting(st),
+            Conn::Connecting { .. } | Conn::Waiting { .. } => self.stop_opening(st),
             Conn::Open { generation, .. } if st.idle.is_none() => {
                 let generation = *generation;
                 self.start_idle(st, generation);

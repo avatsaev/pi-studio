@@ -218,3 +218,21 @@ async fn a_cancel_of_a_stream_that_never_ran_is_not_found() {
     let cancel = reply.cancel_response().unwrap();
     assert_eq!((cancel.ok, cancel.error.as_deref()), (false, Some("not_found")));
 }
+
+#[tokio::test]
+async fn the_daemon_records_every_download_request_as_the_client_sent_it() {
+    let daemon = StandInDaemon::start().await.unwrap();
+    let info = daemon.put_file("/srv/a.bin", sample(5000));
+    let mut client = Client::connect(&daemon).await;
+    client.download("/srv/a.bin", None, None).await.unwrap();
+    let guard = IfUnchanged { size: info.size, mtime_ms: info.mtime_ms };
+    match client.request_download("/srv/a.bin", None, Some(1000), None, Some(guard)).await {
+        DownloadResponse::Accepted(_) => {}
+        DownloadResponse::Refused(refused) => panic!("{refused:?}"),
+    }
+    let requests = daemon.download_requests();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].get("offset").is_none() && requests[0].get("ifUnchanged").is_none());
+    assert_eq!((requests[1]["path"].as_str(), requests[1]["offset"].as_u64()), (Some("/srv/a.bin"), Some(1000)));
+    assert_eq!(requests[1]["ifUnchanged"], json!({ "size": 5000, "mtimeMs": info.mtime_ms }));
+}

@@ -14,6 +14,23 @@ pub trait Connector: Send + Sync + 'static {
     fn connect(&self) -> impl Future<Output = Result<Socket, ConnectError>> + Send;
 }
 
+/// The codes that fail every transfer at once, whatever a connector says about retrying: the password,
+/// the address, the certificate, the app's own state and the daemon's version do not mend by waiting
+/// (spec § The connection and its recovery). Every other code is retried, `handshake` included (S9).
+pub const FINAL_CODES: [&str; 11] = [
+    "unauthorized",
+    "host_not_allowed",
+    "tls",
+    "invalid_address",
+    "secret_missing",
+    "secret_unavailable",
+    "not_bridged",
+    "no_current",
+    "unsupported",
+    "unsupported_daemon",
+    "protocol",
+];
+
 /// A socket that could not be opened. `message` is written for a person and never holds a password.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectError {
@@ -23,7 +40,8 @@ pub struct ConnectError {
     /// The words for the user.
     pub message: String,
     /// Whether trying again can help: the daemon is not reachable yet, not that the password is
-    /// wrong. The engine does not try again yet: it fails the transfers whichever it is.
+    /// wrong. `false` is final: the engine fails every transfer with this error at once. `true` is
+    /// retried unless the `code` is one of [`FINAL_CODES`], which no retry can fix.
     pub retry: bool,
 }
 
@@ -31,6 +49,11 @@ impl ConnectError {
     /// An error with `code` and `message`.
     pub fn new(code: &'static str, message: impl Into<String>, retry: bool) -> Self {
         Self { code, message: message.into(), retry }
+    }
+
+    /// Whether the engine tries again after this error: the connector allows it and the code is not final.
+    pub(super) fn retried(&self) -> bool {
+        self.retry && !FINAL_CODES.contains(&self.code)
     }
 }
 

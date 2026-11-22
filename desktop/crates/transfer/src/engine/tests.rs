@@ -10,6 +10,7 @@ mod failures;
 mod idle;
 mod lifecycle;
 mod queue;
+mod recovery;
 mod snapshot;
 mod support;
 mod validation;

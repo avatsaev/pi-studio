@@ -215,6 +215,11 @@ impl UploadSource for GatedSource {
         self.at += count;
         Ok(count)
     }
+
+    async fn rewind(&mut self) -> io::Result<()> {
+        self.at = 0;
+        Ok(())
+    }
 }
 
 /// A source whose read panics.
@@ -228,6 +233,10 @@ impl UploadSource for PanickingSource {
     #[allow(clippy::panic)]
     async fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
         panic!("a source that fails in a way nobody planned for");
+    }
+
+    async fn rewind(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -272,6 +281,13 @@ impl ProbeSink {
         let (mut sink, probe) = Self::new();
         sink.keep = false;
         (sink, probe)
+    }
+
+    /// Like [`gated`](Self::gated), and it keeps the bytes it takes.
+    pub fn gated_keeping() -> (Self, Arc<Probe>, Arc<Semaphore>) {
+        let (mut sink, probe, gate) = Self::gated();
+        sink.keep = true;
+        (sink, probe, gate)
     }
 
     pub fn gated() -> (Self, Arc<Probe>, Arc<Semaphore>) {

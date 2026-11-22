@@ -43,6 +43,11 @@ impl UploadSource for MemorySource {
         self.at += count;
         Ok(count)
     }
+
+    async fn rewind(&mut self) -> io::Result<()> {
+        self.at = 0;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -61,6 +66,16 @@ mod tests {
         assert_eq!(buf[0], 5);
         assert_eq!(source.read(&mut buf).await.unwrap(), 0);
         assert_eq!(source.read(&mut buf).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn it_rewinds_to_the_first_byte() {
+        let mut source = MemorySource::new(vec![1, 2, 3]);
+        let mut buf = [0u8; 8];
+        assert_eq!(source.read(&mut buf).await.unwrap(), 3);
+        source.rewind().await.unwrap();
+        assert_eq!(source.read(&mut buf).await.unwrap(), 3);
+        assert_eq!(buf[..3], [1, 2, 3]);
     }
 
     #[test]

@@ -50,6 +50,7 @@ pub(super) struct State {
     pub faults: Vec<Fault>,
     pub hellos: Vec<Value>,
     pub uploads: Vec<UploadRecord>,
+    pub download_requests: Vec<Value>,
     pub accepted: usize,
     pub open: usize,
     pub refused: usize,

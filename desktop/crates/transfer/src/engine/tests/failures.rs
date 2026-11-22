@@ -1,11 +1,12 @@
-//! A connection that cannot open or that drops fails the transfers; a refused transfer is counted.
+//! A connection that cannot open for good fails the transfers; a refused transfer is counted. A connection
+//! that drops or is not there yet is `recovery`'s.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::support::{Failing, Frozen, GatedSource, ProbeSink, engine, engine_with, eventually, pattern, save, upload};
 use crate::Limits;
 use crate::engine::{ConnectError, ConnectionState};
-use crate::testing::{After, Config, Direction, Fault, Features, StandInDaemon};
+use crate::testing::{Config, Features, StandInDaemon};
 use crate::upload::MemorySource;
 
 #[tokio::test]
@@ -43,44 +44,6 @@ async fn a_daemon_without_a_feature_fails_the_transfers_with_unsupported_daemon(
     assert!(failure.message.contains("fileTransferAck"), "{}", failure.message);
     assert_eq!(engine.snapshot().connection.state, ConnectionState::Closed);
     eventually("the connection is closed", || daemon.open_connections() == 0).await;
-}
-
-#[tokio::test]
-async fn a_connection_that_drops_fails_the_transfers_on_it_and_the_queued_ones_use_another() {
-    let daemon = StandInDaemon::start().await.unwrap();
-    // The first connection is reset after three upload frames; the second is not.
-    daemon.script(Fault::Reset { after: After::Frames(Direction::FromClient, 3) });
-    let (engine, _) = engine(&daemon);
-    let big = pattern(32 * 1024 * 20);
-    let mut calls = Vec::new();
-    for id in ["a", "b", "c"] {
-        calls.push(upload(&engine, id, &format!("/srv/{id}"), MemorySource::new(big.clone())));
-    }
-    let queued = upload(&engine, "d", "/srv/d", MemorySource::new(big.clone()));
-
-    for call in calls {
-        assert_eq!(call.await.unwrap().unwrap_err().code, "connection_lost");
-    }
-    assert_eq!(queued.await.unwrap(), Ok(u64::try_from(big.len()).unwrap()));
-    assert_eq!(daemon.file("/srv/d"), Some(big));
-    let snapshot = engine.snapshot();
-    assert_eq!((snapshot.totals.done, snapshot.totals.failed), (1, 3));
-    assert_eq!(snapshot.connection.opens, 2);
-    assert_eq!(snapshot.last_error.map(|error| error.code), Some("connection_lost"));
-    assert_eq!(daemon.accepted_connections(), 2);
-}
-
-#[tokio::test]
-async fn a_save_lost_with_its_connection_is_discarded() {
-    let daemon = StandInDaemon::start().await.unwrap();
-    daemon.put_file("/f/a", pattern(32 * 1024 * 8));
-    daemon.script(Fault::Reset { after: After::Bytes(Direction::ToClient, 100_000) });
-    let (engine, _) = engine(&daemon);
-    let (sink, probe) = ProbeSink::new();
-    let failure = engine.save("a", "/f/a", sink).await.unwrap_err();
-    assert_eq!(failure.code, "connection_lost");
-    assert!(probe.discarded());
-    assert!(!probe.finished());
 }
 
 #[tokio::test]

@@ -159,6 +159,13 @@ impl StandInDaemon {
         self.shared.with(|state| state.uploads.clone())
     }
 
+    /// Every `file_download_request` the daemon read, as the client sent it (the envelope's `message`),
+    /// oldest first, refused ones included.
+    #[must_use]
+    pub fn download_requests(&self) -> Vec<Value> {
+        self.shared.with(|state| state.download_requests.clone())
+    }
+
     /// The connections that completed the upgrade, ever.
     #[must_use]
     pub fn accepted_connections(&self) -> usize {

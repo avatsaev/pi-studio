@@ -88,6 +88,11 @@ impl UploadSource for Generated {
         self.read.fetch_add(u64::try_from(count).unwrap_or(0), Ordering::SeqCst);
         Ok(count)
     }
+
+    async fn rewind(&mut self) -> std::io::Result<()> {
+        self.at = 0;
+        Ok(())
+    }
 }
 
 /// A source that returns at most `most` bytes per read, as a socket or a slow disk might.
@@ -107,6 +112,11 @@ impl UploadSource for Trickle {
         buf[..count].copy_from_slice(&self.data[self.at..self.at + count]);
         self.at += count;
         Ok(count)
+    }
+
+    async fn rewind(&mut self) -> std::io::Result<()> {
+        self.at = 0;
+        Ok(())
     }
 }
 
@@ -130,6 +140,11 @@ impl UploadSource for Failing {
         self.at += count;
         Ok(count)
     }
+
+    async fn rewind(&mut self) -> std::io::Result<()> {
+        self.at = 0;
+        Ok(())
+    }
 }
 
 /// A source that gives more than it was given room for.
@@ -142,6 +157,10 @@ impl UploadSource for Overfull {
 
     async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         Ok(buf.len() + 1)
+    }
+
+    async fn rewind(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

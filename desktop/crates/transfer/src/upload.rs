@@ -28,8 +28,9 @@
 //! same. After `End` is written the daemon finishes by itself, so a stop there sends nothing, and a
 //! cancel that comes in the very last moment may find the file already complete.
 //!
-//! A cancel before the daemon's answer to the request sends nothing either (the stream it chose is not
-//! known); a daemon that had already chosen one frees it when the connection ends.
+//! A cancel before the daemon's answer to the request is not a reason to leave the stream it chose
+//! taken: the upload waits for the answer (at most the close wait) and, if the daemon accepted, sends
+//! `Error` `client_aborted` for that stream. A cancel before the request was sent sends nothing.
 //!
 //! # Cancelling from outside
 //!
@@ -58,6 +59,7 @@ mod tests;
 use std::io;
 use std::pin::{Pin, pin};
 
+use futures_util::FutureExt;
 use tokio::time::timeout;
 
 pub use self::error::UploadError;
@@ -67,14 +69,14 @@ use crate::Error;
 use crate::connection::Connection;
 use crate::limits::{CHUNK_BYTES, Limits};
 use crate::wire::binary;
-use crate::wire::inbound::{UploadComplete, UploadResponse};
+use crate::wire::inbound::{Reply, UploadComplete, UploadResponse};
 use crate::wire::outbound;
 
 /// What an upload reads its bytes from. The app implements it over a local file; a test over memory
 /// ([`MemorySource`]).
 ///
-/// An upload reads a source once, from its start. A source that is read again (an upload that
-/// restarts) is a new value, made by whoever holds the file.
+/// An upload reads a source from its start. One that starts again after a drop is [`rewind`](Self::rewind)ed
+/// first, so the same value serves every attempt.
 pub trait UploadSource: Send {
     /// The size of the source when the upload begins, if it is known. A known size is checked: an
     /// upload that reads more or fewer bytes than that is [`UploadError::SourceChanged`].
@@ -89,6 +91,16 @@ pub trait UploadSource: Send {
     /// The system's error. Its text is shown to the user (`source_unreadable`), so it must not
     /// carry a local path.
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>> + Send;
+
+    /// Goes back to the first byte, for an upload that starts again after a drop (the engine calls it
+    /// before every attempt but the first). [`size`](Self::size) then reports the source as it is now: a
+    /// file that changed in the meantime is found out by the upload (`source_changed`), not hidden.
+    ///
+    /// The future may be dropped before it completes (a cancel); the source is not used again then.
+    ///
+    /// # Errors
+    /// The system's error, as for [`read`](Self::read): it must not carry a local path.
+    fn rewind(&mut self) -> impl Future<Output = io::Result<()>> + Send;
 }
 
 /// Where an upload goes.
@@ -131,7 +143,7 @@ where
 {
     let mut cancel = pin!(cancel);
     let wait = connection.expect_upload(target.transfer_id)?;
-    let stream = open(connection, target, &mut cancel).await?;
+    let stream = open(connection, target, &mut cancel, limits).await?;
     let mut send = Sending { connection, stream, source, progress: &mut progress, cancel: &mut cancel, chunk_bytes: limits.chunk_bytes.clamp(1, CHUNK_BYTES) };
     let sent = match send.run(target.transfer_id).await {
         Ok(sent) => sent,
@@ -145,12 +157,34 @@ where
 }
 
 /// Asks the daemon for a stream.
-async fn open<C: Future<Output = ()>>(connection: &Connection, target: Target<'_>, cancel: &mut Pin<&mut C>) -> Result<u8, UploadError> {
+async fn open<C: Future<Output = ()>>(connection: &Connection, target: Target<'_>, cancel: &mut Pin<&mut C>, limits: &Limits) -> Result<u8, UploadError> {
+    if cancel.as_mut().now_or_never().is_some() {
+        // Nothing was sent: there is nothing to stop on the daemon's side.
+        return Err(UploadError::Cancelled);
+    }
     let request = connection.request(|id| outbound::upload_request(id, target.path, target.transfer_id));
-    match guarded(cancel, request).await??.upload_response()? {
+    let mut request = pin!(request);
+    let reply = tokio::select! {
+        biased;
+        () = cancel.as_mut() => return Err(stop_unanswered(connection, request, limits).await),
+        reply = request.as_mut() => reply,
+    };
+    match reply?.upload_response()? {
         UploadResponse::Accepted { stream } => Ok(stream),
         UploadResponse::Refused { error } => Err(UploadError::DaemonRefused { reason: error }),
     }
+}
+
+/// The cancel came while the request was unanswered: the daemon may have chosen a stream for it and
+/// would hold it until the connection ends. Waits for the answer, at most the close wait, and releases
+/// the stream if there is one. Always `Cancelled`.
+async fn stop_unanswered(connection: &Connection, request: Pin<&mut impl Future<Output = Result<Reply, Error>>>, limits: &Limits) -> UploadError {
+    if let Ok(Ok(reply)) = timeout(limits.close_wait, request).await
+        && let Ok(UploadResponse::Accepted { stream }) = reply.upload_response()
+    {
+        abort(connection, stream, &UploadError::Cancelled, limits).await;
+    }
+    UploadError::Cancelled
 }
 
 /// What `file_upload_complete` says about an upload of `sent` bytes on `stream`.

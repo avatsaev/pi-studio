@@ -13,7 +13,8 @@ pub enum TransferState {
     Queued,
     /// Bytes are moving.
     Running,
-    /// The bulk connection is being opened.
+    /// The bulk connection is being opened, or was lost and is being opened again: the transfer
+    /// continues by itself when it is open.
     Waiting,
 }
 
@@ -97,6 +98,12 @@ impl Reporter {
     pub fn counts(&self) -> (u64, Option<u64>) {
         let counts = self.lock();
         (counts.done, counts.total)
+    }
+
+    /// An upload starts again from its first byte: no byte is done now. Nothing is told; the state
+    /// change that follows is.
+    pub fn rewind(&self) {
+        self.lock().done = 0;
     }
 
     /// The transfer is in `state` now: always told.

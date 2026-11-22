@@ -1,7 +1,7 @@
 # Task 004 — Recovery: reconnect, wake, what is final and what is retried, resume and restart (D5, D12, S9)
 
 - **Sprint:** sprint-121-desktop-transfer-engine
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src
 - **Priority:** P1

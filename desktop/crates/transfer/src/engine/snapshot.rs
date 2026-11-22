@@ -12,6 +12,9 @@ pub enum ConnectionState {
     Connecting,
     /// It is open.
     Open,
+    /// The last attempt to open it failed in a way another attempt can mend: the engine is waiting
+    /// (1 s, doubling to 30 s) before the next, or for a call to [`wake`](super::Engine::wake).
+    Waiting,
 }
 
 impl ConnectionState {
@@ -22,6 +25,7 @@ impl ConnectionState {
             Self::Closed => "closed",
             Self::Connecting => "connecting",
             Self::Open => "open",
+            Self::Waiting => "waiting",
         }
     }
 }
@@ -68,8 +72,8 @@ pub struct ActiveTransfer {
     pub done: u64,
     /// The file's size, when it is known.
     pub total: Option<u64>,
-    /// How often the transfer continued after a lost connection. Always 0 until the engine
-    /// reconnects.
+    /// How often the transfer continued after a lost connection: a save from its bytes on disk, an
+    /// upload from byte 0. Counted when the transfer runs again, not while it waits.
     pub restarts: u32,
 }
 
@@ -84,10 +88,11 @@ pub struct Totals {
     pub cancelled: u64,
 }
 
-/// The last transfer failure.
+/// The last failure: a transfer's, or the connection's while transfers wait for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LastError {
-    /// The failure's code.
+    /// The code of the last failure of a transfer, or of the last loss or failed opening of the
+    /// connection that made transfers wait.
     pub code: &'static str,
     /// When it happened: milliseconds since the Unix epoch, read from the engine's clock (tokio's) from
     /// the wall time at which the engine was made.

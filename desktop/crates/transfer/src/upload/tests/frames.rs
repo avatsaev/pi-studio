@@ -247,3 +247,50 @@ async fn a_slow_daemon_holds_the_upload_to_a_chunk_and_the_pipe_and_it_goes_on_w
     assert_eq!(received, u64::try_from(FILE).unwrap());
     assert_eq!(result, Ok(Uploaded { bytes: u64::try_from(FILE).unwrap() }));
 }
+
+// ---- a cancel before the answer ----
+
+const STREAM_CHOSEN_LATE: u8 = 9;
+
+#[tokio::test]
+async fn a_cancel_before_the_answer_frees_the_stream_the_daemon_then_chooses() {
+    let (connection, mut fake) = fake_connection(Limits::default(), PIPE).await;
+    let cancel = super::support::Trigger::default();
+    let mut source = MemorySource::new(pattern(100));
+    let client = upload(&connection, TARGET, &mut source, |_| {}, cancel.clone().cancelled(), &DEFAULTS);
+    let daemon = async {
+        let frame = fake.text().await;
+        let request = frame["message"].clone();
+        assert_eq!(request["type"], "file_upload_request");
+        // The cancel comes after the request went out and before the daemon answers it.
+        cancel.cancel();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let id = request["requestId"].as_str().unwrap().to_owned();
+        fake.send_json(&json!({ "type": "session", "message": { "type": "file_upload_response", "requestId": id, "ok": true, "stream": STREAM_CHOSEN_LATE } }))
+            .await;
+        fake.binary().await
+    };
+    let (result, frame) = tokio::join!(client, daemon);
+    assert_eq!(result, Err(UploadError::Cancelled));
+    // The daemon holds a stream for an upload that will never begin: the client frees it.
+    assert_eq!(binary::decode(&frame).unwrap(), FileFrame::Error { stream: STREAM_CHOSEN_LATE, message: "client_aborted".to_owned() });
+}
+
+#[tokio::test]
+async fn a_cancel_before_an_answer_that_never_comes_returns_after_the_close_wait_and_sends_nothing_more() {
+    let limits = Limits { close_wait: Duration::from_millis(60), ..Limits::default() };
+    let (connection, mut fake) = fake_connection(limits, PIPE).await;
+    let cancel = super::support::Trigger::default();
+    let mut source = MemorySource::new(pattern(100));
+    let client = upload(&connection, TARGET, &mut source, |_| {}, cancel.clone().cancelled(), &limits);
+    let daemon = async {
+        let frame = fake.text().await;
+        assert_eq!(frame["message"]["type"], "file_upload_request");
+        cancel.cancel();
+    };
+    let started = Instant::now();
+    let (result, ()) = tokio::join!(client, daemon);
+    assert_eq!(result, Err(UploadError::Cancelled));
+    assert!(started.elapsed() >= Duration::from_millis(60), "it did not wait for the answer");
+    assert!(started.elapsed() < Duration::from_secs(5));
+}

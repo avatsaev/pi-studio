@@ -59,7 +59,7 @@ mod tests;
 
 use std::sync::Arc;
 
-pub use self::connector::{ConnectError, Connector};
+pub use self::connector::{ConnectError, Connector, FINAL_CODES};
 pub use self::event::{Event, TransferState};
 pub use self::failure::Failure;
 use self::queue::Inner;
@@ -112,7 +112,7 @@ impl<C: Connector> Engine<C> {
     /// connection's opening, or `internal`.
     pub async fn upload<S: UploadSource + 'static>(&self, id: &str, path: &str, source: S) -> Result<u64, Failure> {
         let total = source.size();
-        self.run(id, path, Box::new(UploadWork { path: path.to_owned(), source }), total).await
+        self.run(id, path, Box::new(UploadWork::new(path, source)), total).await
     }
 
     /// Saves the file at `path` on the daemon into `sink`. Resolves when the file is in place
@@ -122,7 +122,7 @@ impl<C: Connector> Engine<C> {
     /// A [`Failure`]: `invalid_request`, `duplicate_id`, `cancelled`, `daemon_refused`, `changed`, `disk`,
     /// `protocol`, `unsupported_daemon`, `connection_lost`, a code of the connection's opening, or `internal`.
     pub async fn save<S: Sink + 'static>(&self, id: &str, path: &str, sink: S) -> Result<u64, Failure> {
-        self.run(id, path, Box::new(SaveWork { path: path.to_owned(), sink }), None).await
+        self.run(id, path, Box::new(SaveWork::new(path, sink)), None).await
     }
 
     async fn run(&self, id: &str, path: &str, work: Box<dyn Work>, total: Option<u64>) -> Result<u64, Failure> {
@@ -147,6 +147,15 @@ impl<C: Connector> Engine<C> {
     /// started while this waits is waited for too, so stop starting them first.
     pub async fn cancel_all_and_close(&self, how: Close) {
         self.inner.close(how).await;
+    }
+
+    /// Ends the wait before the next attempt to open the connection at once, if the engine is waiting
+    /// (see [`ConnectionState::Waiting`]); otherwise nothing happens. The app calls it when the machine
+    /// wakes, when the network changes, and when the page's own connection to the same daemon opened:
+    /// each says the daemon may be reachable now. The delays do not start over: an attempt that fails
+    /// again waits as long as it would have.
+    pub fn wake(&self) {
+        self.inner.wake();
     }
 
     /// What the engine is doing now.

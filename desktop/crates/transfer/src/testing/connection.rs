@@ -401,6 +401,7 @@ impl Connection {
     /// The real daemon's checks, in its order, and the reservation of the stream.
     fn open_download(&mut self, message: &Map<String, Value>) -> Result<(Plan, Arc<DownloadCtl>), Value> {
         let refuse = |error: &str, stream: Option<u8>, current: Option<(u64, u64)>| frames::refusal(FILE_DOWNLOAD_RESPONSE, error, stream, current);
+        self.shared.with(|state| state.download_requests.push(Value::Object(message.clone())));
         let Some(path) = message.get("path").and_then(Value::as_str).filter(|path| !path.is_empty()) else {
             return Err(refuse("missing_path", None, None));
         };
