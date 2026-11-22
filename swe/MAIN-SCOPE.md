@@ -293,7 +293,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/desktop-native-host.md](features/desktop-native-host.md) | feature      | Desktop milestone 1, part 1: a desktop `WorkbenchHost` (settings and per-daemon state in Rust-owned files, native confirm/alert, external links, save to disk through a native dialog, HTML preview on its own origin), in-app session rename for both clients, and removal of the template's sample from the Rust side — **built on `feat/desktop-client` (sprints 102–106), checked live on Linux 2026-11-20; every criterion ticked on Linux evidence but the OS file drag; macOS and Windows not run** |
 | [features/desktop-daemon-registry.md](features/desktop-daemon-registry.md) | feature      | Desktop milestone 1, part 2: a daemon registry owned by Rust (local, direct, relay entries), switching from the native menu and the connection bar, a Daemons screen, and supervision of this machine's daemon through an installed `pi-studio` CLI — **built (sprints 107–111, merged), checked live on Linux 2026-11-20 and by the automated checks on macOS and Windows; 15 of 17 criteria ticked, two open (a real version manager and a Dock launch, `wrong_key` live); desktop milestone 1 done for Linux** |
 | [features/desktop-transport-bridge.md](features/desktop-transport-bridge.md) | feature      | Desktop milestone 2: the socket to the daemon of a local or direct entry moves into Rust behind `connection.createTransport` (relay entries stay on the webview's socket), secrets move to the OS keychain, and Rust signals wake and network changes; started with an IPC benchmark that was a gate — **built and checked 2026-11-22 (sprints 112–117): the gate failed for a bridge over Tauri's channel, the owner chose a loopback WebSocket proxy owned by Rust (decision T5), and it is built and checked on Linux and on the macOS and Windows runners; open: a real-machine sleep, an unsigned macOS build's keychain prompts, a firewall prompt and the upload's `bufferedAmount` pause on Windows (`notes/desktop-ipc-benchmark.md`, `desktop/docs/platform-checks.md`)** |
-| [features/desktop-transfer-engine.md](features/desktop-transfer-engine.md) | feature      | Desktop milestone 3: uploads (from a native picker) and saves to disk run in Rust on a second, quiet connection to the daemon of a local or direct entry, up to three at once, with recovery after a dropped connection; the explorer shows a line per activity with a percentage and Cancel, in the browser client too; the daemon writes an upload to a temporary file, renames it when complete, and paces it — **specified 2026-11-22 from the grill `grills/desktop-transfer-engine.md` (D1–D20, S1–S12), revised for the owner's no-compatibility rule (R1–R4); planned as sprints 118–123; nothing built** |
+| [features/desktop-transfer-engine.md](features/desktop-transfer-engine.md) | feature      | Desktop milestone 3: uploads (from a native picker) and saves to disk run in Rust on a second, quiet connection to the daemon of a local or direct entry, up to three at once, with recovery after a dropped connection; the explorer shows a line per activity with a percentage and Cancel, in the browser client too; the daemon writes an upload to a temporary file, renames it when complete, and paces it — **built (sprints 118–123) and checked on Linux 2026-11-22; from the grill `grills/desktop-transfer-engine.md` (D1–D20, S1–S12), revised for the owner's no-compatibility rule (R1–R4). macOS and Windows not checked (owner, 2026-11-22). One mark missed, open for the owner: the daemon grew 94 MiB against 64 MiB on a fresh daemon's first 5 GiB upload** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |
@@ -439,16 +439,20 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
       on Linux: the shell environment under bash, zsh and fish, start-up files that print or take
       8 s, the first start (1.2–2.1 s) — see
       [features/desktop-daemon-registry.md § TODO(verify)](features/desktop-daemon-registry.md).
-- [ ] Desktop transport bridge (planned as sprints 112–117, nothing built): the benchmark's thresholds
+- [ ] Desktop transport bridge (built 2026-11-22, sprints 112–117; the questions below were open at planning): the benchmark's thresholds
       and frame sizes, which IPC path each webview uses, the keychain and TLS crates and their
       licences, the keychain on an unsigned macOS build, how the engine reaches the secret store
       off the owner thread, the largest frame either side sends — see
       [features/desktop-transport-bridge.md § TODO(verify)](features/desktop-transport-bridge.md).
-- [ ] Desktop transfer engine (planned as sprints 118–123, nothing built): the chosen timing
-      values, what stopping a session's socket does to its other requests and over a relay, the
-      upload's temporary file in the explorer and after a daemon crash, a command left unanswered
-      across a sleep, the native open dialog on macOS and Windows, the release number for
-      `minDaemonVersion` — see
+- [ ] Desktop transfer engine (built and checked on Linux 2026-11-22, sprints 118–123): open for the
+      owner — the 5 GiB upload's daemon-growth mark missed (94 MiB against 64 MiB on a fresh
+      daemon's first upload, also seen on the page's path: decide whether the mark stands); the
+      upload's `.pistudio-upload-<hex>.part` file shows in the explorer and a `kill -9`ed daemon
+      leaves it; a command left pending for hours across a sleep (631 s tried); a sleep during a
+      transfer, the native open dialog on macOS and Windows, and the runner scripts on macOS
+      (not checked, owner's decision); where standard error goes from a desktop launch.
+      `minDaemonVersion` is set to 0.0.126, the next patch after 0.0.125, and must be re-checked
+      against the published version — see
       [features/desktop-transfer-engine.md § TODO(verify)](features/desktop-transfer-engine.md).
 - [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
       file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The

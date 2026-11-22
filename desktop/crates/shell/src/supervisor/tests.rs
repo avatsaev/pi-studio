@@ -50,7 +50,7 @@ impl Fixture {
     }
 
     fn ok(&self) -> Supervisor {
-        self.supervisor("", "0.0.120", Limits::default())
+        self.supervisor("", "0.0.130", Limits::default())
     }
 
     fn cli(&self) -> Option<&str> {
@@ -101,7 +101,7 @@ fn probe_start_adopt_and_stop() {
 #[test]
 fn start_failures_carry_their_reason() {
     let f = fixture();
-    let state = |mode: &str, limits| f.supervisor(mode, "0.0.120", limits).carry_out(LocalRequest::Start, f.cli(), false);
+    let state = |mode: &str, limits| f.supervisor(mode, "0.0.130", limits).carry_out(LocalRequest::Start, f.cli(), false);
     assert_eq!(state("not_healthy", Limits::default()), LocalState::Failed { reason: FailReason::NotHealthy });
     assert_eq!(state("garbage", Limits::default()), LocalState::Failed { reason: FailReason::BadOutput });
     let began = Instant::now();
@@ -116,7 +116,7 @@ fn start_failures_carry_their_reason() {
 fn a_stop_that_times_out_is_failed() {
     let f = fixture();
     let limits = Limits { stop: Duration::from_millis(300), ..Limits::default() };
-    assert_eq!(f.supervisor("sleep", "0.0.120", limits).carry_out(LocalRequest::Stop, f.cli(), false), LocalState::Failed { reason: FailReason::Timeout });
+    assert_eq!(f.supervisor("sleep", "0.0.130", limits).carry_out(LocalRequest::Stop, f.cli(), false), LocalState::Failed { reason: FailReason::Timeout });
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn an_old_cli_is_outdated_and_no_daemon_command_runs() {
 #[test]
 fn requests_asked_at_once_run_one_after_the_other() {
     let f = fixture();
-    let sup = Arc::new(f.supervisor("slow", "0.0.120", Limits::default()));
+    let sup = Arc::new(f.supervisor("slow", "0.0.130", Limits::default()));
     let cli = f.cli.display().to_string();
     let threads: Vec<_> = [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Stop]
         .into_iter()
@@ -220,7 +220,7 @@ fn resolve_with_auto_start_off_stays_stopped() {
 #[test]
 fn resolve_reports_a_failed_start() {
     let f = fixture();
-    let sup = f.supervisor("not_healthy", "0.0.120", Limits::default());
+    let sup = f.supervisor("not_healthy", "0.0.130", Limits::default());
     let session = f.session(true);
     Supervisor::probe_now(&session).unwrap();
     sup.pump(&session);
@@ -230,7 +230,7 @@ fn resolve_reports_a_failed_start() {
 #[test]
 fn resolve_waits_for_a_start_another_pump_is_running() {
     let f = fixture();
-    let sup = Arc::new(f.supervisor("slow", "0.0.120", Limits::default()));
+    let sup = Arc::new(f.supervisor("slow", "0.0.130", Limits::default()));
     let session = Arc::new(f.session(true));
     session.lock().unwrap().apply_local_outcome(LocalState::Stopped);
     session.request("daemon.local.start").unwrap();

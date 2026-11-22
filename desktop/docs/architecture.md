@@ -195,7 +195,7 @@ for it; the state is `checking` until it ends. To find the CLI it reads the envi
 user's login shell once per run (`$SHELL -l -i -c`, random markers around `env`, 5 s limit, the
 app's own environment on failure; Retry reads it again), then looks at `cliPath`, `PATH`, and the
 per-user and system install directories of npm and the Node version managers
-(`cli_find.rs`). A CLI older than 0.0.119 is `cli_outdated` and runs no daemon command. Each
+(`cli_find.rs`). A CLI older than 0.0.126 is `cli_outdated` and runs no daemon command. Each
 call has its own limit (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s), a
 timed-out process group is killed, and the answer is the last non-empty line of standard output
 read as JSON whatever the exit code. The CLI's `pairingUrl` is discarded where the line is parsed.

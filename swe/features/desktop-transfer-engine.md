@@ -1,7 +1,9 @@
 # Feature — Desktop Transfer Engine
 
-> **Status: specified 2026-11-22, revised the same day, planned as sprints 118–123. Nothing
-> built.** Milestone 3 of the desktop client. Decisions D1–D20 are the owner's, from the grill
+> **Status: built (sprints 118–123) and checked on Linux 2026-11-22; one criterion is open for the
+> owner.** Milestone 3 of the desktop client. The 5 GiB upload's daemon-growth mark missed (94 MiB
+> against 64 MiB on a fresh daemon's first upload); every other criterion is ticked. macOS and
+> Windows are not checked: the owner removed those checks on 2026-11-22. Decisions D1–D20 are the owner's, from the grill
 > ([../grills/desktop-transfer-engine.md](../grills/desktop-transfer-engine.md), confirmed
 > 2026-11-22). S1–S12 were proposed in this document; the owner asked for the plan without
 > changing one. The owner then said that **compatibility is not a concern** (nobody uses the
@@ -618,8 +620,14 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   WebKitGTK, a `transfer_save` left pending for 631 s with the daemon stopped answered when the
   daemon returned, hash equal. Hours, a sleep of the machine, WKWebView and WebView2 are not
   tried.)
-- [ ] `minDaemonVersion` (R1) names a release that does not exist yet: set it when the daemon
-  changes are released, and release them before or with the app.
+- [ ] `minDaemonVersion` (R1) must name the release that carries sprint 118's daemon changes (the
+  temporary file and the pacing). That release does not exist until the branch merges and CI
+  publishes it. **Set 2026-11-22 to 0.0.126**, the next patch after the current version of
+  `packages/protocol` (0.0.125), because the release workflow bumps the patch on merge
+  (`cli_answers::MIN_CLI_VERSION`, which also decides when a local daemon's CLI is `cli_outdated`;
+  its tests and the boot tests name it). **Re-check it against the published version before the
+  app is released**: if the merge publishes another number, change the constant and its tests.
+  The daemon changes must be released before, or with, the app that requires them.
 - [x] The native open dialog has never been shown by this app (`platform-checks.md` N3 notes the
   missing picker). Its behaviour on macOS and Windows is unverified. (Live run 2026-11-22: on
   Linux the app shows GTK's "Open File" dialog, parented to the main window, for the Upload
@@ -634,9 +642,13 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   `WebKitWebProces`, `WebKitNetworkPr` and the daemon; no `ptrace` and no copy of `node` in the
   container. Recipe: § The 5 GiB check.)
 - [ ] Whether the runner scripts can run a transfer through the page on macOS (no WebDriver
-  there). If not, the runners cover the engine through the Rust tests only.
+  there). If not, the runners cover the engine through the Rust tests only. (Not answered. The
+  owner removed the macOS and Windows checks on 2026-11-22, so the runners run no transfer and the
+  engine is covered there by the Rust tests only.)
 - [ ] Where standard error goes when the app is started from the desktop on each system, since the
-  log now carries file paths (D19).
+  log now carries file paths (D19). (Not answered. Only Linux was run, and only from a terminal
+  and from the headless container. The log has the paths, so a launch with a visible or captured
+  standard error shows them.)
 - [x] `hello.appVersion`: the fixture's form (`pistudiodesktop/<version>`) is used; confirm it is
   what the page sends, so that `daemon_status` shows the two connections alike. (Live run
   2026-11-22: it is not. The bulk connection's client shows `appVersion: "pistudiodesktop/0.2.0"`,

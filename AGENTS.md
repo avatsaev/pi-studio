@@ -52,13 +52,17 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview,
                     the daemon registry and, for a local or direct entry, the transport backed by Rust: Rust dials
                     the daemon and the page's own WebSocket reaches it through a single-use loopback proxy; a relay
-                    entry keeps the webview's socket), so desktop-ci.yml
+                    entry keeps the webview's socket; for those entries the Upload button's native file dialog and
+                    saves to disk run in Rust, on a second connection of its own, through the transfer engine in
+                    `crates/transfer`, and `--transfers page` turns that off), so desktop-ci.yml
                     also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
-                    (`model`, `store`, `secrets`, `engine`, `shell`, `net`) hold the daemon registry, the settings,
+                    (`model`, `store`, `secrets`, `engine`, `shell`, `net`, `transfer`) hold the daemon registry, the settings,
                     the stored workbench state, the command registry, the secret store (OS keychain, else a 0600
                     file; no secret in daemons.json) and the sockets, and run this machine's daemon through the
-                    installed `pi-studio` CLI. Milestones 1 and 2 are built and checked on Linux; on macOS and
-                    Windows only the automated checks have run (desktop/docs/platform-checks.md).
+                    installed `pi-studio` CLI. Milestones 1, 2 and 3 are built and checked on Linux (milestone 3
+                    on 2026-11-22); on macOS and Windows only the automated checks of milestones 1 and 2 have run,
+                    and milestone 3 is not checked there (desktop/docs/platform-checks.md). The app's
+                    `minDaemonVersion` is 0.0.126, the release that carries the daemon's upload changes.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
@@ -582,7 +586,9 @@ All communication uses a **single WebSocket connection** per client.
   request with `ack: true` is answered by a `file_upload_complete` push (`fileTransferAck` flag; a real
   `sessionMessageSchema` member although the rest of `file_*` is schema-less). An upload is written to
   `.pistudio-upload-<32 hex>.part` beside its target and renamed on `End`; a failed, cancelled or
-  abandoned upload leaves the old target unchanged and no temporary file. (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
+  abandoned upload leaves the old target unchanged and no temporary file. The daemon also paces an upload: it
+  stops reading the session's socket while more than 1 MiB of the upload is unwritten and resumes below 256 KiB
+  (sprint-118; the relay's per-client data socket is paced the same way). (3) Fixture coverage for file transfer and terminals, JSON and binary (see the fixtures bullet below).
 - **Download by path, ranged and cancellable (sprint-097, `swe/features/desktop-client-protocol-followups-2.md` § 1).**
   The one deliberate break of the append-only rule (decision D4; `swe/architecture/websocket-protocol.md`).
   `file_download_request { path, stream?, offset?, length?, ifUnchanged? }` replaces the token flow:

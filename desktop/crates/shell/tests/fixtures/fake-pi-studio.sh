@@ -1,12 +1,12 @@
 #!/bin/sh
 # A stand-in for the `pi-studio` CLI, driven by the environment:
 #   FAKE_PI_DIR      directory of the state file `running` and the logs `calls`, `starts`, `pid` (required)
-#   FAKE_PI_VERSION  what `--version` prints (default 0.0.120)
+#   FAKE_PI_VERSION  what `--version` prints (default 0.0.130)
 #   FAKE_PI_PORT     the port it reports (default 6767)
 #   FAKE_PI_MODE     garbage | sleep | not_healthy | slow (0.4 s per call, for overlap checks)
 dir=$FAKE_PI_DIR
 if [ "$1" = "--version" ]; then
-    echo "${FAKE_PI_VERSION:-0.0.120}"
+    echo "${FAKE_PI_VERSION:-0.0.130}"
     exit 0
 fi
 [ "$1" = "--json" ] && [ "$2" = "daemon" ] || exit 2

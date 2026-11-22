@@ -240,8 +240,9 @@ in the contract above. Kept so the reasons are findable.
 ### History — the 2026-11-22 amendment
 
 For the desktop transfer engine ([../features/desktop-transfer-engine.md](../features/desktop-transfer-engine.md)
-§ 6, decisions R2 and S7). The first five rows are in the contract above (sprint-119/task-001); the
-last is not built (sprint 122) and is not in the contract. Compatibility was not kept: every host
+§ 6, decisions R2 and S7. The first five rows are in the contract above (sprint-119/task-001); the
+last landed in sprint 122 (the desktop host's `files` through the engine) and adds nothing to the
+contract. Compatibility was not kept: every host
 changed in the same change.
 
 | Change | Kind | Where it landed |
@@ -251,7 +252,7 @@ changed in the same change.
 | `files.saveToDisk(path, options?: TransferOptions)` | A second argument: progress, state and abort for a save. No callback before the user has chosen a destination | Sprint-119/task-001 |
 | `files.pickUploads` | Unchanged in shape | — |
 | Browser host | Passes `signal` and progress through to the SDK for uploads and saves; an aborted save discards its `saveTarget` | Sprint-119/task-001 (`browser-files.ts`); the test host records every call's options in `transfers` |
-| Desktop host | A picked file is uploaded, and a file saved, by Rust when the engine serves the connection (`pickUploads` supplied then, decided once when the host is built); otherwise the browser host's members | Not built: sprint 122 |
+| Desktop host | A picked file is uploaded, and a file saved, by Rust when the engine serves the connection (`pickUploads` supplied then, decided once when the host is built); otherwise the browser host's members | Sprint-122/task-006 (`desktop/apps/pistudiodesktop/src/host/transfers.ts`, `desktop-host.ts`) |
 
 ## Behavior & algorithms
 

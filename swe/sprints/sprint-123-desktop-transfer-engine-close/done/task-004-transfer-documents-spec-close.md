@@ -1,7 +1,7 @@
 # Task 004 — Documents and spec close for milestone 3; `minDaemonVersion` (R1)
 
 - **Sprint:** sprint-123-desktop-transfer-engine-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs, swe, desktop
 - **Priority:** P1

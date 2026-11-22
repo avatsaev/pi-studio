@@ -141,7 +141,7 @@ mod tests {
         app.info = AppInfo { title: "Pi Studio".into(), version: "1.2.3".into() };
         let expected_preview = preview::kind().as_str();
         let snapshot = boot(&mut app);
-        assert_eq!(snapshot["app"], json!({"title": "Pi Studio", "version": "1.2.3", "platform": "desktop", "minDaemonVersion": "0.0.119"}));
+        assert_eq!(snapshot["app"], json!({"title": "Pi Studio", "version": "1.2.3", "platform": "desktop", "minDaemonVersion": "0.0.126"}));
         assert_eq!((&snapshot["storage"], &snapshot["notices"], &snapshot["preview"]), (&json!({}), &json!([]), &json!(expected_preview)));
         assert_eq!(snapshot["transfers"], "engine");
         app.transfers = crate::transfer_mode::TransfersMode::Page;

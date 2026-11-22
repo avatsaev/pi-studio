@@ -3415,6 +3415,11 @@ sprint 121 and can start while it runs.
 > **Changed 2026-11-22 by the owner:** t002 (runner checks on macOS and Windows) and t003 (a person
 > on real machines) were removed: the owner will not test manually. Milestone 3 is checked on Linux
 > only; the macOS and Windows behaviour stays unverified.
+>
+> **Closed 2026-11-22: sprints 118–123 built, 25 of 25 tasks done.** Checked on Linux only. Open
+> for the owner: the daemon grew 94 MiB on a fresh daemon's first 5 GiB upload (mark 64 MiB; the
+> page path grew it 74 MiB too); `minDaemonVersion` 0.0.126 is predicted and must match the
+> published release; hiding or sweeping `.pistudio-upload-*.part`.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

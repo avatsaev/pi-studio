@@ -20,8 +20,9 @@ pub const RESTART_TIMEOUT: Duration = Duration::from_secs(90);
 /// Time limit of `daemon stop`.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The oldest CLI the app drives.
-pub const MIN_CLI_VERSION: Version = Version { major: 0, minor: 0, patch: 119 };
+/// The oldest CLI the app drives: the release that carries the daemon's upload changes (a temporary
+/// file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
+pub const MIN_CLI_VERSION: Version = Version { major: 0, minor: 0, patch: 126 };
 
 /// Which `daemon` command printed the answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,8 +206,8 @@ mod tests {
     #[test]
     fn versions() {
         let out = |s| check_version(s);
-        assert_eq!(out("0.0.118\n"), VersionCheck::Outdated { version: "0.0.118".into() });
-        for ok in ["0.0.119", " 0.0.122 \n", "0.1.0", "v1.2.3", "warn\nv0.0.119\n"] {
+        assert_eq!(out("0.0.125\n"), VersionCheck::Outdated { version: "0.0.125".into() });
+        for ok in ["0.0.126", " 0.0.130 \n", "0.1.0", "v1.2.3", "warn\nv0.0.126\n"] {
             assert_eq!(out(ok), VersionCheck::Ok, "{ok}");
         }
         for bad in ["banana", "", "1.2", "1.2.3.4", "1.x.3", "-1.0.0"] {
