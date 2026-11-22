@@ -1,6 +1,6 @@
 # Feature — Desktop Relay in Rust and SSH Entries
 
-> **Status: specified 2026-11-22, not planned, not built.** Milestone 4 of the desktop client.
+> **Status: specified and planned 2026-11-22 (sprints 124–130, 27 tasks), not built.** Milestone 4 of the desktop client.
 > Decisions D1–D23 are from the grill ([../grills/desktop-relay-ssh.md](../grills/desktop-relay-ssh.md),
 > closed by the owner on 2026-11-22: D21–D23 are the owner's own, D1–D20 were proposed by the agent
 > and confirmed with the readout). S1–S16 are proposed in this document; where one refines a D

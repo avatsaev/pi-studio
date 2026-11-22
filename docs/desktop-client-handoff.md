@@ -700,7 +700,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    daemon is not running on the host, a Start button runs `pi-studio daemon start` there over the
    same SSH connection. Check: a daemon bound to loopback on another
    machine is used through SSH with the same behaviour as direct.
-   *State (2026-11-22): **specified, not planned, not built** (grill
+   *State (2026-11-22): **specified and planned (sprints 124–130), not built** (grill
    `swe/grills/desktop-relay-ssh.md`, decisions D1–D23; spec `swe/features/desktop-relay-ssh.md`;
    branch `feat/desktop-relay-ssh`, local). Two new crates beside `transfer` (`relay`, `ssh`); `net`
    gets a daemon socket that is a stream of WebSocket messages, so the proxy and the engine take a
