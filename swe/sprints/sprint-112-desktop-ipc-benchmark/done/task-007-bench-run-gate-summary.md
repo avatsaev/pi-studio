@@ -47,3 +47,4 @@ Runs: https://github.com/avatsaev/pi-studio/actions/runs/44916778278 (1), /44917
 - Windows B8 says nothing: the webview never reported the window hidden.
 - The per-message cost on Windows (about 1.15 ms per fetched message) is inferred from rates and source, not profiled.
 - The pull request is a draft and must not be merged as it is: the branch changes `packages/workbench`, so a merge publishes an npm release.
+- Every push to pull request 60 starts the benchmark workflow, even a documents-only push: GitHub applies a pull request's path filter to the whole difference from `main`, which contains the workflow file. The run started by this task's own push (44966687751) was cancelled at once. Until the workflow is on `main`, cancel that run after each push, or change the trigger.
