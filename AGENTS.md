@@ -49,13 +49,16 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     release (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
                     built by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
-                    a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview
-                    and the daemon registry backed by Rust; the WebSocket is still the webview's), so desktop-ci.yml
+                    a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview,
+                    the daemon registry and, for a local or direct entry, the transport backed by Rust: Rust dials
+                    the daemon and the page's own WebSocket reaches it through a single-use loopback proxy; a relay
+                    entry keeps the webview's socket), so desktop-ci.yml
                     also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
-                    (`model`, `store`, `engine`, `shell`) hold the daemon registry, the settings, the stored
-                    workbench state and the command registry, and run this machine's daemon through the installed
-                    `pi-studio` CLI. Milestone 1 is built and checked on Linux; on macOS and Windows only the
-                    automated checks have run (desktop/docs/platform-checks.md).
+                    (`model`, `store`, `secrets`, `engine`, `shell`, `net`) hold the daemon registry, the settings,
+                    the stored workbench state, the command registry, the secret store (OS keychain, else a 0600
+                    file; no secret in daemons.json) and the sockets, and run this machine's daemon through the
+                    installed `pi-studio` CLI. Milestones 1 and 2 are built and checked on Linux; on macOS and
+                    Windows only the automated checks have run (desktop/docs/platform-checks.md).
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent

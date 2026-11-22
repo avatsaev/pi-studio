@@ -26,7 +26,8 @@ installed `pi-studio` CLI and starts, stops and restarts its daemon through it.
 Before this feature the address and password were typed into the connection bar after every launch
 (nothing saved them), and the app knew nothing about a daemon on the same machine.
 
-Not in this feature: sockets in Rust and the OS keychain (milestone 2), several windows or several
+Not in this feature: sockets in Rust and the OS keychain (milestone 2, built; see
+`desktop-transport-bridge.md`), several windows or several
 daemons connected at once (D16), a bundled daemon, a daemon on Windows, more than one local daemon.
 
 ## Decisions
@@ -99,8 +100,9 @@ the rules as milestone 1 set them; `password` and `pairingLink` now name the sto
 | `lastUsedId` | Set when an entry is opened (at switch time, not on a successful connection) |
 
 Secrets are `password` and `pairingLink`, now in the secret store, not in this file. They are never
-logged, never returned by a control method, and reach the webview only through `resolveCurrent`
-(§ 3), for the entry being opened.
+logged and never returned by a control method. A password never reaches the webview (Rust reads it
+for its own dial); a relay entry's pairing link reaches it only through `resolveCurrent` (§ 3), for
+the entry being opened, until milestone 4.
 
 ### 2. Engine commands
 
@@ -171,8 +173,9 @@ the one constant the CLI check also uses); the browser host does not. The types 
 How the page reaches Rust (`desktop/docs/architecture.md` § The webview boundary): one allow-listed
 command, `engine_command { id, params? }`, runs ten engine ids (`daemon.list`, `.add`, `.update`,
 `.remove`, `daemon.local.start`, `.stop`, `.restart`, `.refresh`, `settings.get`, `settings.set`);
-anything else, `daemon.switch` and `command.list` included, is refused. The dial answer, which
-holds a secret, has a command of its own, `daemon_resolve_current`, and a switch another,
+anything else, `daemon.switch` and `command.list` included, is refused. The dial answer has a
+command of its own, `daemon_resolve_current` (no password; for a relay entry the pairing link), the
+connection to a local or direct daemon another, `transport_open`, and a switch another,
 `daemon_switch` (the transfer confirm, `daemon.switch`, then the reload). Two events come back:
 `daemons_changed` (the registry view, after any change to the registry, the local state or a
 setting) and `daemons_manage` (the native menu asked for the Daemons screen).
@@ -308,17 +311,24 @@ The window appears before the local daemon has started; the switcher shows "star
 ```
 resolveCurrent():
     no current entry                      -> reject no_current
-    direct                                -> { url: address, password, connect: true }
+    direct                                -> { url: address, connect: true }      (no password: Rust reads it for the dial)
     relay                                 -> { url: pairingLink, connect: true }
     local:
         unsupported | cli_missing | cli_outdated -> reject with that code
-        running                           -> { url: ws://host:port, password, connect: true }
+        running                           -> { url: ws://host:port, connect: true }
         stopped and autoStartLocalDaemon  -> start(); running ? intent : reject with the failure
         stopped otherwise                 -> reject local_stopped
 ```
 
 No reachability check is made for `direct` and `relay` entries: the workbench connects and, when
 that fails, shows its normal connecting and error states with the switcher still usable (D19).
+
+Since milestone 2 the answer for a `local` or `direct` entry carries no `password`: the socket to
+that daemon is Rust's (`transport_open`, `desktop-transport-bridge.md` §§ 2–4), which reads the
+password from the secret store itself. A `relay` entry's answer still carries the pairing link as
+`url`, the one secret a command returns, until the relay leg moves to Rust (milestone 4). A
+missing or unreadable password shows at `transport_open` (`secret_missing`, `secret_unavailable`),
+not here.
 
 ### Switching (D16)
 

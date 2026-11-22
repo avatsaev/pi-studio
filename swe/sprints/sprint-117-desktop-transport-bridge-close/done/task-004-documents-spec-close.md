@@ -1,7 +1,7 @@
 # Task 004 — Documents and spec close for milestone 2
 
 - **Sprint:** sprint-117-desktop-transport-bridge-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** desktop/, docs/, swe/, AGENTS.md
 - **Priority:** P1

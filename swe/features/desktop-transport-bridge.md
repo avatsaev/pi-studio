@@ -1,12 +1,17 @@
 # Feature — Desktop Transport Bridge
 
-> **Status: specified 2026-11-21, planned as sprints 112–117. Sprints 112–114 are built (the
-> benchmark, §§ 5–6, `onResume`). The benchmark gate failed for the channel design on 2026-11-22
-> (§ 1, Result); the owner then chose a loopback WebSocket proxy owned by Rust (T5), and §§ 2–3
-> were rewritten for it on 2026-11-22. The proxy is not built (sprints 115–116).** Milestone 2 of the
-> desktop client. Decisions T1–T5 are the owner's; P1–P10 were proposed here and accepted by the
+> **Status: built and checked, 2026-11-22 (sprints 112–117). Open: the steps that need a person on a
+> real machine (the five-minute sleep, an unsigned macOS build's keychain prompts, a firewall
+> prompt) and the upload's pause on `bufferedAmount`, which WebKitGTK does not show (checklist
+> M1–M6, `desktop/docs/platform-checks.md`).** The benchmark gate failed for the channel design
+> (§ 1, Result); the owner then chose a loopback WebSocket proxy owned by Rust (T5), §§ 2–3 were
+> rewritten for it, and it was built in sprints 115–116 and checked in sprint 117. Milestone 2 of
+> the desktop client. Decisions T1–T5 are the owner's; P1–P10 were proposed here and accepted by the
 > owner on 2026-11-21, with the note that the goal is to reach milestones 2, 3 and 4 in that order;
-> P11–P16 were proposed with the rewrite and accepted by the owner on 2026-11-22.
+> P11–P16 were proposed with the rewrite and accepted by the owner on 2026-11-22. **Version:** the
+> desktop app is 0.1.0 (`desktop/Cargo.toml`); a release that carries this milestone should be
+> 0.2.0 (the first change to what the app does since 0.1.0); the number is set when the release is
+> tagged, which needs the owner's word.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -478,8 +483,8 @@ Resume:
 
 Gates and documents:
 
-- [ ] `cargo xtask ci` passes, with the two new crates registered in the layer table and the wasm check unchanged; the root gates pass.
-- [ ] `desktop/AGENTS.md` (rule 10, "Where it stands"), `desktop/docs/architecture.md` (commands, secrets, "What stays out of the core"), `desktop/README.md`, `docs/desktop-client-handoff.md`, `desktop/docs/platform-checks.md` and the root `AGENTS.md` describe what was built.
+- [x] `cargo xtask ci` passes, with the two new crates registered in the layer table and the wasm check unchanged; the root gates pass. *(2026-11-22, sprint-117 close, the combined tree: `cargo xtask ci` all 8 steps passed (layers, with `net` now unable to depend on a UI crate; wasm); root `npm run build && typecheck && lint && test` exit 0, 291 files and 4,134 tests; the app's `npm run check`, `lint` and `npm test` (195 tests). Desktop CI on GitHub passed on the pull request.)*
+- [x] `desktop/AGENTS.md` (rule 10, "Where it stands"), `desktop/docs/architecture.md` (commands, secrets, "What stays out of the core"), `desktop/README.md`, `docs/desktop-client-handoff.md`, `desktop/docs/platform-checks.md` and the root `AGENTS.md` describe what was built. *(2026-11-22, sprint-117/task-004; `swe/features/desktop-daemon-registry.md` and `swe/architecture/workbench-host-adapter.md` amended too. A search of `desktop/`, `docs/`, the root `AGENTS.md` and `swe/features/` for "still opens the WebSocket" and for secrets living in `daemons.json` finds only text that describes history.)*
 
 ## TODO(verify)
 

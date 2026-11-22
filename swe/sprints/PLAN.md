@@ -3217,6 +3217,12 @@ TypeScript only and runs beside t001 and t002.
 > **Found at planning time.** The benchmark's `proxy.rs` is the measured sketch for t002; it has no
 > TLS, no password, no `Host` check and no size cap. t003's vectors file sits under
 > `packages/workbench` unless the implementer chooses `desktop/` to avoid an npm release.
+>
+> **Built 2026-11-22 (4/4 tasks, in two waves: t001, t003, t004, then t002).** `net` has `dial` and
+> the loopback proxy (83 tests); the address rule has 59 shared vectors; the benchmark kept the
+> channel modules and its B4 memory rule changed (P14); the layer check no longer lets a layer-7
+> crate depend on `tauri` (found in t002). The Windows and macOS builds of the TLS crates were first
+> exercised in sprint 117's runner run and passed.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
@@ -3240,6 +3246,14 @@ t001, t003 and t004 are independent (three different places) and run in parallel
 > entry whose pairing link carries a direct host hint stays on the webview's socket. A download
 > still passes through the page until milestone 3; t005 reports the rate against sprint 104's (P2
 > accepts half; the benchmark measured the proxy near the direct rate).
+>
+> **Built 2026-11-22 (5/5 tasks: t001; t002 beside t003; t004; t005).** The live run (t005) found two
+> defects, both fixed: a refused `transport_open` left the connection bar on "connecting…" (the host
+> now reports a close, t003's code), and a 401 or a certificate error read "connection refused"
+> (`shortConnectionReason` in `packages/workbench`, shared with the web client). t003's last criterion
+> (a live check that needs t002's `ui.inspect`) was an undeclared dependency on t002: it was run in
+> t005 instead. The 1 GiB criterion stays open for the `bufferedAmount` pause, which WebKitGTK does
+> not show.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
@@ -3259,6 +3273,13 @@ t002 and t003 can run in parallel after t001 (Rust and TypeScript, different fil
 > is expected to wait in `blocked/`; it does not hold the other tasks. No daemon runs on Windows,
 > so t002's Windows check connects the page to a small stand-in server that answers `hello` with
 > the fixture's `status` frame.
+>
+> **Run 2026-11-22: 3 of 4 tasks done, t003 blocked for a person.** t001 (Linux acceptance:
+> resume through the proxy, a frozen daemon, the `network` reason, the secrets) and t002 (the
+> runner checks: green on macOS, 17 checks, and Windows, 15 checks, in run 44979817186, with the
+> keychain usable unattended on both) are done; t004 closed the documents and the spec. t003 (a real
+> sleep, an unsigned macOS build, a firewall prompt, and the `bufferedAmount` pause on Windows) is in
+> `blocked/` until the owner runs the milestone 2 section of `desktop/docs/platform-checks.md`.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
