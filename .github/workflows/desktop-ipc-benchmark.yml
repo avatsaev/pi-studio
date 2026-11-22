@@ -8,11 +8,10 @@ name: Desktop IPC benchmark
 #
 #   a manual run (workflow_dispatch)   Actions -> Desktop IPC benchmark -> Run workflow
 #                                      (inputs: runs per workload, scale of the workloads)
-#   a pull request changing this file  the full run (3 runs, scale 1): the way to run it from a branch
 #
-# A workflow file that exists only on a branch cannot be started by hand: the first run needs a
-# pull request that changes this file, or this file on main. It never runs on a push to main,
-# publishes nothing, and does not touch release.yml (which ignores `desktop/**` and
+# Manual only since 2026-11-22: the benchmark decided the transport (decision T5, the loopback
+# proxy), so it no longer runs on pull requests. It never runs on a push to main, publishes
+# nothing, and does not touch release.yml (which ignores `desktop/**` and
 # `.github/workflows/desktop-*.yml`) or desktop-release.yml.
 #
 # A job fails only when the application exits non-zero (a run did not finish, or a frame was
@@ -31,25 +30,14 @@ on:
         description: "Scale of every count and byte total (above 0, at most 1)"
         type: string
         default: "1"
-  pull_request:
-    paths:
-      - ".github/workflows/desktop-ipc-benchmark.yml"
-      - "desktop/apps/ipc-bench/**"
 
 permissions:
   contents: read
 
-# A newer push to a pull request cancels its older run.
-concurrency:
-  group: desktop-ipc-benchmark-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # A pull request (inputs are empty) gets the full run: the workflow file can only be started by
-  # hand once it is on main, so the pull request is the way to get real numbers. Start a quick
-  # run by hand with runs=1 and scale=0.1.
+  # Empty inputs fall back to the full run. Start a quick run with runs=1 and scale=0.1.
   BENCH_RUNS: ${{ inputs.runs || '3' }}
   BENCH_SCALE: ${{ inputs.scale || '1' }}
 
