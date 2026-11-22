@@ -7,5 +7,17 @@ license.workspace = true
 [lints]
 workspace = true
 
-# No dependency at all: the pure parts of the bridge (frame codec, inbound window, outbound order
-# buffer) are plain std. The browser build has no sockets, so on wasm32 the crate is empty.
+# The browser build has no sockets, so on wasm32 the crate is empty and takes no dependency: every
+# dependency is behind `cfg(not(target_arch = "wasm32"))`, or `cargo check --target wasm32-unknown-unknown`
+# would still build them. Licences are in the workspace `Cargo.toml` and in `docs/architecture.md`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "net", "time"] }
+tokio-tungstenite = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+socket2 = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "io-util", "rt", "net", "time", "sync"] }
+futures-util = { workspace = true }
+rcgen = { workspace = true }

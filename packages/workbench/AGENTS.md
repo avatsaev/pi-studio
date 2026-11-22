@@ -207,7 +207,10 @@ src/
                            ReconnectionManager with createWorkerTimers()'s injected timers —
                            sprint-050), resolve-connect-target (pure routing: plain address vs.
                            pairing link, direct vs. relay + tests), normalize-url (accepts
-                           ws/wss/http/https/bare-host, maps http→ws / https→wss), query-client
+                           ws/wss/http/https/bare-host, maps http→ws / https→wss; its cases are
+                           `normalize-url.vectors.json`, which the desktop's Rust address rule
+                           (`desktop/crates/model/src/address_rule.rs`) runs too — change a vector
+                           and both tests must pass), query-client
                            (TanStack Query), rpc-keys, files-changed (cache-invalidation
                            signaling), resume-action (resolveResumeAction — pure decision core:
                            status/managerActive/probeInFlight → none/reconnect-now/probe — sprint-050)

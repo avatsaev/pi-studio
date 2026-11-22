@@ -34,12 +34,12 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
 
 ## Workspace map
 
-    crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data
+    crates/model            L1  the settings, the daemon registry and one entry's stored state: pure data; the address rule (`address_rule.rs`: `normalize_daemon_url`, `address_matches`, the Rust twin of the workbench's `normalizeDaemonUrl`, tested over the same `packages/workbench/src/lib/connection/normalize-url.vectors.json`)
     crates/store            L3  JSON files: safe reads, atomic writes
     crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; the choice between them is the shell's
     crates/engine           L5  Session + command registry (every action is a command)
     crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`), resume signals (`resume`: the pure wake and network-change detectors, the rate limit that defers a refused signal instead of dropping it, the counts; the app's threads are `src-tauri/src/resume.rs` and `network.rs`, the latter reading addresses with `if-addrs`) (no UI toolkit)
-    crates/net              L7  the bridge's pure parts (frame batch codec, inbound window, outbound order buffer): no socket yet, no dependency, empty on wasm32; only an app binary may use it
+    crates/net              L7  sockets (`dial`: TCP, TLS trusting only the OS store, the WebSocket upgrade with the bearer subprotocol, error codes; the only crate with a socket) and the bridge's pure parts (frame batch codec, inbound window, outbound order buffer); native only, empty and dependency-free on wasm32; only an app binary may use it
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
     apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server

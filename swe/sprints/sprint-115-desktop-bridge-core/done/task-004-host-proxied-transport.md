@@ -1,7 +1,7 @@
 # Task 004 — Desktop host: the proxied `Transport` in TypeScript
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

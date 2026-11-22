@@ -1,7 +1,7 @@
 # Task 001 — `net` crate: dialling (TCP, TLS, the WebSocket upgrade, error classes)
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/net
 - **Priority:** P1

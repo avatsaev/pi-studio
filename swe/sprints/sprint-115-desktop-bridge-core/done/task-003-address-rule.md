@@ -1,7 +1,7 @@
 # Task 003 — The address rule in Rust, with test vectors shared with the workbench
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model, packages/workbench
 - **Priority:** P1

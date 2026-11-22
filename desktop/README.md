@@ -34,7 +34,7 @@ with hot reload. `npm run bundle` builds installers.
 
 | Path | What |
 |---|---|
-| `crates/model` | L1: the settings, the daemon registry and one entry's stored state, pure data |
+| `crates/model` | L1: the settings, the daemon registry and one entry's stored state, pure data; the address rule shared by vector with the workbench |
 | `crates/store` | L3: JSON files, read safely and written atomically |
 | `crates/secrets` | L3: the secret store, with a keychain backend (macOS Keychain, Windows Credential Manager, the Secret Service), a file backend (`secrets.json`, mode 0600) and a memory backend |
 | `crates/engine` | L5: `Session`, the command registry, the registry, the settings and the stored workbench keys |
