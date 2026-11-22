@@ -267,6 +267,11 @@ rate limit as the wake ticker, so a change within 5 s of another signal goes out
   thread once, for the plan of the current entry, and reads the secret store on the blocking pool.
   `boot` closes the connections on the runtime; `daemon_switch` and the app's exit wait for the
   close (`Transport::close_all_blocking`, at most 5 s) from a thread that is not a runtime worker.
+- The host reports a refused `transport_open` (and an answer without an address) to the SDK as a close
+  (`onClose(1006, "")`, `src/host/proxied-transport.ts`) before it rejects `connect`: the daemon
+  client's state leaves "connecting" only on a close, which is what shows the message and Retry in the
+  connection bar and lets the reconnect ladder run. A failure of the page's own socket to `localUrl` is
+  closed by that socket.
 - `ui.inspect` reads the proxied connections through `Services::transports` (a hook the app fills,
   `Transport::inspector`): the owner thread calls it, and it only reads the set's counters under short
   locks. `connection.transports` is the proxy's snapshot (entry id, state, four counters, peak bytes

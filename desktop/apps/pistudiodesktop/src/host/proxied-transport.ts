@@ -18,6 +18,9 @@ function commandMessage(error: unknown): string {
   return "The connection could not be opened.";
 }
 
+/** The close code of a connection that never opened: what the SDK's own transport reports (RFC 6455, 1006). */
+const NEVER_OPENED = 1006;
+
 function localUrlOf(answer: unknown): string | undefined {
   if (typeof answer !== "object" || answer === null) return undefined;
   const { localUrl } = answer as { localUrl?: unknown };
@@ -63,14 +66,21 @@ export function createProxiedTransport(
     sendBinary: (data) => inner.sendBinary(data),
     close: (code, reason) => inner.close(code, reason),
     async connect(url) {
+      // A refused `transport_open` is a connection that never opened. The SDK's own transport
+      // reports that as a close after the rejection, and the daemon client leaves "connecting"
+      // (so the bar shows the message and Retry, and the reconnect ladder runs) only on a close.
+      const neverOpened = (message: string): Error => {
+        inner.onClose?.(NEVER_OPENED, "");
+        return new Error(message);
+      };
       let answer: unknown;
       try {
         answer = await ipc.invoke("transport_open", { url });
       } catch (error) {
-        throw new Error(commandMessage(error));
+        throw neverOpened(commandMessage(error));
       }
       const localUrl = localUrlOf(answer);
-      if (localUrl === undefined) throw new Error(LOCAL_CONNECTION_MESSAGE);
+      if (localUrl === undefined) throw neverOpened(LOCAL_CONNECTION_MESSAGE);
       try {
         await inner.connect(localUrl);
       } catch {

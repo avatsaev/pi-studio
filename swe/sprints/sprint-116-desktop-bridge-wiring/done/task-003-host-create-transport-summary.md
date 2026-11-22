@@ -20,7 +20,7 @@
 - [x] With fakes: a direct and a local entry get the proxied transport (`createTransport` not called, `transport_open {url}` sent); a relay entry, also with a direct host hint, gets the browser host's.
 - [x] A password passed for a proxied entry is sent to no command (the test serialises every `invoke` call).
 - [x] `npm run check`, `lint`, `test` pass; `npm run snapshot` draws the page with no policy violation.
-- [ ] **The container live check (one open transport in `ui.inspect`, one client in the daemon's status): handed to 116/task-005 run (1), which makes the same check.** This task had an undeclared dependency on task-002 (`ui.inspect`'s transports) for it; the code was not waiting on it, so the task ran in parallel and the check moves to task-005.
+- [x] The container live check (one open transport in `ui.inspect`, one client in the daemon's status): shown in 116/task-005 run (1) on 2026-11-22. That run also found that a refused open left the bar on "connecting…" and fixed it here (`proxied-transport.ts` reports a close, 1006, before rejecting; three regression tests); see the task-005 summary.
 
 ## Follow-ups
 - `oxfmt` ignores `desktop/` (`.oxfmtrc.json`), so these files are formatted by hand; lint passes.

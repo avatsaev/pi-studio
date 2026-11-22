@@ -48,6 +48,45 @@ describe("createProxiedTransport", () => {
     expect(connectSpy).not.toHaveBeenCalled();
   });
 
+  it("reports a refused open as a close, as the SDK's own transport does for a failed connect", async () => {
+    // The daemon client leaves "connecting" only on a close: without it the bar stays on
+    // "connecting…" after a wrong password, with no message and no Retry (found live, 116/t005).
+    const { inner } = fakeInner();
+    const t = createProxiedTransport(
+      {
+        invoke: async () => {
+          throw { code: "unauthorized", message: "wrong password" };
+        },
+      },
+      () => inner,
+    );
+    const closed = vi.fn<(code: number, reason: string) => void>();
+    t.onClose = closed;
+    await expect(t.connect("wss://d")).rejects.toThrow("wrong password");
+    expect(closed).toHaveBeenCalledOnce();
+    expect(closed).toHaveBeenCalledWith(1006, "");
+  });
+
+  it("reports an answer without an address as a close too", async () => {
+    const { inner } = fakeInner();
+    const t = createProxiedTransport({ invoke: async () => ({}) }, () => inner);
+    const closed = vi.fn<(code: number, reason: string) => void>();
+    t.onClose = closed;
+    await expect(t.connect("wss://d")).rejects.toThrow(LOCAL_CONNECTION_MESSAGE);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the close of a failed inner connect to the inner transport", async () => {
+    const { inner } = fakeInner(async () => {
+      throw new Error("refused");
+    });
+    const t = createProxiedTransport({ invoke: async () => ({ localUrl: LOCAL }) }, () => inner);
+    const closed = vi.fn<(code: number, reason: string) => void>();
+    t.onClose = closed;
+    await expect(t.connect("wss://d")).rejects.toThrow(LOCAL_CONNECTION_MESSAGE);
+    expect(closed).not.toHaveBeenCalled();
+  });
+
   it("rejects a failed inner connect with the local_connection message, without the address", async () => {
     const { inner } = fakeInner(async () => {
       throw new Error(`failed ${LOCAL}`);

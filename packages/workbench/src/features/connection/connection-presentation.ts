@@ -81,13 +81,21 @@ function isOpaqueError(text: string): boolean {
 /**
  * Collapse a raw `Error.message` into the short, human reason § 08 wants in the pill ("connection
  * refused", not a generic "error"). Falls back to the message's first line, length-capped.
+ *
+ * Order matters: the desktop app's messages say "refused the password (401)" and "certificate … was
+ * refused", which the general `refus` test would label "connection refused". The specific causes
+ * (a certificate, a host name the daemon does not accept, a refused password) come first, and the
+ * socket's own "connection refused" is matched by its own words before the loose `refus`.
  */
 export function shortConnectionReason(error: string): string {
   const first = (error.split("\n")[0] ?? "").trim();
   if (first === "" || isOpaqueError(first)) return "connection failed";
-  if (/refus/i.test(first)) return "connection refused";
+  if (/ECONNREFUSED|connection refused/i.test(first)) return "connection refused";
+  if (/certificate/i.test(first)) return "certificate rejected";
+  if (/does not accept this host/i.test(first)) return "host not allowed";
   if (/time(?:d)?[\s-]*out|timeout/i.test(first)) return "timed out";
-  if (/\b401\b|\b403\b|unauthor|forbidden|auth/i.test(first)) return "auth failed";
+  if (/\b401\b|\b403\b|unauthor|forbidden|auth|password/i.test(first)) return "auth failed";
+  if (/refus/i.test(first)) return "connection refused";
   if (first.length > REASON_MAX_LENGTH) return `${first.slice(0, REASON_MAX_LENGTH - 1)}…`;
   return first;
 }

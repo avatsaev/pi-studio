@@ -2538,6 +2538,12 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   WS failure rejects with an `Event`, which `connection-store`'s `String(error)` fallback turns into
   `"[object Event]"`; `shortConnectionReason()` filters that (and any `[object …]`) to
   "connection failed", and the pill's `title` falls back to the same text instead of the internals.
+- **`shortConnectionReason()` tests the specific causes before the loose `refus`.** The desktop
+  host's messages (Rust, `crates/net`) say "refused the password (401)" and "The certificate of … was
+  …", so the order is: the socket's own `ECONNREFUSED`/"connection refused", a certificate
+  ("certificate rejected"), a host name the daemon does not accept ("host not allowed"), a timeout,
+  401/403/password ("auth failed"), then the loose `refus`. Reordering brings back a wrong password
+  that reads "connection refused" (found live, desktop sprint-116/task-005).
 - **Only the url/password fields may shrink in the bar.** Title, status pill, action and panel
   toggles are all `flex: none`; the fields carry `flex: 0 1 <basis>` plus a `min-width` floor, and
   the bar itself scrolls horizontally once that floor is hit — it never wraps to a second row.

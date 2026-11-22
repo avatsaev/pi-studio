@@ -20,7 +20,7 @@ Engine `crates/engine/src/local.rs` (+ tests, `secret/tests.rs`); shell `daemons
 
 ## Acceptance criteria
 - [x] The dial answer for a direct entry with a password has no `password` field: `commands/tests.rs` asserts exactly `{"url":"10.0.0.2:8080","connect":true}`; the supervisor, owner thread and guard test assert the same.
-- [ ] **"The window still connects to a password-protected daemon in the container": run in 116/task-005 run (1)** (a production daemon with a password); see that summary.
+- [x] The window connects to a password-protected daemon while `daemon_resolve_current` carries no password: shown live in 116/task-005 run (1) on 2026-11-22 (the Rust process held the password 8 times, the page's processes 0).
 - [x] The guard test fails if the field is put back: `page_answers_hold_no_password` in `secret_guard.rs` (local, direct, relay entries; owner-thread plan replies; `boot`; the marker password still reaches Rust's dial through `bridge_password`; the relay link is the one allowed secret). Shown failing once with the field temporarily put back ("the page's answer for the local entry leaked secret …"), then restored.
 - [x] `cargo xtask ci` and the app's `npm test` pass.
 

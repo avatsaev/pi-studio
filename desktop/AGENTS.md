@@ -23,7 +23,11 @@ registry that the page, the CLI and the control socket dispatch into. The socket
 entry's daemon is Rust's (milestone 2): the host's `connection.createTransport` (`src/host/connection.ts`) returns, for
 a current entry of kind `local` or `direct`, the SDK's WebSocket transport pointed at the single-use loopback
 address that the page's command `transport_open` answers after Rust dialled the daemon (`src/host/proxied-transport.ts`,
-`src-tauri/src/transport.rs`); a relay entry, or no current entry, keeps the webview's own socket.
+`src-tauri/src/transport.rs`); a relay entry, or no current entry, keeps the webview's own socket. A
+refused `transport_open` is reported to the SDK as a close (1006) after the rejection, as the SDK's own
+transport does for a failed connect: the daemon client leaves "connecting" only on a close, so without
+it the connection bar never shows the message or Retry. Checked live on Linux (2026-11-22,
+`docs/development.md` § The transport proxy in the real webview).
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
 picker and a file dragged from the OS were not verified in the headless container.
 

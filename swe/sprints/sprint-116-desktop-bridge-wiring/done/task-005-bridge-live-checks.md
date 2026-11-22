@@ -1,7 +1,7 @@
 # Task 005 — Linux live checks for the proxy
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs
 - **Priority:** P1
