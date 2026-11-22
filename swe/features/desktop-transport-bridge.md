@@ -6,7 +6,7 @@
 > were rewritten for it on 2026-11-22. The proxy is not built (sprints 115–116).** Milestone 2 of the
 > desktop client. Decisions T1–T5 are the owner's; P1–P10 were proposed here and accepted by the
 > owner on 2026-11-21, with the note that the goal is to reach milestones 2, 3 and 4 in that order;
-> P11–P16 were proposed with the rewrite and await the owner's review.
+> P11–P16 were proposed with the rewrite and accepted by the owner on 2026-11-22.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -61,7 +61,7 @@ Proposed in this document and accepted by the owner on 2026-11-21:
 | P9 | The page can open a bridged socket to the current entry only; Rust dials the stored address | The page must not make Rust send a stored password to an address of its choosing |
 | P10 | `ui.inspect` reports the bridged connections (counters, no secret) | The macOS runner has no WebDriver: this is how an automated check sees that the page connected |
 
-Proposed with the rewrite of 2026-11-22, awaiting the owner's review:
+Proposed with the rewrite of 2026-11-22 and accepted by the owner the same day:
 
 | # | Decision | Why |
 |---|---|---|
@@ -89,7 +89,7 @@ run counts.
 | B1 | Keystroke echo: 2,000 round trips of a 32-byte binary frame, one at a time | Round-trip time: mean, median and 99th percentile, minus the baseline's. WebKit's timer steps by 1 ms, so there the median and 99th percentile read 0 or 1 and the **mean** decides (measured 2026-11-21: baseline round trip about 30–45 µs on Linux) | Median at most 1 ms slower; 99th percentile at most 5 ms slower; where the timer is coarse, mean at most 1 ms slower |
 | B2 | Terminal flood: 256 MiB inbound as binary frames of 4 KiB, 64 KiB and **256 KiB** (a real flood measured 2026-11-21 arrives at a median of about 350 KiB, p99 about 475 KiB, max 553 KiB; the first two sizes cover a slow producer) | MiB/s | At least 40 MiB/s (xterm.js states it parses 5–35 MB/s, so the bridge is not the limit) |
 | B3 | Many small frames: 200,000 inbound text frames of 200 bytes | Frames/s | At least 5,000 (ten flooding terminals are 2,500 frames/s at one frame per 4 ms; the rest is headroom for agent streams) |
-| B4 | Download: 1 GiB inbound as 32 KiB binary frames | MiB/s; growth of the app's processes | At least half the baseline and at least 40 MiB/s (P2); growth at most the inbound window (§ 3) plus 64 MiB |
+| B4 | Download: 1 GiB inbound as 32 KiB binary frames | MiB/s; growth of the app's processes | At least half the baseline and at least 40 MiB/s (P2); growth at most the baseline's in the same run plus 64 MiB (P14, 2026-11-22; before that: the channel's inbound window plus 64 MiB, the mark the runs of 2026-11-21 were judged on) |
 | B5 | Upload: 256 MiB outbound as 32 KiB binary frames, paced on `bufferedAmount` at 1 MiB | MiB/s; `bufferedAmount` at the end | At least half the baseline and at least 40 MiB/s; back to 0 |
 | B6 | Order and integrity, in every workload: each frame carries a counter, each stream a running hash | Frames reordered, lost or changed | None, in every run on every platform |
 | B7 | B1 while B4 runs | 99th-percentile round trip | Reported only: one socket is shared, as today (milestone 3 separates them) |

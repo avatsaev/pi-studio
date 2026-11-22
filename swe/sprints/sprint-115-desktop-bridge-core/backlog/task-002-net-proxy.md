@@ -28,6 +28,7 @@ Decision T5 (2026-11-22): the channel design failed the benchmark gate, and the 
 - **Closing**, as § 3's table: a close frame from either leg reaches the other with its code and reason (wait up to 2 s for the answer, then drop); a leg that ends without a close frame drops the page's leg (the page sees 1006) or closes the daemon's with 1001; a message above 128 MiB closes both legs with 1009.
 - **The set of connections.** At most 4 (waiting for the page, or open): a fifth is `limit`. Close all (1001 to each daemon, page legs dropped). A snapshot for `ui.inspect`: entry id (given by the caller), state (`connecting`, `open`, `closing`), frames and bytes each way, and the last abnormal end (`page_refused`, `page_timeout`, `upstream_lost`, `too_large`) with its time.
 - **P16.** `codec.rs`, `window.rs` and `order.rs` (and what only they use in `testing.rs`) move into `desktop/apps/ipc-bench`, which is their only user; `limits.rs` stays. The benchmark still builds and its tests pass.
+- **P14.** The benchmark's rule for B4 memory growth (`desktop/apps/ipc-bench/page/compare.js`) becomes "no more than the baseline's growth in the same run, plus 64 MiB", with its test. No benchmark run is part of this task.
 - `desktop/docs/architecture.md` and `desktop/AGENTS.md` (the workspace map's line for `net`) say what the crate holds now.
 
 ## Out of scope

@@ -13,7 +13,7 @@ On 2026-11-22 the owner chose the loopback WebSocket proxy owned by Rust, on all
 - Sprint 117: t001 gained the frozen-daemon case and the page's reaction to a network signal (both left open by 114/t004); t003 gained the firewall and security-software observation.
 - `swe/sprints/PLAN.md`, `swe/MAIN-SCOPE.md`, `docs/desktop-client-handoff.md`, `swe/notes/desktop-ipc-benchmark.md` (the verdict names the decision) and the note at the top of `swe/architecture/ssh-gateway-connections.md` (no forwarded port; the page's leg is the same short-lived loopback listener) agree.
 
-## Proposals that await the owner's review
+## Proposals, all accepted by the owner on 2026-11-22
 | # | Proposal |
 |---|---|
 | P11 | One listener per connection, closed at the page's upgrade or after 10 s; single-use token; `Origin` and `Host` checks |

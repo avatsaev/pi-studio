@@ -3134,7 +3134,8 @@ the other (both may edit the checklist and the spec).
 > benchmark and met the marks on all three platforms except B4 memory growth, which the baseline
 > misses too. Numbers: `swe/notes/desktop-ipc-benchmark.md`. **On 2026-11-22 the owner chose the
 > loopback proxy on all three platforms (spec decision T5).** t008 rewrote the spec's §§ 2–3 and
-> the nine tasks, which are back in `backlog/`; proposals P11–P16 await the owner's review.
+> the nine tasks, which are back in `backlog/`; the owner accepted proposals P11–P16 the same day.
+> Building sprints 115–116 waits for the owner's word.
 >
 > **Found at planning time.** Read in Tauri 2.12.5: a channel message under 1,024 raw bytes is
 > delivered by evaluating a script and a larger one through an extra fetch, so per-frame and
