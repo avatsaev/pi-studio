@@ -1,8 +1,11 @@
 # Feature — Desktop Transport Bridge
 
-> **Status: specified 2026-11-21, planned as sprints 112–117. Not built.** Milestone 2 of the
+> **Status: specified 2026-11-21, planned as sprints 112–117. Sprints 113 and 114 are built
+> (§§ 5–6, `onResume`). The benchmark gate FAILED on 2026-11-22 (§ 1, Result), so §§ 2–3 are not
+> built and are not current: they describe the channel design that failed. The owner chooses the
+> replacement (sprint-112/task-008).** Milestone 2 of the
 > desktop client. Decisions T1–T4 are the owner's; P1–P10 were proposed here and accepted by the
-> owner on 2026-11-21, with the note that the goal is to reach milestone 4 (the relay in Rust).
+> owner on 2026-11-21, with the note that the goal is to reach milestones 2, 3 and 4 in that order.
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -93,6 +96,21 @@ webview versions.
 benchmark application and proposes one to the owner. Candidates, none evaluated: a WebSocket served
 by the app on `127.0.0.1` with a per-launch token; a streamed response from a custom URI scheme for
 the inbound direction. §§ 5–6 and `onResume` (§ 4) do not depend on the outcome.
+
+**Result (2026-11-22): the gate failed.** Numbers, runs and versions:
+`swe/notes/desktop-ipc-benchmark.md` § Results on three platforms. No variant of the channel
+passes every gated row on all three platforms. On the Windows runner the batched variant carried
+about 30 MiB/s whatever the workload and missed B1 (median 1.2 ms slower), B2 at 4 KiB and 64 KiB
+(33.5 and 34.7 MiB/s), B4 (29.9 MiB/s against 88.8), B4 memory growth and B5 (28.6 against 42.4)
+in three full runs that agree within 3 %; B4 and B5 miss by more than the 20 % a real machine
+could excuse. On macOS it missed B4 in two of three runs; on Linux B4 (the half-the-baseline rule
+only) and B4 memory growth. The per-frame variant missed more, and on macOS one of its messages
+was never delivered, which froze that connection. Per T3, §§ 2–3 are not built and the tasks of
+sprints 115 and 116 are blocked. The first candidate above was then built into the benchmark
+(`proxy-ws`: one listener per connection, a single-use token, an `Origin` check) and measured on
+all three platforms: it met every mark except B4 memory growth on Windows and Linux, which the
+baseline misses by more. The streamed custom-scheme response was not measured. The owner chooses
+(sprint-112/task-008); no pass mark was changed.
 
 Facts read in Tauri 2.12.5 on 2026-11-21, which the benchmark exists to put numbers on:
 
@@ -397,8 +415,8 @@ password:
 
 Benchmark:
 
-- [ ] Given the benchmark application, when it runs on Linux, a macOS runner and a Windows runner, then `swe/notes/desktop-ipc-benchmark.md` holds every row of § 1 for each platform, three runs each, with the baseline, the variant chosen and the webview versions.
-- [ ] Given those results, then the gate is stated as passed or failed against P1, and on a failure nothing of §§ 2–3 is built before the owner accepts another design.
+- [x] Given the benchmark application, when it runs on Linux, a macOS runner and a Windows runner, then `swe/notes/desktop-ipc-benchmark.md` holds every row of § 1 for each platform, three runs each, with the baseline, the variant chosen and the webview versions. (2026-11-22. Gaps: the Linux result files were lost, so Linux shows the worst of three without the three values, and the WebKitGTK version is not recorded; no variant was chosen because the gate failed.)
+- [x] Given those results, then the gate is stated as passed or failed against P1, and on a failure nothing of §§ 2–3 is built before the owner accepts another design. (2026-11-22: failed; sprints 115 and 116 are blocked.)
 
 Bridge (only after the gate passed):
 
@@ -431,7 +449,9 @@ Gates and documents:
 ## TODO(verify)
 
 - **The numbers of P1 (partly answered, 2026-11-21).** xterm.js's 5–35 MB/s is its documentation's figure, not measured here. A real flood's frame sizes were measured (`swe/notes/desktop-ipc-benchmark.md`, dev daemon with a real PTY, a Node consumer, a fast machine): median about 354 KiB, so B2 gained a 256 KiB size; a slower producer gives smaller frames, which the 4 KiB and 64 KiB sizes cover. The 40 MiB/s and 5,000 frames/s marks are still derived, not measured.
-- **Which IPC path each webview uses** for raw bodies (the `ipc://` fetch or the `postMessage` fallback), and whether invokes ever reach Rust out of order. § 3's `seq` assumes they can.
+- **Which IPC path each webview uses (answered, 2026-11-21).** Raw bodies travelled by the custom protocol as raw bytes on all three webviews; none was sent as a JSON array. Invokes do reach Rust out of order with one message per frame (15,844 on macOS and 1,188 on Windows in one run, at most 29 waiting) and never with batches, so `seq` is needed.
+- **Why one channel message was lost on macOS** (run 3 of the benchmark, per-frame variant): not reproduced, cause unproven. Any design that keeps Tauri's channel needs a stall watchdog.
+- **A real Windows machine** was not measured: the Windows figures are a 4-logical-core runner's.
 - **The keychain crate (answered, 2026-11-21, sprint-113/task-002).** `keyring-core` with one store crate per platform (`zbus-secret-service-keyring-store`, `apple-native-keyring-store`, `windows-native-keyring-store`), all MIT OR Apache-2.0 with their dependencies; the Linux backend needs a D-Bus session bus and a Secret Service, and is pure Rust. The macOS and Windows crates were not compiled or run here.
 - **How the engine reaches the store without blocking the owner thread (answered, sprint-113/task-004 and 005).** A pure `plan` on the owner thread and a `finish` or `SecretJob` step on a worker thread; see `desktop/docs/architecture.md` § Decisions and § Threads.
 - **macOS and an unsigned build**: whether the keychain prompts after every update, and whether a GitHub runner can use a keychain unattended.

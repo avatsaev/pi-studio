@@ -1,7 +1,7 @@
 # Task 004 — Desktop host: the bridged `Transport` in TypeScript
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1
@@ -50,3 +50,8 @@ The SDK's `DaemonClient` is unchanged (T4), so every difference from a browser s
 ## Notes
 - Hoist functions that capture nothing.
 - The oxlint rule that bans network calls in this package stays on: the module makes none itself.
+
+## Blocker
+The benchmark gate failed (sprint-112/task-007, 2026-11-22; `swe/notes/desktop-ipc-benchmark.md` § Verdict). On the Windows runner the batched channel missed B1 (median 1.2 ms slower, mark 1 ms), B2 at 4 KiB and 64 KiB (33.5 and 34.7 MiB/s, mark 40), B4 (29.9 MiB/s, mark 88.8), B4 memory growth and B5 (28.6 MiB/s, mark 42.4) in three full runs; on macOS it missed B4 in two of three; on Linux B4 and B4 memory growth. The per-frame channel missed more. Decision T3: §§ 2–3 of the spec are not built. Unblock when the owner has chosen a design (sprint-112/task-008); this task is then rewritten for that design, or dropped.
+
+Expected if the owner picks the loopback proxy (not decided): mostly dropped: the page keeps its WebSocket transport and only asks Rust for the local URL.

@@ -1,7 +1,7 @@
 # Task 001 — App binary: the five transport commands, the channel, closing on boot and switch
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1
@@ -48,3 +48,8 @@ This joins the `net` crate to the webview. The page gets the least it needs: it 
 ## Notes
 - Adding a command means three places (`build.rs`, the capability, `generate_handler!`); the test asserts the list.
 - The channel's own fetch command needs no permission (read in Tauri 2.12.5); do not add a `core:` permission.
+
+## Blocker
+The benchmark gate failed (sprint-112/task-007, 2026-11-22; `swe/notes/desktop-ipc-benchmark.md` § Verdict). On the Windows runner the batched channel missed B1 (median 1.2 ms slower, mark 1 ms), B2 at 4 KiB and 64 KiB (33.5 and 34.7 MiB/s, mark 40), B4 (29.9 MiB/s, mark 88.8), B4 memory growth and B5 (28.6 MiB/s, mark 42.4) in three full runs; on macOS it missed B4 in two of three; on Linux B4 and B4 memory growth. The per-frame channel missed more. Decision T3: §§ 2–3 of the spec are not built. Unblock when the owner has chosen a design (sprint-112/task-008); this task is then rewritten for that design, or dropped.
+
+Expected if the owner picks the loopback proxy (not decided): rewritten: one command that opens the proxy and answers a local URL, instead of five commands and a channel.

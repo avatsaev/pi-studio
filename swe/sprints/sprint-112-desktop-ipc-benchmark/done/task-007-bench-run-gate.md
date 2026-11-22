@@ -1,7 +1,7 @@
 # Task 007 — Run the benchmark on three platforms, write the note, state the gate
 
 - **Sprint:** sprint-112-desktop-ipc-benchmark
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** swe/notes, swe/features
 - **Priority:** P1

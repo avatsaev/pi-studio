@@ -137,15 +137,15 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 109 | `sprint-109-desktop-registry-wiring` | workbench + desktop (app + frontend): **Desktop daemon registry, slice 3 — wiring.** `HostDaemons` contract + in-memory registry for tests; registry and first probe at launch, boot snapshot `daemons` + `minDaemonVersion`, page commands and events; the switch (confirm, flush, reload); the native "Daemons" menu; the frontend's `daemons` member; live checks with the real CLI. | 6 |
 | 110 | `sprint-110-workbench-daemons-ui` | workbench: **Desktop daemon registry, slice 4 — the workbench surfaces.** Connection boot through `resolveCurrent`; the connection bar as a switcher; the Daemons screen (entries, local daemon, settings, remove); add and edit forms that never show a secret; reactions to stop, removal, a dead pairing link and the menu; the outdated-daemon notice; live checks in the desktop webview, web client unchanged. | 7 |
 | 111 | `sprint-111-desktop-daemon-registry-close` | desktop + docs: **Desktop daemon registry, slice 5 — close.** Linux acceptance run (also the three native-host criteria that needed a registry), the platform checklist's registry section, automated registry checks on macOS and Windows CI runners, the manual macOS and Windows run (needs a person), documents and spec close: desktop milestone 1 done for Linux. | 4 |
-| 112 | `sprint-112-desktop-ipc-benchmark` | desktop: **Desktop transport bridge, slice 1 — the IPC benchmark (a gate).** What a daemon really sends (frame sizes), a benchmark application with a local WebSocket server and a baseline over the page's own socket, the pure parts of a `net` crate (frame codec, inbound window, outbound order), the bridge candidates over Tauri channels and raw invokes, load and hidden-window rows, a workflow for macOS and Windows runners, then the runs, the note and the verdict. | 7 |
+| 112 | `sprint-112-desktop-ipc-benchmark` | desktop: **Desktop transport bridge, slice 1 — the IPC benchmark (a gate).** What a daemon really sends (frame sizes), a benchmark application with a local WebSocket server and a baseline over the page's own socket, the pure parts of a `net` crate (frame codec, inbound window, outbound order), the bridge candidates over Tauri channels and raw invokes, load and hidden-window rows, a workflow for macOS and Windows runners, then the runs, the note and the verdict. **The gate failed (2026-11-22)**; t008 (the owner's choice of another design) was added and is blocked. | 8 |
 | 113 | `sprint-113-desktop-secret-store` | desktop + workbench: **Desktop transport bridge, slice 2 — secrets leave `daemons.json`.** A `secrets` crate (memory, file and keychain backends), registry file version 2, migration at launch, engine commands writing secrets to the store, the backend choice and `--secret-store`, the Daemons screen's line for the file backend, Linux live checks and documents. Independent of the gate. | 8 |
 | 114 | `sprint-114-desktop-resume-signals` | desktop: **Desktop transport bridge, slice 3 — wake and network signals.** Wake detected from a clock gap, network changes from polled interface addresses, the `connection_resume` event, a desktop `connection` member whose `onResume` hears it, and a Linux live check by stopping and continuing the app. Independent of the gate. | 4 |
 | 115 | `sprint-115-desktop-bridge-core` | desktop: **Desktop transport bridge, slice 4 — the bridge's parts (only after the gate passed).** Dialling in the `net` crate (TCP, TLS on the system's certificates, the upgrade with the bearer password, error classes), a connection's read and write tasks with limits and handles, the address rule in Rust with vectors shared with the workbench, and the bridged `Transport` in TypeScript. | 4 |
 | 116 | `sprint-116-desktop-bridge-wiring` | desktop: **Desktop transport bridge, slice 5 — wiring.** The five page commands and the channel, `ui.inspect` reporting connections, `createTransport` choosing the bridge for local and direct entries, `daemon_resolve_current` without a password, and Linux live checks (terminal flood, 1 GiB transfers, errors, reload, relay entries unchanged). | 5 |
 | 117 | `sprint-117-desktop-transport-bridge-close` | desktop + docs: **Desktop transport bridge, slice 6 — close.** Linux acceptance run with everything built, the checklist's milestone 2 section, automated checks on macOS and Windows runners, sleep and wake on real machines (needs a person), documents and spec close: desktop milestone 2. | 4 |
 
-Total: **111 sprints, 587 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20) and by 112–117 (+6/+32, 2026-11-21; the table sums to 111/587). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **111 sprints, 588 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21) and by the design task 112/t008 (+0/+1, 2026-11-22; the table sums to 111/588). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3126,6 +3126,14 @@ the other (both may edit the checklist and the spec).
 > another bridge is added; a socket left in the webview is not the fallback. Sprints 113 and 114
 > do not wait for the gate.
 >
+> **Result (2026-11-22): the gate failed.** t007 ran the benchmark on Linux and five times on the
+> macOS and Windows runners (draft pull request 60). On Windows the batched channel carried about
+> 30 MiB/s and missed B1, B2 at 4 and 64 KiB, B4 and B5 in three full runs; on macOS it missed B4
+> in two of three; the per-frame channel missed more and lost a message once. The nine tasks of
+> sprints 115 and 116 are in `blocked/`. A loopback WebSocket proxy owned by Rust was added to the
+> benchmark and met the marks on all three platforms except B4 memory growth, which the baseline
+> misses too. t008 waits for the owner's choice. Numbers: `swe/notes/desktop-ipc-benchmark.md`.
+>
 > **Found at planning time.** Read in Tauri 2.12.5: a channel message under 1,024 raw bytes is
 > delivered by evaluating a script and a larger one through an extra fetch, so per-frame and
 > batched delivery are both measured. Row B2's frame sizes are guesses until t001 measures a real
@@ -3141,6 +3149,7 @@ the other (both may edit the checklist and the spec).
 | task-005 | Benchmark: echo under load, a hidden window, worker timers (B7, B8) and memory | feature | task-004 | desktop-transport-bridge § 1 (B4, B7, B8), decision P7 |
 | task-006 | Workflow: run the benchmark on a macOS and a Windows runner | chore | task-005 | desktop-transport-bridge § 1 (where it runs) |
 | task-007 | Run the benchmark on three platforms, write the note, state the gate | test | task-001, task-006 | desktop-transport-bridge § 1 (pass marks, outcome), § Acceptance criteria (Benchmark), decisions T3, P1, P2 |
+| task-008 | Choose the bridge design, respecify § 2–3, replan sprints 115 and 116 (blocked: the owner's choice) | design | task-007 | desktop-transport-bridge § 1 (If it fails), § 2, § 3, decision T3 |
 
 t001, t002 and t003 are independent (a script and a note; a new application; a new crate) and run
 in parallel. t004, t005 and t006 follow in order. t002 and t003 both edit `desktop/Cargo.toml`
@@ -3200,6 +3209,9 @@ TypeScript only and runs beside t001 and t002.
 > **Only after the gate passed (T3).** Every task depends on s112/t007. If the gate failed, these
 > tasks are in `blocked/` and are rewritten for the design the owner accepts.
 >
+> **Blocked since 2026-11-22.** The gate failed (sprint 112). All four tasks are in `blocked/`,
+> each with what is expected of it if the owner picks the loopback proxy.
+>
 > **Found at planning time.** The channel's encoding (one message per frame, or batches) is the
 > benchmark's result: t002 and t004 read it from the note. t003's vectors file sits under
 > `packages/workbench` unless the implementer chooses `desktop/` to avoid an npm release.
@@ -3216,6 +3228,9 @@ t001, t003 and t004 are independent (three different places) and run in parallel
 ### sprint-116-desktop-bridge-wiring
 > **What it ships.** The window connects to a local or direct entry through Rust, and a daemon's
 > password no longer reaches the page. Relay entries are unchanged (T1).
+>
+> **Blocked since 2026-11-22.** The gate failed (sprint 112). All five tasks are in `blocked/`
+> until s112/t008 rewrites them for the design the owner chooses.
 >
 > **Found at planning time.** The choice between the bridge and the webview's socket follows the
 > kind of the current entry, not the shape of the connect target: a relay entry whose pairing link

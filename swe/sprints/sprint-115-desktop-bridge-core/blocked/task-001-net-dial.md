@@ -1,7 +1,7 @@
 # Task 001 — `net` crate: dialling (TCP, TLS, the WebSocket upgrade, error classes)
 
 - **Sprint:** sprint-115-desktop-bridge-core
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** feature
 - **Area:** desktop/crates/net
 - **Priority:** P1
@@ -50,3 +50,8 @@ The browser's socket reports every failure as the same error. Rust can tell a wr
 ## Notes
 - `ring`'s licence is a mix of ISC-style and OpenSSL-derived terms: read it against rule 9 and say what you found.
 - The daemon checks the `Host` header against `PI_STUDIO_HOSTNAMES` and does not check `Origin`: send `Host` from the URL as a browser would.
+
+## Blocker
+The benchmark gate failed (sprint-112/task-007, 2026-11-22; `swe/notes/desktop-ipc-benchmark.md` § Verdict). On the Windows runner the batched channel missed B1 (median 1.2 ms slower, mark 1 ms), B2 at 4 KiB and 64 KiB (33.5 and 34.7 MiB/s, mark 40), B4 (29.9 MiB/s, mark 88.8), B4 memory growth and B5 (28.6 MiB/s, mark 42.4) in three full runs; on macOS it missed B4 in two of three; on Linux B4 and B4 memory growth. The per-frame channel missed more. Decision T3: §§ 2–3 of the spec are not built. Unblock when the owner has chosen a design (sprint-112/task-008); this task is then rewritten for that design, or dropped.
+
+Expected if the owner picks the loopback proxy (not decided): carries over almost unchanged: Rust still dials the daemon (TCP, TLS, the upgrade with the bearer password).

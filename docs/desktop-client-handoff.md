@@ -589,9 +589,14 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    low-overhead binary delivery over Tauri IPC fast enough for terminal traffic).
 2. **Rust transport bridge.** Sockets move to Rust; password in the keychain; reconnect driven by
    native signals. Check: sleep the machine, wake it, and the session recovers without a reload.
-   *State (2026-11-21): specified in `swe/features/desktop-transport-bridge.md` and planned as
-   sprints 112–117; not built. The benchmark is a gate: if it fails, another bridge design is
-   explored first. Relay entries keep the webview's socket until milestone 4.*
+   *State (2026-11-22): specified in `swe/features/desktop-transport-bridge.md`. Built: the IPC
+   benchmark, the secret store (keychain or a user-only file; `daemons.json` version 2 holds no
+   secret) and the wake and network signals (sprints 112–114). **The benchmark gate failed**: over
+   Tauri's channel the bridge carried about 30 MiB/s on a Windows runner (the page's own WebSocket
+   did 100 to 470 on the same machine) and missed its marks; a loopback WebSocket proxy owned by
+   Rust met them on all three platforms. The bridge itself (sprints 115–116) waits for the owner's
+   choice of design. Numbers: `swe/notes/desktop-ipc-benchmark.md`. Relay entries keep the
+   webview's socket until milestone 4.*
 3. **Transfer engine.** Upload and download by path on the bulk connection. Check: a multi-gigabyte
    file moves both ways with flat memory use while a terminal stays responsive.
 4. **Relay in Rust, and a connection over SSH.** Implement protocol 2
@@ -627,7 +632,10 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   one client socket paused, a second client kept getting answers (p50 0.84 ms, max 9.75 ms).
 - Should the protocol gain upload resume and a larger chunk size? Download resume shipped in sprint
   097; upload resume and the chunk size are out of scope for the follow-ups spec.
-- Is ordered, low-overhead binary delivery over Tauri IPC fast enough for terminal traffic?
+- Answered 2026-11-22 (`swe/notes/desktop-ipc-benchmark.md`): ordered binary delivery over Tauri
+  IPC is fast enough for terminal traffic on Linux and macOS when frames are batched, and not on
+  Windows (about 30 MiB/s on a runner, a keystroke round trip of about 200 ms while a download
+  runs). Open instead: which design replaces the channel (sprint-112/task-008).
 
 ## Where to read next
 
