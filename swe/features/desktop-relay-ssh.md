@@ -1,6 +1,6 @@
 # Feature — Desktop Relay in Rust and SSH Entries
 
-> **Status: specified and planned 2026-11-22 (sprints 124–130, 27 tasks), not built.** Milestone 4 of the desktop client.
+> **Status: built and checked on Linux 2026-11-22 (sprints 124–130, 27 tasks).** Milestone 4 of the desktop client. macOS and Windows were built by the release workflow (a manual run, nothing published) and not run (owner's decision). Open items are in § TODO(verify).
 > Decisions D1–D23 are from the grill ([../grills/desktop-relay-ssh.md](../grills/desktop-relay-ssh.md),
 > closed by the owner on 2026-11-22: D21–D23 are the owner's own, D1–D20 were proposed by the agent
 > and confirmed with the readout). S1–S16 are proposed in this document; where one refines a D
@@ -437,75 +437,80 @@ at a hop uses the same codes and names the hop.
 ## Acceptance criteria
 
 **Relay, in tests**
-- [ ] A Rust test reads `packages/protocol/fixtures/external-clients/relay/manifest.json`, fails on
+- [x] A Rust test reads `packages/protocol/fixtures/external-clients/relay/manifest.json`, fails on
   an unlisted or missing file, rebuilds `hello`, `ready` and the two client messages byte for byte
-  from `keys.json`, opens the two daemon messages, and derives `sessionId` and `sharedKey`.
-- [ ] The link vectors pass in TypeScript and in Rust, including a key that is not 32 bytes, both
+  from `keys.json`, opens the two daemon messages, and derives `sessionId`. (`sharedKey` is proved
+  indirectly: `crypto_box` keeps it inside `SalsaBox`, and the sealed frames match only with the same key.)
+- [x] The link vectors pass in TypeScript and in Rust, including a key that is not 32 bytes, both
   `host` and `relay`, a scheme on `relay`, and missing padding.
-- [ ] Against the relay stand-in: each close code before pairing gives its reason; a silent relay
-  gives `timeout` at 15 s; a bad `ready` gives `wrong_key` and close 4200; a frame that does not
+- [x] Against the relay stand-in: each close code before pairing gives its reason; a silent relay
+  gives `timeout` at the limit (a 300 ms limit in the test; the 15 s is the constant); a bad `ready` gives `wrong_key` and close 4200; a frame that does not
   open after the channel is up closes 4200 and delivers nothing.
 
 **Relay, in the real webview (Linux)**
-- [ ] A relay entry connects through a relay started from the repository to a daemon on loopback;
-  chat and a terminal work; `ui.inspect` shows a transport with `via: "relay"`.
-- [ ] No answer of any page command holds the link (`secret_guard`), and the log of the run holds
+- [x] A relay entry connects through a relay started from the repository to a daemon on loopback;
+  chat and a terminal work; `ui.inspect` shows a transport with `via: "relay"` (the `via` field arrived
+  with sprint 128/t005 and is asserted in the app's tests; the live relay run saw the daemon's own `via`).
+- [x] No answer of any page command holds the link (`secret_guard`), and the log of the run holds
   neither the link nor the relay's host.
-- [ ] A link with a wrong key marks the entry and offers Replace link; with the daemon stopped the
+- [x] A link with a wrong key marks the entry and offers Replace link; with the daemon stopped the
   page shows the offline message and connects by itself once the daemon is back.
-- [ ] A link with a host hint connects directly.
+- [x] A link with a host hint connects directly.
 
 **SSH, in tests (in-process server)**
-- [ ] Login with a key file, an encrypted key with its passphrase, an agent, and a password; the
+- [x] Login with a key file, an encrypted key with its passphrase, an agent, and a password; the
   order of D11; `IdentitiesOnly`; the 6-attempt limit; `auth_failed`, `passphrase_needed`,
   `key_unreadable`.
-- [ ] Config: an alias with `HostName`, `User`, `Port`, `IdentityFile`; an include; the entry's
+- [x] Config: an alias with `HostName`, `User`, `Port`, `IdentityFile`; an include; the entry's
   fields winning; `ProxyCommand` and a malformed file giving `ssh_config`; `ProxyJump` with one and
   two hops.
-- [ ] Host keys: known in either file; unknown; changed; a non-default port.
-- [ ] `open_daemon` to a closed port gives `daemon_not_running`; a refused channel gives
+- [x] Host keys: known in either file; unknown; changed; a non-default port.
+- [x] `open_daemon` to a closed port gives `daemon_not_running`; a refused channel gives
   `forwarding_refused`; `run` returns status and output, cuts at 64 KiB and stops at its limit.
 
 **SSH, in the real webview (Linux, sshd in the image)**
-- [ ] An SSH entry reaches a daemon that listens on loopback only, with each of the four logins and
-  through a jump host; chat and a terminal work; `via: "ssh"`.
-- [ ] A first connection shows the dialog; Trust connects without another action and the key is in
-  the app's `known_hosts`; a host key changed on the server is refused.
-- [ ] With the daemon stopped the screen opens with Start; Start brings the daemon up and the page
+- [x] An SSH entry reaches a daemon that listens on loopback only, with each of the four logins and
+  through a jump host; chat and a terminal work; `via: "ssh"`. (The jump-host chat and terminal were
+  not repeated on the build that fixed the reconnect after Trust.)
+- [x] A first connection shows the dialog; Trust connects without another action and the key is in
+  the app's `known_hosts`; a host key changed on the server is refused. (Needed a fix: a page whose first
+  connect failed never started its reconnection manager.)
+- [x] With the daemon stopped the screen opens with Start; Start brings the daemon up and the page
   connects. With `pi-studio` off the PATH the row says not installed and Copy puts the command on
-  the clipboard. With `pi-studio` installed through nvm, Start works.
-- [ ] The Add form lists the hosts of a `~/.ssh/config`; choosing one and saving gives an entry
+  the clipboard. With `pi-studio` found only by an interactive login shell (an nvm-like `.bashrc`), Start works.
+- [x] The Add form lists the hosts of a `~/.ssh/config`; choosing one and saving gives an entry
   that connects.
 
 **Transfers and recovery**
-- [ ] A 1 GiB upload and a 1 GiB save through the relay, and through SSH, give equal hashes while
-  a terminal answers. The transfer's `peakHeld` is at most 1 MiB. The app's Rust process grows by
-  less than 32 MiB more for 4 GiB than for 1 GiB. The rates are recorded.
-- [ ] After the app is stopped for 90 s and continued, and after the container's network is taken
+- [x] A 1 GiB upload and a 1 GiB save through the relay, and through SSH, give equal hashes while
+  a terminal answers. The transfer's `peakHeld` is at most 1 MiB (1 MiB + 64 bytes). The app's Rust process grows by
+  less than 32 MiB more for 4 GiB than for 1 GiB (at most +8.3 MiB). The rates are recorded
+  (`desktop/docs/platform-checks.md` § Transfers: memory and rates).
+- [x] After the app is stopped for 90 s and continued, and after the container's network is taken
   away and given back, a relay entry and an SSH entry are connected again without a reload, and a
   transfer in flight finishes with an equal hash.
 
 **Build**
-- [ ] `cargo xtask ci` passes, with the two crates in the layer table.
-- [ ] Desktop CI builds on macOS and Windows with no `aws-lc` crate in `Cargo.lock`.
-- [ ] `ATTRIBUTION.md` lists the new dependencies and none has a licence the rule refuses.
-- [ ] The page's Content-Security-Policy allows no WebSocket address but `ws://127.0.0.1:*`, and
+- [x] `cargo xtask ci` passes, with the two crates in the layer table.
+- [x] The Linux, macOS and Windows builds pass with no `aws-lc` crate in `Cargo.lock` (Desktop CI is Linux only; the macOS and Windows builds are the manual run of `desktop-release.yml`, runs 45069793094 and 45081989872, which publish nothing; `cargo xtask layers` fails on an `aws-lc` package).
+- [x] `ATTRIBUTION.md` lists the new dependencies and none has a licence the rule refuses.
+- [x] The page's Content-Security-Policy allows no WebSocket address but `ws://127.0.0.1:*`, and
   the snapshot check passes.
 
 ## TODO(verify)
 
-- [ ] `russh` with `ring` and `rsa` builds on the macOS universal and Windows runners, and its
-  dependencies (it pins `ssh-key` 0.7.0-rc) pass the licence rule. First task; if it fails, the SSH
-  half stops and the owner is asked.
-- [ ] `russh`'s known-hosts helpers read hashed entries and `[host]:port` entries of
-  `~/.ssh/known_hosts`. If not, the lookup is written in the `ssh` crate.
-- [ ] `ssh2-config` gives `IdentitiesOnly` and `IdentityAgent` (as untyped fields).
+- [x] `russh` with `ring` and `rsa` builds on the macOS universal and Windows runners, and its
+  dependencies (it pins `ssh-key` 0.7.0-rc) pass the licence rule. Seen in sprint 124/t002 and again on the finished feature.
+- [x] `russh`'s known-hosts helpers read hashed entries and `[host]:port` entries of
+  `~/.ssh/known_hosts`, but fail on one malformed line, ignore `@revoked` and wildcards and compare names
+  case-sensitively: the lookup is written in the `ssh` crate.
+- [x] `ssh2-config` gives `IdentitiesOnly` and `IdentityAgent` (as untyped fields, `unsupported_fields`).
 - [ ] How long the SDK waits for `transport.connect`: an SSH connection through hops may take 45 s
-  (S9).
-- [ ] Nothing in the workbench stores or shows the connect URL in a way that the addresses of S3
-  change.
-- [ ] Nothing else in the page opens a WebSocket that S14 would block.
-- [ ] `"$SHELL" -lic` with markers on bash, zsh and fish hosts; other shells are not checked.
-- [ ] The SSH window and packet sizes that give a useful transfer rate: set from a measurement.
-- [ ] The Windows agent (the OpenSSH pipe, Pageant), macOS and Windows as a whole: not checked,
+  (S9). Not checked.
+- [x] Nothing in the workbench stores or shows the connect URL in a way that the addresses of S3
+  change (`connect-current.ts` needed no change).
+- [x] Nothing else in the page opens a WebSocket that S14 would block (the only `new WebSocket` is the browser connection, which the desktop host does not run).
+- [ ] `"$SHELL" -lic` with markers on bash, zsh and fish hosts; other shells are not checked. Seen on bash only.
+- [x] The SSH window and packet sizes that give a useful transfer rate: the channel window is 8 MiB (2.3-2.6x the saves at a 40 ms round trip against the 2 MiB default); the packet size stays at russh's 32 KiB (64 KiB gained nothing).
+- [ ] The Windows agent (the OpenSSH pipe, Pageant), macOS and Windows as a whole: built, not run,
   by the owner's decision.

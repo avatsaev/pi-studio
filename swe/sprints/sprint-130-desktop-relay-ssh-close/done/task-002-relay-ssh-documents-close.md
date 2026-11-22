@@ -1,7 +1,7 @@
 # Task 002 — Documents and spec close for milestone 4
 
 - **Sprint:** sprint-130-desktop-relay-ssh-close
-- **Status:** in_progress
+- **Status:** done
 - **Type:** docs
 - **Area:** swe/, docs/, desktop/AGENTS.md, desktop/docs/architecture.md
 - **Priority:** P1

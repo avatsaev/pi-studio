@@ -285,3 +285,13 @@ async fn closing_a_session_disconnects_every_hop() {
     let mut rest = Vec::new();
     tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut rest)).await.expect("the stream ends").ok();
 }
+
+#[test]
+fn every_hop_gets_the_channel_window_and_the_keepalive_of_the_limits() {
+    let limits = limits();
+    let config = super::client_config(&limits);
+    assert_eq!(config.window_size, super::CHANNEL_WINDOW);
+    assert_eq!(config.keepalive_interval, Some(limits.keepalive_interval));
+    assert_eq!(config.keepalive_max, limits.keepalive_max);
+    assert!(config.nodelay);
+}

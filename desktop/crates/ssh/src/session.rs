@@ -36,6 +36,11 @@ pub const TOTAL_LIMIT: Duration = Duration::from_secs(45);
 pub const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 /// Unanswered keepalives after which the connection ends.
 pub const KEEPALIVE_MAX: usize = 3;
+/// The receive window of every channel, in bytes. russh's default is 2 MiB, and about half of it is in flight at a time:
+/// a save over a 40 ms round trip ran at 25 MiB/s with it and at about 60 MiB/s with 8 MiB; 16 MiB gained nothing more
+/// (`desktop/docs/platform-checks.md` § Milestone 4, transfers). With 8 MiB the app's memory still did not grow with
+/// the size of a transfer (4 GiB against 1 GiB: at most 8.3 MiB more).
+pub const CHANNEL_WINDOW: u32 = 8 * 1024 * 1024;
 /// The originator address of a `direct-tcpip` channel: this machine, no port.
 const ORIGINATOR: (&str, u32) = ("127.0.0.1", 0);
 
@@ -239,12 +244,13 @@ fn channel_error(error: &russh::Error, hop: usize) -> Error {
     }
 }
 
-/// russh's client settings for every hop: our keepalive, and no Nagle delay.
+/// russh's client settings for every hop: our keepalive, no Nagle delay, and a [`CHANNEL_WINDOW`] window.
 fn client_config(limits: &Limits) -> Arc<client::Config> {
     Arc::new(client::Config {
         keepalive_interval: Some(limits.keepalive_interval),
         keepalive_max: limits.keepalive_max,
         nodelay: true,
+        window_size: CHANNEL_WINDOW,
         ..client::Config::default()
     })
 }

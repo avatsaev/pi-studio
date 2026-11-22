@@ -1,7 +1,7 @@
 # Task 001 — Memory and rates for relay and SSH transfers, and the checklist
 
 - **Sprint:** sprint-130-desktop-relay-ssh-close
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs/platform-checks.md
 - **Priority:** P1
