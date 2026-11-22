@@ -85,9 +85,13 @@ Layering is enforced by `cargo xtask layers`. Register a new crate in `xtask/src
    decided: the workbench and `@av-pi-studio/ui-library` are AGPL-3.0 and are bundled into the app.
 10. Secrets (a direct entry's password, a relay entry's pairing link) live only in the secret store
     (`crates/secrets`), never in `daemons.json` (version 2: `hasPassword`); the CLI's `pairingUrl` is
-    discarded. They are never logged, never in a control answer, in `boot` or in `ui.inspect`, and
-    reach the page only through `daemon_resolve_current`, for the entry being opened (`transport_open` reads
-    a password itself, in Rust, for its dial, and answers none). A store call
+    discarded. They are never logged, never in a control answer, in `boot` or in `ui.inspect`. A
+    password never reaches the page: `daemon_resolve_current` answers `{url, connect: true}` for a
+    local or direct entry, and `transport_open` reads the password itself, in Rust, for its dial and
+    answers none (`Dial::Connect` has no password field; `tests/secret_guard.rs` fails if an answer
+    gets one back). The one secret a command still returns is a relay entry's pairing link, as the `url`
+    of `daemon_resolve_current`, because a relay entry keeps the webview's own socket until
+    milestone 4. A store call
     may block: the session never makes one on the owner thread (it plans a dial, `DialPlan`, and the
     caller reads the store; `daemon.add/update/remove` are a `SecretJob` whose store steps run on
     worker threads, `deferred.rs`), except at launch, where a version 1 file's secrets are moved.

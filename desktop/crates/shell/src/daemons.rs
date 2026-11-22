@@ -167,49 +167,47 @@ pub fn batch_from_json(value: &Value) -> Batch {
     }
 }
 
-/// What the owner thread answers [`LocalOp::Resolve`] with. It holds a held-in-memory password
-/// only when a version 1 file's secrets could not be moved to the store (see the engine's
-/// `Storage::open`); otherwise it names the item to read, and the caller reads it.
+/// What the owner thread answers [`LocalOp::Resolve`] with. For a local or direct entry it is the
+/// bridge plan (see [`bridge_to_json`]): it holds a password only when a version 1 file's secrets
+/// could not be moved to the store (see the engine's `Storage::open`); otherwise it names where the
+/// password is, and the page's answer never needs it. For a relay entry it names the item to read.
 fn plan_to_json(plan: DialPlan) -> Value {
     match plan {
-        DialPlan::Ready(Dial::Connect { url, password }) => json!({"dial": "connect", "url": url, "password": password.as_ref().map(Secret::expose)}),
+        DialPlan::Ready(Dial::Connect { url }) => json!({"dial": "connect", "url": url}),
         DialPlan::Ready(Dial::StartNeeded) => json!({"dial": "start_needed"}),
         DialPlan::Ready(Dial::Wait) => json!({"dial": "wait"}),
-        DialPlan::Password { url, entry } => json!({"dial": "password", "url": url, "entry": entry.as_str()}),
+        DialPlan::Open(plan) => json!({"dial": "open", "plan": bridge_to_json(plan)}),
         DialPlan::PairingLink { entry } => json!({"dial": "pairing_link", "entry": entry.as_str()}),
     }
 }
 
 /// The inverse of [`LocalOp::Resolve`]'s answer.
 pub fn plan_from_json(value: &Value) -> Result<DialPlan, &'static str> {
-    let entry = || value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal");
     match value["dial"].as_str() {
-        Some("connect") => Ok(DialPlan::Ready(Dial::Connect {
-            url: value["url"].as_str().ok_or("internal")?.to_owned(),
-            password: value["password"].as_str().map(Secret::new),
-        })),
+        Some("connect") => Ok(DialPlan::Ready(Dial::Connect { url: value["url"].as_str().ok_or("internal")?.to_owned() })),
         Some("start_needed") => Ok(DialPlan::Ready(Dial::StartNeeded)),
         Some("wait") => Ok(DialPlan::Ready(Dial::Wait)),
-        Some("password") => Ok(DialPlan::Password { url: value["url"].as_str().ok_or("internal")?.to_owned(), entry: entry()? }),
-        Some("pairing_link") => Ok(DialPlan::PairingLink { entry: entry()? }),
+        Some("open") => Ok(DialPlan::Open(bridge_from_json(&value["plan"])?)),
+        Some("pairing_link") => Ok(DialPlan::PairingLink { entry: value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal")? }),
         _ => Err("internal"),
     }
 }
 
-/// What the owner thread answers [`LocalOp::Bridge`] with: the password is named (`"stored"`) or
-/// held in memory (`password`), never read here.
+/// What the owner thread answers [`LocalOp::Bridge`] with: where the password is, named
+/// (`"stored"`) or held in memory (`held`); never read here. The key is `source`, not `password`:
+/// no JSON this crate writes has a key of that name unless it holds the secret itself.
 fn bridge_to_json(plan: BridgePlan) -> Value {
     let (source, held) = match &plan.password {
         BridgePassword::None => ("none", None),
         BridgePassword::Held(password) => ("held", Some(password.expose())),
         BridgePassword::Stored => ("stored", None),
     };
-    json!({"entry": plan.entry.as_str(), "url": plan.url, "password": source, "held": held})
+    json!({"entry": plan.entry.as_str(), "url": plan.url, "source": source, "held": held})
 }
 
 /// The inverse of [`LocalOp::Bridge`]'s answer.
 pub fn bridge_from_json(value: &Value) -> Result<BridgePlan, &'static str> {
-    let password = match value["password"].as_str() {
+    let password = match value["source"].as_str() {
         Some("none") => BridgePassword::None,
         Some("held") => BridgePassword::Held(Secret::new(value["held"].as_str().ok_or("internal")?)),
         Some("stored") => BridgePassword::Stored,
@@ -222,18 +220,13 @@ pub fn bridge_from_json(value: &Value) -> Result<BridgePlan, &'static str> {
     })
 }
 
-/// The page's answer for a dial: `{ url, password?, connect: true }`. The only place a secret is
-/// written into JSON for the page. Anything but a connection is not an answer here (the
-/// supervisor settles those first).
+/// The page's answer for a dial: `{ url, connect: true }`. Never a password: the socket to a local
+/// or direct entry's daemon is Rust's, which reads the password itself. For a relay entry `url` is
+/// the pairing link, the one secret an answer to the page still holds. Anything but a connection
+/// is not an answer here (the supervisor settles those first).
 pub fn dial_for_page(dial: Dial) -> Result<Value, String> {
     match dial {
-        Dial::Connect { url, password } => {
-            let mut answer = json!({"url": url, "connect": true});
-            if let (Some(password), Some(fields)) = (password, answer.as_object_mut()) {
-                fields.insert("password".into(), Value::String(password.expose().to_owned()));
-            }
-            Ok(answer)
-        }
+        Dial::Connect { url } => Ok(json!({"url": url, "connect": true})),
         Dial::StartNeeded | Dial::Wait => Err("internal".to_owned()),
     }
 }
@@ -315,18 +308,20 @@ mod tests {
         assert_eq!(batch_from_json(&Value::Null), Batch::default());
         let entry = EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();
         let plans = [
-            DialPlan::Ready(Dial::Connect { url: "ws://h:1".into(), password: Some(Secret::new("pw")) }),
-            DialPlan::Ready(Dial::Connect { url: "ws://h:1".into(), password: None }),
+            DialPlan::Ready(Dial::Connect { url: "ws://h:1".into() }),
             DialPlan::Ready(Dial::Wait),
             DialPlan::Ready(Dial::StartNeeded),
-            DialPlan::Password { url: "ws://h:1".into(), entry: entry.clone() },
+            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::Stored }),
+            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::None }),
+            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::Held(Secret::new("pw")) }),
             DialPlan::PairingLink { entry },
         ];
         for plan in plans {
             assert_eq!(plan_from_json(&plan_to_json(plan.clone())), Ok(plan));
         }
         assert_eq!(plan_from_json(&Value::Null), Err("internal"));
-        assert_eq!(plan_from_json(&json!({"dial": "password", "url": "u", "entry": "../x"})), Err("internal"));
+        assert_eq!(plan_from_json(&json!({"dial": "pairing_link", "entry": "../x"})), Err("internal"));
+        assert_eq!(plan_from_json(&json!({"dial": "open", "plan": {"entry": "../x", "url": "u", "source": "none"}})), Err("internal"));
         for code in ["no_current", "timeout", "spawn_failed", "local_stopped", "secret_missing", "secret_unavailable"] {
             assert_eq!(static_code(code), code);
         }
@@ -334,12 +329,11 @@ mod tests {
     }
 
     #[test]
-    fn the_page_answer_for_a_dial_carries_the_password_only_when_there_is_one() {
-        let with = dial_for_page(Dial::Connect { url: "ws://h:1".into(), password: Some(Secret::new("pw")) }).unwrap();
-        assert_eq!(with, json!({"url": "ws://h:1", "password": "pw", "connect": true}));
-        let without = dial_for_page(Dial::Connect { url: "ws://h:1".into(), password: None }).unwrap();
-        assert_eq!(without, json!({"url": "ws://h:1", "connect": true}));
+    fn the_page_answer_for_a_dial_is_the_address_and_never_a_password() {
+        let answer = dial_for_page(Dial::Connect { url: "ws://h:1".into() }).unwrap();
+        assert_eq!(answer, json!({"url": "ws://h:1", "connect": true}));
         assert!(dial_for_page(Dial::Wait).is_err());
+        assert!(dial_for_page(Dial::StartNeeded).is_err());
     }
 
     #[test]

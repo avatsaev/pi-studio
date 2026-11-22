@@ -196,10 +196,14 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     // Every daemon.* and settings.* command, valid and refused, some echoing a secret as input.
     execute(&mut app, &mut seen, "daemon.list", json!({}));
     execute(&mut app, &mut seen, "daemon.switch", json!({"id": direct_id}));
-    // What to dial names the secret and never holds it: the store has it, the answer does not.
+    // What to dial names where the secret is and never holds it: the store has it, the answer does not.
     let plan = app.answer(&Request::Local(LocalOp::Resolve));
     check_answer("resolve", &plan);
-    assert_eq!((plan["result"]["dial"].as_str(), plan["result"]["entry"].as_str()), (Some("password"), Some(direct_id.as_str())), "{plan}");
+    assert_eq!(
+        (plan["result"]["dial"].as_str(), plan["result"]["plan"]["entry"].as_str(), plan["result"]["plan"]["source"].as_str()),
+        (Some("open"), Some(direct_id.as_str()), Some("stored")),
+        "{plan}"
+    );
     execute(&mut app, &mut seen, "daemon.switch", json!({"id": relay_id}));
     let plan = app.answer(&Request::Local(LocalOp::Resolve));
     check_answer("resolve", &plan);
@@ -270,8 +274,68 @@ fn no_answer_and_no_log_line_contains_a_secret() {
         views_name_the_kind(kind);
     }
 
+    page_answers_hold_no_password();
+
     let lines = logged();
     assert!(lines.iter().all(|l| leaks(l).is_none()), "a log line leaked a secret: {lines:?}");
+}
+
+/// What the page is told to open the current entry, and what the transport bridge plans, as the
+/// app wires them (the supervisor over the owner thread's channel). A local or direct entry's
+/// password reaches Rust's dial (`bridge_password`) and no answer, event or log line; a relay
+/// entry's pairing link is the one secret an answer still holds, and it is asserted as such.
+fn page_answers_hold_no_password() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    use pistudiodesktop_model::LocalState;
+    use pistudiodesktop_shell::owner;
+    use pistudiodesktop_shell::owner_access::OwnerAccess;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (mut session, notices) = Session::with_config_dir(dir.path(), Arc::new(Flaky::default()));
+    assert!(notices.is_empty(), "{notices:?}");
+    session.execute("daemon.update", json!({"id": "local", "password": PASSWORD})).expect("the local entry's password");
+    session.set_local_state(LocalState::Running { host: "127.0.0.1".into(), port: 6767 });
+    let direct =
+        session.execute("daemon.add", json!({"kind": "direct", "name": "Work", "address": "10.0.0.9:8080", "password": PASSWORD})).expect("add direct");
+    let relay = session.execute("daemon.add", json!({"kind": "relay", "name": "Home", "pairingLink": LINK})).expect("add relay");
+    let store = session.secret_store();
+    let (tx, rx) = channel();
+    let mut app = AppShell::new(session, process::native_services());
+    let worker = std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
+    let access = OwnerAccess::new(tx, store);
+    let supervisor = Supervisor::new(process::native_services(), Limits::default());
+
+    // The guard sees a page answer that carries the password.
+    let leaky = json!({"url": "10.0.0.9:8080", "password": PASSWORD, "connect": true});
+    assert!(std::panic::catch_unwind(|| check_answer("canary", &leaky)).is_err());
+
+    for (what, switch_to, url) in [("local", "local", "ws://127.0.0.1:6767"), ("direct", direct["id"].as_str().expect("id"), "10.0.0.9:8080")] {
+        access.execute("daemon.switch", json!({"id": switch_to})).expect("switch");
+        let answer = pistudiodesktop_shell::daemons::dial_for_page(supervisor.resolve_current(&access).expect("a dial")).expect("a page answer");
+        check_answer(&format!("the page's answer for the {what} entry"), &answer);
+        assert_eq!(answer, json!({"url": url, "connect": true}), "{what}");
+        // The owner thread's own replies name where the password is and never hold it.
+        for op in [LocalOp::Resolve, LocalOp::Bridge] {
+            let reply = access.call(Request::Local(op)).expect("a plan");
+            check_answer(&format!("the owner thread's plan for the {what} entry"), &reply);
+        }
+        let plan = access.bridge_plan().expect("a bridge plan");
+        assert!(leaks(&format!("{plan:?}")).is_none(), "{plan:?}");
+        // The proxied connect is the one place the password is read, in Rust.
+        let password = access.bridge_password(&plan).expect("the stored password").map(|p| p.expose().to_owned());
+        assert_eq!(password.as_deref(), Some(PASSWORD), "{what}");
+        let booted = access.call(Request::Boot).expect("boot");
+        check_answer(&format!("boot on the {what} entry"), &booted);
+    }
+
+    access.execute("daemon.switch", json!({"id": relay["id"]})).expect("switch to the relay entry");
+    let answer = pistudiodesktop_shell::daemons::dial_for_page(supervisor.resolve_current(&access).expect("a dial")).expect("a page answer");
+    assert_eq!(answer, json!({"url": LINK, "connect": true}), "a relay entry's pairing link is its address");
+    assert_eq!(access.bridge_plan(), Err("not_bridged"));
+    drop(access);
+    worker.join().expect("the owner thread ends when its channel closes");
 }
 
 /// The kind of store is told in every view, whichever backend the launch chose, with the launch's

@@ -55,11 +55,13 @@ pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Optio
     unwrap_reply(bridge.ask(Request::Engine { id, params: params.unwrap_or(Value::Null) }).await?)
 }
 
-/// What to dial for the current entry: `{ url, password?, connect: true }`, or an error code. While
+/// What to dial for the current entry: `{ url, connect: true }`, or an error code. While
 /// the local daemon is starting or being probed this waits for it (at most a few minutes), and
 /// starts it when it is stopped and the setting says so. It runs off the session's thread, which
-/// is never held up. Takes no id: the page is trusted with the entry it opens and no other. This is
-/// the only command that returns a secret, and nothing here logs one.
+/// is never held up. Takes no id: the page is trusted with the entry it opens and no other. For a
+/// local or direct entry the answer holds no password (`transport_open` reads it, in Rust); for a
+/// relay entry `url` is the pairing link, the only secret a command still returns. Nothing here
+/// logs one.
 #[tauri::command]
 pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
     let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));

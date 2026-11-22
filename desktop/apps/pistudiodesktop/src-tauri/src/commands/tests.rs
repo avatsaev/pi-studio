@@ -824,7 +824,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
 }
 
 #[test]
-fn resolving_the_current_entry_answers_the_address_and_password_to_the_page_only() {
+fn resolving_the_current_entry_answers_the_address_and_no_password_to_the_page() {
     let dir = tempfile::tempdir().unwrap();
     let (app, window) = app_on(dir.path());
     let added = invoke(
@@ -836,7 +836,9 @@ fn resolving_the_current_entry_answers_the_address_and_password_to_the_page_only
     let switch =
         pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.switch", "params": {"id": added["id"]}}) };
     assert_eq!(tauri::async_runtime::block_on(app.state::<Bridge>().ask(switch)).unwrap()["ok"], true);
-    assert_eq!(invoke(&window, "daemon_resolve_current", json!({})).unwrap(), json!({"url": "10.0.0.2:8080", "password": "hunter2", "connect": true}));
+    let answer = invoke(&window, "daemon_resolve_current", json!({})).unwrap();
+    assert_eq!(answer, json!({"url": "10.0.0.2:8080", "connect": true}));
+    assert!(!answer.to_string().contains("hunter2"), "{answer}");
     // It takes no id: a page cannot ask for another entry's secret.
     assert_eq!(invoke(&window, "daemon_resolve_current", json!({"id": "local"})).unwrap()["url"], "10.0.0.2:8080");
 }

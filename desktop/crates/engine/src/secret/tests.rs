@@ -5,7 +5,7 @@ use pistudiodesktop_model::{decode_registry_v2, encode_registry_v2};
 use serde_json::json;
 
 use crate::test_store::FakeStore;
-use crate::{Dial, DialPlan, Notice, Session};
+use crate::{BridgePassword, Dial, DialPlan, Notice, Session};
 
 const DIRECT: &str = "3f2b8a40-1111-4222-8333-444455556666";
 const RELAY: &str = "3f2b8a40-1111-4222-8333-444455557777";
@@ -81,17 +81,18 @@ fn a_store_that_refuses_leaves_the_file_as_it_was_and_serves_this_run_from_memor
     assert_eq!(std::fs::read_to_string(&path).unwrap(), v1(), "byte for byte");
     assert!(store.all().is_empty());
 
-    // The dial answer has the password, from memory, and never touches the store.
+    // The held password is for the bridge's dial: the page's dial answer has the address only, and
+    // neither touches the store.
     let calls = store.calls.load(Ordering::SeqCst);
     assert_eq!(s.current_entry_id().map(|i| i.as_str()), Some(DIRECT));
     let plan = s.plan_dial(url).unwrap();
-    assert_eq!(
-        plan.clone().finish(&*s.secret_store()),
-        Ok(Dial::Connect { url: "h:1".into(), password: Some(pistudiodesktop_model::Secret::new("MARK-direct")) })
-    );
-    assert!(matches!(plan, DialPlan::Ready(_)));
+    assert_eq!(plan.clone().finish(&*s.secret_store()), Ok(Dial::Connect { url: "h:1".into() }));
+    match &plan {
+        DialPlan::Open(bridge) => assert_eq!(bridge.password, BridgePassword::Held(pistudiodesktop_model::Secret::new("MARK-direct"))),
+        other => panic!("{other:?}"),
+    }
     s.execute("daemon.switch", json!({"id": RELAY})).unwrap();
-    assert_eq!(s.plan_dial(url).unwrap().finish(&*s.secret_store()), Ok(Dial::Connect { url: "pi://MARK-link".into(), password: None }));
+    assert_eq!(s.plan_dial(url).unwrap().finish(&*s.secret_store()), Ok(Dial::Connect { url: "pi://MARK-link".into() }));
     assert_eq!(store.calls.load(Ordering::SeqCst), calls);
 
     // Nothing may rewrite the file or the store meanwhile: the file would lose secrets the store lacks.

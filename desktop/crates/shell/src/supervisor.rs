@@ -66,9 +66,9 @@ pub trait LocalAccess {
     fn take(&self) -> Batch;
     /// Store the state a request reached.
     fn apply(&self, state: LocalState);
-    /// What to dial for the current entry, secret included: [`Session::plan_dial`] with the dial
-    /// address of [`cli_answers::dial_address`], then the store read of
-    /// [`pistudiodesktop_engine::DialPlan::finish`], which may block.
+    /// What to dial for the current entry, for the page: [`Session::plan_dial`] with the dial
+    /// address of [`cli_answers::dial_address`], then [`pistudiodesktop_engine::DialPlan::finish`],
+    /// which reads the store (and may block) for a relay entry's pairing link only.
     fn resolve(&self) -> Result<Dial, &'static str>;
     /// Run the engine command `id` (`daemon.local.start` and the like); `Err` is its error text.
     fn request(&self, id: &str) -> Result<(), String>;

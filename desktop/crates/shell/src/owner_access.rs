@@ -137,14 +137,14 @@ mod tests {
     }
 
     #[test]
-    fn resolving_a_direct_entry_returns_its_address_and_password_through_the_channel() {
+    fn resolving_a_direct_entry_returns_its_address_and_no_password_through_the_channel() {
         let mut session = Session::new();
         let added = session.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "pw"})).unwrap();
         session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
         let (access, _worker) = running_owner(AppShell::new(session, process::native_services()));
         let supervisor = Supervisor::new(process::native_services(), Limits::default());
         let dial = supervisor.resolve_current(&access).unwrap();
-        assert_eq!(daemons::dial_for_page(dial).unwrap(), json!({"url": "10.0.0.2:8080", "password": "pw", "connect": true}));
+        assert_eq!(daemons::dial_for_page(dial).unwrap(), json!({"url": "10.0.0.2:8080", "connect": true}));
     }
 
     #[test]
@@ -251,7 +251,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SlowStore::default());
         let (mut session, _) = Session::with_config_dir(dir.path(), store.clone());
-        let added = session.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "pw"})).unwrap();
+        // A relay entry: its pairing link is the one item a dial still reads from the store.
+        let added = session.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"})).unwrap();
         session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
         // From here on every store call takes 3 s.
         store.wait_ms.store(3000, std::sync::atomic::Ordering::SeqCst);
@@ -272,7 +273,23 @@ mod tests {
         assert_eq!(listed["entries"].as_array().map(Vec::len), Some(2));
         let (dial, took) = resolver.join().unwrap();
         assert!(took >= Duration::from_millis(2900), "the read really blocked: {took:?}");
-        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "10.0.0.2:8080", "password": "pw", "connect": true}));
+        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "pi://l", "connect": true}));
+    }
+
+    #[test]
+    fn a_direct_entrys_dial_waits_for_no_store_read() {
+        use std::time::Instant;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SlowStore::default());
+        let (mut session, _) = Session::with_config_dir(dir.path(), store.clone());
+        let added = session.execute("daemon.add", json!({"kind": "direct", "name": "B", "address": "10.0.0.2:8080", "password": "pw"})).unwrap();
+        session.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
+        store.wait_ms.store(3000, std::sync::atomic::Ordering::SeqCst);
+        let (access, _worker) = running_owner(AppShell::new(session, Services::default()));
+        let begun = Instant::now();
+        assert_eq!(access.resolve(), Ok(Dial::Connect { url: "10.0.0.2:8080".into() }));
+        assert!(begun.elapsed() < Duration::from_millis(500), "the page's dial read the store: {:?}", begun.elapsed());
     }
 
     #[test]

@@ -38,25 +38,16 @@ pub(crate) struct LocalQueue {
 }
 
 /// What to do to open the current entry.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dial {
-    /// Connect to `url`. The password is the stored one; this answer is for the page that dials
-    /// and must go nowhere else.
-    Connect { url: String, password: Option<Secret> },
+    /// Connect to `url`: the address of a local or direct entry, or a relay entry's pairing link.
+    /// This is what the page is told, so it holds no password: the password of a local or direct
+    /// entry is read by the transport bridge ([`BridgePlan`]), in Rust, for its own dial.
+    Connect { url: String },
     /// The local daemon is stopped and the setting asks for it to be started first.
     StartNeeded,
     /// The local daemon is changing state; ask again when it has settled.
     Wait,
-}
-
-impl std::fmt::Debug for Dial {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Dial::Connect { url, password } => f.debug_struct("Connect").field("url", url).field("password", &password.as_ref().map(|_| "<secret>")).finish(),
-            Dial::StartNeeded => f.write_str("StartNeeded"),
-            Dial::Wait => f.write_str("Wait"),
-        }
-    }
 }
 
 /// What to dial, before a secret that lives in the store has been read. The session answers with
@@ -66,29 +57,30 @@ impl std::fmt::Debug for Dial {
 pub enum DialPlan {
     /// Nothing to read: the answer is final.
     Ready(Dial),
-    /// Connect to `url` with the password of `entry`, which the store holds.
-    Password { url: String, entry: EntryId },
+    /// A local or direct entry: its address and where its password is. The page is told the
+    /// address only ([`DialPlan::finish`] never reads the password); the transport bridge dials
+    /// with it ([`Session::plan_bridge`]).
+    Open(BridgePlan),
     /// Connect to the pairing link of the relay entry `entry`, which the store holds.
     PairingLink { entry: EntryId },
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl DialPlan {
-    /// Read what the plan needs from `store`. This may block until the user answers a system
-    /// prompt: never call it on the thread that owns the session. `Err` is the code
-    /// `resolveCurrent` rejects with: `secret_missing` when the store has no such item (it was
-    /// removed behind the app's back), `secret_unavailable` when it could not be read.
+    /// Read what the plan needs from `store`: only a relay entry's pairing link, which is the
+    /// address the page connects to. A local or direct entry's password is never read here. This
+    /// may block until the user answers a system prompt: never call it on the thread that owns
+    /// the session. `Err` is the code `resolveCurrent` rejects with: `secret_missing` when the
+    /// store has no such item (it was removed behind the app's back), `secret_unavailable` when
+    /// it could not be read.
     pub fn finish(self, store: &dyn pistudiodesktop_secrets::SecretStore) -> std::result::Result<Dial, &'static str> {
         use crate::secret::{Slot, key, read_code};
         Ok(match self {
             DialPlan::Ready(dial) => dial,
-            DialPlan::Password { url, entry } => {
-                let password = read_code(store.get(&key(&entry, Slot::Password)))?;
-                Dial::Connect { url, password: Some(Secret::new(password.expose())) }
-            }
+            DialPlan::Open(plan) => Dial::Connect { url: plan.url },
             DialPlan::PairingLink { entry } => {
                 let link = read_code(store.get(&key(&entry, Slot::PairingLink)))?;
-                Dial::Connect { url: link.expose().to_owned(), password: None }
+                Dial::Connect { url: link.expose().to_owned() }
             }
         })
     }
@@ -182,25 +174,26 @@ impl Session {
     }
 
     /// What to dial for the current entry, as far as the session can say without touching the
-    /// secret store: when the entry has a secret the plan says which one and the caller reads it
-    /// ([`DialPlan::finish`]) on a thread that may block. Not a command. `dial_address` builds the
-    /// URL of a running local daemon from its host and port. `Err` is the code `resolveCurrent`
-    /// rejects with.
+    /// secret store: a relay entry's plan says which item to read (the pairing link, the address)
+    /// and the caller reads it ([`DialPlan::finish`]) on a thread that may block. A local or
+    /// direct entry's plan names where its password is and `finish` leaves it unread. Not a
+    /// command. `dial_address` builds the URL of a running local daemon from its host and port.
+    /// `Err` is the code `resolveCurrent` rejects with.
     pub fn plan_dial(&self, dial_address: impl Fn(&str, u16) -> String) -> std::result::Result<DialPlan, &'static str> {
         let id = self.current_entry_id().ok_or("no_current")?;
         let entry = self.registry().get(id.as_str()).ok_or("no_current")?;
         match entry.kind {
-            Kind::Direct => Ok(self.plan_connect(entry, entry.address.clone().ok_or("not_found")?)),
+            Kind::Direct => Ok(self.plan_open(entry, entry.address.clone().ok_or("not_found")?)),
             Kind::Relay => Ok(match self.held_secret(&entry.id) {
                 // The pairing link is the address: with the link held in memory there is nothing to read.
-                Some(link) => DialPlan::Ready(Dial::Connect { url: link.expose().to_owned(), password: None }),
+                Some(link) => DialPlan::Ready(Dial::Connect { url: link.expose().to_owned() }),
                 None => DialPlan::PairingLink { entry: entry.id.clone() },
             }),
             Kind::Local => match self.local_state() {
                 LocalState::Unsupported => Err("unsupported"),
                 LocalState::CliMissing { .. } => Err("cli_missing"),
                 LocalState::CliOutdated { .. } => Err("cli_outdated"),
-                LocalState::Running { host, port } => Ok(self.plan_connect(entry, dial_address(host, *port))),
+                LocalState::Running { host, port } => Ok(self.plan_open(entry, dial_address(host, *port))),
                 LocalState::Stopped if self.settings().auto_start_local_daemon => Ok(DialPlan::Ready(Dial::StartNeeded)),
                 LocalState::Stopped => Err("local_stopped"),
                 LocalState::Failed { reason } => Err(reason.code()),
@@ -215,29 +208,22 @@ impl Session {
     /// to be started or changing state, `no_current`, and the codes of [`Session::plan_dial`] for
     /// a local daemon that cannot be reached at all.
     pub fn plan_bridge(&self, dial_address: impl Fn(&str, u16) -> String) -> std::result::Result<BridgePlan, &'static str> {
-        let id = self.current_entry_id().ok_or("no_current")?;
-        if self.registry().get(id.as_str()).ok_or("no_current")?.kind == Kind::Relay {
-            return Err("not_bridged");
+        match self.plan_dial(dial_address)? {
+            DialPlan::Open(plan) => Ok(plan),
+            DialPlan::Ready(Dial::StartNeeded | Dial::Wait) => Err("local_not_ready"),
+            // A relay entry keeps the page's own socket: its plan is a link, never an address to bridge.
+            DialPlan::Ready(Dial::Connect { .. }) | DialPlan::PairingLink { .. } => Err("not_bridged"),
         }
-        let (url, password) = match self.plan_dial(dial_address)? {
-            DialPlan::Ready(Dial::Connect { url, password }) => (url, password.map_or(BridgePassword::None, BridgePassword::Held)),
-            DialPlan::Password { url, .. } => (url, BridgePassword::Stored),
-            DialPlan::Ready(Dial::StartNeeded | Dial::Wait) => return Err("local_not_ready"),
-            // A relay entry was refused above; nothing else plans a pairing link.
-            DialPlan::PairingLink { .. } => return Err("not_bridged"),
-        };
-        Ok(BridgePlan { entry: id.clone(), url, password })
     }
 
-    /// Connect to `url` as `entry`: with its password when the registry says it has one.
-    fn plan_connect(&self, entry: &EntryV2, url: String) -> DialPlan {
-        if !entry.has_password {
-            return DialPlan::Ready(Dial::Connect { url, password: None });
-        }
-        match self.held_secret(&entry.id) {
-            Some(password) => DialPlan::Ready(Dial::Connect { url, password: Some(password.clone()) }),
-            None => DialPlan::Password { url, entry: entry.id.clone() },
-        }
+    /// Open `entry` at `url`: where its password is, when the registry says it has one.
+    fn plan_open(&self, entry: &EntryV2, url: String) -> DialPlan {
+        let password = match (entry.has_password, self.held_secret(&entry.id)) {
+            (false, _) => BridgePassword::None,
+            (true, Some(held)) => BridgePassword::Held(held.clone()),
+            (true, None) => BridgePassword::Stored,
+        };
+        DialPlan::Open(BridgePlan { entry: entry.id.clone(), url, password })
     }
 }
 
@@ -400,9 +386,9 @@ mod tests {
             s.plan_dial(url)?.finish(&*s.secret_store())
         }
 
-        fn expect_url(d: Dial) -> (String, Option<String>) {
+        fn expect_url(d: Dial) -> String {
             match d {
-                Dial::Connect { url, password } => (url, password.map(|p| p.expose().to_owned())),
+                Dial::Connect { url } => url,
                 other => panic!("{other:?}"),
             }
         }
@@ -425,37 +411,49 @@ mod tests {
         fn direct_and_relay() {
             let mut s = Session::new();
             with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), ("h:1".into(), Some("pw".into())));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "h:1");
             with_entry(&mut s, json!({"kind": "direct", "name": "N", "address": "h:2"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), ("h:2".into(), None));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "h:2");
             with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), ("pi://l".into(), None));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
         }
 
         #[test]
-        fn the_plan_reads_nothing_and_names_the_item() {
+        fn the_plan_reads_nothing_and_names_where_the_secret_is() {
+            use super::super::{BridgePassword, BridgePlan};
             let (mut s, store) = session_with_store();
             let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
             let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
             let calls = store.calls.load(Ordering::SeqCst);
             assert_eq!(s.plan_dial(url), Ok(DialPlan::PairingLink { entry: EntryId::parse(&rid).unwrap() }));
             s.execute("daemon.switch", json!({"id": id})).unwrap();
-            assert_eq!(s.plan_dial(url), Ok(DialPlan::Password { url: "h:1".into(), entry: EntryId::parse(&id).unwrap() }));
+            let entry = EntryId::parse(&id).unwrap();
+            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, url: "h:1".into(), password: BridgePassword::Stored })));
             assert_eq!(store.calls.load(Ordering::SeqCst), calls, "planning never calls the store");
             // A direct entry without a password has nothing to read.
             let open = with_entry(&mut s, json!({"kind": "direct", "name": "O", "address": "h:3"}));
-            assert!(!open.is_empty());
-            assert_eq!(s.plan_dial(url), Ok(DialPlan::Ready(Dial::Connect { url: "h:3".into(), password: None })));
+            let entry = EntryId::parse(&open).unwrap();
+            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, url: "h:3".into(), password: BridgePassword::None })));
         }
 
         #[test]
-        fn an_item_deleted_behind_the_apps_back_is_secret_missing() {
+        fn the_page_never_reads_a_local_or_direct_entrys_password() {
             let (mut s, store) = session_with_store();
             let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), ("h:1".into(), Some("pw".into())));
+            let calls = store.calls.load(Ordering::SeqCst);
+            assert_eq!(expect_url(resolve(&s).unwrap()), "h:1");
+            // Neither a missing item nor an unreadable store is the page's concern: the bridge reads it.
             store.take(&format!("{id}/password"));
-            assert_eq!(resolve(&s), Err("secret_missing"));
+            store.fail_get.store(true, Ordering::SeqCst);
+            assert_eq!(expect_url(resolve(&s).unwrap()), "h:1");
+            assert_eq!(store.calls.load(Ordering::SeqCst), calls, "the page's dial never calls the store");
+        }
+
+        #[test]
+        fn a_relay_link_deleted_behind_the_apps_back_is_secret_missing() {
+            let (mut s, store) = session_with_store();
             let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
             store.take(&format!("{rid}/pairingLink"));
             assert_eq!(resolve(&s), Err("secret_missing"));
         }
@@ -463,7 +461,7 @@ mod tests {
         #[test]
         fn a_store_that_cannot_be_read_is_secret_unavailable() {
             let (mut s, store) = session_with_store();
-            with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
             store.fail_get.store(true, Ordering::SeqCst);
             assert_eq!(resolve(&s), Err("secret_unavailable"));
             store.fail_get.store(false, Ordering::SeqCst);
@@ -528,7 +526,7 @@ mod tests {
         fn local_rows() {
             let mut s = Session::new();
             s.execute("daemon.update", json!({"id": "local", "password": "lp"})).unwrap();
-            type Want = std::result::Result<Option<(String, Option<String>)>, &'static str>;
+            type Want = std::result::Result<Option<String>, &'static str>;
             let cases: Vec<(LocalState, Want)> = vec![
                 (LocalState::Unsupported, Err("unsupported")),
                 (LocalState::CliMissing { path: None }, Err("cli_missing")),
@@ -537,7 +535,7 @@ mod tests {
                 (LocalState::Failed { reason: FailReason::NotHealthy }, Err("not_healthy")),
                 (LocalState::Failed { reason: FailReason::BadOutput }, Err("bad_output")),
                 (LocalState::Failed { reason: FailReason::SpawnFailed }, Err("spawn_failed")),
-                (LocalState::Running { host: "127.0.0.1".into(), port: 9 }, Ok(Some(("ws://127.0.0.1:9".into(), Some("lp".into()))))),
+                (LocalState::Running { host: "127.0.0.1".into(), port: 9 }, Ok(Some("ws://127.0.0.1:9".into()))),
             ];
             for (state, expected) in cases {
                 s.set_local_state(state.clone());
@@ -562,7 +560,7 @@ mod tests {
         }
 
         #[test]
-        fn only_a_finished_dial_returns_a_password() {
+        fn no_dial_answer_holds_a_password() {
             let mut s = Session::new();
             s.execute("daemon.update", json!({"id": "local", "password": "topsecret"})).unwrap();
             s.set_local_state(LocalState::Running { host: "h".into(), port: 1 });

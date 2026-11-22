@@ -1,7 +1,7 @@
 # Task 004 — `daemon_resolve_current` no longer returns a password
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop
 - **Priority:** P1

@@ -280,7 +280,7 @@ describe("local daemon", () => {
 
 describe("resolveCurrent", () => {
   it("returns the intent unchanged", async () => {
-    const intent = { url: "ws://127.0.0.1:6767", password: "pw", connect: true };
+    const intent = { url: "ws://127.0.0.1:6767", connect: true };
     const h = harness(() => intent);
     expect(await h.daemons.resolveCurrent()).toBe(intent);
     expect(h.calls.filter((c) => c.command === "daemon_resolve_current")).toEqual([{ command: "daemon_resolve_current", args: undefined }]);
@@ -299,7 +299,7 @@ describe("resolveCurrent", () => {
   });
 
   it("logs nothing of the intent", async () => {
-    const h = harness(() => ({ url: "ws://secret-host", password: "secret-pw", connect: true }));
+    const h = harness(() => ({ url: "pi://secret-link", connect: true }));
     await h.daemons.resolveCurrent();
     expect(JSON.stringify(h.log.mock.calls)).not.toContain("secret");
   });

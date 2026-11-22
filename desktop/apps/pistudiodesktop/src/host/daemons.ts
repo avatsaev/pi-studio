@@ -85,8 +85,9 @@ export const SECRET_NOT_REMOVED_TEXT =
  * every `storage_set` sent so far was answered; a switch waits for it. `tell` shows a message to
  * the person (a toast): the one thing an answer can say that no rejection does.
  *
- * The intent `resolveCurrent` returns holds a password or a pairing link: it is handed over and
- * kept nowhere here, and no log call receives it.
+ * The intent `resolveCurrent` returns holds no password: a local or direct entry's socket is
+ * Rust's, which reads the password itself. For a relay entry its `url` is the pairing link: it is
+ * handed over and kept nowhere here, and no log call receives it.
  */
 export function createDesktopDaemons(
   initial: DaemonsView,
