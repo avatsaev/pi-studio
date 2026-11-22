@@ -1,7 +1,7 @@
 # Task 004 — The transfers view and `ui.inspect` (D19, S10)
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 004 — The bulk connection: handshake, requests, liveness (D6, S3)
 
 - **Sprint:** sprint-120-desktop-transfer-wire
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src
 - **Priority:** P1

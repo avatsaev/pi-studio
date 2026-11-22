@@ -94,6 +94,12 @@ impl From<std::io::Error> for SaveError {
     }
 }
 
+impl From<getrandom::Error> for SaveError {
+    fn from(e: getrandom::Error) -> Self {
+        Self::Io(format!("no random source ({e})"))
+    }
+}
+
 /// What the journal file holds.
 #[derive(Serialize, Deserialize)]
 struct Journal {
@@ -171,10 +177,10 @@ pub struct Saves {
     downloads: Option<PathBuf>,
 }
 
-/// `len` random bytes as lowercase hex.
-fn random_hex(len: usize) -> Result<String, SaveError> {
+/// `len` random bytes as lowercase hex. Also the handles of [`crate::picked`].
+pub(crate) fn random_hex(len: usize) -> Result<String, getrandom::Error> {
     let mut bytes = vec![0_u8; len];
-    getrandom::fill(&mut bytes).map_err(|e| SaveError::Io(format!("no random source ({e})")))?;
+    getrandom::fill(&mut bytes)?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 

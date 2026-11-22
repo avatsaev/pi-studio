@@ -203,7 +203,12 @@ impl Inbound {
         if payload.get("status").and_then(Value::as_str) != Some("server_info") {
             return Ok(Self::Other { kind: "status".to_owned() });
         }
-        let flag = |key: &str| payload.get("features").and_then(|features| features.get(key)).and_then(Value::as_bool).unwrap_or(false);
+        let features = match payload.get("features") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(features)) => Some(features),
+            Some(_) => return Err(broken("`features` of the `server_info` is not an object")),
+        };
+        let flag = |key: &str| features.and_then(|features| features.get(key)).and_then(Value::as_bool).unwrap_or(false);
         Ok(Self::ServerInfo(ServerInfo {
             file_download_ranges: flag("fileDownloadRanges"),
             file_transfer_ack: flag("fileTransferAck"),

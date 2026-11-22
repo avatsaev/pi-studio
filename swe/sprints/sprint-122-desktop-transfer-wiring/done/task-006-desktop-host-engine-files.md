@@ -1,7 +1,7 @@
 # Task 006 — Desktop host: `files` through the engine (§ 6)
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

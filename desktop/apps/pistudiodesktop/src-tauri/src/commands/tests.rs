@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use pistudiodesktop_engine::Notice;
 use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
+use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
@@ -24,7 +25,7 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply,
+    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply, upload_pick,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
@@ -75,6 +76,8 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
         .on_window_event(transport::on_window_event)
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
+        .manage(Arc::new(Picked::default()))
+        .manage(launch.transfers)
         .invoke_handler(tauri::generate_handler![
             boot,
             engine_command,
@@ -89,6 +92,7 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
             save_finish,
             save_discard,
             transfers_set,
+            upload_pick,
             preview_mount,
             preview_release,
             transport_open,
@@ -424,7 +428,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_seventeen_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -442,6 +446,7 @@ fn the_capability_grants_the_sixteen_commands_and_listening_for_events_and_nothi
             "allow-save-write",
             "allow-save-finish",
             "allow-save-discard",
+            "allow-upload-pick",
             "allow-transfers-set",
             "allow-preview-mount",
             "allow-preview-release",
@@ -528,6 +533,108 @@ fn a_cancelled_save_dialog_answers_null_and_writes_nothing_and_without_a_dialog_
     let other = tempfile::tempdir().unwrap();
     let (_bare, window) = app_on(other.path());
     assert!(invoke(&window, "save_begin", json!({"suggestedName": "a.txt"})).is_err());
+}
+
+/// Services whose open dialog answers `chosen` and records the folder it was shown with.
+fn picking(chosen: Vec<PathBuf>) -> (Services, Arc<Mutex<Vec<Option<PathBuf>>>>) {
+    let shown = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&shown);
+    let services = Services {
+        pick_files: Some(Arc::new(move |folder: Option<&Path>| {
+            log.lock().unwrap().push(folder.map(Path::to_path_buf));
+            chosen.clone()
+        })),
+        ..Services::default()
+    };
+    (services, shown)
+}
+
+#[test]
+fn the_page_picks_three_files_and_gets_handles_names_and_sizes_and_never_a_path() {
+    let (config, files) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let paths: Vec<PathBuf> = [("a.txt", &b"abc"[..]), ("b.bin", b""), ("c.md", b"0123456789")]
+        .into_iter()
+        .map(|(name, bytes)| {
+            let path = files.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        })
+        .collect();
+    let (services, shown) = picking(paths.clone());
+    let (app, window) = app_with(config.path(), services);
+
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+
+    let entries = answer.as_array().unwrap();
+    assert_eq!(entries.len(), 3, "{answer}");
+    for (entry, (name, size)) in entries.iter().zip([("a.txt", 3), ("b.bin", 0), ("c.md", 10)]) {
+        assert_eq!(entry["name"], name);
+        assert_eq!(entry["size"], size);
+        let handle = entry["handle"].as_str().unwrap();
+        assert!(handle.len() == 32 && handle.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{handle}");
+        let mut keys: Vec<&String> = entry.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["handle", "name", "size"]);
+    }
+    assert!(!answer.to_string().contains(files.path().to_str().unwrap()), "no answer holds a path: {answer}");
+    assert_eq!(shown.lock().unwrap().clone(), [None]);
+
+    // What a later task takes by handle: the path, once.
+    let picked = app.state::<Arc<Picked>>();
+    let handle = entries[1]["handle"].as_str().unwrap();
+    assert_eq!(picked.take(handle), Some(paths[1].clone()));
+    assert_eq!(picked.take(handle), None);
+}
+
+#[test]
+fn a_file_whose_size_cannot_be_read_is_answered_without_a_size_and_a_cancelled_dialog_answers_an_empty_list() {
+    let config = tempfile::tempdir().unwrap();
+    let (services, _) = picking(vec![PathBuf::from("/no/such/dir/gone.txt")]);
+    let (_app, window) = app_with(config.path(), services);
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+    assert_eq!(answer[0]["name"], "gone.txt");
+    assert_eq!(answer[0].as_object().unwrap().len(), 2, "no size member: {answer}");
+
+    let (cancelled, shown) = picking(Vec::new());
+    let other = tempfile::tempdir().unwrap();
+    let (_app, window) = app_with(other.path(), cancelled);
+    assert_eq!(invoke(&window, "upload_pick", json!({})).unwrap(), json!([]));
+    assert_eq!(shown.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn under_transfers_page_the_pick_answers_engine_off_and_no_dialog_is_shown() {
+    let config = tempfile::tempdir().unwrap();
+    let (services, shown) = picking(vec![PathBuf::from("/some/file.txt")]);
+    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let app = built_app_telling(config.path(), services, launch);
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
+
+    let refused = invoke(&window, "upload_pick", json!({})).unwrap_err();
+
+    assert_eq!(refused["code"], "engine_off", "{refused}");
+    assert!(refused["message"].is_string());
+    assert!(shown.lock().unwrap().is_empty(), "no dialog was shown");
+}
+
+#[test]
+fn without_an_open_dialog_the_pick_is_an_error_and_boot_drops_the_picked_files() {
+    let config = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(config.path());
+    assert_eq!(invoke(&window, "upload_pick", json!({})).unwrap_err()["code"], "unavailable");
+
+    let other = tempfile::tempdir().unwrap();
+    let (services, shown) = picking(vec![PathBuf::from("/pick/one/a.txt"), PathBuf::from("/pick/one/b.txt")]);
+    let (app, window) = app_with(other.path(), services);
+    let answer = invoke(&window, "upload_pick", json!({})).unwrap();
+    let handles: Vec<String> = answer.as_array().unwrap().iter().map(|entry| entry["handle"].as_str().unwrap().to_string()).collect();
+    invoke(&window, "boot", json!({})).unwrap();
+    let picked = app.state::<Arc<Picked>>();
+    assert!(handles.iter().all(|handle| picked.take(handle).is_none()), "boot dropped every entry");
+
+    // The dialog still starts in the folder used last in this run.
+    invoke(&window, "upload_pick", json!({})).unwrap();
+    assert_eq!(shown.lock().unwrap().clone(), [None, Some(PathBuf::from("/pick/one"))]);
 }
 
 #[test]

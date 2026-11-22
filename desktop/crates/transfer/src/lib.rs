@@ -8,6 +8,8 @@
 //!   test can shorten.
 //! * [`error`]: the one error type.
 //! * [`wire`]: the frames the daemon and the engine exchange, built and read, with no socket.
+//! * [`connection`]: the bulk connection over an open socket: the handshake, requests matched by id,
+//!   liveness, and the frames of an upload and a download routed to whoever runs them.
 //! * `testing` (tests and the `testing` feature only): a daemon in the test's own process that answers,
 //!   stores, serves and misbehaves on request.
 //!
@@ -17,6 +19,7 @@
 //! Native only: on wasm32 this crate is empty and has no dependency.
 #![cfg(not(target_arch = "wasm32"))]
 
+pub mod connection;
 pub mod error;
 pub mod limits;
 pub mod wire;

@@ -82,6 +82,12 @@ impl FileFrame<'_> {
     }
 }
 
+/// Whether `opcode` is one of the four file-transfer opcodes, `0x10` to `0x13`. A binary frame with
+/// another opcode is another protocol's (the terminal's, on the same socket) and is not the engine's.
+pub fn is_file_transfer(opcode: u8) -> bool {
+    matches!(opcode, BEGIN | CHUNK | END | ERROR)
+}
+
 /// Reads a binary frame. A frame with fewer than two bytes, an opcode other than `0x10`–`0x13`, a
 /// frame longer than the message limit, or a `Begin` that is not the expected JSON is an error. An
 /// `End` with no payload byte counts as ok, as the SDK reads it.

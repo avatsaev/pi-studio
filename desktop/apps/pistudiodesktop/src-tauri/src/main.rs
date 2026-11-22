@@ -37,6 +37,7 @@ use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
+use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::saves::Saves;
@@ -120,6 +121,9 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
         .manage(transfers::Transfers::default())
+        // The launch's `--transfers`, for the commands that refuse to run under `page`.
+        .manage(args.transfers)
+        .manage(Arc::new(Picked::default()))
         // The preview origin: documents the page mounts are served from this scheme, and the
         // navigation rule admits it. Its window policy is `frame-src` in `tauri.conf.json`.
         .manage(Previews::default())
@@ -143,6 +147,7 @@ fn main() {
             commands::save_write,
             commands::save_finish,
             commands::save_discard,
+            commands::upload_pick,
             commands::transfers_set,
             commands::preview_mount,
             commands::preview_release,

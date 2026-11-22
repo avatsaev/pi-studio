@@ -222,6 +222,19 @@ fn a_status_that_is_not_server_info_is_other() {
 }
 
 #[test]
+fn the_features_of_a_server_info_are_an_object_or_absent() {
+    for features in [json!("yes"), json!(true), json!(5), json!([1, 2])] {
+        let frame = json!({"type": "status", "payload": {"status": "server_info", "features": features}});
+        protocol_error(Inbound::parse(&frame.to_string()));
+    }
+    let none = Inbound::ServerInfo(ServerInfo { file_download_ranges: false, file_transfer_ack: false, agent_streams_mode: false });
+    for payload in [json!({"status": "server_info"}), json!({"status": "server_info", "features": null})] {
+        let frame = json!({"type": "status", "payload": payload});
+        assert_eq!(Inbound::parse(&frame.to_string()), Ok(none.clone()));
+    }
+}
+
+#[test]
 fn ping_and_pong_are_read() {
     let ping = fixture("ping");
     assert_eq!(
@@ -559,4 +572,11 @@ fn a_frame_over_the_message_limit_is_refused_before_it_is_read() {
     let mut long_begin = vec![0x10, 1];
     long_begin.extend_from_slice(format!("{{\"transferId\":\"{}\"}}", "x".repeat(70_000)).as_bytes());
     protocol_error(binary::decode(&long_begin));
+}
+
+#[test]
+fn only_the_four_file_transfer_opcodes_are_the_engines() {
+    for opcode in 0..=u8::MAX {
+        assert_eq!(binary::is_file_transfer(opcode), (0x10..=0x13).contains(&opcode), "opcode {opcode:#04x}");
+    }
 }

@@ -24,6 +24,10 @@ pub const BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// How long an answer (`server_info`, an RPC's reply) is awaited.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(30);
 
+/// After one side has started a close (1000 or 1001), how long the other has to finish it: the
+/// proxy's own close wait, so that both legs of the app give up together.
+pub const CLOSE_WAIT: Duration = pistudiodesktop_net::limits::CLOSE_WAIT;
+
 /// The largest message the connection's socket accepts: 16 MiB. The WebSocket library enforces it
 /// while it reads, so a hostile length field cannot make the engine reserve memory for it.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -52,6 +56,8 @@ pub struct Limits {
     pub backoff_max: Duration,
     /// How long an answer is awaited.
     pub answer_wait: Duration,
+    /// How long a close handshake may take.
+    pub close_wait: Duration,
     /// The socket's message limit.
     pub max_message_bytes: usize,
     /// How much of a download may wait to be written to disk.
@@ -71,6 +77,7 @@ impl Default for Limits {
             backoff_start: BACKOFF_START,
             backoff_max: BACKOFF_MAX,
             answer_wait: ANSWER_WAIT,
+            close_wait: CLOSE_WAIT,
             max_message_bytes: MAX_MESSAGE_BYTES,
             download_hold_bytes: DOWNLOAD_HOLD_BYTES,
             max_transfers: MAX_TRANSFERS,
@@ -92,6 +99,7 @@ mod tests {
         assert_eq!(limits.backoff_start, Duration::from_secs(1));
         assert_eq!(limits.backoff_max, Duration::from_secs(30));
         assert_eq!(limits.answer_wait, Duration::from_secs(30));
+        assert_eq!(limits.close_wait, Duration::from_secs(2));
         assert_eq!(limits.max_message_bytes, 16 * 1024 * 1024);
         assert_eq!(limits.download_hold_bytes, 1024 * 1024);
         assert_eq!(limits.max_transfers, 3);

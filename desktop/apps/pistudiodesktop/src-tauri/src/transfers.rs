@@ -1,10 +1,12 @@
-//! File transfers in flight, as the page reports them, and the question closing the window asks.
+//! File transfers in flight, as the page reports them, the question closing the window asks, and
+//! the error the page's transfer commands answer with.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::dialogs;
 use pistudiodesktop_shell::page::{CloseDecision, close_decision};
+use serde::Serialize;
 use tauri::{Manager as _, Window, WindowEvent};
 
 /// The page's count of uploads and saves that have not settled. Managed by Tauri.
@@ -18,6 +20,20 @@ impl Transfers {
 
     pub fn get(&self) -> usize {
         self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// A refused transfer command: `code` is one the page branches on, `message` is for a person. It
+/// never holds a local path, a password or a handle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TransferFailure {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl TransferFailure {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
     }
 }
 

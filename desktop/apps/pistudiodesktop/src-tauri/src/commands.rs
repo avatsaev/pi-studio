@@ -1,9 +1,9 @@
-//! What the webview may call: sixteen commands, and nothing else of the app is reachable from it.
+//! What the webview may call: seventeen commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
-//! `allow-save-finish`, `allow-save-discard`, `allow-transfers-set`, `allow-preview-mount`,
+//! `allow-save-finish`, `allow-save-discard`, `allow-upload-pick`, `allow-transfers-set`, `allow-preview-mount`,
 //! `allow-preview-release` and `allow-transport-open` to the main window, and listening for events (`core:event:allow-listen`
 //! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
 //! `daemons_manage` and `connection_resume`). A command missing from either
@@ -15,9 +15,11 @@
 
 use std::sync::Arc;
 
+use pistudiodesktop_shell::picked::{PickError, Picked, PickedFile};
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::{MAX_WRITE_BYTES, SaveError, Saves};
 use pistudiodesktop_shell::supervisor::Supervisor;
+use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use pistudiodesktop_shell::{Request, Services, daemons, dialogs, links};
 use serde_json::{Value, json};
 use tauri::ipc::InvokeBody;
@@ -25,7 +27,7 @@ use tauri::{Manager as _, State, ipc};
 
 use crate::bridge::Bridge;
 use crate::daemons as app_daemons;
-use crate::transfers::Transfers;
+use crate::transfers::{TransferFailure, Transfers};
 use crate::transport::{self, Failure, Opened, Transport};
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
@@ -37,11 +39,13 @@ pub async fn boot(
     transfers: State<'_, Transfers>,
     previews: State<'_, Previews>,
     transport: State<'_, Transport>,
+    picked: State<'_, Arc<Picked>>,
 ) -> Result<Value, String> {
     // A reloaded page has no transfers running, whatever the old one last said, and holds none of
-    // the preview URLs it was given or the proxied connections it opened: nothing outlives it.
+    // the preview URLs, picked files or proxied connections it was given or opened: nothing outlives it.
     transfers.set(0);
     previews.clear();
+    picked.clear();
     transport.close_all().await;
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
@@ -177,6 +181,25 @@ pub async fn save_finish(saves: State<'_, Arc<Saves>>, handle: String) -> Result
 pub async fn save_discard(saves: State<'_, Arc<Saves>>, handle: String) -> Result<(), String> {
     let saves = Arc::clone(&saves);
     off_thread(move || saves.discard(&handle)).await?.map_err(|e| e.to_string())
+}
+
+/// Pick files to upload: show the native open dialog for one or more files and answer
+/// `[{ handle, name, size? }]`, or `[]` when the user cancelled. Rust keeps each file's path; the
+/// page holds the handle, which works once, for `transfer_upload`. No answer holds a path. Refused
+/// with `engine_off` under `--transfers page` before any dialog is shown. Answers once the dialog
+/// is closed.
+#[tauri::command]
+pub async fn upload_pick(
+    mode: State<'_, TransfersMode>,
+    services: State<'_, Services>,
+    picked: State<'_, Arc<Picked>>,
+) -> Result<Vec<PickedFile>, TransferFailure> {
+    if *mode == TransfersMode::Page {
+        return Err(TransferFailure::new("engine_off", "File transfers use the page's own path in this launch."));
+    }
+    let (services, picked) = (Services::clone(&services), Arc::clone(&picked));
+    let picked = off_thread(move || picked.pick(&services)).await.map_err(|e| TransferFailure::new("internal", e))?;
+    picked.map_err(|e| TransferFailure::new(if e == PickError::Unavailable { "unavailable" } else { "internal" }, e.to_string()))
 }
 
 /// The page's count of file transfers (uploads and saves) that have not settled. Closing the window

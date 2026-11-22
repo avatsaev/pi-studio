@@ -1,7 +1,7 @@
 # Task 002 — The native open dialog and `upload_pick` (D3, D20)
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

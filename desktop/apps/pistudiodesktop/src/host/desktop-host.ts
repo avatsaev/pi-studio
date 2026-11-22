@@ -4,10 +4,10 @@ import { type BootSnapshot } from "./boot.js";
 import { createDesktopConnection } from "./connection.js";
 import { createDesktopDaemons } from "./daemons.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
-import { createSaveTarget, countTransfers } from "./transfers.js";
 import { createNativeDialogs, createNativeLinks } from "./native.js";
 import { createDesktopPreview } from "./preview.js";
 import { createDesktopStorage } from "./storage.js";
+import { countTransfers, createEngineFiles, createSaveTarget, engineServes } from "./transfers.js";
 
 /** A launch with no connect intent and no deep-link source. */
 const NO_LAUNCH: WorkbenchHost["launch"] = {
@@ -15,7 +15,7 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` and `daemons` replaced or added by the desktop's. */
+/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves) and `daemons` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
@@ -33,7 +33,7 @@ export function createDesktopHost(
   const daemons = createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log, tell);
   return {
     ...base,
-    files: countTransfers(base.files, (count) => {
+    files: countTransfers(engineServes(snapshot) ? createEngineFiles(base.files, ipc, log) : base.files, (count) => {
       ipc.invoke("transfers_set", { count }).catch((error: unknown) => log("transfers_set failed", error));
     }),
     storage,

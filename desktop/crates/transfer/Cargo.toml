@@ -11,7 +11,7 @@ workspace = true
 # The stand-in daemon (`testing`): a WebSocket server in the caller's process, for tests only. A release
 # build never turns this on (the app lists it in its `[dev-dependencies]` only), so the server and
 # its dependencies are not compiled into the app.
-testing = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:socket2"]
+testing = ["tokio/net", "dep:socket2"]
 
 # The engine opens its connection through `net`, which has no code on wasm32, so on wasm32 this
 # crate is empty and takes no dependency: every dependency is behind `cfg(not(target_arch = "wasm32"))`,
@@ -20,14 +20,14 @@ testing = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:socket
 pistudiodesktop-net = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# The bulk connection's tasks, timers and channels, and the WebSocket frames it reads and writes.
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+tokio-tungstenite = { workspace = true }
 # Only with the `testing` feature (and in this crate's own tests, below).
-tokio = { workspace = true, features = ["rt", "net", "time", "sync", "macros"], optional = true }
-tokio-tungstenite = { workspace = true, optional = true }
-futures-util = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { workspace = true, features = ["rt", "net", "time", "sync", "macros"] }
-tokio-tungstenite = { workspace = true }
-futures-util = { workspace = true }
+# `test-util` pauses the clock, so that no test waits real seconds.
+tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "sync", "macros", "test-util"] }
 socket2 = { workspace = true }

@@ -16,6 +16,7 @@ fn main() {
         "save_write",
         "save_finish",
         "save_discard",
+        "upload_pick",
         "transfers_set",
         "preview_mount",
         "preview_release",
