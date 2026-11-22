@@ -404,7 +404,11 @@ src/
                            marks a terminal tab `exited` once its known slot disappears from the
                            daemon's live list, exporting the pure reconcile step
                            `reconcileLiveTerminals` for direct testing, same pattern as
-                           `runTerminalRestore` above), use-timeline-reset-watch
+                           `runTerminalRestore` above), use-session-resync (every open of the
+                           connection after the first: each shown session's status from
+                           `list_agents_request` and its whole timeline fetched again, keeping live
+                           events newer than the fetched page; `runSessionResync` is exported for
+                           direct testing) (+ test), use-timeline-reset-watch
                            (sprint-072/task-001 — connection-lifetime `agent_timeline_reset`
                            listener, the fork convergence backbone: on receipt for a cached agent,
                            drops its rows+cursors and refetches `fetch_agent_timeline` from
@@ -1001,6 +1005,22 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   host's `connection.createTransport(target, {password})` (browser host: relay transport for a relay
   pairing link, bearer-subprotocol socket with a password, else the SDK default). Close code `4000` is in the WebSocket private-use range —
   it appears only in logs, no wire meaning.
+- **A reconnect keeps the client object; whatever the daemon holds per connection must be asked
+  for again.** `ReconnectionManager` reconnects in place: `connection-store`'s `client` and `daemon`
+  stay the same objects and only `status` leaves `open` and comes back. The daemon's session is new,
+  so it has no terminal stream, no `checkout_status_subscribe` and no `file_watch_subscribe` from
+  before, and it never replays the `agent_stream` events broadcast while the socket was down. Two
+  rules follow. (1) An effect that subscribes on the daemon is keyed on
+  `connection-store.ts`'s `useOpenClient()` (the client while `status === "open"`, else `null`),
+  not on `client`: `TerminalPanel`'s stream subscription, `use-checkout-status`, `use-file-watch`
+  and `use-explorer-watch` do this, so each is torn down on a drop and made again on the re-open
+  (the terminal replays the daemon's snapshot into the same emulator, and keys typed while
+  detached wait in its pending queue). (2) `use-session-resync.ts` runs on every open after the
+  first and brings the sessions already shown up to date (status and whole timeline;
+  `use-session-restore` runs once per page and skips an agent it already has). It does not add
+  agents created elsewhere meanwhile, and file views are not re-read. Found on 2026-11-22 from a
+  desktop sleep test: after the wake reconnect the bar said `connected` while the terminal showed
+  nothing and the chat missed the turn that ran meanwhile; the browser client had the same defect.
 - **Zero agents on connect ⇒ no workspace, not a phantom one.** `use-session-restore.ts` only ever
   restores from `list_agents_request`'s results — if the daemon reports zero agents, the hook
   returns without touching `tab-store`/`ui-store` at all: no session or chat tab is created, and
