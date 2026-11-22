@@ -44,7 +44,7 @@ import { Abort, sleep, waitFor } from "./wait.mjs";
 
 const execFileAsync = promisify(execFile);
 
-/** The oldest CLI the app accepts is 0.0.126; this one is older, and the fake CLI answers it for `--version`. */
+/** The oldest CLI the app accepts is 0.0.127; this one is older, and the fake CLI answers it for `--version`. */
 const OUTDATED_VERSION = "0.0.118";
 
 /** The per-user directory of the app on `platform`, relative to the home directory. */

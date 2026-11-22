@@ -148,10 +148,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 120 | `sprint-120-desktop-transfer-wire` | desktop: **Desktop transfer engine, slice 3 — the protocol in Rust.** New crate `pistudiodesktop-transfer` (layer 8, may use `net`), `net::dial` with a message limit, the envelopes and file-transfer frames tested against the published fixtures, a stand-in daemon for tests, and the bulk connection (handshake with `agentStreams: "none"`, requests, liveness). | 4 |
 | 121 | `sprint-121-desktop-transfer-engine` | desktop: **Desktop transfer engine, slice 4 — the engine.** Upload and save over the connection, the queue (three at once), the connection opened on demand and closed when idle, progress and the snapshot, recovery (reconnect without a limit, resume a save, restart an upload, final errors), and the hardening tests. | 5 |
 | 122 | `sprint-122-desktop-transfer-wiring` | desktop: **Desktop transfer engine, slice 5 — wiring.** `--transfers` and `boot.transfers`, the native open dialog and `upload_pick`, `Saves` as the engine's sink, the `transfers` view in `ui.inspect`, the three transfer commands with the `transfer_progress` event and the leave and wake wiring, the desktop host's engine-backed `files`, and Linux live checks in the real webview. | 7 |
-| 123 | `sprint-123-desktop-transfer-engine-close` | desktop + docs: **Desktop transfer engine, slice 6 — close.** The 5 GiB check with its pass marks, the checklist's milestone 3 section, documents, `minDaemonVersion` and spec close: desktop milestone 3 (Linux only; the macOS/Windows checks were dropped by the owner). | 2 |
+| 123 | `sprint-123-desktop-transfer-engine-close` | desktop + docs: **Desktop transfer engine, slice 6 — close.** The 5 GiB check with its pass marks, the checklist's milestone 3 section, documents, `minDaemonVersion` and spec close: desktop milestone 3 (Linux only; the macOS/Windows checks were dropped by the owner); the daemon removes a killed daemon's upload temporary files at start. | 3 |
 
-Total: **117 sprints, 613 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22) and by dropping 123/t002–t003 (+0/−2, 2026-11-22; the table sums to 117/613). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **117 sprints, 614 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22) and by adding 123/t005 (+0/+1, 2026-11-22; the table sums to 117/614). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3416,17 +3416,19 @@ sprint 121 and can start while it runs.
 > on real machines) were removed: the owner will not test manually. Milestone 3 is checked on Linux
 > only; the macOS and Windows behaviour stays unverified.
 >
-> **Closed 2026-11-22: sprints 118–123 built, 25 of 25 tasks done.** Checked on Linux only. Open
+> **Closed 2026-11-22: sprints 118–123 built, 26 of 26 tasks done.** Checked on Linux only. Open
 > for the owner: the daemon grew 94 MiB on a fresh daemon's first 5 GiB upload (mark 64 MiB; the
-> page path grew it 74 MiB too); `minDaemonVersion` 0.0.126 is predicted and must match the
-> published release; hiding or sweeping `.pistudio-upload-*.part`.
+> page path grew it 74 MiB too). `minDaemonVersion` is 0.0.127: `main` published 0.0.126 from
+> older code while the branch was open. t005 was added after the close, on the owner's choice to
+> clean up `.pistudio-upload-*.part` files a killed daemon leaves.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
 | task-001 | The 5 GiB check, the Linux acceptance run, and the checklist's milestone 3 section (D16) | test | sprint-122/task-007 | desktop-transfer-engine § Acceptance criteria (The check; all) |
 | task-004 | Documents and spec close for milestone 3; `minDaemonVersion` (R1) | docs | task-001 | desktop-transfer-engine (status, criteria), R1 |
+| task-005 | Daemon: remove upload temporary files a killed daemon left (owner's decision) | feature | task-004 | desktop-transfer-engine § TODO(verify) (R3's temporary file) |
 
-t001, then t004. Numbers 002 and 003 are not used (removed).
+t001, then t004, then t005. Numbers 002 and 003 are not used (removed).
 
 ## Coverage check
 
@@ -3846,7 +3848,7 @@ Carried from the scope; resolve against the live source while implementing the o
 - [ ] Desktop transfer engine: R4 stops reading a session's socket, which on the browser's one
       connection also delays its other requests, and over a relay must slow only that client
       (s118/t002, measured in s118/t003). R3's temporary file shows in the explorer during an
-      upload and survives a daemon crash; hiding or sweeping it is undecided (s118/t001).
+      upload; a daemon crash's leftover is removed at the next start (owner chose cleanup, s123/t005).
 - [ ] Desktop transfer engine: the native open dialog has never been shown by the app
       (s122/t002, seen in s122/t007 on Linux only); a command left unanswered across a sleep is
       unverified on WKWebView and WebView2 — the macOS/Windows checks were dropped by the owner

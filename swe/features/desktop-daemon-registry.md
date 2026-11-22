@@ -129,7 +129,7 @@ The error text of a `daemon.*` command is its code (`name_taken`, `busy`, …), 
 | `checking` | Until the first probe after launch has finished (P1) |
 | `unsupported` | Windows: no local daemon |
 | `cli_missing` | No CLI found. Carries the configured path when one was set and is not an executable file |
-| `cli_outdated` | A CLI older than 0.0.126 (milestone 3 raised it from 0.0.119; see [desktop-transfer-engine.md](desktop-transfer-engine.md), R1). Carries its version |
+| `cli_outdated` | A CLI older than 0.0.127 (milestone 3 raised it from 0.0.119; see [desktop-transfer-engine.md](desktop-transfer-engine.md), R1). Carries its version |
 | `stopped` | The CLI reports no healthy daemon |
 | `starting` / `stopping` | An action is running |
 | `running` | Carries `host` and `port` from the CLI |
@@ -166,7 +166,7 @@ interface HostDaemons {
 }
 ```
 
-`AppIdentity` has an optional `minDaemonVersion: string`. The desktop host sets it (`0.0.126`, from
+`AppIdentity` has an optional `minDaemonVersion: string`. The desktop host sets it (`0.0.127`, from
 the one constant the CLI check also uses); the browser host does not. The types are in
 `packages/workbench/src/host/types.ts`, and in [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md).
 
@@ -251,7 +251,7 @@ findCli():
     look up "pi-studio" on shellEnvironment().PATH
     else try the usual per-user and system install directories for npm and Node version managers
     else cli_missing
-    if `pi-studio --version` < 0.0.126: cli_outdated
+    if `pi-studio --version` < 0.0.127: cli_outdated
 
 runCli(args):                            # one call at a time, queued
     spawn the CLI with shellEnvironment()   # so `node` is found and PI_STUDIO_* apply as in a terminal
@@ -396,7 +396,7 @@ No existing desktop users: nothing to migrate. The web client's storage is untou
 | The local daemon dies while connected | The workbench's reconnect runs as for any dropped connection; a probe updates the local state. The app does not restart the daemon by itself |
 | Quit | No daemon is stopped (D4), whatever started it |
 | The app is newer than the daemon | Connects; the outdated notice is shown (D5) |
-| The CLI is older than 0.0.126 | `cli_outdated` with the update command; remote entries stay usable |
+| The CLI is older than 0.0.127 | `cli_outdated` with the update command; remote entries stay usable |
 | The shell environment cannot be read in 5 s | The app's own environment is used; the CLI may then be `cli_missing`, and `cliPath` is the way out |
 | A control-socket caller lists daemons | It gets `EntryView`s; no secret is ever returned |
 
@@ -477,7 +477,7 @@ No existing desktop users: nothing to migrate. The web client's storage is untou
 
 - **`minDaemonVersion` value.** Proposed 0.0.119, the release that changed downloads to
   `file_download_request`; a relay entry needs 0.0.121 in any case (the relay reports
-  `daemon_outdated` itself). *Built as 0.0.119, raised to 0.0.126 by milestone 3 on 2026-11-22 (R1 of desktop-transfer-engine.md; one constant, `cli_answers::MIN_CLI_VERSION`); the
+  `daemon_outdated` itself). *Built as 0.0.119, raised to 0.0.127 by milestone 3 on 2026-11-22 (R1 of desktop-transfer-engine.md; one constant, `cli_answers::MIN_CLI_VERSION`); the
   notice was seen against a 0.0.100 daemon (sprint-110/task-007 check 14). Confirm when the app is
   first released.*
 - **Reading the shell environment.** The login-and-interactive approach is what other desktop

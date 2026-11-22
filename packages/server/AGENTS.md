@@ -1587,6 +1587,11 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
     target is untouched until then. A failed write/close/rename, a client `Error` frame and
     `disposeSession` close the handle and remove the temporary file (a failed removal is ignored).
     The explorer's watcher sees the `.part` file appear and disappear; it is not hidden.
+    `deps.uploadJournal` (`files/upload-journal.ts`, `$PI_STUDIO_HOME/pending-uploads.json` in the
+    production bootstrap, none in the dev daemon) lists each temporary file before `Begin` creates
+    it and drops it after the rename or removal; at start it removes every listed file whose name
+    matches `UPLOAD_TEMP_NAME`, then the journal, so a killed daemon's `.part` files go at the
+    next start. A journal that cannot be written or read only loses that cleanup.
   - *Upload pacing.* Each upload counts the `Chunk` bytes received and not yet written. While any
     upload of a session is above `UPLOAD_HIGH_WATER_BYTES` (1 MiB) the service calls
     `session.pauseReading()` (`ws` `pause()`; a relay session pauses its data socket through

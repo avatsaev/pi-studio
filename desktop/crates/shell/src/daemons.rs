@@ -338,6 +338,6 @@ mod tests {
 
     #[test]
     fn the_minimum_daemon_version_is_the_clis() {
-        assert_eq!(min_daemon_version(), "0.0.126");
+        assert_eq!(min_daemon_version(), "0.0.127");
     }
 }

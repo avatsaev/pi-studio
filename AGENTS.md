@@ -62,7 +62,7 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     installed `pi-studio` CLI. Milestones 1, 2 and 3 are built and checked on Linux (milestone 3
                     on 2026-11-22); on macOS and Windows only the automated checks of milestones 1 and 2 have run,
                     and milestone 3 is not checked there (desktop/docs/platform-checks.md). The app's
-                    `minDaemonVersion` is 0.0.126, the release that carries the daemon's upload changes.
+                    `minDaemonVersion` is 0.0.127, the release that carries the daemon's upload changes.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
@@ -691,6 +691,8 @@ extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offe
 viewer-settings.json Daemon-backed per-viewer kill switch + opaque config for the viewer plugin
                        registry (viewers/ subsystem); corrupt file degrades to all-enabled
                        defaults and is never rewritten on read
+pending-uploads.json  Temporary files of the uploads in progress (`.pistudio-upload-<hex>.part`);
+                       the next daemon removes every listed file at start, then this file
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/

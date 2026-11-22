@@ -46,10 +46,10 @@ first upload into a fresh daemon (64 MiB allowed). The page's path held a 5 GiB 
 8 GiB resident). macOS and Windows are not checked (owner's decision, 2026-11-22); a sleep during a transfer was not run.
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; a file dragged from the OS
 file manager was not tried (the page's drop was dispatched as an event); a `kill -9`ed daemon leaves its
-`.pistudio-upload-<hex>.part` for good, and the explorer lists it. The app's `minDaemonVersion`
-(`cli_answers::MIN_CLI_VERSION`, also the oldest CLI the supervisor accepts) is 0.0.126: the release
-that carries the daemon's temporary-file and pacing changes. It was set before that release exists
-(the next patch after 0.0.125) and must be re-checked against the published number.
+`.pistudio-upload-<hex>.part` until it starts again, and the explorer lists it meanwhile. The app's `minDaemonVersion`
+(`cli_answers::MIN_CLI_VERSION`, also the oldest CLI the supervisor accepts) is 0.0.127: the release
+that carries the daemon's temporary-file and pacing changes. `main` published 0.0.126 from older code
+while the branch was open, so the number is the one the branch's merge publishes.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace

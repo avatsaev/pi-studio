@@ -58,6 +58,7 @@ import { FileTransferService } from "../files/file-transfer.js";
 import { FileWatchService } from "../files/file-watch-service.js";
 import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
+import { UploadJournal } from "../files/upload-journal.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
 import { WorkspaceRegistryService } from "../projects/workspace-registry.js";
@@ -560,7 +561,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   }).registerHandlers(registry, getActiveSessions);
 
   // ── Files: explorer + transfer + filesystem watch ──────
-  const fileTransfer = new FileTransferService();
+  const uploadJournal = new UploadJournal(join(home, "pending-uploads.json"));
+  void uploadJournal.swept.then((removed) => {
+    if (removed > 0) logger.info({ removed }, "removed upload files left by an earlier daemon");
+  });
+  const fileTransfer = new FileTransferService({ uploadJournal });
   new FileExplorerService().registerHandlers(registry);
   fileTransfer.registerHandlers(registry);
   const fileTransferBinary = fileTransfer.binaryHandler();

@@ -607,13 +607,15 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   not slowed (0.25 ms in the median, as when idle). On a disk faster than the sender, reading
   stopped 3 times in 600 MiB. Left as it is: the engine's uploads run on their own connection,
   so only the browser client's one connection sees the delay.
-- [ ] R3's temporary file is visible in the explorer while an upload runs (seen in
+- [x] R3's temporary file is visible in the explorer while an upload runs (seen in
   sprint-118/task-003: the listing shows `.pistudio-upload-<hex>.part` and drops it when the
-  upload ends), and a daemon that dies leaves it. Decide whether the listing hides the pattern
-  and whether the daemon removes old ones at start. (Live run 2026-11-22: both halves of the
-  fact seen in the desktop app. A `kill -9` of the daemon during an upload left a 25 624 576 byte
-  `.pistudio-upload-<hex>.part`; it stayed through the daemon's restart and the explorer listed it
-  greyed. A clean cancel, a cut socket and a failure left none. The decision is still open.)
+  upload ends), and a daemon that dies leaves it. (Live run 2026-11-22: a `kill -9` of the daemon
+  during an upload left a 25 624 576 byte `.pistudio-upload-<hex>.part`.) **Owner, 2026-11-22:
+  clean up.** The daemon lists each upload's temporary file in `$PI_STUDIO_HOME/pending-uploads.json`
+  before creating it and drops it once it is renamed or removed; at start it removes every listed
+  file whose name matches the pattern, then the journal (sprint-123/task-005; live: a `kill -9`
+  mid-upload, then a restart, removed the file and logged `removed: 1`). The listing still shows
+  the file while an upload runs.
 - [ ] A command that stays unanswered for hours (a transfer that waits overnight, D12): confirm on
   the three webviews that its answer still arrives after a sleep. If it does not, the settlement
   moves into `transfer_progress` and the commands answer at once. (Live run 2026-11-22: on
@@ -621,13 +623,12 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   daemon returned, hash equal. Hours, a sleep of the machine, WKWebView and WebView2 are not
   tried.)
 - [ ] `minDaemonVersion` (R1) must name the release that carries sprint 118's daemon changes (the
-  temporary file and the pacing). That release does not exist until the branch merges and CI
-  publishes it. **Set 2026-11-22 to 0.0.126**, the next patch after the current version of
-  `packages/protocol` (0.0.125), because the release workflow bumps the patch on merge
-  (`cli_answers::MIN_CLI_VERSION`, which also decides when a local daemon's CLI is `cli_outdated`;
-  its tests and the boot tests name it). **Re-check it against the published version before the
-  app is released**: if the merge publishes another number, change the constant and its tests.
-  The daemon changes must be released before, or with, the app that requires them.
+  temporary file and the pacing). **Set 2026-11-22 to 0.0.127.** `main` published 0.0.126 while
+  this branch was open, from the code the branch started from, so 0.0.126 does not carry the
+  changes; merging the branch makes the release workflow publish 0.0.127. The constant is
+  `cli_answers::MIN_CLI_VERSION`, which also decides when a local daemon's CLI is
+  `cli_outdated`; its tests and the boot tests name it. If another release reaches `main` before
+  this branch, raise it again. The daemon changes must be released before, or with, the app.
 - [x] The native open dialog has never been shown by this app (`platform-checks.md` N3 notes the
   missing picker). Its behaviour on macOS and Windows is unverified. (Live run 2026-11-22: on
   Linux the app shows GTK's "Open File" dialog, parented to the main window, for the Upload

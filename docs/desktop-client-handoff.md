@@ -662,8 +662,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    relay entry, a dropped file and a `Blob` keep it. The daemon changed too (R1–R4): an upload is
    written to `.pistudio-upload-<hex>.part` and renamed on `End`, the daemon stops reading a
    session's socket while more than 1 MiB of an upload is unwritten, and the app's
-   `minDaemonVersion` is 0.0.126 (set before the release exists: re-check it against the
-   published number). The wire is unchanged. Built: the crate `pistudiodesktop-transfer` above
+   `minDaemonVersion` is 0.0.127 (the release this branch's merge publishes; `main` published
+   0.0.126 from older code meanwhile). The wire is unchanged. Built: the crate `pistudiodesktop-transfer` above
    `net` (the wire code tested against the published fixtures, the bulk connection, `upload`,
    `save`, the engine, a stand-in daemon for tests), four page commands (`upload_pick`,
    `transfer_upload`, `transfer_save`, `transfer_cancel`) and the `transfer_progress` event, and
@@ -675,9 +675,9 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    terminal echoed at a median of 4 to 5 ms and a 99th percentile of 6 to 9 ms, the same as with
    no transfer. **Open for the owner:** the daemon grew 94 MiB on the first 5 GiB upload into a
    fresh daemon (64 MiB allowed), then 45 and 34 MiB on the next two; the page's path grew the
-   daemon 74 MiB on its first upload too, so the cause looks like the first large write, not the engine, and was not investigated. Also open:
-   whether the explorer hides `.pistudio-upload-<hex>.part` and whether the daemon removes old
-   ones at start (a `kill -9`ed daemon leaves one); a command left pending for hours across a
+   daemon 74 MiB on its first upload too, so the cause looks like the first large write, not the engine, and was not investigated. A
+   `kill -9`ed daemon's `.pistudio-upload-<hex>.part` is removed when the daemon starts again
+   (`$PI_STUDIO_HOME/pending-uploads.json`). Also open: a command left pending for hours across a
    sleep (631 s was tried); a sleep during a transfer; macOS and Windows, which the owner removed
    from the checks on 2026-11-22, so nothing is checked there; a file dragged from the OS file
    manager (the drop was dispatched as an event). Not in it: viewers served by Rust, relay
@@ -731,8 +731,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
   runs). The owner chose a loopback WebSocket proxy owned by Rust instead.
 - **Open for the owner (2026-11-22, milestone 3):** does the 64 MiB mark for the daemon's growth stand?
   The daemon grew 94 MiB on the first 5 GiB upload into a fresh daemon, with the engine and with the
-  page's path alike. Also open: hide `.pistudio-upload-<hex>.part` in the explorer or remove old ones
-  at daemon start; re-check `minDaemonVersion` (0.0.126) against the published release before the
+  page's path alike. Re-check `minDaemonVersion` (0.0.127) against the published release before the
   app ships.
 
 ## Where to read next

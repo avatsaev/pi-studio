@@ -170,7 +170,7 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     let (app, window) = app_on(dir.path());
 
     let first = invoke(&window, "boot", json!({})).unwrap();
-    assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.126"}));
+    assert_eq!(first["app"], json!({"title": "Pi Studio", "version": "9.9.9", "platform": "desktop", "minDaemonVersion": "0.0.127"}));
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
     assert_eq!(first["transfers"], "engine");
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");

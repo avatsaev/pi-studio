@@ -447,12 +447,12 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 - [ ] Desktop transfer engine (built and checked on Linux 2026-11-22, sprints 118–123): open for the
       owner — the 5 GiB upload's daemon-growth mark missed (94 MiB against 64 MiB on a fresh
       daemon's first upload, also seen on the page's path: decide whether the mark stands); the
-      upload's `.pistudio-upload-<hex>.part` file shows in the explorer and a `kill -9`ed daemon
-      leaves it; a command left pending for hours across a sleep (631 s tried); a sleep during a
+      upload's `.pistudio-upload-<hex>.part` file shows in the explorer while an upload runs (a
+      `kill -9`ed daemon's is removed at its next start); a command left pending for hours across a sleep (631 s tried); a sleep during a
       transfer, the native open dialog on macOS and Windows, and the runner scripts on macOS
       (not checked, owner's decision); where standard error goes from a desktop launch.
-      `minDaemonVersion` is set to 0.0.126, the next patch after 0.0.125, and must be re-checked
-      against the published version — see
+      `minDaemonVersion` is 0.0.127, the release this branch's merge publishes (0.0.126 went out
+      from older code meanwhile) — see
       [features/desktop-transfer-engine.md § TODO(verify)](features/desktop-transfer-engine.md).
 - [x] Desktop protocol follow-ups: dev-daemon coverage, buffered amount on the relay path, partial
       file after a failed upload, binary fixtures vs the dashboard — **resolved in sprint-096**. The

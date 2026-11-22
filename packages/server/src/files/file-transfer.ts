@@ -16,6 +16,7 @@ import type { Session } from "../ws/session.js";
 import type { BinaryHandler, HandlerRegistry } from "../ws/router.js";
 import { mimeHintForFile } from "./file-explorer.js";
 import { expandHome } from "./resolve-path.js";
+import type { UploadJournal } from "./upload-journal.js";
 
 /**
  * Chunked file download (by path, optionally a byte range) + upload over the file-transfer binary
@@ -54,6 +55,8 @@ export interface FileTransferDeps {
   drainPollMs?: number;
   /** Writes one upload chunk to its temporary file. Tests inject a slow disk here. */
   writeChunk?: (handle: FileHandle, data: Uint8Array) => Promise<void>;
+  /** Lists upload temporary files so a daemon that died mid-upload has them removed at the next start. */
+  uploadJournal?: UploadJournal;
 }
 
 /** One download a session has accepted and not finished. Tracked from the moment it is accepted. */
@@ -147,11 +150,13 @@ function failureText(stage: string, err: unknown): string {
   return typeof code === "string" ? `${stage}_failed (${code})` : `${stage}_failed`;
 }
 
-/** Remove an upload's temporary file. A failed removal is ignored. */
-async function discardTemp(upload: PendingUpload): Promise<void> {
+/** Remove an upload's temporary file and drop it from the journal. A failed removal is ignored. */
+async function discardTemp(upload: PendingUpload, journal: UploadJournal | null): Promise<void> {
   const path = upload.tempPath;
   upload.tempPath = null;
-  if (path) await rm(path, { force: true }).catch(() => {});
+  if (!path) return;
+  await rm(path, { force: true }).catch(() => {});
+  void journal?.remove(path);
 }
 
 export class FileTransferService {
@@ -170,6 +175,7 @@ export class FileTransferService {
   private readonly downloads = new Map<string, Map<number, ActiveDownload>>();
   /** Rotating hand-out point for a download the client did not number itself. */
   private downloadCursor = 1;
+  private readonly journal: UploadJournal | null;
 
   constructor(deps: FileTransferDeps = {}) {
     this.chunkBytes = deps.chunkBytes ?? DEFAULT_CHUNK_BYTES;
@@ -178,6 +184,7 @@ export class FileTransferService {
     this.drainPollMs = deps.drainPollMs ?? DEFAULT_DRAIN_POLL_MS;
     this.writeChunk =
       deps.writeChunk ?? (async (handle, data) => void (await handle.write(Buffer.from(data))));
+    this.journal = deps.uploadJournal ?? null;
   }
 
   /**
@@ -596,7 +603,7 @@ export class FileTransferService {
       upload.chain = upload.chain.then(async () => {
         await upload.handle?.close().catch(() => {});
         upload.handle = null;
-        await discardTemp(upload);
+        await discardTemp(upload, this.journal);
       });
     }
     if (this.pausedSessions.delete(session.id)) session.resumeReading();
@@ -628,7 +635,14 @@ export class FileTransferService {
             dirname(upload.targetPath),
             `.pistudio-upload-${randomBytes(16).toString("hex")}.part`,
           );
-          upload.handle = await open(tempPath, "wx");
+          // Listed before it exists, so a daemon killed from here on leaves nothing for good.
+          await this.journal?.add(tempPath);
+          try {
+            upload.handle = await open(tempPath, "wx");
+          } catch (err) {
+            void this.journal?.remove(tempPath);
+            throw err;
+          }
           upload.tempPath = tempPath;
           return;
         }
@@ -648,13 +662,14 @@ export class FileTransferService {
           await handle.close();
           stage = "rename";
           await rename(upload.tempPath, upload.targetPath);
+          void this.journal?.remove(upload.tempPath);
           upload.tempPath = null;
           return this.finishUpload(session, frame.stream, upload);
         }
         case "Error": {
           await upload.handle?.close().catch(() => {});
           upload.handle = null;
-          await discardTemp(upload);
+          await discardTemp(upload, this.journal);
           return this.finishUpload(session, frame.stream, upload, frame.message || "client_error");
         }
       }
@@ -663,7 +678,7 @@ export class FileTransferService {
       // target is never touched before the final rename.
       await upload.handle?.close().catch(() => {});
       upload.handle = null;
-      await discardTemp(upload);
+      await discardTemp(upload, this.journal);
       this.finishUpload(session, frame.stream, upload, failureText(stage, err));
     }
   }
