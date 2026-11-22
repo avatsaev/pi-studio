@@ -28,6 +28,7 @@ pistudiodesktop-net = { workspace = true }
 pistudiodesktop-relay = { workspace = true }
 pistudiodesktop-secrets = { workspace = true }
 pistudiodesktop-shell = { workspace = true }
+pistudiodesktop-ssh = { workspace = true }
 pistudiodesktop-transfer = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
@@ -39,6 +40,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 getrandom = { workspace = true }
 if-addrs = { workspace = true }
+# The SSH session's shared connection attempt, its idle timer and the socket that carries a lease on it; the socket's message type is the library's.
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
 # `test`: a mock runtime, to run the page's commands through Tauri's permission check without a window.
@@ -48,7 +53,7 @@ tempfile = { workspace = true }
 pistudiodesktop-transfer = { workspace = true, features = ["testing"] }
 # The relay stand-in (a loopback relay with a daemon half that speaks the channel): tests only, for the same reason.
 pistudiodesktop-relay = { workspace = true, features = ["testing"] }
+# The SSH server stand-in (russh's server half in the test's own process): tests only, for the same reason.
+pistudiodesktop-ssh = { workspace = true, features = ["testing"] }
 # The tests' daemon stand-in and page: a local WebSocket server and client.
 tokio = { workspace = true, features = ["net", "time", "sync"] }
-tokio-tungstenite = { workspace = true }
-futures-util = { workspace = true }

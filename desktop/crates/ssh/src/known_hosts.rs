@@ -14,8 +14,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ring::hmac;
-use russh::keys::PublicKey;
 use russh::keys::ssh_key::known_hosts::{Entry, HostPatterns, Marker};
+use russh::keys::{HashAlg, PublicKey};
 
 /// The port whose entries carry the bare host name; every other port is written `[host]:port`.
 const DEFAULT_SSH_PORT: u16 = 22;
@@ -91,6 +91,20 @@ pub fn check(host: &str, port: u16, key: &PublicKey, files: &[&Path]) -> Result<
         (false, true) => HostKeyStatus::Changed,
         (false, false) => HostKeyStatus::Unknown,
     })
+}
+
+/// A server key as a person is shown it before trusting it: the key type and the SHA-256 fingerprint, as `ssh` prints
+/// them (`ssh-ed25519`, `SHA256:...`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyDescription {
+    pub algorithm: String,
+    pub fingerprint: String,
+}
+
+/// The key type and SHA-256 fingerprint of `key`.
+#[must_use]
+pub fn describe(key: &PublicKey) -> KeyDescription {
+    KeyDescription { algorithm: key.algorithm().to_string(), fingerprint: key.fingerprint(HashAlg::Sha256).to_string() }
 }
 
 /// Append `key` for `host:port` to `app_file` as one OpenSSH line, creating the file (mode 0600 on Unix)

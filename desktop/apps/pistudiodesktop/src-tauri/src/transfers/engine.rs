@@ -30,6 +30,7 @@ use pistudiodesktop_transfer::upload::UploadSource;
 use serde_json::json;
 use tauri::{AppHandle, Emitter as _, Runtime};
 
+use crate::ssh_session::SshSessions;
 use crate::transport::{Failure as Refusal, Route, current_plan};
 
 /// The event the page listens to: payload `{ id, state, done, total }` ([`Event`]).
@@ -79,9 +80,11 @@ fn connect_error(refusal: Refusal) -> ConnectError {
 }
 
 /// The engine's supplier of sockets: the current entry's daemon, opened as `transport_open` opens
-/// it (a dialled address and password, or the relay) with the engine's message limit.
+/// it (a dialled address and password, the relay, or a channel of the shared SSH session) with the
+/// engine's message limit.
 pub struct AppConnector {
     access: OwnerAccess,
+    ssh: SshSessions,
     /// The entry the last attempt was for, for `ui.inspect`'s `connection.entryId`.
     entry: Arc<Mutex<Option<String>>>,
 }
@@ -90,7 +93,7 @@ impl Connector for AppConnector {
     async fn connect(&self) -> Result<DaemonSocket, ConnectError> {
         let plan = current_plan(&self.access).await.map_err(connect_error)?;
         *locked(&self.entry) = Some(plan.entry.as_str().to_owned());
-        let route = Route::resolve(&self.access, plan).await.map_err(connect_error)?;
+        let route = Route::resolve(&self.access, &self.ssh, plan).await.map_err(connect_error)?;
         route.connect(&self.access, MAX_MESSAGE_BYTES).await.map_err(connect_error)
     }
 }
@@ -146,16 +149,17 @@ pub struct TransferEngine {
 
 impl TransferEngine {
     /// An engine for `access`'s current entry that tells the page every event of its transfers. Its
-    /// `clientId` is random and made here, once per run; `version` is the app's.
+    /// `clientId` is random and made here, once per run; `version` is the app's. An SSH entry's
+    /// connection is a channel of `ssh`'s session, shared with the page's.
     ///
     /// # Errors
     /// No random source for the client id.
-    pub fn new<R: Runtime>(handle: AppHandle<R>, access: OwnerAccess, version: &str) -> Result<Self, getrandom::Error> {
+    pub fn new<R: Runtime>(handle: AppHandle<R>, access: OwnerAccess, ssh: SshSessions, version: &str) -> Result<Self, getrandom::Error> {
         let mut bytes = [0_u8; 16];
         getrandom::fill(&mut bytes)?;
         let client_id = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let entry = Arc::new(Mutex::new(None));
-        let connector = AppConnector { access, entry: Arc::clone(&entry) };
+        let connector = AppConnector { access, ssh, entry: Arc::clone(&entry) };
         let config = Config::new(client_id, format!("pistudiodesktop/{version}"));
         let engine = Engine::new(connector, config, move |event| tell_page(&handle, &event));
         Ok(Self { engine: Arc::new(engine), early: EarlyCancels::default(), entry })

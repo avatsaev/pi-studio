@@ -228,6 +228,7 @@ fn a_relay_entry_is_opened_in_rust_and_the_pages_messages_cross_the_encrypted_ch
     assert!(proxy_port != relay.host().rsplit(':').next().unwrap(), "the page's address is the app's own, not the relay's");
 
     let mut page = f.connect(&local);
+    wait_until("the transport is listed", || f.inspect()["connection"]["transports"][0]["via"] == "relay");
     tauri::async_runtime::block_on(async {
         page.send(Message::text("héllo")).await.unwrap();
         assert_eq!(page.next().await.unwrap().unwrap(), Message::text("héllo"));
@@ -337,6 +338,7 @@ fn a_link_with_a_host_hint_is_dialled_as_a_direct_daemon_and_offers_no_password(
         page.send(Message::text("hint")).await.unwrap();
         assert_eq!(page.next().await.unwrap().unwrap(), Message::text("hint"));
     });
+    assert_eq!(f.inspect()["connection"]["transports"][0]["via"], "direct", "a link with a host hint is a direct dial");
 
     // A daemon that wants a password refuses it: there is none to give.
     let guarded = Daemon::start(Some("needs-a-password"));

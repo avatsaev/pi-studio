@@ -8,7 +8,7 @@ use pistudiodesktop_model::EntryId;
 use pistudiodesktop_secrets::{MemoryStore, Secret, SecretError, SecretKey, SecretKind, SecretStore, StoreKind};
 use pistudiodesktop_shell::daemons::LocalOp;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
-use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, TransportState, TransportView};
+use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, SshState, SshView, TransportState, TransportView, Via};
 use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
 use serde_json::{Value, json};
 
@@ -160,6 +160,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
             Snapshot {
                 transports: vec![TransportView {
                     entry_id: ARCHIVE.into(),
+                    via: Via::Relay,
                     state: TransportState::Open,
                     frames_in: 4,
                     frames_out: 3,
@@ -168,6 +169,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
                     peak_held_in: 20,
                     peak_held_out: 10,
                 }],
+                ssh: SshView { state: SshState::Open, hops: 1, channels: 1 },
                 last_error: Some(ConnectionError { code: "page_refused", at_ms: 1 }),
             }
         })),
@@ -364,7 +366,7 @@ fn views_name_the_kind(kind: StoreKind) {
     let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
     assert_eq!(
         inspect["result"]["connection"],
-        json!({"secretStore": kind.as_str(), "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        json!({"secretStore": kind.as_str(), "transports": [], "ssh": {"state": "none", "hops": 0, "channels": 0}, "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
         "{inspect}"
     );
     assert_eq!(inspect["result"]["daemons"]["secretStore"], kind.as_str(), "{inspect}");

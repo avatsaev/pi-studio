@@ -1,7 +1,7 @@
 # Task 004 — Linux live checks of a relay entry in the real webview
 
 - **Sprint:** sprint-126-desktop-relay-wiring
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs/platform-checks.md, desktop/docs/development.md
 - **Priority:** P1

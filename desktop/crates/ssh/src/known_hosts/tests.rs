@@ -39,6 +39,15 @@ fn hashed(name: &str) -> String {
 }
 
 #[test]
+fn a_key_is_described_by_its_type_and_sha256_fingerprint() {
+    let described = describe(&key(ED_A));
+    assert_eq!(described.algorithm, "ssh-ed25519");
+    assert!(described.fingerprint.starts_with("SHA256:"), "{}", described.fingerprint);
+    assert_ne!(described, describe(&key(ED_B)));
+    assert_eq!(describe(&key(ECDSA)).algorithm, "ecdsa-sha2-nistp256");
+}
+
+#[test]
 fn plain_entry_is_known() {
     let d = dir();
     let f = write_file(&d, "kh", &format!("example.com {ED_A}\n"));

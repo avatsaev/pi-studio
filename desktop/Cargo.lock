@@ -3694,6 +3694,7 @@ dependencies = [
  "pistudiodesktop-relay",
  "pistudiodesktop-secrets",
  "pistudiodesktop-shell",
+ "pistudiodesktop-ssh",
  "pistudiodesktop-transfer",
  "serde",
  "serde_json",

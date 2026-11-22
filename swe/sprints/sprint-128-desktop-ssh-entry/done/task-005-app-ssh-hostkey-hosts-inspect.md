@@ -1,7 +1,7 @@
 # Task 005 — App binary: the host-key dialog, `ssh_config_hosts`, and `ui.inspect`
 
 - **Sprint:** sprint-128-desktop-ssh-entry
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri, desktop/crates/shell (transports view)
 - **Priority:** P1

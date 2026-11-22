@@ -1,7 +1,7 @@
 # Task 004 — Desktop host: the SSH members and the engine for SSH
 
 - **Sprint:** sprint-129-desktop-ssh-ui
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

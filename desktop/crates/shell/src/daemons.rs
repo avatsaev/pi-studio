@@ -8,8 +8,8 @@
 //! name of the secret to read, not the secret: the caller reads the store off the owner thread
 //! (see `docs/architecture.md` § Decisions).
 
-use pistudiodesktop_engine::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, Session};
-use pistudiodesktop_model::{EntryId, FailReason, Kind, LocalState, Secret};
+use pistudiodesktop_engine::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, RemoteAction, RemoteRequest, Session, SshPlan};
+use pistudiodesktop_model::{EntryId, FailReason, Kind, LocalState, RemoteState, Secret, SshFields};
 use serde_json::{Value, json};
 
 use crate::AppShell;
@@ -110,6 +110,23 @@ pub enum LocalOp {
     Bridge,
     /// Run the engine command `id` (`daemon.local.refresh` and the like).
     Request(String),
+    /// An operation of the remote daemon's side, for the current SSH entry.
+    Ssh(SshOp),
+}
+
+/// A short operation of the app's SSH side on the session, run on the thread that owns it. None of
+/// them reads the secret store, and no answer holds a secret.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SshOp {
+    /// What opening the current SSH entry needs: an [`SshPlan`] (the fields, and which secrets
+    /// exist), or `no_current` or `wrong_kind`.
+    Plan,
+    /// Take the remote daemon requests queued since the last call.
+    Take,
+    /// Store the state a request reached for `entry` (`true` unless `entry` is no longer current).
+    Apply { entry: EntryId, state: RemoteState },
+    /// Store a state learned without a request (`true` unless `entry` is no longer current).
+    Set { entry: EntryId, state: RemoteState },
 }
 
 /// Answer a [`LocalOp`]: `{"ok": true, "result": …}` or `{"ok": false, "error": "…"}` like every reply.
@@ -123,6 +140,16 @@ pub fn local_op(app: &mut AppShell, op: &LocalOp) -> Value {
         LocalOp::Resolve => app.session.plan_dial(cli_answers::dial_address).map(plan_to_json).map_err(str::to_owned),
         LocalOp::Bridge => app.session.plan_bridge(cli_answers::dial_address).map(bridge_to_json).map_err(str::to_owned),
         LocalOp::Request(id) => app.session.execute(id, Value::Null).map(|_| Value::Null).map_err(|e| e.to_string()),
+        LocalOp::Ssh(op) => ssh_op(app, op),
+    })
+}
+
+fn ssh_op(app: &mut AppShell, op: &SshOp) -> Result<Value, String> {
+    Ok(match op {
+        SshOp::Plan => ssh_plan_to_json(&app.session.plan_ssh().map_err(str::to_owned)?),
+        SshOp::Take => Value::Array(app.session.take_remote_requests().iter().map(remote_request_to_json).collect()),
+        SshOp::Apply { entry, state } => Value::Bool(app.session.apply_remote_outcome(entry, state.clone())),
+        SshOp::Set { entry, state } => Value::Bool(app.session.set_remote_state_for(entry, state.clone())),
     })
 }
 
@@ -223,6 +250,60 @@ pub fn bridge_from_json(value: &Value) -> Result<BridgePlan, &'static str> {
     })
 }
 
+/// What the owner thread answers [`SshOp::Plan`] with. The fields name where the host is; the two
+/// flags say which secrets the store holds, never what they are.
+fn ssh_plan_to_json(plan: &SshPlan) -> Value {
+    let fields = &plan.fields;
+    json!({
+        "entry": plan.entry.as_str(),
+        "url": plan.url,
+        "fields": {"host": fields.host, "user": fields.user, "port": fields.port, "identityFile": fields.identity_file, "jump": fields.jump, "daemonPort": fields.daemon_port},
+        "hasSshPassword": plan.has_ssh_password,
+        "hasPassphrase": plan.has_passphrase,
+    })
+}
+
+/// The inverse of [`SshOp::Plan`]'s answer.
+pub fn ssh_plan_from_json(value: &Value) -> Result<SshPlan, &'static str> {
+    let fields = &value["fields"];
+    let text = |name: &str| fields[name].as_str().map(str::to_owned);
+    Ok(SshPlan {
+        entry: value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal")?,
+        url: value["url"].as_str().ok_or("internal")?.to_owned(),
+        fields: SshFields {
+            host: text("host").ok_or("internal")?,
+            user: text("user"),
+            port: fields["port"].as_u64().map(u16::try_from).transpose().map_err(|_| "internal")?,
+            identity_file: text("identityFile"),
+            jump: text("jump"),
+            daemon_port: fields["daemonPort"].as_u64().and_then(|port| u16::try_from(port).ok()).ok_or("internal")?,
+        },
+        has_ssh_password: value["hasSshPassword"].as_bool().ok_or("internal")?,
+        has_passphrase: value["hasPassphrase"].as_bool().ok_or("internal")?,
+    })
+}
+
+fn remote_request_to_json(request: &RemoteRequest) -> Value {
+    let action = match request.action {
+        RemoteAction::Start => "start",
+        RemoteAction::Probe => "probe",
+    };
+    json!({"entry": request.entry.as_str(), "action": action})
+}
+
+/// The inverse of [`SshOp::Take`]'s answer; what cannot be read is left out.
+pub fn remote_requests_from_json(value: &Value) -> Vec<RemoteRequest> {
+    let read = |item: &Value| {
+        let action = match item["action"].as_str()? {
+            "start" => RemoteAction::Start,
+            "probe" => RemoteAction::Probe,
+            _ => return None,
+        };
+        Some(RemoteRequest { entry: EntryId::parse(item["entry"].as_str()?).ok()?, action })
+    };
+    value.as_array().map(|items| items.iter().filter_map(read).collect()).unwrap_or_default()
+}
+
 /// The page's answer for a dial: `{ url, connect: true }`. Never a password or a pairing link: the
 /// socket to any entry's daemon is Rust's, which reads the secret itself; for a relay entry `url`
 /// is the relay's address, derived from the link. Anything but a connection
@@ -246,6 +327,7 @@ pub fn static_code(code: &str) -> &'static str {
         "local_not_ready",
         "invalid_link",
         "busy",
+        "wrong_kind",
         "secret_missing",
         "secret_unavailable",
     ];
@@ -334,6 +416,27 @@ mod tests {
             assert_eq!(static_code(code), code);
         }
         assert_eq!(static_code("surprise"), "internal");
+    }
+
+    #[test]
+    fn the_ssh_plan_and_the_remote_requests_survive_the_trip_to_the_owner_thread() {
+        let entry = EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();
+        let plan = SshPlan {
+            entry: entry.clone(),
+            url: "ws://127.0.0.1:7001".into(),
+            fields: SshFields { host: "box".into(), user: Some("me".into()), port: None, identity_file: Some("~/k".into()), jump: None, daemon_port: 7001 },
+            has_ssh_password: true,
+            has_passphrase: false,
+        };
+        assert_eq!(ssh_plan_from_json(&ssh_plan_to_json(&plan)), Ok(plan));
+        assert_eq!(ssh_plan_from_json(&Value::Null), Err("internal"));
+        assert_eq!(ssh_plan_from_json(&json!({"entry": "../x"})), Err("internal"));
+        let requests = vec![RemoteRequest { entry: entry.clone(), action: RemoteAction::Start }, RemoteRequest { entry, action: RemoteAction::Probe }];
+        let wire = Value::Array(requests.iter().map(remote_request_to_json).collect());
+        assert_eq!(remote_requests_from_json(&wire), requests);
+        assert!(remote_requests_from_json(&json!([{"entry": "../x", "action": "start"}, {"entry": "local", "action": "bogus"}])).is_empty());
+        assert!(remote_requests_from_json(&Value::Null).is_empty());
+        assert_eq!(static_code("wrong_kind"), "wrong_kind");
     }
 
     #[test]

@@ -517,6 +517,7 @@ fn ui_inspect_shows_the_connection_connecting_then_open_with_counters_and_none_a
     let transports = open["transports"].as_array().unwrap();
     assert_eq!(transports.len(), 1, "{open}");
     assert_eq!(transports[0]["state"], "open", "{open}");
+    assert_eq!(transports[0]["via"], "direct", "{open}");
     for counter in ["framesIn", "framesOut", "bytesIn", "bytesOut"] {
         assert!(transports[0][counter].as_u64().unwrap() > 0, "{counter}: {open}");
     }

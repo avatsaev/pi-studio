@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use pistudiodesktop_secrets::SecretStore;
 
-use pistudiodesktop_engine::{BridgePlan, Dial};
-use pistudiodesktop_model::{LocalState, Secret};
+use pistudiodesktop_engine::{BridgePlan, Dial, RemoteRequest, SshPlan, SshSecrets};
+use pistudiodesktop_model::{EntryId, LocalState, RemoteState, Secret};
 use serde_json::{Value, json};
 
-use crate::daemons::{self, Batch, LocalOp};
+use crate::daemons::{self, Batch, LocalOp, SshOp};
 use crate::supervisor::LocalAccess;
 use crate::{Envelope, Request};
 
@@ -65,6 +65,38 @@ impl OwnerAccess {
     /// block as long as a keychain prompt lasts: never the owner thread's.
     pub fn bridge_password(&self, plan: &BridgePlan) -> Result<Option<Secret>, &'static str> {
         plan.read_password(&*self.store)
+    }
+
+    /// What opening the current SSH entry needs: its fields and which secrets exist (one short
+    /// question to the owner thread; the store is not touched). `Err` is a code of `transport_open`.
+    pub fn ssh_plan(&self) -> Result<SshPlan, &'static str> {
+        match self.ask(LocalOp::Ssh(SshOp::Plan)) {
+            Ok(value) => daemons::ssh_plan_from_json(&value),
+            Err(code) => Err(daemons::static_code(&code)),
+        }
+    }
+
+    /// The SSH password and key passphrase of the planned entry, read from the store on the
+    /// caller's thread, which may block as long as a keychain prompt lasts: never the owner thread's.
+    pub fn ssh_secrets(&self, plan: &SshPlan) -> Result<SshSecrets, &'static str> {
+        plan.read_secrets(&*self.store)
+    }
+
+    /// The remote daemon requests the session queued since the last call; none when the owner
+    /// thread has stopped.
+    pub fn remote_requests(&self) -> Vec<RemoteRequest> {
+        self.ask(LocalOp::Ssh(SshOp::Take)).map(|value| daemons::remote_requests_from_json(&value)).unwrap_or_default()
+    }
+
+    /// Store the state a remote request reached for `entry`; `false` when `entry` is no longer current.
+    pub fn apply_remote(&self, entry: &EntryId, state: RemoteState) -> bool {
+        matches!(self.ask(LocalOp::Ssh(SshOp::Apply { entry: entry.clone(), state })), Ok(Value::Bool(true)))
+    }
+
+    /// Store a state of the remote daemon learned without a request (it was reached, say); `false`
+    /// when `entry` is no longer current.
+    pub fn set_remote(&self, entry: &EntryId, state: RemoteState) -> bool {
+        matches!(self.ask(LocalOp::Ssh(SshOp::Set { entry: entry.clone(), state })), Ok(Value::Bool(true)))
     }
 
     fn ask(&self, op: LocalOp) -> Result<Value, String> {
@@ -165,6 +197,42 @@ mod tests {
         access.execute("daemon.switch", json!({"id": relay["id"]})).unwrap();
         let plan = access.bridge_plan().unwrap();
         assert_eq!((plan.kind, plan.url.as_str(), &plan.password), (pistudiodesktop_model::Kind::Relay, "", &BridgePassword::Stored));
+    }
+
+    #[test]
+    fn the_ssh_plan_and_the_remote_queue_cross_the_channel_and_the_secrets_are_read_off_the_owner_thread() {
+        use pistudiodesktop_engine::{RemoteAction, RemoteRequest};
+        use pistudiodesktop_model::RemoteState;
+
+        let mut session = Session::new();
+        let added = session
+            .execute("daemon.add", json!({"kind": "ssh", "name": "S", "host": "box", "user": "me", "port": 2222, "jump": "j", "sshPassword": "PW-ssh"}))
+            .unwrap();
+        let (access, _worker) = running_owner(AppShell::new(session, Services::default()));
+        assert_eq!(access.ssh_plan().unwrap_err(), "wrong_kind", "the local entry is current");
+        access.execute("daemon.switch", json!({"id": added["id"]})).unwrap();
+        let plan = access.ssh_plan().unwrap();
+        assert_eq!((plan.entry.as_str(), plan.url.as_str()), (added["id"].as_str().unwrap(), "ws://127.0.0.1:6767"));
+        assert_eq!((plan.fields.host.as_str(), plan.fields.user.as_deref(), plan.fields.port), ("box", Some("me"), Some(2222)));
+        assert_eq!((plan.fields.identity_file.as_deref(), plan.fields.jump.as_deref(), plan.fields.daemon_port), (None, Some("j"), 6767));
+        assert_eq!((plan.has_ssh_password, plan.has_passphrase), (true, false));
+        let secrets = access.ssh_secrets(&plan).unwrap();
+        assert_eq!((secrets.ssh_password.map(|p| p.expose().to_owned()), secrets.passphrase), (Some("PW-ssh".to_owned()), None));
+
+        assert!(access.remote_requests().is_empty());
+        access.execute("daemon.remote.refresh", json!({})).unwrap();
+        assert_eq!(access.remote_requests(), vec![RemoteRequest { entry: plan.entry.clone(), action: RemoteAction::Probe }]);
+        assert!(access.remote_requests().is_empty());
+        assert!(access.apply_remote(&plan.entry, RemoteState::Running));
+        assert!(access.set_remote(&plan.entry, RemoteState::Stopped));
+        let other = pistudiodesktop_model::EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();
+        assert!(
+            !access.apply_remote(&other, RemoteState::Running) && !access.set_remote(&other, RemoteState::Running),
+            "an entry that is not current is refused"
+        );
+        let listed = access.execute("daemon.list", Value::Null).unwrap();
+        assert_eq!(listed["remote"], json!({"state": "stopped"}));
+        assert!(!listed.to_string().contains("PW-"));
     }
 
     #[test]
