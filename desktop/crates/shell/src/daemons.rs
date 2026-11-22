@@ -9,7 +9,7 @@
 //! (see `docs/architecture.md` § Decisions).
 
 use pistudiodesktop_engine::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, Session};
-use pistudiodesktop_model::{EntryId, FailReason, LocalState, Secret};
+use pistudiodesktop_model::{EntryId, FailReason, Kind, LocalState, Secret};
 use serde_json::{Value, json};
 
 use crate::AppShell;
@@ -193,7 +193,7 @@ pub fn plan_from_json(value: &Value) -> Result<DialPlan, &'static str> {
     }
 }
 
-/// What the owner thread answers [`LocalOp::Bridge`] with: where the password is, named
+/// What the owner thread answers [`LocalOp::Bridge`] with: where the secret is, named
 /// (`"stored"`) or held in memory (`held`); never read here. The key is `source`, not `password`:
 /// no JSON this crate writes has a key of that name unless it holds the secret itself.
 fn bridge_to_json(plan: BridgePlan) -> Value {
@@ -202,7 +202,7 @@ fn bridge_to_json(plan: BridgePlan) -> Value {
         BridgePassword::Held(password) => ("held", Some(password.expose())),
         BridgePassword::Stored => ("stored", None),
     };
-    json!({"entry": plan.entry.as_str(), "url": plan.url, "source": source, "held": held})
+    json!({"entry": plan.entry.as_str(), "kind": plan.kind, "url": plan.url, "source": source, "held": held})
 }
 
 /// The inverse of [`LocalOp::Bridge`]'s answer.
@@ -214,15 +214,16 @@ pub fn bridge_from_json(value: &Value) -> Result<BridgePlan, &'static str> {
         _ => return Err("internal"),
     };
     Ok(BridgePlan {
+        kind: serde_json::from_value::<Kind>(value["kind"].clone()).map_err(|_| "internal")?,
         entry: value["entry"].as_str().and_then(|id| EntryId::parse(id).ok()).ok_or("internal")?,
         url: value["url"].as_str().ok_or("internal")?.to_owned(),
         password,
     })
 }
 
-/// The page's answer for a dial: `{ url, connect: true }`. Never a password: the socket to a local
-/// or direct entry's daemon is Rust's, which reads the password itself. For a relay entry `url` is
-/// the pairing link, the one secret an answer to the page still holds. Anything but a connection
+/// The page's answer for a dial: `{ url, connect: true }`. Never a password or a pairing link: the
+/// socket to any entry's daemon is Rust's, which reads the secret itself; for a relay entry `url`
+/// is the relay's address, derived from the link. Anything but a connection
 /// is not an answer here (the supervisor settles those first).
 pub fn dial_for_page(dial: Dial) -> Result<Value, String> {
     match dial {
@@ -241,7 +242,7 @@ pub fn static_code(code: &str) -> &'static str {
         "cli_outdated",
         "local_stopped",
         "local_not_ready",
-        "not_bridged",
+        "invalid_link",
         "busy",
         "secret_missing",
         "secret_unavailable",
@@ -316,9 +317,9 @@ mod tests {
             DialPlan::Ready(Dial::Connect { url: "ws://h:1".into() }),
             DialPlan::Ready(Dial::Wait),
             DialPlan::Ready(Dial::StartNeeded),
-            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::Stored }),
-            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::None }),
-            DialPlan::Open(BridgePlan { entry: entry.clone(), url: "ws://h:1".into(), password: BridgePassword::Held(Secret::new("pw")) }),
+            DialPlan::Open(BridgePlan { entry: entry.clone(), kind: Kind::Direct, url: "ws://h:1".into(), password: BridgePassword::Stored }),
+            DialPlan::Open(BridgePlan { entry: entry.clone(), kind: Kind::Direct, url: "ws://h:1".into(), password: BridgePassword::None }),
+            DialPlan::Open(BridgePlan { entry: entry.clone(), kind: Kind::Relay, url: "ws://h:1".into(), password: BridgePassword::Held(Secret::new("pw")) }),
             DialPlan::PairingLink { entry },
         ];
         for plan in plans {

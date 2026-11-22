@@ -1,7 +1,7 @@
 # Task 001 — Engine: the relay plan without the link, and `secret_guard`
 
 - **Sprint:** sprint-126-desktop-relay-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine, desktop/apps/pistudiodesktop/src-tauri/tests/secret_guard.rs
 - **Priority:** P1

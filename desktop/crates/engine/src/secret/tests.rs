@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use pistudiodesktop_model::{decode_registry_v2, encode_registry_v2};
+use pistudiodesktop_model::{decode_registry_v3, encode_registry_v3};
 use serde_json::json;
 
 use crate::test_store::FakeStore;
@@ -14,7 +14,7 @@ fn v1() -> String {
     json!({"version": 1, "lastUsedId": DIRECT, "extra": 7, "entries": [
         {"id": "local", "kind": "local", "name": "This machine", "password": "MARK-local"},
         {"id": DIRECT, "kind": "direct", "name": "d", "address": "h:1", "password": "MARK-direct", "note": 1},
-        {"id": RELAY, "kind": "relay", "name": "r", "pairingLink": "pi://MARK-link"},
+        {"id": RELAY, "kind": "relay", "name": "r", "pairingLink": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=MARK-link"},
     ]})
     .to_string()
 }
@@ -28,7 +28,7 @@ fn url(host: &str, port: u16) -> String {
 }
 
 #[test]
-fn a_version_1_file_moves_its_secrets_to_the_store_and_becomes_version_2() {
+fn a_version_1_file_moves_its_secrets_to_the_store_and_becomes_version_3() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("daemons.json"), v1()).unwrap();
     let store = Arc::new(FakeStore::default());
@@ -36,27 +36,27 @@ fn a_version_1_file_moves_its_secrets_to_the_store_and_becomes_version_2() {
     assert!(notices.is_empty(), "{notices:?}");
     let text = std::fs::read_to_string(dir.path().join("daemons.json")).unwrap();
     assert!(!text.contains("MARK") && !text.contains("pairingLink") && !text.contains("\"password\""), "{text}");
-    let doc = decode_registry_v2(text.as_bytes()).unwrap();
+    let doc = decode_registry_v3(text.as_bytes()).unwrap();
     assert_eq!(doc.entries.iter().map(|e| e.has_password).collect::<Vec<_>>(), [true, true, false]);
     assert!(text.contains("\"extra\"") && text.contains("\"note\""), "unknown fields survive");
     assert_eq!(store.value("local/password").as_deref(), Some("MARK-local"));
     assert_eq!(store.value(&format!("{DIRECT}/password")).as_deref(), Some("MARK-direct"));
-    assert_eq!(store.value(&format!("{RELAY}/pairingLink")).as_deref(), Some("pi://MARK-link"));
+    assert_eq!(store.value(&format!("{RELAY}/pairingLink")).as_deref(), Some("#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=MARK-link"));
     assert_eq!(store.all().len(), 3);
     assert!(!s.execute("daemon.list", json!({})).unwrap().to_string().contains("MARK"));
 
-    // A second load finds version 2: no store call, the file's bytes are the same.
+    // A second load finds version 3: no store call, the file's bytes are the same.
     let calls = store.calls.load(Ordering::SeqCst);
     let before = std::fs::read(dir.path().join("daemons.json")).unwrap();
     let (_, again) = open(dir.path(), &store);
     assert!(again.is_empty());
     assert_eq!(std::fs::read(dir.path().join("daemons.json")).unwrap(), before);
     assert_eq!(store.calls.load(Ordering::SeqCst), calls);
-    assert_eq!(encode_registry_v2(&doc), before);
+    assert_eq!(encode_registry_v3(&doc), before);
 }
 
 #[test]
-fn a_version_1_file_without_secrets_becomes_version_2_and_asks_nothing_of_the_store() {
+fn a_version_1_file_without_secrets_becomes_version_3_and_asks_nothing_of_the_store() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("daemons.json"), json!({"version": 1, "entries": [{"id": "local", "kind": "local", "name": "This machine"}]}).to_string())
         .unwrap();
@@ -64,7 +64,7 @@ fn a_version_1_file_without_secrets_becomes_version_2_and_asks_nothing_of_the_st
     store.fail_all();
     let (_, notices) = open(dir.path(), &store);
     assert!(notices.is_empty());
-    assert_eq!(decode_registry_v2(&std::fs::read(dir.path().join("daemons.json")).unwrap()).unwrap().version, 2);
+    assert_eq!(decode_registry_v3(&std::fs::read(dir.path().join("daemons.json")).unwrap()).unwrap().version, 3);
     assert_eq!(store.calls.load(Ordering::SeqCst), 0);
 }
 
@@ -92,7 +92,12 @@ fn a_store_that_refuses_leaves_the_file_as_it_was_and_serves_this_run_from_memor
         other => panic!("{other:?}"),
     }
     s.execute("daemon.switch", json!({"id": RELAY})).unwrap();
-    assert_eq!(s.plan_dial(url).unwrap().finish(&*s.secret_store()), Ok(Dial::Connect { url: "pi://MARK-link".into() }));
+    assert_eq!(s.plan_dial(url).unwrap().finish(&*s.secret_store()), Ok(Dial::Connect { url: "ws://MARK-link".into() }));
+    let bridge = s.plan_bridge(url).unwrap();
+    assert_eq!(
+        (bridge.url.as_str(), &bridge.password),
+        ("ws://MARK-link", &BridgePassword::Held(pistudiodesktop_model::Secret::new("#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=MARK-link")))
+    );
     assert_eq!(store.calls.load(Ordering::SeqCst), calls);
 
     // Nothing may rewrite the file or the store meanwhile: the file would lose secrets the store lacks.

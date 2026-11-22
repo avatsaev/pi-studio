@@ -7,6 +7,11 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The relay stand-in (`testing.rs`): a loopback relay with a daemon half that speaks the channel, for this
+# crate's tests and for the integration tests of the crates that use it. Never enabled in a shipped build.
+testing = ["tokio/net", "tokio/rt", "tokio/io-util", "tokio/sync"]
+
 # Native only, like `net`: on wasm32 the crate is empty and takes no dependency.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pistudiodesktop-net = { workspace = true }
@@ -14,3 +19,11 @@ crypto_box = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+# The relay's control frames are read as JSON.
+serde_json = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "net", "time", "sync", "io-util", "test-util"] }

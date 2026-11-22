@@ -69,8 +69,9 @@ pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Optio
 /// starts it when it is stopped and the setting says so. It runs off the session's thread, which
 /// is never held up. Takes no id: the page is trusted with the entry it opens and no other. For a
 /// local or direct entry the answer holds no password (`transport_open` reads it, in Rust); for a
-/// relay entry `url` is the pairing link, the only secret a command still returns. Nothing here
-/// logs one.
+/// relay entry `url` is the relay's address (`ws(s)://<relay host>`, or `ws://<host>` for a link
+/// with a host hint), derived from the stored link, which no command returns. Nothing here
+/// logs a secret.
 #[tauri::command]
 pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
     let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));

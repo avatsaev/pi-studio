@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 use pistudiodesktop_model::decode_registry_any;
 use pistudiodesktop_model::{
-    EntryId, EntryState, LimitError, MAX_KEY_BYTES, MigratedSecret, NewEntry, RegistryV2, Scope, Secret, Settings, Update, check_put, encode_entry_state,
-    encode_registry_v2, encode_settings, scope_of,
+    EntryId, EntryState, LimitError, MAX_KEY_BYTES, MigratedSecret, NewEntry, RegistryV3, Scope, Secret, Settings, Update, check_put, encode_entry_state,
+    encode_registry_v3, encode_settings, scope_of,
 };
 use serde_json::Value;
 
@@ -69,7 +69,7 @@ impl Notice {
 }
 
 /// The entry whose keys are in use: `lastUsedId` when that entry exists, else `local`.
-fn current_of(registry: &RegistryV2) -> EntryId {
+fn current_of(registry: &RegistryV3) -> EntryId {
     registry.last_used_id.as_ref().filter(|id| registry.get(id.as_str()).is_some()).cloned().unwrap_or_else(EntryId::local)
 }
 
@@ -99,7 +99,7 @@ pub(crate) struct Storage {
     settings: Settings,
     /// The settings file has changes that are not on disk.
     settings_unwritten: bool,
-    registry: RegistryV2,
+    registry: RegistryV3,
     /// The secrets of a version 1 file that could not be moved to the store: empty unless
     /// [`Notice::SecretsNotMoved`] was returned at open.
     held: Vec<MigratedSecret>,
@@ -113,7 +113,7 @@ pub(crate) struct Storage {
 
 impl Default for Storage {
     fn default() -> Self {
-        let registry = RegistryV2::default();
+        let registry = RegistryV3::default();
         Storage {
             dir: None,
             settings: Settings::default(),
@@ -149,7 +149,7 @@ impl Storage {
         let mut secrets = Vec::new();
         let decode = |bytes: &[u8]| {
             let (registry, found) = decode_registry_any(bytes).ok()?;
-            rewrite = encode_registry_v2(&registry) != bytes;
+            rewrite = encode_registry_v3(&registry) != bytes;
             secrets = found;
             Some(registry)
         };
@@ -164,7 +164,7 @@ impl Storage {
             rewrite = false;
             storage.held = secrets;
         }
-        if rewrite && let Err(e) = write_private_file(&dir, REGISTRY_FILE, &encode_registry_v2(&storage.registry)) {
+        if rewrite && let Err(e) = write_private_file(&dir, REGISTRY_FILE, &encode_registry_v3(&storage.registry)) {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
         }
         let entry = current_of(&storage.registry);
@@ -176,7 +176,7 @@ impl Storage {
         (storage, notices)
     }
 
-    pub(crate) fn registry(&self) -> &RegistryV2 {
+    pub(crate) fn registry(&self) -> &RegistryV3 {
         &self.registry
     }
 
@@ -186,14 +186,14 @@ impl Storage {
 
     /// Replace the registry by `next`, which is on disk before this returns. When it cannot be
     /// written nothing has changed. The error is a wire code. While secrets are held back (see
-    /// [`Storage::open`]) nothing is written: a version 2 file would claim secrets that only this
+    /// [`Storage::open`]) nothing is written: a version 3 file would claim secrets that only this
     /// run has.
-    pub(crate) fn commit(&mut self, next: RegistryV2) -> std::result::Result<(), &'static str> {
+    pub(crate) fn commit(&mut self, next: RegistryV3) -> std::result::Result<(), &'static str> {
         if self.unmigrated() {
             return Err(STORE_FAILED);
         }
         if let Some(dir) = &self.dir
-            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v2(&next))
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v3(&next))
         {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
             return Err("write_failed");
@@ -214,17 +214,17 @@ impl Storage {
     }
 
     /// A fresh id and the registry with `new` added under it, validated; nothing changes yet.
-    pub(crate) fn plan_add(&self, new: NewEntry) -> std::result::Result<(EntryId, RegistryV2), &'static str> {
+    pub(crate) fn plan_add(&self, new: NewEntry) -> std::result::Result<(EntryId, RegistryV3), &'static str> {
         let id = fresh_id().ok_or("write_failed")?;
         let next = self.registry.add(id.clone(), new).map_err(|e| e.code())?;
         Ok((id, next))
     }
 
-    pub(crate) fn plan_update(&self, id: &str, update: Update) -> std::result::Result<RegistryV2, &'static str> {
+    pub(crate) fn plan_update(&self, id: &str, update: Update) -> std::result::Result<RegistryV3, &'static str> {
         self.registry.update(id, update).map_err(|e| e.code())
     }
 
-    pub(crate) fn plan_remove(&self, id: &str) -> std::result::Result<RegistryV2, &'static str> {
+    pub(crate) fn plan_remove(&self, id: &str) -> std::result::Result<RegistryV3, &'static str> {
         self.registry.remove(id).map_err(|e| e.code())
     }
 
@@ -262,7 +262,7 @@ impl Storage {
             // Only `lastUsedId` is lost, and only if the app is closed before the next launch.
             log::warn!("{REGISTRY_FILE} is not rewritten while its secrets are not in the secret store");
         } else if let Some(dir) = &self.dir
-            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v2(&next))
+            && let Err(e) = write_private_file(dir, REGISTRY_FILE, &encode_registry_v3(&next))
         {
             log::warn!("cannot write {REGISTRY_FILE}: {e}");
             return Err("write_failed");

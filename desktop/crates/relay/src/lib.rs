@@ -5,11 +5,16 @@
 //! daemon socket the loopback proxy and the transfer engine take like any other.
 #![cfg(not(target_arch = "wasm32"))]
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn dependencies_resolve() {
-        let _ = crypto_box::SalsaBox::new;
-        let _ = <sha2::Sha512 as sha2::Digest>::new;
-    }
-}
+pub mod channel;
+pub mod connect;
+pub mod error;
+mod reason;
+mod session_id;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
+pub use channel::{CHANNEL_VERSION, Channel, HELLO_LENGTH, KEY_LENGTH, KeyPair, MIN_BOX_LENGTH, Record, RecordKind, SALT_LENGTH};
+pub use connect::{CLOSE_CHANNEL_ERROR, CLOSE_CHANNEL_ERROR_REASON, CONNECT_LIMIT, Connected, connect};
+pub use error::ChannelError;
+pub use reason::{RelayError, RelayReason};
+pub use session_id::session_id;

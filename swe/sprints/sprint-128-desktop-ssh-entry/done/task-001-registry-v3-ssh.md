@@ -1,7 +1,7 @@
 # Task 001 — Model and secrets: kind `ssh`, registry version 3, `RemoteState`, two secret kinds
 
 - **Sprint:** sprint-128-desktop-ssh-entry
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model, desktop/crates/secrets
 - **Priority:** P1

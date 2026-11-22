@@ -11,8 +11,10 @@ mod registry;
 
 pub use address_rule::{address_matches, normalize_daemon_url};
 pub use registry::{
-    EntryV2, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MigratedSecret,
-    NewEntry, REGISTRY_V2, RegistryError, RegistryV2, Secret, Update, check_link, check_password, decode_registry_any, decode_registry_v2, encode_registry_v2,
+    DEFAULT_DAEMON_PORT, EntryV3, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_HOST_CHARS, MAX_IDENTITY_FILE_CHARS,
+    MAX_JUMP_CHARS, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MAX_USER_CHARS, MigratedSecret, NewEntry, REGISTRY_V3, RegistryError, RegistryV3,
+    RemoteFailReason, RemoteState, Secret, SshFields, SshView, Update, check_host, check_identity_file, check_jump, check_link, check_password, check_port,
+    check_user, decode_registry_any, decode_registry_v3, encode_registry_v3,
 };
 
 use std::collections::BTreeMap;

@@ -299,20 +299,6 @@ fn an_address_that_cannot_be_dialled_is_invalid_address_before_any_place_or_secr
 }
 
 #[test]
-fn a_relay_entry_is_not_bridged() {
-    let f = Fixture::direct(None, None);
-    const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=secret-link";
-    let relay = invoke(&f.window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": LINK}})).unwrap();
-    f.make_current(relay["id"].as_str().unwrap());
-    let refused = f.open_url(LINK);
-    assert_eq!(code_of(&refused), "not_bridged");
-    assert!(!refused.unwrap_err().to_string().contains("secret-link"));
-    // Back on the direct entry, the bridge works again: nothing was held.
-    f.make_current(&f.id);
-    assert!(f.open().is_ok());
-}
-
-#[test]
 fn a_fifth_open_is_limit_and_never_dials() {
     let f = Fixture::direct(None, None);
     for _ in 0..4 {

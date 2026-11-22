@@ -1,5 +1,5 @@
-//! The secret store: small secrets (a direct entry's password, a relay entry's pairing link) kept
-//! apart from the registry file.
+//! The secret store: small secrets (a direct, local or SSH entry's daemon password, an SSH entry's
+//! account password and key passphrase, a relay entry's pairing link) kept apart from the registry file.
 //!
 //! [`SecretStore`] is the contract. It has three backends: [`KeychainStore`] (the operating system's
 //! keychain; [`KeychainStore::probe`] says within two seconds whether there is one), [`FileStore`]
@@ -57,16 +57,23 @@ impl fmt::Display for Secret {
 /// What a secret is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SecretKind {
+    /// The daemon's password.
     Password,
     PairingLink,
+    /// An SSH entry's account password.
+    SshPassword,
+    /// The passphrase of an SSH entry's identity file.
+    SshPassphrase,
 }
 
 impl SecretKind {
-    /// The name used in a store key: `password` or `pairingLink`.
+    /// The name used in a store key: `password`, `pairingLink`, `sshPassword` or `sshPassphrase`.
     pub fn as_str(self) -> &'static str {
         match self {
             SecretKind::Password => "password",
             SecretKind::PairingLink => "pairingLink",
+            SecretKind::SshPassword => "sshPassword",
+            SecretKind::SshPassphrase => "sshPassphrase",
         }
     }
 
@@ -74,6 +81,8 @@ impl SecretKind {
         match s {
             "password" => Some(SecretKind::Password),
             "pairingLink" => Some(SecretKind::PairingLink),
+            "sshPassword" => Some(SecretKind::SshPassword),
+            "sshPassphrase" => Some(SecretKind::SshPassphrase),
             _ => None,
         }
     }
@@ -81,7 +90,7 @@ impl SecretKind {
     /// The longest secret of this kind, in characters (the registry's cap).
     pub fn max_chars(self) -> usize {
         match self {
-            SecretKind::Password => MAX_PASSWORD_CHARS,
+            SecretKind::Password | SecretKind::SshPassword | SecretKind::SshPassphrase => MAX_PASSWORD_CHARS,
             SecretKind::PairingLink => MAX_LINK_CHARS,
         }
     }
@@ -90,6 +99,8 @@ impl SecretKind {
         match self {
             SecretKind::Password => "password",
             SecretKind::PairingLink => "pairing link",
+            SecretKind::SshPassword => "SSH password",
+            SecretKind::SshPassphrase => "key passphrase",
         }
     }
 }
@@ -230,13 +241,28 @@ mod tests {
     }
 
     #[test]
+    fn the_ssh_kinds_are_capped_at_1024_characters() {
+        for kind in [SecretKind::SshPassword, SecretKind::SshPassphrase] {
+            assert_eq!(kind.max_chars(), 1024);
+            let edge = "é".repeat(1024);
+            assert!(check_len(kind, &Secret::new(edge.clone())).is_ok());
+            assert!(check_len(kind, &Secret::new(format!("{edge}é"))).is_err());
+            assert!(check_len(kind, &Secret::new("")).is_err());
+        }
+        let err = check_len(SecretKind::SshPassphrase, &Secret::new("x".repeat(1025))).unwrap_err();
+        assert!(format!("{err}").contains("key passphrase"), "{err}");
+    }
+
+    #[test]
     fn keys_round_trip_through_their_names() {
         let id = EntryId::parse("123e4567-e89b-12d3-a456-426614174000").unwrap();
-        for kind in [SecretKind::Password, SecretKind::PairingLink] {
+        for kind in [SecretKind::Password, SecretKind::PairingLink, SecretKind::SshPassword, SecretKind::SshPassphrase] {
             let k = SecretKey::new(id.clone(), kind);
             assert_eq!(SecretKey::parse(&k.name()), Some(k));
         }
         assert_eq!(key(SecretKind::PairingLink).name(), "local/pairingLink");
+        assert_eq!(key(SecretKind::SshPassword).name(), "local/sshPassword");
+        assert_eq!(key(SecretKind::SshPassphrase).name(), "local/sshPassphrase");
         for bad in ["", "local", "local/", "local/token", "../x/password", "local/password/x", "LOCAL/password"] {
             assert_eq!(SecretKey::parse(bad), None, "{bad}");
         }

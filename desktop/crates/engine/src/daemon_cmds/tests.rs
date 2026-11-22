@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use pistudiodesktop_model::{EntryId, NewEntry, RegistryV2, decode_registry_v2, encode_registry_v2};
+use pistudiodesktop_model::{EntryId, NewEntry, RegistryV3, decode_registry_v3, encode_registry_v3};
 use serde_json::json;
 
 use crate::test_store::FakeStore;
@@ -21,17 +21,17 @@ fn open(dir: &std::path::Path) -> (Session, Vec<Notice>, Arc<FakeStore>) {
 }
 
 fn seed(dir: &std::path::Path, last_used: Option<&str>) {
-    let mut registry = RegistryV2::default()
+    let mut registry = RegistryV3::default()
         .add(EntryId::parse(B).unwrap(), NewEntry::Direct { name: "B".into(), address: "10.0.0.2:8080".into(), has_password: false })
         .unwrap();
     if let Some(id) = last_used {
         registry.last_used_id = Some(EntryId::parse(id).unwrap());
     }
-    std::fs::write(dir.join("daemons.json"), encode_registry_v2(&registry)).unwrap();
+    std::fs::write(dir.join("daemons.json"), encode_registry_v3(&registry)).unwrap();
 }
 
-fn read_registry(dir: &std::path::Path) -> RegistryV2 {
-    decode_registry_v2(&std::fs::read(dir.join("daemons.json")).unwrap()).unwrap()
+fn read_registry(dir: &std::path::Path) -> RegistryV3 {
+    decode_registry_v3(&std::fs::read(dir.join("daemons.json")).unwrap()).unwrap()
 }
 
 fn err(r: crate::Result<serde_json::Value>) -> String {
@@ -53,7 +53,7 @@ fn an_empty_directory_gets_a_private_registry_with_local() {
     assert!(notices.is_empty());
     let path = dir.path().join("daemons.json");
     let on_disk = read_registry(dir.path());
-    assert_eq!((on_disk.version, on_disk.entries.len()), (2, 1));
+    assert_eq!((on_disk.version, on_disk.entries.len()), (3, 1));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -130,8 +130,8 @@ fn an_unknown_id_changes_nothing() {
 #[test]
 fn a_last_used_id_without_an_entry_opens_on_local() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = RegistryV2 { last_used_id: Some(EntryId::parse(B).unwrap()), ..RegistryV2::default() };
-    std::fs::write(dir.path().join("daemons.json"), encode_registry_v2(&registry)).unwrap();
+    let registry = RegistryV3 { last_used_id: Some(EntryId::parse(B).unwrap()), ..RegistryV3::default() };
+    std::fs::write(dir.path().join("daemons.json"), encode_registry_v3(&registry)).unwrap();
     let (s, notices, _) = open(dir.path());
     assert!(notices.is_empty());
     assert_eq!(s.current_entry_id().map(EntryId::as_str), Some("local"));

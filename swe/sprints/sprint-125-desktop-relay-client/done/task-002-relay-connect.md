@@ -1,7 +1,7 @@
 # Task 002 — Relay crate: connect, pairing and the reasons, against a relay stand-in
 
 - **Sprint:** sprint-125-desktop-relay-client
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/relay
 - **Priority:** P1

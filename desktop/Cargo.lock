@@ -3777,10 +3777,14 @@ name = "pistudiodesktop-relay"
 version = "0.2.0"
 dependencies = [
  "crypto_box",
+ "futures-util",
  "getrandom 0.3.4",
  "pistudiodesktop-net",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

@@ -988,6 +988,20 @@ fn resolving_the_current_entry_answers_the_address_and_no_password_to_the_page()
 }
 
 #[test]
+fn resolving_a_relay_entry_answers_the_relays_address_and_never_the_link() {
+    const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&relay=https://relay.example:8443/&relayTls=1&note=hunter2-link";
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let added = invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": LINK}})).unwrap();
+    let switch =
+        pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.switch", "params": {"id": added["id"]}}) };
+    assert_eq!(tauri::async_runtime::block_on(app.state::<Bridge>().ask(switch)).unwrap()["ok"], true);
+    let answer = invoke(&window, "daemon_resolve_current", json!({})).unwrap();
+    assert_eq!(answer, json!({"url": "wss://relay.example:8443", "connect": true}));
+    assert!(!answer.to_string().contains("hunter2-link") && !answer.to_string().contains("AAECAwQ"), "{answer}");
+}
+
+#[test]
 fn without_a_local_daemon_the_current_local_entry_cannot_be_dialled() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, window) = app_on(dir.path());

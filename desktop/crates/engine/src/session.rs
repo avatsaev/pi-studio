@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use pistudiodesktop_secrets::SecretStore;
 
-use pistudiodesktop_model::{EntryId, EntryV2, Kind, LimitError, LocalState, NewEntry, RegistryV2, Secret, Settings, Update, check_link, check_password};
+use pistudiodesktop_model::{EntryId, EntryV3, Kind, LimitError, LocalState, NewEntry, RegistryV3, Secret, Settings, Update, check_link, check_password};
 use serde_json::{Map, Value};
 
 use crate::local::LocalQueue;
@@ -96,8 +96,8 @@ impl Session {
         }
     }
 
-    /// The registry: the version 2 document, with no secret in it.
-    pub fn registry(&self) -> &RegistryV2 {
+    /// The registry: the version 3 document, with no secret in it.
+    pub fn registry(&self) -> &RegistryV3 {
         self.storage.registry()
     }
 
@@ -167,6 +167,7 @@ impl Session {
             address: change.address,
             has_password: change.password.as_ref().map(Option::is_some),
             new_link: change.pairing_link.is_some(),
+            ..Update::default()
         };
         self.storage.plan_update(id, update.clone())?;
         let entry = self.storage.registry().get(id).map(|e| e.id.clone()).ok_or("not_found")?;
@@ -201,7 +202,7 @@ impl Session {
     pub fn commit_secret_job(&mut self, job: &mut SecretJob) -> std::result::Result<Value, &'static str> {
         let view = |s: &Session, id: &str| -> std::result::Result<Value, &'static str> {
             let entry = s.storage.registry().get(id).ok_or("not_found")?;
-            serde_json::to_value(EntryV2::view(entry)).map_err(|_| "write_failed")
+            serde_json::to_value(EntryV3::view(entry)).map_err(|_| "write_failed")
         };
         let answer = match &mut job.work {
             Work::Add { id, new } => {

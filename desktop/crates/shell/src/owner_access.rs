@@ -163,7 +163,8 @@ mod tests {
         assert_eq!(access.bridge_password(&plan).unwrap().map(|p| p.expose().to_owned()), Some("pw".to_owned()));
         let relay = access.execute("daemon.add", json!({"kind": "relay", "name": "R", "pairingLink": LINK})).unwrap();
         access.execute("daemon.switch", json!({"id": relay["id"]})).unwrap();
-        assert_eq!(access.bridge_plan(), Err("not_bridged"));
+        let plan = access.bridge_plan().unwrap();
+        assert_eq!((plan.kind, plan.url.as_str(), &plan.password), (pistudiodesktop_model::Kind::Relay, "", &BridgePassword::Stored));
     }
 
     #[test]
@@ -276,7 +277,7 @@ mod tests {
         assert_eq!(listed["entries"].as_array().map(Vec::len), Some(2));
         let (dial, took) = resolver.join().unwrap();
         assert!(took >= Duration::from_millis(2900), "the read really blocked: {took:?}");
-        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": LINK, "connect": true}));
+        assert_eq!(daemons::dial_for_page(dial.unwrap()).unwrap(), json!({"url": "ws://l", "connect": true}));
     }
 
     #[test]
