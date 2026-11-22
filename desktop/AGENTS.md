@@ -19,10 +19,11 @@ forces one) and the settings; a supervisor runs
 the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
 the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
 add, edit and remove entries, each with its own stored layout. All of it sits behind a command
-registry that the page, the CLI and the control socket dispatch into. The webview still opens the
-WebSocket to the daemon itself (milestone 2 moves it into Rust: the page's command `transport_open`
-dials the current entry's daemon from Rust and answers a single-use loopback address, `src-tauri/src/transport.rs`;
-the desktop host does not call it yet).
+registry that the page, the CLI and the control socket dispatch into. The socket to a local or direct
+entry's daemon is Rust's (milestone 2): the host's `connection.createTransport` (`src/host/connection.ts`) returns, for
+a current entry of kind `local` or `direct`, the SDK's WebSocket transport pointed at the single-use loopback
+address that the page's command `transport_open` answers after Rust dialled the daemon (`src/host/proxied-transport.ts`,
+`src-tauri/src/transport.rs`); a relay entry, or no current entry, keeps the webview's own socket.
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; the Upload
 picker and a file dragged from the OS were not verified in the headless container.
 
@@ -40,11 +41,11 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     crates/store            L3  JSON files: safe reads, atomic writes
     crates/secrets          L3  the secret store: OS keychain (service `com.avatsaev.pi-studio`, one `keyring-core` store crate per platform by `cfg`; `KeychainStore::probe` answers within 2 s), file (`secrets.json`, 0600) and memory backends, and `FakeKeychain` (can block) for tests; the choice between them is the shell's
     crates/engine           L5  Session + command registry (every action is a command)
-    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`), resume signals (`resume`: the pure wake and network-change detectors, the rate limit that defers a refused signal instead of dropping it, the counts; the app's threads are `src-tauri/src/resume.rs` and `network.rs`, the latter reading addresses with `if-addrs`) (no UI toolkit)
+    crates/shell            L6  UI state, generated menus (incl. the Daemons menu), control protocol, the page's commands, the local-daemon supervisor, the launch choice of the secret store (`secret_choice`), resume signals (`resume`: the pure wake and network-change detectors, the rate limit that defers a refused signal instead of dropping it, the counts; the app's threads are `src-tauri/src/resume.rs` and `network.rs`, the latter reading addresses with `if-addrs`), the proxied connections as `ui.inspect` shows them (`transports`: plain data and serde only; the app fills `Services::transports` with a hook, so the crate holds no socket type) (no UI toolkit)
     crates/net              L7  sockets (the only crate with one); native only, empty and dependency-free on wasm32; only an app binary may use it, and it may use no UI crate. `dial`: TCP, TLS trusting only the OS store, the WebSocket upgrade with the bearer subprotocol, error codes; `check_address` is its address check alone. `proxy`: the loopback WebSocket proxy (`Proxies::reserve` before the dial, `Reservation::open(daemon_socket, origin)` after it answers `ws://127.0.0.1:<port>/<token>`; the gate, the two-direction pump with a bounded hold, the close table, a set of at most four connections, `close_all`, `snapshot`). `limits.rs` holds every limit and `Limits` lets a test shorten one; the crate has no log (the app gives the proxy a function for its lines)
     crates/testkit              test helpers
     apps/pistudiodesktop                  the web frontend: a shell that mounts the workbench
-    apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server, the proxied daemon connections (`transport.rs`: `transport_open`, closing them on `boot`, a switch and exit)
+    apps/pistudiodesktop/src-tauri        the desktop binary: Tauri window, dialogs, control server, the proxied daemon connections (`transport.rs`: `transport_open`, closing them on `boot`, a switch and exit, and the `Services::transports` hook behind `connection.transports` / `connection.lastError` in `ui.inspect`: the proxy's snapshot plus the last refused open, the newer error wins)
     apps/pistudiodesktop-cli              headless CLI
     apps/ipc-bench                        the IPC benchmark: baseline, two candidate bridges and a loopback WebSocket proxy, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net` for its message limit and holds the channel candidates' codec, window and order buffer; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)
     xtask/                      cargo xtask layers | web | wasm | test | ci

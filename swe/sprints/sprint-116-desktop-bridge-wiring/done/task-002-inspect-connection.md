@@ -1,7 +1,7 @@
 # Task 002 — `ui.inspect`: the proxied connections and the last error
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell, desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

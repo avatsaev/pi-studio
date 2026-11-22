@@ -29,6 +29,10 @@
 //! Resume signals ([`resume`]) are the app telling the page that a socket may have died while nothing
 //! said so. The detection of a wake and the rate limit are pure; the app's ticker thread passes the
 //! times in. The counts are `connection.resumeSignals` in `ui.inspect`.
+//!
+//! The proxied daemon connections and the last connection error ([`transports`]) are plain data the
+//! app's hook ([`Services::transports`]) answers; they are `connection.transports` and
+//! `connection.lastError` in `ui.inspect`. The shell holds no socket type.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -63,6 +67,7 @@ pub mod state;
 pub mod supervisor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod switch;
+pub mod transports;
 
 use pistudiodesktop_engine::{Notice, Session};
 use serde_json::Value;

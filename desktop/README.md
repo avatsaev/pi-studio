@@ -9,8 +9,8 @@ saving files and the HTML preview go through Rust, and a daemon registry (this m
 address, a relay pairing link) opens on the daemon used last and starts this machine's daemon
 through the installed `pi-studio` CLI. Passwords and pairing links are kept in the operating
 system's keychain when it answers, else in a file only the user can read, never in `daemons.json`.
-The webview still opens the WebSocket to the daemon itself (the command that dials it from Rust and
-answers a loopback address, `transport_open`, is built and not yet called by the page); large-file
+The socket to a local or direct daemon is opened by Rust (the page asks `transport_open` and connects to
+the loopback address it answers; a relay entry keeps the webview's own socket); large-file
 transfer is a later milestone. Built and checked on Linux (the keychain too: a Secret Service, and the file
 fallback); on macOS and Windows only the automated checks have run (see [docs/platform-checks.md](docs/platform-checks.md)).
 Behind the window, the Rust crates hold an engine with the registry, the settings and the stored

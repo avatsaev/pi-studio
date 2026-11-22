@@ -30,6 +30,7 @@ export function createDesktopHost(
     log,
   );
   const base = createBrowserHost({ app: snapshot.app, pdf, saveTarget: createSaveTarget(ipc) });
+  const daemons = createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log, tell);
   return {
     ...base,
     files: countTransfers(base.files, (count) => {
@@ -39,8 +40,8 @@ export function createDesktopHost(
     dialogs: createNativeDialogs(ipc, log),
     links: createNativeLinks(ipc, log),
     preview: createDesktopPreview(snapshot.preview, ipc, log),
-    connection: createDesktopConnection(base.connection, ipc, log),
+    connection: createDesktopConnection(base.connection, ipc, daemons, log),
     launch: NO_LAUNCH,
-    daemons: createDesktopDaemons(snapshot.daemons, ipc, () => storage.settled(), log, tell),
+    daemons,
   };
 }

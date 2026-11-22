@@ -8,6 +8,7 @@ use pistudiodesktop_model::EntryId;
 use pistudiodesktop_secrets::{MemoryStore, Secret, SecretError, SecretKey, SecretKind, SecretStore, StoreKind};
 use pistudiodesktop_shell::daemons::LocalOp;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
+use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, TransportState, TransportView};
 use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
 use serde_json::{Value, json};
 
@@ -21,7 +22,9 @@ const OLD_LINK: &str = "pi://S3CRET-OLD-LINK-0e6d13";
 const ARCHIVE: &str = "3f2b8a40-1111-4222-8333-444455557777";
 /// What the fake CLI prints as its `pairingUrl`.
 const CLI_PAIRING: &str = "S3CRET-CLI-PAIRING-5c1e90";
-const SECRETS: [&str; 7] = [PASSWORD, LINK, NEW_PASSWORD, NEW_LINK, OLD_PASSWORD, OLD_LINK, CLI_PAIRING];
+/// The token in a proxied connection's local address, which the app's hook can reach.
+const TOKEN: &str = "S3CRET-TOKEN-8a21d7";
+const SECRETS: [&str; 8] = [PASSWORD, LINK, NEW_PASSWORD, NEW_LINK, OLD_PASSWORD, OLD_LINK, CLI_PAIRING, TOKEN];
 
 static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -148,7 +151,29 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     let store = Arc::new(Flaky::default());
     let (session, notices) = Session::with_config_dir(dir.path(), store.clone());
     assert!(notices.is_empty(), "{notices:?}");
-    let mut app = AppShell::new(session, Services::default());
+    // The app's hook holds the local address (token) and the password of a connection; what it
+    // answers is a snapshot of counters, and `ui.inspect` must carry nothing of what it holds.
+    let held = (format!("ws://127.0.0.1:1/{TOKEN}"), PASSWORD);
+    let services = Services {
+        transports: Some(Arc::new(move || {
+            let _held = &held;
+            Snapshot {
+                transports: vec![TransportView {
+                    entry_id: ARCHIVE.into(),
+                    state: TransportState::Open,
+                    frames_in: 4,
+                    frames_out: 3,
+                    bytes_in: 400,
+                    bytes_out: 300,
+                    peak_held_in: 20,
+                    peak_held_out: 10,
+                }],
+                last_error: Some(ConnectionError { code: "page_refused", at_ms: 1 }),
+            }
+        })),
+        ..Services::default()
+    };
+    let mut app = AppShell::new(session, services);
     let mut seen = Vec::new();
 
     let direct = execute(&mut app, &mut seen, "daemon.add", json!({"kind": "direct", "name": "Work", "address": "10.0.0.9:8080", "password": PASSWORD}));
@@ -161,6 +186,8 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     control_call(&mut app, &mut seen, "engine.commands", Value::Null);
     let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
     assert_eq!(inspect["result"]["daemons"]["entries"].as_array().map(Vec::len), Some(4), "{inspect}");
+    assert_eq!(inspect["result"]["connection"]["transports"][0]["state"], "open", "{inspect}");
+    assert_eq!(inspect["result"]["connection"]["lastError"]["code"], "page_refused", "{inspect}");
     assert_eq!(inspect["result"]["daemons"]["currentId"], "local");
     control_call(&mut app, &mut seen, "ui.set", json!({}));
     control_call(&mut app, &mut seen, "ui.set", json!({"password": PASSWORD}));
@@ -260,7 +287,11 @@ fn views_name_the_kind(kind: StoreKind) {
     ];
     let mut seen = Vec::new();
     let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
-    assert_eq!(inspect["result"]["connection"], json!({"secretStore": kind.as_str(), "resumeSignals": {"wake": 0, "network": 0}}), "{inspect}");
+    assert_eq!(
+        inspect["result"]["connection"],
+        json!({"secretStore": kind.as_str(), "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        "{inspect}"
+    );
     assert_eq!(inspect["result"]["daemons"]["secretStore"], kind.as_str(), "{inspect}");
     let added = execute(&mut app, &mut seen, "daemon.add", json!({"kind": "direct", "name": "Work", "address": "10.0.0.9:8080", "password": PASSWORD}));
     assert_eq!(added["ok"], true, "{added}");

@@ -501,3 +501,83 @@ fn quitting_the_app_closes_every_proxied_connection_with_1001_before_it_returns(
     transport::on_run_event(f.app.handle(), &RunEvent::Exit);
     all_told_goodbye(&f, 2);
 }
+
+// ---- what the control socket sees
+
+/// `connection` of `ui.inspect`, asked as the control socket asks.
+fn inspected(f: &Fixture) -> Value {
+    let ask = Request::Control { method: "ui.inspect".into(), params: Value::Null };
+    tauri::async_runtime::block_on(f.app.state::<crate::bridge::Bridge>().ask(ask)).unwrap()["result"]["connection"].clone()
+}
+
+#[test]
+fn ui_inspect_shows_the_connection_connecting_then_open_with_counters_and_none_after_a_close() {
+    let f = Fixture::direct(Some(MARKER), Some(MARKER));
+    assert_eq!(inspected(&f)["transports"], json!([]));
+    let local = f.open().unwrap();
+    f.daemon.wait_for("0:open");
+    let waiting = inspected(&f);
+    assert_eq!(waiting["transports"][0]["state"], "connecting", "{waiting}");
+    assert_eq!(waiting["transports"][0]["entryId"], f.id.as_str());
+    assert_eq!(waiting["lastError"], Value::Null);
+
+    let mut page = f.connect(&local);
+    tauri::async_runtime::block_on(async {
+        page.send(Message::text("héllo")).await.unwrap();
+        assert_eq!(page.next().await.unwrap().unwrap(), Message::text("héllo"));
+    });
+    let open = inspected(&f);
+    let transports = open["transports"].as_array().unwrap();
+    assert_eq!(transports.len(), 1, "{open}");
+    assert_eq!(transports[0]["state"], "open", "{open}");
+    for counter in ["framesIn", "framesOut", "bytesIn", "bytesOut"] {
+        assert!(transports[0][counter].as_u64().unwrap() > 0, "{counter}: {open}");
+    }
+    assert_eq!(open["lastError"], Value::Null, "{open}");
+    // No address, token, password or message text.
+    let token = local.rsplit('/').next().unwrap();
+    let text = open.to_string();
+    assert!(!text.contains(MARKER) && !text.contains(token) && !text.contains("héllo") && !text.contains("127.0.0.1"), "{text}");
+
+    tauri::async_runtime::block_on(async {
+        page.close(Some(CloseFrame { code: CloseCode::Library(4000), reason: "bye".into() })).await.unwrap();
+        while let Some(Ok(_)) = page.next().await {}
+    });
+    wait_until("no transport", || inspected(&f)["transports"] == json!([]));
+    assert_eq!(inspected(&f)["lastError"], Value::Null, "a close is not an error");
+}
+
+#[test]
+fn ui_inspect_reports_the_code_of_a_refused_open_as_the_last_error_with_a_time() {
+    let f = Fixture::direct(Some(MARKER), Some("another-password"));
+    let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    assert_eq!(code_of(&f.open()), "unauthorized");
+    let seen = inspected(&f);
+    assert_eq!(seen["transports"], json!([]), "{seen}");
+    assert_eq!(seen["lastError"]["code"], "unauthorized", "{seen}");
+    assert!(seen["lastError"]["atMs"].as_u64().unwrap() >= before, "{seen}");
+    assert!(!seen.to_string().contains(MARKER));
+    // The next refusal replaces it.
+    assert_eq!(code_of(&f.open_url("ws://127.0.0.1:1")), "address_mismatch");
+    assert_eq!(inspected(&f)["lastError"]["code"], "address_mismatch");
+}
+
+#[test]
+fn ui_inspect_reports_page_refused_after_a_client_with_the_wrong_token_and_the_page_never_comes() {
+    let f = Fixture::direct(None, None);
+    let local = f.open().unwrap();
+    let (stem, _) = local.rsplit_once('/').unwrap();
+    let wrong = format!("{stem}/{}", "0".repeat(64));
+    assert!(tauri::async_runtime::block_on(connect_page(&wrong, &f.origin)).is_err(), "the gate refuses a wrong token");
+    assert_eq!(inspected(&f)["transports"][0]["state"], "connecting");
+    // The real page does not come either: when its time is up the gate's refusal is the reason.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while inspected(&f)["lastError"].is_null() {
+        assert!(Instant::now() < deadline, "no last error: {}", inspected(&f));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let seen = inspected(&f);
+    assert_eq!(seen["lastError"]["code"], "page_refused", "{seen}");
+    assert_eq!(seen["transports"], json!([]), "{seen}");
+    assert!(!seen.to_string().contains(local.rsplit('/').next().unwrap()));
+}

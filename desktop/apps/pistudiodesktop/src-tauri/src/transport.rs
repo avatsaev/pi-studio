@@ -11,11 +11,14 @@
 //! message written for a person, and `localUrl` is only in the command's answer.
 
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pistudiodesktop_model::address_matches;
-use pistudiodesktop_net::{DIAL_LIMIT, DialError, Proxies, ProxyError, check_address, dial};
+use pistudiodesktop_net::{DIAL_LIMIT, DialError, Proxies, ProxyError, Snapshot as ProxySnapshot, State, check_address, dial};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
+use pistudiodesktop_shell::services::TransportsHook;
+use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, TransportState, TransportView};
 use serde::Serialize;
 use tauri::{AppHandle, Manager as _, RunEvent, Runtime, Url, Window, WindowEvent};
 
@@ -58,6 +61,9 @@ pub struct Opened {
 /// The proxied connections of the app. Managed by Tauri.
 pub struct Transport {
     proxies: Proxies,
+    /// The last `transport_open` that failed, for `ui.inspect`'s `lastError` (the proxy keeps the
+    /// last abnormal end of a connection that existed). Only a code and a time.
+    last_failure: Arc<Mutex<Option<ConnectionError>>>,
 }
 
 impl Default for Transport {
@@ -69,13 +75,33 @@ impl Default for Transport {
 impl Transport {
     pub fn new() -> Self {
         // The proxy's lines are fixed texts: never a peer's words, a token or an address.
-        Self { proxies: Proxies::new(|line| log::debug!("transport: {line}")) }
+        Self { proxies: Proxies::new(|line| log::debug!("transport: {line}")), last_failure: Arc::default() }
+    }
+
+    /// What `ui.inspect` reads (`Services::transports`): the live connections and whichever is
+    /// newer of the last refused open and the last abnormal end. It reads counters and takes two
+    /// short locks; it waits on nothing.
+    pub fn inspector(&self) -> TransportsHook {
+        let (proxies, last_failure) = (self.proxies.clone(), Arc::clone(&self.last_failure));
+        Arc::new(move || {
+            let failure = *last_failure.lock().unwrap_or_else(PoisonError::into_inner);
+            inspect(&proxies.snapshot(), failure)
+        })
     }
 
     /// Open a proxied connection to the current entry's daemon for the page whose origin is
     /// `origin`, and answer the address the page connects to. `url` is what the page derived from
     /// the entry's stored address. Must run on Tauri's async runtime (the proxy spawns its tasks).
+    /// A refusal is remembered as the last error.
     pub async fn open(&self, access: &OwnerAccess, origin: &str, url: &str) -> Result<String, Failure> {
+        let opened = self.try_open(access, origin, url).await;
+        if let Err(failure) = &opened {
+            *self.last_failure.lock().unwrap_or_else(PoisonError::into_inner) = Some(ConnectionError { code: failure.code, at_ms: now_ms() });
+        }
+        opened
+    }
+
+    async fn try_open(&self, access: &OwnerAccess, origin: &str, url: &str) -> Result<String, Failure> {
         let plan = blocking({
             let access = access.clone();
             move || access.bridge_plan()
@@ -119,6 +145,40 @@ impl Transport {
             log::warn!("the proxied connections were not all closed within {} s", CLOSE_ALL_WAIT.as_secs());
         }
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The proxy's snapshot as the shell's view: the connections, and as `lastError` whichever is newer
+/// of the proxy's last abnormal end and `refused`, the last `transport_open` that failed. Nothing
+/// but ids, states, counters and a code crosses: the proxy's snapshot holds no address or token.
+fn inspect(proxies: &ProxySnapshot, refused: Option<ConnectionError>) -> Snapshot {
+    let transports = proxies
+        .connections
+        .iter()
+        .map(|c| TransportView {
+            entry_id: c.id.clone(),
+            state: match c.state {
+                State::Connecting => TransportState::Connecting,
+                State::Open => TransportState::Open,
+                State::Closing => TransportState::Closing,
+            },
+            frames_in: c.frames_in,
+            frames_out: c.frames_out,
+            bytes_in: c.bytes_in,
+            bytes_out: c.bytes_out,
+            peak_held_in: c.peak_held_in,
+            peak_held_out: c.peak_held_out,
+        })
+        .collect();
+    let ended = proxies.last_error.map(|e| ConnectionError { code: e.code.as_str(), at_ms: e.at_ms });
+    let last_error = match (ended, refused) {
+        (Some(ended), refused) => Some(ended.or_newer(refused)),
+        (None, refused) => refused,
+    };
+    Snapshot { transports, last_error }
 }
 
 /// Run `work` on the blocking pool: the owner thread's answer and a keychain read both wait.
@@ -179,6 +239,35 @@ pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pistudiodesktop_net::{ConnectionSnapshot, EndCode, LastError};
+
+    fn ended(at_ms: u64) -> Option<LastError> {
+        Some(LastError { code: EndCode::UpstreamLost, at_ms })
+    }
+
+    #[test]
+    fn the_last_error_is_the_newer_of_the_refused_open_and_the_abnormal_end() {
+        let refused = |at_ms| Some(ConnectionError { code: "unreachable", at_ms });
+        let seen = |ended, refused| inspect(&ProxySnapshot { connections: Vec::new(), last_error: ended }, refused).last_error;
+        assert_eq!(seen(None, None), None);
+        assert_eq!(seen(None, refused(5)), refused(5));
+        assert_eq!(seen(ended(5), None), Some(ConnectionError { code: "upstream_lost", at_ms: 5 }));
+        assert_eq!(seen(ended(5), refused(9)), refused(9), "a refusal after the end");
+        assert_eq!(seen(ended(9), refused(5)), Some(ConnectionError { code: "upstream_lost", at_ms: 9 }), "an end after the refusal");
+    }
+
+    #[test]
+    fn a_connection_keeps_its_id_state_and_counters() {
+        let one =
+            |state| ConnectionSnapshot { id: "e1".into(), state, frames_in: 1, frames_out: 2, bytes_in: 3, bytes_out: 4, peak_held_in: 5, peak_held_out: 6 };
+        let proxies = ProxySnapshot { connections: vec![one(State::Connecting), one(State::Open), one(State::Closing)], last_error: None };
+        let seen = inspect(&proxies, None).transports;
+        let states: Vec<TransportState> = seen.iter().map(|t| t.state).collect();
+        assert_eq!(states, [TransportState::Connecting, TransportState::Open, TransportState::Closing]);
+        let first = &seen[0];
+        assert_eq!((first.entry_id.as_str(), first.frames_in, first.frames_out, first.bytes_in, first.bytes_out), ("e1", 1, 2, 3, 4));
+        assert_eq!((first.peak_held_in, first.peak_held_out), (5, 6));
+    }
 
     #[test]
     fn the_origin_is_what_the_webview_sends() {

@@ -135,6 +135,8 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         env: Some(Arc::new(process::process_env)),
         home_dir: Some(Arc::new(process::home_dir)),
         list_dir: Some(Arc::new(process::list_dir)),
+        // Filled by `main` once the transport state exists (`Transport::inspector`).
+        transports: None,
     }
 }
 

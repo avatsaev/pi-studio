@@ -1,7 +1,7 @@
 # Task 003 — Desktop host: `createTransport` picks the proxy for local and direct entries
 
 - **Sprint:** sprint-116-desktop-bridge-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

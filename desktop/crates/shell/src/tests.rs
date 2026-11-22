@@ -43,8 +43,8 @@ fn the_control_protocol_drives_and_inspects_the_app() {
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
     assert_eq!(
         seen["result"]["connection"],
-        json!({"secretStore": "memory", "resumeSignals": {"wake": 0, "network": 0}}),
-        "ui.inspect names the kind of secret store and the resume signal counts, and the object has room for later fields"
+        json!({"secretStore": "memory", "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        "ui.inspect names the kind of secret store, no connection and no error without a hook, and the resume signal counts"
     );
     assert!(app.resume.signal(crate::resume::Reason::Wake, 1_000));
     assert!(!app.resume.signal(crate::resume::Reason::Network, 2_000), "inside the shared 5 s");
@@ -83,6 +83,32 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "settings.set",
         ]
     );
+}
+
+#[test]
+fn the_hooks_connections_and_last_error_are_in_the_view_and_nothing_else_of_them() {
+    use crate::transports::{ConnectionError, Snapshot, TransportState, TransportView};
+    let snapshot = Snapshot {
+        transports: vec![TransportView {
+            entry_id: "e1".into(),
+            state: TransportState::Open,
+            frames_in: 3,
+            frames_out: 2,
+            bytes_in: 30,
+            bytes_out: 20,
+            peak_held_in: 7,
+            peak_held_out: 5,
+        }],
+        last_error: Some(ConnectionError { code: "page_refused", at_ms: 42 }),
+    };
+    let services = Services { transports: Some(std::sync::Arc::new(move || snapshot.clone())), ..Services::default() };
+    let mut app = AppShell::new(Session::new(), services);
+    let seen = call(&mut app, "ui.inspect", Value::Null);
+    assert_eq!(
+        seen["result"]["connection"]["transports"],
+        json!([{"entryId": "e1", "state": "open", "framesIn": 3, "framesOut": 2, "bytesIn": 30, "bytesOut": 20, "peakHeldIn": 7, "peakHeldOut": 5}])
+    );
+    assert_eq!(seen["result"]["connection"]["lastError"], json!({"code": "page_refused", "atMs": 42}));
 }
 
 #[test]

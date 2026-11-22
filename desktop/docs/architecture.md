@@ -8,9 +8,9 @@ Two halves, joined by the page's commands (§ The webview boundary):
 - **The window.** `apps/pistudiodesktop/src` mounts the workbench and gives it a host
   (`WorkbenchHost`, `packages/workbench/README.md`). The desktop host is the workbench's browser
   host with the members Rust backs replaced: storage, dialogs, links, save-to-disk, the HTML
-  preview and the daemon registry. The webview still opens the WebSocket to the daemon itself
-  (the command `transport_open` that gives it a proxied connection through Rust is built, and the
-  host does not call it yet) and the browser host's upload and view URLs stay; Rust takes over the rest (transport, file
+  preview and the daemon registry. For a local or direct current entry the
+  host's `createTransport` returns a proxied connection through Rust (`transport_open`); a relay
+  entry keeps the webview's own socket. The browser host's upload and view URLs stay; Rust takes over the rest (transport, file
   transfer, secrets) in later milestones. Outside Tauri (the snapshot tool, a browser on the dev
   server) the page uses the plain browser host.
 - **The Rust workspace.** A headless engine in which every action is a command, holding the
@@ -86,7 +86,7 @@ Where new code goes, stopping at the first yes:
    needs it is disabled.
 5. **The view and the control protocol** (`crates/shell/src/state.rs`, `control.rs`): all UI state
    is one serde struct, and `control::view` is the single value `ui.inspect` returns: UI state,
-   the settings, the daemon list (views only, no secret), `connection: { secretStore, resumeSignals }` and the menu model. Four JSON methods
+   the settings, the daemon list (views only, no secret), `connection: { secretStore, transports, lastError, resumeSignals }` and the menu model. Four JSON methods
    expose the running app over the control socket (`docs/control-protocol.md`); the webview does
    not use them.
 
@@ -262,6 +262,11 @@ rate limit as the wake ticker, so a change within 5 s of another signal goes out
   thread once, for the plan of the current entry, and reads the secret store on the blocking pool.
   `boot` closes the connections on the runtime; `daemon_switch` and the app's exit wait for the
   close (`Transport::close_all_blocking`, at most 5 s) from a thread that is not a runtime worker.
+- `ui.inspect` reads the proxied connections through `Services::transports` (a hook the app fills,
+  `Transport::inspector`): the owner thread calls it, and it only reads the set's counters under short
+  locks. `connection.transports` is the proxy's snapshot (entry id, state, four counters, peak bytes
+  held); `connection.lastError` is the newer of the proxy's last abnormal end and the last refused
+  `transport_open`. The shell crate holds plain data (`transports.rs`), no socket type.
 - A ticker thread (`src-tauri/src/resume.rs`) wakes every 2 s, reads the wall and a steady clock and
   emits `connection_resume`; a watcher thread (`src-tauri/src/network.rs`) reads the interface
   addresses every 5 s and emits it too. Both end with the app (§ Resume signals).

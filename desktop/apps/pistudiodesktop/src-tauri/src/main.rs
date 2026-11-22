@@ -164,7 +164,9 @@ fn main() {
     let title = app.config().product_name.clone().unwrap_or_else(|| package.name.clone());
     // The page's dialog and link commands take their hooks from the managed state; the owner
     // thread holds the same ones.
-    let services = services::native(app.handle(), title.clone());
+    let mut services = services::native(app.handle(), title.clone());
+    // `ui.inspect` reads the proxied connections and the last connection error through this.
+    services.transports = Some(app.state::<transport::Transport>().inspector());
     app.manage(services.clone());
     // Opening the saves removes the temporary files a run that ended mid-save left behind. The
     // dialog starts in the user's Downloads folder until a save has been made.

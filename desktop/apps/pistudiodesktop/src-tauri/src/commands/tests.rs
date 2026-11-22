@@ -53,7 +53,10 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
 }
 
 /// The same, with the session's secret store given (a test that takes a secret away holds it).
-fn built_app_stored(config_dir: &Path, services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
+fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
+    let transport = Transport::new();
+    // As `main` does: `ui.inspect` reads the proxied connections through the hook.
+    services.transports = Some(transport.inspector());
     let (requests, inbox) = channel();
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
@@ -63,7 +66,7 @@ fn built_app_stored(config_dir: &Path, services: Services, launch: Launch, store
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
-        .manage(Transport::new())
+        .manage(transport)
         .on_window_event(transport::on_window_event)
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
@@ -812,7 +815,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
     assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
     assert_eq!(
         inspect["result"]["connection"],
-        json!({"secretStore": "memory", "resumeSignals": {"wake": 0, "network": 0}}),
+        json!({"secretStore": "memory", "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
         "the test harness gives the session a memory store"
     );
     for text in [booted.to_string(), inspect.to_string()] {
