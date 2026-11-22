@@ -253,7 +253,11 @@ impl Connection {
                 }
                 self.on_binary(&bytes).await?;
             }
-            Message::Close(_) => return Flow::Break(()),
+            Message::Close(frame) => {
+                let code = frame.map(|frame| u16::from(frame.code));
+                self.shared.with(|state| state.client_closes.push(code));
+                return Flow::Break(());
+            }
             _ => {}
         }
         self.apply_faults().await

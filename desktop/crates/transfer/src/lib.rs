@@ -14,6 +14,9 @@
 //!   every way it can end.
 //! * [`download`]: one save over an open connection: a file on the daemon in, a sink out, from any
 //!   offset, and every way it can end.
+//! * [`engine`]: the queue: uploads and saves, three at a time, the connection opened on demand and
+//!   closed when idle, progress events, cancel, and a snapshot of it all.
+//! * [`held`]: the gauge of the bytes the engine holds in memory for transfers.
 //! * `testing` (tests and the `testing` feature only): a daemon in the test's own process that answers,
 //!   stores, serves and misbehaves on request.
 //!
@@ -25,7 +28,9 @@
 
 pub mod connection;
 pub mod download;
+pub mod engine;
 pub mod error;
+pub mod held;
 pub mod limits;
 pub mod upload;
 pub mod wire;

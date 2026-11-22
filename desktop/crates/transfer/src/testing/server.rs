@@ -176,6 +176,13 @@ impl StandInDaemon {
     pub fn refused_upgrades(&self) -> usize {
         self.shared.with(|state| state.refused)
     }
+
+    /// The close frames the daemon read from clients, in order: each one's code, or `None` for a close
+    /// frame without one.
+    #[must_use]
+    pub fn client_closes(&self) -> Vec<Option<u16>> {
+        self.shared.with(|state| state.client_closes.clone())
+    }
 }
 
 impl Drop for StandInDaemon {

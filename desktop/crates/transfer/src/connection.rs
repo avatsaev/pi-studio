@@ -62,6 +62,7 @@ pub use self::handshake::Hello;
 use self::shared::{Shared, close_message};
 use crate::Limits;
 use crate::error::{Ended, Error};
+use crate::held::Held;
 use crate::wire::inbound::Reply;
 
 /// What a WebSocket can run over: [`pistudiodesktop_net::Stream`] in the app, a pipe in a test.
@@ -120,13 +121,22 @@ impl Connection {
     /// * [`Error::Internal`]: the socket does not have the message limit.
     ///
     /// On an error the socket has been closed.
-    pub async fn open<S: Transport>(mut socket: WebSocketStream<S>, hello: &Hello<'_>, limits: Limits) -> Result<Self, Error> {
+    pub async fn open<S: Transport>(socket: WebSocketStream<S>, hello: &Hello<'_>, limits: Limits) -> Result<Self, Error> {
+        Self::open_counting(socket, hello, limits, Held::new()).await
+    }
+
+    /// [`open`](Self::open), counting the frames of a download that wait to be written against `held`,
+    /// which the caller shares with whatever else it counts (the engine's `peakHeld`).
+    ///
+    /// # Errors
+    /// As [`open`](Self::open).
+    pub async fn open_counting<S: Transport>(mut socket: WebSocketStream<S>, hello: &Hello<'_>, limits: Limits, held: Held) -> Result<Self, Error> {
         if !handshake::is_bounded(&socket, limits.max_message_bytes) {
             return Err(Error::Internal("the socket does not refuse a message above the message limit"));
         }
         handshake::run(&mut socket, hello, &limits).await?;
         let (sink, frames) = socket.split();
-        let (shared, mail) = Shared::new(limits);
+        let (shared, mail) = Shared::new(limits, held);
         tokio::spawn(writer::run(Arc::clone(&shared), sink, mail, shared.subscribe()));
         tokio::spawn(reader::run(Arc::clone(&shared), frames, shared.subscribe()));
         Ok(Self { shared })
@@ -194,6 +204,12 @@ impl Connection {
         Download::new(&self.shared)
     }
 
+    /// Ends the connection at once with 1001 and no wait, whatever is in flight. For a caller that is
+    /// going away and cannot wait: [`close`](Self::close) is the polite end.
+    pub fn hang_up(&self) {
+        self.shared.end(Error::Closed(Ended::Local), Some(CloseCode::Away));
+    }
+
     /// Waits until the connection has ended, and says why. Returns at once when it has.
     pub async fn ended(&self) -> Error {
         let mut stop = self.shared.subscribe();
@@ -218,6 +234,6 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.shared.end(Error::Closed(Ended::Local), Some(CloseCode::Away));
+        self.hang_up();
     }
 }

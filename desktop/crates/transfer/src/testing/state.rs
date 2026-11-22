@@ -53,6 +53,7 @@ pub(super) struct State {
     pub accepted: usize,
     pub open: usize,
     pub refused: usize,
+    pub client_closes: Vec<Option<u16>>,
     writes: u64,
 }
 

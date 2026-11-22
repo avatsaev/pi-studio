@@ -115,6 +115,8 @@ async fn binary_frame(shared: &Shared, bytes: Bytes, stop: &mut watch::Receiver<
         FileFrame::Error { message, .. } => Frame::Error { message },
     };
     let cost = charge(capacity(&shared.limits), bytes.len());
+    // The frame is in memory from here until the consumer has written it, whether or not it waits for room.
+    let holding = shared.held.hold(bytes.len());
     let permit = tokio::select! {
         biased;
         () = stopped(stop) => return Ok(()),
@@ -124,6 +126,6 @@ async fn binary_frame(shared: &Shared, bytes: Bytes, stop: &mut watch::Receiver<
             Err(_) => return Ok(()),
         },
     };
-    let _ = slot.frames.send(Delivery::new(frame, permit));
+    let _ = slot.frames.send(Delivery::new(frame, permit, holding));
     Ok(())
 }

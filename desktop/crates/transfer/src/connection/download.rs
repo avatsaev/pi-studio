@@ -9,6 +9,7 @@ use tokio_tungstenite::tungstenite::Bytes;
 
 use super::shared::{Shared, StreamSlot};
 use crate::Error;
+use crate::held::Holding;
 use crate::limits::Limits;
 use crate::wire::binary::BeginMeta;
 use crate::wire::inbound::UploadComplete;
@@ -77,11 +78,12 @@ pub enum Frame {
 pub struct Delivery {
     frame: Frame,
     _hold: OwnedSemaphorePermit,
+    _holding: Holding,
 }
 
 impl Delivery {
-    pub(super) fn new(frame: Frame, hold: OwnedSemaphorePermit) -> Self {
-        Self { frame, _hold: hold }
+    pub(super) fn new(frame: Frame, hold: OwnedSemaphorePermit, holding: Holding) -> Self {
+        Self { frame, _hold: hold, _holding: holding }
     }
 
     /// The frame.

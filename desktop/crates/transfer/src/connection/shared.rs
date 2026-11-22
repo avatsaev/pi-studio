@@ -13,6 +13,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use super::download::Delivery;
 use crate::error::{Ended, Error};
+use crate::held::Held;
 use crate::limits::Limits;
 use crate::wire::inbound::{Ping, Reply, UploadComplete};
 use crate::wire::outbound;
@@ -79,6 +80,8 @@ impl State {
 
 pub(super) struct Shared {
     pub limits: Limits,
+    /// What the frames of a download that are not yet written count against.
+    pub held: Held,
     state: Mutex<State>,
     outbox: mpsc::Sender<Outgoing>,
     control: mpsc::Sender<Outgoing>,
@@ -120,11 +123,11 @@ fn epoch_ms() -> u64 {
 }
 
 impl Shared {
-    pub fn new(limits: Limits) -> (Arc<Self>, Mailboxes) {
+    pub fn new(limits: Limits, held: Held) -> (Arc<Self>, Mailboxes) {
         let (outbox, outbox_rx) = mpsc::channel(QUEUED_FRAMES);
         let (control, control_rx) = mpsc::channel(QUEUED_FRAMES);
         let (stop, _) = watch::channel(false);
-        let shared = Arc::new(Self { limits, state: Mutex::new(State::default()), outbox, control, stop });
+        let shared = Arc::new(Self { limits, held, state: Mutex::new(State::default()), outbox, control, stop });
         (shared, Mailboxes { control: control_rx, outbox: outbox_rx })
     }
 

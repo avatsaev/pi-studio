@@ -1,7 +1,7 @@
 # Task 003 — The engine: the queue, three at once, the connection on demand, progress and the snapshot (D6, D7)
 
 - **Sprint:** sprint-121-desktop-transfer-engine
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/transfer/src
 - **Priority:** P1

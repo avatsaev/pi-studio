@@ -41,6 +41,12 @@ pub const MAX_TRANSFERS: usize = 3;
 /// The most bytes of a file one upload `Chunk` carries: 32 KiB.
 pub const CHUNK_BYTES: usize = 32 * 1024;
 
+/// A transfer reports its progress at most this often: 10 times a second.
+pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The longest path on the daemon that a transfer may name, in bytes.
+pub const MAX_PATH_BYTES: usize = 4096;
+
 /// The limits of one engine. [`Limits::default`] is what ships.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -66,6 +72,8 @@ pub struct Limits {
     pub max_transfers: usize,
     /// The bytes of one upload `Chunk`.
     pub chunk_bytes: usize,
+    /// The least time between two progress events of one transfer.
+    pub progress_interval: Duration,
 }
 
 impl Default for Limits {
@@ -82,6 +90,7 @@ impl Default for Limits {
             download_hold_bytes: DOWNLOAD_HOLD_BYTES,
             max_transfers: MAX_TRANSFERS,
             chunk_bytes: CHUNK_BYTES,
+            progress_interval: PROGRESS_INTERVAL,
         }
     }
 }
@@ -104,6 +113,7 @@ mod tests {
         assert_eq!(limits.download_hold_bytes, 1024 * 1024);
         assert_eq!(limits.max_transfers, 3);
         assert_eq!(limits.chunk_bytes, 32 * 1024);
+        assert_eq!(limits.progress_interval, Duration::from_millis(100));
     }
 
     #[test]
@@ -120,6 +130,7 @@ mod tests {
             assert!(BACKOFF_START.as_nanos() <= BACKOFF_MAX.as_nanos());
             assert!(CHUNK_BYTES < MAX_MESSAGE_BYTES);
             assert!(CHUNK_BYTES <= DOWNLOAD_HOLD_BYTES);
+            assert!(PROGRESS_INTERVAL.as_millis() > 0);
         }
     }
 }
