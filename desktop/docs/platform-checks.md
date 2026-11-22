@@ -78,6 +78,7 @@ One row per machine. Mark M1 to M7 pass, fail (with what was seen) or n/a; write
 | Date | Machine and OS | Webview | M1 (seconds to connected) | M2 | M3 (prompts) | M4 | M5 (prompt text) | M6 | Who |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-11-22 | macOS arm64 (MacBook, M3 Pro), installers of run 45001626512 | WKWebView | **fail, fixed, to be run again.** Two sleeps, a direct entry to a daemon on another machine: the app logged `resume signal: wake` and the daemon's log shows the new connection 1 s before it logged the old one closed with code 4000, both times. The terminal took no input afterwards (the owner's report). Cause, reproduced on Linux in a browser by cutting the connection for 8 s: after a reconnect in place the workbench did not subscribe to the terminal again and did not fetch what the chat missed (`packages/workbench/AGENTS.md`, "A reconnect keeps the client object"). The seconds from wake to `connected` were not timed | | | | | | owner |
+| 2026-11-22 | macOS arm64 (MacBook, M3 Pro), installers of run 45008686113 (`e1ebf23`, the fix) | WKWebView | **pass** (the owner's report): after a sleep and wake the chat resumed and the terminals took input again. The seconds from wake to `connected` were not timed; the relay entry was not tried | | | | | | owner |
 | | macOS x64 | | | | | | | | | |
 | | Windows | | | | | | | | | |
 | | Linux desktop | | | | | | | | | |
