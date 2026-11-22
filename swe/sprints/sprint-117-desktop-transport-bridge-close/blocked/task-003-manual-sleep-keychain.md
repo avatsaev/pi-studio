@@ -1,7 +1,7 @@
 # Task 003 — A person: sleep and wake on real machines, and the keychain on macOS and Windows
 
 - **Sprint:** sprint-117-desktop-transport-bridge-close
-- **Status:** backlog
+- **Status:** blocked
 - **Type:** test
 - **Area:** desktop/docs
 - **Priority:** P2
@@ -38,3 +38,6 @@ No runner can sleep. The owner has a Linux, a Mac and a Windows machine. This ta
 
 ## Notes
 - Block this task with a Blocker note if nobody with the machines is available; it does not hold the other tasks.
+
+## Blocker
+Needs a person with a Linux, a Mac and a Windows machine: a real five-minute sleep and wake with a session open, the keychain items in Keychain Access and Credential Manager, what an unsigned macOS build asks after an update, a firewall or security-software prompt, and the `bufferedAmount` pause of an upload (steps M1 to M6 of the milestone 2 section of `desktop/docs/platform-checks.md`, which has an empty results row per machine). Blocked on 2026-11-22 when sprint 117 was run; nothing else in the plan waits for it. Unblock when the owner has run the checklist and put the results in the table.
