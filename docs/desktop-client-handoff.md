@@ -613,17 +613,17 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    5 s probe; the password absent from the page's memory. On the runners (run 44979817186): the
    page connects through Rust, a 15 s stop raises the wake count, and the keychain works unattended
    on macOS and Windows. Relay entries keep the webview's socket until milestone 4.
-   **Open (the owner):** the five-minute sleep on a real machine of each kind, an unsigned macOS
-   build's keychain prompts after an update, a firewall or security-software prompt, and the pause
-   of an upload on `bufferedAmount` on Windows (WebKitGTK does not show it) — the checklist is the
-   milestone 2 section of `desktop/docs/platform-checks.md` (sprint-117/task-003 waits in
-   `blocked/`). **First real sleep (macOS arm64, 2026-11-22):** the connection came back by itself,
-   but an open terminal took no input and the chat did not show what ran meanwhile. The cause was in
-   the workbench, not the proxy, and the browser client had it too: the SDK reconnects in place and
-   the workbench neither subscribed again nor fetched what it missed. Fixed in
-   `packages/workbench` (`useOpenClient`, `use-session-resync.ts`; shown on Linux in a browser with
-   the connection cut for 8 s); the sleep itself is to be run again on the Mac. The earlier Linux
-   runs had checked the bar only. **What the next milestones can use:** milestone 3's bulk connection can call
+   **Not run, accepted by the owner as working (2026-11-22):** the five-minute sleep on Windows,
+   macOS x64, a Linux desktop and with a relay entry, an unsigned macOS build's keychain prompts
+   after an update, a firewall or security-software prompt, and the pause of an upload on
+   `bufferedAmount` on Windows (WebKitGTK does not show it); they stay open rows in the milestone 2
+   section of `desktop/docs/platform-checks.md` (sprint-117/task-003 closed as waived).
+   **First real sleep (macOS arm64, 2026-11-22):** the connection came back by itself, but an open
+   terminal took no input and the chat did not show what ran meanwhile. The cause was in the
+   workbench, not the proxy, and the browser client had it too: the SDK reconnects in place and the
+   workbench neither subscribed again nor fetched what it missed. Fixed in `packages/workbench`
+   (`useOpenClient`, `use-session-resync.ts`, commit `e1ebf23`); the Mac passed the sleep with the
+   fixed build (run 45008686113). **What the next milestones can use:** milestone 3's bulk connection can call
    `net::dial` directly (a Rust socket with the password and the error classes); a 1 GiB upload
    grows the page by about 2 GiB on WebKitGTK either way, which is a reason to move uploads to
    Rust. Milestone 4 (inference, not designed): a relay socket would need the encrypted channel

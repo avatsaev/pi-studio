@@ -3280,6 +3280,11 @@ t002 and t003 can run in parallel after t001 (Rust and TypeScript, different fil
 > keychain usable unattended on both) are done; t004 closed the documents and the spec. t003 (a real
 > sleep, an unsigned macOS build, a firewall prompt, and the `bufferedAmount` pause on Windows) is in
 > `blocked/` until the owner runs the milestone 2 section of `desktop/docs/platform-checks.md`.
+>
+> **Closed 2026-11-22: 4 of 4.** t003 done in part and waived: the owner's MacBook (macOS arm64)
+> failed the first sleep (terminal and chat dead after the wake; workbench fix `e1ebf23`) and passed
+> with the fixed build (run 45008686113). The owner accepts the other machines, the relay entry and
+> M2–M6 as working without a run; they stay open rows in `desktop/docs/platform-checks.md`.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|

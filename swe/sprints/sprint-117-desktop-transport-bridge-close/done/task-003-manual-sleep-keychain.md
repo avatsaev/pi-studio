@@ -1,7 +1,7 @@
 # Task 003 — A person: sleep and wake on real machines, and the keychain on macOS and Windows
 
 - **Sprint:** sprint-117-desktop-transport-bridge-close
-- **Status:** blocked
+- **Status:** done (waived by the owner, 2026-11-22)
 - **Type:** test
 - **Area:** desktop/docs
 - **Priority:** P2
@@ -30,8 +30,8 @@ No runner can sleep. The owner has a Linux, a Mac and a Windows machine. This ta
 - Fixing what is found: a failure goes back to the task that owns the code.
 
 ## Acceptance criteria
-- [ ] The results table has a row per machine with the recovery time and the keychain observations.
-- [ ] The spec's last Resume criterion is ticked, or the failure is described.
+- [x] The results table has a row per machine with the recovery time and the keychain observations. Partly: a macOS arm64 row (a sleep failed, then passed with the reconnect fix `e1ebf23`); the other machines and items were waived by the owner.
+- [ ] The spec's last Resume criterion is ticked, or the failure is described. Not ticked: shown on macOS arm64 only; the owner accepts the other machines as working without a run.
 
 ## Test / verification plan
 - Follow `desktop/docs/platform-checks.md`.
@@ -41,3 +41,6 @@ No runner can sleep. The owner has a Linux, a Mac and a Windows machine. This ta
 
 ## Blocker
 Needs a person with a Linux, a Mac and a Windows machine: a real five-minute sleep and wake with a session open, the keychain items in Keychain Access and Credential Manager, what an unsigned macOS build asks after an update, a firewall or security-software prompt, and the `bufferedAmount` pause of an upload (steps M1 to M6 of the milestone 2 section of `desktop/docs/platform-checks.md`, which has an empty results row per machine). Blocked on 2026-11-22 when sprint 117 was run; nothing else in the plan waits for it. Unblock when the owner has run the checklist and put the results in the table.
+
+## Resolution (2026-11-22)
+The owner ran M1 on a MacBook (M3 Pro). The first build failed: after the wake the terminal took no input and the chat missed what ran meanwhile, a workbench defect fixed in `e1ebf23` (`packages/workbench/AGENTS.md`, "A reconnect keeps the client object"). The build of run 45008686113 passed. The owner then waived the rest: M1 on Windows, macOS x64, a Linux desktop and with a relay entry, and M2 to M6 (keychain after an update, firewall prompts, the `bufferedAmount` pause on Windows) are not run and are accepted as working for now. They stay as open rows in `desktop/docs/platform-checks.md`.
