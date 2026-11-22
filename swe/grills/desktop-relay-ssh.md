@@ -1,11 +1,14 @@
 # Grill — Desktop relay in Rust and SSH entries (milestone 4)
 
-> Status: grilling
+> Status: grilled
 > Started: 2026-11-22   Last updated: 2026-11-22   Rounds: 3
+> Confirmed: the engineer answered the readout with "close it and write the spec" (2026-11-22),
+> after accepting D21–D23 and deferring the install over SSH to milestone 6.
 > Engineer: avatsaev   Agent: Claude (omp)
-> Round 1 was recon plus the agent's proposed decisions. The owner asked not to be asked about
-> low-impact points (2026-11-22), so every decision below is the agent's until the owner confirms
-> the readout. A decision the owner changes is rewritten here, not appended.
+> Round 1 was recon plus the agent's proposed decisions: the owner asked not to be asked about
+> low-impact points (2026-11-22). The spec refines D1 (S1: the crates' layer, the link parser in
+> `model`), D13 and D16 (S6: an unknown host key fails the connect and the dialog comes after) and
+> D14 (S7: `-lic`, not `-lc`); this brief is not edited for them.
 
 ## Raw idea
 
@@ -249,4 +252,11 @@ All agent-proposed in round 1, pending the owner's readout.
 
 ## Handoff to scope
 
-(Written when the owner confirms.)
+(This repository keeps specs in `swe/features/` and `swe/architecture/`, not in `swe/specs/`.)
+
+| Spec file to produce or update | Fed by brief sections |
+|--------------------------------|-----------------------|
+| `swe/features/desktop-relay-ssh.md` (new) | Goals, Non-goals, Happy path, Decisions, Data & state, Edge cases, Non-functional constraints, Acceptance criteria, Open questions |
+| `swe/architecture/ssh-gateway-connections.md` (update: the note points to the spec) | Decisions D8–D18 |
+| `swe/MAIN-SCOPE.md`, `docs/desktop-client-handoff.md` (update: milestone 4 is specified) | Round log, Deferred |
+| `swe/features/desktop-transport-bridge.md`, `desktop-daemon-registry.md`, `desktop-transfer-engine.md`, `swe/architecture/workbench-host-adapter.md` (update when built: the spec's § Dependencies on other specs lists what changes) | Integration points |

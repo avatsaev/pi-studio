@@ -5,11 +5,11 @@
 > [daemon-bootstrap.md](daemon-bootstrap.md), [relay-e2ee.md](relay-e2ee.md),
 > [../features/desktop-app.md](../features/desktop-app.md)
 
-> **Status (2026-11-21): not built; planned for desktop milestone 4.** The body of this document
-> was written for the Electron plan. The desktop client is now the Tauri application in `desktop/`,
-> and the owner decided the following on 2026-11-21. A feature specification is written when
-> milestone 4 is specified; until then this note is the record, and where it differs from the body,
-> the note wins.
+> **Status (2026-11-22): specified for desktop milestone 4 in
+> [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md); not built.** That document
+> is the specification for the desktop client and supersedes this one. The body below was written
+> for the Electron plan. The owner decided the following on 2026-11-21; where it differs from the
+> body, the note wins, and where the specification differs from the note, the specification wins.
 >
 > - **Milestone.** Part of desktop milestone 4 (with the relay in Rust), after milestones 2 (the
 >   transport bridge) and 3 (the transfer engine). `docs/desktop-client-handoff.md` § Suggested

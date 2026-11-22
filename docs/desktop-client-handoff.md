@@ -698,9 +698,17 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    Rust library (`russh`), not the machine's `ssh` program; the first version logs in with a key
    file (optional passphrase), an SSH agent or a password, and reads `~/.ssh/config`; when the
    daemon is not running on the host, a Start button runs `pi-studio daemon start` there over the
-   same SSH connection. Not specified yet: the record is the note at the top of
-   `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
+   same SSH connection. Check: a daemon bound to loopback on another
    machine is used through SSH with the same behaviour as direct.
+   *State (2026-11-22): **specified, not planned, not built** (grill
+   `swe/grills/desktop-relay-ssh.md`, decisions D1–D23; spec `swe/features/desktop-relay-ssh.md`;
+   branch `feat/desktop-relay-ssh`, local). Two new crates beside `transfer` (`relay`, `ssh`); `net`
+   gets a daemon socket that is a stream of WebSocket messages, so the proxy and the engine take a
+   relay channel or an SSH channel alike; the registry file becomes version 3. The owner added
+   (2026-11-22): the Add form lists the hosts of `~/.ssh/config`; a host without `pi-studio` shows
+   the install command; the remote command runner is general, because installing the daemon over
+   SSH and registering it as a service comes with milestone 6. Open before planning: whether
+   `russh` builds with `ring` on the macOS and Windows runners (the spec's first TODO).*
 5. **Native shell features.** Menus, notifications, updates, signing.
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
    binary, downloaded on first use, plus app self-update through the Tauri updater
@@ -708,6 +716,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    Node-sidecar idea; not scheduled). Depends on milestone 5's signing and updater. A native
    Windows daemon (about 50 POSIX assumptions in the server, no Windows CI) only if Windows users
    need a local one.
+   **Added by the owner (2026-11-22):** with the single binary, the app installs and sets up the
+   daemon on an SSH entry's host through the SSH connection and registers it as a service that
+   starts with that machine where that is possible. First-use experience is a high priority.
+   Milestone 4 leaves room for it: a general remote command runner and a "not installed" state on
+   the entry's row (`swe/features/desktop-relay-ssh.md`, D21 and D22).
 
 **The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 
