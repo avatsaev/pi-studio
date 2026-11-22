@@ -1,7 +1,7 @@
 # Task 005 — App binary: `transfer_upload`, `transfer_save`, `transfer_cancel`, the event, and the wiring
 
 - **Sprint:** sprint-122-desktop-transfer-wiring
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

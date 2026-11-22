@@ -410,6 +410,12 @@ impl ClaimedSave {
         self.written.load(Ordering::Relaxed)
     }
 
+    /// The file the save will end up as, for the app's own log: it is a local path, so it never
+    /// goes to the page, in an answer, an event or an error.
+    pub fn destination(&self) -> &Path {
+        &self.save.destination
+    }
+
     /// End the save: flush the temporary file to disk, then rename it over the destination. The save
     /// is over either way; a failure removes the temporary file.
     pub fn finish(mut self) -> Result<(), SaveError> {

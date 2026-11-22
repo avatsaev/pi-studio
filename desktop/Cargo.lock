@@ -3099,6 +3099,7 @@ dependencies = [
  "pistudiodesktop-net",
  "pistudiodesktop-secrets",
  "pistudiodesktop-shell",
+ "pistudiodesktop-transfer",
  "serde",
  "serde_json",
  "tauri",

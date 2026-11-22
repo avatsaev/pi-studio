@@ -1,12 +1,13 @@
-//! What the webview may call: seventeen commands, and nothing else of the app is reachable from it.
+//! What the webview may call: twenty commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
-//! `allow-save-finish`, `allow-save-discard`, `allow-upload-pick`, `allow-transfers-set`, `allow-preview-mount`,
+//! `allow-save-finish`, `allow-save-discard`, `allow-upload-pick`, `allow-transfer-upload`, `allow-transfer-save`,
+//! `allow-transfer-cancel`, `allow-transfers-set`, `allow-preview-mount`,
 //! `allow-preview-release` and `allow-transport-open` to the main window, and listening for events (`core:event:allow-listen`
 //! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
-//! `daemons_manage` and `connection_resume`). A command missing from either
+//! `daemons_manage`, `connection_resume` and `transfer_progress`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
 //! the page can reach.
 // `#[tauri::command]` generates code beside each function that names `unreachable!`. This module
@@ -27,7 +28,7 @@ use tauri::{Manager as _, State, ipc};
 
 use crate::bridge::Bridge;
 use crate::daemons as app_daemons;
-use crate::transfers::{TransferFailure, Transfers};
+use crate::transfers::{self, TransferEngine, TransferFailure, Transfers};
 use crate::transport::{self, Failure, Opened, Transport};
 
 /// The page's first call, made before the workbench renders: the app's identity, every stored
@@ -39,14 +40,18 @@ pub async fn boot(
     transfers: State<'_, Transfers>,
     previews: State<'_, Previews>,
     transport: State<'_, Transport>,
+    engine: State<'_, TransferEngine>,
     picked: State<'_, Arc<Picked>>,
 ) -> Result<Value, String> {
     // A reloaded page has no transfers running, whatever the old one last said, and holds none of
-    // the preview URLs, picked files or proxied connections it was given or opened: nothing outlives it.
+    // the preview URLs, picked files, proxied connections or file transfers it was given or opened:
+    // nothing outlives it. The transfers are cancelled and the engine's connection closed before
+    // the page's first answer, so that a transfer of the old page cannot finish into the new one.
     transfers.set(0);
     previews.clear();
     picked.clear();
     transport.close_all().await;
+    engine.leave().await;
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
 
@@ -77,16 +82,21 @@ pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State
 /// the daemon is open. `url` is what the page derived from the entry's stored address; it is
 /// checked against the entry, never dialled for its own sake. The password stays in Rust. Errors
 /// are `{ code, message }` ([`Failure`]). Takes the calling webview's origin from the webview.
+/// A connection that opened says the daemon is reachable, so a file transfer that waits to try
+/// again does it now (the engine only ever serves the current entry, which is the one just opened).
 #[tauri::command]
 pub async fn transport_open<R: tauri::Runtime>(
     webview: tauri::Webview<R>,
     bridge: State<'_, Bridge>,
     transport: State<'_, Transport>,
+    engine: State<'_, TransferEngine>,
     url: String,
 ) -> Result<Opened, Failure> {
     let page = webview.url().map_err(|e| Failure { code: "proxy_failed", message: format!("The page's address is not known: {e}.") })?;
     let origin = transport::origin_of(&page)?;
-    transport.open(&bridge.access(), &origin, &url).await.map(|local_url| Opened { local_url })
+    let opened = transport.open(&bridge.access(), &origin, &url).await.map(|local_url| Opened { local_url })?;
+    engine.wake();
+    Ok(opened)
 }
 
 /// Switch the window to another daemon entry: ask first when file transfers are running, have the
@@ -194,12 +204,59 @@ pub async fn upload_pick(
     services: State<'_, Services>,
     picked: State<'_, Arc<Picked>>,
 ) -> Result<Vec<PickedFile>, TransferFailure> {
-    if *mode == TransfersMode::Page {
-        return Err(TransferFailure::new("engine_off", "File transfers use the page's own path in this launch."));
-    }
+    transfers::require_engine(*mode)?;
     let (services, picked) = (Services::clone(&services), Arc::clone(&picked));
     let picked = off_thread(move || picked.pick(&services)).await.map_err(|e| TransferFailure::new("internal", e))?;
     picked.map_err(|e| TransferFailure::new(if e == PickError::Unavailable { "unavailable" } else { "internal" }, e.to_string()))
+}
+
+/// Upload a picked file (`handle`, from `upload_pick`) to `path` on the current daemon, through the
+/// app's own connection to it, and answer `{ bytes }` once the daemon has confirmed the file.
+/// `id` (1 to 64 letters, digits or hyphens) names the transfer in `transfer_progress` and
+/// `transfer_cancel`; `path` is at most 4096 bytes. The handle works once. Errors are `{ code, message }`
+/// ([`TransferFailure`]): `engine_off`, `invalid_request`, `unknown_handle`, `duplicate_id`, `cancelled` and the
+/// rest of the engine's codes; no message holds a local path. Answers when the transfer has settled.
+#[tauri::command]
+pub async fn transfer_upload(
+    mode: State<'_, TransfersMode>,
+    engine: State<'_, TransferEngine>,
+    picked: State<'_, Arc<Picked>>,
+    id: String,
+    handle: String,
+    path: String,
+) -> Result<Value, TransferFailure> {
+    transfers::require_engine(*mode)?;
+    let bytes = transfers::upload(&engine, &picked, &id, &handle, &path).await?;
+    Ok(json!({ "bytes": bytes }))
+}
+
+/// Save the file at `path` on the current daemon into the open save `handle` (from `save_begin`) and
+/// answer `{ bytes }` once the file is in place. From here the engine owns the save: the page must not
+/// call `save_write`, `save_finish` or `save_discard` for it, and the engine discards it on any
+/// failure. Errors and `id` as for [`transfer_upload`], and `destination_busy` for a destination
+/// another save is writing. Answers when the transfer has settled.
+#[tauri::command]
+pub async fn transfer_save(
+    mode: State<'_, TransfersMode>,
+    engine: State<'_, TransferEngine>,
+    saves: State<'_, Arc<Saves>>,
+    id: String,
+    handle: String,
+    path: String,
+) -> Result<Value, TransferFailure> {
+    transfers::require_engine(*mode)?;
+    let bytes = transfers::save(&engine, &saves, &id, &handle, &path).await?;
+    Ok(json!({ "bytes": bytes }))
+}
+
+/// Cancel the transfer `id`; its own command answers `cancelled`. `{ cancelled: true }` when it was
+/// queued, waiting or running, `{ cancelled: false }` for any other id: a cancel that reaches Rust
+/// before its transfer does is remembered for a few seconds, and the transfer settles as `cancelled`
+/// when it arrives. Async only because the engine starts tasks.
+#[tauri::command]
+pub async fn transfer_cancel(mode: State<'_, TransfersMode>, engine: State<'_, TransferEngine>, id: String) -> Result<Value, TransferFailure> {
+    transfers::require_engine(*mode)?;
+    Ok(json!({ "cancelled": engine.cancel(&id) }))
 }
 
 /// The page's count of file transfers (uploads and saves) that have not settled. Closing the window

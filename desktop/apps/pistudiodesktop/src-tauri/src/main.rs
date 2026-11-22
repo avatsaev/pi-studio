@@ -37,6 +37,7 @@ use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::AppInfo;
 use pistudiodesktop_shell::navigation;
 use pistudiodesktop_shell::owner::FLUSH_DELAY;
+use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::resume::ResumeSignals;
@@ -131,6 +132,7 @@ fn main() {
         .manage(transport::Transport::new())
         .on_window_event(|window, event| {
             transfers::on_window_event(window, event);
+            transfers::on_destroyed(window, event);
             transport::on_window_event(window, event);
         })
         .on_menu_event(menu::on_event)
@@ -151,7 +153,10 @@ fn main() {
             commands::transfers_set,
             commands::preview_mount,
             commands::preview_release,
-            commands::transport_open
+            commands::transport_open,
+            commands::transfer_upload,
+            commands::transfer_save,
+            commands::transfer_cancel
         ])
         .build(tauri::generate_context!())
     {
@@ -177,6 +182,15 @@ fn main() {
     let mut services = services::native(app.handle(), title.clone());
     // `ui.inspect` reads the proxied connections and the last connection error through this.
     services.transports = Some(app.state::<transport::Transport>().inspector());
+    // The file transfer engine takes the current entry from the owner thread and the password from
+    // the store, as `transport_open` does; `ui.inspect` reads its snapshot through the hook.
+    let engine =
+        match transfers::TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests.clone(), Arc::clone(&store)), &package.version.to_string()) {
+            Ok(engine) => engine,
+            Err(e) => fail(2, format!("no random source for the transfer engine's client id: {e}")),
+        };
+    services.transfers = Some(engine.inspector());
+    app.manage(engine);
     app.manage(services.clone());
     // Opening the saves removes the temporary files a run that ended mid-save left behind. The
     // dialog starts in the user's Downloads folder until a save has been made.
@@ -210,6 +224,8 @@ fn main() {
         bridge::on_run_event(handle, &event);
         resume::on_run_event(handle, &event);
         network::on_run_event(handle, &event);
+        // The engine's transfers and the proxied connections are closed together: this one waits for both.
+        transfers::on_run_event(handle, &event);
         transport::on_run_event(handle, &event);
     });
 }

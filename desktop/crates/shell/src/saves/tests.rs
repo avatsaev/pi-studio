@@ -374,6 +374,17 @@ fn a_claimed_save_takes_pieces_counts_them_and_finish_leaves_the_bytes_and_nothi
 }
 
 #[test]
+fn a_claimed_save_names_its_destination_for_the_log() {
+    let d = dirs();
+    let saves = shared(&d);
+    let destination = d.out.path().join("named.txt");
+    let handle = saves.begin(&destination).unwrap();
+    let claimed = saves.claim(&handle).unwrap();
+    assert_eq!(claimed.destination(), destination);
+    claimed.discard().unwrap();
+}
+
+#[test]
 fn a_claimed_save_may_take_more_than_one_page_write() {
     let d = dirs();
     let saves = shared(&d);

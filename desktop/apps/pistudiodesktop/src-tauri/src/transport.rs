@@ -35,7 +35,7 @@ pub struct Failure {
 }
 
 impl Failure {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self { code, message: message.into() }
     }
 }
@@ -183,13 +183,13 @@ fn inspect(proxies: &ProxySnapshot, refused: Option<ConnectionError>) -> Snapsho
 }
 
 /// Run `work` on the blocking pool: the owner thread's answer and a keychain read both wait.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, Failure> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| Failure::new("internal", format!("The app failed inside: {e}.")))
 }
 
 /// What a refusal of the owner thread's plan says. The codes of the local daemon are those of
 /// `daemon_resolve_current`; `local_not_ready` is a local daemon that is being started or has to be.
-fn plan_failure(code: &'static str) -> Failure {
+pub(crate) fn plan_failure(code: &'static str) -> Failure {
     let message = match code {
         "not_bridged" => "This daemon is reached through the relay, not through the app's own connection.".to_owned(),
         "no_current" => "No daemon is selected.".to_owned(),
@@ -201,7 +201,7 @@ fn plan_failure(code: &'static str) -> Failure {
     Failure::new(code, message)
 }
 
-fn secret_failure(code: &'static str) -> Failure {
+pub(crate) fn secret_failure(code: &'static str) -> Failure {
     match code {
         "secret_missing" => Failure::new(code, "The password for this daemon is not in the secret store. Enter it again in Daemons."),
         _ => Failure::new(code, "The secret store could not be read: it may be locked, or access was refused. Try again."),

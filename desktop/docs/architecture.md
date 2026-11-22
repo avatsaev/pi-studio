@@ -126,10 +126,11 @@ navigation rule admits exactly `pi-preview://localhost`, because WebKitGTK runs 
 | Windows (WebView2) | `inert` | no; would also need `http://pi-preview.localhost` |
 
 The page has exactly these Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
-listens for two events: `daemons_changed` (the registry view, sent after any request that changed
-the registry, the local daemon state or a setting) and `connection_resume` (`{ reason }`, § Resume
-signals). Tauri cannot scope `core:event:allow-listen` to names, so the page could listen to any
-event; the app emits only `daemons_changed`, `daemons_manage` and `connection_resume`:
+listens for three events: `daemons_changed` (the registry view, sent after any request that changed
+the registry, the local daemon state or a setting), `connection_resume` (`{ reason }`, § Resume
+signals) and `transfer_progress` (`{ id, state, done, total }`, § Threads, the transfer engine).
+Tauri cannot scope `core:event:allow-listen` to names, so the page could listen to any
+event; the app emits only `daemons_changed`, `daemons_manage`, `connection_resume` and `transfer_progress`:
 
 | Command | Does |
 |---|---|
@@ -142,13 +143,16 @@ event; the app emits only `daemons_changed`, `daemons_manage` and `connection_re
 | `save_write(bytes)` | Appends a raw body (at most 16 MiB) to the save named by the `handle` request header |
 | `save_finish(handle)` / `save_discard(handle)` | Sync and rename over the destination / remove the temporary file. A handle is single use; errors never contain a path |
 | `upload_pick()` → `[{handle, name, size?}]` | Native open dialog for one or more files, shown off the event loop, one dialog at a time, starting in the last folder used this run. Rust keeps each path in `shell::picked` and answers a `handle` (128 random bits, 32 hex digits), the `name` (the last path component, lossy when it is not valid Unicode) and the `size` when the file's metadata could be read. `[]` when the user cancelled. A handle is taken once (`Picked::take`, for the transfer commands); at most 1,024 unused handles are kept (the oldest is dropped) and `boot` drops all of them. No answer holds a path. Errors are `{code, message}`: `engine_off` under `--transfers page` (no dialog is shown), `unavailable` when the build has no open dialog |
+| `transfer_upload({id, handle, path})` → `{bytes}` | Uploads the picked file of `handle` (from `upload_pick`; taken once, spent by the call once `id` and `path` are accepted) to `path` on the current daemon, over the engine's own connection (`apps/pistudiodesktop/src-tauri/src/transfers.rs`, § Threads). `id` is 1 to 64 letters, digits or hyphens; `path` 1 to 4,096 bytes. The file is opened and read on the blocking pool; its size is the metadata's at the start of each attempt. Answers when the daemon confirmed the file. Errors are `{code, message}`: `engine_off` (`--transfers page`), `invalid_request` (a bad `id` or `path`, checked before the handle is taken, so the handle is still good), `unknown_handle`, `duplicate_id`, `source_unreadable`, `cancelled` and the rest of the engine's codes (spec § Error handling). No message holds a local path, a handle or a password |
+| `transfer_save({id, handle, path})` → `{bytes}` | Saves the daemon's file at `path` into the open save of `handle` (from `save_begin`). The engine claims the save (`Saves::claim`): from then on the page's `save_write`, `save_finish` and `save_discard` answer an unknown handle for it, and the engine finishes it (rename into place) or discards it on any failure or cancel. Answers `{bytes}` once the file is in place. Errors as for `transfer_upload`, plus `destination_busy` (another claimed save writes the same destination; this save is discarded) and `disk` |
+| `transfer_cancel({id})` → `{cancelled}` | `{cancelled: true}` for a transfer that was queued, waiting or running (its own command answers `cancelled`), `{cancelled: false}` for any other id. A cancel that reaches Rust before its transfer is not lost: when no transfer has the `id`, the cancel is remembered for 10 s (at most 64 ids, the oldest dropped first, ids longer than 64 bytes not at all), and a `transfer_upload` or `transfer_save` of that id that arrives within it settles as `cancelled`, its save discarded and its handle spent. Under `--transfers page` all three transfer commands answer `engine_off` |
 | `transfers_set(count)` | The page's count of uploads and saves in flight. Closing the window while it is above zero asks first ("N file transfer(s) are still running. Quit anyway?") |
 | `preview_mount(html)` → `{url}` | Mounts an HTML document at the preview origin. An error on an `inert` platform or past the caps; the error never contains the document |
 | `preview_release(url)` | Drops a mounted document; an unknown URL is ignored |
 | `engine_command(id, params?)` | Runs one of ten allowed engine ids (`daemon.list/add/update/remove`, `daemon.local.*`, settings); anything else, including `daemon.switch` and `command.list`, is refused |
 | `daemon_resolve_current()` | What to dial for the current entry: `{url, connect: true}` or an error code; never a `password`. For a `local` or `direct` entry `url` is its address and the page ignores it for the socket (`transport_open` dials, with the password read in Rust); for a `relay` entry `url` is the pairing link, the one secret a command still returns until the relay leg moves to Rust (milestone 4). Starts a stopped local daemon when auto-start is on. A local or direct entry's answer reads nothing from the secret store, so a missing or unreadable password shows at `transport_open` (`secret_missing`, `secret_unavailable`), not here |
 | `transport_open(url)` → `{localUrl}` | Opens the proxied connection to the current entry's daemon (`apps/pistudiodesktop/src-tauri/src/transport.rs`). One question to the owner thread (`LocalOp::Bridge`, answered by `Session::plan_bridge`: the entry's id, the address to dial, where the password is); then, in order: `not_bridged` for a relay entry (it keeps the page's own socket), `address_mismatch` unless `url` is exactly the address rule (`address_matches`) applied to that address, `invalid_address` (`net::check_address`: only `ws:`/`wss:`, no user information), `limit` when four proxied connections exist (`Proxies::reserve`, before any dial), the calling webview's origin (read from the webview: `tauri://localhost` on Linux and macOS, `http://tauri.localhost` on Windows), the password read from the secret store on the blocking pool (`secret_missing`, `secret_unavailable`), the dial within 15 s (`unreachable`, `tls`, `unauthorized`, `host_not_allowed`, `handshake`, `timeout`; the password is the `pi-studio.bearer.<password>` subprotocol) and `Reservation::open(socket, origin)` (`proxy_failed`). `localUrl` is `ws://127.0.0.1:<port>/<token>`: single use, valid for 10 s, in this answer and nowhere else. A local entry whose daemon is not running answers the codes of `daemon_resolve_current` (`local_not_ready` while it starts or has to be started). Errors are `{code, message}`; no answer, error or log line holds a password or the token. `boot`, `daemon_switch` (after the confirm, before the reload) and the window closing (and the app's exit) close every proxied connection: each daemon is told 1001 |
-| `daemon_switch(id)` | Switches the current entry: unknown id → `not_found`; transfers running → native confirm ("N file transfer(s) are still running. Switch anyway?", "no" answers `cancelled`); then `daemon.switch` (flushes the entry left, records `lastUsedId`) and reloads the page. From the switch until the next `boot`, `storage_set` is dropped: the page being left writes its layout as it unloads, and that write would otherwise replace the new entry's. The native menu uses the same path |
+| `daemon_switch(id)` | Switches the current entry: unknown id → `not_found`; transfers running → native confirm ("N file transfer(s) are still running. Switch anyway?", "no" answers `cancelled`); then the old page's file transfers are cancelled and its connections closed (`switch_to`'s `leave`, before the registry changes), `daemon.switch` (flushes the entry left, records `lastUsedId`) and the page reloads. From the switch until the next `boot`, `storage_set` is dropped: the page being left writes its layout as it unloads, and that write would otherwise replace the new entry's. The native menu uses the same path |
 
 The page never names a path: the destination comes from the native dialog and stays in Rust. A
 temporary file left by a killed app is removed at the next launch, and a damaged journal can only
@@ -269,6 +273,26 @@ rate limit as the wake ticker, so a change within 5 s of another signal goes out
   thread once, for the plan of the current entry, and reads the secret store on the blocking pool.
   `boot` closes the connections on the runtime; `daemon_switch` and the app's exit wait for the
   close (`Transport::close_all_blocking`, at most 5 s) from a thread that is not a runtime worker.
+- The file transfer engine (`pistudiodesktop_transfer::engine::Engine`, wrapped in `src-tauri/src/transfers/engine.rs`
+  as `TransferEngine`, managed by Tauri) runs on the async runtime too, with one bulk connection of its own to the
+  current entry's daemon, not one of the proxy's four. Each attempt to open it asks the owner thread once for the plan
+  of the current entry (`OwnerAccess::bridge_plan`), reads the password from the store on the blocking pool, and dials
+  with `net::dial` and the engine's 16 MiB message limit; a refused plan is final (`not_bridged`, `no_current`,
+  `unsupported`) or retried (`local_not_ready`, `local_stopped`, an owner thread that did not answer, `busy`).
+  The local files are read and written on the blocking pool (`transfers/files.rs`); a save writes through a
+  `ClaimedSave`. `transfer_progress` is emitted from the engine's own callback: it is advisory, and the commands'
+  answers settle every transfer. Each transfer logs a line at info level on standard error (the app has no log
+  file) when it starts and another when it ends or fails, with the transfer's id, kind, daemon path, **local path**,
+  bytes, duration and error code; the local path is written nowhere else, and neither a password nor a handle ever is.
+  **Leaving.** `boot` (after it closes the proxied connections), a daemon switch (after the question and *before* the
+  registry changes, so that nothing waiting to reconnect can find the new entry's daemon: `switch_to`'s `leave`),
+  the window's destruction and the app's exit cancel every transfer (each command answers `cancelled`, each save's
+  temporary file is removed) and close the bulk connection with 1001. A switch and the exit wait for it together with
+  the proxied connections' close, each for at most 5 s (`transfers::close_all_blocking`). **Waking.** The engine's
+  wait before its next attempt ends early on `connection_resume` (a wake or a network change, sent by `resume.rs`)
+  and on a `transport_open` that succeeded (the daemon is reachable; the engine only serves the current entry).
+  `ui.inspect` reads `transfers` through `Services::transfers` (`TransferEngine::inspector`): the engine's snapshot
+  as plain data, with the entry id of the last attempt while there is a connection.
 - The host reports a refused `transport_open` (and an answer without an address) to the SDK as a close
   (`onClose(1006, "")`, `src/host/proxied-transport.ts`) before it rejects `connect`: the daemon
   client's state leaves "connecting" only on a close, which is what shows the message and Retry in the

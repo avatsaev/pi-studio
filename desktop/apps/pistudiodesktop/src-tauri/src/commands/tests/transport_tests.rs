@@ -30,7 +30,7 @@ use crate::transport::{self, origin_of};
 
 /// A password nobody would pick: if it appears anywhere but the daemon's upgrade it leaked.
 const MARKER: &str = "MARKER-pw-0b6e4d2a";
-const PATIENCE: Duration = Duration::from_secs(10);
+pub(super) const PATIENCE: Duration = Duration::from_secs(10);
 
 // ---- the log: every line of the test binary, to look for a secret in
 
@@ -57,7 +57,7 @@ impl log::Log for Capture {
 }
 
 /// Every record the app's logger would print goes to [`LINES`] from here on. Nothing else in the tests sets a logger.
-fn capture_logs() {
+pub(super) fn capture_logs() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         assert!(log::set_logger(&Capture).is_ok(), "another logger is set");
@@ -65,7 +65,7 @@ fn capture_logs() {
     });
 }
 
-fn logged() -> String {
+pub(super) fn logged() -> String {
     LINES.lock().map(|lines| lines.join("\n")).unwrap_or_default()
 }
 
@@ -155,7 +155,7 @@ impl Daemon {
     }
 }
 
-fn wait_until(what: &str, condition: impl Fn() -> bool) {
+pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + PATIENCE;
     while !condition() {
         assert!(Instant::now() < deadline, "never happened: {what}");

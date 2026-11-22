@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use pistudiodesktop_engine::Notice;
 use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner::Quiet;
+use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
@@ -25,13 +26,16 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfers_set, transport_open, unwrap_reply, upload_pick,
+    save_discard, save_finish, save_write, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open, unwrap_reply,
+    upload_pick,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
+use crate::transfers::TransferEngine;
 use crate::transport::{self, Transport};
 
+mod transfer_tests;
 mod transport_tests;
 
 /// A flush delay that never ends inside a test: only the exit flush can write a file.
@@ -67,13 +71,15 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
-        .manage(Bridge::new(requests, Arc::clone(&store)))
-        .manage(services.clone())
+        .manage(Bridge::new(requests.clone(), Arc::clone(&store)))
         .manage(Arc::new(Supervisor::new(services.clone(), Limits::default())))
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
         .manage(transport)
-        .on_window_event(transport::on_window_event)
+        .on_window_event(|window, event| {
+            transport::on_window_event(window, event);
+            crate::transfers::on_destroyed(window, event);
+        })
         .register_uri_scheme_protocol(preview::SCHEME, crate::preview_scheme::handle)
         .manage(Arc::new(Saves::open(config_dir, None)))
         .manage(Arc::new(Picked::default()))
@@ -93,6 +99,9 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
             save_discard,
             transfers_set,
             upload_pick,
+            transfer_upload,
+            transfer_save,
+            transfer_cancel,
             preview_mount,
             preview_release,
             transport_open,
@@ -100,6 +109,11 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
         ])
         .build(tauri::generate_context!())
         .unwrap();
+    // As `main` does: the engine's snapshot is what `ui.inspect` shows as `transfers`.
+    let engine = TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests, Arc::clone(&store)), "9.9.9").unwrap();
+    services.transfers = Some(engine.inspector());
+    app.manage(engine);
+    app.manage(services.clone());
     spawn_owner(AppInfo { title: "Pi Studio".into(), version: "9.9.9".into() }, config_dir.to_path_buf(), services, store, inbox, NEVER, launch);
     app
 }
@@ -428,7 +442,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_seventeen_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_twenty_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -447,6 +461,9 @@ fn the_capability_grants_the_seventeen_commands_and_listening_for_events_and_not
             "allow-save-finish",
             "allow-save-discard",
             "allow-upload-pick",
+            "allow-transfer-upload",
+            "allow-transfer-save",
+            "allow-transfer-cancel",
             "allow-transfers-set",
             "allow-preview-mount",
             "allow-preview-release",
