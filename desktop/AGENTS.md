@@ -38,8 +38,12 @@ on Linux against a production daemon (2026-11-22, sprint-122/task-007; `docs/dev
 engine in the real webview): the native open and save dialogs driven with `xdotool`, three at once and the
 rest queued, a connection cut or a daemon stopped mid-transfer (a save resumes, an upload starts again), a
 refused password, a changed daemon file, the switch and window-close questions, the page's path, and a
-command left pending for 10 minutes. The 5 GiB check and its pass marks are sprint 123's; macOS and Windows
-run only the automated checks.
+command left pending for 10 minutes. The 5 GiB check ran on Linux over loopback on 2026-11-22 (sprint-123/task-001;
+`docs/platform-checks.md` § Milestone 3, recipe in `docs/development.md` § The 5 GiB check): both directions
+hash-equal, `peakHeld` 32 KiB (upload) and 1 MiB (save), 3 to 7 times the rate of `--transfers page` (about 490 and
+1000 MiB/s against 160), the terminal's echo unchanged, and one mark missed: the daemon grew 91 to 94 MiB on the
+first upload into a fresh daemon (64 MiB allowed). The page's path held a 5 GiB upload in the web process (up to
+8 GiB resident). macOS and Windows are not checked (owner's decision, 2026-11-22); a sleep during a transfer was not run.
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; a file dragged from the OS
 file manager was not tried (the page's drop was dispatched as an event); a `kill -9`ed daemon leaves its
 `.pistudio-upload-<hex>.part` for good, and the explorer lists it.

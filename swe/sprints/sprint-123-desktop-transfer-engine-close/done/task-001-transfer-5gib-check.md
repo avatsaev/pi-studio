@@ -1,7 +1,7 @@
 # Task 001 — The 5 GiB check, the Linux acceptance run, and the checklist's milestone 3 section (D16)
 
 - **Sprint:** sprint-123-desktop-transfer-engine-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop, docs
 - **Priority:** P1

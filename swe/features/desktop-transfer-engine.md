@@ -485,69 +485,120 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
 
 - [ ] A 5 GiB file chosen in the native picker is uploaded: the daemon's copy has the same hash;
   `transfers.peakHeld` stayed under 64 MiB and the app's Rust process grew by at most 64 MiB; the
-  page grew by at most 32 MiB; the daemon grew by at most 64 MiB (R4).
-- [ ] A 5 GiB file on the daemon is saved to disk, with the same marks.
-- [ ] Neither is slower than the same transfer with `--transfers page` on the same build and
-  machine.
-- [ ] While either runs, a key typed in a terminal echoes at most 5 ms later in the median and
-  50 ms at the 99th percentile than with no transfer.
+  page grew by at most 32 MiB; the daemon grew by at most 64 MiB (R4). (**Left open: one mark
+  missed.** Run 2026-11-22, sprint-123/task-001, `desktop/docs/platform-checks.md` § Milestone 3,
+  release build, loopback, three runs: hash equal in all (and in three more runs of the same
+  upload), `peakHeld` 32 768 bytes, the app's process grew 11.9 / 1.3 / 0.9 MiB, the web process
+  4.1 / 5.3 / 4.5 MiB. **The daemon grew 94.0 MiB on the first upload into a fresh daemon** (91.3
+  and 94.4 in two other fresh-daemon runs), then 44.8 and 33.5 MiB; 64 MiB are allowed. It is
+  Node's own memory and levels off at 285 MiB over six transfers; the page's path grew the daemon
+  74.2 MiB on its first upload too. The mark is not changed here: the owner decides whether it
+  stands.)
+- [x] A 5 GiB file on the daemon is saved to disk, with the same marks. (Three runs: hash equal in
+  all, `peakHeld` 1 048 640 bytes, the app's process grew 4.7 / 1.0 / 0.8 MiB, the web process
+  7.0 / 25.3 / 0 MiB, the daemon 34.3 / 31.2 / 3.4 MiB; the clean build's save: 5.5, 4.1 and 9.1.)
+- [x] Neither is slower than the same transfer with `--transfers page` on the same build and
+  machine. (Upload 503.1 / 488.6 / 488.9 MiB/s against the page's 158.0 / 157.0 / 158.4: 3.1 times
+  as fast; save 1139 / 927 / 1085 against 159.9 / 162.4 / 161.8: 5.7 to 7.1 times. The page's path
+  completed both directions at 5 GiB, with an equal hash; its upload held the file in the web
+  process, which grew 7714 / 5673 / 7087 MiB.)
+- [x] While either runs, a key typed in a terminal echoes at most 5 ms later in the median and
+  50 ms at the 99th percentile than with no transfer. (No transfer: median 5 ms, 99th 6 ms. During
+  the uploads median 5 / 5 / 5 ms, 99th 9 / 8 / 9 ms; during the saves median 4 / 4 / 4 ms, 99th
+  9 / 6 / 7 ms; in a 64 s upload throttled to 80 MiB/s median 5 ms and 99th 44 ms against 7 ms with
+  no transfer in that run, 37 ms later.)
 
 **Behaviour**
 
-- [ ] While a transfer runs, `daemon_status` lists a second client of the app with
-  `agentStreams: "none"`; 30 s after the last transfer it is gone (D6).
-- [ ] Four transfers started together: three run, the fourth is `queued` and starts when one ends
-  (D7).
-- [ ] A picked batch and two saves show three lines, each with a percentage and its own Cancel;
-  the batch's files go one after another (D8, D11).
-- [ ] In the browser client a save shows a percentage and Cancel, and an upload has Cancel (D8).
-- [ ] During a save the destination holds no partial data; when it completes, the temporary file
-  is gone and the destination holds the file (D9, S1).
-- [ ] A cancelled save leaves no temporary file. A cancelled upload, a failed one and one whose
+- [x] While a transfer runs, `daemon_status` lists a second client of the app with
+  `agentStreams: "none"`; 30 s after the last transfer it is gone (D6). (Sprint-122/task-007,
+  `docs/development.md` § The transfer engine in the real webview, result 1: the client listed
+  with `platform: "desktop"`, `agentStreams: "none"`, `appVersion: "pistudiodesktop/0.2.0"`; it
+  disconnected with code 1000 after 29.9 s idle.)
+- [x] Four transfers started together: three run, the fourth is `queued` and starts when one ends
+  (D7). (Task-007 result 2: three `running`, `queued: 1`, the fourth ran when the first ended.)
+- [x] A picked batch and two saves show three lines, each with a percentage and its own Cancel;
+  the batch's files go one after another (D8, D11). (Task-007 result 2.)
+- [x] In the browser client a save shows a percentage and Cancel, and an upload has Cancel (D8).
+  (Task-007 result 13, Chromium.)
+- [x] During a save the destination holds no partial data; when it completes, the temporary file
+  is gone and the destination holds the file (D9, S1). (Task-007 result 3; seen again in the 5 GiB
+  saves: a `.pistudio-save-<hex>.part` beside the destination while they ran, only the destination
+  after, hash equal.)
+- [x] A cancelled save leaves no temporary file. A cancelled upload, a failed one and one whose
   connection was cut leave no file on the daemon, and a file being replaced keeps its old content
-  until an upload completes, in the desktop app and in the browser client (D9, R3).
-- [ ] An upload to a daemon whose disk is slowed (a test double) keeps the daemon's queue for it
-  under 1 MiB plus one chunk, and completes with the right content (R4).
-- [ ] The bulk connection is cut during a save: the save continues from its bytes on disk and the
+  until an upload completes, in the desktop app and in the browser client (D9, R3). (Task-007
+  results 4 and 5 for the desktop app, result 13 for the browser client.)
+- [x] An upload to a daemon whose disk is slowed (a test double) keeps the daemon's queue for it
+  under 1 MiB plus one chunk, and completes with the right content (R4). (Sprint-118/task-002's test
+  "stops reading above 1 MiB and reads again, keeping unwritten bytes bounded" in
+  `packages/server/src/files/file-transfer.test.ts`: 64 MiB against a slowed writer, the unwritten
+  bytes never above 1 MiB plus one 32 KiB frame, the file complete; sprint-118/task-003 measured
+  it live. Not run live against the engine: its uploads are the same daemon path.)
+- [x] The bulk connection is cut during a save: the save continues from its bytes on disk and the
   hash matches. Cut during an upload: the upload starts again and the hash matches (D5).
-- [ ] The daemon is stopped during a transfer: the line says it is waiting for the connection, and
-  the transfer continues once the daemon is back, without a limit in time (D12).
-- [ ] The daemon file is modified while a save waits: the save fails with "The file changed on the
-  daemon." and its temporary file is gone (D13).
-- [ ] A password the daemon refuses: the transfer fails at once with `unauthorized` and is not
-  retried (D12).
-- [ ] With a transfer running, a daemon switch and a window close ask first; "yes" cancels it
-  (D10).
-- [ ] A relay entry, a dropped file and `--transfers page` each take the page's path and work as
+  (Task-007 result 5.)
+- [x] The daemon is stopped during a transfer: the line says it is waiting for the connection, and
+  the transfer continues once the daemon is back, without a limit in time (D12). (Task-007 results
+  6 and 14: a save continued after a daemon down 15 s, and a command left pending 631 s answered.)
+- [x] The daemon file is modified while a save waits: the save fails with "The file changed on the
+  daemon." and its temporary file is gone (D13). (Task-007 result 7.)
+- [x] A password the daemon refuses: the transfer fails at once with `unauthorized` and is not
+  retried (D12). (Task-007 result 8: 41 ms after the dialog, no temporary file.)
+- [x] With a transfer running, a daemon switch and a window close ask first; "yes" cancels it
+  (D10). (Task-007 result 9.)
+- [x] A relay entry, a dropped file and `--transfers page` each take the page's path and work as
   before; with a relay entry and with `--transfers page` the Upload button opens the file input
-  (D2, D3, D18).
-- [ ] A daemon without one of the three flags: the transfer fails with `unsupported_daemon` (R1).
-- [ ] No command takes a local path, and a `transfer_upload` with a handle Rust did not issue is
-  refused (D20).
-- [ ] `ui.inspect`'s `transfers` shows a running transfer's bytes and the last error, with no
+  (D2, D3, D18). (Task-007 result 10; `--transfers page` also moved 5 GiB both ways in the 5 GiB
+  check, hash equal.)
+- [x] A daemon without one of the three flags: the transfer fails with `unsupported_daemon` (R1).
+  (Task-007 result 15: 42 ms after the dialog.)
+- [x] No command takes a local path, and a `transfer_upload` with a handle Rust did not issue is
+  refused (D20). (Task-007 result 11.)
+- [x] `ui.inspect`'s `transfers` shows a running transfer's bytes and the last error, with no
   path; the log has one line per start, end and failure, with both paths and no password (D19,
-  S10).
-- [ ] A `secret_guard`-style test finds no password and no handle in any answer, event or log line.
+  S10). (Task-007 result 12; the 5 GiB runs' log has `upload started`, `upload done, 5368709120
+  bytes in 10230 ms` and `save done` lines with both paths.)
+- [x] A `secret_guard`-style test finds no password and no handle in any answer, event or log line.
+  (`crates/transfer/src/engine/tests/markers.rs` plants a password, a local path and a handle-like
+  string and searches every failure, event and snapshot of the engine; the app's
+  `commands/tests/transfer_tests.rs` `ui_inspect_shows_the_engine_and_no_path_no_handle_and_no_password`
+  does the same for `ui.inspect`; `crates/shell/tests/secret_guard.rs` is unchanged and passes; live,
+  the password, the control token and the pairing `offer=` were in the debug log 0 times, task-007
+  result 12.)
 
 **Tests and machines**
 
-- [ ] The Rust protocol code passes against the published file-transfer fixtures, JSON and binary,
+- [x] The Rust protocol code passes against the published file-transfer fixtures, JSON and binary,
   and against the `hello.agentStreams.json`, `status.server_info.json`, `ping.json`, `pong.json`
-  and `rpc_error.json` fixtures (D20).
-- [ ] The engine's tests run against a stand-in daemon in the test process: both directions, a
-  drop at every stage, a cancel at every stage, and hostile frames; none panics.
-- [ ] `cargo xtask ci` passes, including the layer check with the new crate and the wasm check.
-- [ ] Live on Linux, with the steps as rows of a milestone 3 section in
-  `desktop/docs/platform-checks.md` (D17). The macOS and Windows half of D17 (runner checks and a
-  person on real machines) was dropped by the owner on 2026-11-22: nothing is checked there.
+  and `rpc_error.json` fixtures (D20). (`crates/transfer/src/wire/tests.rs` and
+  `src/testing/tests/pinned.rs` read `packages/protocol/fixtures/external-clients/` and the stand-in's
+  frames are compared with them; `cargo xtask ci` passed 2026-11-22.)
+- [x] The engine's tests run against a stand-in daemon in the test process: both directions, a
+  drop at every stage, a cancel at every stage, and hostile frames; none panics. (`crates/transfer/src/engine/tests/`:
+  `stages.rs`, `cancel.rs`, `recovery.rs`, `hostile.rs`, `soak.rs`; the `panic_hunt` step of
+  `cargo xtask ci` passed.)
+- [x] `cargo xtask ci` passes, including the layer check with the new crate and the wasm check.
+  (2026-11-22, sprint-123/task-001, on the tree of the check: 8 of 8 steps, fmt, web, clippy, layers,
+  test, panic_hunt, doctest, wasm.)
+- [x] Live on Linux, with the steps as rows of a milestone 3 section in
+  `desktop/docs/platform-checks.md` (D17). (The section "Milestone 3: file transfers in Rust" has
+  rows T1 to T8 with steps and results; T7 and T8, a sleep, are **manual and not run**.) The macOS
+  and Windows half of D17 (runner checks and a person on real machines) was dropped by the owner
+  on 2026-11-22: nothing is checked there.
 
 ## TODO(verify)
 
-- [ ] The values of S3 are chosen, not measured. The check's run should report how often the
-  liveness limit and the 1 MiB hold were reached. (Live run 2026-11-22, sprint-122/task-007: not
-  answered. Nothing counts either event: `ui.inspect` has no counter for them, and the run never
-  froze a socket, so the 30 s limit was not reached (a stopped daemon and a cut socket both ended
-  the connection at once). The 5 GiB run needs counters or log lines for both.)
+- [x] The values of S3 are chosen, not measured. The check's run should report how often the
+  liveness limit and the 1 MiB hold were reached. (Run 2026-11-22, sprint-123/task-001, with
+  throwaway counters in the reader, removed afterwards; `desktop/docs/platform-checks.md`
+  § Milestone 3. The 30 s limit: never reached, 0 drops in six 5 GiB transfers, a 64 s upload and
+  the idle gaps. The 10 s `ping`: 10 sent in the six transfers' run, 3 of them during uploads
+  (one in each 10.2 to 10.5 s upload, because the daemon sends nothing until an upload completes)
+  and 7 on the idle open connection, none during a save; the 64 s upload at 80 MiB/s sent 6 and
+  each was answered. The 1 MiB hold: reached in every save (`peakHeld` 1 048 640 bytes), by 2154,
+  5603 and 940 of 163 842 frames (1.3 %, 3.4 %, 0.6 %); an upload has none. The app still has no
+  counter for either event, so a later run needs the same throwaway ones.)
 - [x] R4 stops reading a session's socket. Measured in sprint-118/task-003 with the daemon's
   writes slowed to about 28 MiB/s: another request on the same connection waits about 0.15 s in
   the median and 0.25 s at most (0.5 s over a relay), and a second client over the same relay is
@@ -574,11 +625,14 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   Linux the app shows GTK's "Open File" dialog, parented to the main window, for the Upload
   button; a path typed with `xdotool`, and a directory's files selected with `ctrl+a`, came back
   as the picked files; Cancel answers `[]` and starts nothing. macOS and Windows: not tried.)
-- [ ] How the 5 GiB check drives the native picker and reads the page's memory in the headless
+- [x] How the 5 GiB check drives the native picker and reads the page's memory in the headless
   container (milestone 2 drove the save dialog with `xdotool` in `pi-desktop-xvfb`). (Live run
   2026-11-22: the picker is driven as the save dialog is, `xdotool` in the container, see
-  `desktop/docs/development.md` § The transfer engine in the real webview. Reading the page's
-  memory is the unchanged recipe of § The transport proxy in the real webview, not run here.)
+  `desktop/docs/development.md` § The transfer engine in the real webview. The 5 GiB run,
+  sprint-123/task-001, read the memory from the host: the container's processes are visible there
+  and `VmRSS` / `RssAnon` of `/proc/<pid>/status` are sampled every 250 ms for the app,
+  `WebKitWebProces`, `WebKitNetworkPr` and the daemon; no `ptrace` and no copy of `node` in the
+  container. Recipe: § The 5 GiB check.)
 - [ ] Whether the runner scripts can run a transfer through the page on macOS (no WebDriver
   there). If not, the runners cover the engine through the Rust tests only.
 - [ ] Where standard error goes when the app is started from the desktop on each system, since the
