@@ -10,6 +10,13 @@
 > project yet) and that a better design may break it: R1–R4 follow from that, S6 is withdrawn, and
 > D4, D14, D15 and D20 are changed where the tables say so.
 
+> **Amended by [desktop-relay-ssh.md](desktop-relay-ssh.md) (2026-11-22, milestone 4).** D2 ends: the
+> engine serves every entry kind, relay and SSH included (`--transfers page` still turns it off). The
+> connector gives the engine a `net::DaemonSocket` (a WebSocket over TCP or TLS, the relay's sealed
+> channel, or an SSH channel), the `Transport` trait is gone, `not_bridged` no longer exists, and
+> `FINAL_CODES` has the relay's and SSH's codes. The sentences below that kept a relay entry on the
+> page's path are corrected where they stood.
+
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
 > (`files`, amended here), [file-explorer-transfer.md](file-explorer-transfer.md) (the wire flow and
@@ -34,7 +41,7 @@ for the whole feature: a 5 GiB file moves both ways with flat memory while a ter
 responsive (D16).
 
 Not in this feature (D1–D5, D8, D15): viewers served by Rust (`files.openForView` keeps `Blob`
-URLs), transfers of a relay entry (milestone 4), native file drops, any change to the wire, upload
+URLs), transfers of a relay entry (milestone 4, now built), native file drops, any change to the wire, upload
 resume, a transfers list, uploading a folder, a transfer that survives quitting, and any path for
 a daemon older than the app (R1).
 
@@ -45,7 +52,7 @@ Owner, 2026-11-22 (the grill; its rationale is in the brief):
 | # | Decision |
 |---|---|
 | D1 | Uploads and saves move to Rust. Viewers keep `Blob` URLs |
-| D2 | Only `local` and `direct` entries. A relay entry keeps today's path through the page until milestone 4 |
+| D2 | Every entry kind. Milestone 3 served only `local` and `direct` entries and left a relay entry on the page's path; milestone 4 ([desktop-relay-ssh.md](desktop-relay-ssh.md)) serves `relay` and `ssh` entries too |
 | D3 | A native picker for the Upload button. A file dropped on the window keeps today's path through the page |
 | D4 | No change to the wire. A failed upload starts again from zero. (The grill also said "no change to the daemon"; R3 and R4 change the daemon's behaviour, not its wire) |
 | D5 | After a dropped connection the engine continues by itself while the app runs: a download resumes, an upload restarts. Nothing survives quitting |
@@ -131,10 +138,10 @@ list grows from 16 to 20). The Content-Security-Policy does not change.
   the save: the page calls neither `save_write` nor `save_finish` nor `save_discard` for it. On any
   failure or cancel the engine discards the save.
 - The page never sends a local path, and no answer, event or error holds one (D20).
-- Rust dials the current entry's stored address and reads its password itself, as `transport_open`
-  does. The page sends no address (D20).
+- Rust opens the current entry's socket and reads its secrets itself, as `transport_open` does (the
+  stored address, the relay, or an SSH channel, by kind). The page sends no address (D20).
 - `save_begin`, `save_write`, `save_finish`, `save_discard` and `transfers_set` are unchanged. The
-  page's path still uses them (a relay entry, `--transfers page`).
+  page's path still uses them (`--transfers page`, a dropped file and a `Blob`).
 
 Event `transfer_progress`, emitted to the page:
 
@@ -156,8 +163,8 @@ running or waiting, and for 30 s after the last one (D6, S3).
 
 | Step | Rule |
 |---|---|
-| Who | The current entry, asked of the owner thread as `transport_open` asks (`OwnerAccess::bridge_plan`); the password is read from the secret store on the blocking pool. A relay entry answers `not_bridged` |
-| Dial | `net::dial` with the 15 s limit and a 16 MiB message limit (a new parameter of the dial; the proxy keeps 128 MiB) |
+| Who | The current entry, asked of the owner thread as `transport_open` asks (`OwnerAccess::bridge_plan`); the secrets are read from the secret store on the blocking pool. The route per kind is `transport_open`'s (`Route`: [desktop-relay-ssh.md](desktop-relay-ssh.md) § Opening a connection) |
+| Dial | The socket of the entry's kind, within the same limits, with a 16 MiB message limit: `net::dial` (the proxy keeps 128 MiB), `relay::connect`, or a channel of the shared SSH session with `net::dial_over`. `Connector::connect` returns a `net::DaemonSocket` |
 | `hello` | `{ type: "hello", clientId, clientType: "browser", protocolVersion: 1, platform: "desktop", agentStreams: "none", appVersion: "pistudiodesktop/<version>" }` (fixture `hello.agentStreams.json`, without its `capabilities`: this connection consumes no stream event). `clientId` is random, made once per run of the app, and is not the page's |
 | Answer | The first `status` frame with `payload.status: "server_info"`, awaited 30 s. Its `features` must hold `fileDownloadRanges`, `fileTransferAck` and `agentStreamsMode`; otherwise every transfer fails with `unsupported_daemon` and the connection closes |
 | Requests | `{ type: "session", message: { type, requestId, … } }`; the answer is the `session` message with the same `requestId`, or an `rpc_error` with it. Awaited 30 s |
@@ -231,8 +238,8 @@ A host calls neither callback of a save before the user has chosen a destination
 | Desktop, engine serves | A picked source: `transfer_upload`. A `Blob` (a dropped file, a file the workbench made): the browser host's | `save_begin`, then `transfer_save` | Present: `upload_pick` |
 | Desktop, engine does not serve | The browser host's | The browser host's (with `saveTarget`) | Absent: the workbench uses its file input |
 
-**The engine serves** when `boot` said `transfers: "engine"` and the current entry is of kind
-`local` or `direct`. Both are fixed for the life of a page (a switch reloads it), so the host
+**The engine serves** when `boot` said `transfers: "engine"` and there is a current entry (of any
+kind since milestone 4; milestone 3 required `local` or `direct`). Both are fixed for the life of a page (a switch reloads it), so the host
 decides once, when it is built (R1).
 
 A picked source is an object the desktop host made, holding the handle where the workbench cannot
@@ -368,11 +375,15 @@ dropped (the socket ended, a write failed, 30 s without a frame):
     forget every stream id; open()
 ```
 
-Final errors: `unauthorized`, `host_not_allowed`, `tls`, `invalid_address`, `secret_missing`,
-`secret_unavailable`, `not_bridged`, `no_current`, `unsupported`, `unsupported_daemon`, `protocol`.
-Everything else that stops the connection from opening is retried: `unreachable`, `timeout`,
-`handshake`, a local daemon that is stopped or starting. There is no limit on the number of
-attempts (D12).
+Final errors (`FINAL_CODES` in `crates/transfer`): `unauthorized`, `host_not_allowed`, `tls`,
+`invalid_address`, `secret_missing`, `secret_unavailable`, `no_current`, `unsupported`,
+`unsupported_daemon`, `protocol`; the relay's `wrong_key`, `daemon_outdated`, `protocol_error`,
+`invalid_link`; an SSH entry's `auth_failed`, `host_key_unknown`, `host_key_changed`,
+`passphrase_needed`, `key_unreadable`, `forwarding_refused`, `ssh_config`. Everything else that stops
+the connection from opening is retried: `unreachable`, `timeout`, `handshake`, the relay's
+`relay_unreachable`, `daemon_offline`, `daemon_unresponsive`, `too_many_clients`, an SSH entry's
+`daemon_not_running`, `ssh_lost`, a local daemon that is stopped or starting. There is no limit on the
+number of attempts (D12).
 
 ### The desktop host's choice
 
@@ -440,7 +451,7 @@ handle:
 | `size_mismatch` | `file_upload_complete` reported another byte count than was sent (S11) |
 | `protocol` | The daemon broke the protocol: a frame out of order, more bytes than announced, a message above 16 MiB, an answer of the wrong shape |
 | `unsupported_daemon` | `server_info` lacks `fileDownloadRanges`, `fileTransferAck` or `agentStreamsMode`: the daemon is older than the app supports (R1) |
-| `unauthorized`, `host_not_allowed`, `tls`, `invalid_address`, `secret_missing`, `secret_unavailable`, `not_bridged`, `no_current`, `unsupported` | As for `transport_open`, when the bulk connection opens or reopens |
+| `unauthorized`, `host_not_allowed`, `tls`, `invalid_address`, `secret_missing`, `secret_unavailable`, `no_current`, `unsupported`, and the relay's and SSH's codes | As for `transport_open`, when the bulk connection opens or reopens |
 | `internal` | Anything the engine did not expect. Never a panic |
 
 | Condition | Expected behavior |
@@ -448,7 +459,7 @@ handle:
 | Any size, down to an empty file | Through the engine; no threshold (D15). An empty save is `Begin`, `End` and an empty file |
 | The picker | Files only (D15) |
 | A file dropped on the window; a file the workbench made itself | A `Blob`: the page's path, as today (D3) |
-| A relay entry; `--transfers page` | The engine does not serve: the file input, the page's upload, the page's save (D2, D18) |
+| `--transfers page` | The engine does not serve: the file input, the page's upload, the page's save (D18). A relay entry no longer takes this path (milestone 4) |
 | A daemon older than the app supports | No other path: the transfer fails with `unsupported_daemon`, and the workbench's outdated-daemon notice already names both versions (R1) |
 | More than 3 transfers | The rest are `queued`, in order; the queue has no limit (D7) |
 | The connection drops | `waiting`, then the transfers continue: a save from its bytes on disk, an upload from zero (D5). No limit in time (D12) |
@@ -549,10 +560,10 @@ For a local or direct entry in the desktop app with the engine on, unless a row 
   retried (D12). (Task-007 result 8: 41 ms after the dialog, no temporary file.)
 - [x] With a transfer running, a daemon switch and a window close ask first; "yes" cancels it
   (D10). (Task-007 result 9.)
-- [x] A relay entry, a dropped file and `--transfers page` each take the page's path and work as
-  before; with a relay entry and with `--transfers page` the Upload button opens the file input
+- [x] ~~A relay entry,~~ a dropped file and `--transfers page` each take the page's path and work as
+  before; with `--transfers page` the Upload button opens the file input
   (D2, D3, D18). (Task-007 result 10; `--transfers page` also moved 5 GiB both ways in the 5 GiB
-  check, hash equal.)
+  check, hash equal. The relay entry's path through the page was the milestone 3 behaviour; since milestone 4 the engine serves it.)
 - [x] A daemon without one of the three flags: the transfer fails with `unsupported_daemon` (R1).
   (Task-007 result 15: 42 ms after the dialog.)
 - [x] No command takes a local path, and a `transfer_upload` with a handle Rust did not issue is

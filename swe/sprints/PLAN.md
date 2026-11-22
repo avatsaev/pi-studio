@@ -3533,9 +3533,9 @@ component: one after the other); then t005.
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
 | task-001 | Memory and rates for relay and SSH transfers, and the checklist | test | sprint-126/task-004, sprint-129/task-005 | desktop-relay-ssh § Acceptance criteria (Transfers), D19 |
-| task-002 | Documents and spec close for milestone 4 | docs | task-001 | desktop-relay-ssh § Dependencies on other specs |
+| task-002 | Documents and spec close for milestone 4 | docs | sprint-129/task-004 | desktop-relay-ssh § Dependencies on other specs |
 
-In order.
+t001 and t002 are independent (changed 2026-11-22, during the run: the documents describe what the code does and need none of t001's measurements; t002 leaves the acceptance ticks to the end, after t001 and the live checks).
 
 ## Coverage check
 

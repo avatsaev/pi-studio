@@ -4,7 +4,7 @@ import { type BootSnapshot } from "./boot.js";
 import { createDesktopHost } from "./desktop-host.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 
-const snapshotWith = (transfers: "engine" | "page", kind: "local" | "direct" | "relay"): BootSnapshot =>
+const snapshotWith = (transfers: "engine" | "page", kind: "local" | "direct" | "relay" | "ssh"): BootSnapshot =>
   ({
     app: { title: "Pi Studio", version: "1.0.0", platform: "desktop", minDaemonVersion: "1.0.0" },
     storage: {},
@@ -50,7 +50,7 @@ describe("desktop host files", () => {
     },
   );
 
-  it.each(["local", "direct", "relay"] as const)("transfers engine, entry %s: pickUploads is present", (kind) => {
+  it.each(["local", "direct", "relay", "ssh"] as const)("transfers engine, entry %s: pickUploads is present", (kind) => {
     const { host, listen } = build(snapshotWith("engine", kind));
     expect("pickUploads" in host.files).toBe(true);
     expect(listen.mock.calls.filter(([event]) => event === "transfer_progress")).toHaveLength(1);

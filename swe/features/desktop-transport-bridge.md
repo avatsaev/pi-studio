@@ -13,6 +13,14 @@
 > 0.2.0 (the first change to what the app does since 0.1.0); the number is set when the release is
 > tagged, which needs the owner's word.
 
+> **Amended by [desktop-relay-ssh.md](desktop-relay-ssh.md) (2026-11-22, milestone 4).** T1 ends: every
+> entry kind (`local`, `direct`, `relay`, `ssh`) is bridged, `transport_open` works for all of them,
+> and `not_bridged` no longer exists. A relay entry's socket is Rust's and no pairing link reaches the
+> page; `daemon_resolve_current` answers an address and no command returns a secret. The page's
+> `connect-src` is `ws://127.0.0.1:*` only. `ui.inspect` shows `via` and `ssh`. `daemons.json` is
+> version 3. The history below (the benchmark, the milestone 2 checks) stays as it was run; the
+> sentences that described the relay path of the page are corrected where they stand.
+
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
 > (`connection.createTransport`, `timers`, `onResume`: the seam this fills),
@@ -36,7 +44,7 @@ It starts with a benchmark, because nobody has measured whether Tauri's IPC can 
 traffic. The benchmark is a gate (T3).
 
 Not in this feature: the transfer engine and a second, bulk connection (milestone 3), the relay in
-Rust (milestone 4), signing and auto-update (milestone 5), moving the handshake or reconnect into
+Rust (milestone 4, now built: [desktop-relay-ssh.md](desktop-relay-ssh.md)), signing and auto-update (milestone 5), moving the handshake or reconnect into
 Rust, an HTTP proxy for Rust's sockets (P6).
 
 ## Decisions
@@ -45,7 +53,7 @@ Owner, 2026-11-21:
 
 | # | Decision |
 |---|---|
-| T1 | Only `local` and `direct` entries use the bridge. A `relay` entry keeps the webview's socket and the SDK's relay transport until milestone 4; its pairing link still reaches the page |
+| T1 | Every entry uses the bridge. Milestone 2 bridged only `local` and `direct` entries and left a `relay` entry on the webview's socket; milestone 4 ([desktop-relay-ssh.md](desktop-relay-ssh.md)) bridged `relay` and added `ssh`, so no pairing link reaches the page |
 | T2 | The Rust code is written in this workspace. `pi-studio-dashboard` was a throwaway test application: nothing is taken from it or shared with it |
 | T3 | The benchmark is a gate. If it fails, another bridge design is explored before anything else of the bridge is built. A socket left in the webview is not the fallback |
 | T4 | The `hello` handshake, request/response matching, JSON `ping`/`pong` and `ReconnectionManager` stay in TypeScript (the handoff's rule). No store and no reducer changes |
@@ -57,7 +65,7 @@ Proposed in this document and accepted by the owner on 2026-11-21:
 |---|---|---|
 | P1 | The pass thresholds of § 1 | They come from what the daemon sends (a terminal emits at most one frame per 4 ms; transfers use 32 KiB frames), not from a measurement |
 | P2 | A file transfer through the bridge may be slower than today, down to half the direct rate, until milestone 3 | A download then crosses IPC twice (socket to page, page to disk). The transfer engine removes both hops |
-| P3 | Passwords and pairing links both move to the secret store; `daemons.json` holds no secret | One rule for secrets at rest. T1 still hands a pairing link to the page at connect |
+| P3 | Passwords and pairing links both move to the secret store; `daemons.json` holds no secret | One rule for secrets at rest. Since milestone 4 no secret reaches the page either |
 | P4 | Where the keychain is not available, secrets go to `secrets.json` (mode 0600) in the configuration directory and the Daemons screen says so | A Linux desktop without a Secret Service must keep working. Milestone 1 already stores them this way |
 | P5 | `daemons.json` becomes version 2. The 0.1.0 app sets a version 2 file aside (`daemons.json.corrupt-*`) and starts with only the local entry | Checked: 0.1.0 refuses an unknown version. A downgrade is rare and loses no secret |
 | P6 | Rust's sockets ignore the system's HTTP proxy settings (the webview's socket used them) | Out of scope; a daemon is normally on the machine, the LAN or a VPN. Listed as a known difference |
@@ -147,8 +155,8 @@ Facts read in Tauri 2.12.5 on 2026-11-21, which the benchmark exists to put numb
 ### 2. The page's command
 
 One command is added to the app manifest, the capability and `generate_handler!` (the existing
-test of the exact capability list is extended by one). The Content-Security-Policy does not
-change: `ws:` already allows `ws://127.0.0.1:<port>` and stays for relay entries (T1).
+test of the exact capability list is extended by one). The Content-Security-Policy's `connect-src`
+was `ws:` and `wss:` here (`ws:` already allowed `ws://127.0.0.1:<port>`, and the relay path of the page needed the rest); since milestone 4 it is `ws://127.0.0.1:*` and no other WebSocket address.
 
 | Command | Input | Answer | Errors (`{code, message}`) |
 |---|---|---|---|
@@ -230,7 +238,7 @@ The desktop host's `connection`, replacing the browser host's:
 
 | Member | Behaviour |
 |---|---|
-| `createTransport(target, options)` | Current entry `local` or `direct`: a proxied `Transport` (below). Current entry `relay`: what the browser host returns. `options.password` is ignored for a proxied entry |
+| `createTransport(target, options)` | A proxied `Transport` (below) for a current entry of any kind (`relay` since milestone 4; before it, a relay entry got what the browser host returns). With no current entry, what the browser host returns. `options.password` is ignored for a proxied entry |
 | `timers` | Unchanged: the browser host's worker timers (P7) |
 | `onResume(listener)` | The browser host's triggers (window visible again, `online`) and the app's `connection_resume` event |
 
@@ -246,8 +254,8 @@ Event `connection_resume`, payload `{ reason: "wake" | "network" }`, emitted to 
 already listen to events; nothing is added to the capability).
 
 `daemon_resolve_current` answers `{ url, connect: true }` for a `local` or `direct` entry: no
-`password`. For a `relay` entry it still answers the pairing link as `url` (T1), and that is now
-the only secret a command returns.
+`password`. Milestone 4 extended this to every kind: for a `relay` entry `url` is the relay's address and
+no pairing link, so no command returns a secret.
 
 ### 5. The secret store
 
@@ -338,7 +346,7 @@ else: there is no switch to accept an untrusted certificate.
 ```
 transport_open(url):
     entry = owner thread: the current entry (kind, address)
-    refuse not_bridged       when entry.kind is relay
+    (the socket is opened by kind from here on: desktop-relay-ssh.md, "Opening a connection")
     refuse address_mismatch  when url differs from the entry's stored address after the address rule
     refuse invalid_address   when the scheme is not ws or wss, or the URL has user information
     reservation = Proxies::reserve(entry.id)   refuse limit when 4 proxied connections exist
@@ -408,7 +416,7 @@ password or the token:
 
 | Code | When |
 |---|---|
-| `not_bridged` | The current entry is a relay entry (a host bug: it should not have asked) |
+| the relay's reasons, `invalid_link`, and the SSH codes | Milestone 4: [desktop-relay-ssh.md](desktop-relay-ssh.md) § Error handling. `not_bridged` no longer exists: every kind is bridged |
 | `address_mismatch`, `invalid_address` | See the pseudocode |
 | `secret_missing` | The registry says the entry has a password and the store has none. The message says to enter it again in Daemons |
 | `secret_unavailable` | The store is locked, or the user denied access |
@@ -437,7 +445,7 @@ may be blocking `127.0.0.1`. Rust sets `lastError` to `page_refused` or `page_ti
 | The keychain asks the user and they refuse | `secret_unavailable`; the connection bar shows the message; Retry asks again |
 | The keychain is unreachable at launch | The `file` backend for this run, and the one line in the Daemons screen |
 | A password changed in Daemons while connected | Stored at once; used at the next connect. The open socket is not touched |
-| A relay entry is current | The webview's socket and the pairing link in the page, exactly as in milestone 1 |
+| A relay entry is current | Rust opens the relay connection like any other entry's socket (milestone 4); before it, the page used the webview's socket and the pairing link |
 | The 0.1.0 app opens a version 2 file | It sets the file aside and shows only the local entry (P5); the newer app's file is the `.corrupt-` copy |
 | A daemon behind an HTTP proxy | Not reachable through the bridge (P6) |
 | An unsigned build on macOS | Expected: the keychain asks again after each update, because the item is bound to the build's signature. Accepted by the owner for now (signing is milestone 5); to verify |
@@ -462,7 +470,7 @@ Bridge (the loopback proxy, T5):
 - [x] Given a `direct` entry with a password, when the window connects, then the page's only `WebSocket` goes to `127.0.0.1`, `ui.inspect` shows one open transport with `framesIn` above zero, and the password appears in no command answer, event, log line or page memory dump. *(Linux, 2026-11-22, sprint-116/task-005: the real WebKitGTK webview in `pi-desktop-xvfb`, a production daemon with a password on a free port. `ui.inspect` showed one `open` transport, `framesIn` 7; the daemon showed one client; the page constructed only `ws://127.0.0.1:<port>/<64 hex>` with no protocols, a second one on another port with another token after the daemon was killed and restarted. `daemon_resolve_current` answered `{connect, url}` without a password. A scan of `/proc/<pid>/mem` of the WebKit web and network processes found the password 0 times in each and the page's own token 14 and 11 times (positive control); the Rust process held the password 8 times; the debug app log and control replies held neither password nor token.)*
 - [x] Given the proxied connection, when a terminal runs a command that prints 100 MiB, then the output is complete and in order, and typing stays responsive. *(Linux, 2026-11-22, sprint-116/task-005: three runs of 104.9 MiB (1,000,000 lines each): no gap, no bad line, the printed SHA-256 equals the host's; 1.51 to 1.62 s from Enter to the checksum line (about 70 MiB/s); a key typed every 60 ms during the flood echoed at the page after 25 ms median and 36 to 46 ms at most, against 5 to 6 ms idle; Rust's `peakHeldIn` at most 550,276 bytes.)*
 - [ ] Given a 1 GiB file, when it is downloaded and uploaded through the proxy, then both copies are byte-identical, Rust never held more than 1 MiB of the connection's messages (a peak counter shows it), the app's memory growth is reported beside the same transfer of milestone 1, and an upload pauses and resumes on `bufferedAmount` (P14). *(Linux, 2026-11-22, sprint-116/task-005: shown except the last clause. Download 6.17, 6.32, 6.58 s (155 to 166 MiB/s), upload 6.27, 6.41 s, SHA-256 equal both ways, against 6.44 and 6.63 s with the same page on the webview's own socket and sprint 104's 6.5 s; `peakHeldIn` 262,160 and `peakHeldOut` 65,540 bytes, and 262,160 out with the daemon stopped for 6 s; memory growth of app plus WebKit: download +137 to +186 MiB (webview's socket +137 to +146, sprint 104 +116), upload about +2.08 GiB in both modes, so it is the webview's. Open: `bufferedAmount` never exceeded 32,904 bytes, with or without the daemon stopped, in either mode, because WebKitGTK hands the bytes to its network process (which grew by about 890 MiB during the stall): the pause cannot be seen on Linux. Left for the macOS and Windows runs of sprint 117.)*
-- [x] Given a `relay` entry, when it is opened, then it connects as in milestone 1 and no proxied transport exists. *(Linux, 2026-11-22, sprint-116/task-005: a scratch relay and a second daemon, an entry from `--json daemon pair`: "connected", `transports` `[]`, `lastError` null, the page's only socket `ws://127.0.0.1:<relay port>`, the relay logged the paired connection.)*
+- [ ] ~~Given a `relay` entry, when it is opened, then it connects as in milestone 1 and no proxied transport exists.~~ Superseded by milestone 4: a relay entry is proxied (`via: "relay"`), see [desktop-relay-ssh.md](desktop-relay-ssh.md). *(Sprint-116/task-005 recorded the milestone 1 path: the page's only socket was `ws://127.0.0.1:<relay port>`.)*
 - [x] Given a wrong password, a stopped daemon, an expired certificate and a host the daemon does not allow, when each is opened, then the connection bar shows the matching message and Retry works once the cause is fixed. *(Linux, 2026-11-22, sprint-116/task-005, after two fixes it found: the bar stayed on "connecting…" after any refused open, because the SDK leaves that state only on a close, so the host now reports a refused open as a close (1006); and a 401 or a certificate error read "connection refused", because `shortConnectionReason` tested `refus` first. Shown: wrong password "auth failed" (`unauthorized`); stopped daemon "connection refused" (`unreachable`); an untrusted and an expired certificate "certificate rejected" (`tls`, the tooltip says which); a host not allowed "host not allowed" (`host_not_allowed`); each recovered with one Retry once fixed. Screenshots were kept outside the repository.)*
 - [x] Given a page reload or a switch, then every earlier connection is closed, the daemon saw 1001, and `ui.inspect` lists none of them. *(Linux, 2026-11-22, sprint-116/task-005: sampled every 20 ms: never more than one transport; the old client left with 1001 and the new one connected 91 ms (reload) and 101 ms (switch to another entry of the same daemon) later; a switch to a relay entry gave `[]`.)*
 - [x] Given the page's command list, then exactly one command was added, the capability test pins the list, and an open to an address other than the current entry's is refused. *(2026-11-22, sprint-116/task-001: the capability test pins the previous fifteen plus `transport_open`; six URL forms are `address_mismatch`. Live, sprint-116/task-005: an open to another address or scheme from the page answered "The page asked for an address that is not the current daemon's." and an unlisted command "Command not found".)*

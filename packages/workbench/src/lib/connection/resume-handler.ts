@@ -13,8 +13,13 @@ import { resolveResumeAction } from "./resume-action.js";
  * its socket read loop, so this much silence on a working link is already pathological. */
 export const PROBE_TIMEOUT_MS = 5_000;
 
-/** A resume listener with its own probe-in-flight latch. Subscribe it to `host.connection.onResume`. */
-export function createResumeHandler(): () => void {
+/**
+ * A resume listener with its own probe-in-flight latch. Subscribe it to `host.connection.onResume`.
+ * `connectAgain` is the app's "connect to the current entry" (the connection bar's Retry): it
+ * runs when the first connect of the live client never opened, since that client has no backoff
+ * ladder for `reconnectNow()` to cut short.
+ */
+export function createResumeHandler(connectAgain: () => void): () => void {
   let probeInFlight = false;
 
   return function onResume(): void {
@@ -22,8 +27,14 @@ export function createResumeHandler(): () => void {
     const action = resolveResumeAction({
       status,
       managerActive: reconnection !== null,
+      managerStarted: reconnection?.isActive ?? false,
       probeInFlight,
     });
+
+    if (action === "connect-again") {
+      connectAgain();
+      return;
+    }
 
     if (action === "reconnect-now") {
       reconnection?.reconnectNow();

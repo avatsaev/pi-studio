@@ -56,9 +56,9 @@ export interface RemoteRowView {
 export interface EntryRowView {
   id: string;
   name: string;
-  /** "This machine", "Address" or "Relay". */
+  /** "This machine", "Address", "Relay" or "SSH". */
   kindLabel: string;
-  /** A direct entry's address, as typed; `null` for the others. */
+  /** A direct entry's address as typed, or an SSH entry's `user@host:port`; `null` for the others. */
   address: string | null;
   current: boolean;
   /** A relay entry whose pairing link stopped working (memory only); the row offers "Replace link". */

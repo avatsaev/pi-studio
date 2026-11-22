@@ -47,7 +47,7 @@ src/
   transport.ts                Transport interface + AnyWebSocket/WsFactory + createWebSocketTransport().
   relay-transport.ts          createRelayTransport() + relayDialUrl() + RelayConnectError — protocol-2 E2EE relay Transport (same interface as direct WS).
   relay-transport.test.ts
-  pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls).
+  pairing.ts                  parsePairingUrl() — parse the pairing-URL fragment (offer + host or offer + relay/relayTls). `pairing-link.vectors.json` (next to it) is the shared test file: `pairing.test.ts` and the desktop's Rust parser (`desktop/crates/model/src/pairing.rs`) both read it.
   daemon-client.ts            DaemonClient — WS/relay driver, handshake, RPC, liveness.
   daemon-client.test.ts
   pistudio-client.ts          PiStudioClient — high-level SDK facade + agent/workspace/provider handles + Extension UI + Agent Todos SDK surface.
@@ -513,6 +513,9 @@ Drives automatic reconnect after socket drop:
   reports network back — see the workbench's `host.connection.onResume` and `lib/connection/resume-handler.ts`) can bypass a
   throttled backoff delay. `scheduleReconnect()` is single-armed (at most one pending timer at a
   time) so `reconnectNow()`'s `clearTimer` call is always authoritative.
+- `isActive` — whether `start()` was called and `stop()` was not. A client whose first `connect()`
+  failed was never `start()`ed, so it has no ladder and `reconnectNow()` is a no-op for it; the
+  workbench's resume handler reads this to connect again instead (`resume-action.ts`).
 
 ```ts
 const mgr = new ReconnectionManager(daemonClient, opts);

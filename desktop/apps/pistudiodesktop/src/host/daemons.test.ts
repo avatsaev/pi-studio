@@ -357,3 +357,28 @@ describe("onManageRequest", () => {
     expect(second).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("remote daemon and ssh hosts", () => {
+  it("remote start and refresh go through engine_command", async () => {
+    const h = harness(() => ({ accepted: true }));
+    await h.daemons.remote.start();
+    await h.daemons.remote.refresh();
+    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.remote.start" }, { id: "daemon.remote.refresh" }]);
+  });
+
+  it("a refused remote action rejects with its code", async () => {
+    const busy = await rejection(harness(() => Promise.reject("busy")).daemons.remote.start());
+    expect(busy).toMatchObject({ code: "busy" });
+  });
+
+  it("sshHosts asks ssh_config_hosts and returns the hosts", async () => {
+    const hosts = [{ alias: "box", host: "box.example" }];
+    const h = harness(() => ({ hosts }));
+    expect(await h.daemons.sshHosts()).toEqual(hosts);
+    expect(h.calls.filter((c) => c.command === "ssh_config_hosts")).toHaveLength(1);
+  });
+
+  it("sshHosts rejects an unexpected shape", async () => {
+    await expect(harness(() => ({ nope: 1 })).daemons.sshHosts()).rejects.toThrow("unexpected shape");
+  });
+});

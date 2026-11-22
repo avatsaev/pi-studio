@@ -15,11 +15,17 @@ describe("parsePairingUrl", () => {
 interface PairingVector {
   name: string;
   input: string;
-  sdk: { keyBytes: number; host: string | null; relay: { endpoint: string; useTls: boolean } | null } | null;
+  sdk: {
+    keyBytes: number;
+    host: string | null;
+    relay: { endpoint: string; useTls: boolean } | null;
+  } | null;
 }
 
 /** The cases the desktop's Rust parser (`model::pairing`) reads too. */
-const vectors = JSON.parse(readFileSync(new URL("./pairing-link.vectors.json", import.meta.url), "utf8")) as PairingVector[];
+const vectors = JSON.parse(
+  readFileSync(new URL("./pairing-link.vectors.json", import.meta.url), "utf8"),
+) as PairingVector[];
 
 describe("pairing-link.vectors.json", () => {
   it("is not truncated", () => {

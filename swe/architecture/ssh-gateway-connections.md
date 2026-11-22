@@ -5,8 +5,8 @@
 > [daemon-bootstrap.md](daemon-bootstrap.md), [relay-e2ee.md](relay-e2ee.md),
 > [../features/desktop-app.md](../features/desktop-app.md)
 
-> **Status (2026-11-22): specified for desktop milestone 4 in
-> [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md); not built.** That document
+> **Status (2026-11-22): built for desktop milestone 4 (sprints 124–129), specified in
+> [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md).** That document
 > is the specification for the desktop client and supersedes this one. The body below was written
 > for the Electron plan. The owner decided the following on 2026-11-21; where it differs from the
 > body, the note wins, and where the specification differs from the note, the specification wins.
@@ -14,10 +14,10 @@
 > - **Milestone.** Part of desktop milestone 4 (with the relay in Rust), after milestones 2 (the
 >   transport bridge) and 3 (the transfer engine). `docs/desktop-client-handoff.md` § Suggested
 >   milestones.
-> - **How.** SSH is built into the app with a Rust library (`russh`, Apache-2.0), not the machine's
->   `ssh` program. TODO(verify) before planning: the licences of its cryptography dependencies
->   against the permissive-only rule (`desktop/AGENTS.md` rule 9), and that it builds on the three
->   platforms.
+> - **How.** SSH is built into the app with a Rust library (`russh` 0.65 with the `ring` provider,
+>   Apache-2.0), not the machine's `ssh` program. Its dependencies were checked against the
+>   permissive-only rule (`desktop/ATTRIBUTION.md`), and the build passed on the macOS and Windows
+>   runners (a manual `desktop-release.yml` run, 2026-11-22); `Cargo.lock` holds no `aws-lc` package.
 > - **Logins in the first version.** A key file with an optional passphrase, an SSH agent, a
 >   password, and reading `~/.ssh/config` (host alias, user, port, identity file, jump host).
 > - **A daemon that is not running.** The app offers a Start button that runs
@@ -34,7 +34,8 @@
 >   passphrase) go to the desktop secret store (the OS keychain, or the user-only file;
 >   `swe/features/desktop-transport-bridge.md` § 5). The entry is a new kind in the Rust-owned
 >   daemon registry (`swe/features/desktop-daemon-registry.md`), not a `HostProfile`. The Electron
->   bridge API below becomes engine commands. Known hosts are the app's own file.
+>   bridge API below becomes engine commands. Known hosts: `~/.ssh/known_hosts` is read and never written;
+>   a key the user trusts in the app's native dialog is appended to the app's own `known_hosts` file.
 
 ## Purpose
 

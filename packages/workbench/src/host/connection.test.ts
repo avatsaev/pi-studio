@@ -72,19 +72,52 @@ describe("resume signal", () => {
     const host = createTestHost();
     installHost(host);
     const reconnectNow = vi.fn();
+    const connectAgain = vi.fn();
     useConnectionStore.setState({
       status: "closed",
-      reconnection: { reconnectNow } as never,
+      reconnection: { reconnectNow, isActive: true } as never,
       daemon: null,
     });
-    const unsubscribe = host.connection.onResume(createResumeHandler());
+    const unsubscribe = host.connection.onResume(createResumeHandler(connectAgain));
 
     host.emitResume();
 
     expect(reconnectNow).toHaveBeenCalledTimes(1);
+    expect(connectAgain).not.toHaveBeenCalled();
     unsubscribe();
     expect(host.resumeListenerCount()).toBe(0);
     useConnectionStore.setState({ reconnection: null });
+  });
+
+  it("connects again when the first connect never opened (no ladder to run)", () => {
+    const host = createTestHost();
+    installHost(host);
+    const reconnectNow = vi.fn();
+    const connectAgain = vi.fn();
+    useConnectionStore.setState({
+      status: "closed",
+      reconnection: { reconnectNow, isActive: false } as never,
+      daemon: null,
+    });
+    host.connection.onResume(createResumeHandler(connectAgain));
+
+    host.emitResume();
+
+    expect(connectAgain).toHaveBeenCalledTimes(1);
+    expect(reconnectNow).not.toHaveBeenCalled();
+    useConnectionStore.setState({ reconnection: null });
+  });
+
+  it("never connects again after an explicit disconnect", () => {
+    const host = createTestHost();
+    installHost(host);
+    const connectAgain = vi.fn();
+    useConnectionStore.setState({ status: "idle", reconnection: null, daemon: null });
+    host.connection.onResume(createResumeHandler(connectAgain));
+
+    host.emitResume();
+
+    expect(connectAgain).not.toHaveBeenCalled();
   });
 
   it("probes an open socket and closes it when the probe fails", async () => {
@@ -94,10 +127,10 @@ describe("resume signal", () => {
     const daemon = { ping: vi.fn(async () => Promise.reject(new Error("stale"))), close };
     useConnectionStore.setState({
       status: "open",
-      reconnection: { reconnectNow: vi.fn() } as never,
+      reconnection: { reconnectNow: vi.fn(), isActive: true } as never,
       daemon: daemon as never,
     });
-    host.connection.onResume(createResumeHandler());
+    host.connection.onResume(createResumeHandler(vi.fn()));
 
     host.emitResume();
     await vi.waitFor(() => expect(close).toHaveBeenCalledWith(4000, "stale-connection-probe"));

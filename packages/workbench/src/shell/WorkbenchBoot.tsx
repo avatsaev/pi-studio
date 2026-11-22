@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDaemonsStore } from "../features/daemons/daemons-store.js";
 import { getHost } from "../host/install.js";
 import { useAgentDeepLinkBoot } from "../hooks/use-agent-deep-link-boot.js";
 import { useAgentTodosBoot } from "../hooks/use-agent-todos.js";
@@ -14,9 +15,18 @@ import { useViewerSettingsBoot } from "../hooks/use-viewer-settings.js";
 import { createResumeHandler } from "../lib/connection/resume-handler.js";
 import { useRequireWorkbench, warnOnce } from "./context.js";
 
-/** Checks a possibly stale connection whenever the host signals a resume (sprint-050). */
+/**
+ * Checks a possibly stale connection whenever the host signals a resume (sprint-050). A connect
+ * that never opened is connected again as the connection bar's Retry does.
+ */
 function useResumeSignal(): void {
-  useEffect(() => getHost().connection.onResume(createResumeHandler()), []);
+  useEffect(
+    () =>
+      getHost().connection.onResume(
+        createResumeHandler(() => void useDaemonsStore.getState().connectCurrent()),
+      ),
+    [],
+  );
 }
 
 /** The boot sequence. The hook order is load-bearing. */

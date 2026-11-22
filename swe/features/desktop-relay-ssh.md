@@ -131,7 +131,7 @@ appended to by the app only.
 | `daemon.add` | Also `{ kind: "ssh", name, host, user?, port?, identityFile?, jump?, daemonPort?, password?, sshPassword?, passphrase? }`. A relay entry's `pairingLink` must now parse (§ 4): `invalid_link` otherwise |
 | `daemon.update` | Also `host?`, `user?`, `port?`, `identityFile?`, `jump?`, `daemonPort?`, `sshPassword?`, `passphrase?`. `null` clears an optional field or a secret. `wrong_kind` for a field the kind does not have |
 | `daemon.list` | Also `remote: RemoteState \| null`: the state of the current entry's daemon when that entry is `ssh` |
-| `daemon.remote.start` (new) | No params. Starts the current SSH entry's daemon. `{ accepted: true }`; the outcome arrives as a `RemoteState` change. Errors: `wrong_kind` (the current entry is not `ssh`), `busy`, `not_installed`, `cli_outdated` |
+| `daemon.remote.start` (new) | No params. Starts the current SSH entry's daemon. `{ accepted: true }`; the outcome arrives as a `RemoteState` change. Errors: `wrong_kind` (the current entry is not `ssh`), `no_current`, `busy`, `not_installed`, `cli_outdated` |
 | `daemon.remote.refresh` (new) | No params. Probes again. Errors: `wrong_kind`, `busy` |
 
 New error codes of `daemon.add` and `daemon.update`: `invalid_host`, `invalid_user`, `invalid_port`,
@@ -148,7 +148,7 @@ New error codes of `daemon.add` and `daemon.update`: `invalid_host`, `invalid_us
 | `not_installed` | The host's login shell does not find `pi-studio` |
 | `cli_outdated` | Carries `version`: below `MIN_CLI_VERSION` (0.0.127) |
 | `starting` | Start is running |
-| `failed` | Carries `reason`: `not_healthy`, `timeout`, `bad_output` (as the local daemon's), `exec_failed` (the command could not be run), `no_shell` (the account runs no commands) |
+| `failed` | Carries `reason`: `not_healthy`, `timeout`, `bad_output` (as the local daemon's), `exec_failed` (the command could not be run, the connection was lost, or the begin marker came with no end marker or valid status), `no_shell` (the account refused to run a command, or the shell printed no begin marker) |
 
 ### 3. The page's commands
 
@@ -179,7 +179,7 @@ file of test vectors is read by the TypeScript test and the Rust test, as for th
 The client side of [relay-protocol.md](../architecture/relay-protocol.md), nothing added:
 
 ```
-connect(link, message limit), within 15 s in all:
+connect(url, daemon key, message limit, time limit), within 15 s in all:       # built with plain parameters; the app parses the link first
     session id = lowercase hex of the first 16 bytes of SHA-512(daemon key)
     dial the relay address with net::dial            # no password, no subprotocol
     send text  {"type":"relay_client_connect","v":2,"sessionId":…}
@@ -226,7 +226,7 @@ workspace does not build `aws-lc`), and `ssh2-config` for the config.
 resolve(entry, ~/.ssh/config) -> Target { host name, port, user, identity files, identities only,
                                           agent socket, hops: [Target] }
 connect(target, secrets, known hosts) -> Session
-Session.open_daemon(port)  -> a byte stream to 127.0.0.1:<port> on the host   (direct-tcpip)
+Session.open_daemon(port, password?, message limit) -> DaemonSocket           (direct-tcpip, then dial_over)
 Session.run(command, limit) -> { status, stdout }                             (D21)
 Session.close()
 ```
@@ -403,6 +403,7 @@ New codes of `transport_open` (each with a message for a person):
 | `forwarding_refused` | The server does not allow the channel (`AllowTcpForwarding`, `PermitOpen`) |
 | `daemon_not_running` | The host refused the connection to the daemon's port |
 | `ssh_lost` | The SSH connection ended while a channel was being opened |
+| `known_hosts` | `~/.ssh/known_hosts` or the app's file exists but cannot be read (added while building: trusting a key cannot fix it) |
 
 An SSH host that cannot be reached is `unreachable` or `timeout`, with the host named; a failure
 at a hop uses the same codes and names the hop.

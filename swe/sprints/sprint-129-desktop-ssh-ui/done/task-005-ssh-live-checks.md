@@ -1,7 +1,7 @@
 # Task 005 — Linux live checks of SSH entries in the real webview
 
 - **Sprint:** sprint-129-desktop-ssh-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs/platform-checks.md, desktop/docs/development.md
 - **Priority:** P1

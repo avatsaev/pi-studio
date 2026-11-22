@@ -50,11 +50,10 @@ export function countTransfers(files: WorkbenchHost["files"], report: (count: nu
   };
 }
 
-/** True when the engine does the file transfers: `--transfers engine` and a current entry that is `local`, `direct` or `relay`. */
+/** True when the engine does the file transfers: `--transfers engine` and a current entry (any kind). */
 export function engineServes(snapshot: BootSnapshot): boolean {
   if (snapshot.transfers !== "engine") return false;
-  const current = snapshot.daemons.entries.find((entry) => entry.id === snapshot.daemons.currentId);
-  return current?.kind === "local" || current?.kind === "direct" || current?.kind === "relay";
+  return snapshot.daemons.entries.some((entry) => entry.id === snapshot.daemons.currentId);
 }
 
 /** The handle of each picked source. A `WeakMap`, so the source the workbench holds shows no handle. */

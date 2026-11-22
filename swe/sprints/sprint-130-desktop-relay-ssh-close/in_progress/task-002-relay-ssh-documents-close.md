@@ -1,12 +1,12 @@
 # Task 002 — Documents and spec close for milestone 4
 
 - **Sprint:** sprint-130-desktop-relay-ssh-close
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** docs
 - **Area:** swe/, docs/, desktop/AGENTS.md, desktop/docs/architecture.md
 - **Priority:** P1
 - **Estimated size:** M
-- **Depends on:** task-001
+- **Depends on:** sprint-129/task-004
 
 ## Goal
 Every document the spec lists as changing tells the truth about what was built.
