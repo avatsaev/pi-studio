@@ -20,6 +20,7 @@ mod settings_cmds;
 mod storage;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test_store;
+mod update_cmds;
 
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
