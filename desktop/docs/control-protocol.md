@@ -25,6 +25,11 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
 - `--transfers <engine|page>`: which path file transfers take. `engine` (the default) is the app's own
   transfer engine; `page` is the page's own path. Any other value fails the launch with a message that
   names the option. The mode is fixed for the launch and is `transfers` in the `boot` answer.
+- `--update-manifest <URL>`: the address of the update manifest for this launch, in place of the one the
+  app was built with (`ui.inspect.update.manifest` then reads `"override"`). It must be `https`: the
+  updater refuses any other scheme except in a test build. It still verifies every file's signature
+  against the key built into the app and never installs a build that is not newer. A value that is
+  not an address fails the launch with a message that names the option.
 
 The wire format is JSON lines over TCP: one request per line, one reply per line.
 

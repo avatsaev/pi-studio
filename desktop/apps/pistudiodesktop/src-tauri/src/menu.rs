@@ -3,9 +3,16 @@
 //! menus stay: without an Edit menu the copy, paste and select-all shortcuts stop working in the
 //! webview.
 //!
+//! "Check for Updates…" (U10) is drawn where [`menus::in_application_menu`] says: after About in the
+//! macOS application menu, in a Help menu elsewhere. It is enabled as the update's state allows
+//! ([`Runner::check_enabled`]); the bar is drawn again when that changes.
+//!
 //! A click runs off the event loop ([`pistudiodesktop_shell::menus::handle_click`] blocks on
 //! dialogs and on the owner thread). A switch is the page command's own path
-//! ([`crate::daemons::switch_window`]); "Manage Daemons…" shows the window and tells the page.
+//! ([`crate::daemons::switch_window`]); "Manage Daemons…" shows the window and tells the page;
+//! "Check for Updates…" runs `update.check` and answers with a dialog ([`Runner::menu_check`]).
+
+use std::sync::Arc;
 
 use pistudiodesktop_shell::Services;
 use pistudiodesktop_shell::menus::{self, Click, Menu as Model};
@@ -16,13 +23,22 @@ use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 use crate::bridge::Bridge;
 use crate::daemons::switch_window;
 use crate::services::{MAIN_WINDOW, bring_forward};
+use crate::update::{Runner, check_menu_entry};
 
 /// The event the page is told to show the Daemons screen with.
 pub const MANAGE_EVENT: &str = "daemons_manage";
 
+/// "Check for Updates…", enabled as the update's state allows.
+fn check_item<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<MenuItem<R>> {
+    let enabled = handle.try_state::<Arc<Runner>>().is_some_and(|runner| runner.check_enabled());
+    let label = check_menu_entry().map_or("Check for Updates…", |(_, label)| label);
+    MenuItem::with_id(handle, menus::UPDATE_CHECK_ID, label, enabled, None::<&str>)
+}
+
 /// The whole bar around the daemons menu.
 fn bar<R: Runtime>(handle: &AppHandle<R>, daemons: &Model) -> tauri::Result<Menu<R>> {
     let menu = Menu::new(handle)?;
+    let check = check_item(handle)?;
     if cfg!(target_os = "macos") {
         let name = handle.package_info().name.clone();
         let app = Submenu::with_items(
@@ -31,6 +47,7 @@ fn bar<R: Runtime>(handle: &AppHandle<R>, daemons: &Model) -> tauri::Result<Menu
             true,
             &[
                 &PredefinedMenuItem::about(handle, None, None)?,
+                &check,
                 &PredefinedMenuItem::separator(handle)?,
                 &PredefinedMenuItem::services(handle, None)?,
                 &PredefinedMenuItem::separator(handle)?,
@@ -59,6 +76,10 @@ fn bar<R: Runtime>(handle: &AppHandle<R>, daemons: &Model) -> tauri::Result<Menu
         menu.append(&edit)?;
     }
     menu.append(&submenu(handle, daemons)?)?;
+    if !menus::in_application_menu(menus::UPDATE_CHECK_ID) {
+        let help = check_menu_entry().map_or("Help", |(menu, _)| menu);
+        menu.append(&Submenu::with_items(handle, help, true, &[&check])?)?;
+    }
     if cfg!(target_os = "macos") {
         let window = Submenu::with_items(
             handle,
@@ -112,8 +133,15 @@ pub fn install<R: Runtime>(handle: AppHandle<R>) {
 /// A click on an item of the bar. Ids the daemons menu does not own (the standard items) are
 /// not ours.
 pub fn on_event<R: Runtime>(handle: &AppHandle<R>, event: MenuEvent) {
-    let Some(click) = menus::click_of(event.id().as_ref()) else { return };
     let handle = handle.clone();
+    if event.id().as_ref() == menus::UPDATE_CHECK_ID {
+        std::thread::spawn(move || match handle.try_state::<Arc<Runner>>() {
+            Some(runner) => runner.menu_check(),
+            None => log::warn!("a menu click came before the app was ready"),
+        });
+        return;
+    }
+    let Some(click) = menus::click_of(event.id().as_ref()) else { return };
     std::thread::spawn(move || run(&handle, &click));
 }
 

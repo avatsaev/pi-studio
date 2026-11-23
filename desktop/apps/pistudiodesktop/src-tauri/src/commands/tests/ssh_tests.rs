@@ -27,7 +27,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::transport_tests::{Daemon, Page, capture_logs, connect_page, logged, wait_until};
 use super::{built_app_ssh, invoke};
-use crate::bridge::{Bridge, Launch};
+use crate::bridge::{Bridge, Launch, idle_update};
 use crate::daemons::{Events, RemoteOwner, start_runner};
 use crate::ssh_session::{SshEnv, SshSessions};
 use crate::transport::origin_of;
@@ -184,6 +184,7 @@ impl Fixture {
                     notices: Vec::new(),
                     resume: Arc::new(ResumeSignals::new()),
                     transfers: TransfersMode::Engine,
+                    update: idle_update(),
                 }
             },
             as_store,

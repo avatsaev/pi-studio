@@ -19,7 +19,7 @@ use tauri::{App, Listener as _, Manager as _, WebviewWindow, WebviewWindowBuilde
 
 use super::transport_tests::{capture_logs, logged, wait_until};
 use super::{built_app_stored, invoke};
-use crate::bridge::{Bridge, Launch};
+use crate::bridge::{Bridge, Launch, idle_update};
 
 /// The password of every entry here, and of the stand-in daemon: it must appear nowhere but in the
 /// daemon's upgrade.
@@ -71,7 +71,8 @@ impl Fixture {
             pick_save_path: Some(Arc::new(move |_, _| for_destinations.lock().unwrap().pop())),
             ..Services::default()
         };
-        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: mode };
+        let launch =
+            Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: mode, update: idle_update() };
         let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
         let app = built_app_stored(config.path(), services, launch, store);
         let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();

@@ -128,11 +128,12 @@ navigation rule admits exactly `pi-preview://localhost`, because WebKitGTK runs 
 | Windows (WebView2) | `inert` | no; would also need `http://pi-preview.localhost` |
 
 The page has exactly these Tauri commands (`apps/pistudiodesktop/src-tauri/src/commands.rs`) and
-listens for three events: `daemons_changed` (the registry view, sent after any request that changed
+listens for four events: `daemons_changed` (the registry view, sent after any request that changed
 the registry, the local daemon state or a setting), `connection_resume` (`{ reason }`, § Resume
-signals) and `transfer_progress` (`{ id, state, done, total }`, § Threads, the transfer engine).
+signals), `transfer_progress` (`{ id, state, done, total }`, § Threads, the transfer engine) and
+`update_changed` (the update's state, as `boot`'s `update`, on every change; see below).
 Tauri cannot scope `core:event:allow-listen` to names, so the page could listen to any
-event; the app emits only `daemons_changed`, `daemons_manage`, `connection_resume` and `transfer_progress`:
+event; the app emits only `daemons_changed`, `daemons_manage`, `connection_resume`, `transfer_progress` and `update_changed`:
 
 | Command | Does |
 |---|---|
@@ -185,6 +186,21 @@ has no permission on it; Rust alone uses it. `tauri.conf.json` never holds a `da
 `createUpdaterArtifacts` (`src-tauri/tests/updater_config.rs` fails if it does). A test build merges
 `src-tauri/tauri.update-test.conf.json` (update files on, plain HTTP allowed) with a copy that
 carries a throwaway public key made for that run (`npx tauri signer generate --ci -w <file>`).
+
+The update is checked in `src-tauri/src/update.rs` (`PluginUpdater`, the shell's `UpdaterHook`): the
+plug-in reads the manifest with a 30 s limit, at the address in `tauri.conf.json` or the launch's
+`--update-manifest <url>` (HTTPS; the plug-in refuses anything else except in a test build), for the
+entry of this install's kind (the bundle type the bundler stamped into the binary; on macOS `app` only
+inside `*.app/Contents/MacOS`, else `unknown`, which reads the system's first kind's entry and ends in
+`cannot_install(development_build)`). A newer build is `available`, or `cannot_install` with the reason
+(`not_writable`: an AppImage's file or directory; `read_only_location`: under `/Volumes` or an
+`AppTranslocation` directory; `no_pkexec`: a `.deb`/`.rpm` without `pkexec` on `PATH`). The owner thread
+hands each accepted `update.*` command to `update::Runner` (`Notify::update`), which begins it on the
+spot and runs it on the blocking pool; the page hears every change as `update_changed`. The checks the
+app makes by itself are the launch, an hourly tick (a check when the last is 24 h old) and a wake;
+"Check for Updates…" (the application menu after About on macOS, a Help menu elsewhere) runs
+`update.check` and answers with a native dialog (up to date, the failure, or the new version with
+Install and Later). The download, the install and the restart are not built yet.
 
 ## The registry and the local daemon
 

@@ -28,6 +28,7 @@ mod services;
 mod ssh_session;
 mod transfers;
 mod transport;
+mod update;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +48,7 @@ use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::transfer_mode::TransfersMode;
+use pistudiodesktop_shell::update::Updater;
 use tauri::Manager as _;
 
 use crate::ssh_session::{SshEnv, SshSessions};
@@ -74,6 +76,12 @@ struct Args {
     /// page's own path). Default: `engine`.
     #[arg(long, value_name = "engine|page", default_value = "engine")]
     transfers: TransfersMode,
+    /// The address of the update manifest for this launch, in place of the one the app was built
+    /// with. It must be `https` (the updater refuses anything else, except in a test build); the
+    /// updater still checks every file's signature against the key built into the app and never
+    /// installs a build that is not newer.
+    #[arg(long, value_name = "URL")]
+    update_manifest: Option<tauri::Url>,
 }
 
 /// A startup error: say what, and leave.
@@ -186,7 +194,20 @@ fn main() {
     let title = app.config().product_name.clone().unwrap_or_else(|| package.name.clone());
     // The page's dialog and link commands take their hooks from the managed state; the owner
     // thread holds the same ones.
-    let mut services = services::native(app.handle(), title.clone());
+    let dialogs = services::Native::new(app.handle(), title.clone());
+    let mut services = services::native(&dialogs);
+    // The self-update: the plug-in behind the shell's hook, the shell's state over it (it reads `--update-manifest`),
+    // and the runner that begins what the `update.*` commands accept and carries out the schedule.
+    services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), update::Env::detect())));
+    let updater = Arc::new(Updater::new(services.updater.clone(), update::manifest(args.update_manifest.as_ref())));
+    updater.set_notify(update::notify_page(app.handle().clone()));
+    let update_runner = Arc::new(update::Runner::new(
+        Arc::clone(&updater),
+        dialogs,
+        Arc::new(OwnerAccess::new(requests.clone(), Arc::clone(&store))),
+        package.version.to_string(),
+    ));
+    app.manage(Arc::clone(&update_runner));
     // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
     let resume_signals = Arc::new(ResumeSignals::new());
     // What makes the page connect again: after a Start left the remote daemon running, and after a host key was
@@ -238,15 +259,18 @@ fn main() {
     app.manage(bridge::Bridge::new(requests, Arc::clone(&store)));
     let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor, remote, owner);
     let launch = bridge::Launch {
-        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake).closing(ssh)),
+        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake).closing(ssh).updating(Arc::clone(&update_runner))),
         local_supported: daemons::LOCAL_SUPPORTED,
         notices: chosen.notices,
         resume: Arc::clone(&resume_signals),
         transfers: args.transfers,
+        update: updater,
     };
     bridge::spawn_owner(AppInfo { title, version: package.version.to_string() }, config_dir, services, store, inbox, FLUSH_DELAY, launch);
     // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
     app.manage(resume::start(app.handle().clone(), Arc::clone(&resume_signals)));
+    // The update ticker checks at launch and every hour (P16); a wake does too (`resume.rs`).
+    app.manage(update::start(update_runner));
     // The network watcher tells the page when the machine's addresses change; it ends with the app.
     app.manage(network::start(app.handle().clone(), resume_signals));
     menu::install(app.handle().clone());
@@ -255,6 +279,7 @@ fn main() {
     app.run(|handle, event| {
         bridge::on_run_event(handle, &event);
         resume::on_run_event(handle, &event);
+        update::on_run_event(handle, &event);
         network::on_run_event(handle, &event);
         // The engine's transfers and the proxied connections are closed together: this one waits for both.
         transfers::on_run_event(handle, &event);
@@ -276,5 +301,21 @@ mod tests {
     fn an_unknown_transfers_mode_names_the_option() {
         let message = Args::try_parse_from(["pistudiodesktop", "--transfers", "fast"]).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(message.contains("--transfers"), "{message}");
+    }
+
+    #[test]
+    fn update_manifest_is_taken_as_an_address_and_the_update_state_says_override() {
+        let none = Args::try_parse_from(["pistudiodesktop"]).unwrap();
+        assert!(none.update_manifest.is_none());
+        assert_eq!(Updater::new(None, update::manifest(none.update_manifest.as_ref())).inspect("0.3.0", true)["manifest"], "default");
+        let given = Args::try_parse_from(["pistudiodesktop", "--update-manifest", "https://updates.example/latest.json"]).unwrap();
+        assert_eq!(given.update_manifest.as_ref().map(tauri::Url::as_str), Some("https://updates.example/latest.json"));
+        assert_eq!(Updater::new(None, update::manifest(given.update_manifest.as_ref())).inspect("0.3.0", true)["manifest"], "override");
+    }
+
+    #[test]
+    fn an_update_manifest_that_is_not_an_address_names_the_option() {
+        let message = Args::try_parse_from(["pistudiodesktop", "--update-manifest", "not a url"]).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(message.contains("--update-manifest"), "{message}");
     }
 }

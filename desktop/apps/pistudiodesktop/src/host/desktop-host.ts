@@ -8,6 +8,7 @@ import { createNativeDialogs, createNativeLinks } from "./native.js";
 import { createDesktopPreview } from "./preview.js";
 import { createDesktopStorage } from "./storage.js";
 import { countTransfers, createEngineFiles, createSaveTarget, engineServes } from "./transfers.js";
+import { createDesktopUpdates } from "./updates.js";
 
 /** A launch with no connect intent and no deep-link source. */
 const NO_LAUNCH: WorkbenchHost["launch"] = {
@@ -15,7 +16,7 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves) and `daemons` replaced or added by the desktop's. */
+/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves), `daemons` and `updates` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
@@ -43,5 +44,6 @@ export function createDesktopHost(
     connection: createDesktopConnection(base.connection, ipc, daemons, log),
     launch: NO_LAUNCH,
     daemons,
+    updates: createDesktopUpdates(snapshot.update, ipc, log),
   };
 }

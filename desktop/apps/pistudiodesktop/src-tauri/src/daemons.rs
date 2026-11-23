@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use pistudiodesktop_engine::RemoteAction;
+use pistudiodesktop_engine::{RemoteAction, UpdateAction};
 use pistudiodesktop_model::{EntryId, RemoteState};
 use pistudiodesktop_secrets::SecretStore;
 use pistudiodesktop_shell::Envelope;
@@ -29,28 +29,39 @@ use crate::bridge::Bridge;
 use crate::ssh_session::SshSessions;
 use crate::transfers::{TransferEngine, Transfers};
 use crate::transport::Transport;
+use crate::update::Runner;
 
 /// Whether this platform can run a local daemon: the daemon is POSIX-only, so Windows has none.
 pub const LOCAL_SUPPORTED: bool = cfg!(not(windows));
 
 /// What the owner thread tells the outside: a change to the registry view goes to `emit`, waiting
-/// local or remote work wakes the runner, and an edited SSH entry ends its session.
+/// local or remote work wakes the runner, an edited SSH entry ends its session, and an accepted
+/// `update.*` command goes to the update's runner.
 pub struct Events {
     emit: Box<dyn FnMut(&Value) + Send>,
     wake: Sender<()>,
     /// Told which SSH entry was edited or removed; does not wait (this runs on the owner thread).
     ssh_closed: Box<dyn FnMut(&EntryId) + Send>,
+    /// Told which update action was accepted; begins it and returns (this runs on the owner thread).
+    update: Box<dyn FnMut(UpdateAction) + Send>,
 }
 
 impl Events {
     pub fn new(emit: impl FnMut(&Value) + Send + 'static, wake: Sender<()>) -> Self {
-        Self { emit: Box::new(emit), wake, ssh_closed: Box::new(|_| {}) }
+        Self { emit: Box::new(emit), wake, ssh_closed: Box::new(|_| {}), update: Box::new(|_| {}) }
     }
 
     /// The same, closing `ssh`'s session of an entry that was edited or removed.
     #[must_use]
     pub fn closing(mut self, ssh: SshSessions) -> Self {
         self.ssh_closed = Box::new(move |entry| ssh.close_entry_in_background(entry));
+        self
+    }
+
+    /// The same, handing each accepted `update.*` action to `runner`.
+    #[must_use]
+    pub fn updating(mut self, runner: Arc<Runner>) -> Self {
+        self.update = Box::new(move |action| runner.handle(action));
         self
     }
 
@@ -80,6 +91,10 @@ impl Notify for Events {
 
     fn ssh_closed(&mut self, entry: &EntryId) {
         (self.ssh_closed)(entry);
+    }
+
+    fn update(&mut self, action: UpdateAction) {
+        (self.update)(action);
     }
 }
 

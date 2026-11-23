@@ -29,7 +29,7 @@ use super::{
     save_discard, save_finish, save_write, ssh_config_hosts, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open,
     unwrap_reply, upload_pick,
 };
-use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
+use crate::bridge::{Bridge, Launch, idle_update, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
 use crate::ssh_session::{SshEnv, SshSessions};
@@ -56,7 +56,14 @@ fn built_app(config_dir: &Path, services: Services) -> App<MockRuntime> {
     built_app_telling(
         config_dir,
         services,
-        Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine },
+        Launch {
+            notify: Box::new(Quiet),
+            local_supported: false,
+            notices: Vec::new(),
+            resume: Arc::default(),
+            transfers: TransfersMode::Engine,
+            update: idle_update(),
+        },
     )
 }
 
@@ -215,7 +222,14 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
 #[test]
 fn boot_names_the_transfers_mode_the_launch_was_given() {
     let dir = tempfile::tempdir().unwrap();
-    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let launch = Launch {
+        notify: Box::new(Quiet),
+        local_supported: false,
+        notices: Vec::new(),
+        resume: Arc::default(),
+        transfers: TransfersMode::Page,
+        update: idle_update(),
+    };
     let app = built_app_telling(dir.path(), Services::default(), launch);
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
     assert_eq!(invoke(&window, "boot", json!({})).unwrap()["transfers"], "page");
@@ -230,7 +244,7 @@ fn what_the_choice_of_the_secret_store_tells_comes_first_in_boot_and_only_once()
     let app = built_app_telling(
         dir.path(),
         Services::default(),
-        Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default(), transfers: TransfersMode::Engine },
+        Launch { notify: Box::new(Quiet), local_supported: false, notices, resume: Arc::default(), transfers: TransfersMode::Engine, update: idle_update() },
     );
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
     let first = invoke(&window, "boot", json!({})).unwrap();
@@ -646,7 +660,14 @@ fn a_file_whose_size_cannot_be_read_is_answered_without_a_size_and_a_cancelled_d
 fn under_transfers_page_the_pick_answers_engine_off_and_no_dialog_is_shown() {
     let config = tempfile::tempdir().unwrap();
     let (services, shown) = picking(vec![PathBuf::from("/some/file.txt")]);
-    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Page };
+    let launch = Launch {
+        notify: Box::new(Quiet),
+        local_supported: false,
+        notices: Vec::new(),
+        resume: Arc::default(),
+        transfers: TransfersMode::Page,
+        update: idle_update(),
+    };
     let app = built_app_telling(config.path(), services, launch);
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default()).build().unwrap();
 
@@ -876,6 +897,7 @@ fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
         notices: Vec::new(),
         resume: Arc::default(),
         transfers: TransfersMode::Engine,
+        update: idle_update(),
     }
 }
 
