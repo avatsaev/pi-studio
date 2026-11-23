@@ -200,7 +200,16 @@ spot and runs it on the blocking pool; the page hears every change as `update_ch
 app makes by itself are the launch, an hourly tick (a check when the last is 24 h old) and a wake;
 "Check for Updates…" (the application menu after About on macOS, a Help menu elsewhere) runs
 `update.check` and answers with a native dialog (up to date, the failure, or the new version with
-Install and Later). The download, the install and the restart are not built yet.
+Install and Later). `update.install` downloads through the plug-in (15 min limit, signature verified, the
+bytes kept in memory) and installs by kind (`update/install.rs`): the AppImage and the macOS application
+through the plug-in's `install(bytes)`; a `.deb`/`.rpm` through the app's own `pkexec dpkg -i` /
+`pkexec rpm -U` on a 0600 file in the cache directory, removed in every path and at launch if a crash
+left it (exit 126/127 is `refused`, any other failure `install`; the plug-in's own install, which falls
+back to a password box and `sudo`, is never used for a package). On Windows the first click only
+downloads: `update.restart` saves the stored keys and the plug-in starts the installer and ends the
+app. `update.restart` asks the close question first when transfers run (Cancel keeps everything), then
+asks Tauri to restart (the exit saves as a quit does). Quitting instead drops the kept bytes; Linux and
+macOS run the new build at the next launch, Windows offers the update again.
 
 ## The registry and the local daemon
 

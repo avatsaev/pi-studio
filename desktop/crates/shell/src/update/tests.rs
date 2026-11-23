@@ -34,6 +34,7 @@ struct Fake {
     cannot: Mutex<Option<Reason>>,
     download: Mutex<Result<(), UpdateCode>>,
     install: Mutex<Result<(), UpdateCode>>,
+    restart: Mutex<Result<(), UpdateCode>>,
     /// What `download` reports before it answers.
     reports: Mutex<Vec<(u64, Option<u64>)>>,
     calls: Mutex<Vec<&'static str>>,
@@ -52,6 +53,7 @@ impl Fake {
             cannot: Mutex::new(None),
             download: Mutex::new(Ok(())),
             install: Mutex::new(Ok(())),
+            restart: Mutex::new(Ok(())),
             reports: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
             asked_manifests: Mutex::new(Vec::new()),
@@ -103,8 +105,9 @@ impl UpdaterHook for Fake {
         *self.install.lock().unwrap()
     }
 
-    fn restart(&self) {
+    fn restart(&self) -> Result<(), UpdateCode> {
         self.calls.lock().unwrap().push("restart");
+        *self.restart.lock().unwrap()
     }
 }
 
@@ -546,6 +549,24 @@ fn the_restart_needs_restart_needed() {
     assert_eq!(fake.calls().last(), Some(&"restart"));
     assert_eq!(updater.state().restart_refusal(), None);
     assert_eq!(UpdateState::Idle.restart_refusal(), Some(Refusal::NotRestartNeeded));
+}
+
+#[test]
+fn a_restart_whose_installer_could_not_start_is_failed_with_the_version_and_the_link_and_a_retry_downloads_again() {
+    let (fake, updater, _) = rig(InstallKind::Nsis);
+    fake.then(found("0.3.1"));
+    check(&updater, Origin::Manual, T0).unwrap();
+    install(&updater).unwrap();
+    *fake.restart.lock().unwrap() = Err(UpdateCode::Install);
+    updater.restart().unwrap();
+    let failed =
+        UpdateState::Failed { code: UpdateCode::Install, version: Some("0.3.1".into()), release_url: Some("https://example.test/releases/0.3.1".into()) };
+    assert_eq!(updater.state(), failed);
+    assert_eq!(updater.inspect("0.3.0", true)["lastError"], "install");
+    assert_eq!(updater.restart().err(), Some(Refusal::NotRestartNeeded), "nothing waits for a restart any more");
+    install(&updater).unwrap();
+    assert_eq!(fake.calls(), ["check", "download", "restart", "download"], "the retry starts from the download");
+    assert_eq!(updater.state(), UpdateState::RestartNeeded { version: "0.3.1".into() });
 }
 
 #[test]

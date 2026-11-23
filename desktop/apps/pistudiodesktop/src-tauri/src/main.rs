@@ -206,7 +206,14 @@ fn main() {
         dialogs,
         Arc::new(OwnerAccess::new(requests.clone(), Arc::clone(&store))),
         package.version.to_string(),
+        // The close question's count (P10): the page's count of running transfers.
+        {
+            let handle = app.handle().clone();
+            Arc::new(move || handle.try_state::<transfers::Transfers>().map_or(0, |transfers| transfers.get()))
+        },
     ));
+    // A package file a crashed install left in the cache directory is removed (U7).
+    update::remove_leftover(app.handle());
     app.manage(Arc::clone(&update_runner));
     // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
     let resume_signals = Arc::new(ResumeSignals::new());

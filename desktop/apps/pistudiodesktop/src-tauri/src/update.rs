@@ -15,12 +15,14 @@
 //!   begins them and runs them on the blocking pool, answers the menu with U11's dialog, and carries out
 //!   the schedule of P16 (at launch, every hour on [`start`]'s thread, after a wake: [`on_wake`]).
 //! - [`notify_page`] tells the page of every change with the `update_changed` event.
-//!
-//! The download, the install and the restart are not built yet: [`PluginUpdater`]'s `download`
-//! and `install` answer [`UpdateCode::Install`] and its `restart` logs, so a click on Install ends in
-//! `failed(install)`; nothing pretends to succeed.
+//! - [`install::Installer`] is the download, the install and the restart behind [`PluginUpdater`]: the plug-in
+//!   downloads (15 min limit, signature verified) and swaps the AppImage and the macOS application, the app's own
+//!   `pkexec` step installs a `.deb` or `.rpm`, and on Windows the installer runs at the restart (U7, U8).
+//!   The restart asks the close question first when transfers run (P10), in [`Runner`].
 //!
 //! Logs name codes, versions and the install kind only; never a path, a key or an address.
+
+mod install;
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -31,6 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pistudiodesktop_engine::{UpdateAction, command_specs};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
+use pistudiodesktop_shell::page::{CloseDecision, close_decision};
 use pistudiodesktop_shell::process;
 use pistudiodesktop_shell::update::{
     CHECK_TIMEOUT, CheckOutcome, InstallKind, Manifest, Notify, Offer, Origin, Progress, Reason, TICK_MS, Trigger, UpdateCode, UpdateState, Updater,
@@ -40,6 +43,8 @@ use serde_json::{Value, json};
 use tauri::utils::config::BundleType;
 use tauri::{AppHandle, Emitter as _, Manager as _, RunEvent, Runtime, Url};
 use tauri_plugin_updater::UpdaterExt as _;
+
+use self::install::{AppShutdown, Installer, PluginOffer, SystemCommands};
 
 /// The event the page hears on every change of the state; the payload is the state as `boot`'s `update`.
 pub const EVENT: &str = "update_changed";
@@ -197,11 +202,14 @@ fn release_url(notes: Option<&str>) -> String {
 pub struct PluginUpdater<R: Runtime> {
     handle: AppHandle<R>,
     env: Env,
+    installer: Installer,
 }
 
 impl<R: Runtime> PluginUpdater<R> {
+    /// The hook of the running app: `pkexec` is the system's and the restart is the app's.
     pub fn new(handle: AppHandle<R>, env: Env) -> Self {
-        Self { handle, env }
+        let installer = Installer::new(env.kind, install::package_dir(&handle), Arc::new(SystemCommands), Arc::new(AppShutdown { handle: handle.clone() }));
+        Self { handle, env, installer }
     }
 
     /// The plug-in's updater for `manifest` and this kind, with the 30 s limit (U9).
@@ -221,8 +229,16 @@ impl<R: Runtime> UpdaterHook for PluginUpdater<R> {
         let updater = self.updater(manifest)?;
         // Called from a thread of the blocking pool, never from the async runtime's own.
         match tauri::async_runtime::block_on(updater.check()) {
-            Ok(Some(update)) => Ok(CheckOutcome::Found(Offer { version: update.version, release_url: release_url(update.body.as_deref()) })),
-            Ok(None) => Ok(CheckOutcome::UpToDate),
+            Ok(Some(update)) => {
+                let offer = Offer { version: update.version.clone(), release_url: release_url(update.body.as_deref()) };
+                // The build the page is shown is the one a click installs: the `Update` stays until the next check.
+                self.installer.offer(Some(Arc::new(PluginOffer(update))));
+                Ok(CheckOutcome::Found(offer))
+            }
+            Ok(None) => {
+                self.installer.offer(None);
+                Ok(CheckOutcome::UpToDate)
+            }
             Err(e) => Err(check_code(&e)),
         }
     }
@@ -236,19 +252,23 @@ impl<R: Runtime> UpdaterHook for PluginUpdater<R> {
         cannot_install_with(kind, &self.env.place, is_writable, pkexec)
     }
 
-    // The download, the install and the restart are the next task's (sprint 132, task 004).
-    fn download(&self, _progress: Progress<'_>) -> Result<(), UpdateCode> {
-        log::error!("update download is not built in this version");
-        Err(UpdateCode::Install)
+    fn download(&self, progress: Progress<'_>) -> Result<(), UpdateCode> {
+        self.installer.download(progress)
     }
 
     fn install(&self) -> Result<(), UpdateCode> {
-        log::error!("update install is not built in this version");
-        Err(UpdateCode::Install)
+        self.installer.install()
     }
 
-    fn restart(&self) {
-        log::error!("update restart is not built in this version");
+    fn restart(&self) -> Result<(), UpdateCode> {
+        self.installer.restart()
+    }
+}
+
+/// Remove the package file a crash left in the cache directory (U7). Call it once at launch.
+pub fn remove_leftover<R: Runtime>(handle: &AppHandle<R>) {
+    if let Some(dir) = install::package_dir(handle) {
+        install::remove_leftover(&dir);
     }
 }
 
@@ -272,12 +292,15 @@ pub fn notify_page<R: Runtime>(handle: AppHandle<R>) -> Notify {
 
 // --- the owner of the actions ---------------------------------------------------------------------
 
-/// What the native dialogs of the self-update need: a message with OK, and a question with Install and Later.
+/// What the native dialogs of the self-update need: a message with OK, a question with Install and Later,
+/// and the close question with OK and Cancel.
 pub trait Prompts: Send + Sync {
     /// Show `message` and wait for it to be dismissed.
     fn alert(&self, message: &str);
     /// Ask whether to install; `true` for Install, `false` for Later or a dialog closed.
     fn offer(&self, message: &str) -> bool;
+    /// Ask `question`; `true` for OK, `false` for Cancel or a dialog closed.
+    fn confirm(&self, question: &str) -> bool;
 }
 
 /// The session's way to run a registry command, off its own thread (the owner thread's channel).
@@ -324,13 +347,23 @@ pub struct Runner {
     owner: Arc<dyn Owner>,
     /// This app's version, for "is up to date".
     current: String,
+    /// How many file transfers run now: the close question's count (P10).
+    transfers: Arc<dyn Fn() -> usize + Send + Sync>,
     /// The menu asked for the check it is about to queue, and wants U11's dialog at its end.
     dialog_wanted: AtomicBool,
+    /// A restart is being asked about or made: a second click waits for nothing and asks nothing.
+    restarting: AtomicBool,
 }
 
 impl Runner {
-    pub fn new(updater: Arc<Updater>, prompts: Arc<dyn Prompts>, owner: Arc<dyn Owner>, current: String) -> Self {
-        Self { updater, prompts, owner, current, dialog_wanted: AtomicBool::new(false) }
+    pub fn new(
+        updater: Arc<Updater>,
+        prompts: Arc<dyn Prompts>,
+        owner: Arc<dyn Owner>,
+        current: String,
+        transfers: Arc<dyn Fn() -> usize + Send + Sync>,
+    ) -> Self {
+        Self { updater, prompts, owner, current, transfers, dialog_wanted: AtomicBool::new(false), restarting: AtomicBool::new(false) }
     }
 
     /// Whether "Check for Updates…" may be clicked now (the menu item's enabled state).
@@ -376,11 +409,38 @@ impl Runner {
                     None
                 }
             },
-            UpdateAction::Restart => Some(Box::new(move || {
-                if let Err(refusal) = runner.updater.restart() {
-                    log::info!("update restart not begun: {refusal}");
-                }
-            })),
+            UpdateAction::Restart => Some(Box::new(move || runner.restart())),
+        }
+    }
+
+    /// "Restart to update" (P10): with transfers running the close question is asked first and Cancel keeps
+    /// everything as it is (the update stays installed, waiting); otherwise, or on OK, the restart is made
+    /// (Windows runs its installer here, U8). Blocks on the dialog: runs on the blocking pool.
+    fn restart(&self) {
+        if let Some(refusal) = self.updater.state().restart_refusal() {
+            log::info!("update restart not begun: {refusal}");
+            return;
+        }
+        if self.restarting.swap(true, Ordering::SeqCst) {
+            log::info!("update restart not begun: a restart is already asked for");
+            return;
+        }
+        if let CloseDecision::Ask(question) = close_decision((self.transfers)())
+            && !self.prompts.confirm(&question)
+        {
+            log::info!("update restart not made: the close question was answered no");
+            self.restarting.store(false, Ordering::SeqCst);
+            return;
+        }
+        // An accepted restart leaves the flag set: the app is on its way out. One that failed (the Windows
+        // installer did not start) is the state's `failed`, and its retry may come back here.
+        match self.updater.restart() {
+            Ok(()) if self.updater.state().restart_refusal().is_some() => self.restarting.store(false, Ordering::SeqCst),
+            Ok(()) => {}
+            Err(refusal) => {
+                log::info!("update restart not begun: {refusal}");
+                self.restarting.store(false, Ordering::SeqCst);
+            }
         }
     }
 

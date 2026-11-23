@@ -113,8 +113,8 @@ The app's self-update (`swe/features/desktop-self-update.md`). All are run throu
 | Command | Label | Enabled when | Answers |
 |---|---|---|---|
 | `update.check` | Check for Updates… (menu: Help) | the state is not `checking`, `downloading` or `restart_needed` | `{"accepted": true}` at once; the check runs in the background |
-| `update.install` | Install Update | `available`, or `failed` with an offered `version` | `{"accepted": true}` at once; the download (and, on Linux and macOS, the install) runs in the background |
-| `update.restart` | Restart to Update | `restart_needed` | `{"accepted": true}` at once; the app restarts |
+| `update.install` | Install Update | `available`, or `failed` with an offered `version` | `{"accepted": true}` at once; the download (and, on Linux and macOS, the install: a `.deb`/`.rpm` through `pkexec`, which may wait for the user) runs in the background. Ends in `restart_needed` or `failed` (`signature`, `download`, `offline`, `install`, `refused`) |
+| `update.restart` | Restart to Update | `restart_needed` | `{"accepted": true}` at once; with file transfers running the app first asks the close question and stays as it is on Cancel; then the app restarts (on Windows the installer runs and ends the app; if it cannot start the state is `failed` with `install`) |
 
 A command that cannot run fails with ``"`update.x` is unavailable: <reason>"``, and `command.list` and the menu item give the same reason: `updates are not available in this app` (a build with no updater), `an update check is already running`, `an update is downloading`, `the update is installed: restart the app to finish it`, `there is no update to install`, `no update is waiting for a restart`, or `an update action is already starting` (between an accepted command and the app beginning it). Read the outcome in the state.
 

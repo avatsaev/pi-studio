@@ -224,8 +224,9 @@ pub trait UpdaterHook: Send + Sync {
     fn install(&self) -> Result<(), UpdateCode>;
 
     /// Start the installed build. On the kinds that install at the restart this installs first
-    /// and ends the app; elsewhere it asks the app to restart.
-    fn restart(&self);
+    /// and ends the app (it returns only when the installer could not start: the code is then
+    /// [`UpdateCode::Install`]); elsewhere it asks the app to restart and always returns `Ok`.
+    fn restart(&self) -> Result<(), UpdateCode>;
 }
 
 /// The state of the update, as the page receives it (`boot`'s `update`, the `update_changed`
@@ -403,6 +404,9 @@ struct Inner {
     state: UpdateState,
     /// The state a check began from, which an automatic check's failure puts back.
     before_check: UpdateState,
+    /// The release page of the build an install left waiting for its restart, which a failed
+    /// restart (the Windows installer could not start) puts back into the failed state.
+    installed_url: Option<String>,
     /// When the last check began (the schedule's baseline), on the caller's clock.
     last_check_ms: Option<u64>,
     last_error: Option<UpdateCode>,
@@ -445,6 +449,7 @@ impl Updater {
             inner: Mutex::new(Inner {
                 state: UpdateState::Idle,
                 before_check: UpdateState::Idle,
+                installed_url: None,
                 last_check_ms: None,
                 last_error: None,
                 sent: (0, None),
@@ -597,6 +602,7 @@ impl Updater {
             Ok(()) => {
                 log::info!("update {} installed (kind {}); a restart is needed", ticket.version, ticket.kind.as_str());
                 inner.last_error = None;
+                inner.installed_url = Some(ticket.release_url);
                 inner.set(UpdateState::RestartNeeded { version: ticket.version });
                 Ok(())
             }
@@ -625,13 +631,22 @@ impl Updater {
 
     /// The restart: only from `restart_needed`. Calls the hook's [`restart`](UpdaterHook::restart),
     /// which on Windows runs the installer and ends the app. The close question (P10) is the
-    /// caller's, asked before this.
+    /// caller's, asked before this. `Ok` means the restart was asked for; when the hook says the
+    /// installer could not start the state becomes `failed(code, version, releaseUrl)` (a retry
+    /// downloads again) and the app keeps running.
     pub fn restart(&self) -> Result<(), Refusal> {
         let hook = self.hook.clone().ok_or(Refusal::Unavailable)?;
-        if let Some(refusal) = self.lock().state.restart_refusal() {
-            return Err(refusal);
+        let version = match &self.lock().state {
+            UpdateState::RestartNeeded { version } => version.clone(),
+            _ => return Err(Refusal::NotRestartNeeded),
+        };
+        if let Err(code) = hook.restart() {
+            log::warn!("update {version} could not be started: {}", code.as_str());
+            let mut inner = self.lock();
+            inner.last_error = Some(code);
+            let release_url = inner.installed_url.clone();
+            inner.set(UpdateState::Failed { code, version: Some(version), release_url });
         }
-        hook.restart();
         Ok(())
     }
 }

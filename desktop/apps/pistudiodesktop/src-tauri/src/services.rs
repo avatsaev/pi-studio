@@ -169,6 +169,10 @@ impl<R: Runtime> Prompts for Native<R> {
     fn offer(&self, message: &str) -> bool {
         self.ask(message, MessageDialogButtons::OkCancelCustom("Install".into(), "Later".into()))
     }
+
+    fn confirm(&self, question: &str) -> bool {
+        self.ask(question, MessageDialogButtons::OkCancel)
+    }
 }
 
 /// The hooks of the running app, over `native` (the product name titles every dialog). The dialog

@@ -453,7 +453,9 @@ mod tests {
             fn install(&self) -> Result<(), crate::update::UpdateCode> {
                 Ok(())
             }
-            fn restart(&self) {}
+            fn restart(&self) -> Result<(), crate::update::UpdateCode> {
+                Ok(())
+            }
         }
 
         #[test]

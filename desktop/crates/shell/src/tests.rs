@@ -238,7 +238,9 @@ mod updates {
         fn install(&self) -> Result<(), UpdateCode> {
             Ok(())
         }
-        fn restart(&self) {}
+        fn restart(&self) -> Result<(), UpdateCode> {
+            Ok(())
+        }
     }
 
     fn offer() -> Result<CheckOutcome, UpdateCode> {

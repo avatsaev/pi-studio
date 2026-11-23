@@ -77,13 +77,19 @@ impl Bridge {
     }
 }
 
+/// Have every unwritten stored key written, as the exit does. The Windows installer, which ends the
+/// process without the exit events, is the other caller ([`crate::update`]).
+pub fn flush_stored_keys<R: Runtime>(handle: &AppHandle<R>) {
+    if let Some(bridge) = handle.try_state::<Bridge>() {
+        bridge.flush_on_exit();
+    }
+}
+
 /// The callback of `App::run`. `Exit` comes after the last window has closed, whatever asked
 /// for the quit: the stored keys that are still unwritten are written before the process ends.
 pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
-    if matches!(event, RunEvent::Exit)
-        && let Some(bridge) = handle.try_state::<Bridge>()
-    {
-        bridge.flush_on_exit();
+    if matches!(event, RunEvent::Exit) {
+        flush_stored_keys(handle);
     }
 }
 
