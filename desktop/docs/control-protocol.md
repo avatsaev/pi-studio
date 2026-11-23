@@ -14,7 +14,10 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
 ```
 
 - `--control <PORT>` (or `PISTUDIODESKTOP_CONTROL_PORT`): serve on `127.0.0.1:<PORT>`; `0` picks any free
-  port. The server binds the loopback interface only.
+  port. The server binds the loopback interface only. A port in use is tried again every 50 ms for 10 s
+  before the launch fails with `cannot listen on 127.0.0.1:<PORT>: …`: an app restarted by an update
+  starts while the process it replaces, which holds the port, is still exiting (macOS `open -n` returns
+  only when the new instance is launched). Any other bind error fails at once.
 - `--control-token-file <FILE>` (or `PISTUDIODESKTOP_CONTROL_TOKEN_FILE`): the file holding the token, 64
   hexadecimal characters. It is created with a fresh token when missing, readable by its owner
   only. Without this option a token for the launch is printed on standard error.

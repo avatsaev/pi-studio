@@ -10,11 +10,11 @@
 //! Socket threads only parse and forward: each request crosses a channel to the thread that
 //! owns the shell, the same channel the webview's requests take.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::mpsc::Sender;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pistudiodesktop_shell::{Envelope, Request};
 use serde_json::{Value, json};
@@ -23,7 +23,17 @@ use serde_json::{Value, json};
 pub const MAX_REQUEST_BYTES: usize = 1 << 20;
 const REPLY_DEADLINE: Duration = Duration::from_secs(60);
 
-/// Bind the listener and settle the token. Loopback only: never bind another interface.
+/// How long `bind` keeps trying while the port is in use, and the pause between tries.
+///
+/// A restarted app (the update's restart: on macOS `open -n`, which returns only once the new
+/// instance is launched) starts and binds its control port while the process it replaces, which
+/// holds the same port, has not exited yet. Failing at once there ended the new instance silently.
+const BIND_WINDOW: Duration = Duration::from_secs(10);
+const BIND_STEP: Duration = Duration::from_millis(50);
+
+/// Bind the listener and settle the token. Loopback only: never bind another interface. A port in
+/// use is retried for [`BIND_WINDOW`] (one that stays in use still fails, with the same error);
+/// any other error is final.
 pub fn bind(port: u16, token_file: Option<&Path>) -> Result<(TcpListener, String), String> {
     let token = match token_file {
         Some(path) => read_or_create_token(path)?,
@@ -33,8 +43,21 @@ pub fn bind(port: u16, token_file: Option<&Path>) -> Result<(TcpListener, String
             token
         }
     };
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|e| format!("cannot listen on 127.0.0.1:{port}: {e}"))?;
+    let listener = retry_in_use(BIND_WINDOW, BIND_STEP, || TcpListener::bind((Ipv4Addr::LOCALHOST, port)))
+        .map_err(|e| format!("cannot listen on 127.0.0.1:{port}: {e}"))?;
     Ok((listener, token))
+}
+
+/// Run `attempt` until it succeeds, fails with something other than `AddrInUse`, or `window` has
+/// passed (then the last error is returned), `step` apart.
+fn retry_in_use<T>(window: Duration, step: Duration, mut attempt: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let deadline = Instant::now() + window;
+    loop {
+        match attempt() {
+            Err(e) if e.kind() == ErrorKind::AddrInUse && Instant::now() < deadline => std::thread::sleep(step),
+            result => return result,
+        }
+    }
 }
 
 /// Serve `listener`, forwarding each authenticated request on `tx`.
@@ -216,5 +239,55 @@ mod tests {
         std::fs::write(&path, "short").unwrap();
         assert!(read_or_create_token(&path).is_err());
         std::fs::remove_file(&path).unwrap();
+    }
+
+    fn port_of(listener: &TcpListener) -> u16 {
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_port_released_after_a_short_delay_is_taken() {
+        let held = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = port_of(&held);
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        // `bind` itself: the restarted app's case, the old process letting go within its window.
+        let (listener, _token) = bind(port, None).unwrap();
+        assert_eq!(port_of(&listener), port);
+        releaser.join().unwrap();
+    }
+
+    #[test]
+    fn a_port_held_for_the_whole_window_fails_with_the_error_it_always_had() {
+        let held = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = port_of(&held);
+        let started = Instant::now();
+        let error = retry_in_use(Duration::from_millis(300), Duration::from_millis(20), || TcpListener::bind((Ipv4Addr::LOCALHOST, port))).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::AddrInUse);
+        assert!(started.elapsed() >= Duration::from_millis(300), "it waited out the window");
+    }
+
+    #[test]
+    fn an_error_that_is_not_a_port_in_use_is_not_retried() {
+        let mut tries = 0;
+        let error = retry_in_use(Duration::from_secs(5), Duration::from_millis(20), || {
+            tries += 1;
+            Err::<(), _>(std::io::Error::new(ErrorKind::PermissionDenied, "no"))
+        })
+        .unwrap_err();
+        assert_eq!((tries, error.kind()), (1, ErrorKind::PermissionDenied));
+    }
+
+    #[test]
+    fn a_port_in_use_is_tried_again_until_it_is_free() {
+        let mut tries = 0;
+        let value = retry_in_use(Duration::from_secs(5), Duration::from_millis(1), || {
+            tries += 1;
+            if tries < 4 { Err(std::io::Error::new(ErrorKind::AddrInUse, "busy")) } else { Ok(tries) }
+        })
+        .unwrap();
+        assert_eq!(value, 4);
     }
 }
