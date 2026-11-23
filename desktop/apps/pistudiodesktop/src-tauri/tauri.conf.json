@@ -40,7 +40,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQ0YxRUVFQ0IwQTgwQ0EKUldUS2dBckw3aDdQb1ZPditLWlg5NVg0NHJZV0U0V1cwOTlGSXF0eWRCRkp1NmpUSDRudFZIRXEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwMTk0NDJFRDcyMzEzQjYKUldTMkV5UFhMa1FaWUNLVXNWcytVeEFGTThqa05BZnQ5cDRwM3dNeUp5cWF0eWs3VVlVYll5NTkK",
       "endpoints": ["https://github.com/avatsaev/pi-studio/releases/download/desktop-updates/latest.json"],
       "windows": { "installMode": "passive" }
     }

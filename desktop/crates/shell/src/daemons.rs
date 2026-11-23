@@ -16,7 +16,8 @@ use crate::AppShell;
 use crate::cli_answers;
 
 /// The engine commands the page may run (`engine_command`). `daemon.switch` is not here: a switch
-/// needs a confirm, a flush and a reload, which the app does itself.
+/// needs a confirm, a flush and a reload, which the app does itself. The `update.*` commands are:
+/// they take no params, and the state decides what they do.
 pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.list",
     "daemon.add",
@@ -30,6 +31,9 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.remote.refresh",
     "settings.get",
     "settings.set",
+    "update.check",
+    "update.install",
+    "update.restart",
 ];
 
 /// The event the page is told of a change with.

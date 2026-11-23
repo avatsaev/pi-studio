@@ -86,7 +86,7 @@ pub mod transfers_view;
 pub mod transports;
 pub mod update;
 
-use pistudiodesktop_engine::{Notice, Session};
+use pistudiodesktop_engine::{Notice, Session, UPDATE_UNAVAILABLE, UpdateGate};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -139,9 +139,25 @@ impl AppShell {
         }
     }
 
+    /// Tell the session which update actions the update's state allows now, and why not for the
+    /// others, so that `update.*` commands, `command.list` and the menus say what the state says.
+    /// The state changes off the owner thread (a check finishing), so this runs before every
+    /// request is answered and wherever the menu model is built.
+    pub fn sync_update_gate(&mut self) {
+        let gate = if self.services.updater.is_none() {
+            UpdateGate::refusing(UPDATE_UNAVAILABLE)
+        } else {
+            let state = self.update.state();
+            let reason = |refusal: Option<update::Refusal>| refusal.map(|r| r.to_string());
+            UpdateGate { check: reason(state.check_refusal()), install: reason(state.install_refusal()), restart: reason(state.restart_refusal()) }
+        };
+        self.session.set_update_gate(gate);
+    }
+
     /// Run a command by id. Every control request ends here. The outcome goes to the status bar as
     /// well as to the caller.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.sync_update_gate();
         let result = self.session.execute(id, params).map_err(|e| e.to_string());
         self.ui.status = result.as_ref().err().cloned().unwrap_or_default();
         result

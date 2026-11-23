@@ -77,6 +77,17 @@ app must be allowed in System Settings → Privacy & Security; Windows shows a S
 Real signing needs an Apple Developer ID and a Windows code-signing certificate, held as repository
 secrets.
 
+### The updater key
+
+The app updates itself (`swe/features/desktop-self-update.md`); every update file is signed with a
+key of our own, not an Apple or Microsoft one. The private half is in two places: the secret
+`TAURI_SIGNING_PRIVATE_KEY` of the GitHub environment `desktop-release` (deployments from `main`
+only), and one file on the maintainer's machine, `~/.config/pi-studio-release/updater.key` (mode
+0600, no password, outside the repository), which is the only copy to back up. The public half is
+`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Lost: installed apps can never update again
+and every user installs a build with a new public key by hand. The full runbook (leak, rotation,
+re-running a failed check) is written with the release workflow.
+
 ## Run the pieces
 
 The CLI:

@@ -61,9 +61,9 @@ The webview does not use the control protocol: it has its own commands (`docs/ar
 
 | Method | Params | Does |
 |---|---|---|
-| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id: `command.list`, `settings.get`/`settings.set` or one of the `daemon.*` commands below. The result is the command's result |
+| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id: `command.list`, `settings.get`/`settings.set`, one of the `daemon.*` commands or one of the `update.*` commands below. The result is the command's result |
 | `engine.commands` | none | Lists the registry, as `command.list` does: `id`, `label`, `menu`, `shortcut`, `params`, `enabled`, and `reason` when disabled |
-| `ui.inspect` | none | Returns the view: `{"ui": {"status": …}, "settings": {…}, "daemons": {"currentId", "entries", "local", "settings", "secretStore"}, "connection": {"secretStore", "transports": […], "ssh": {…}, "lastError", "resumeSignals": {"wake", "network"}}, "transfers": {…}, "menus": […]}`. `daemons` is the registry view the page boots with (no password or pairing link) and `menus` the generated menu model, which the native "Daemons" menu is drawn from: one `daemon.entry:<id>` item per entry (the current one `checked`), `daemons.manage`, then the local daemon's start, stop and restart. `connection` is what an agent reads about how the app reaches daemons; it holds `secretStore`, `transports`, `ssh`, `lastError` and `resumeSignals` (`transports`, `ssh` and `lastError` are described under **The connections** below). `resumeSignals` counts the `connection_resume` events sent to the page since launch, by reason: `wake` when a 2 s tick found 10 s or more unaccounted for (the machine slept, the process was stopped and continued, or the clock was set forward), `network` (always 0 until the network watcher exists). At most one is sent per 5 s for every reason together, and a dropped one is not counted |
+| `ui.inspect` | none | Returns the view: `{"ui": {"status": …}, "settings": {…}, "daemons": {"currentId", "entries", "local", "settings", "secretStore"}, "connection": {"secretStore", "transports": […], "ssh": {…}, "lastError", "resumeSignals": {"wake", "network"}}, "transfers": {…}, "update": {…}, "menus": […]}`. `daemons` is the registry view the page boots with (no password or pairing link) and `menus` the generated menu model, which the native "Daemons" menu is drawn from: one `daemon.entry:<id>` item per entry (the current one `checked`), `daemons.manage`, then the local daemon's start, stop and restart; after it comes the "Help" menu holding `update.check`, "Check for Updates…" (on macOS the app draws that item in the application menu, after About, instead). `update` is described under **The update commands** below. `connection` is what an agent reads about how the app reaches daemons; it holds `secretStore`, `transports`, `ssh`, `lastError` and `resumeSignals` (`transports`, `ssh` and `lastError` are described under **The connections** below). `resumeSignals` counts the `connection_resume` events sent to the page since launch, by reason: `wake` when a 2 s tick found 10 s or more unaccounted for (the machine slept, the process was stopped and continued, or the clock was set forward), `network` (always 0 until the network watcher exists). At most one is sent per 5 s for every reason together, and a dropped one is not counted |
 | `ui.set` | `{}` | Changes UI state. It has no field yet: `{}` succeeds with `null`, and any field is an error with nothing changed |
 
 An unknown method is an error that lists the methods.
@@ -100,6 +100,20 @@ Run against the real CLI (`cliPath` set, auto-start off), then `ui.inspect`:
 {"id":14,"ok":true,"result":{"accepted":true}}
 {"id":15,"ok":true,"result":{"daemons":{"currentId":"local","entries":[…],"local":{"host":"127.0.0.1","port":6767,"state":"running"},"settings":{"autoStartLocalDaemon":false,"cliPath":"/tmp/live/fake/realcli"}},"menus":[…]}}
 ```
+
+## Update commands
+
+The app's self-update (`swe/features/desktop-self-update.md`). All are run through `engine.execute` and take no params (any are ignored; no address, path or key is ever taken).
+
+| Command | Label | Enabled when | Answers |
+|---|---|---|---|
+| `update.check` | Check for Updates… (menu: Help) | the state is not `checking`, `downloading` or `restart_needed` | `{"accepted": true}` at once; the check runs in the background |
+| `update.install` | Install Update | `available`, or `failed` with an offered `version` | `{"accepted": true}` at once; the download (and, on Linux and macOS, the install) runs in the background |
+| `update.restart` | Restart to Update | `restart_needed` | `{"accepted": true}` at once; the app restarts |
+
+A command that cannot run fails with ``"`update.x` is unavailable: <reason>"``, and `command.list` and the menu item give the same reason: `updates are not available in this app` (a build with no updater), `an update check is already running`, `an update is downloading`, `the update is installed: restart the app to finish it`, `there is no update to install`, `no update is waiting for a restart`, or `an update action is already starting` (between an accepted command and the app beginning it). Read the outcome in the state.
+
+The state is `update` in the `boot` answer and in `ui.inspect`: `{"state": "idle" | "checking" | "up_to_date" | "available" | "downloading" | "restart_needed" | "cannot_install" | "failed", …}` with the fields of the state in camelCase (`checkedAt`, `version`, `releaseUrl`, `received`, `total?`, `reason`, `code`). In `ui.inspect` it also has `current` (this app's version), `kind` (`appimage`, `deb`, `rpm`, `app`, `nsis`, `msi` or `unknown`), `checksEnabled` (the `checkForUpdates` setting), `manifest` (`"default"` or `"override"`), and, when there are any, `lastCheckAt` (milliseconds since the Unix epoch) and `lastError` (the code of the last failure). The release page's address is the only address in it; there is no file path and no key. The state is in memory only; a launch starts from `idle`.
 
 ## Keeping this page current
 

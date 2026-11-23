@@ -77,6 +77,9 @@ fn commands_lists_the_registry() {
             "command.list",
             "settings.get",
             "settings.set",
+            "update.check",
+            "update.install",
+            "update.restart",
         ]
     );
     let (ok, out, _) = cli(&["commands", "--filter", "settings.set"]);

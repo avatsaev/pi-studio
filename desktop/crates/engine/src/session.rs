@@ -18,6 +18,7 @@ use crate::remote::RemoteQueue;
 use crate::secret::{STORE_FAILED, Slot, Vault};
 use crate::secret_job::{Op, SecretJob, Work};
 use crate::storage::Storage;
+use crate::update_cmds::UpdateQueue;
 use crate::{EngineError, Result, commands, params};
 
 /// What `daemon.update` changes. `None` leaves a field as it is; for the optional fields `Some(None)`
@@ -55,6 +56,7 @@ pub struct Session {
     pub(crate) local_queue: LocalQueue,
     pub(crate) remote: RemoteState,
     pub(crate) remote_queue: RemoteQueue,
+    pub(crate) update_queue: UpdateQueue,
     ssh_closed: Option<EntryId>,
     changed: bool,
 }
@@ -68,6 +70,7 @@ impl Default for Session {
             local_queue: LocalQueue::default(),
             remote: RemoteState::Unknown,
             remote_queue: RemoteQueue::default(),
+            update_queue: UpdateQueue::default(),
             ssh_closed: None,
             changed: false,
         }

@@ -30,3 +30,4 @@ pub use remote::{RemoteAction, RemoteRequest, SshPlan};
 pub use secret_job::{SecretJob, execute_unlocked};
 pub use session::Session;
 pub use storage::Notice;
+pub use update_cmds::{UNAVAILABLE as UPDATE_UNAVAILABLE, UpdateAction, UpdateGate};
