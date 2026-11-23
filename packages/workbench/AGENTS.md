@@ -1060,7 +1060,9 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   → `createResumeHandler(connectAgain)`'s callback, which `WorkbenchBoot` makes
   `useDaemonsStore.getState().connectCurrent()`, the connection bar's Retry (the desktop app sends
   one resume after the user trusts a host key and after a remote Start, so the page connects by
-  itself; the browser host's `online` and `visibilitychange` now also retry such a connect);
+  itself; a host with no `daemons` member, the browser host, has no current entry, so there
+  `connectCurrent()` returns at once and `online`/`visibilitychange` after a failed first connect
+  still do nothing, as before);
   `open` + active + no probe already in flight → a liveness probe, `daemon.ping(PROBE_TIMEOUT_MS)`
   (`PROBE_TIMEOUT_MS = 5_000`, tighter than `ping()`'s 10 s default — the daemon answers from its
   socket read loop, so 5 s of silence on a working link is already pathological); on rejection,
