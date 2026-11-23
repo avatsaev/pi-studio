@@ -76,7 +76,7 @@ export function parseKinds(text) {
 }
 
 /** The one file of `names` that ends with `suffix`, or `undefined`; two is an error. */
-function findBySuffix(names, kind) {
+export function findBySuffix(names, kind) {
   const found = names.filter((name) => name.endsWith(KINDS[kind].suffix));
   if (found.length > 1) throw new Error(`more than one ${kind} update file (${KINDS[kind].suffix}): ${found.join(", ")}`);
   return found[0];

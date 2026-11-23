@@ -1,0 +1,36 @@
+name: Desktop build tools
+description: >-
+  What a runner needs to build the desktop client's installers: the system packages (Linux), the Rust
+  toolchain, Node and the desktop frontend's npm dependencies. Used by the bundle jobs of
+  desktop-release.yml; the repository must be checked out first.
+
+inputs:
+  rust-targets:
+    description: "Comma-separated Rust targets to install besides the host's (macOS: both architectures)."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # What Tauri builds against on Linux: WebKitGTK (the webview), librsvg, libxdo.
+    - name: System packages
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev
+    - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+      with:
+        toolchain: stable
+        targets: ${{ inputs.rust-targets }}
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: package-lock.json
+    # Only the desktop frontend's dependencies: the daemon's (node-pty and other native add-ons)
+    # are not needed here and do not all build on Windows.
+    - name: Frontend dependencies
+      shell: bash
+      run: npm ci --workspace pistudiodesktop

@@ -54,9 +54,26 @@ gates (a change to `desktop/` or to a package the app builds from) and that pass
 released. A failed Desktop CI run releases nothing.
 
 - **What is built:** the commit Desktop CI checked, on three runners: `.deb`, `.rpm` and `.AppImage`
-  (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64). The release is **published** at
-  once with fixed notes (the unsigned-build warnings and the CLI the local daemon needs), and it
-  creates the tag `desktop-v<version>` on that commit. If a bundle job fails, no release is created.
+  (x64), one universal `.dmg`, and `.msi` plus an NSIS `.exe` (x64). The job `bundle-release` also
+  makes the app's **update files** (the AppImage, `.deb`, `.rpm`, `.msi` and NSIS `.exe` themselves,
+  and `Pi Studio.app.tar.gz` from the universal `.app`), each with a `.sig` made by the updater key
+  (the overlay `{"bundle":{"createUpdaterArtifacts":true}}` is passed by that job only; `tauri.conf.json`
+  never asks for update files). The release is **published** at once with fixed notes (the unsigned-build
+  warnings and the CLI the local daemon needs), holds the installers, the update files, their `.sig`s,
+  `latest.json` (the manifest naming this version) and `self-check.json`, and creates the tag
+  `desktop-v<version>` on that commit. If a bundle job fails, no release is created.
+- **Offering the build:** the release does not reach installed apps yet. The job `update-check` runs per
+  system (Linux: the AppImage, then the `.deb`; macOS: the `.dmg`; Windows: the NSIS setup; fail-fast
+  off) and, for each, installs the build the offered manifest names now (P: `desktop-updates/latest.json`;
+  none the first time, then only the self check runs), launches it at this release's `latest.json`
+  (`--update-manifest`), has it update itself to the new build through the control socket, and then
+  proves the new build can update itself through `self-check.json`
+  (`scripts/platform-checks/update-check.mjs`; § Platform checks). When all of them passed, the job
+  `promote` puts this release's `latest.json` into the release **`desktop-updates`** (created with
+  `--latest=false` the first time: never the repository's latest release; its tag does not match
+  `desktop-v*`), the manifest the app's endpoint names. A failed check leaves the installers
+  published and not offered; the next release's check starts from the build offered before. The
+  checks' summaries are in the run's job summary, their logs in the artifacts `update-check-<system>`.
 - **The version:** the desktop client has its own version line; it does not follow the npm
   packages'. Each release is the patch after the highest `desktop-v*` tag, unless
   `[workspace.package] version` in `Cargo.toml` is higher, which is then used as is. For a minor or
@@ -69,8 +86,21 @@ released. A failed Desktop CI run releases nothing.
   newest waits, and it holds all of them.
 - **To try installers before a merge:** run the workflow by hand on the branch (Actions → Desktop
   release → Run workflow): it builds and attaches the installers to the run as artifacts, and
-  publishes nothing. A pull request that changes the workflow file does the same, which is how a
-  change to it is tested. The automatic trigger itself only runs from the file on `main`.
+  publishes nothing. A pull request that changes the workflow file, its action
+  (`.github/actions/desktop-build-tools`), `scripts/release/`, `scripts/platform-checks/` or the test
+  overlay does more: `bundle` makes two **test builds** per system, built exactly like the release (every
+  format, the same target) with a throwaway key pair generated in the job, the overlay
+  `src-tauri/tauri.update-test.conf.json` and its public key (P = 0.0.1 and N = the version the release
+  would have), and `update-check` runs the whole check against `scripts/release/serve-directory.mjs`
+  on `127.0.0.1:8791`, with manifests made by the same script as the release's. `release` and `promote`
+  are skipped and no job of such a run names the environment or the secret. The automatic trigger
+  itself only runs from the file on `main`.
+- **The release scripts** (`apps/pistudiodesktop/scripts/release/`; tests `node --test
+  scripts/release/*-test.mjs`, also run by the job `version`): `next-version.mjs` (the version rule; reads
+  `git tag -l`, counts only `desktop-v<M.m.p>`, so the tag `desktop-updates` and others are ignored),
+  `set-version.sh`, `update-manifest.mjs` (`latest.json`, `self-check.json`), `self-check-signatures.mjs`
+  (signs a copy of each update file for the version `<N's next patch>-selfcheck` and keeps the result as
+  `<file>.selfcheck.sig`; the signer needs the key in the environment) and `serve-directory.mjs`.
 
 The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
 app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.
@@ -82,11 +112,42 @@ secrets.
 The app updates itself (`swe/features/desktop-self-update.md`); every update file is signed with a
 key of our own, not an Apple or Microsoft one. The private half is in two places: the secret
 `TAURI_SIGNING_PRIVATE_KEY` of the GitHub environment `desktop-release` (deployments from `main`
-only), and one file on the maintainer's machine, `~/.config/pi-studio-release/updater.key` (mode
-0600, no password, outside the repository), which is the only copy to back up. The public half is
-`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Lost: installed apps can never update again
-and every user installs a build with a new public key by hand. The full runbook (leak, rotation,
-re-running a failed check) is written with the release workflow.
+only; the secret is the key file's text, no password), and one file on the maintainer's machine,
+`~/.config/pi-studio-release/updater.key` (mode 0600, no password, outside the repository), which is
+the only copy to back up. The public half is `plugins.updater.pubkey` in
+`src-tauri/tauri.conf.json`. Only `bundle-release` (and its staging step, which signs for the self
+check) read the secret; no job of a pull request's or a manual run names the environment or the
+secret, and the key never reaches a script that launches the app (`update-check.mjs` drops every
+environment variable whose name looks like a secret).
+
+**To set it up** (once; it is in place): the environment `desktop-release` with the deployment
+branch policy "selected branches": `main`; then
+`gh secret set TAURI_SIGNING_PRIVATE_KEY --env desktop-release < ~/.config/pi-studio-release/updater.key`.
+
+**Re-running a failed check.** A failed `update-check` job leaves the installers published and the
+offered manifest unchanged, and fails the run. Read the job summary (which step, which state the app
+was in) and the artifact `update-check-<system>` (the app's logs). If the cause was not the build (a
+runner, the network), open the run and choose "Re-run failed jobs": the failed `update-check` jobs run
+again against the same release and the same offered build, and `promote` runs when they pass. If the
+build is bad, merge the fix: the next release is built, checked from the build offered before, and
+promoted; nothing is withdrawn.
+
+**The key is lost** (both copies): installed apps can never update again. Make a new pair
+(`npx tauri signer generate -w <file>` in `apps/pistudiodesktop`, empty password), put its public key
+into `tauri.conf.json`, set the secret to the new private key, and release; both users install that
+build by hand once. Keep the new file where the old one was.
+
+**The key leaked.** Anyone holding it can sign an update, but an app only fetches the one manifest of
+`desktop-updates`, which only a person with write access to the repository can change. To move to a
+new pair without stranding installed apps: (1) make the pair as above and put the new public key into
+`tauri.conf.json` in a pull request; (2) merge it while the secret still holds the **old** key: that
+release is signed with the old key, so installed apps accept it, and from then on they carry the new
+public key; (3) its self check **fails by design** (the build trusts the new key, the self-check
+signatures are the old key's), so `promote` does not run: check in the job summaries that the update
+step of every `update-check` job passed, then promote by hand
+(`gh release download desktop-v<N> --pattern latest.json && gh release upload desktop-updates latest.json --clobber`);
+(4) only then replace the secret and the local file with the new private key. Later releases are signed
+with it and their checks pass again. (Not exercised: no key has been rotated.)
 
 ## Run the pieces
 
