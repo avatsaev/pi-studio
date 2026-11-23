@@ -28,6 +28,18 @@ fn password(text: &str) -> Secrets {
 }
 
 #[tokio::test]
+async fn a_host_that_offers_only_hmac_sha1_still_connects() {
+    let fixture = Fixture::new();
+    let (server, _) = server(&fixture, 109, |behavior| {
+        with_password(behavior);
+        behavior.sha1_only = true;
+    })
+    .await;
+    let session = go(&fixture, &target(server.port()), &password("hunter2"), &limits()).await.expect("connect");
+    session.close().await;
+}
+
+#[tokio::test]
 async fn a_session_opens_a_channel_to_a_port_on_the_host() {
     let fixture = Fixture::new();
     let (server, _) = server(&fixture, 100, with_password).await;

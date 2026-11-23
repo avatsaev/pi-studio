@@ -10,6 +10,7 @@
 //! when [`Limits::keepalive_max`] of them were not answered. A connection that ended for any reason, that one included,
 //! shows in [`Session::is_closed`] and wakes [`Session::closed`].
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -18,7 +19,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use russh::keys::PublicKey;
-use russh::{ChannelOpenFailure, ChannelStream, Disconnect, client};
+use russh::{ChannelOpenFailure, ChannelStream, Disconnect, Preferred, client, mac};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio::time::{Instant, timeout};
@@ -244,13 +245,19 @@ fn channel_error(error: &russh::Error, hop: usize) -> Error {
     }
 }
 
-/// russh's client settings for every hop: our keepalive, no Nagle delay, and a [`CHANNEL_WINDOW`] window.
+/// The MACs a connect offers: russh's SHA-2 ones in its order, then the SHA-1 ones. A server takes the first of these
+/// that it also offers, so SHA-1 is used only with a host that offers nothing else (old devices); and only when the
+/// negotiated cipher needs a MAC at all, which the AEAD ciphers (ChaCha20-Poly1305, AES-GCM) do not.
+const MACS: &[mac::Name] = &[mac::HMAC_SHA512_ETM, mac::HMAC_SHA256_ETM, mac::HMAC_SHA512, mac::HMAC_SHA256, mac::HMAC_SHA1_ETM, mac::HMAC_SHA1];
+
+/// russh's client settings for every hop: our keepalive, no Nagle delay, a [`CHANNEL_WINDOW`] window, and [`MACS`].
 fn client_config(limits: &Limits) -> Arc<client::Config> {
     Arc::new(client::Config {
         keepalive_interval: Some(limits.keepalive_interval),
         keepalive_max: limits.keepalive_max,
         nodelay: true,
         window_size: CHANNEL_WINDOW,
+        preferred: Preferred { mac: Cow::Borrowed(MACS), ..Preferred::DEFAULT },
         ..client::Config::default()
     })
 }
