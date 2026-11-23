@@ -3604,7 +3604,8 @@ t001 may run beside sprint 133; then t002, t003. t004 waits for the owner's merg
 > <next>-selfcheck`, kept as `<file>.selfcheck.sig`), and a restarted macOS app must wait for its
 > predecessor's `--control` port (`control_server::bind` retries 10 s); the plug-in's error line named the
 > manifest address, so that log target is silenced. Not seen: a FUSE AppImage, `.rpm`, `.msi`, a graphical
-> polkit Cancel. t004 (the first two publishing runs) waits for the owner's merge and stays in backlog.
+> polkit Cancel. PR #65 merged 2026-11-23 (`98ae7e7`). t004 (the first two publishing runs) is closed as
+> **waived by the owner**: the releases are assumed to work and were not observed. Milestone 5 is closed.
 
 ## Coverage check
 
