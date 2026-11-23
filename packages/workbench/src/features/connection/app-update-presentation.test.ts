@@ -20,7 +20,7 @@ describe("appUpdateView", () => {
 
     expect(view).toMatchObject({
       text: "Update 0.3.1",
-      tone: "accent",
+      tone: "attention",
       action: { kind: "install" },
     });
   });
@@ -49,7 +49,7 @@ describe("appUpdateView", () => {
 
     expect(view).toMatchObject({
       text: "Restart to update",
-      tone: "accent",
+      tone: "attention",
       action: { kind: "restart" },
     });
   });

@@ -1,6 +1,6 @@
 /* The update indicator beside the version (swe/features/desktop-self-update.md U14): a small pill,
-   shaped like the daemon switcher's, coloured by its tone: an offer or a restart is filled with the
-   accent, a failure is red, progress and a build the app cannot install are quiet. It is a button, an
+   shaped like the daemon switcher's, coloured by its tone: an offer or a restart is filled orange,
+   a failure is red, progress and a build the app cannot install are quiet. It is a button, an
    anchor or a plain span, so the UA look of each is reset explicitly. Long text (a long version)
    ellipsizes instead of widening the bar. */
 
@@ -34,10 +34,10 @@
   text-overflow: ellipsis;
 }
 
-.accent {
-  color: var(--pi-color-accentForeground);
-  background: var(--pi-color-accent);
-  border-color: var(--pi-color-accent);
+.attention {
+  color: var(--pi-color-surface0);
+  background: var(--pi-color-statusWarning);
+  border-color: var(--pi-color-statusWarning);
 }
 .muted {
   color: var(--pi-color-foregroundMuted);
@@ -54,9 +54,9 @@
   appearance: none;
   cursor: pointer;
 }
-.accent.actionable:hover {
-  background: var(--pi-color-accentBright);
-  border-color: var(--pi-color-accentBright);
+.attention.actionable:hover {
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 85%, var(--pi-color-foreground));
+  border-color: color-mix(in srgb, var(--pi-color-statusWarning) 85%, var(--pi-color-foreground));
 }
 .muted.actionable:hover {
   border-color: var(--pi-color-foregroundMuted);

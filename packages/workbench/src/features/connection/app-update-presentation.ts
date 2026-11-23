@@ -22,8 +22,8 @@ export interface AppUpdateView {
   text: string;
   /** The native tooltip: the reason or the explanation of the text. */
   tooltip: string;
-  /** `accent`: an offer or a restart; `muted`: progress or a build the app cannot install; `danger`: a failure. */
-  tone: "accent" | "muted" | "danger";
+  /** `attention`: an offer or a restart (orange); `muted`: progress or a build the app cannot install; `danger`: a failure. */
+  tone: "attention" | "muted" | "danger";
   /** `null`: progress only, nothing to click. */
   action: AppUpdateAction | null;
 }
@@ -61,7 +61,7 @@ export function appUpdateView(update: AppUpdateState): AppUpdateView | null {
       return {
         text: `Update ${update.version}`,
         tooltip: `Download and install Pi Studio ${update.version}`,
-        tone: "accent",
+        tone: "attention",
         action: { kind: "install" },
       };
     case "downloading": {
@@ -77,7 +77,7 @@ export function appUpdateView(update: AppUpdateState): AppUpdateView | null {
       return {
         text: "Restart to update",
         tooltip: `Restart to finish updating to Pi Studio ${update.version}`,
-        tone: "accent",
+        tone: "attention",
         action: { kind: "restart" },
       };
     case "cannot_install":
